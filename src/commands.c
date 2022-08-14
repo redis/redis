@@ -57,15 +57,12 @@ const char *commandGroupStr(int index) {
 /* BITCOUNT history */
 commandHistory BITCOUNT_History[] = {
 {"7.0.0","Added the `BYTE|BIT` option."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BITCOUNT tips */
 #define BITCOUNT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -79,7 +76,6 @@ keySpec BITCOUNT_Keyspecs[1] = {
 struct COMMAND_ARG BITCOUNT_index_index_unit_Subargs[] = {
 {MAKE_ARG("byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* BITCOUNT index argument table */
@@ -87,14 +83,12 @@ struct COMMAND_ARG BITCOUNT_index_Subargs[] = {
 {MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=BITCOUNT_index_index_unit_Subargs},
-{0}
 };
 
 /* BITCOUNT argument table */
 struct COMMAND_ARG BITCOUNT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=BITCOUNT_index_Subargs},
-{0}
 };
 
 /********** BITFIELD ********************/
@@ -102,13 +96,11 @@ struct COMMAND_ARG BITCOUNT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* BITFIELD history */
 #define BITFIELD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BITFIELD tips */
 #define BITFIELD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -122,7 +114,6 @@ keySpec BITFIELD_Keyspecs[1] = {
 struct COMMAND_ARG BITFIELD_operation_encoding_offset_Subargs[] = {
 {MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* BITFIELD operation write wrap_sat_fail argument table */
@@ -130,7 +121,6 @@ struct COMMAND_ARG BITFIELD_operation_write_wrap_sat_fail_Subargs[] = {
 {MAKE_ARG("wrap",ARG_TYPE_PURE_TOKEN,-1,"WRAP",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sat",ARG_TYPE_PURE_TOKEN,-1,"SAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("fail",ARG_TYPE_PURE_TOKEN,-1,"FAIL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* BITFIELD operation write write_operation encoding_offset_value argument table */
@@ -138,7 +128,6 @@ struct COMMAND_ARG BITFIELD_operation_write_write_operation_encoding_offset_valu
 {MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* BITFIELD operation write write_operation encoding_offset_increment argument table */
@@ -146,35 +135,30 @@ struct COMMAND_ARG BITFIELD_operation_write_write_operation_encoding_offset_incr
 {MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* BITFIELD operation write write_operation argument table */
 struct COMMAND_ARG BITFIELD_operation_write_write_operation_Subargs[] = {
 {MAKE_ARG("encoding_offset_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs},
 {MAKE_ARG("encoding_offset_increment",ARG_TYPE_BLOCK,-1,"INCRBY",NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs},
-{0}
 };
 
 /* BITFIELD operation write argument table */
 struct COMMAND_ARG BITFIELD_operation_write_Subargs[] = {
 {MAKE_ARG("wrap_sat_fail",ARG_TYPE_ONEOF,-1,"OVERFLOW",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=BITFIELD_operation_write_wrap_sat_fail_Subargs},
 {MAKE_ARG("write_operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BITFIELD_operation_write_write_operation_Subargs},
-{0}
 };
 
 /* BITFIELD operation argument table */
 struct COMMAND_ARG BITFIELD_operation_Subargs[] = {
 {MAKE_ARG("encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BITFIELD_operation_encoding_offset_Subargs},
 {MAKE_ARG("write",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BITFIELD_operation_write_Subargs},
-{0}
 };
 
 /* BITFIELD argument table */
 struct COMMAND_ARG BITFIELD_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=BITFIELD_operation_Subargs},
-{0}
 };
 
 /********** BITFIELD_RO ********************/
@@ -182,13 +166,11 @@ struct COMMAND_ARG BITFIELD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* BITFIELD_RO history */
 #define BITFIELD_RO_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BITFIELD_RO tips */
 #define BITFIELD_RO_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -202,14 +184,12 @@ keySpec BITFIELD_RO_Keyspecs[1] = {
 struct COMMAND_ARG BITFIELD_RO_encoding_offset_Subargs[] = {
 {MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* BITFIELD_RO argument table */
 struct COMMAND_ARG BITFIELD_RO_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,2,NULL),.subargs=BITFIELD_RO_encoding_offset_Subargs},
-{0}
 };
 
 /********** BITOP ********************/
@@ -217,13 +197,11 @@ struct COMMAND_ARG BITFIELD_RO_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* BITOP history */
 #define BITOP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BITOP tips */
 #define BITOP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -238,7 +216,6 @@ struct COMMAND_ARG BITOP_Args[] = {
 {MAKE_ARG("operation",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** BITPOS ********************/
@@ -247,15 +224,12 @@ struct COMMAND_ARG BITOP_Args[] = {
 /* BITPOS history */
 commandHistory BITPOS_History[] = {
 {"7.0.0","Added the `BYTE|BIT` option."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BITPOS tips */
 #define BITPOS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -269,21 +243,18 @@ keySpec BITPOS_Keyspecs[1] = {
 struct COMMAND_ARG BITPOS_index_end_index_index_unit_Subargs[] = {
 {MAKE_ARG("byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* BITPOS index end_index argument table */
 struct COMMAND_ARG BITPOS_index_end_index_Subargs[] = {
 {MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_index_end_index_index_unit_Subargs},
-{0}
 };
 
 /* BITPOS index argument table */
 struct COMMAND_ARG BITPOS_index_Subargs[] = {
 {MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end_index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_index_end_index_Subargs},
-{0}
 };
 
 /* BITPOS argument table */
@@ -291,7 +262,6 @@ struct COMMAND_ARG BITPOS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("bit",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_index_Subargs},
-{0}
 };
 
 /********** GETBIT ********************/
@@ -299,13 +269,11 @@ struct COMMAND_ARG BITPOS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GETBIT history */
 #define GETBIT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GETBIT tips */
 #define GETBIT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -319,7 +287,6 @@ keySpec GETBIT_Keyspecs[1] = {
 struct COMMAND_ARG GETBIT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SETBIT ********************/
@@ -327,13 +294,11 @@ struct COMMAND_ARG GETBIT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SETBIT history */
 #define SETBIT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SETBIT tips */
 #define SETBIT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -348,7 +313,6 @@ struct COMMAND_ARG SETBIT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ASKING ********************/
@@ -356,19 +320,16 @@ struct COMMAND_ARG SETBIT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ASKING history */
 #define ASKING_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ASKING tips */
 #define ASKING_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ASKING key specs */
 #define ASKING_Keyspecs NULL
-
 #endif
 
 /********** CLUSTER ADDSLOTS ********************/
@@ -376,28 +337,23 @@ struct COMMAND_ARG SETBIT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER ADDSLOTS history */
 #define CLUSTER_ADDSLOTS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER ADDSLOTS tips */
 const char *CLUSTER_ADDSLOTS_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER ADDSLOTS key specs */
 #define CLUSTER_ADDSLOTS_Keyspecs NULL
-
 #endif
 
 /* CLUSTER ADDSLOTS argument table */
 struct COMMAND_ARG CLUSTER_ADDSLOTS_Args[] = {
 {MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** CLUSTER ADDSLOTSRANGE ********************/
@@ -405,35 +361,29 @@ struct COMMAND_ARG CLUSTER_ADDSLOTS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER ADDSLOTSRANGE history */
 #define CLUSTER_ADDSLOTSRANGE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER ADDSLOTSRANGE tips */
 const char *CLUSTER_ADDSLOTSRANGE_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER ADDSLOTSRANGE key specs */
 #define CLUSTER_ADDSLOTSRANGE_Keyspecs NULL
-
 #endif
 
 /* CLUSTER ADDSLOTSRANGE start_slot_end_slot argument table */
 struct COMMAND_ARG CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs[] = {
 {MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLUSTER ADDSLOTSRANGE argument table */
 struct COMMAND_ARG CLUSTER_ADDSLOTSRANGE_Args[] = {
 {MAKE_ARG("start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs},
-{0}
 };
 
 /********** CLUSTER BUMPEPOCH ********************/
@@ -441,22 +391,18 @@ struct COMMAND_ARG CLUSTER_ADDSLOTSRANGE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER BUMPEPOCH history */
 #define CLUSTER_BUMPEPOCH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER BUMPEPOCH tips */
 const char *CLUSTER_BUMPEPOCH_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER BUMPEPOCH key specs */
 #define CLUSTER_BUMPEPOCH_Keyspecs NULL
-
 #endif
 
 /********** CLUSTER COUNT_FAILURE_REPORTS ********************/
@@ -464,28 +410,23 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER COUNT_FAILURE_REPORTS history */
 #define CLUSTER_COUNT_FAILURE_REPORTS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER COUNT_FAILURE_REPORTS tips */
 const char *CLUSTER_COUNT_FAILURE_REPORTS_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER COUNT_FAILURE_REPORTS key specs */
 #define CLUSTER_COUNT_FAILURE_REPORTS_Keyspecs NULL
-
 #endif
 
 /* CLUSTER COUNT_FAILURE_REPORTS argument table */
 struct COMMAND_ARG CLUSTER_COUNT_FAILURE_REPORTS_Args[] = {
 {MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** CLUSTER COUNTKEYSINSLOT ********************/
@@ -493,28 +434,23 @@ struct COMMAND_ARG CLUSTER_COUNT_FAILURE_REPORTS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER COUNTKEYSINSLOT history */
 #define CLUSTER_COUNTKEYSINSLOT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER COUNTKEYSINSLOT tips */
 const char *CLUSTER_COUNTKEYSINSLOT_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER COUNTKEYSINSLOT key specs */
 #define CLUSTER_COUNTKEYSINSLOT_Keyspecs NULL
-
 #endif
 
 /* CLUSTER COUNTKEYSINSLOT argument table */
 struct COMMAND_ARG CLUSTER_COUNTKEYSINSLOT_Args[] = {
 {MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** CLUSTER DELSLOTS ********************/
@@ -522,28 +458,23 @@ struct COMMAND_ARG CLUSTER_COUNTKEYSINSLOT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER DELSLOTS history */
 #define CLUSTER_DELSLOTS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER DELSLOTS tips */
 const char *CLUSTER_DELSLOTS_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER DELSLOTS key specs */
 #define CLUSTER_DELSLOTS_Keyspecs NULL
-
 #endif
 
 /* CLUSTER DELSLOTS argument table */
 struct COMMAND_ARG CLUSTER_DELSLOTS_Args[] = {
 {MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** CLUSTER DELSLOTSRANGE ********************/
@@ -551,35 +482,29 @@ struct COMMAND_ARG CLUSTER_DELSLOTS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER DELSLOTSRANGE history */
 #define CLUSTER_DELSLOTSRANGE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER DELSLOTSRANGE tips */
 const char *CLUSTER_DELSLOTSRANGE_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER DELSLOTSRANGE key specs */
 #define CLUSTER_DELSLOTSRANGE_Keyspecs NULL
-
 #endif
 
 /* CLUSTER DELSLOTSRANGE start_slot_end_slot argument table */
 struct COMMAND_ARG CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs[] = {
 {MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLUSTER DELSLOTSRANGE argument table */
 struct COMMAND_ARG CLUSTER_DELSLOTSRANGE_Args[] = {
 {MAKE_ARG("start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs},
-{0}
 };
 
 /********** CLUSTER FAILOVER ********************/
@@ -587,35 +512,29 @@ struct COMMAND_ARG CLUSTER_DELSLOTSRANGE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER FAILOVER history */
 #define CLUSTER_FAILOVER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER FAILOVER tips */
 const char *CLUSTER_FAILOVER_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER FAILOVER key specs */
 #define CLUSTER_FAILOVER_Keyspecs NULL
-
 #endif
 
 /* CLUSTER FAILOVER options argument table */
 struct COMMAND_ARG CLUSTER_FAILOVER_options_Subargs[] = {
 {MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("takeover",ARG_TYPE_PURE_TOKEN,-1,"TAKEOVER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLUSTER FAILOVER argument table */
 struct COMMAND_ARG CLUSTER_FAILOVER_Args[] = {
 {MAKE_ARG("options",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLUSTER_FAILOVER_options_Subargs},
-{0}
 };
 
 /********** CLUSTER FLUSHSLOTS ********************/
@@ -623,22 +542,18 @@ struct COMMAND_ARG CLUSTER_FAILOVER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER FLUSHSLOTS history */
 #define CLUSTER_FLUSHSLOTS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER FLUSHSLOTS tips */
 const char *CLUSTER_FLUSHSLOTS_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER FLUSHSLOTS key specs */
 #define CLUSTER_FLUSHSLOTS_Keyspecs NULL
-
 #endif
 
 /********** CLUSTER FORGET ********************/
@@ -646,28 +561,23 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER FORGET history */
 #define CLUSTER_FORGET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER FORGET tips */
 const char *CLUSTER_FORGET_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER FORGET key specs */
 #define CLUSTER_FORGET_Keyspecs NULL
-
 #endif
 
 /* CLUSTER FORGET argument table */
 struct COMMAND_ARG CLUSTER_FORGET_Args[] = {
 {MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** CLUSTER GETKEYSINSLOT ********************/
@@ -675,29 +585,24 @@ struct COMMAND_ARG CLUSTER_FORGET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER GETKEYSINSLOT history */
 #define CLUSTER_GETKEYSINSLOT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER GETKEYSINSLOT tips */
 const char *CLUSTER_GETKEYSINSLOT_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER GETKEYSINSLOT key specs */
 #define CLUSTER_GETKEYSINSLOT_Keyspecs NULL
-
 #endif
 
 /* CLUSTER GETKEYSINSLOT argument table */
 struct COMMAND_ARG CLUSTER_GETKEYSINSLOT_Args[] = {
 {MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** CLUSTER HELP ********************/
@@ -705,19 +610,16 @@ struct COMMAND_ARG CLUSTER_GETKEYSINSLOT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER HELP history */
 #define CLUSTER_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER HELP tips */
 #define CLUSTER_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER HELP key specs */
 #define CLUSTER_HELP_Keyspecs NULL
-
 #endif
 
 /********** CLUSTER INFO ********************/
@@ -725,22 +627,18 @@ struct COMMAND_ARG CLUSTER_GETKEYSINSLOT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER INFO history */
 #define CLUSTER_INFO_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER INFO tips */
 const char *CLUSTER_INFO_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER INFO key specs */
 #define CLUSTER_INFO_Keyspecs NULL
-
 #endif
 
 /********** CLUSTER KEYSLOT ********************/
@@ -748,28 +646,23 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER KEYSLOT history */
 #define CLUSTER_KEYSLOT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER KEYSLOT tips */
 const char *CLUSTER_KEYSLOT_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER KEYSLOT key specs */
 #define CLUSTER_KEYSLOT_Keyspecs NULL
-
 #endif
 
 /* CLUSTER KEYSLOT argument table */
 struct COMMAND_ARG CLUSTER_KEYSLOT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** CLUSTER LINKS ********************/
@@ -777,22 +670,18 @@ struct COMMAND_ARG CLUSTER_KEYSLOT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER LINKS history */
 #define CLUSTER_LINKS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER LINKS tips */
 const char *CLUSTER_LINKS_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER LINKS key specs */
 #define CLUSTER_LINKS_Keyspecs NULL
-
 #endif
 
 /********** CLUSTER MEET ********************/
@@ -801,24 +690,19 @@ NULL
 /* CLUSTER MEET history */
 commandHistory CLUSTER_MEET_History[] = {
 {"4.0.0","Added the optional `cluster_bus_port` argument."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER MEET tips */
 const char *CLUSTER_MEET_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER MEET key specs */
 #define CLUSTER_MEET_Keyspecs NULL
-
 #endif
 
 /* CLUSTER MEET argument table */
@@ -826,7 +710,6 @@ struct COMMAND_ARG CLUSTER_MEET_Args[] = {
 {MAKE_ARG("ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("cluster_bus_port",ARG_TYPE_INTEGER,-1,NULL,NULL,"4.0.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** CLUSTER MYID ********************/
@@ -834,22 +717,18 @@ struct COMMAND_ARG CLUSTER_MEET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER MYID history */
 #define CLUSTER_MYID_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER MYID tips */
 const char *CLUSTER_MYID_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER MYID key specs */
 #define CLUSTER_MYID_Keyspecs NULL
-
 #endif
 
 /********** CLUSTER NODES ********************/
@@ -857,22 +736,18 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER NODES history */
 #define CLUSTER_NODES_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER NODES tips */
 const char *CLUSTER_NODES_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER NODES key specs */
 #define CLUSTER_NODES_Keyspecs NULL
-
 #endif
 
 /********** CLUSTER REPLICAS ********************/
@@ -880,28 +755,23 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER REPLICAS history */
 #define CLUSTER_REPLICAS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER REPLICAS tips */
 const char *CLUSTER_REPLICAS_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER REPLICAS key specs */
 #define CLUSTER_REPLICAS_Keyspecs NULL
-
 #endif
 
 /* CLUSTER REPLICAS argument table */
 struct COMMAND_ARG CLUSTER_REPLICAS_Args[] = {
 {MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** CLUSTER REPLICATE ********************/
@@ -909,28 +779,23 @@ struct COMMAND_ARG CLUSTER_REPLICAS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER REPLICATE history */
 #define CLUSTER_REPLICATE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER REPLICATE tips */
 const char *CLUSTER_REPLICATE_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER REPLICATE key specs */
 #define CLUSTER_REPLICATE_Keyspecs NULL
-
 #endif
 
 /* CLUSTER REPLICATE argument table */
 struct COMMAND_ARG CLUSTER_REPLICATE_Args[] = {
 {MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** CLUSTER RESET ********************/
@@ -938,35 +803,29 @@ struct COMMAND_ARG CLUSTER_REPLICATE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER RESET history */
 #define CLUSTER_RESET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER RESET tips */
 const char *CLUSTER_RESET_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER RESET key specs */
 #define CLUSTER_RESET_Keyspecs NULL
-
 #endif
 
 /* CLUSTER RESET hard_soft argument table */
 struct COMMAND_ARG CLUSTER_RESET_hard_soft_Subargs[] = {
 {MAKE_ARG("hard",ARG_TYPE_PURE_TOKEN,-1,"HARD",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("soft",ARG_TYPE_PURE_TOKEN,-1,"SOFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLUSTER RESET argument table */
 struct COMMAND_ARG CLUSTER_RESET_Args[] = {
 {MAKE_ARG("hard_soft",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLUSTER_RESET_hard_soft_Subargs},
-{0}
 };
 
 /********** CLUSTER SAVECONFIG ********************/
@@ -974,22 +833,18 @@ struct COMMAND_ARG CLUSTER_RESET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER SAVECONFIG history */
 #define CLUSTER_SAVECONFIG_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER SAVECONFIG tips */
 const char *CLUSTER_SAVECONFIG_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER SAVECONFIG key specs */
 #define CLUSTER_SAVECONFIG_Keyspecs NULL
-
 #endif
 
 /********** CLUSTER SET_CONFIG_EPOCH ********************/
@@ -997,28 +852,23 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER SET_CONFIG_EPOCH history */
 #define CLUSTER_SET_CONFIG_EPOCH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER SET_CONFIG_EPOCH tips */
 const char *CLUSTER_SET_CONFIG_EPOCH_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER SET_CONFIG_EPOCH key specs */
 #define CLUSTER_SET_CONFIG_EPOCH_Keyspecs NULL
-
 #endif
 
 /* CLUSTER SET_CONFIG_EPOCH argument table */
 struct COMMAND_ARG CLUSTER_SET_CONFIG_EPOCH_Args[] = {
 {MAKE_ARG("config-epoch",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** CLUSTER SETSLOT ********************/
@@ -1026,22 +876,18 @@ struct COMMAND_ARG CLUSTER_SET_CONFIG_EPOCH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER SETSLOT history */
 #define CLUSTER_SETSLOT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER SETSLOT tips */
 const char *CLUSTER_SETSLOT_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER SETSLOT key specs */
 #define CLUSTER_SETSLOT_Keyspecs NULL
-
 #endif
 
 /* CLUSTER SETSLOT subcommand argument table */
@@ -1050,14 +896,12 @@ struct COMMAND_ARG CLUSTER_SETSLOT_subcommand_Subargs[] = {
 {MAKE_ARG("node-id",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("node-id",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("stable",ARG_TYPE_PURE_TOKEN,-1,"STABLE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLUSTER SETSLOT argument table */
 struct COMMAND_ARG CLUSTER_SETSLOT_Args[] = {
 {MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("subcommand",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=CLUSTER_SETSLOT_subcommand_Subargs},
-{0}
 };
 
 /********** CLUSTER SHARDS ********************/
@@ -1065,22 +909,18 @@ struct COMMAND_ARG CLUSTER_SETSLOT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER SHARDS history */
 #define CLUSTER_SHARDS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER SHARDS tips */
 const char *CLUSTER_SHARDS_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER SHARDS key specs */
 #define CLUSTER_SHARDS_Keyspecs NULL
-
 #endif
 
 /********** CLUSTER SLAVES ********************/
@@ -1088,28 +928,23 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER SLAVES history */
 #define CLUSTER_SLAVES_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER SLAVES tips */
 const char *CLUSTER_SLAVES_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER SLAVES key specs */
 #define CLUSTER_SLAVES_Keyspecs NULL
-
 #endif
 
 /* CLUSTER SLAVES argument table */
 struct COMMAND_ARG CLUSTER_SLAVES_Args[] = {
 {MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** CLUSTER SLOTS ********************/
@@ -1119,24 +954,19 @@ struct COMMAND_ARG CLUSTER_SLAVES_Args[] = {
 commandHistory CLUSTER_SLOTS_History[] = {
 {"4.0.0","Added node IDs."},
 {"7.0.0","Added additional networking metadata field."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER SLOTS tips */
 const char *CLUSTER_SLOTS_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER SLOTS key specs */
 #define CLUSTER_SLOTS_Keyspecs NULL
-
 #endif
 
 /* CLUSTER command table */
@@ -1176,19 +1006,16 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLUSTER history */
 #define CLUSTER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER tips */
 #define CLUSTER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLUSTER key specs */
 #define CLUSTER_Keyspecs NULL
-
 #endif
 
 /********** READONLY ********************/
@@ -1196,19 +1023,16 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* READONLY history */
 #define READONLY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* READONLY tips */
 #define READONLY_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* READONLY key specs */
 #define READONLY_Keyspecs NULL
-
 #endif
 
 /********** READWRITE ********************/
@@ -1216,19 +1040,16 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* READWRITE history */
 #define READWRITE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* READWRITE tips */
 #define READWRITE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* READWRITE key specs */
 #define READWRITE_Keyspecs NULL
-
 #endif
 
 /********** AUTH ********************/
@@ -1237,28 +1058,23 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 /* AUTH history */
 commandHistory AUTH_History[] = {
 {"6.0.0","Added ACL style (username and password)."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* AUTH tips */
 #define AUTH_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* AUTH key specs */
 #define AUTH_Keyspecs NULL
-
 #endif
 
 /* AUTH argument table */
 struct COMMAND_ARG AUTH_Args[] = {
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,"6.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** CLIENT CACHING ********************/
@@ -1266,32 +1082,27 @@ struct COMMAND_ARG AUTH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT CACHING history */
 #define CLIENT_CACHING_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT CACHING tips */
 #define CLIENT_CACHING_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT CACHING key specs */
 #define CLIENT_CACHING_Keyspecs NULL
-
 #endif
 
 /* CLIENT CACHING mode argument table */
 struct COMMAND_ARG CLIENT_CACHING_mode_Subargs[] = {
 {MAKE_ARG("yes",ARG_TYPE_PURE_TOKEN,-1,"YES",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLIENT CACHING argument table */
 struct COMMAND_ARG CLIENT_CACHING_Args[] = {
 {MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLIENT_CACHING_mode_Subargs},
-{0}
 };
 
 /********** CLIENT GETNAME ********************/
@@ -1299,19 +1110,16 @@ struct COMMAND_ARG CLIENT_CACHING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT GETNAME history */
 #define CLIENT_GETNAME_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT GETNAME tips */
 #define CLIENT_GETNAME_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT GETNAME key specs */
 #define CLIENT_GETNAME_Keyspecs NULL
-
 #endif
 
 /********** CLIENT GETREDIR ********************/
@@ -1319,19 +1127,16 @@ struct COMMAND_ARG CLIENT_CACHING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT GETREDIR history */
 #define CLIENT_GETREDIR_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT GETREDIR tips */
 #define CLIENT_GETREDIR_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT GETREDIR key specs */
 #define CLIENT_GETREDIR_Keyspecs NULL
-
 #endif
 
 /********** CLIENT HELP ********************/
@@ -1339,19 +1144,16 @@ struct COMMAND_ARG CLIENT_CACHING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT HELP history */
 #define CLIENT_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT HELP tips */
 #define CLIENT_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT HELP key specs */
 #define CLIENT_HELP_Keyspecs NULL
-
 #endif
 
 /********** CLIENT ID ********************/
@@ -1359,19 +1161,16 @@ struct COMMAND_ARG CLIENT_CACHING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT ID history */
 #define CLIENT_ID_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT ID tips */
 #define CLIENT_ID_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT ID key specs */
 #define CLIENT_ID_Keyspecs NULL
-
 #endif
 
 /********** CLIENT INFO ********************/
@@ -1379,22 +1178,18 @@ struct COMMAND_ARG CLIENT_CACHING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT INFO history */
 #define CLIENT_INFO_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT INFO tips */
 const char *CLIENT_INFO_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT INFO key specs */
 #define CLIENT_INFO_Keyspecs NULL
-
 #endif
 
 /********** CLIENT KILL ********************/
@@ -1407,21 +1202,17 @@ commandHistory CLIENT_KILL_History[] = {
 {"3.2.0","Added `master` type in for `TYPE` option."},
 {"5.0.0","Replaced `slave` `TYPE` with `replica`. `slave` still supported for backward compatibility."},
 {"6.2.0","`LADDR` option."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT KILL tips */
 #define CLIENT_KILL_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT KILL key specs */
 #define CLIENT_KILL_Keyspecs NULL
-
 #endif
 
 /* CLIENT KILL filter new_format normal_master_slave_pubsub argument table */
@@ -1431,7 +1222,6 @@ struct COMMAND_ARG CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Suba
 {MAKE_ARG("slave",ARG_TYPE_PURE_TOKEN,-1,"SLAVE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,"5.0.0",CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLIENT KILL filter new_format argument table */
@@ -1442,20 +1232,17 @@ struct COMMAND_ARG CLIENT_KILL_filter_new_format_Subargs[] = {
 {MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("yes/no",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* CLIENT KILL filter argument table */
 struct COMMAND_ARG CLIENT_KILL_filter_Subargs[] = {
 {MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,"2.8.12")},
 {MAKE_ARG("new-format",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,6,NULL),.subargs=CLIENT_KILL_filter_new_format_Subargs},
-{0}
 };
 
 /* CLIENT KILL argument table */
 struct COMMAND_ARG CLIENT_KILL_Args[] = {
 {MAKE_ARG("filter",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLIENT_KILL_filter_Subargs},
-{0}
 };
 
 /********** CLIENT LIST ********************/
@@ -1466,24 +1253,19 @@ commandHistory CLIENT_LIST_History[] = {
 {"2.8.12","Added unique client `id` field."},
 {"5.0.0","Added optional `TYPE` filter."},
 {"6.2.0","Added `laddr` field and the optional `ID` filter."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT LIST tips */
 const char *CLIENT_LIST_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT LIST key specs */
 #define CLIENT_LIST_Keyspecs NULL
-
 #endif
 
 /* CLIENT LIST normal_master_replica_pubsub argument table */
@@ -1492,20 +1274,17 @@ struct COMMAND_ARG CLIENT_LIST_normal_master_replica_pubsub_Subargs[] = {
 {MAKE_ARG("master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLIENT LIST id argument table */
 struct COMMAND_ARG CLIENT_LIST_id_Subargs[] = {
 {MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /* CLIENT LIST argument table */
 struct COMMAND_ARG CLIENT_LIST_Args[] = {
 {MAKE_ARG("normal_master_replica_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"5.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=CLIENT_LIST_normal_master_replica_pubsub_Subargs},
 {MAKE_ARG("id",ARG_TYPE_BLOCK,-1,"ID",NULL,"6.2.0",CMD_ARG_OPTIONAL,1,NULL),.subargs=CLIENT_LIST_id_Subargs},
-{0}
 };
 
 /********** CLIENT NO_EVICT ********************/
@@ -1513,32 +1292,27 @@ struct COMMAND_ARG CLIENT_LIST_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT NO_EVICT history */
 #define CLIENT_NO_EVICT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT NO_EVICT tips */
 #define CLIENT_NO_EVICT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT NO_EVICT key specs */
 #define CLIENT_NO_EVICT_Keyspecs NULL
-
 #endif
 
 /* CLIENT NO_EVICT enabled argument table */
 struct COMMAND_ARG CLIENT_NO_EVICT_enabled_Subargs[] = {
 {MAKE_ARG("on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLIENT NO_EVICT argument table */
 struct COMMAND_ARG CLIENT_NO_EVICT_Args[] = {
 {MAKE_ARG("enabled",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLIENT_NO_EVICT_enabled_Subargs},
-{0}
 };
 
 /********** CLIENT PAUSE ********************/
@@ -1547,35 +1321,29 @@ struct COMMAND_ARG CLIENT_NO_EVICT_Args[] = {
 /* CLIENT PAUSE history */
 commandHistory CLIENT_PAUSE_History[] = {
 {"6.2.0","`CLIENT PAUSE WRITE` mode added along with the `mode` option."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT PAUSE tips */
 #define CLIENT_PAUSE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT PAUSE key specs */
 #define CLIENT_PAUSE_Keyspecs NULL
-
 #endif
 
 /* CLIENT PAUSE mode argument table */
 struct COMMAND_ARG CLIENT_PAUSE_mode_Subargs[] = {
 {MAKE_ARG("write",ARG_TYPE_PURE_TOKEN,-1,"WRITE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("all",ARG_TYPE_PURE_TOKEN,-1,"ALL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLIENT PAUSE argument table */
 struct COMMAND_ARG CLIENT_PAUSE_Args[] = {
 {MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=CLIENT_PAUSE_mode_Subargs},
-{0}
 };
 
 /********** CLIENT REPLY ********************/
@@ -1583,19 +1351,16 @@ struct COMMAND_ARG CLIENT_PAUSE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT REPLY history */
 #define CLIENT_REPLY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT REPLY tips */
 #define CLIENT_REPLY_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT REPLY key specs */
 #define CLIENT_REPLY_Keyspecs NULL
-
 #endif
 
 /* CLIENT REPLY on_off_skip argument table */
@@ -1603,13 +1368,11 @@ struct COMMAND_ARG CLIENT_REPLY_on_off_skip_Subargs[] = {
 {MAKE_ARG("on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("skip",ARG_TYPE_PURE_TOKEN,-1,"SKIP",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLIENT REPLY argument table */
 struct COMMAND_ARG CLIENT_REPLY_Args[] = {
 {MAKE_ARG("on_off_skip",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=CLIENT_REPLY_on_off_skip_Subargs},
-{0}
 };
 
 /********** CLIENT SETNAME ********************/
@@ -1617,25 +1380,21 @@ struct COMMAND_ARG CLIENT_REPLY_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT SETNAME history */
 #define CLIENT_SETNAME_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT SETNAME tips */
 #define CLIENT_SETNAME_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT SETNAME key specs */
 #define CLIENT_SETNAME_Keyspecs NULL
-
 #endif
 
 /* CLIENT SETNAME argument table */
 struct COMMAND_ARG CLIENT_SETNAME_Args[] = {
 {MAKE_ARG("connection-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** CLIENT TRACKING ********************/
@@ -1643,26 +1402,22 @@ struct COMMAND_ARG CLIENT_SETNAME_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT TRACKING history */
 #define CLIENT_TRACKING_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT TRACKING tips */
 #define CLIENT_TRACKING_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT TRACKING key specs */
 #define CLIENT_TRACKING_Keyspecs NULL
-
 #endif
 
 /* CLIENT TRACKING status argument table */
 struct COMMAND_ARG CLIENT_TRACKING_status_Subargs[] = {
 {MAKE_ARG("on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLIENT TRACKING argument table */
@@ -1674,7 +1429,6 @@ struct COMMAND_ARG CLIENT_TRACKING_Args[] = {
 {MAKE_ARG("optin",ARG_TYPE_PURE_TOKEN,-1,"OPTIN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("optout",ARG_TYPE_PURE_TOKEN,-1,"OPTOUT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("noloop",ARG_TYPE_PURE_TOKEN,-1,"NOLOOP",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** CLIENT TRACKINGINFO ********************/
@@ -1682,19 +1436,16 @@ struct COMMAND_ARG CLIENT_TRACKING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT TRACKINGINFO history */
 #define CLIENT_TRACKINGINFO_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT TRACKINGINFO tips */
 #define CLIENT_TRACKINGINFO_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT TRACKINGINFO key specs */
 #define CLIENT_TRACKINGINFO_Keyspecs NULL
-
 #endif
 
 /********** CLIENT UNBLOCK ********************/
@@ -1702,33 +1453,28 @@ struct COMMAND_ARG CLIENT_TRACKING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT UNBLOCK history */
 #define CLIENT_UNBLOCK_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT UNBLOCK tips */
 #define CLIENT_UNBLOCK_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT UNBLOCK key specs */
 #define CLIENT_UNBLOCK_Keyspecs NULL
-
 #endif
 
 /* CLIENT UNBLOCK timeout_error argument table */
 struct COMMAND_ARG CLIENT_UNBLOCK_timeout_error_Subargs[] = {
 {MAKE_ARG("timeout",ARG_TYPE_PURE_TOKEN,-1,"TIMEOUT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("error",ARG_TYPE_PURE_TOKEN,-1,"ERROR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CLIENT UNBLOCK argument table */
 struct COMMAND_ARG CLIENT_UNBLOCK_Args[] = {
 {MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("timeout_error",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLIENT_UNBLOCK_timeout_error_Subargs},
-{0}
 };
 
 /********** CLIENT UNPAUSE ********************/
@@ -1736,19 +1482,16 @@ struct COMMAND_ARG CLIENT_UNBLOCK_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT UNPAUSE history */
 #define CLIENT_UNPAUSE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT UNPAUSE tips */
 #define CLIENT_UNPAUSE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT UNPAUSE key specs */
 #define CLIENT_UNPAUSE_Keyspecs NULL
-
 #endif
 
 /* CLIENT command table */
@@ -1777,19 +1520,16 @@ struct COMMAND_STRUCT CLIENT_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CLIENT history */
 #define CLIENT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT tips */
 #define CLIENT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CLIENT key specs */
 #define CLIENT_Keyspecs NULL
-
 #endif
 
 /********** ECHO ********************/
@@ -1797,25 +1537,21 @@ struct COMMAND_STRUCT CLIENT_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ECHO history */
 #define ECHO_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ECHO tips */
 #define ECHO_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ECHO key specs */
 #define ECHO_Keyspecs NULL
-
 #endif
 
 /* ECHO argument table */
 struct COMMAND_ARG ECHO_Args[] = {
 {MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** HELLO ********************/
@@ -1824,28 +1560,23 @@ struct COMMAND_ARG ECHO_Args[] = {
 /* HELLO history */
 commandHistory HELLO_History[] = {
 {"6.2.0","`protover` made optional; when called without arguments the command reports the current connection's context."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HELLO tips */
 #define HELLO_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* HELLO key specs */
 #define HELLO_Keyspecs NULL
-
 #endif
 
 /* HELLO arguments username_password argument table */
 struct COMMAND_ARG HELLO_arguments_username_password_Subargs[] = {
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* HELLO arguments argument table */
@@ -1853,13 +1584,11 @@ struct COMMAND_ARG HELLO_arguments_Subargs[] = {
 {MAKE_ARG("protover",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("username_password",ARG_TYPE_BLOCK,-1,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HELLO_arguments_username_password_Subargs},
 {MAKE_ARG("clientname",ARG_TYPE_STRING,-1,"SETNAME",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* HELLO argument table */
 struct COMMAND_ARG HELLO_Args[] = {
 {MAKE_ARG("arguments",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=HELLO_arguments_Subargs},
-{0}
 };
 
 /********** PING ********************/
@@ -1867,7 +1596,6 @@ struct COMMAND_ARG HELLO_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PING history */
 #define PING_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -1875,21 +1603,17 @@ struct COMMAND_ARG HELLO_Args[] = {
 const char *PING_Tips[] = {
 "request_policy:all_shards",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PING key specs */
 #define PING_Keyspecs NULL
-
 #endif
 
 /* PING argument table */
 struct COMMAND_ARG PING_Args[] = {
 {MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** QUIT ********************/
@@ -1897,19 +1621,16 @@ struct COMMAND_ARG PING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* QUIT history */
 #define QUIT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* QUIT tips */
 #define QUIT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* QUIT key specs */
 #define QUIT_Keyspecs NULL
-
 #endif
 
 /********** RESET ********************/
@@ -1917,19 +1638,16 @@ struct COMMAND_ARG PING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* RESET history */
 #define RESET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* RESET tips */
 #define RESET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* RESET key specs */
 #define RESET_Keyspecs NULL
-
 #endif
 
 /********** SELECT ********************/
@@ -1937,25 +1655,21 @@ struct COMMAND_ARG PING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SELECT history */
 #define SELECT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SELECT tips */
 #define SELECT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SELECT key specs */
 #define SELECT_Keyspecs NULL
-
 #endif
 
 /* SELECT argument table */
 struct COMMAND_ARG SELECT_Args[] = {
 {MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** COPY ********************/
@@ -1963,13 +1677,11 @@ struct COMMAND_ARG SELECT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* COPY history */
 #define COPY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* COPY tips */
 #define COPY_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -1985,7 +1697,6 @@ struct COMMAND_ARG COPY_Args[] = {
 {MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("destination-db",ARG_TYPE_INTEGER,-1,"DB",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** DEL ********************/
@@ -1993,7 +1704,6 @@ struct COMMAND_ARG COPY_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* DEL history */
 #define DEL_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -2001,9 +1711,7 @@ struct COMMAND_ARG COPY_Args[] = {
 const char *DEL_Tips[] = {
 "request_policy:multi_shard",
 "response_policy:agg_sum",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2016,7 +1724,6 @@ keySpec DEL_Keyspecs[1] = {
 /* DEL argument table */
 struct COMMAND_ARG DEL_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** DUMP ********************/
@@ -2024,16 +1731,13 @@ struct COMMAND_ARG DEL_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* DUMP history */
 #define DUMP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* DUMP tips */
 const char *DUMP_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2046,7 +1750,6 @@ keySpec DUMP_Keyspecs[1] = {
 /* DUMP argument table */
 struct COMMAND_ARG DUMP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** EXISTS ********************/
@@ -2055,9 +1758,7 @@ struct COMMAND_ARG DUMP_Args[] = {
 /* EXISTS history */
 commandHistory EXISTS_History[] = {
 {"3.0.3","Accepts multiple `key` arguments."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -2065,9 +1766,7 @@ commandHistory EXISTS_History[] = {
 const char *EXISTS_Tips[] = {
 "request_policy:multi_shard",
 "response_policy:agg_sum",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2080,7 +1779,6 @@ keySpec EXISTS_Keyspecs[1] = {
 /* EXISTS argument table */
 struct COMMAND_ARG EXISTS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** EXPIRE ********************/
@@ -2089,15 +1787,12 @@ struct COMMAND_ARG EXISTS_Args[] = {
 /* EXPIRE history */
 commandHistory EXPIRE_History[] = {
 {"7.0.0","Added options: `NX`, `XX`, `GT` and `LT`."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* EXPIRE tips */
 #define EXPIRE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2113,7 +1808,6 @@ struct COMMAND_ARG EXPIRE_condition_Subargs[] = {
 {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* EXPIRE argument table */
@@ -2121,7 +1815,6 @@ struct COMMAND_ARG EXPIRE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=EXPIRE_condition_Subargs},
-{0}
 };
 
 /********** EXPIREAT ********************/
@@ -2130,15 +1823,12 @@ struct COMMAND_ARG EXPIRE_Args[] = {
 /* EXPIREAT history */
 commandHistory EXPIREAT_History[] = {
 {"7.0.0","Added options: `NX`, `XX`, `GT` and `LT`."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* EXPIREAT tips */
 #define EXPIREAT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2154,7 +1844,6 @@ struct COMMAND_ARG EXPIREAT_condition_Subargs[] = {
 {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* EXPIREAT argument table */
@@ -2162,7 +1851,6 @@ struct COMMAND_ARG EXPIREAT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=EXPIREAT_condition_Subargs},
-{0}
 };
 
 /********** EXPIRETIME ********************/
@@ -2170,13 +1858,11 @@ struct COMMAND_ARG EXPIREAT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* EXPIRETIME history */
 #define EXPIRETIME_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* EXPIRETIME tips */
 #define EXPIRETIME_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2189,7 +1875,6 @@ keySpec EXPIRETIME_Keyspecs[1] = {
 /* EXPIRETIME argument table */
 struct COMMAND_ARG EXPIRETIME_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** KEYS ********************/
@@ -2197,7 +1882,6 @@ struct COMMAND_ARG EXPIRETIME_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* KEYS history */
 #define KEYS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -2205,21 +1889,17 @@ struct COMMAND_ARG EXPIRETIME_Args[] = {
 const char *KEYS_Tips[] = {
 "request_policy:all_shards",
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* KEYS key specs */
 #define KEYS_Keyspecs NULL
-
 #endif
 
 /* KEYS argument table */
 struct COMMAND_ARG KEYS_Args[] = {
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** MIGRATE ********************/
@@ -2231,18 +1911,14 @@ commandHistory MIGRATE_History[] = {
 {"3.0.6","Added the `KEYS` option."},
 {"4.0.7","Added the `AUTH` option."},
 {"6.0.0","Added the `AUTH2` option."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MIGRATE tips */
 const char *MIGRATE_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2256,21 +1932,18 @@ keySpec MIGRATE_Keyspecs[2] = {
 struct COMMAND_ARG MIGRATE_key_or_empty_string_Subargs[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("empty_string",ARG_TYPE_PURE_TOKEN,-1,"""",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* MIGRATE authentication username_password argument table */
 struct COMMAND_ARG MIGRATE_authentication_username_password_Subargs[] = {
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* MIGRATE authentication argument table */
 struct COMMAND_ARG MIGRATE_authentication_Subargs[] = {
 {MAKE_ARG("password",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("username_password",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=MIGRATE_authentication_username_password_Subargs},
-{0}
 };
 
 /* MIGRATE argument table */
@@ -2284,7 +1957,6 @@ struct COMMAND_ARG MIGRATE_Args[] = {
 {MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("authentication",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=MIGRATE_authentication_Subargs},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** MOVE ********************/
@@ -2292,13 +1964,11 @@ struct COMMAND_ARG MIGRATE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MOVE history */
 #define MOVE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MOVE tips */
 #define MOVE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2312,7 +1982,6 @@ keySpec MOVE_Keyspecs[1] = {
 struct COMMAND_ARG MOVE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** OBJECT ENCODING ********************/
@@ -2320,16 +1989,13 @@ struct COMMAND_ARG MOVE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* OBJECT ENCODING history */
 #define OBJECT_ENCODING_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* OBJECT ENCODING tips */
 const char *OBJECT_ENCODING_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2342,7 +2008,6 @@ keySpec OBJECT_ENCODING_Keyspecs[1] = {
 /* OBJECT ENCODING argument table */
 struct COMMAND_ARG OBJECT_ENCODING_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** OBJECT FREQ ********************/
@@ -2350,16 +2015,13 @@ struct COMMAND_ARG OBJECT_ENCODING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* OBJECT FREQ history */
 #define OBJECT_FREQ_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* OBJECT FREQ tips */
 const char *OBJECT_FREQ_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2372,7 +2034,6 @@ keySpec OBJECT_FREQ_Keyspecs[1] = {
 /* OBJECT FREQ argument table */
 struct COMMAND_ARG OBJECT_FREQ_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** OBJECT HELP ********************/
@@ -2380,19 +2041,16 @@ struct COMMAND_ARG OBJECT_FREQ_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* OBJECT HELP history */
 #define OBJECT_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* OBJECT HELP tips */
 #define OBJECT_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* OBJECT HELP key specs */
 #define OBJECT_HELP_Keyspecs NULL
-
 #endif
 
 /********** OBJECT IDLETIME ********************/
@@ -2400,16 +2058,13 @@ struct COMMAND_ARG OBJECT_FREQ_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* OBJECT IDLETIME history */
 #define OBJECT_IDLETIME_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* OBJECT IDLETIME tips */
 const char *OBJECT_IDLETIME_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2422,7 +2077,6 @@ keySpec OBJECT_IDLETIME_Keyspecs[1] = {
 /* OBJECT IDLETIME argument table */
 struct COMMAND_ARG OBJECT_IDLETIME_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** OBJECT REFCOUNT ********************/
@@ -2430,16 +2084,13 @@ struct COMMAND_ARG OBJECT_IDLETIME_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* OBJECT REFCOUNT history */
 #define OBJECT_REFCOUNT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* OBJECT REFCOUNT tips */
 const char *OBJECT_REFCOUNT_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2452,7 +2103,6 @@ keySpec OBJECT_REFCOUNT_Keyspecs[1] = {
 /* OBJECT REFCOUNT argument table */
 struct COMMAND_ARG OBJECT_REFCOUNT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* OBJECT command table */
@@ -2470,19 +2120,16 @@ struct COMMAND_STRUCT OBJECT_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* OBJECT history */
 #define OBJECT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* OBJECT tips */
 #define OBJECT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* OBJECT key specs */
 #define OBJECT_Keyspecs NULL
-
 #endif
 
 /********** PERSIST ********************/
@@ -2490,13 +2137,11 @@ struct COMMAND_STRUCT OBJECT_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PERSIST history */
 #define PERSIST_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PERSIST tips */
 #define PERSIST_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2509,7 +2154,6 @@ keySpec PERSIST_Keyspecs[1] = {
 /* PERSIST argument table */
 struct COMMAND_ARG PERSIST_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** PEXPIRE ********************/
@@ -2518,15 +2162,12 @@ struct COMMAND_ARG PERSIST_Args[] = {
 /* PEXPIRE history */
 commandHistory PEXPIRE_History[] = {
 {"7.0.0","Added options: `NX`, `XX`, `GT` and `LT`."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PEXPIRE tips */
 #define PEXPIRE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2542,7 +2183,6 @@ struct COMMAND_ARG PEXPIRE_condition_Subargs[] = {
 {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* PEXPIRE argument table */
@@ -2550,7 +2190,6 @@ struct COMMAND_ARG PEXPIRE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=PEXPIRE_condition_Subargs},
-{0}
 };
 
 /********** PEXPIREAT ********************/
@@ -2559,15 +2198,12 @@ struct COMMAND_ARG PEXPIRE_Args[] = {
 /* PEXPIREAT history */
 commandHistory PEXPIREAT_History[] = {
 {"7.0.0","Added options: `NX`, `XX`, `GT` and `LT`."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PEXPIREAT tips */
 #define PEXPIREAT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2583,7 +2219,6 @@ struct COMMAND_ARG PEXPIREAT_condition_Subargs[] = {
 {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* PEXPIREAT argument table */
@@ -2591,7 +2226,6 @@ struct COMMAND_ARG PEXPIREAT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=PEXPIREAT_condition_Subargs},
-{0}
 };
 
 /********** PEXPIRETIME ********************/
@@ -2599,13 +2233,11 @@ struct COMMAND_ARG PEXPIREAT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PEXPIRETIME history */
 #define PEXPIRETIME_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PEXPIRETIME tips */
 #define PEXPIRETIME_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2618,7 +2250,6 @@ keySpec PEXPIRETIME_Keyspecs[1] = {
 /* PEXPIRETIME argument table */
 struct COMMAND_ARG PEXPIRETIME_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** PTTL ********************/
@@ -2627,18 +2258,14 @@ struct COMMAND_ARG PEXPIRETIME_Args[] = {
 /* PTTL history */
 commandHistory PTTL_History[] = {
 {"2.8.0","Added the -2 reply."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PTTL tips */
 const char *PTTL_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2651,7 +2278,6 @@ keySpec PTTL_Keyspecs[1] = {
 /* PTTL argument table */
 struct COMMAND_ARG PTTL_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** RANDOMKEY ********************/
@@ -2659,7 +2285,6 @@ struct COMMAND_ARG PTTL_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* RANDOMKEY history */
 #define RANDOMKEY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -2667,15 +2292,12 @@ struct COMMAND_ARG PTTL_Args[] = {
 const char *RANDOMKEY_Tips[] = {
 "request_policy:all_shards",
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* RANDOMKEY key specs */
 #define RANDOMKEY_Keyspecs NULL
-
 #endif
 
 /********** RENAME ********************/
@@ -2683,13 +2305,11 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* RENAME history */
 #define RENAME_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* RENAME tips */
 #define RENAME_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2703,7 +2323,6 @@ keySpec RENAME_Keyspecs[2] = {
 struct COMMAND_ARG RENAME_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("newkey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** RENAMENX ********************/
@@ -2712,15 +2331,12 @@ struct COMMAND_ARG RENAME_Args[] = {
 /* RENAMENX history */
 commandHistory RENAMENX_History[] = {
 {"3.2.0","The command no longer returns an error when source and destination names are the same."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* RENAMENX tips */
 #define RENAMENX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2734,7 +2350,6 @@ keySpec RENAMENX_Keyspecs[2] = {
 struct COMMAND_ARG RENAMENX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("newkey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** RESTORE ********************/
@@ -2745,15 +2360,12 @@ commandHistory RESTORE_History[] = {
 {"3.0.0","Added the `REPLACE` modifier."},
 {"5.0.0","Added the `ABSTTL` modifier."},
 {"5.0.0","Added the `IDLETIME` and `FREQ` options."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* RESTORE tips */
 #define RESTORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2772,7 +2384,6 @@ struct COMMAND_ARG RESTORE_Args[] = {
 {MAKE_ARG("absttl",ARG_TYPE_PURE_TOKEN,-1,"ABSTTL",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"IDLETIME",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("frequency",ARG_TYPE_INTEGER,-1,"FREQ",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** SCAN ********************/
@@ -2781,9 +2392,7 @@ struct COMMAND_ARG RESTORE_Args[] = {
 /* SCAN history */
 commandHistory SCAN_History[] = {
 {"6.0.0","Added the `TYPE` subcommand."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -2791,15 +2400,12 @@ commandHistory SCAN_History[] = {
 const char *SCAN_Tips[] = {
 "nondeterministic_output",
 "request_policy:special",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SCAN key specs */
 #define SCAN_Keyspecs NULL
-
 #endif
 
 /* SCAN argument table */
@@ -2808,7 +2414,6 @@ struct COMMAND_ARG SCAN_Args[] = {
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("type",ARG_TYPE_STRING,-1,"TYPE",NULL,"6.0.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** SORT ********************/
@@ -2816,13 +2421,11 @@ struct COMMAND_ARG SCAN_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SORT history */
 #define SORT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SORT tips */
 #define SORT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2836,14 +2439,12 @@ keySpec SORT_Keyspecs[3] = {
 struct COMMAND_ARG SORT_offset_count_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SORT order argument table */
 struct COMMAND_ARG SORT_order_Subargs[] = {
 {MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SORT argument table */
@@ -2855,7 +2456,6 @@ struct COMMAND_ARG SORT_Args[] = {
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_order_Subargs},
 {MAKE_ARG("sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("destination",ARG_TYPE_KEY,2,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** SORT_RO ********************/
@@ -2863,13 +2463,11 @@ struct COMMAND_ARG SORT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SORT_RO history */
 #define SORT_RO_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SORT_RO tips */
 #define SORT_RO_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2883,14 +2481,12 @@ keySpec SORT_RO_Keyspecs[2] = {
 struct COMMAND_ARG SORT_RO_offset_count_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SORT_RO order argument table */
 struct COMMAND_ARG SORT_RO_order_Subargs[] = {
 {MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SORT_RO argument table */
@@ -2901,7 +2497,6 @@ struct COMMAND_ARG SORT_RO_Args[] = {
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,0,NULL)},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_RO_order_Subargs},
 {MAKE_ARG("sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** TOUCH ********************/
@@ -2909,7 +2504,6 @@ struct COMMAND_ARG SORT_RO_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* TOUCH history */
 #define TOUCH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -2917,9 +2511,7 @@ struct COMMAND_ARG SORT_RO_Args[] = {
 const char *TOUCH_Tips[] = {
 "request_policy:multi_shard",
 "response_policy:agg_sum",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2932,7 +2524,6 @@ keySpec TOUCH_Keyspecs[1] = {
 /* TOUCH argument table */
 struct COMMAND_ARG TOUCH_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** TTL ********************/
@@ -2941,18 +2532,14 @@ struct COMMAND_ARG TOUCH_Args[] = {
 /* TTL history */
 commandHistory TTL_History[] = {
 {"2.8.0","Added the -2 reply."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* TTL tips */
 const char *TTL_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2965,7 +2552,6 @@ keySpec TTL_Keyspecs[1] = {
 /* TTL argument table */
 struct COMMAND_ARG TTL_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** TYPE ********************/
@@ -2973,13 +2559,11 @@ struct COMMAND_ARG TTL_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* TYPE history */
 #define TYPE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* TYPE tips */
 #define TYPE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2992,7 +2576,6 @@ keySpec TYPE_Keyspecs[1] = {
 /* TYPE argument table */
 struct COMMAND_ARG TYPE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** UNLINK ********************/
@@ -3000,7 +2583,6 @@ struct COMMAND_ARG TYPE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* UNLINK history */
 #define UNLINK_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -3008,9 +2590,7 @@ struct COMMAND_ARG TYPE_Args[] = {
 const char *UNLINK_Tips[] = {
 "request_policy:multi_shard",
 "response_policy:agg_sum",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3023,7 +2603,6 @@ keySpec UNLINK_Keyspecs[1] = {
 /* UNLINK argument table */
 struct COMMAND_ARG UNLINK_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** WAIT ********************/
@@ -3031,7 +2610,6 @@ struct COMMAND_ARG UNLINK_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* WAIT history */
 #define WAIT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -3039,22 +2617,18 @@ struct COMMAND_ARG UNLINK_Args[] = {
 const char *WAIT_Tips[] = {
 "request_policy:all_shards",
 "response_policy:agg_min",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* WAIT key specs */
 #define WAIT_Keyspecs NULL
-
 #endif
 
 /* WAIT argument table */
 struct COMMAND_ARG WAIT_Args[] = {
 {MAKE_ARG("numreplicas",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** GEOADD ********************/
@@ -3063,15 +2637,12 @@ struct COMMAND_ARG WAIT_Args[] = {
 /* GEOADD history */
 commandHistory GEOADD_History[] = {
 {"6.2.0","Added the `CH`, `NX` and `XX` options."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GEOADD tips */
 #define GEOADD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3085,7 +2656,6 @@ keySpec GEOADD_Keyspecs[1] = {
 struct COMMAND_ARG GEOADD_condition_Subargs[] = {
 {MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEOADD longitude_latitude_member argument table */
@@ -3093,7 +2663,6 @@ struct COMMAND_ARG GEOADD_longitude_latitude_member_Subargs[] = {
 {MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEOADD argument table */
@@ -3102,7 +2671,6 @@ struct COMMAND_ARG GEOADD_Args[] = {
 {MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOADD_condition_Subargs},
 {MAKE_ARG("change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("longitude_latitude_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,3,NULL),.subargs=GEOADD_longitude_latitude_member_Subargs},
-{0}
 };
 
 /********** GEODIST ********************/
@@ -3110,13 +2678,11 @@ struct COMMAND_ARG GEOADD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEODIST history */
 #define GEODIST_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GEODIST tips */
 #define GEODIST_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3132,7 +2698,6 @@ struct COMMAND_ARG GEODIST_unit_Subargs[] = {
 {MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEODIST argument table */
@@ -3141,7 +2706,6 @@ struct COMMAND_ARG GEODIST_Args[] = {
 {MAKE_ARG("member1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member2",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=GEODIST_unit_Subargs},
-{0}
 };
 
 /********** GEOHASH ********************/
@@ -3149,13 +2713,11 @@ struct COMMAND_ARG GEODIST_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEOHASH history */
 #define GEOHASH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GEOHASH tips */
 #define GEOHASH_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3169,7 +2731,6 @@ keySpec GEOHASH_Keyspecs[1] = {
 struct COMMAND_ARG GEOHASH_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** GEOPOS ********************/
@@ -3177,13 +2738,11 @@ struct COMMAND_ARG GEOHASH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEOPOS history */
 #define GEOPOS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GEOPOS tips */
 #define GEOPOS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3197,7 +2756,6 @@ keySpec GEOPOS_Keyspecs[1] = {
 struct COMMAND_ARG GEOPOS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** GEORADIUS ********************/
@@ -3206,15 +2764,12 @@ struct COMMAND_ARG GEOPOS_Args[] = {
 /* GEORADIUS history */
 commandHistory GEORADIUS_History[] = {
 {"6.2.0","Added the `ANY` option for `COUNT`."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GEORADIUS tips */
 #define GEORADIUS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3230,21 +2785,18 @@ struct COMMAND_ARG GEORADIUS_unit_Subargs[] = {
 {MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEORADIUS count argument table */
 struct COMMAND_ARG GEORADIUS_count_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* GEORADIUS order argument table */
 struct COMMAND_ARG GEORADIUS_order_Subargs[] = {
 {MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEORADIUS argument table */
@@ -3261,7 +2813,6 @@ struct COMMAND_ARG GEORADIUS_Args[] = {
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_order_Subargs},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** GEORADIUSBYMEMBER ********************/
@@ -3269,13 +2820,11 @@ struct COMMAND_ARG GEORADIUS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEORADIUSBYMEMBER history */
 #define GEORADIUSBYMEMBER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GEORADIUSBYMEMBER tips */
 #define GEORADIUSBYMEMBER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3291,21 +2840,18 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_unit_Subargs[] = {
 {MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEORADIUSBYMEMBER count argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_count_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* GEORADIUSBYMEMBER order argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_order_Subargs[] = {
 {MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEORADIUSBYMEMBER argument table */
@@ -3321,7 +2867,6 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_Args[] = {
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_order_Subargs},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** GEORADIUSBYMEMBER_RO ********************/
@@ -3329,13 +2874,11 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEORADIUSBYMEMBER_RO history */
 #define GEORADIUSBYMEMBER_RO_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GEORADIUSBYMEMBER_RO tips */
 #define GEORADIUSBYMEMBER_RO_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3351,21 +2894,18 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_RO_unit_Subargs[] = {
 {MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEORADIUSBYMEMBER_RO count argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_RO_count_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* GEORADIUSBYMEMBER_RO order argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_RO_order_Subargs[] = {
 {MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEORADIUSBYMEMBER_RO argument table */
@@ -3379,7 +2919,6 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_RO_Args[] = {
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_RO_count_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_RO_order_Subargs},
-{0}
 };
 
 /********** GEORADIUS_RO ********************/
@@ -3388,15 +2927,12 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_RO_Args[] = {
 /* GEORADIUS_RO history */
 commandHistory GEORADIUS_RO_History[] = {
 {"6.2.0","Added the `ANY` option for `COUNT`."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GEORADIUS_RO tips */
 #define GEORADIUS_RO_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3412,21 +2948,18 @@ struct COMMAND_ARG GEORADIUS_RO_unit_Subargs[] = {
 {MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEORADIUS_RO count argument table */
 struct COMMAND_ARG GEORADIUS_RO_count_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* GEORADIUS_RO order argument table */
 struct COMMAND_ARG GEORADIUS_RO_order_Subargs[] = {
 {MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEORADIUS_RO argument table */
@@ -3441,7 +2974,6 @@ struct COMMAND_ARG GEORADIUS_RO_Args[] = {
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_RO_count_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_RO_order_Subargs},
-{0}
 };
 
 /********** GEOSEARCH ********************/
@@ -3449,13 +2981,11 @@ struct COMMAND_ARG GEORADIUS_RO_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEOSEARCH history */
 #define GEOSEARCH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GEOSEARCH tips */
 #define GEOSEARCH_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3469,14 +2999,12 @@ keySpec GEOSEARCH_Keyspecs[1] = {
 struct COMMAND_ARG GEOSEARCH_from_longitude_latitude_Subargs[] = {
 {MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEOSEARCH from argument table */
 struct COMMAND_ARG GEOSEARCH_from_Subargs[] = {
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCH_from_longitude_latitude_Subargs},
-{0}
 };
 
 /* GEOSEARCH by circle unit argument table */
@@ -3485,14 +3013,12 @@ struct COMMAND_ARG GEOSEARCH_by_circle_unit_Subargs[] = {
 {MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEOSEARCH by circle argument table */
 struct COMMAND_ARG GEOSEARCH_by_circle_Subargs[] = {
 {MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEOSEARCH_by_circle_unit_Subargs},
-{0}
 };
 
 /* GEOSEARCH by box unit argument table */
@@ -3501,7 +3027,6 @@ struct COMMAND_ARG GEOSEARCH_by_box_unit_Subargs[] = {
 {MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEOSEARCH by box argument table */
@@ -3509,28 +3034,24 @@ struct COMMAND_ARG GEOSEARCH_by_box_Subargs[] = {
 {MAKE_ARG("width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEOSEARCH_by_box_unit_Subargs},
-{0}
 };
 
 /* GEOSEARCH by argument table */
 struct COMMAND_ARG GEOSEARCH_by_Subargs[] = {
 {MAKE_ARG("circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCH_by_circle_Subargs},
 {MAKE_ARG("box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=GEOSEARCH_by_box_Subargs},
-{0}
 };
 
 /* GEOSEARCH order argument table */
 struct COMMAND_ARG GEOSEARCH_order_Subargs[] = {
 {MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEOSEARCH count argument table */
 struct COMMAND_ARG GEOSEARCH_count_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* GEOSEARCH argument table */
@@ -3543,7 +3064,6 @@ struct COMMAND_ARG GEOSEARCH_Args[] = {
 {MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** GEOSEARCHSTORE ********************/
@@ -3551,13 +3071,11 @@ struct COMMAND_ARG GEOSEARCH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEOSEARCHSTORE history */
 #define GEOSEARCHSTORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GEOSEARCHSTORE tips */
 #define GEOSEARCHSTORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3571,14 +3089,12 @@ keySpec GEOSEARCHSTORE_Keyspecs[2] = {
 struct COMMAND_ARG GEOSEARCHSTORE_from_longitude_latitude_Subargs[] = {
 {MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEOSEARCHSTORE from argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_from_Subargs[] = {
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCHSTORE_from_longitude_latitude_Subargs},
-{0}
 };
 
 /* GEOSEARCHSTORE by circle unit argument table */
@@ -3587,14 +3103,12 @@ struct COMMAND_ARG GEOSEARCHSTORE_by_circle_unit_Subargs[] = {
 {MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEOSEARCHSTORE by circle argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_by_circle_Subargs[] = {
 {MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEOSEARCHSTORE_by_circle_unit_Subargs},
-{0}
 };
 
 /* GEOSEARCHSTORE by box unit argument table */
@@ -3603,7 +3117,6 @@ struct COMMAND_ARG GEOSEARCHSTORE_by_box_unit_Subargs[] = {
 {MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEOSEARCHSTORE by box argument table */
@@ -3611,28 +3124,24 @@ struct COMMAND_ARG GEOSEARCHSTORE_by_box_Subargs[] = {
 {MAKE_ARG("width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEOSEARCHSTORE_by_box_unit_Subargs},
-{0}
 };
 
 /* GEOSEARCHSTORE by argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_by_Subargs[] = {
 {MAKE_ARG("circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCHSTORE_by_circle_Subargs},
 {MAKE_ARG("box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=GEOSEARCHSTORE_by_box_Subargs},
-{0}
 };
 
 /* GEOSEARCHSTORE order argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_order_Subargs[] = {
 {MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GEOSEARCHSTORE count argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_count_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* GEOSEARCHSTORE argument table */
@@ -3644,7 +3153,6 @@ struct COMMAND_ARG GEOSEARCHSTORE_Args[] = {
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCHSTORE_order_Subargs},
 {MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCHSTORE_count_Subargs},
 {MAKE_ARG("storedist",ARG_TYPE_PURE_TOKEN,-1,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** HDEL ********************/
@@ -3653,15 +3161,12 @@ struct COMMAND_ARG GEOSEARCHSTORE_Args[] = {
 /* HDEL history */
 commandHistory HDEL_History[] = {
 {"2.4.0","Accepts multiple `field` arguments."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HDEL tips */
 #define HDEL_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3675,7 +3180,6 @@ keySpec HDEL_Keyspecs[1] = {
 struct COMMAND_ARG HDEL_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** HEXISTS ********************/
@@ -3683,13 +3187,11 @@ struct COMMAND_ARG HDEL_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HEXISTS history */
 #define HEXISTS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HEXISTS tips */
 #define HEXISTS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3703,7 +3205,6 @@ keySpec HEXISTS_Keyspecs[1] = {
 struct COMMAND_ARG HEXISTS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** HGET ********************/
@@ -3711,13 +3212,11 @@ struct COMMAND_ARG HEXISTS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HGET history */
 #define HGET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HGET tips */
 #define HGET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3731,7 +3230,6 @@ keySpec HGET_Keyspecs[1] = {
 struct COMMAND_ARG HGET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** HGETALL ********************/
@@ -3739,16 +3237,13 @@ struct COMMAND_ARG HGET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HGETALL history */
 #define HGETALL_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HGETALL tips */
 const char *HGETALL_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3761,7 +3256,6 @@ keySpec HGETALL_Keyspecs[1] = {
 /* HGETALL argument table */
 struct COMMAND_ARG HGETALL_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** HINCRBY ********************/
@@ -3769,13 +3263,11 @@ struct COMMAND_ARG HGETALL_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HINCRBY history */
 #define HINCRBY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HINCRBY tips */
 #define HINCRBY_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3790,7 +3282,6 @@ struct COMMAND_ARG HINCRBY_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** HINCRBYFLOAT ********************/
@@ -3798,13 +3289,11 @@ struct COMMAND_ARG HINCRBY_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HINCRBYFLOAT history */
 #define HINCRBYFLOAT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HINCRBYFLOAT tips */
 #define HINCRBYFLOAT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3819,7 +3308,6 @@ struct COMMAND_ARG HINCRBYFLOAT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** HKEYS ********************/
@@ -3827,16 +3315,13 @@ struct COMMAND_ARG HINCRBYFLOAT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HKEYS history */
 #define HKEYS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HKEYS tips */
 const char *HKEYS_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3849,7 +3334,6 @@ keySpec HKEYS_Keyspecs[1] = {
 /* HKEYS argument table */
 struct COMMAND_ARG HKEYS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** HLEN ********************/
@@ -3857,13 +3341,11 @@ struct COMMAND_ARG HKEYS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HLEN history */
 #define HLEN_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HLEN tips */
 #define HLEN_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3876,7 +3358,6 @@ keySpec HLEN_Keyspecs[1] = {
 /* HLEN argument table */
 struct COMMAND_ARG HLEN_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** HMGET ********************/
@@ -3884,13 +3365,11 @@ struct COMMAND_ARG HLEN_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HMGET history */
 #define HMGET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HMGET tips */
 #define HMGET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3904,7 +3383,6 @@ keySpec HMGET_Keyspecs[1] = {
 struct COMMAND_ARG HMGET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** HMSET ********************/
@@ -3912,13 +3390,11 @@ struct COMMAND_ARG HMGET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HMSET history */
 #define HMSET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HMSET tips */
 #define HMSET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3932,14 +3408,12 @@ keySpec HMSET_Keyspecs[1] = {
 struct COMMAND_ARG HMSET_field_value_Subargs[] = {
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* HMSET argument table */
 struct COMMAND_ARG HMSET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HMSET_field_value_Subargs},
-{0}
 };
 
 /********** HRANDFIELD ********************/
@@ -3947,16 +3421,13 @@ struct COMMAND_ARG HMSET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HRANDFIELD history */
 #define HRANDFIELD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HRANDFIELD tips */
 const char *HRANDFIELD_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -3970,14 +3441,12 @@ keySpec HRANDFIELD_Keyspecs[1] = {
 struct COMMAND_ARG HRANDFIELD_options_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("withvalues",ARG_TYPE_PURE_TOKEN,-1,"WITHVALUES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* HRANDFIELD argument table */
 struct COMMAND_ARG HRANDFIELD_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HRANDFIELD_options_Subargs},
-{0}
 };
 
 /********** HSCAN ********************/
@@ -3985,16 +3454,13 @@ struct COMMAND_ARG HRANDFIELD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HSCAN history */
 #define HSCAN_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HSCAN tips */
 const char *HSCAN_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4010,7 +3476,6 @@ struct COMMAND_ARG HSCAN_Args[] = {
 {MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** HSET ********************/
@@ -4019,15 +3484,12 @@ struct COMMAND_ARG HSCAN_Args[] = {
 /* HSET history */
 commandHistory HSET_History[] = {
 {"4.0.0","Accepts multiple `field` and `value` arguments."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HSET tips */
 #define HSET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4041,14 +3503,12 @@ keySpec HSET_Keyspecs[1] = {
 struct COMMAND_ARG HSET_field_value_Subargs[] = {
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* HSET argument table */
 struct COMMAND_ARG HSET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HSET_field_value_Subargs},
-{0}
 };
 
 /********** HSETNX ********************/
@@ -4056,13 +3516,11 @@ struct COMMAND_ARG HSET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HSETNX history */
 #define HSETNX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HSETNX tips */
 #define HSETNX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4077,7 +3535,6 @@ struct COMMAND_ARG HSETNX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** HSTRLEN ********************/
@@ -4085,13 +3542,11 @@ struct COMMAND_ARG HSETNX_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HSTRLEN history */
 #define HSTRLEN_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HSTRLEN tips */
 #define HSTRLEN_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4105,7 +3560,6 @@ keySpec HSTRLEN_Keyspecs[1] = {
 struct COMMAND_ARG HSTRLEN_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** HVALS ********************/
@@ -4113,16 +3567,13 @@ struct COMMAND_ARG HSTRLEN_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* HVALS history */
 #define HVALS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HVALS tips */
 const char *HVALS_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4135,7 +3586,6 @@ keySpec HVALS_Keyspecs[1] = {
 /* HVALS argument table */
 struct COMMAND_ARG HVALS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** PFADD ********************/
@@ -4143,13 +3593,11 @@ struct COMMAND_ARG HVALS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PFADD history */
 #define PFADD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PFADD tips */
 #define PFADD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4163,7 +3611,6 @@ keySpec PFADD_Keyspecs[1] = {
 struct COMMAND_ARG PFADD_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** PFCOUNT ********************/
@@ -4171,13 +3618,11 @@ struct COMMAND_ARG PFADD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PFCOUNT history */
 #define PFCOUNT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PFCOUNT tips */
 #define PFCOUNT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4190,7 +3635,6 @@ keySpec PFCOUNT_Keyspecs[1] = {
 /* PFCOUNT argument table */
 struct COMMAND_ARG PFCOUNT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** PFDEBUG ********************/
@@ -4198,13 +3642,11 @@ struct COMMAND_ARG PFCOUNT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PFDEBUG history */
 #define PFDEBUG_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PFDEBUG tips */
 #define PFDEBUG_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4218,7 +3660,6 @@ keySpec PFDEBUG_Keyspecs[1] = {
 struct COMMAND_ARG PFDEBUG_Args[] = {
 {MAKE_ARG("subcommand",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** PFMERGE ********************/
@@ -4226,13 +3667,11 @@ struct COMMAND_ARG PFDEBUG_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PFMERGE history */
 #define PFMERGE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PFMERGE tips */
 #define PFMERGE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4246,7 +3685,6 @@ keySpec PFMERGE_Keyspecs[2] = {
 struct COMMAND_ARG PFMERGE_Args[] = {
 {MAKE_ARG("destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sourcekey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** PFSELFTEST ********************/
@@ -4254,19 +3692,16 @@ struct COMMAND_ARG PFMERGE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PFSELFTEST history */
 #define PFSELFTEST_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PFSELFTEST tips */
 #define PFSELFTEST_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PFSELFTEST key specs */
 #define PFSELFTEST_Keyspecs NULL
-
 #endif
 
 /********** BLMOVE ********************/
@@ -4274,13 +3709,11 @@ struct COMMAND_ARG PFMERGE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* BLMOVE history */
 #define BLMOVE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BLMOVE tips */
 #define BLMOVE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4294,14 +3727,12 @@ keySpec BLMOVE_Keyspecs[2] = {
 struct COMMAND_ARG BLMOVE_wherefrom_Subargs[] = {
 {MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* BLMOVE whereto argument table */
 struct COMMAND_ARG BLMOVE_whereto_Subargs[] = {
 {MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* BLMOVE argument table */
@@ -4311,7 +3742,6 @@ struct COMMAND_ARG BLMOVE_Args[] = {
 {MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVE_wherefrom_Subargs},
 {MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVE_whereto_Subargs},
 {MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** BLMPOP ********************/
@@ -4319,13 +3749,11 @@ struct COMMAND_ARG BLMOVE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* BLMPOP history */
 #define BLMPOP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BLMPOP tips */
 #define BLMPOP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4339,7 +3767,6 @@ keySpec BLMPOP_Keyspecs[1] = {
 struct COMMAND_ARG BLMPOP_where_Subargs[] = {
 {MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* BLMPOP argument table */
@@ -4349,7 +3776,6 @@ struct COMMAND_ARG BLMPOP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMPOP_where_Subargs},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** BLPOP ********************/
@@ -4358,15 +3784,12 @@ struct COMMAND_ARG BLMPOP_Args[] = {
 /* BLPOP history */
 commandHistory BLPOP_History[] = {
 {"6.0.0","`timeout` is interpreted as a double instead of an integer."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BLPOP tips */
 #define BLPOP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4380,7 +3803,6 @@ keySpec BLPOP_Keyspecs[1] = {
 struct COMMAND_ARG BLPOP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** BRPOP ********************/
@@ -4389,15 +3811,12 @@ struct COMMAND_ARG BLPOP_Args[] = {
 /* BRPOP history */
 commandHistory BRPOP_History[] = {
 {"6.0.0","`timeout` is interpreted as a double instead of an integer."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BRPOP tips */
 #define BRPOP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4411,7 +3830,6 @@ keySpec BRPOP_Keyspecs[1] = {
 struct COMMAND_ARG BRPOP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** BRPOPLPUSH ********************/
@@ -4420,15 +3838,12 @@ struct COMMAND_ARG BRPOP_Args[] = {
 /* BRPOPLPUSH history */
 commandHistory BRPOPLPUSH_History[] = {
 {"6.0.0","`timeout` is interpreted as a double instead of an integer."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BRPOPLPUSH tips */
 #define BRPOPLPUSH_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4443,7 +3858,6 @@ struct COMMAND_ARG BRPOPLPUSH_Args[] = {
 {MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** LINDEX ********************/
@@ -4451,13 +3865,11 @@ struct COMMAND_ARG BRPOPLPUSH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LINDEX history */
 #define LINDEX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LINDEX tips */
 #define LINDEX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4471,7 +3883,6 @@ keySpec LINDEX_Keyspecs[1] = {
 struct COMMAND_ARG LINDEX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** LINSERT ********************/
@@ -4479,13 +3890,11 @@ struct COMMAND_ARG LINDEX_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LINSERT history */
 #define LINSERT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LINSERT tips */
 #define LINSERT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4499,7 +3908,6 @@ keySpec LINSERT_Keyspecs[1] = {
 struct COMMAND_ARG LINSERT_where_Subargs[] = {
 {MAKE_ARG("before",ARG_TYPE_PURE_TOKEN,-1,"BEFORE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("after",ARG_TYPE_PURE_TOKEN,-1,"AFTER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* LINSERT argument table */
@@ -4508,7 +3916,6 @@ struct COMMAND_ARG LINSERT_Args[] = {
 {MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LINSERT_where_Subargs},
 {MAKE_ARG("pivot",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** LLEN ********************/
@@ -4516,13 +3923,11 @@ struct COMMAND_ARG LINSERT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LLEN history */
 #define LLEN_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LLEN tips */
 #define LLEN_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4535,7 +3940,6 @@ keySpec LLEN_Keyspecs[1] = {
 /* LLEN argument table */
 struct COMMAND_ARG LLEN_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** LMOVE ********************/
@@ -4543,13 +3947,11 @@ struct COMMAND_ARG LLEN_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LMOVE history */
 #define LMOVE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LMOVE tips */
 #define LMOVE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4563,14 +3965,12 @@ keySpec LMOVE_Keyspecs[2] = {
 struct COMMAND_ARG LMOVE_wherefrom_Subargs[] = {
 {MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* LMOVE whereto argument table */
 struct COMMAND_ARG LMOVE_whereto_Subargs[] = {
 {MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* LMOVE argument table */
@@ -4579,7 +3979,6 @@ struct COMMAND_ARG LMOVE_Args[] = {
 {MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVE_wherefrom_Subargs},
 {MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVE_whereto_Subargs},
-{0}
 };
 
 /********** LMPOP ********************/
@@ -4587,13 +3986,11 @@ struct COMMAND_ARG LMOVE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LMPOP history */
 #define LMPOP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LMPOP tips */
 #define LMPOP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4607,7 +4004,6 @@ keySpec LMPOP_Keyspecs[1] = {
 struct COMMAND_ARG LMPOP_where_Subargs[] = {
 {MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* LMPOP argument table */
@@ -4616,7 +4012,6 @@ struct COMMAND_ARG LMPOP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMPOP_where_Subargs},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** LPOP ********************/
@@ -4625,15 +4020,12 @@ struct COMMAND_ARG LMPOP_Args[] = {
 /* LPOP history */
 commandHistory LPOP_History[] = {
 {"6.2.0","Added the `count` argument."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LPOP tips */
 #define LPOP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4647,7 +4039,6 @@ keySpec LPOP_Keyspecs[1] = {
 struct COMMAND_ARG LPOP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** LPOS ********************/
@@ -4655,13 +4046,11 @@ struct COMMAND_ARG LPOP_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LPOS history */
 #define LPOS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LPOS tips */
 #define LPOS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4678,7 +4067,6 @@ struct COMMAND_ARG LPOS_Args[] = {
 {MAKE_ARG("rank",ARG_TYPE_INTEGER,-1,"RANK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("num-matches",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("len",ARG_TYPE_INTEGER,-1,"MAXLEN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** LPUSH ********************/
@@ -4687,15 +4075,12 @@ struct COMMAND_ARG LPOS_Args[] = {
 /* LPUSH history */
 commandHistory LPUSH_History[] = {
 {"2.4.0","Accepts multiple `element` arguments."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LPUSH tips */
 #define LPUSH_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4709,7 +4094,6 @@ keySpec LPUSH_Keyspecs[1] = {
 struct COMMAND_ARG LPUSH_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** LPUSHX ********************/
@@ -4718,15 +4102,12 @@ struct COMMAND_ARG LPUSH_Args[] = {
 /* LPUSHX history */
 commandHistory LPUSHX_History[] = {
 {"4.0.0","Accepts multiple `element` arguments."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LPUSHX tips */
 #define LPUSHX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4740,7 +4121,6 @@ keySpec LPUSHX_Keyspecs[1] = {
 struct COMMAND_ARG LPUSHX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** LRANGE ********************/
@@ -4748,13 +4128,11 @@ struct COMMAND_ARG LPUSHX_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LRANGE history */
 #define LRANGE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LRANGE tips */
 #define LRANGE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4769,7 +4147,6 @@ struct COMMAND_ARG LRANGE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** LREM ********************/
@@ -4777,13 +4154,11 @@ struct COMMAND_ARG LRANGE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LREM history */
 #define LREM_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LREM tips */
 #define LREM_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4798,7 +4173,6 @@ struct COMMAND_ARG LREM_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** LSET ********************/
@@ -4806,13 +4180,11 @@ struct COMMAND_ARG LREM_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LSET history */
 #define LSET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LSET tips */
 #define LSET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4827,7 +4199,6 @@ struct COMMAND_ARG LSET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** LTRIM ********************/
@@ -4835,13 +4206,11 @@ struct COMMAND_ARG LSET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LTRIM history */
 #define LTRIM_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LTRIM tips */
 #define LTRIM_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4856,7 +4225,6 @@ struct COMMAND_ARG LTRIM_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** RPOP ********************/
@@ -4865,15 +4233,12 @@ struct COMMAND_ARG LTRIM_Args[] = {
 /* RPOP history */
 commandHistory RPOP_History[] = {
 {"6.2.0","Added the `count` argument."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* RPOP tips */
 #define RPOP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4887,7 +4252,6 @@ keySpec RPOP_Keyspecs[1] = {
 struct COMMAND_ARG RPOP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** RPOPLPUSH ********************/
@@ -4895,13 +4259,11 @@ struct COMMAND_ARG RPOP_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* RPOPLPUSH history */
 #define RPOPLPUSH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* RPOPLPUSH tips */
 #define RPOPLPUSH_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4915,7 +4277,6 @@ keySpec RPOPLPUSH_Keyspecs[2] = {
 struct COMMAND_ARG RPOPLPUSH_Args[] = {
 {MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** RPUSH ********************/
@@ -4924,15 +4285,12 @@ struct COMMAND_ARG RPOPLPUSH_Args[] = {
 /* RPUSH history */
 commandHistory RPUSH_History[] = {
 {"2.4.0","Accepts multiple `element` arguments."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* RPUSH tips */
 #define RPUSH_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4946,7 +4304,6 @@ keySpec RPUSH_Keyspecs[1] = {
 struct COMMAND_ARG RPUSH_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** RPUSHX ********************/
@@ -4955,15 +4312,12 @@ struct COMMAND_ARG RPUSH_Args[] = {
 /* RPUSHX history */
 commandHistory RPUSHX_History[] = {
 {"4.0.0","Accepts multiple `element` arguments."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* RPUSHX tips */
 #define RPUSHX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -4977,7 +4331,6 @@ keySpec RPUSHX_Keyspecs[1] = {
 struct COMMAND_ARG RPUSHX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** PSUBSCRIBE ********************/
@@ -4985,31 +4338,26 @@ struct COMMAND_ARG RPUSHX_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PSUBSCRIBE history */
 #define PSUBSCRIBE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PSUBSCRIBE tips */
 #define PSUBSCRIBE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PSUBSCRIBE key specs */
 #define PSUBSCRIBE_Keyspecs NULL
-
 #endif
 
 /* PSUBSCRIBE pattern argument table */
 struct COMMAND_ARG PSUBSCRIBE_pattern_Subargs[] = {
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* PSUBSCRIBE argument table */
 struct COMMAND_ARG PSUBSCRIBE_Args[] = {
 {MAKE_ARG("pattern",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,1,NULL),.subargs=PSUBSCRIBE_pattern_Subargs},
-{0}
 };
 
 /********** PUBLISH ********************/
@@ -5017,26 +4365,22 @@ struct COMMAND_ARG PSUBSCRIBE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PUBLISH history */
 #define PUBLISH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PUBLISH tips */
 #define PUBLISH_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PUBLISH key specs */
 #define PUBLISH_Keyspecs NULL
-
 #endif
 
 /* PUBLISH argument table */
 struct COMMAND_ARG PUBLISH_Args[] = {
 {MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** PUBSUB CHANNELS ********************/
@@ -5044,25 +4388,21 @@ struct COMMAND_ARG PUBLISH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PUBSUB CHANNELS history */
 #define PUBSUB_CHANNELS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PUBSUB CHANNELS tips */
 #define PUBSUB_CHANNELS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PUBSUB CHANNELS key specs */
 #define PUBSUB_CHANNELS_Keyspecs NULL
-
 #endif
 
 /* PUBSUB CHANNELS argument table */
 struct COMMAND_ARG PUBSUB_CHANNELS_Args[] = {
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** PUBSUB HELP ********************/
@@ -5070,19 +4410,16 @@ struct COMMAND_ARG PUBSUB_CHANNELS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PUBSUB HELP history */
 #define PUBSUB_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PUBSUB HELP tips */
 #define PUBSUB_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PUBSUB HELP key specs */
 #define PUBSUB_HELP_Keyspecs NULL
-
 #endif
 
 /********** PUBSUB NUMPAT ********************/
@@ -5090,19 +4427,16 @@ struct COMMAND_ARG PUBSUB_CHANNELS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PUBSUB NUMPAT history */
 #define PUBSUB_NUMPAT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PUBSUB NUMPAT tips */
 #define PUBSUB_NUMPAT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PUBSUB NUMPAT key specs */
 #define PUBSUB_NUMPAT_Keyspecs NULL
-
 #endif
 
 /********** PUBSUB NUMSUB ********************/
@@ -5110,25 +4444,21 @@ struct COMMAND_ARG PUBSUB_CHANNELS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PUBSUB NUMSUB history */
 #define PUBSUB_NUMSUB_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PUBSUB NUMSUB tips */
 #define PUBSUB_NUMSUB_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PUBSUB NUMSUB key specs */
 #define PUBSUB_NUMSUB_Keyspecs NULL
-
 #endif
 
 /* PUBSUB NUMSUB argument table */
 struct COMMAND_ARG PUBSUB_NUMSUB_Args[] = {
 {MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** PUBSUB SHARDCHANNELS ********************/
@@ -5136,25 +4466,21 @@ struct COMMAND_ARG PUBSUB_NUMSUB_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PUBSUB SHARDCHANNELS history */
 #define PUBSUB_SHARDCHANNELS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PUBSUB SHARDCHANNELS tips */
 #define PUBSUB_SHARDCHANNELS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PUBSUB SHARDCHANNELS key specs */
 #define PUBSUB_SHARDCHANNELS_Keyspecs NULL
-
 #endif
 
 /* PUBSUB SHARDCHANNELS argument table */
 struct COMMAND_ARG PUBSUB_SHARDCHANNELS_Args[] = {
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** PUBSUB SHARDNUMSUB ********************/
@@ -5162,25 +4488,21 @@ struct COMMAND_ARG PUBSUB_SHARDCHANNELS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PUBSUB SHARDNUMSUB history */
 #define PUBSUB_SHARDNUMSUB_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PUBSUB SHARDNUMSUB tips */
 #define PUBSUB_SHARDNUMSUB_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PUBSUB SHARDNUMSUB key specs */
 #define PUBSUB_SHARDNUMSUB_Keyspecs NULL
-
 #endif
 
 /* PUBSUB SHARDNUMSUB argument table */
 struct COMMAND_ARG PUBSUB_SHARDNUMSUB_Args[] = {
 {MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /* PUBSUB command table */
@@ -5199,19 +4521,16 @@ struct COMMAND_STRUCT PUBSUB_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PUBSUB history */
 #define PUBSUB_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PUBSUB tips */
 #define PUBSUB_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PUBSUB key specs */
 #define PUBSUB_Keyspecs NULL
-
 #endif
 
 /********** PUNSUBSCRIBE ********************/
@@ -5219,25 +4538,21 @@ struct COMMAND_STRUCT PUBSUB_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PUNSUBSCRIBE history */
 #define PUNSUBSCRIBE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PUNSUBSCRIBE tips */
 #define PUNSUBSCRIBE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PUNSUBSCRIBE key specs */
 #define PUNSUBSCRIBE_Keyspecs NULL
-
 #endif
 
 /* PUNSUBSCRIBE argument table */
 struct COMMAND_ARG PUNSUBSCRIBE_Args[] = {
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SPUBLISH ********************/
@@ -5245,13 +4560,11 @@ struct COMMAND_ARG PUNSUBSCRIBE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SPUBLISH history */
 #define SPUBLISH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SPUBLISH tips */
 #define SPUBLISH_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -5265,7 +4578,6 @@ keySpec SPUBLISH_Keyspecs[1] = {
 struct COMMAND_ARG SPUBLISH_Args[] = {
 {MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SSUBSCRIBE ********************/
@@ -5273,13 +4585,11 @@ struct COMMAND_ARG SPUBLISH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SSUBSCRIBE history */
 #define SSUBSCRIBE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SSUBSCRIBE tips */
 #define SSUBSCRIBE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -5292,7 +4602,6 @@ keySpec SSUBSCRIBE_Keyspecs[1] = {
 /* SSUBSCRIBE argument table */
 struct COMMAND_ARG SSUBSCRIBE_Args[] = {
 {MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SUBSCRIBE ********************/
@@ -5300,25 +4609,21 @@ struct COMMAND_ARG SSUBSCRIBE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SUBSCRIBE history */
 #define SUBSCRIBE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SUBSCRIBE tips */
 #define SUBSCRIBE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SUBSCRIBE key specs */
 #define SUBSCRIBE_Keyspecs NULL
-
 #endif
 
 /* SUBSCRIBE argument table */
 struct COMMAND_ARG SUBSCRIBE_Args[] = {
 {MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SUNSUBSCRIBE ********************/
@@ -5326,13 +4631,11 @@ struct COMMAND_ARG SUBSCRIBE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SUNSUBSCRIBE history */
 #define SUNSUBSCRIBE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SUNSUBSCRIBE tips */
 #define SUNSUBSCRIBE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -5345,7 +4648,6 @@ keySpec SUNSUBSCRIBE_Keyspecs[1] = {
 /* SUNSUBSCRIBE argument table */
 struct COMMAND_ARG SUNSUBSCRIBE_Args[] = {
 {MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** UNSUBSCRIBE ********************/
@@ -5353,25 +4655,21 @@ struct COMMAND_ARG SUNSUBSCRIBE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* UNSUBSCRIBE history */
 #define UNSUBSCRIBE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* UNSUBSCRIBE tips */
 #define UNSUBSCRIBE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* UNSUBSCRIBE key specs */
 #define UNSUBSCRIBE_Keyspecs NULL
-
 #endif
 
 /* UNSUBSCRIBE argument table */
 struct COMMAND_ARG UNSUBSCRIBE_Args[] = {
 {MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** EVAL ********************/
@@ -5379,13 +4677,11 @@ struct COMMAND_ARG UNSUBSCRIBE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* EVAL history */
 #define EVAL_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* EVAL tips */
 #define EVAL_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -5401,7 +4697,6 @@ struct COMMAND_ARG EVAL_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** EVALSHA ********************/
@@ -5409,13 +4704,11 @@ struct COMMAND_ARG EVAL_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* EVALSHA history */
 #define EVALSHA_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* EVALSHA tips */
 #define EVALSHA_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -5431,7 +4724,6 @@ struct COMMAND_ARG EVALSHA_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** EVALSHA_RO ********************/
@@ -5439,13 +4731,11 @@ struct COMMAND_ARG EVALSHA_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* EVALSHA_RO history */
 #define EVALSHA_RO_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* EVALSHA_RO tips */
 #define EVALSHA_RO_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -5461,7 +4751,6 @@ struct COMMAND_ARG EVALSHA_RO_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** EVAL_RO ********************/
@@ -5469,13 +4758,11 @@ struct COMMAND_ARG EVALSHA_RO_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* EVAL_RO history */
 #define EVAL_RO_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* EVAL_RO tips */
 #define EVAL_RO_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -5491,7 +4778,6 @@ struct COMMAND_ARG EVAL_RO_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** FCALL ********************/
@@ -5499,13 +4785,11 @@ struct COMMAND_ARG EVAL_RO_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FCALL history */
 #define FCALL_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* FCALL tips */
 #define FCALL_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -5521,7 +4805,6 @@ struct COMMAND_ARG FCALL_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** FCALL_RO ********************/
@@ -5529,13 +4812,11 @@ struct COMMAND_ARG FCALL_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FCALL_RO history */
 #define FCALL_RO_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* FCALL_RO tips */
 #define FCALL_RO_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -5551,7 +4832,6 @@ struct COMMAND_ARG FCALL_RO_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** FUNCTION DELETE ********************/
@@ -5559,7 +4839,6 @@ struct COMMAND_ARG FCALL_RO_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FUNCTION DELETE history */
 #define FUNCTION_DELETE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -5567,21 +4846,17 @@ struct COMMAND_ARG FCALL_RO_Args[] = {
 const char *FUNCTION_DELETE_Tips[] = {
 "request_policy:all_shards",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FUNCTION DELETE key specs */
 #define FUNCTION_DELETE_Keyspecs NULL
-
 #endif
 
 /* FUNCTION DELETE argument table */
 struct COMMAND_ARG FUNCTION_DELETE_Args[] = {
 {MAKE_ARG("library-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** FUNCTION DUMP ********************/
@@ -5589,19 +4864,16 @@ struct COMMAND_ARG FUNCTION_DELETE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FUNCTION DUMP history */
 #define FUNCTION_DUMP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* FUNCTION DUMP tips */
 #define FUNCTION_DUMP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FUNCTION DUMP key specs */
 #define FUNCTION_DUMP_Keyspecs NULL
-
 #endif
 
 /********** FUNCTION FLUSH ********************/
@@ -5609,7 +4881,6 @@ struct COMMAND_ARG FUNCTION_DELETE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FUNCTION FLUSH history */
 #define FUNCTION_FLUSH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -5617,28 +4888,23 @@ struct COMMAND_ARG FUNCTION_DELETE_Args[] = {
 const char *FUNCTION_FLUSH_Tips[] = {
 "request_policy:all_shards",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FUNCTION FLUSH key specs */
 #define FUNCTION_FLUSH_Keyspecs NULL
-
 #endif
 
 /* FUNCTION FLUSH async argument table */
 struct COMMAND_ARG FUNCTION_FLUSH_async_Subargs[] = {
 {MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* FUNCTION FLUSH argument table */
 struct COMMAND_ARG FUNCTION_FLUSH_Args[] = {
 {MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FUNCTION_FLUSH_async_Subargs},
-{0}
 };
 
 /********** FUNCTION HELP ********************/
@@ -5646,19 +4912,16 @@ struct COMMAND_ARG FUNCTION_FLUSH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FUNCTION HELP history */
 #define FUNCTION_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* FUNCTION HELP tips */
 #define FUNCTION_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FUNCTION HELP key specs */
 #define FUNCTION_HELP_Keyspecs NULL
-
 #endif
 
 /********** FUNCTION KILL ********************/
@@ -5666,7 +4929,6 @@ struct COMMAND_ARG FUNCTION_FLUSH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FUNCTION KILL history */
 #define FUNCTION_KILL_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -5674,15 +4936,12 @@ struct COMMAND_ARG FUNCTION_FLUSH_Args[] = {
 const char *FUNCTION_KILL_Tips[] = {
 "request_policy:all_shards",
 "response_policy:one_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FUNCTION KILL key specs */
 #define FUNCTION_KILL_Keyspecs NULL
-
 #endif
 
 /********** FUNCTION LIST ********************/
@@ -5690,29 +4949,24 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FUNCTION LIST history */
 #define FUNCTION_LIST_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* FUNCTION LIST tips */
 const char *FUNCTION_LIST_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FUNCTION LIST key specs */
 #define FUNCTION_LIST_Keyspecs NULL
-
 #endif
 
 /* FUNCTION LIST argument table */
 struct COMMAND_ARG FUNCTION_LIST_Args[] = {
 {MAKE_ARG("library-name-pattern",ARG_TYPE_STRING,-1,"LIBRARYNAME",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withcode",ARG_TYPE_PURE_TOKEN,-1,"WITHCODE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** FUNCTION LOAD ********************/
@@ -5720,7 +4974,6 @@ struct COMMAND_ARG FUNCTION_LIST_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FUNCTION LOAD history */
 #define FUNCTION_LOAD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -5728,22 +4981,18 @@ struct COMMAND_ARG FUNCTION_LIST_Args[] = {
 const char *FUNCTION_LOAD_Tips[] = {
 "request_policy:all_shards",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FUNCTION LOAD key specs */
 #define FUNCTION_LOAD_Keyspecs NULL
-
 #endif
 
 /* FUNCTION LOAD argument table */
 struct COMMAND_ARG FUNCTION_LOAD_Args[] = {
 {MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("function-code",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** FUNCTION RESTORE ********************/
@@ -5751,7 +5000,6 @@ struct COMMAND_ARG FUNCTION_LOAD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FUNCTION RESTORE history */
 #define FUNCTION_RESTORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -5759,15 +5007,12 @@ struct COMMAND_ARG FUNCTION_LOAD_Args[] = {
 const char *FUNCTION_RESTORE_Tips[] = {
 "request_policy:all_shards",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FUNCTION RESTORE key specs */
 #define FUNCTION_RESTORE_Keyspecs NULL
-
 #endif
 
 /* FUNCTION RESTORE policy argument table */
@@ -5775,14 +5020,12 @@ struct COMMAND_ARG FUNCTION_RESTORE_policy_Subargs[] = {
 {MAKE_ARG("flush",ARG_TYPE_PURE_TOKEN,-1,"FLUSH",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("append",ARG_TYPE_PURE_TOKEN,-1,"APPEND",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* FUNCTION RESTORE argument table */
 struct COMMAND_ARG FUNCTION_RESTORE_Args[] = {
 {MAKE_ARG("serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("policy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=FUNCTION_RESTORE_policy_Subargs},
-{0}
 };
 
 /********** FUNCTION STATS ********************/
@@ -5790,7 +5033,6 @@ struct COMMAND_ARG FUNCTION_RESTORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FUNCTION STATS history */
 #define FUNCTION_STATS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -5799,15 +5041,12 @@ const char *FUNCTION_STATS_Tips[] = {
 "nondeterministic_output",
 "request_policy:all_shards",
 "response_policy:special",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FUNCTION STATS key specs */
 #define FUNCTION_STATS_Keyspecs NULL
-
 #endif
 
 /* FUNCTION command table */
@@ -5829,19 +5068,16 @@ struct COMMAND_STRUCT FUNCTION_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FUNCTION history */
 #define FUNCTION_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* FUNCTION tips */
 #define FUNCTION_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FUNCTION key specs */
 #define FUNCTION_Keyspecs NULL
-
 #endif
 
 /********** SCRIPT DEBUG ********************/
@@ -5849,19 +5085,16 @@ struct COMMAND_STRUCT FUNCTION_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SCRIPT DEBUG history */
 #define SCRIPT_DEBUG_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SCRIPT DEBUG tips */
 #define SCRIPT_DEBUG_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SCRIPT DEBUG key specs */
 #define SCRIPT_DEBUG_Keyspecs NULL
-
 #endif
 
 /* SCRIPT DEBUG mode argument table */
@@ -5869,13 +5102,11 @@ struct COMMAND_ARG SCRIPT_DEBUG_mode_Subargs[] = {
 {MAKE_ARG("yes",ARG_TYPE_PURE_TOKEN,-1,"YES",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SCRIPT DEBUG argument table */
 struct COMMAND_ARG SCRIPT_DEBUG_Args[] = {
 {MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=SCRIPT_DEBUG_mode_Subargs},
-{0}
 };
 
 /********** SCRIPT EXISTS ********************/
@@ -5883,7 +5114,6 @@ struct COMMAND_ARG SCRIPT_DEBUG_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SCRIPT EXISTS history */
 #define SCRIPT_EXISTS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -5891,21 +5121,17 @@ struct COMMAND_ARG SCRIPT_DEBUG_Args[] = {
 const char *SCRIPT_EXISTS_Tips[] = {
 "request_policy:all_shards",
 "response_policy:agg_logical_and",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SCRIPT EXISTS key specs */
 #define SCRIPT_EXISTS_Keyspecs NULL
-
 #endif
 
 /* SCRIPT EXISTS argument table */
 struct COMMAND_ARG SCRIPT_EXISTS_Args[] = {
 {MAKE_ARG("sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SCRIPT FLUSH ********************/
@@ -5914,9 +5140,7 @@ struct COMMAND_ARG SCRIPT_EXISTS_Args[] = {
 /* SCRIPT FLUSH history */
 commandHistory SCRIPT_FLUSH_History[] = {
 {"6.2.0","Added the `ASYNC` and `SYNC` flushing mode modifiers."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -5924,28 +5148,23 @@ commandHistory SCRIPT_FLUSH_History[] = {
 const char *SCRIPT_FLUSH_Tips[] = {
 "request_policy:all_nodes",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SCRIPT FLUSH key specs */
 #define SCRIPT_FLUSH_Keyspecs NULL
-
 #endif
 
 /* SCRIPT FLUSH async argument table */
 struct COMMAND_ARG SCRIPT_FLUSH_async_Subargs[] = {
 {MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SCRIPT FLUSH argument table */
 struct COMMAND_ARG SCRIPT_FLUSH_Args[] = {
 {MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=SCRIPT_FLUSH_async_Subargs},
-{0}
 };
 
 /********** SCRIPT HELP ********************/
@@ -5953,19 +5172,16 @@ struct COMMAND_ARG SCRIPT_FLUSH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SCRIPT HELP history */
 #define SCRIPT_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SCRIPT HELP tips */
 #define SCRIPT_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SCRIPT HELP key specs */
 #define SCRIPT_HELP_Keyspecs NULL
-
 #endif
 
 /********** SCRIPT KILL ********************/
@@ -5973,7 +5189,6 @@ struct COMMAND_ARG SCRIPT_FLUSH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SCRIPT KILL history */
 #define SCRIPT_KILL_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -5981,15 +5196,12 @@ struct COMMAND_ARG SCRIPT_FLUSH_Args[] = {
 const char *SCRIPT_KILL_Tips[] = {
 "request_policy:all_shards",
 "response_policy:one_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SCRIPT KILL key specs */
 #define SCRIPT_KILL_Keyspecs NULL
-
 #endif
 
 /********** SCRIPT LOAD ********************/
@@ -5997,7 +5209,6 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SCRIPT LOAD history */
 #define SCRIPT_LOAD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -6005,21 +5216,17 @@ NULL
 const char *SCRIPT_LOAD_Tips[] = {
 "request_policy:all_nodes",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SCRIPT LOAD key specs */
 #define SCRIPT_LOAD_Keyspecs NULL
-
 #endif
 
 /* SCRIPT LOAD argument table */
 struct COMMAND_ARG SCRIPT_LOAD_Args[] = {
 {MAKE_ARG("script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SCRIPT command table */
@@ -6038,19 +5245,16 @@ struct COMMAND_STRUCT SCRIPT_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SCRIPT history */
 #define SCRIPT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SCRIPT tips */
 #define SCRIPT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SCRIPT key specs */
 #define SCRIPT_Keyspecs NULL
-
 #endif
 
 /********** SENTINEL CKQUORUM ********************/
@@ -6058,25 +5262,21 @@ struct COMMAND_STRUCT SCRIPT_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL CKQUORUM history */
 #define SENTINEL_CKQUORUM_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL CKQUORUM tips */
 #define SENTINEL_CKQUORUM_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL CKQUORUM key specs */
 #define SENTINEL_CKQUORUM_Keyspecs NULL
-
 #endif
 
 /* SENTINEL CKQUORUM argument table */
 struct COMMAND_ARG SENTINEL_CKQUORUM_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SENTINEL CONFIG ********************/
@@ -6084,39 +5284,33 @@ struct COMMAND_ARG SENTINEL_CKQUORUM_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL CONFIG history */
 #define SENTINEL_CONFIG_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL CONFIG tips */
 #define SENTINEL_CONFIG_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL CONFIG key specs */
 #define SENTINEL_CONFIG_Keyspecs NULL
-
 #endif
 
 /* SENTINEL CONFIG set_or_get set_param_value argument table */
 struct COMMAND_ARG SENTINEL_CONFIG_set_or_get_set_param_value_Subargs[] = {
 {MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SENTINEL CONFIG set_or_get argument table */
 struct COMMAND_ARG SENTINEL_CONFIG_set_or_get_Subargs[] = {
 {MAKE_ARG("set_param_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_CONFIG_set_or_get_set_param_value_Subargs},
 {MAKE_ARG("parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /* SENTINEL CONFIG argument table */
 struct COMMAND_ARG SENTINEL_CONFIG_Args[] = {
 {MAKE_ARG("set_or_get",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SENTINEL_CONFIG_set_or_get_Subargs},
-{0}
 };
 
 /********** SENTINEL DEBUG ********************/
@@ -6124,32 +5318,27 @@ struct COMMAND_ARG SENTINEL_CONFIG_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL DEBUG history */
 #define SENTINEL_DEBUG_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL DEBUG tips */
 #define SENTINEL_DEBUG_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL DEBUG key specs */
 #define SENTINEL_DEBUG_Keyspecs NULL
-
 #endif
 
 /* SENTINEL DEBUG parameter_value argument table */
 struct COMMAND_ARG SENTINEL_DEBUG_parameter_value_Subargs[] = {
 {MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SENTINEL DEBUG argument table */
 struct COMMAND_ARG SENTINEL_DEBUG_Args[] = {
 {MAKE_ARG("parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_DEBUG_parameter_value_Subargs},
-{0}
 };
 
 /********** SENTINEL FAILOVER ********************/
@@ -6157,25 +5346,21 @@ struct COMMAND_ARG SENTINEL_DEBUG_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL FAILOVER history */
 #define SENTINEL_FAILOVER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL FAILOVER tips */
 #define SENTINEL_FAILOVER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL FAILOVER key specs */
 #define SENTINEL_FAILOVER_Keyspecs NULL
-
 #endif
 
 /* SENTINEL FAILOVER argument table */
 struct COMMAND_ARG SENTINEL_FAILOVER_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SENTINEL FLUSHCONFIG ********************/
@@ -6183,19 +5368,16 @@ struct COMMAND_ARG SENTINEL_FAILOVER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL FLUSHCONFIG history */
 #define SENTINEL_FLUSHCONFIG_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL FLUSHCONFIG tips */
 #define SENTINEL_FLUSHCONFIG_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL FLUSHCONFIG key specs */
 #define SENTINEL_FLUSHCONFIG_Keyspecs NULL
-
 #endif
 
 /********** SENTINEL GET_MASTER_ADDR_BY_NAME ********************/
@@ -6203,25 +5385,21 @@ struct COMMAND_ARG SENTINEL_FAILOVER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL GET_MASTER_ADDR_BY_NAME history */
 #define SENTINEL_GET_MASTER_ADDR_BY_NAME_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL GET_MASTER_ADDR_BY_NAME tips */
 #define SENTINEL_GET_MASTER_ADDR_BY_NAME_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL GET_MASTER_ADDR_BY_NAME key specs */
 #define SENTINEL_GET_MASTER_ADDR_BY_NAME_Keyspecs NULL
-
 #endif
 
 /* SENTINEL GET_MASTER_ADDR_BY_NAME argument table */
 struct COMMAND_ARG SENTINEL_GET_MASTER_ADDR_BY_NAME_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SENTINEL HELP ********************/
@@ -6229,19 +5407,16 @@ struct COMMAND_ARG SENTINEL_GET_MASTER_ADDR_BY_NAME_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL HELP history */
 #define SENTINEL_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL HELP tips */
 #define SENTINEL_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL HELP key specs */
 #define SENTINEL_HELP_Keyspecs NULL
-
 #endif
 
 /********** SENTINEL INFO_CACHE ********************/
@@ -6249,25 +5424,21 @@ struct COMMAND_ARG SENTINEL_GET_MASTER_ADDR_BY_NAME_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL INFO_CACHE history */
 #define SENTINEL_INFO_CACHE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL INFO_CACHE tips */
 #define SENTINEL_INFO_CACHE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL INFO_CACHE key specs */
 #define SENTINEL_INFO_CACHE_Keyspecs NULL
-
 #endif
 
 /* SENTINEL INFO_CACHE argument table */
 struct COMMAND_ARG SENTINEL_INFO_CACHE_Args[] = {
 {MAKE_ARG("nodename",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SENTINEL IS_MASTER_DOWN_BY_ADDR ********************/
@@ -6275,19 +5446,16 @@ struct COMMAND_ARG SENTINEL_INFO_CACHE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL IS_MASTER_DOWN_BY_ADDR history */
 #define SENTINEL_IS_MASTER_DOWN_BY_ADDR_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL IS_MASTER_DOWN_BY_ADDR tips */
 #define SENTINEL_IS_MASTER_DOWN_BY_ADDR_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL IS_MASTER_DOWN_BY_ADDR key specs */
 #define SENTINEL_IS_MASTER_DOWN_BY_ADDR_Keyspecs NULL
-
 #endif
 
 /* SENTINEL IS_MASTER_DOWN_BY_ADDR argument table */
@@ -6296,7 +5464,6 @@ struct COMMAND_ARG SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args[] = {
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("current-epoch",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("runid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SENTINEL MASTER ********************/
@@ -6304,25 +5471,21 @@ struct COMMAND_ARG SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL MASTER history */
 #define SENTINEL_MASTER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL MASTER tips */
 #define SENTINEL_MASTER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL MASTER key specs */
 #define SENTINEL_MASTER_Keyspecs NULL
-
 #endif
 
 /* SENTINEL MASTER argument table */
 struct COMMAND_ARG SENTINEL_MASTER_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SENTINEL MASTERS ********************/
@@ -6330,19 +5493,16 @@ struct COMMAND_ARG SENTINEL_MASTER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL MASTERS history */
 #define SENTINEL_MASTERS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL MASTERS tips */
 #define SENTINEL_MASTERS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL MASTERS key specs */
 #define SENTINEL_MASTERS_Keyspecs NULL
-
 #endif
 
 /********** SENTINEL MONITOR ********************/
@@ -6350,19 +5510,16 @@ struct COMMAND_ARG SENTINEL_MASTER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL MONITOR history */
 #define SENTINEL_MONITOR_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL MONITOR tips */
 #define SENTINEL_MONITOR_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL MONITOR key specs */
 #define SENTINEL_MONITOR_Keyspecs NULL
-
 #endif
 
 /* SENTINEL MONITOR argument table */
@@ -6371,7 +5528,6 @@ struct COMMAND_ARG SENTINEL_MONITOR_Args[] = {
 {MAKE_ARG("ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("quorum",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SENTINEL MYID ********************/
@@ -6379,19 +5535,16 @@ struct COMMAND_ARG SENTINEL_MONITOR_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL MYID history */
 #define SENTINEL_MYID_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL MYID tips */
 #define SENTINEL_MYID_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL MYID key specs */
 #define SENTINEL_MYID_Keyspecs NULL
-
 #endif
 
 /********** SENTINEL PENDING_SCRIPTS ********************/
@@ -6399,19 +5552,16 @@ struct COMMAND_ARG SENTINEL_MONITOR_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL PENDING_SCRIPTS history */
 #define SENTINEL_PENDING_SCRIPTS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL PENDING_SCRIPTS tips */
 #define SENTINEL_PENDING_SCRIPTS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL PENDING_SCRIPTS key specs */
 #define SENTINEL_PENDING_SCRIPTS_Keyspecs NULL
-
 #endif
 
 /********** SENTINEL REMOVE ********************/
@@ -6419,25 +5569,21 @@ struct COMMAND_ARG SENTINEL_MONITOR_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL REMOVE history */
 #define SENTINEL_REMOVE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL REMOVE tips */
 #define SENTINEL_REMOVE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL REMOVE key specs */
 #define SENTINEL_REMOVE_Keyspecs NULL
-
 #endif
 
 /* SENTINEL REMOVE argument table */
 struct COMMAND_ARG SENTINEL_REMOVE_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SENTINEL REPLICAS ********************/
@@ -6445,25 +5591,21 @@ struct COMMAND_ARG SENTINEL_REMOVE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL REPLICAS history */
 #define SENTINEL_REPLICAS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL REPLICAS tips */
 #define SENTINEL_REPLICAS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL REPLICAS key specs */
 #define SENTINEL_REPLICAS_Keyspecs NULL
-
 #endif
 
 /* SENTINEL REPLICAS argument table */
 struct COMMAND_ARG SENTINEL_REPLICAS_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SENTINEL RESET ********************/
@@ -6471,25 +5613,21 @@ struct COMMAND_ARG SENTINEL_REPLICAS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL RESET history */
 #define SENTINEL_RESET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL RESET tips */
 #define SENTINEL_RESET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL RESET key specs */
 #define SENTINEL_RESET_Keyspecs NULL
-
 #endif
 
 /* SENTINEL RESET argument table */
 struct COMMAND_ARG SENTINEL_RESET_Args[] = {
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SENTINEL SENTINELS ********************/
@@ -6497,25 +5635,21 @@ struct COMMAND_ARG SENTINEL_RESET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL SENTINELS history */
 #define SENTINEL_SENTINELS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL SENTINELS tips */
 #define SENTINEL_SENTINELS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL SENTINELS key specs */
 #define SENTINEL_SENTINELS_Keyspecs NULL
-
 #endif
 
 /* SENTINEL SENTINELS argument table */
 struct COMMAND_ARG SENTINEL_SENTINELS_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SENTINEL SET ********************/
@@ -6523,33 +5657,28 @@ struct COMMAND_ARG SENTINEL_SENTINELS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL SET history */
 #define SENTINEL_SET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL SET tips */
 #define SENTINEL_SET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL SET key specs */
 #define SENTINEL_SET_Keyspecs NULL
-
 #endif
 
 /* SENTINEL SET option_value argument table */
 struct COMMAND_ARG SENTINEL_SET_option_value_Subargs[] = {
 {MAKE_ARG("option",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SENTINEL SET argument table */
 struct COMMAND_ARG SENTINEL_SET_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("option_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_SET_option_value_Subargs},
-{0}
 };
 
 /********** SENTINEL SIMULATE_FAILURE ********************/
@@ -6557,19 +5686,16 @@ struct COMMAND_ARG SENTINEL_SET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL SIMULATE_FAILURE history */
 #define SENTINEL_SIMULATE_FAILURE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL SIMULATE_FAILURE tips */
 #define SENTINEL_SIMULATE_FAILURE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL SIMULATE_FAILURE key specs */
 #define SENTINEL_SIMULATE_FAILURE_Keyspecs NULL
-
 #endif
 
 /* SENTINEL SIMULATE_FAILURE mode argument table */
@@ -6577,13 +5703,11 @@ struct COMMAND_ARG SENTINEL_SIMULATE_FAILURE_mode_Subargs[] = {
 {MAKE_ARG("crash-after-election",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("crash-after-promotion",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("help",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SENTINEL SIMULATE_FAILURE argument table */
 struct COMMAND_ARG SENTINEL_SIMULATE_FAILURE_Args[] = {
 {MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,3,NULL),.subargs=SENTINEL_SIMULATE_FAILURE_mode_Subargs},
-{0}
 };
 
 /********** SENTINEL SLAVES ********************/
@@ -6591,25 +5715,21 @@ struct COMMAND_ARG SENTINEL_SIMULATE_FAILURE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL SLAVES history */
 #define SENTINEL_SLAVES_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL SLAVES tips */
 #define SENTINEL_SLAVES_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL SLAVES key specs */
 #define SENTINEL_SLAVES_Keyspecs NULL
-
 #endif
 
 /* SENTINEL SLAVES argument table */
 struct COMMAND_ARG SENTINEL_SLAVES_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SENTINEL command table */
@@ -6643,19 +5763,16 @@ struct COMMAND_STRUCT SENTINEL_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL history */
 #define SENTINEL_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SENTINEL tips */
 #define SENTINEL_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SENTINEL key specs */
 #define SENTINEL_Keyspecs NULL
-
 #endif
 
 /********** ACL CAT ********************/
@@ -6663,25 +5780,21 @@ struct COMMAND_STRUCT SENTINEL_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL CAT history */
 #define ACL_CAT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL CAT tips */
 #define ACL_CAT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL CAT key specs */
 #define ACL_CAT_Keyspecs NULL
-
 #endif
 
 /* ACL CAT argument table */
 struct COMMAND_ARG ACL_CAT_Args[] = {
 {MAKE_ARG("categoryname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ACL DELUSER ********************/
@@ -6689,25 +5802,21 @@ struct COMMAND_ARG ACL_CAT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL DELUSER history */
 #define ACL_DELUSER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL DELUSER tips */
 #define ACL_DELUSER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL DELUSER key specs */
 #define ACL_DELUSER_Keyspecs NULL
-
 #endif
 
 /* ACL DELUSER argument table */
 struct COMMAND_ARG ACL_DELUSER_Args[] = {
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** ACL DRYRUN ********************/
@@ -6715,19 +5824,16 @@ struct COMMAND_ARG ACL_DELUSER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL DRYRUN history */
 #define ACL_DRYRUN_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL DRYRUN tips */
 #define ACL_DRYRUN_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL DRYRUN key specs */
 #define ACL_DRYRUN_Keyspecs NULL
-
 #endif
 
 /* ACL DRYRUN argument table */
@@ -6735,7 +5841,6 @@ struct COMMAND_ARG ACL_DRYRUN_Args[] = {
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** ACL GENPASS ********************/
@@ -6743,25 +5848,21 @@ struct COMMAND_ARG ACL_DRYRUN_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL GENPASS history */
 #define ACL_GENPASS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL GENPASS tips */
 #define ACL_GENPASS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL GENPASS key specs */
 #define ACL_GENPASS_Keyspecs NULL
-
 #endif
 
 /* ACL GENPASS argument table */
 struct COMMAND_ARG ACL_GENPASS_Args[] = {
 {MAKE_ARG("bits",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ACL GETUSER ********************/
@@ -6771,27 +5872,22 @@ struct COMMAND_ARG ACL_GENPASS_Args[] = {
 commandHistory ACL_GETUSER_History[] = {
 {"6.2.0","Added Pub/Sub channel patterns."},
 {"7.0.0","Added selectors and changed the format of key and channel patterns from a list to their rule representation."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL GETUSER tips */
 #define ACL_GETUSER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL GETUSER key specs */
 #define ACL_GETUSER_Keyspecs NULL
-
 #endif
 
 /* ACL GETUSER argument table */
 struct COMMAND_ARG ACL_GETUSER_Args[] = {
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ACL HELP ********************/
@@ -6799,19 +5895,16 @@ struct COMMAND_ARG ACL_GETUSER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL HELP history */
 #define ACL_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL HELP tips */
 #define ACL_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL HELP key specs */
 #define ACL_HELP_Keyspecs NULL
-
 #endif
 
 /********** ACL LIST ********************/
@@ -6819,19 +5912,16 @@ struct COMMAND_ARG ACL_GETUSER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL LIST history */
 #define ACL_LIST_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL LIST tips */
 #define ACL_LIST_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL LIST key specs */
 #define ACL_LIST_Keyspecs NULL
-
 #endif
 
 /********** ACL LOAD ********************/
@@ -6839,19 +5929,16 @@ struct COMMAND_ARG ACL_GETUSER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL LOAD history */
 #define ACL_LOAD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL LOAD tips */
 #define ACL_LOAD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL LOAD key specs */
 #define ACL_LOAD_Keyspecs NULL
-
 #endif
 
 /********** ACL LOG ********************/
@@ -6859,32 +5946,27 @@ struct COMMAND_ARG ACL_GETUSER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL LOG history */
 #define ACL_LOG_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL LOG tips */
 #define ACL_LOG_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL LOG key specs */
 #define ACL_LOG_Keyspecs NULL
-
 #endif
 
 /* ACL LOG operation argument table */
 struct COMMAND_ARG ACL_LOG_operation_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("reset",ARG_TYPE_PURE_TOKEN,-1,"RESET",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ACL LOG argument table */
 struct COMMAND_ARG ACL_LOG_Args[] = {
 {MAKE_ARG("operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ACL_LOG_operation_Subargs},
-{0}
 };
 
 /********** ACL SAVE ********************/
@@ -6892,19 +5974,16 @@ struct COMMAND_ARG ACL_LOG_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL SAVE history */
 #define ACL_SAVE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL SAVE tips */
 #define ACL_SAVE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL SAVE key specs */
 #define ACL_SAVE_Keyspecs NULL
-
 #endif
 
 /********** ACL SETUSER ********************/
@@ -6914,28 +5993,23 @@ struct COMMAND_ARG ACL_LOG_Args[] = {
 commandHistory ACL_SETUSER_History[] = {
 {"6.2.0","Added Pub/Sub channel patterns."},
 {"7.0.0","Added selectors and key based permissions."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL SETUSER tips */
 #define ACL_SETUSER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL SETUSER key specs */
 #define ACL_SETUSER_Keyspecs NULL
-
 #endif
 
 /* ACL SETUSER argument table */
 struct COMMAND_ARG ACL_SETUSER_Args[] = {
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("rule",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** ACL USERS ********************/
@@ -6943,19 +6017,16 @@ struct COMMAND_ARG ACL_SETUSER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL USERS history */
 #define ACL_USERS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL USERS tips */
 #define ACL_USERS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL USERS key specs */
 #define ACL_USERS_Keyspecs NULL
-
 #endif
 
 /********** ACL WHOAMI ********************/
@@ -6963,19 +6034,16 @@ struct COMMAND_ARG ACL_SETUSER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL WHOAMI history */
 #define ACL_WHOAMI_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL WHOAMI tips */
 #define ACL_WHOAMI_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL WHOAMI key specs */
 #define ACL_WHOAMI_Keyspecs NULL
-
 #endif
 
 /* ACL command table */
@@ -7001,19 +6069,16 @@ struct COMMAND_STRUCT ACL_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ACL history */
 #define ACL_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL tips */
 #define ACL_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL key specs */
 #define ACL_Keyspecs NULL
-
 #endif
 
 /********** BGREWRITEAOF ********************/
@@ -7021,19 +6086,16 @@ struct COMMAND_STRUCT ACL_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* BGREWRITEAOF history */
 #define BGREWRITEAOF_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BGREWRITEAOF tips */
 #define BGREWRITEAOF_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* BGREWRITEAOF key specs */
 #define BGREWRITEAOF_Keyspecs NULL
-
 #endif
 
 /********** BGSAVE ********************/
@@ -7042,27 +6104,22 @@ struct COMMAND_STRUCT ACL_Subcommands[] = {
 /* BGSAVE history */
 commandHistory BGSAVE_History[] = {
 {"3.2.2","Added the `SCHEDULE` option."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BGSAVE tips */
 #define BGSAVE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* BGSAVE key specs */
 #define BGSAVE_Keyspecs NULL
-
 #endif
 
 /* BGSAVE argument table */
 struct COMMAND_ARG BGSAVE_Args[] = {
 {MAKE_ARG("schedule",ARG_TYPE_PURE_TOKEN,-1,"SCHEDULE",NULL,"3.2.2",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** COMMAND COUNT ********************/
@@ -7070,19 +6127,16 @@ struct COMMAND_ARG BGSAVE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* COMMAND COUNT history */
 #define COMMAND_COUNT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* COMMAND COUNT tips */
 #define COMMAND_COUNT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* COMMAND COUNT key specs */
 #define COMMAND_COUNT_Keyspecs NULL
-
 #endif
 
 /********** COMMAND DOCS ********************/
@@ -7090,28 +6144,23 @@ struct COMMAND_ARG BGSAVE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* COMMAND DOCS history */
 #define COMMAND_DOCS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* COMMAND DOCS tips */
 const char *COMMAND_DOCS_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* COMMAND DOCS key specs */
 #define COMMAND_DOCS_Keyspecs NULL
-
 #endif
 
 /* COMMAND DOCS argument table */
 struct COMMAND_ARG COMMAND_DOCS_Args[] = {
 {MAKE_ARG("command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** COMMAND GETKEYS ********************/
@@ -7119,19 +6168,16 @@ struct COMMAND_ARG COMMAND_DOCS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* COMMAND GETKEYS history */
 #define COMMAND_GETKEYS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* COMMAND GETKEYS tips */
 #define COMMAND_GETKEYS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* COMMAND GETKEYS key specs */
 #define COMMAND_GETKEYS_Keyspecs NULL
-
 #endif
 
 /********** COMMAND GETKEYSANDFLAGS ********************/
@@ -7139,19 +6185,16 @@ struct COMMAND_ARG COMMAND_DOCS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* COMMAND GETKEYSANDFLAGS history */
 #define COMMAND_GETKEYSANDFLAGS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* COMMAND GETKEYSANDFLAGS tips */
 #define COMMAND_GETKEYSANDFLAGS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* COMMAND GETKEYSANDFLAGS key specs */
 #define COMMAND_GETKEYSANDFLAGS_Keyspecs NULL
-
 #endif
 
 /********** COMMAND HELP ********************/
@@ -7159,19 +6202,16 @@ struct COMMAND_ARG COMMAND_DOCS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* COMMAND HELP history */
 #define COMMAND_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* COMMAND HELP tips */
 #define COMMAND_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* COMMAND HELP key specs */
 #define COMMAND_HELP_Keyspecs NULL
-
 #endif
 
 /********** COMMAND INFO ********************/
@@ -7180,30 +6220,24 @@ struct COMMAND_ARG COMMAND_DOCS_Args[] = {
 /* COMMAND INFO history */
 commandHistory COMMAND_INFO_History[] = {
 {"7.0.0","Allowed to be called with no argument to get info on all commands."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* COMMAND INFO tips */
 const char *COMMAND_INFO_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* COMMAND INFO key specs */
 #define COMMAND_INFO_Keyspecs NULL
-
 #endif
 
 /* COMMAND INFO argument table */
 struct COMMAND_ARG COMMAND_INFO_Args[] = {
 {MAKE_ARG("command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** COMMAND LIST ********************/
@@ -7211,22 +6245,18 @@ struct COMMAND_ARG COMMAND_INFO_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* COMMAND LIST history */
 #define COMMAND_LIST_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* COMMAND LIST tips */
 const char *COMMAND_LIST_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* COMMAND LIST key specs */
 #define COMMAND_LIST_Keyspecs NULL
-
 #endif
 
 /* COMMAND LIST filterby argument table */
@@ -7234,13 +6264,11 @@ struct COMMAND_ARG COMMAND_LIST_filterby_Subargs[] = {
 {MAKE_ARG("module-name",ARG_TYPE_STRING,-1,"MODULE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("category",ARG_TYPE_STRING,-1,"ACLCAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"PATTERN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* COMMAND LIST argument table */
 struct COMMAND_ARG COMMAND_LIST_Args[] = {
 {MAKE_ARG("filterby",ARG_TYPE_ONEOF,-1,"FILTERBY",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=COMMAND_LIST_filterby_Subargs},
-{0}
 };
 
 /* COMMAND command table */
@@ -7260,22 +6288,18 @@ struct COMMAND_STRUCT COMMAND_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* COMMAND history */
 #define COMMAND_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* COMMAND tips */
 const char *COMMAND_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* COMMAND key specs */
 #define COMMAND_Keyspecs NULL
-
 #endif
 
 /********** CONFIG GET ********************/
@@ -7284,33 +6308,27 @@ NULL
 /* CONFIG GET history */
 commandHistory CONFIG_GET_History[] = {
 {"7.0.0","Added the ability to pass multiple pattern parameters in one call"},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CONFIG GET tips */
 #define CONFIG_GET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CONFIG GET key specs */
 #define CONFIG_GET_Keyspecs NULL
-
 #endif
 
 /* CONFIG GET parameter argument table */
 struct COMMAND_ARG CONFIG_GET_parameter_Subargs[] = {
 {MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CONFIG GET argument table */
 struct COMMAND_ARG CONFIG_GET_Args[] = {
 {MAKE_ARG("parameter",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,1,NULL),.subargs=CONFIG_GET_parameter_Subargs},
-{0}
 };
 
 /********** CONFIG HELP ********************/
@@ -7318,19 +6336,16 @@ struct COMMAND_ARG CONFIG_GET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CONFIG HELP history */
 #define CONFIG_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CONFIG HELP tips */
 #define CONFIG_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CONFIG HELP key specs */
 #define CONFIG_HELP_Keyspecs NULL
-
 #endif
 
 /********** CONFIG RESETSTAT ********************/
@@ -7338,19 +6353,16 @@ struct COMMAND_ARG CONFIG_GET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CONFIG RESETSTAT history */
 #define CONFIG_RESETSTAT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CONFIG RESETSTAT tips */
 #define CONFIG_RESETSTAT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CONFIG RESETSTAT key specs */
 #define CONFIG_RESETSTAT_Keyspecs NULL
-
 #endif
 
 /********** CONFIG REWRITE ********************/
@@ -7358,19 +6370,16 @@ struct COMMAND_ARG CONFIG_GET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CONFIG REWRITE history */
 #define CONFIG_REWRITE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CONFIG REWRITE tips */
 #define CONFIG_REWRITE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CONFIG REWRITE key specs */
 #define CONFIG_REWRITE_Keyspecs NULL
-
 #endif
 
 /********** CONFIG SET ********************/
@@ -7379,9 +6388,7 @@ struct COMMAND_ARG CONFIG_GET_Args[] = {
 /* CONFIG SET history */
 commandHistory CONFIG_SET_History[] = {
 {"7.0.0","Added the ability to set multiple parameters in one call."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7389,28 +6396,23 @@ commandHistory CONFIG_SET_History[] = {
 const char *CONFIG_SET_Tips[] = {
 "request_policy:all_nodes",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CONFIG SET key specs */
 #define CONFIG_SET_Keyspecs NULL
-
 #endif
 
 /* CONFIG SET parameter_value argument table */
 struct COMMAND_ARG CONFIG_SET_parameter_value_Subargs[] = {
 {MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* CONFIG SET argument table */
 struct COMMAND_ARG CONFIG_SET_Args[] = {
 {MAKE_ARG("parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CONFIG_SET_parameter_value_Subargs},
-{0}
 };
 
 /* CONFIG command table */
@@ -7428,19 +6430,16 @@ struct COMMAND_STRUCT CONFIG_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* CONFIG history */
 #define CONFIG_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CONFIG tips */
 #define CONFIG_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* CONFIG key specs */
 #define CONFIG_Keyspecs NULL
-
 #endif
 
 /********** DBSIZE ********************/
@@ -7448,7 +6447,6 @@ struct COMMAND_STRUCT CONFIG_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* DBSIZE history */
 #define DBSIZE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7456,15 +6454,12 @@ struct COMMAND_STRUCT CONFIG_Subcommands[] = {
 const char *DBSIZE_Tips[] = {
 "request_policy:all_shards",
 "response_policy:agg_sum",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* DBSIZE key specs */
 #define DBSIZE_Keyspecs NULL
-
 #endif
 
 /********** DEBUG ********************/
@@ -7472,19 +6467,16 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* DEBUG history */
 #define DEBUG_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* DEBUG tips */
 #define DEBUG_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* DEBUG key specs */
 #define DEBUG_Keyspecs NULL
-
 #endif
 
 /********** FAILOVER ********************/
@@ -7492,19 +6484,16 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* FAILOVER history */
 #define FAILOVER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* FAILOVER tips */
 #define FAILOVER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FAILOVER key specs */
 #define FAILOVER_Keyspecs NULL
-
 #endif
 
 /* FAILOVER target argument table */
@@ -7512,7 +6501,6 @@ struct COMMAND_ARG FAILOVER_target_Subargs[] = {
 {MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* FAILOVER argument table */
@@ -7520,7 +6508,6 @@ struct COMMAND_ARG FAILOVER_Args[] = {
 {MAKE_ARG("target",ARG_TYPE_BLOCK,-1,"TO",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=FAILOVER_target_Subargs},
 {MAKE_ARG("abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"TIMEOUT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** FLUSHALL ********************/
@@ -7530,9 +6517,7 @@ struct COMMAND_ARG FAILOVER_Args[] = {
 commandHistory FLUSHALL_History[] = {
 {"4.0.0","Added the `ASYNC` flushing mode modifier."},
 {"6.2.0","Added the `SYNC` flushing mode modifier."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7540,28 +6525,23 @@ commandHistory FLUSHALL_History[] = {
 const char *FLUSHALL_Tips[] = {
 "request_policy:all_shards",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FLUSHALL key specs */
 #define FLUSHALL_Keyspecs NULL
-
 #endif
 
 /* FLUSHALL async argument table */
 struct COMMAND_ARG FLUSHALL_async_Subargs[] = {
 {MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* FLUSHALL argument table */
 struct COMMAND_ARG FLUSHALL_Args[] = {
 {MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FLUSHALL_async_Subargs},
-{0}
 };
 
 /********** FLUSHDB ********************/
@@ -7571,9 +6551,7 @@ struct COMMAND_ARG FLUSHALL_Args[] = {
 commandHistory FLUSHDB_History[] = {
 {"4.0.0","Added the `ASYNC` flushing mode modifier."},
 {"6.2.0","Added the `SYNC` flushing mode modifier."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7581,28 +6559,23 @@ commandHistory FLUSHDB_History[] = {
 const char *FLUSHDB_Tips[] = {
 "request_policy:all_shards",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* FLUSHDB key specs */
 #define FLUSHDB_Keyspecs NULL
-
 #endif
 
 /* FLUSHDB async argument table */
 struct COMMAND_ARG FLUSHDB_async_Subargs[] = {
 {MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* FLUSHDB argument table */
 struct COMMAND_ARG FLUSHDB_Args[] = {
 {MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FLUSHDB_async_Subargs},
-{0}
 };
 
 /********** INFO ********************/
@@ -7611,9 +6584,7 @@ struct COMMAND_ARG FLUSHDB_Args[] = {
 /* INFO history */
 commandHistory INFO_History[] = {
 {"7.0.0","Added support for taking multiple section arguments."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7622,21 +6593,17 @@ const char *INFO_Tips[] = {
 "nondeterministic_output",
 "request_policy:all_shards",
 "response_policy:special",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* INFO key specs */
 #define INFO_Keyspecs NULL
-
 #endif
 
 /* INFO argument table */
 struct COMMAND_ARG INFO_Args[] = {
 {MAKE_ARG("section",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** LASTSAVE ********************/
@@ -7644,22 +6611,18 @@ struct COMMAND_ARG INFO_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LASTSAVE history */
 #define LASTSAVE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LASTSAVE tips */
 const char *LASTSAVE_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* LASTSAVE key specs */
 #define LASTSAVE_Keyspecs NULL
-
 #endif
 
 /********** LATENCY DOCTOR ********************/
@@ -7667,7 +6630,6 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LATENCY DOCTOR history */
 #define LATENCY_DOCTOR_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7676,15 +6638,12 @@ const char *LATENCY_DOCTOR_Tips[] = {
 "nondeterministic_output",
 "request_policy:all_nodes",
 "response_policy:special",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* LATENCY DOCTOR key specs */
 #define LATENCY_DOCTOR_Keyspecs NULL
-
 #endif
 
 /********** LATENCY GRAPH ********************/
@@ -7692,7 +6651,6 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LATENCY GRAPH history */
 #define LATENCY_GRAPH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7701,21 +6659,17 @@ const char *LATENCY_GRAPH_Tips[] = {
 "nondeterministic_output",
 "request_policy:all_nodes",
 "response_policy:special",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* LATENCY GRAPH key specs */
 #define LATENCY_GRAPH_Keyspecs NULL
-
 #endif
 
 /* LATENCY GRAPH argument table */
 struct COMMAND_ARG LATENCY_GRAPH_Args[] = {
 {MAKE_ARG("event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** LATENCY HELP ********************/
@@ -7723,19 +6677,16 @@ struct COMMAND_ARG LATENCY_GRAPH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LATENCY HELP history */
 #define LATENCY_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LATENCY HELP tips */
 #define LATENCY_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* LATENCY HELP key specs */
 #define LATENCY_HELP_Keyspecs NULL
-
 #endif
 
 /********** LATENCY HISTOGRAM ********************/
@@ -7743,7 +6694,6 @@ struct COMMAND_ARG LATENCY_GRAPH_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LATENCY HISTOGRAM history */
 #define LATENCY_HISTOGRAM_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7752,21 +6702,17 @@ const char *LATENCY_HISTOGRAM_Tips[] = {
 "nondeterministic_output",
 "request_policy:all_nodes",
 "response_policy:special",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* LATENCY HISTOGRAM key specs */
 #define LATENCY_HISTOGRAM_Keyspecs NULL
-
 #endif
 
 /* LATENCY HISTOGRAM argument table */
 struct COMMAND_ARG LATENCY_HISTOGRAM_Args[] = {
 {MAKE_ARG("command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** LATENCY HISTORY ********************/
@@ -7774,7 +6720,6 @@ struct COMMAND_ARG LATENCY_HISTOGRAM_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LATENCY HISTORY history */
 #define LATENCY_HISTORY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7783,21 +6728,17 @@ const char *LATENCY_HISTORY_Tips[] = {
 "nondeterministic_output",
 "request_policy:all_nodes",
 "response_policy:special",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* LATENCY HISTORY key specs */
 #define LATENCY_HISTORY_Keyspecs NULL
-
 #endif
 
 /* LATENCY HISTORY argument table */
 struct COMMAND_ARG LATENCY_HISTORY_Args[] = {
 {MAKE_ARG("event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** LATENCY LATEST ********************/
@@ -7805,7 +6746,6 @@ struct COMMAND_ARG LATENCY_HISTORY_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LATENCY LATEST history */
 #define LATENCY_LATEST_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7814,15 +6754,12 @@ const char *LATENCY_LATEST_Tips[] = {
 "nondeterministic_output",
 "request_policy:all_nodes",
 "response_policy:special",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* LATENCY LATEST key specs */
 #define LATENCY_LATEST_Keyspecs NULL
-
 #endif
 
 /********** LATENCY RESET ********************/
@@ -7830,7 +6767,6 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LATENCY RESET history */
 #define LATENCY_RESET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7838,21 +6774,17 @@ NULL
 const char *LATENCY_RESET_Tips[] = {
 "request_policy:all_nodes",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* LATENCY RESET key specs */
 #define LATENCY_RESET_Keyspecs NULL
-
 #endif
 
 /* LATENCY RESET argument table */
 struct COMMAND_ARG LATENCY_RESET_Args[] = {
 {MAKE_ARG("event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /* LATENCY command table */
@@ -7872,19 +6804,16 @@ struct COMMAND_STRUCT LATENCY_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LATENCY history */
 #define LATENCY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LATENCY tips */
 #define LATENCY_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* LATENCY key specs */
 #define LATENCY_Keyspecs NULL
-
 #endif
 
 /********** LOLWUT ********************/
@@ -7892,25 +6821,21 @@ struct COMMAND_STRUCT LATENCY_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LOLWUT history */
 #define LOLWUT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LOLWUT tips */
 #define LOLWUT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* LOLWUT key specs */
 #define LOLWUT_Keyspecs NULL
-
 #endif
 
 /* LOLWUT argument table */
 struct COMMAND_ARG LOLWUT_Args[] = {
 {MAKE_ARG("version",ARG_TYPE_INTEGER,-1,"VERSION",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** MEMORY DOCTOR ********************/
@@ -7918,7 +6843,6 @@ struct COMMAND_ARG LOLWUT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MEMORY DOCTOR history */
 #define MEMORY_DOCTOR_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7927,15 +6851,12 @@ const char *MEMORY_DOCTOR_Tips[] = {
 "nondeterministic_output",
 "request_policy:all_shards",
 "response_policy:special",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MEMORY DOCTOR key specs */
 #define MEMORY_DOCTOR_Keyspecs NULL
-
 #endif
 
 /********** MEMORY HELP ********************/
@@ -7943,19 +6864,16 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MEMORY HELP history */
 #define MEMORY_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MEMORY HELP tips */
 #define MEMORY_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MEMORY HELP key specs */
 #define MEMORY_HELP_Keyspecs NULL
-
 #endif
 
 /********** MEMORY MALLOC_STATS ********************/
@@ -7963,7 +6881,6 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MEMORY MALLOC_STATS history */
 #define MEMORY_MALLOC_STATS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7972,15 +6889,12 @@ const char *MEMORY_MALLOC_STATS_Tips[] = {
 "nondeterministic_output",
 "request_policy:all_shards",
 "response_policy:special",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MEMORY MALLOC_STATS key specs */
 #define MEMORY_MALLOC_STATS_Keyspecs NULL
-
 #endif
 
 /********** MEMORY PURGE ********************/
@@ -7988,7 +6902,6 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MEMORY PURGE history */
 #define MEMORY_PURGE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7996,15 +6909,12 @@ NULL
 const char *MEMORY_PURGE_Tips[] = {
 "request_policy:all_shards",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MEMORY PURGE key specs */
 #define MEMORY_PURGE_Keyspecs NULL
-
 #endif
 
 /********** MEMORY STATS ********************/
@@ -8012,7 +6922,6 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MEMORY STATS history */
 #define MEMORY_STATS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -8021,15 +6930,12 @@ const char *MEMORY_STATS_Tips[] = {
 "nondeterministic_output",
 "request_policy:all_shards",
 "response_policy:special",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MEMORY STATS key specs */
 #define MEMORY_STATS_Keyspecs NULL
-
 #endif
 
 /********** MEMORY USAGE ********************/
@@ -8037,13 +6943,11 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MEMORY USAGE history */
 #define MEMORY_USAGE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MEMORY USAGE tips */
 #define MEMORY_USAGE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8057,7 +6961,6 @@ keySpec MEMORY_USAGE_Keyspecs[1] = {
 struct COMMAND_ARG MEMORY_USAGE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"SAMPLES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* MEMORY command table */
@@ -8076,19 +6979,16 @@ struct COMMAND_STRUCT MEMORY_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MEMORY history */
 #define MEMORY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MEMORY tips */
 #define MEMORY_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MEMORY key specs */
 #define MEMORY_Keyspecs NULL
-
 #endif
 
 /********** MODULE HELP ********************/
@@ -8096,19 +6996,16 @@ struct COMMAND_STRUCT MEMORY_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MODULE HELP history */
 #define MODULE_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MODULE HELP tips */
 #define MODULE_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MODULE HELP key specs */
 #define MODULE_HELP_Keyspecs NULL
-
 #endif
 
 /********** MODULE LIST ********************/
@@ -8116,22 +7013,18 @@ struct COMMAND_STRUCT MEMORY_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MODULE LIST history */
 #define MODULE_LIST_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MODULE LIST tips */
 const char *MODULE_LIST_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MODULE LIST key specs */
 #define MODULE_LIST_Keyspecs NULL
-
 #endif
 
 /********** MODULE LOAD ********************/
@@ -8139,26 +7032,22 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MODULE LOAD history */
 #define MODULE_LOAD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MODULE LOAD tips */
 #define MODULE_LOAD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MODULE LOAD key specs */
 #define MODULE_LOAD_Keyspecs NULL
-
 #endif
 
 /* MODULE LOAD argument table */
 struct COMMAND_ARG MODULE_LOAD_Args[] = {
 {MAKE_ARG("path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** MODULE LOADEX ********************/
@@ -8166,32 +7055,27 @@ struct COMMAND_ARG MODULE_LOAD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MODULE LOADEX history */
 #define MODULE_LOADEX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MODULE LOADEX tips */
 #define MODULE_LOADEX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MODULE LOADEX key specs */
 #define MODULE_LOADEX_Keyspecs NULL
-
 #endif
 
 /* MODULE LOADEX configs argument table */
 struct COMMAND_ARG MODULE_LOADEX_configs_Subargs[] = {
 {MAKE_ARG("name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* MODULE LOADEX args argument table */
 struct COMMAND_ARG MODULE_LOADEX_args_Subargs[] = {
 {MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* MODULE LOADEX argument table */
@@ -8199,7 +7083,6 @@ struct COMMAND_ARG MODULE_LOADEX_Args[] = {
 {MAKE_ARG("path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,2,NULL),.subargs=MODULE_LOADEX_configs_Subargs},
 {MAKE_ARG("args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,1,NULL),.subargs=MODULE_LOADEX_args_Subargs},
-{0}
 };
 
 /********** MODULE UNLOAD ********************/
@@ -8207,25 +7090,21 @@ struct COMMAND_ARG MODULE_LOADEX_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MODULE UNLOAD history */
 #define MODULE_UNLOAD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MODULE UNLOAD tips */
 #define MODULE_UNLOAD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MODULE UNLOAD key specs */
 #define MODULE_UNLOAD_Keyspecs NULL
-
 #endif
 
 /* MODULE UNLOAD argument table */
 struct COMMAND_ARG MODULE_UNLOAD_Args[] = {
 {MAKE_ARG("name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* MODULE command table */
@@ -8243,19 +7122,16 @@ struct COMMAND_STRUCT MODULE_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MODULE history */
 #define MODULE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MODULE tips */
 #define MODULE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MODULE key specs */
 #define MODULE_Keyspecs NULL
-
 #endif
 
 /********** MONITOR ********************/
@@ -8263,19 +7139,16 @@ struct COMMAND_STRUCT MODULE_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MONITOR history */
 #define MONITOR_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MONITOR tips */
 #define MONITOR_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MONITOR key specs */
 #define MONITOR_Keyspecs NULL
-
 #endif
 
 /********** PSYNC ********************/
@@ -8283,26 +7156,22 @@ struct COMMAND_STRUCT MODULE_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PSYNC history */
 #define PSYNC_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PSYNC tips */
 #define PSYNC_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PSYNC key specs */
 #define PSYNC_Keyspecs NULL
-
 #endif
 
 /* PSYNC argument table */
 struct COMMAND_ARG PSYNC_Args[] = {
 {MAKE_ARG("replicationid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** REPLCONF ********************/
@@ -8310,19 +7179,16 @@ struct COMMAND_ARG PSYNC_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* REPLCONF history */
 #define REPLCONF_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* REPLCONF tips */
 #define REPLCONF_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* REPLCONF key specs */
 #define REPLCONF_Keyspecs NULL
-
 #endif
 
 /********** REPLICAOF ********************/
@@ -8330,26 +7196,22 @@ struct COMMAND_ARG PSYNC_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* REPLICAOF history */
 #define REPLICAOF_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* REPLICAOF tips */
 #define REPLICAOF_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* REPLICAOF key specs */
 #define REPLICAOF_Keyspecs NULL
-
 #endif
 
 /* REPLICAOF argument table */
 struct COMMAND_ARG REPLICAOF_Args[] = {
 {MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** RESTORE_ASKING ********************/
@@ -8360,15 +7222,12 @@ commandHistory RESTORE_ASKING_History[] = {
 {"3.0.0","Added the `REPLACE` modifier."},
 {"5.0.0","Added the `ABSTTL` modifier."},
 {"5.0.0","Added the `IDLETIME` and `FREQ` options."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* RESTORE_ASKING tips */
 #define RESTORE_ASKING_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8387,7 +7246,6 @@ struct COMMAND_ARG RESTORE_ASKING_Args[] = {
 {MAKE_ARG("absttl",ARG_TYPE_PURE_TOKEN,-1,"ABSTTL",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"IDLETIME",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("frequency",ARG_TYPE_INTEGER,-1,"FREQ",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ROLE ********************/
@@ -8395,19 +7253,16 @@ struct COMMAND_ARG RESTORE_ASKING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ROLE history */
 #define ROLE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ROLE tips */
 #define ROLE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ROLE key specs */
 #define ROLE_Keyspecs NULL
-
 #endif
 
 /********** SAVE ********************/
@@ -8415,19 +7270,16 @@ struct COMMAND_ARG RESTORE_ASKING_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SAVE history */
 #define SAVE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SAVE tips */
 #define SAVE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SAVE key specs */
 #define SAVE_Keyspecs NULL
-
 #endif
 
 /********** SHUTDOWN ********************/
@@ -8436,28 +7288,23 @@ struct COMMAND_ARG RESTORE_ASKING_Args[] = {
 /* SHUTDOWN history */
 commandHistory SHUTDOWN_History[] = {
 {"7.0.0","Added the `NOW`, `FORCE` and `ABORT` modifiers."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SHUTDOWN tips */
 #define SHUTDOWN_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SHUTDOWN key specs */
 #define SHUTDOWN_Keyspecs NULL
-
 #endif
 
 /* SHUTDOWN nosave_save argument table */
 struct COMMAND_ARG SHUTDOWN_nosave_save_Subargs[] = {
 {MAKE_ARG("nosave",ARG_TYPE_PURE_TOKEN,-1,"NOSAVE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("save",ARG_TYPE_PURE_TOKEN,-1,"SAVE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SHUTDOWN argument table */
@@ -8466,7 +7313,6 @@ struct COMMAND_ARG SHUTDOWN_Args[] = {
 {MAKE_ARG("now",ARG_TYPE_PURE_TOKEN,-1,"NOW",NULL,"7.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,"7.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,"7.0.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** SLAVEOF ********************/
@@ -8474,26 +7320,22 @@ struct COMMAND_ARG SHUTDOWN_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SLAVEOF history */
 #define SLAVEOF_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SLAVEOF tips */
 #define SLAVEOF_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SLAVEOF key specs */
 #define SLAVEOF_Keyspecs NULL
-
 #endif
 
 /* SLAVEOF argument table */
 struct COMMAND_ARG SLAVEOF_Args[] = {
 {MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SLOWLOG GET ********************/
@@ -8502,9 +7344,7 @@ struct COMMAND_ARG SLAVEOF_Args[] = {
 /* SLOWLOG GET history */
 commandHistory SLOWLOG_GET_History[] = {
 {"4.0.0","Added client IP address, port and name to the reply."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -8512,21 +7352,17 @@ commandHistory SLOWLOG_GET_History[] = {
 const char *SLOWLOG_GET_Tips[] = {
 "request_policy:all_nodes",
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SLOWLOG GET key specs */
 #define SLOWLOG_GET_Keyspecs NULL
-
 #endif
 
 /* SLOWLOG GET argument table */
 struct COMMAND_ARG SLOWLOG_GET_Args[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** SLOWLOG HELP ********************/
@@ -8534,19 +7370,16 @@ struct COMMAND_ARG SLOWLOG_GET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SLOWLOG HELP history */
 #define SLOWLOG_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SLOWLOG HELP tips */
 #define SLOWLOG_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SLOWLOG HELP key specs */
 #define SLOWLOG_HELP_Keyspecs NULL
-
 #endif
 
 /********** SLOWLOG LEN ********************/
@@ -8554,7 +7387,6 @@ struct COMMAND_ARG SLOWLOG_GET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SLOWLOG LEN history */
 #define SLOWLOG_LEN_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -8563,15 +7395,12 @@ const char *SLOWLOG_LEN_Tips[] = {
 "request_policy:all_nodes",
 "response_policy:agg_sum",
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SLOWLOG LEN key specs */
 #define SLOWLOG_LEN_Keyspecs NULL
-
 #endif
 
 /********** SLOWLOG RESET ********************/
@@ -8579,7 +7408,6 @@ NULL
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SLOWLOG RESET history */
 #define SLOWLOG_RESET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -8587,15 +7415,12 @@ NULL
 const char *SLOWLOG_RESET_Tips[] = {
 "request_policy:all_nodes",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SLOWLOG RESET key specs */
 #define SLOWLOG_RESET_Keyspecs NULL
-
 #endif
 
 /* SLOWLOG command table */
@@ -8612,19 +7437,16 @@ struct COMMAND_STRUCT SLOWLOG_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SLOWLOG history */
 #define SLOWLOG_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SLOWLOG tips */
 #define SLOWLOG_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SLOWLOG key specs */
 #define SLOWLOG_Keyspecs NULL
-
 #endif
 
 /********** SWAPDB ********************/
@@ -8632,26 +7454,22 @@ struct COMMAND_STRUCT SLOWLOG_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SWAPDB history */
 #define SWAPDB_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SWAPDB tips */
 #define SWAPDB_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SWAPDB key specs */
 #define SWAPDB_Keyspecs NULL
-
 #endif
 
 /* SWAPDB argument table */
 struct COMMAND_ARG SWAPDB_Args[] = {
 {MAKE_ARG("index1",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("index2",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SYNC ********************/
@@ -8659,19 +7477,16 @@ struct COMMAND_ARG SWAPDB_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SYNC history */
 #define SYNC_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SYNC tips */
 #define SYNC_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SYNC key specs */
 #define SYNC_Keyspecs NULL
-
 #endif
 
 /********** TIME ********************/
@@ -8679,22 +7494,18 @@ struct COMMAND_ARG SWAPDB_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* TIME history */
 #define TIME_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* TIME tips */
 const char *TIME_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* TIME key specs */
 #define TIME_Keyspecs NULL
-
 #endif
 
 /********** SADD ********************/
@@ -8703,15 +7514,12 @@ NULL
 /* SADD history */
 commandHistory SADD_History[] = {
 {"2.4.0","Accepts multiple `member` arguments."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SADD tips */
 #define SADD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8725,7 +7533,6 @@ keySpec SADD_Keyspecs[1] = {
 struct COMMAND_ARG SADD_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SCARD ********************/
@@ -8733,13 +7540,11 @@ struct COMMAND_ARG SADD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SCARD history */
 #define SCARD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SCARD tips */
 #define SCARD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8752,7 +7557,6 @@ keySpec SCARD_Keyspecs[1] = {
 /* SCARD argument table */
 struct COMMAND_ARG SCARD_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SDIFF ********************/
@@ -8760,16 +7564,13 @@ struct COMMAND_ARG SCARD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SDIFF history */
 #define SDIFF_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SDIFF tips */
 const char *SDIFF_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8782,7 +7583,6 @@ keySpec SDIFF_Keyspecs[1] = {
 /* SDIFF argument table */
 struct COMMAND_ARG SDIFF_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SDIFFSTORE ********************/
@@ -8790,13 +7590,11 @@ struct COMMAND_ARG SDIFF_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SDIFFSTORE history */
 #define SDIFFSTORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SDIFFSTORE tips */
 #define SDIFFSTORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8810,7 +7608,6 @@ keySpec SDIFFSTORE_Keyspecs[2] = {
 struct COMMAND_ARG SDIFFSTORE_Args[] = {
 {MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SINTER ********************/
@@ -8818,16 +7615,13 @@ struct COMMAND_ARG SDIFFSTORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SINTER history */
 #define SINTER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SINTER tips */
 const char *SINTER_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8840,7 +7634,6 @@ keySpec SINTER_Keyspecs[1] = {
 /* SINTER argument table */
 struct COMMAND_ARG SINTER_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SINTERCARD ********************/
@@ -8848,13 +7641,11 @@ struct COMMAND_ARG SINTER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SINTERCARD history */
 #define SINTERCARD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SINTERCARD tips */
 #define SINTERCARD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8869,7 +7660,6 @@ struct COMMAND_ARG SINTERCARD_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** SINTERSTORE ********************/
@@ -8877,13 +7667,11 @@ struct COMMAND_ARG SINTERCARD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SINTERSTORE history */
 #define SINTERSTORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SINTERSTORE tips */
 #define SINTERSTORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8897,7 +7685,6 @@ keySpec SINTERSTORE_Keyspecs[2] = {
 struct COMMAND_ARG SINTERSTORE_Args[] = {
 {MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SISMEMBER ********************/
@@ -8905,13 +7692,11 @@ struct COMMAND_ARG SINTERSTORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SISMEMBER history */
 #define SISMEMBER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SISMEMBER tips */
 #define SISMEMBER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8925,7 +7710,6 @@ keySpec SISMEMBER_Keyspecs[1] = {
 struct COMMAND_ARG SISMEMBER_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SMEMBERS ********************/
@@ -8933,16 +7717,13 @@ struct COMMAND_ARG SISMEMBER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SMEMBERS history */
 #define SMEMBERS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SMEMBERS tips */
 const char *SMEMBERS_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8955,7 +7736,6 @@ keySpec SMEMBERS_Keyspecs[1] = {
 /* SMEMBERS argument table */
 struct COMMAND_ARG SMEMBERS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SMISMEMBER ********************/
@@ -8963,13 +7743,11 @@ struct COMMAND_ARG SMEMBERS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SMISMEMBER history */
 #define SMISMEMBER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SMISMEMBER tips */
 #define SMISMEMBER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -8983,7 +7761,6 @@ keySpec SMISMEMBER_Keyspecs[1] = {
 struct COMMAND_ARG SMISMEMBER_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SMOVE ********************/
@@ -8991,13 +7768,11 @@ struct COMMAND_ARG SMISMEMBER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SMOVE history */
 #define SMOVE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SMOVE tips */
 #define SMOVE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9012,7 +7787,6 @@ struct COMMAND_ARG SMOVE_Args[] = {
 {MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SPOP ********************/
@@ -9021,18 +7795,14 @@ struct COMMAND_ARG SMOVE_Args[] = {
 /* SPOP history */
 commandHistory SPOP_History[] = {
 {"3.2.0","Added the `count` argument."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SPOP tips */
 const char *SPOP_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9046,7 +7816,6 @@ keySpec SPOP_Keyspecs[1] = {
 struct COMMAND_ARG SPOP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"3.2.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** SRANDMEMBER ********************/
@@ -9055,18 +7824,14 @@ struct COMMAND_ARG SPOP_Args[] = {
 /* SRANDMEMBER history */
 commandHistory SRANDMEMBER_History[] = {
 {"2.6.0","Added the optional `count` argument."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SRANDMEMBER tips */
 const char *SRANDMEMBER_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9080,7 +7845,6 @@ keySpec SRANDMEMBER_Keyspecs[1] = {
 struct COMMAND_ARG SRANDMEMBER_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"2.6.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** SREM ********************/
@@ -9089,15 +7853,12 @@ struct COMMAND_ARG SRANDMEMBER_Args[] = {
 /* SREM history */
 commandHistory SREM_History[] = {
 {"2.4.0","Accepts multiple `member` arguments."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SREM tips */
 #define SREM_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9111,7 +7872,6 @@ keySpec SREM_Keyspecs[1] = {
 struct COMMAND_ARG SREM_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SSCAN ********************/
@@ -9119,16 +7879,13 @@ struct COMMAND_ARG SREM_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SSCAN history */
 #define SSCAN_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SSCAN tips */
 const char *SSCAN_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9144,7 +7901,6 @@ struct COMMAND_ARG SSCAN_Args[] = {
 {MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** SUNION ********************/
@@ -9152,16 +7908,13 @@ struct COMMAND_ARG SSCAN_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SUNION history */
 #define SUNION_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SUNION tips */
 const char *SUNION_Tips[] = {
 "nondeterministic_output_order",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9174,7 +7927,6 @@ keySpec SUNION_Keyspecs[1] = {
 /* SUNION argument table */
 struct COMMAND_ARG SUNION_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** SUNIONSTORE ********************/
@@ -9182,13 +7934,11 @@ struct COMMAND_ARG SUNION_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SUNIONSTORE history */
 #define SUNIONSTORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SUNIONSTORE tips */
 #define SUNIONSTORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9202,7 +7952,6 @@ keySpec SUNIONSTORE_Keyspecs[2] = {
 struct COMMAND_ARG SUNIONSTORE_Args[] = {
 {MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** BZMPOP ********************/
@@ -9210,13 +7959,11 @@ struct COMMAND_ARG SUNIONSTORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* BZMPOP history */
 #define BZMPOP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BZMPOP tips */
 #define BZMPOP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9230,7 +7977,6 @@ keySpec BZMPOP_Keyspecs[1] = {
 struct COMMAND_ARG BZMPOP_where_Subargs[] = {
 {MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* BZMPOP argument table */
@@ -9240,7 +7986,6 @@ struct COMMAND_ARG BZMPOP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BZMPOP_where_Subargs},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** BZPOPMAX ********************/
@@ -9249,15 +7994,12 @@ struct COMMAND_ARG BZMPOP_Args[] = {
 /* BZPOPMAX history */
 commandHistory BZPOPMAX_History[] = {
 {"6.0.0","`timeout` is interpreted as a double instead of an integer."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BZPOPMAX tips */
 #define BZPOPMAX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9271,7 +8013,6 @@ keySpec BZPOPMAX_Keyspecs[1] = {
 struct COMMAND_ARG BZPOPMAX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** BZPOPMIN ********************/
@@ -9280,15 +8021,12 @@ struct COMMAND_ARG BZPOPMAX_Args[] = {
 /* BZPOPMIN history */
 commandHistory BZPOPMIN_History[] = {
 {"6.0.0","`timeout` is interpreted as a double instead of an integer."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BZPOPMIN tips */
 #define BZPOPMIN_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9302,7 +8040,6 @@ keySpec BZPOPMIN_Keyspecs[1] = {
 struct COMMAND_ARG BZPOPMIN_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ZADD ********************/
@@ -9313,15 +8050,12 @@ commandHistory ZADD_History[] = {
 {"2.4.0","Accepts multiple elements."},
 {"3.0.2","Added the `XX`, `NX`, `CH` and `INCR` options."},
 {"6.2.0","Added the `GT` and `LT` options."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZADD tips */
 #define ZADD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9335,21 +8069,18 @@ keySpec ZADD_Keyspecs[1] = {
 struct COMMAND_ARG ZADD_condition_Subargs[] = {
 {MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZADD comparison argument table */
 struct COMMAND_ARG ZADD_comparison_Subargs[] = {
 {MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZADD score_member argument table */
 struct COMMAND_ARG ZADD_score_member_Subargs[] = {
 {MAKE_ARG("score",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZADD argument table */
@@ -9360,7 +8091,6 @@ struct COMMAND_ARG ZADD_Args[] = {
 {MAKE_ARG("change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"3.0.2",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("increment",ARG_TYPE_PURE_TOKEN,-1,"INCR",NULL,"3.0.2",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("score_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=ZADD_score_member_Subargs},
-{0}
 };
 
 /********** ZCARD ********************/
@@ -9368,13 +8098,11 @@ struct COMMAND_ARG ZADD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZCARD history */
 #define ZCARD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZCARD tips */
 #define ZCARD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9387,7 +8115,6 @@ keySpec ZCARD_Keyspecs[1] = {
 /* ZCARD argument table */
 struct COMMAND_ARG ZCARD_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ZCOUNT ********************/
@@ -9395,13 +8122,11 @@ struct COMMAND_ARG ZCARD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZCOUNT history */
 #define ZCOUNT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZCOUNT tips */
 #define ZCOUNT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9416,7 +8141,6 @@ struct COMMAND_ARG ZCOUNT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ZDIFF ********************/
@@ -9424,13 +8148,11 @@ struct COMMAND_ARG ZCOUNT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZDIFF history */
 #define ZDIFF_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZDIFF tips */
 #define ZDIFF_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9445,7 +8167,6 @@ struct COMMAND_ARG ZDIFF_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ZDIFFSTORE ********************/
@@ -9453,13 +8174,11 @@ struct COMMAND_ARG ZDIFF_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZDIFFSTORE history */
 #define ZDIFFSTORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZDIFFSTORE tips */
 #define ZDIFFSTORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9474,7 +8193,6 @@ struct COMMAND_ARG ZDIFFSTORE_Args[] = {
 {MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** ZINCRBY ********************/
@@ -9482,13 +8200,11 @@ struct COMMAND_ARG ZDIFFSTORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZINCRBY history */
 #define ZINCRBY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZINCRBY tips */
 #define ZINCRBY_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9503,7 +8219,6 @@ struct COMMAND_ARG ZINCRBY_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ZINTER ********************/
@@ -9511,13 +8226,11 @@ struct COMMAND_ARG ZINCRBY_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZINTER history */
 #define ZINTER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZINTER tips */
 #define ZINTER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9532,7 +8245,6 @@ struct COMMAND_ARG ZINTER_aggregate_Subargs[] = {
 {MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZINTER argument table */
@@ -9542,7 +8254,6 @@ struct COMMAND_ARG ZINTER_Args[] = {
 {MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZINTER_aggregate_Subargs},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ZINTERCARD ********************/
@@ -9550,13 +8261,11 @@ struct COMMAND_ARG ZINTER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZINTERCARD history */
 #define ZINTERCARD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZINTERCARD tips */
 #define ZINTERCARD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9571,7 +8280,6 @@ struct COMMAND_ARG ZINTERCARD_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ZINTERSTORE ********************/
@@ -9579,13 +8287,11 @@ struct COMMAND_ARG ZINTERCARD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZINTERSTORE history */
 #define ZINTERSTORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZINTERSTORE tips */
 #define ZINTERSTORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9600,7 +8306,6 @@ struct COMMAND_ARG ZINTERSTORE_aggregate_Subargs[] = {
 {MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZINTERSTORE argument table */
@@ -9610,7 +8315,6 @@ struct COMMAND_ARG ZINTERSTORE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZINTERSTORE_aggregate_Subargs},
-{0}
 };
 
 /********** ZLEXCOUNT ********************/
@@ -9618,13 +8322,11 @@ struct COMMAND_ARG ZINTERSTORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZLEXCOUNT history */
 #define ZLEXCOUNT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZLEXCOUNT tips */
 #define ZLEXCOUNT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9639,7 +8341,6 @@ struct COMMAND_ARG ZLEXCOUNT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ZMPOP ********************/
@@ -9647,13 +8348,11 @@ struct COMMAND_ARG ZLEXCOUNT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZMPOP history */
 #define ZMPOP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZMPOP tips */
 #define ZMPOP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9667,7 +8366,6 @@ keySpec ZMPOP_Keyspecs[1] = {
 struct COMMAND_ARG ZMPOP_where_Subargs[] = {
 {MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZMPOP argument table */
@@ -9676,7 +8374,6 @@ struct COMMAND_ARG ZMPOP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ZMPOP_where_Subargs},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ZMSCORE ********************/
@@ -9684,13 +8381,11 @@ struct COMMAND_ARG ZMPOP_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZMSCORE history */
 #define ZMSCORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZMSCORE tips */
 #define ZMSCORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9704,7 +8399,6 @@ keySpec ZMSCORE_Keyspecs[1] = {
 struct COMMAND_ARG ZMSCORE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** ZPOPMAX ********************/
@@ -9712,13 +8406,11 @@ struct COMMAND_ARG ZMSCORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZPOPMAX history */
 #define ZPOPMAX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZPOPMAX tips */
 #define ZPOPMAX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9732,7 +8424,6 @@ keySpec ZPOPMAX_Keyspecs[1] = {
 struct COMMAND_ARG ZPOPMAX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ZPOPMIN ********************/
@@ -9740,13 +8431,11 @@ struct COMMAND_ARG ZPOPMAX_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZPOPMIN history */
 #define ZPOPMIN_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZPOPMIN tips */
 #define ZPOPMIN_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9760,7 +8449,6 @@ keySpec ZPOPMIN_Keyspecs[1] = {
 struct COMMAND_ARG ZPOPMIN_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ZRANDMEMBER ********************/
@@ -9768,16 +8456,13 @@ struct COMMAND_ARG ZPOPMIN_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZRANDMEMBER history */
 #define ZRANDMEMBER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZRANDMEMBER tips */
 const char *ZRANDMEMBER_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9791,14 +8476,12 @@ keySpec ZRANDMEMBER_Keyspecs[1] = {
 struct COMMAND_ARG ZRANDMEMBER_options_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* ZRANDMEMBER argument table */
 struct COMMAND_ARG ZRANDMEMBER_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANDMEMBER_options_Subargs},
-{0}
 };
 
 /********** ZRANGE ********************/
@@ -9807,15 +8490,12 @@ struct COMMAND_ARG ZRANDMEMBER_Args[] = {
 /* ZRANGE history */
 commandHistory ZRANGE_History[] = {
 {"6.2.0","Added the `REV`, `BYSCORE`, `BYLEX` and `LIMIT` options."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZRANGE tips */
 #define ZRANGE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9829,14 +8509,12 @@ keySpec ZRANGE_Keyspecs[1] = {
 struct COMMAND_ARG ZRANGE_sortby_Subargs[] = {
 {MAKE_ARG("byscore",ARG_TYPE_PURE_TOKEN,-1,"BYSCORE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZRANGE offset_count argument table */
 struct COMMAND_ARG ZRANGE_offset_count_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZRANGE argument table */
@@ -9848,7 +8526,6 @@ struct COMMAND_ARG ZRANGE_Args[] = {
 {MAKE_ARG("rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGE_offset_count_Subargs},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ZRANGEBYLEX ********************/
@@ -9856,13 +8533,11 @@ struct COMMAND_ARG ZRANGE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZRANGEBYLEX history */
 #define ZRANGEBYLEX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZRANGEBYLEX tips */
 #define ZRANGEBYLEX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9876,7 +8551,6 @@ keySpec ZRANGEBYLEX_Keyspecs[1] = {
 struct COMMAND_ARG ZRANGEBYLEX_offset_count_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZRANGEBYLEX argument table */
@@ -9885,7 +8559,6 @@ struct COMMAND_ARG ZRANGEBYLEX_Args[] = {
 {MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGEBYLEX_offset_count_Subargs},
-{0}
 };
 
 /********** ZRANGEBYSCORE ********************/
@@ -9894,15 +8567,12 @@ struct COMMAND_ARG ZRANGEBYLEX_Args[] = {
 /* ZRANGEBYSCORE history */
 commandHistory ZRANGEBYSCORE_History[] = {
 {"2.0.0","Added the `WITHSCORES` modifier."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZRANGEBYSCORE tips */
 #define ZRANGEBYSCORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9916,7 +8586,6 @@ keySpec ZRANGEBYSCORE_Keyspecs[1] = {
 struct COMMAND_ARG ZRANGEBYSCORE_offset_count_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZRANGEBYSCORE argument table */
@@ -9926,7 +8595,6 @@ struct COMMAND_ARG ZRANGEBYSCORE_Args[] = {
 {MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,"2.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGEBYSCORE_offset_count_Subargs},
-{0}
 };
 
 /********** ZRANGESTORE ********************/
@@ -9934,13 +8602,11 @@ struct COMMAND_ARG ZRANGEBYSCORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZRANGESTORE history */
 #define ZRANGESTORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZRANGESTORE tips */
 #define ZRANGESTORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -9954,14 +8620,12 @@ keySpec ZRANGESTORE_Keyspecs[2] = {
 struct COMMAND_ARG ZRANGESTORE_sortby_Subargs[] = {
 {MAKE_ARG("byscore",ARG_TYPE_PURE_TOKEN,-1,"BYSCORE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZRANGESTORE offset_count argument table */
 struct COMMAND_ARG ZRANGESTORE_offset_count_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZRANGESTORE argument table */
@@ -9973,7 +8637,6 @@ struct COMMAND_ARG ZRANGESTORE_Args[] = {
 {MAKE_ARG("sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGESTORE_sortby_Subargs},
 {MAKE_ARG("rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGESTORE_offset_count_Subargs},
-{0}
 };
 
 /********** ZRANK ********************/
@@ -9981,13 +8644,11 @@ struct COMMAND_ARG ZRANGESTORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZRANK history */
 #define ZRANK_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZRANK tips */
 #define ZRANK_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10001,7 +8662,6 @@ keySpec ZRANK_Keyspecs[1] = {
 struct COMMAND_ARG ZRANK_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ZREM ********************/
@@ -10010,15 +8670,12 @@ struct COMMAND_ARG ZRANK_Args[] = {
 /* ZREM history */
 commandHistory ZREM_History[] = {
 {"2.4.0","Accepts multiple elements."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZREM tips */
 #define ZREM_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10032,7 +8689,6 @@ keySpec ZREM_Keyspecs[1] = {
 struct COMMAND_ARG ZREM_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** ZREMRANGEBYLEX ********************/
@@ -10040,13 +8696,11 @@ struct COMMAND_ARG ZREM_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZREMRANGEBYLEX history */
 #define ZREMRANGEBYLEX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZREMRANGEBYLEX tips */
 #define ZREMRANGEBYLEX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10061,7 +8715,6 @@ struct COMMAND_ARG ZREMRANGEBYLEX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ZREMRANGEBYRANK ********************/
@@ -10069,13 +8722,11 @@ struct COMMAND_ARG ZREMRANGEBYLEX_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZREMRANGEBYRANK history */
 #define ZREMRANGEBYRANK_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZREMRANGEBYRANK tips */
 #define ZREMRANGEBYRANK_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10090,7 +8741,6 @@ struct COMMAND_ARG ZREMRANGEBYRANK_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ZREMRANGEBYSCORE ********************/
@@ -10098,13 +8748,11 @@ struct COMMAND_ARG ZREMRANGEBYRANK_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZREMRANGEBYSCORE history */
 #define ZREMRANGEBYSCORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZREMRANGEBYSCORE tips */
 #define ZREMRANGEBYSCORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10119,7 +8767,6 @@ struct COMMAND_ARG ZREMRANGEBYSCORE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ZREVRANGE ********************/
@@ -10127,13 +8774,11 @@ struct COMMAND_ARG ZREMRANGEBYSCORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZREVRANGE history */
 #define ZREVRANGE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZREVRANGE tips */
 #define ZREVRANGE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10149,7 +8794,6 @@ struct COMMAND_ARG ZREVRANGE_Args[] = {
 {MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ZREVRANGEBYLEX ********************/
@@ -10157,13 +8801,11 @@ struct COMMAND_ARG ZREVRANGE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZREVRANGEBYLEX history */
 #define ZREVRANGEBYLEX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZREVRANGEBYLEX tips */
 #define ZREVRANGEBYLEX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10177,7 +8819,6 @@ keySpec ZREVRANGEBYLEX_Keyspecs[1] = {
 struct COMMAND_ARG ZREVRANGEBYLEX_offset_count_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZREVRANGEBYLEX argument table */
@@ -10186,7 +8827,6 @@ struct COMMAND_ARG ZREVRANGEBYLEX_Args[] = {
 {MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZREVRANGEBYLEX_offset_count_Subargs},
-{0}
 };
 
 /********** ZREVRANGEBYSCORE ********************/
@@ -10195,15 +8835,12 @@ struct COMMAND_ARG ZREVRANGEBYLEX_Args[] = {
 /* ZREVRANGEBYSCORE history */
 commandHistory ZREVRANGEBYSCORE_History[] = {
 {"2.1.6","`min` and `max` can be exclusive."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZREVRANGEBYSCORE tips */
 #define ZREVRANGEBYSCORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10217,7 +8854,6 @@ keySpec ZREVRANGEBYSCORE_Keyspecs[1] = {
 struct COMMAND_ARG ZREVRANGEBYSCORE_offset_count_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZREVRANGEBYSCORE argument table */
@@ -10227,7 +8863,6 @@ struct COMMAND_ARG ZREVRANGEBYSCORE_Args[] = {
 {MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZREVRANGEBYSCORE_offset_count_Subargs},
-{0}
 };
 
 /********** ZREVRANK ********************/
@@ -10235,13 +8870,11 @@ struct COMMAND_ARG ZREVRANGEBYSCORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZREVRANK history */
 #define ZREVRANK_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZREVRANK tips */
 #define ZREVRANK_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10255,7 +8888,6 @@ keySpec ZREVRANK_Keyspecs[1] = {
 struct COMMAND_ARG ZREVRANK_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ZSCAN ********************/
@@ -10263,16 +8895,13 @@ struct COMMAND_ARG ZREVRANK_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZSCAN history */
 #define ZSCAN_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZSCAN tips */
 const char *ZSCAN_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10288,7 +8917,6 @@ struct COMMAND_ARG ZSCAN_Args[] = {
 {MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ZSCORE ********************/
@@ -10296,13 +8924,11 @@ struct COMMAND_ARG ZSCAN_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZSCORE history */
 #define ZSCORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZSCORE tips */
 #define ZSCORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10316,7 +8942,6 @@ keySpec ZSCORE_Keyspecs[1] = {
 struct COMMAND_ARG ZSCORE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** ZUNION ********************/
@@ -10324,13 +8949,11 @@ struct COMMAND_ARG ZSCORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZUNION history */
 #define ZUNION_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZUNION tips */
 #define ZUNION_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10345,7 +8968,6 @@ struct COMMAND_ARG ZUNION_aggregate_Subargs[] = {
 {MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZUNION argument table */
@@ -10355,7 +8977,6 @@ struct COMMAND_ARG ZUNION_Args[] = {
 {MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZUNION_aggregate_Subargs},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** ZUNIONSTORE ********************/
@@ -10363,13 +8984,11 @@ struct COMMAND_ARG ZUNION_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZUNIONSTORE history */
 #define ZUNIONSTORE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ZUNIONSTORE tips */
 #define ZUNIONSTORE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10384,7 +9003,6 @@ struct COMMAND_ARG ZUNIONSTORE_aggregate_Subargs[] = {
 {MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* ZUNIONSTORE argument table */
@@ -10394,7 +9012,6 @@ struct COMMAND_ARG ZUNIONSTORE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZUNIONSTORE_aggregate_Subargs},
-{0}
 };
 
 /********** XACK ********************/
@@ -10402,13 +9019,11 @@ struct COMMAND_ARG ZUNIONSTORE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XACK history */
 #define XACK_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XACK tips */
 #define XACK_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10423,7 +9038,6 @@ struct COMMAND_ARG XACK_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** XADD ********************/
@@ -10433,18 +9047,14 @@ struct COMMAND_ARG XACK_Args[] = {
 commandHistory XADD_History[] = {
 {"6.2.0","Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."},
 {"7.0.0","Added support for the `<ms>-*` explicit ID form."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XADD tips */
 const char *XADD_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10458,14 +9068,12 @@ keySpec XADD_Keyspecs[1] = {
 struct COMMAND_ARG XADD_trim_strategy_Subargs[] = {
 {MAKE_ARG("maxlen",ARG_TYPE_PURE_TOKEN,-1,"MAXLEN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("minid",ARG_TYPE_PURE_TOKEN,-1,"MINID",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* XADD trim operator argument table */
 struct COMMAND_ARG XADD_trim_operator_Subargs[] = {
 {MAKE_ARG("equal",ARG_TYPE_PURE_TOKEN,-1,"=",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("approximately",ARG_TYPE_PURE_TOKEN,-1,"~",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* XADD trim argument table */
@@ -10474,21 +9082,18 @@ struct COMMAND_ARG XADD_trim_Subargs[] = {
 {MAKE_ARG("operator",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XADD_trim_operator_Subargs},
 {MAKE_ARG("threshold",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* XADD id_or_auto argument table */
 struct COMMAND_ARG XADD_id_or_auto_Subargs[] = {
 {MAKE_ARG("auto_id",ARG_TYPE_PURE_TOKEN,-1,"*",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* XADD field_value argument table */
 struct COMMAND_ARG XADD_field_value_Subargs[] = {
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* XADD argument table */
@@ -10498,7 +9103,6 @@ struct COMMAND_ARG XADD_Args[] = {
 {MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=XADD_trim_Subargs},
 {MAKE_ARG("id_or_auto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_id_or_auto_Subargs},
 {MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=XADD_field_value_Subargs},
-{0}
 };
 
 /********** XAUTOCLAIM ********************/
@@ -10507,18 +9111,14 @@ struct COMMAND_ARG XADD_Args[] = {
 /* XAUTOCLAIM history */
 commandHistory XAUTOCLAIM_History[] = {
 {"7.0.0","Added an element to the reply array, containing deleted entries the command cleared from the PEL"},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XAUTOCLAIM tips */
 const char *XAUTOCLAIM_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10537,7 +9137,6 @@ struct COMMAND_ARG XAUTOCLAIM_Args[] = {
 {MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** XCLAIM ********************/
@@ -10545,16 +9144,13 @@ struct COMMAND_ARG XAUTOCLAIM_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XCLAIM history */
 #define XCLAIM_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XCLAIM tips */
 const char *XCLAIM_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10577,7 +9173,6 @@ struct COMMAND_ARG XCLAIM_Args[] = {
 {MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,"LASTID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** XDEL ********************/
@@ -10585,13 +9180,11 @@ struct COMMAND_ARG XCLAIM_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XDEL history */
 #define XDEL_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XDEL tips */
 #define XDEL_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10605,7 +9198,6 @@ keySpec XDEL_Keyspecs[1] = {
 struct COMMAND_ARG XDEL_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** XGROUP CREATE ********************/
@@ -10614,15 +9206,12 @@ struct COMMAND_ARG XDEL_Args[] = {
 /* XGROUP CREATE history */
 commandHistory XGROUP_CREATE_History[] = {
 {"7.0.0","Added the `entries_read` named argument."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XGROUP CREATE tips */
 #define XGROUP_CREATE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10636,7 +9225,6 @@ keySpec XGROUP_CREATE_Keyspecs[1] = {
 struct COMMAND_ARG XGROUP_CREATE_id_Subargs[] = {
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* XGROUP CREATE argument table */
@@ -10646,7 +9234,6 @@ struct COMMAND_ARG XGROUP_CREATE_Args[] = {
 {MAKE_ARG("id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_CREATE_id_Subargs},
 {MAKE_ARG("mkstream",ARG_TYPE_PURE_TOKEN,-1,"MKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** XGROUP CREATECONSUMER ********************/
@@ -10654,13 +9241,11 @@ struct COMMAND_ARG XGROUP_CREATE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XGROUP CREATECONSUMER history */
 #define XGROUP_CREATECONSUMER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XGROUP CREATECONSUMER tips */
 #define XGROUP_CREATECONSUMER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10675,7 +9260,6 @@ struct COMMAND_ARG XGROUP_CREATECONSUMER_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** XGROUP DELCONSUMER ********************/
@@ -10683,13 +9267,11 @@ struct COMMAND_ARG XGROUP_CREATECONSUMER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XGROUP DELCONSUMER history */
 #define XGROUP_DELCONSUMER_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XGROUP DELCONSUMER tips */
 #define XGROUP_DELCONSUMER_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10704,7 +9286,6 @@ struct COMMAND_ARG XGROUP_DELCONSUMER_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** XGROUP DESTROY ********************/
@@ -10712,13 +9293,11 @@ struct COMMAND_ARG XGROUP_DELCONSUMER_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XGROUP DESTROY history */
 #define XGROUP_DESTROY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XGROUP DESTROY tips */
 #define XGROUP_DESTROY_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10732,7 +9311,6 @@ keySpec XGROUP_DESTROY_Keyspecs[1] = {
 struct COMMAND_ARG XGROUP_DESTROY_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** XGROUP HELP ********************/
@@ -10740,19 +9318,16 @@ struct COMMAND_ARG XGROUP_DESTROY_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XGROUP HELP history */
 #define XGROUP_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XGROUP HELP tips */
 #define XGROUP_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* XGROUP HELP key specs */
 #define XGROUP_HELP_Keyspecs NULL
-
 #endif
 
 /********** XGROUP SETID ********************/
@@ -10761,15 +9336,12 @@ struct COMMAND_ARG XGROUP_DESTROY_Args[] = {
 /* XGROUP SETID history */
 commandHistory XGROUP_SETID_History[] = {
 {"7.0.0","Added the optional `entries_read` argument."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XGROUP SETID tips */
 #define XGROUP_SETID_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10783,7 +9355,6 @@ keySpec XGROUP_SETID_Keyspecs[1] = {
 struct COMMAND_ARG XGROUP_SETID_id_Subargs[] = {
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* XGROUP SETID argument table */
@@ -10792,7 +9363,6 @@ struct COMMAND_ARG XGROUP_SETID_Args[] = {
 {MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_SETID_id_Subargs},
 {MAKE_ARG("entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* XGROUP command table */
@@ -10811,19 +9381,16 @@ struct COMMAND_STRUCT XGROUP_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XGROUP history */
 #define XGROUP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XGROUP tips */
 #define XGROUP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* XGROUP key specs */
 #define XGROUP_Keyspecs NULL
-
 #endif
 
 /********** XINFO CONSUMERS ********************/
@@ -10831,16 +9398,13 @@ struct COMMAND_STRUCT XGROUP_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XINFO CONSUMERS history */
 #define XINFO_CONSUMERS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XINFO CONSUMERS tips */
 const char *XINFO_CONSUMERS_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10854,7 +9418,6 @@ keySpec XINFO_CONSUMERS_Keyspecs[1] = {
 struct COMMAND_ARG XINFO_CONSUMERS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** XINFO GROUPS ********************/
@@ -10863,15 +9426,12 @@ struct COMMAND_ARG XINFO_CONSUMERS_Args[] = {
 /* XINFO GROUPS history */
 commandHistory XINFO_GROUPS_History[] = {
 {"7.0.0","Added the `entries-read` and `lag` fields"},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XINFO GROUPS tips */
 #define XINFO_GROUPS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10884,7 +9444,6 @@ keySpec XINFO_GROUPS_Keyspecs[1] = {
 /* XINFO GROUPS argument table */
 struct COMMAND_ARG XINFO_GROUPS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** XINFO HELP ********************/
@@ -10892,19 +9451,16 @@ struct COMMAND_ARG XINFO_GROUPS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XINFO HELP history */
 #define XINFO_HELP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XINFO HELP tips */
 #define XINFO_HELP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* XINFO HELP key specs */
 #define XINFO_HELP_Keyspecs NULL
-
 #endif
 
 /********** XINFO STREAM ********************/
@@ -10914,15 +9470,12 @@ struct COMMAND_ARG XINFO_GROUPS_Args[] = {
 commandHistory XINFO_STREAM_History[] = {
 {"6.0.0","Added the `FULL` modifier."},
 {"7.0.0","Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XINFO STREAM tips */
 #define XINFO_STREAM_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10935,14 +9488,12 @@ keySpec XINFO_STREAM_Keyspecs[1] = {
 /* XINFO STREAM full argument table */
 struct COMMAND_ARG XINFO_STREAM_full_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* XINFO STREAM argument table */
 struct COMMAND_ARG XINFO_STREAM_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("full",ARG_TYPE_BLOCK,-1,"FULL",NULL,NULL,CMD_ARG_OPTIONAL,1,NULL),.subargs=XINFO_STREAM_full_Subargs},
-{0}
 };
 
 /* XINFO command table */
@@ -10959,19 +9510,16 @@ struct COMMAND_STRUCT XINFO_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XINFO history */
 #define XINFO_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XINFO tips */
 #define XINFO_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* XINFO key specs */
 #define XINFO_Keyspecs NULL
-
 #endif
 
 /********** XLEN ********************/
@@ -10979,13 +9527,11 @@ struct COMMAND_STRUCT XINFO_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XLEN history */
 #define XLEN_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XLEN tips */
 #define XLEN_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10998,7 +9544,6 @@ keySpec XLEN_Keyspecs[1] = {
 /* XLEN argument table */
 struct COMMAND_ARG XLEN_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** XPENDING ********************/
@@ -11007,18 +9552,14 @@ struct COMMAND_ARG XLEN_Args[] = {
 /* XPENDING history */
 commandHistory XPENDING_History[] = {
 {"6.2.0","Added the `IDLE` option and exclusive range intervals."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XPENDING tips */
 const char *XPENDING_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11035,7 +9576,6 @@ struct COMMAND_ARG XPENDING_filters_Subargs[] = {
 {MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* XPENDING argument table */
@@ -11043,7 +9583,6 @@ struct COMMAND_ARG XPENDING_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("filters",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=XPENDING_filters_Subargs},
-{0}
 };
 
 /********** XRANGE ********************/
@@ -11052,15 +9591,12 @@ struct COMMAND_ARG XPENDING_Args[] = {
 /* XRANGE history */
 commandHistory XRANGE_History[] = {
 {"6.2.0","Added exclusive ranges."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XRANGE tips */
 #define XRANGE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11076,7 +9612,6 @@ struct COMMAND_ARG XRANGE_Args[] = {
 {MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** XREAD ********************/
@@ -11084,13 +9619,11 @@ struct COMMAND_ARG XRANGE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XREAD history */
 #define XREAD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XREAD tips */
 #define XREAD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11104,7 +9637,6 @@ keySpec XREAD_Keyspecs[1] = {
 struct COMMAND_ARG XREAD_streams_Subargs[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /* XREAD argument table */
@@ -11112,7 +9644,6 @@ struct COMMAND_ARG XREAD_Args[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREAD_streams_Subargs},
-{0}
 };
 
 /********** XREADGROUP ********************/
@@ -11120,13 +9651,11 @@ struct COMMAND_ARG XREAD_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XREADGROUP history */
 #define XREADGROUP_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XREADGROUP tips */
 #define XREADGROUP_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11140,14 +9669,12 @@ keySpec XREADGROUP_Keyspecs[1] = {
 struct COMMAND_ARG XREADGROUP_group_consumer_Subargs[] = {
 {MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* XREADGROUP streams argument table */
 struct COMMAND_ARG XREADGROUP_streams_Subargs[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /* XREADGROUP argument table */
@@ -11157,7 +9684,6 @@ struct COMMAND_ARG XREADGROUP_Args[] = {
 {MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("noack",ARG_TYPE_PURE_TOKEN,-1,"NOACK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREADGROUP_streams_Subargs},
-{0}
 };
 
 /********** XREVRANGE ********************/
@@ -11166,15 +9692,12 @@ struct COMMAND_ARG XREADGROUP_Args[] = {
 /* XREVRANGE history */
 commandHistory XREVRANGE_History[] = {
 {"6.2.0","Added exclusive ranges."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XREVRANGE tips */
 #define XREVRANGE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11190,7 +9713,6 @@ struct COMMAND_ARG XREVRANGE_Args[] = {
 {MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** XSETID ********************/
@@ -11199,15 +9721,12 @@ struct COMMAND_ARG XREVRANGE_Args[] = {
 /* XSETID history */
 commandHistory XSETID_History[] = {
 {"7.0.0","Added the `entries_added` and `max_deleted_entry_id` arguments."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XSETID tips */
 #define XSETID_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11223,7 +9742,6 @@ struct COMMAND_ARG XSETID_Args[] = {
 {MAKE_ARG("last-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("entries_added",ARG_TYPE_INTEGER,-1,"ENTRIESADDED",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("max_deleted_entry_id",ARG_TYPE_STRING,-1,"MAXDELETEDID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** XTRIM ********************/
@@ -11232,18 +9750,14 @@ struct COMMAND_ARG XSETID_Args[] = {
 /* XTRIM history */
 commandHistory XTRIM_History[] = {
 {"6.2.0","Added the `MINID` trimming strategy and the `LIMIT` option."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* XTRIM tips */
 const char *XTRIM_Tips[] = {
 "nondeterministic_output",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11257,14 +9771,12 @@ keySpec XTRIM_Keyspecs[1] = {
 struct COMMAND_ARG XTRIM_trim_strategy_Subargs[] = {
 {MAKE_ARG("maxlen",ARG_TYPE_PURE_TOKEN,-1,"MAXLEN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("minid",ARG_TYPE_PURE_TOKEN,-1,"MINID",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* XTRIM trim operator argument table */
 struct COMMAND_ARG XTRIM_trim_operator_Subargs[] = {
 {MAKE_ARG("equal",ARG_TYPE_PURE_TOKEN,-1,"=",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("approximately",ARG_TYPE_PURE_TOKEN,-1,"~",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* XTRIM trim argument table */
@@ -11273,14 +9785,12 @@ struct COMMAND_ARG XTRIM_trim_Subargs[] = {
 {MAKE_ARG("operator",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XTRIM_trim_operator_Subargs},
 {MAKE_ARG("threshold",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /* XTRIM argument table */
 struct COMMAND_ARG XTRIM_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=XTRIM_trim_Subargs},
-{0}
 };
 
 /********** APPEND ********************/
@@ -11288,13 +9798,11 @@ struct COMMAND_ARG XTRIM_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* APPEND history */
 #define APPEND_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* APPEND tips */
 #define APPEND_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11308,7 +9816,6 @@ keySpec APPEND_Keyspecs[1] = {
 struct COMMAND_ARG APPEND_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** DECR ********************/
@@ -11316,13 +9823,11 @@ struct COMMAND_ARG APPEND_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* DECR history */
 #define DECR_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* DECR tips */
 #define DECR_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11335,7 +9840,6 @@ keySpec DECR_Keyspecs[1] = {
 /* DECR argument table */
 struct COMMAND_ARG DECR_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** DECRBY ********************/
@@ -11343,13 +9847,11 @@ struct COMMAND_ARG DECR_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* DECRBY history */
 #define DECRBY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* DECRBY tips */
 #define DECRBY_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11363,7 +9865,6 @@ keySpec DECRBY_Keyspecs[1] = {
 struct COMMAND_ARG DECRBY_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("decrement",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** GET ********************/
@@ -11371,13 +9872,11 @@ struct COMMAND_ARG DECRBY_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GET history */
 #define GET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GET tips */
 #define GET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11390,7 +9889,6 @@ keySpec GET_Keyspecs[1] = {
 /* GET argument table */
 struct COMMAND_ARG GET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** GETDEL ********************/
@@ -11398,13 +9896,11 @@ struct COMMAND_ARG GET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GETDEL history */
 #define GETDEL_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GETDEL tips */
 #define GETDEL_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11417,7 +9913,6 @@ keySpec GETDEL_Keyspecs[1] = {
 /* GETDEL argument table */
 struct COMMAND_ARG GETDEL_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** GETEX ********************/
@@ -11425,13 +9920,11 @@ struct COMMAND_ARG GETDEL_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GETEX history */
 #define GETEX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GETEX tips */
 #define GETEX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11448,14 +9941,12 @@ struct COMMAND_ARG GETEX_expiration_Subargs[] = {
 {MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("persist",ARG_TYPE_PURE_TOKEN,-1,"PERSIST",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* GETEX argument table */
 struct COMMAND_ARG GETEX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=GETEX_expiration_Subargs},
-{0}
 };
 
 /********** GETRANGE ********************/
@@ -11463,13 +9954,11 @@ struct COMMAND_ARG GETEX_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GETRANGE history */
 #define GETRANGE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GETRANGE tips */
 #define GETRANGE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11484,7 +9973,6 @@ struct COMMAND_ARG GETRANGE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** GETSET ********************/
@@ -11492,13 +9980,11 @@ struct COMMAND_ARG GETRANGE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GETSET history */
 #define GETSET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* GETSET tips */
 #define GETSET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11512,7 +9998,6 @@ keySpec GETSET_Keyspecs[1] = {
 struct COMMAND_ARG GETSET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** INCR ********************/
@@ -11520,13 +10005,11 @@ struct COMMAND_ARG GETSET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* INCR history */
 #define INCR_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* INCR tips */
 #define INCR_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11539,7 +10022,6 @@ keySpec INCR_Keyspecs[1] = {
 /* INCR argument table */
 struct COMMAND_ARG INCR_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** INCRBY ********************/
@@ -11547,13 +10029,11 @@ struct COMMAND_ARG INCR_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* INCRBY history */
 #define INCRBY_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* INCRBY tips */
 #define INCRBY_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11567,7 +10047,6 @@ keySpec INCRBY_Keyspecs[1] = {
 struct COMMAND_ARG INCRBY_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** INCRBYFLOAT ********************/
@@ -11575,13 +10054,11 @@ struct COMMAND_ARG INCRBY_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* INCRBYFLOAT history */
 #define INCRBYFLOAT_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* INCRBYFLOAT tips */
 #define INCRBYFLOAT_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11595,7 +10072,6 @@ keySpec INCRBYFLOAT_Keyspecs[1] = {
 struct COMMAND_ARG INCRBYFLOAT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** LCS ********************/
@@ -11603,13 +10079,11 @@ struct COMMAND_ARG INCRBYFLOAT_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LCS history */
 #define LCS_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* LCS tips */
 #define LCS_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11627,7 +10101,6 @@ struct COMMAND_ARG LCS_Args[] = {
 {MAKE_ARG("idx",ARG_TYPE_PURE_TOKEN,-1,"IDX",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("len",ARG_TYPE_INTEGER,-1,"MINMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withmatchlen",ARG_TYPE_PURE_TOKEN,-1,"WITHMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{0}
 };
 
 /********** MGET ********************/
@@ -11635,16 +10108,13 @@ struct COMMAND_ARG LCS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MGET history */
 #define MGET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MGET tips */
 const char *MGET_Tips[] = {
 "request_policy:multi_shard",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11657,7 +10127,6 @@ keySpec MGET_Keyspecs[1] = {
 /* MGET argument table */
 struct COMMAND_ARG MGET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /********** MSET ********************/
@@ -11665,7 +10134,6 @@ struct COMMAND_ARG MGET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MSET history */
 #define MSET_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -11673,9 +10141,7 @@ struct COMMAND_ARG MGET_Args[] = {
 const char *MSET_Tips[] = {
 "request_policy:multi_shard",
 "response_policy:all_succeeded",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11689,13 +10155,11 @@ keySpec MSET_Keyspecs[1] = {
 struct COMMAND_ARG MSET_key_value_Subargs[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* MSET argument table */
 struct COMMAND_ARG MSET_Args[] = {
 {MAKE_ARG("key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=MSET_key_value_Subargs},
-{0}
 };
 
 /********** MSETNX ********************/
@@ -11703,7 +10167,6 @@ struct COMMAND_ARG MSET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MSETNX history */
 #define MSETNX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -11711,9 +10174,7 @@ struct COMMAND_ARG MSET_Args[] = {
 const char *MSETNX_Tips[] = {
 "request_policy:multi_shard",
 "response_policy:agg_min",
-NULL
 };
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11727,13 +10188,11 @@ keySpec MSETNX_Keyspecs[1] = {
 struct COMMAND_ARG MSETNX_key_value_Subargs[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* MSETNX argument table */
 struct COMMAND_ARG MSETNX_Args[] = {
 {MAKE_ARG("key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=MSETNX_key_value_Subargs},
-{0}
 };
 
 /********** PSETEX ********************/
@@ -11741,13 +10200,11 @@ struct COMMAND_ARG MSETNX_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PSETEX history */
 #define PSETEX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* PSETEX tips */
 #define PSETEX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11762,7 +10219,6 @@ struct COMMAND_ARG PSETEX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SET ********************/
@@ -11774,15 +10230,12 @@ commandHistory SET_History[] = {
 {"6.0.0","Added the `KEEPTTL` option."},
 {"6.2.0","Added the `GET`, `EXAT` and `PXAT` option."},
 {"7.0.0","Allowed the `NX` and `GET` options to be used together."},
-{0}
 };
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SET tips */
 #define SET_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11796,7 +10249,6 @@ keySpec SET_Keyspecs[1] = {
 struct COMMAND_ARG SET_condition_Subargs[] = {
 {MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SET expiration argument table */
@@ -11806,7 +10258,6 @@ struct COMMAND_ARG SET_expiration_Subargs[] = {
 {MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,"6.0.0",CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /* SET argument table */
@@ -11816,7 +10267,6 @@ struct COMMAND_ARG SET_Args[] = {
 {MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"2.6.12",CMD_ARG_OPTIONAL,2,NULL),.subargs=SET_condition_Subargs},
 {MAKE_ARG("get",ARG_TYPE_PURE_TOKEN,-1,"GET",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=SET_expiration_Subargs},
-{0}
 };
 
 /********** SETEX ********************/
@@ -11824,13 +10274,11 @@ struct COMMAND_ARG SET_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SETEX history */
 #define SETEX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SETEX tips */
 #define SETEX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11845,7 +10293,6 @@ struct COMMAND_ARG SETEX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SETNX ********************/
@@ -11853,13 +10300,11 @@ struct COMMAND_ARG SETEX_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SETNX history */
 #define SETNX_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SETNX tips */
 #define SETNX_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11873,7 +10318,6 @@ keySpec SETNX_Keyspecs[1] = {
 struct COMMAND_ARG SETNX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SETRANGE ********************/
@@ -11881,13 +10325,11 @@ struct COMMAND_ARG SETNX_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SETRANGE history */
 #define SETRANGE_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SETRANGE tips */
 #define SETRANGE_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11902,7 +10344,6 @@ struct COMMAND_ARG SETRANGE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** STRLEN ********************/
@@ -11910,13 +10351,11 @@ struct COMMAND_ARG SETRANGE_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* STRLEN history */
 #define STRLEN_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* STRLEN tips */
 #define STRLEN_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11929,7 +10368,6 @@ keySpec STRLEN_Keyspecs[1] = {
 /* STRLEN argument table */
 struct COMMAND_ARG STRLEN_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** SUBSTR ********************/
@@ -11937,13 +10375,11 @@ struct COMMAND_ARG STRLEN_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SUBSTR history */
 #define SUBSTR_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* SUBSTR tips */
 #define SUBSTR_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11958,7 +10394,6 @@ struct COMMAND_ARG SUBSTR_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{0}
 };
 
 /********** DISCARD ********************/
@@ -11966,19 +10401,16 @@ struct COMMAND_ARG SUBSTR_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* DISCARD history */
 #define DISCARD_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* DISCARD tips */
 #define DISCARD_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* DISCARD key specs */
 #define DISCARD_Keyspecs NULL
-
 #endif
 
 /********** EXEC ********************/
@@ -11986,19 +10418,16 @@ struct COMMAND_ARG SUBSTR_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* EXEC history */
 #define EXEC_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* EXEC tips */
 #define EXEC_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* EXEC key specs */
 #define EXEC_Keyspecs NULL
-
 #endif
 
 /********** MULTI ********************/
@@ -12006,19 +10435,16 @@ struct COMMAND_ARG SUBSTR_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MULTI history */
 #define MULTI_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MULTI tips */
 #define MULTI_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* MULTI key specs */
 #define MULTI_Keyspecs NULL
-
 #endif
 
 /********** UNWATCH ********************/
@@ -12026,19 +10452,16 @@ struct COMMAND_ARG SUBSTR_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* UNWATCH history */
 #define UNWATCH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* UNWATCH tips */
 #define UNWATCH_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* UNWATCH key specs */
 #define UNWATCH_Keyspecs NULL
-
 #endif
 
 /********** WATCH ********************/
@@ -12046,13 +10469,11 @@ struct COMMAND_ARG SUBSTR_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* WATCH history */
 #define WATCH_History NULL
-
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* WATCH tips */
 #define WATCH_Tips NULL
-
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -12065,7 +10486,6 @@ keySpec WATCH_Keyspecs[1] = {
 /* WATCH argument table */
 struct COMMAND_ARG WATCH_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-{0}
 };
 
 /* Main command table */

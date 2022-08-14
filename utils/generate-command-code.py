@@ -240,7 +240,6 @@ class Argument(object):
             f.write("struct COMMAND_ARG %s[] = {\n" % self.subarg_table_name())
             for subarg in self.subargs:
                 f.write("{%s},\n" % subarg.struct_code())
-            f.write("{0}\n")
             f.write("};\n\n")
 
 
@@ -286,7 +285,6 @@ class Command(object):
         s = ""
         for tupl in self.desc["history"]:
             s += "{\"%s\",\"%s\"},\n" % (tupl[0], tupl[1])
-        s += "{0}"
         return s
 
     def num_history(self):
@@ -300,7 +298,6 @@ class Command(object):
         s = ""
         for hint in self.desc["command_tips"]:
             s += "\"%s\",\n" % hint.lower()
-        s += "NULL"
         return s
 
     def num_tips(self):
@@ -391,10 +388,10 @@ class Command(object):
         code = self.history_code()
         if code:
             f.write("commandHistory %s[] = {\n" % self.history_table_name())
-            f.write("%s\n" % code)
-            f.write("};\n\n")
+            f.write("%s" % code)
+            f.write("};\n")
         else:
-            f.write("#define %s NULL\n\n" % self.history_table_name())
+            f.write("#define %s NULL\n" % self.history_table_name())
         f.write("#endif\n\n")
 
         f.write("#ifndef SKIP_CMD_TIPS_TABLE\n")
@@ -402,10 +399,10 @@ class Command(object):
         code = self.tips_code()
         if code:
             f.write("const char *%s[] = {\n" % self.tips_table_name())
-            f.write("%s\n" % code)
-            f.write("};\n\n")
+            f.write("%s" % code)
+            f.write("};\n")
         else:
-            f.write("#define %s NULL\n\n" % self.tips_table_name())
+            f.write("#define %s NULL\n" % self.tips_table_name())
         f.write("#endif\n\n")
 
         f.write("#ifndef SKIP_CMD_KEY_SPECS_TABLE\n")
@@ -416,7 +413,7 @@ class Command(object):
             f.write("%s\n" % code)
             f.write("};\n")
         else:
-            f.write("#define %s NULL\n\n" % self.key_specs_table_name())
+            f.write("#define %s NULL\n" % self.key_specs_table_name())
         f.write("#endif\n\n")
 
         if self.args:
@@ -427,7 +424,6 @@ class Command(object):
             f.write("struct COMMAND_ARG %s[] = {\n" % self.arg_table_name())
             for arg in self.args:
                 f.write("{%s},\n" % arg.struct_code())
-            f.write("{0}\n")
             f.write("};\n\n")
 
 

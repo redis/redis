@@ -1594,7 +1594,7 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         cmd->tips || cmd->args ||
         !(cmd->key_specs_num == 0 ||
           /* Allow key spec populated from legacy (first,last,step) to exist. */
-          (cmd->key_specs_num == 1 && /* cmd->key_specs == cmd->key_specs_static && */
+          (cmd->key_specs_num == 1 &&
            cmd->key_specs[0].begin_search_type == KSPEC_BS_INDEX &&
            cmd->key_specs[0].find_keys_type == KSPEC_FK_RANGE))) {
         errno = EEXIST;
@@ -1645,6 +1645,7 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         while (moduleCmdKeySpecAt(version, info->key_specs, count)->begin_search_type)
             count++;
         serverAssert(count < INT_MAX);
+        zfree(cmd->key_specs);
         cmd->key_specs = zmalloc(sizeof(keySpec) * count);
 
         /* Copy the contents of the RedisModuleCommandKeySpec array. */
