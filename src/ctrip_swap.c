@@ -114,6 +114,7 @@ int keyRequestSwapFinished(swapData *data, void *pd) {
     }
 
     ctx->finished(ctx->c,ctx);
+    requestAck(ctx->listeners);
     requestNotify(ctx->listeners);
     return 0;
 }
@@ -240,7 +241,7 @@ noswap:
 
 void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         clientKeyRequestFinished cb) {
-    int64_t txid = swapTxidNext();
+    int64_t txid = server.swap_txid++;
     for (int i = 0; i < result->num; i++) {
         void *msgs = NULL;
         keyRequest *key_request = result->key_requests + i;
@@ -385,15 +386,15 @@ int clearTestRedisServer() {
 }
 int swapTest(int argc, char **argv, int accurate) {
   int result = 0;
-  /* result += swapWaitTest(argc, argv, accurate); */
-  /* result += swapWaitReentrantTest(argc, argv, accurate); */
+  result += swapWaitTest(argc, argv, accurate);
+  result += swapWaitReentrantTest(argc, argv, accurate);
   result += swapWaitAckTest(argc, argv, accurate);
-  /* result += swapCmdTest(argc, argv, accurate); */
-  /* result += swapExecTest(argc, argv, accurate); */
-  /* result += swapRdbTest(argc, argv, accurate); */
-  /* result += swapObjectTest(argc, argv, accurate); */
-  /* result += swapDataWholeKeyTest(argc, argv, accurate); */
-  /* result += swapDataBigHashTest(argc, argv, accurate); */
+  result += swapCmdTest(argc, argv, accurate);
+  result += swapExecTest(argc, argv, accurate);
+  result += swapRdbTest(argc, argv, accurate);
+  result += swapObjectTest(argc, argv, accurate);
+  result += swapDataWholeKeyTest(argc, argv, accurate);
+  result += swapDataBigHashTest(argc, argv, accurate);
   return result;
 }
 #endif

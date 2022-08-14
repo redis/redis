@@ -61,7 +61,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
             deleteExpiredKeyAndPropagate(db,keyobj);
             expired = 1;
         } else {
-            if (requestWaitWouldBlock(swapTxidNext(),db,keyobj)) {
+            if (requestWaitWouldBlock(server.swap_txid++,db,keyobj)) {
                 /* If there are preceeding request on the key we are about
                  * to expire, most likely it's the in-progress expire request.
                  * on which case, we don't try to expire the key, otherwise

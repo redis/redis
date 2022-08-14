@@ -507,9 +507,6 @@ int requestWait(int64_t txid, redisDb *db, robj *key, requestProceed cb, client 
 int requestAck(void *listeners);
 int requestNotify(void *listeners);
 
-void swapTxidInit();
-int64_t swapTxidNext();
-
 /* --- Evict --- */
 #define EVICT_SUCC_SWAPPED      1
 #define EVICT_SUCC_FREED        2

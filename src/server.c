@@ -3481,11 +3481,11 @@ void InitServerLast() {
     server.rocksdb_disk_error = 0;
     server.rocksdb_disk_error_since = 0;
     server.meta_version = 1;
+    server.swap_txid = 0;
     rocksInit();
     asyncCompleteQueueInit();
     parallelSyncInit(server.ps_parallism_rdb);
     swapThreadsInit();
-    swapTxidInit();
     swapCmdInit();
     swapInit();
     initSwapWholeKey();

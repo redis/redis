@@ -28,14 +28,6 @@
 
 #include "ctrip_swap.h"
 
-void swapTxidInit() {
-    server.swap_txid = 0;
-}
-
-int64_t swapTxidNext() {
-    return server.swap_txid++;
-}
-
 static inline void requestListenersLinkListener(requestListeners *listeners,
         requestListener *listener) {
     while (listeners) {
