@@ -44,6 +44,7 @@ static inline void requestListenersLinkListener(requestListeners *listeners,
             listeners->cur_txid = listener->txid;
             listeners->cur_ntxlistener = 0;
             listeners->cur_ntxrequest = 0;
+            listeners->cur_ntxacked = 0;
         }
         listeners->cur_ntxlistener++;
         listeners = listeners->parent;
@@ -478,6 +479,9 @@ static inline void requestListenersAcked(requestListeners *listeners, int64_t tx
 
     while (listeners) {
         parent = listeners->parent;
+
+        if (listeners->cur_txid == txid)
+            listeners->cur_ntxacked++;
 
         listener = requestListenersPeek(listeners);
         if (listener != NULL && listener->txid == txid) {
@@ -990,10 +994,21 @@ int proceedWithoutAck(void *listeners, redisDb *db, robj *key, client *c, void *
     return 0;
 }
 
+int proceedRightaway(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(db), UNUSED(key), UNUSED(c);
+    void **pd = pd_;
+    *pd = listeners;
+    proceeded++;
+    requestAck(listeners);
+    requestNotify(listeners);
+    return 0;
+}
+
 #define ack_case_reset() do { \
     proceeded = 0; \
     handle1 = NULL, handle2 = NULL, handle3 = NULL, handle4 = NULL; \
-    handle5 = NULL, handle6 = NULL, handle7 = NULL, handle8 = NULL;\
+    handle5 = NULL, handle6 = NULL, handle7 = NULL, handle8 = NULL; \
+    handle9 = NULL, handle10 = NULL; \
 } while (0)
 
 int swapWaitAckTest(int argc, char *argv[], int accurate) {
@@ -1005,7 +1020,7 @@ int swapWaitAckTest(int argc, char *argv[], int accurate) {
     redisDb *db, *db2;
     robj *key1, *key2;
     void *handle1, *handle2, *handle3, *handle4, *handle5, *handle6,
-         *handle7, *handle8;
+         *handle7, *handle8, *handle9, *handle10;
 
     wait_init_suite();
 
@@ -1119,53 +1134,124 @@ int swapWaitAckTest(int argc, char *argv[], int accurate) {
     }
 
     TEST("wait-ack: proceed ack disorder") {
-       test_assert(!requestWaitWouldBlock(40,db,key1));
-       requestWait(40,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
-       test_assert(handle1 != NULL && proceeded == 1);
-       test_assert(requestWaitWouldBlock(40,db,key1));
-       requestWait(40,db,key1,proceedWithoutAck,NULL,&handle2,NULL,NULL);
-       test_assert(handle2 == NULL && proceeded == 1);
-       requestAck(handle1);
-       test_assert(handle2 != NULL && proceeded == 2);
-       test_assert(requestWaitWouldBlock(41,db,key1));
-       requestAck(handle2);
-       test_assert(proceeded == 2);
-       test_assert(requestWaitWouldBlock(41,db,key1));
-       requestNotify(handle1);
-       test_assert(requestWaitWouldBlock(41,db,key1));
-       requestWait(41,db,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
-       test_assert(handle3 == NULL && proceeded == 2);
-       /* proceed iff previous tx finished. */
-       requestNotify(handle2);
-       test_assert(handle3 != NULL && proceeded == 3);
-       requestWait(41,db,key1,proceedWithoutAck,NULL,&handle4,NULL,NULL);
-       test_assert(handle4 == NULL && proceeded == 3);
-       requestWait(41,db,key2,proceedWithoutAck,NULL,&handle5,NULL,NULL);
-       test_assert(handle5 != NULL && proceeded == 4);
-       requestWait(41,db,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
-       test_assert(handle6 == NULL && proceeded == 4);
-       requestWait(41,db,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
-       test_assert(handle7 == NULL && proceeded == 4);
-       requestWait(42,db,key2,proceedWithoutAck,NULL,&handle8,NULL,NULL);
-       test_assert(handle8 == NULL && proceeded == 4);
+        test_assert(!requestWaitWouldBlock(40,db,key1));
+        requestWait(40,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        test_assert(handle1 != NULL && proceeded == 1);
+        test_assert(requestWaitWouldBlock(40,db,key1));
+        requestWait(40,db,key1,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+        test_assert(handle2 == NULL && proceeded == 1);
+        requestAck(handle1);
+        test_assert(handle2 != NULL && proceeded == 2);
+        test_assert(requestWaitWouldBlock(41,db,key1));
+        requestAck(handle2);
+        test_assert(proceeded == 2);
+        test_assert(requestWaitWouldBlock(41,db,key1));
+        requestNotify(handle1);
+        test_assert(requestWaitWouldBlock(41,db,key1));
+        requestWait(41,db,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+        test_assert(handle3 == NULL && proceeded == 2);
+        /* proceed iff previous tx finished. */
+        requestNotify(handle2);
+        test_assert(handle3 != NULL && proceeded == 3);
+        requestWait(41,db,key1,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        test_assert(handle4 == NULL && proceeded == 3);
+        requestWait(41,db,key2,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        test_assert(handle5 != NULL && proceeded == 4);
+        requestWait(41,db,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
+        test_assert(handle6 == NULL && proceeded == 4);
+        requestWait(41,db,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+        test_assert(handle7 == NULL && proceeded == 4);
+        requestWait(42,db,key2,proceedWithoutAck,NULL,&handle8,NULL,NULL);
+        test_assert(handle8 == NULL && proceeded == 4);
 
-       requestAck(handle3);
-       test_assert(handle4 != NULL && handle6 == NULL && proceeded == 5);
-       requestAck(handle5);
-       test_assert(handle6 == NULL && proceeded == 5);
-       requestAck(handle4);
-       test_assert(handle6 != NULL && proceeded == 6);
-       requestAck(handle6);
-       test_assert(handle7 != NULL && handle8 == NULL && proceeded == 7);
-       requestAck(handle7);
-       requestNotify(handle3), requestNotify(handle4), requestNotify(handle5),
-           requestNotify(handle6), requestNotify(handle7);
-       test_assert(handle8 != NULL && proceeded == 8);
-       requestAck(handle8);
-       requestNotify(handle8);
-       test_assert(proceeded == 8);
-       ack_case_reset();
-   }
+        requestAck(handle3);
+        test_assert(handle4 != NULL && handle6 == NULL && proceeded == 5);
+        requestAck(handle5);
+        test_assert(handle6 == NULL && proceeded == 5);
+        requestAck(handle4);
+        test_assert(handle6 != NULL && proceeded == 6);
+        requestAck(handle6);
+        test_assert(handle7 != NULL && handle8 == NULL && proceeded == 7);
+        requestAck(handle7);
+        requestNotify(handle3), requestNotify(handle4), requestNotify(handle5),
+            requestNotify(handle6), requestNotify(handle7);
+        test_assert(handle8 != NULL && proceeded == 8);
+        requestAck(handle8);
+        requestNotify(handle8);
+        test_assert(proceeded == 8);
+        ack_case_reset();
+    }
+
+    TEST("wait-ack: proceed rightaway") {
+        test_assert(!requestWaitWouldBlock(50,db,key1));
+        requestWait(50,db,key1,proceedRightaway,NULL,&handle1,NULL,NULL);
+        test_assert(handle1 != NULL && proceeded == 1);
+        test_assert(!requestWaitWouldBlock(50,db,key1));
+        requestWait(50,db,key1,proceedRightaway,NULL,&handle2,NULL,NULL);
+        test_assert(handle2 != NULL && proceeded == 2);
+        test_assert(!requestWaitWouldBlock(51,db,key1));
+        requestWait(51,db,key1,proceedRightaway,NULL,&handle3,NULL,NULL);
+        test_assert(handle3 != NULL && proceeded == 3);
+        test_assert(!requestWaitWouldBlock(51,db,NULL));
+        requestWait(51,db,NULL,proceedRightaway,NULL,&handle4,NULL,NULL);
+        test_assert(handle4 != NULL && proceeded == 4);
+        test_assert(!requestWaitWouldBlock(51,NULL,NULL));
+        requestWait(51,NULL,NULL,proceedRightaway,NULL,&handle5,NULL,NULL);
+        test_assert(handle5 != NULL && proceeded == 5);
+        ack_case_reset();
+    }
+
+    TEST("wait-ack: proceed mixed later & rightaway") {
+        requestWait(60,db2,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        test_assert(handle1 != NULL && proceeded == 1);
+        requestWait(60,db2,key2,proceedRightaway,NULL,&handle2,NULL,NULL);
+        test_assert(handle2 != NULL && proceeded == 2);
+
+        requestWait(61,db,key1,proceedRightaway,NULL,&handle3,NULL,NULL);
+        test_assert(handle3 != NULL && proceeded == 3);
+        requestWait(61,db,key1,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        test_assert(handle4 != NULL && proceeded == 4);
+
+        requestWait(61,db,key1,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        test_assert(handle5 == NULL && proceeded == 4);
+        requestWait(61,db,key2,proceedRightaway,NULL,&handle6,NULL,NULL);
+        test_assert(handle6 != NULL && proceeded == 5);
+
+        requestWait(61,db2,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+        test_assert(handle7 == NULL && proceeded == 5);
+
+        requestWait(61,db,NULL,proceedWithoutAck,NULL,&handle8,NULL,NULL);
+        test_assert(handle8 == NULL && proceeded == 5);
+
+        requestWait(61,NULL,NULL,proceedWithoutAck,NULL,&handle9,NULL,NULL);
+        test_assert(handle9 == NULL && proceeded == 5);
+
+        requestWait(61,db,key1,proceedWithoutAck,NULL,&handle10,NULL,NULL);
+        test_assert(handle10 == NULL && proceeded == 5);
+
+        requestAck(handle4);
+        test_assert(handle5 != NULL && proceeded == 6);
+        requestAck(handle5);
+        test_assert(handle8 != NULL && handle9 == NULL && proceeded == 7);
+
+        requestAck(handle1);
+        test_assert(handle7 == NULL && proceeded == 7);
+        requestNotify(handle1);
+        test_assert(handle7 != NULL && proceeded == 8);
+
+        requestAck(handle7), requestAck(handle8);
+
+        test_assert(handle9 != NULL && proceeded == 9);
+        requestAck(handle9);
+        test_assert(handle10 != NULL && proceeded == 10);
+        requestAck(handle10);
+
+        requestNotify(handle4), requestNotify(handle5), requestNotify(handle7),
+            requestNotify(handle8), requestNotify(handle9), requestNotify(handle10);
+
+        test_assert(!requestWaitWouldBlock(62,db,key1));
+        ack_case_reset();
+    }
 
    return error;
 }
