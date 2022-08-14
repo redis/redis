@@ -37,7 +37,7 @@
 #include <ctype.h>
 
 static void setProtocolError(const char *errstr, client *c);
-static void pauseClients(mstime_t end, int isPauseClientAll);
+static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 int postponeClientRead(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
@@ -3199,7 +3199,7 @@ NULL
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&end,
             UNIT_MILLISECONDS) != C_OK) return;
-        pauseClients(end, isPauseClientAll);
+        pauseClientsByClient(end, isPauseClientAll);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
@@ -3853,7 +3853,12 @@ void updatePausedActions(void) {
 
     for (int i = 0; i < NUM_PAUSE_PURPOSES; i++) {
         pause_event *p = &(server.client_pause_per_purpose[i]);
-        if (p->end > server.mstime) server.paused_actions |= p->paused_actions;
+        if (p->end > server.mstime)
+            server.paused_actions |= p->paused_actions;
+        else {
+            p->paused_actions = 0;
+            p->end = 0;
+        }
     }
 
     /* If the pause type is less restrictive than before, we unblock all clients
@@ -3886,7 +3891,7 @@ void unblockPostponedClients() {
  * implementation of pause-action) such that for a given action-purpose,
  * new pause is the only one to count, irrelevant what was configured
  * before */
-static void pauseClients(mstime_t endTime, int isPauseClientAll) {
+static void pauseClientsByClient(mstime_t endTime, int isPauseClientAll) {
     uint32_t actions;
     pause_event *p = &server.client_pause_per_purpose[PAUSE_BY_CLIENT_COMMAND];
 
