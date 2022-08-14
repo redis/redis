@@ -155,18 +155,24 @@ commandHistory BITPOS_History[] = {
 /* BITPOS tips */
 #define BITPOS_tips NULL
 
-/* BITPOS range unit argument table */
-struct redisCommandArg BITPOS_range_unit_Subargs[] = {
+/* BITPOS range end_unit_block unit argument table */
+struct redisCommandArg BITPOS_range_end_unit_block_unit_Subargs[] = {
 {"byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE},
 {"bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* BITPOS range end_unit_block argument table */
+struct redisCommandArg BITPOS_range_end_unit_block_Subargs[] = {
+{"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=BITPOS_range_end_unit_block_unit_Subargs},
 {0}
 };
 
 /* BITPOS range argument table */
 struct redisCommandArg BITPOS_range_Subargs[] = {
 {"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=BITPOS_range_unit_Subargs},
+{"end-unit-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITPOS_range_end_unit_block_Subargs},
 {0}
 };
 

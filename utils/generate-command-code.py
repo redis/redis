@@ -185,11 +185,14 @@ def verify_no_dup_names(container_fullname, args):
 
 class Argument(object):
     def __init__(self, parent_name, desc):
+        self.parent_name = parent_name
         self.desc = desc
         self.name = self.desc["name"].lower()
+        if "_" in self.name:
+            print("{}: name ({}) should not contain underscores".format(self.fullname(), self.name))
+            exit(1)
         self.type = self.desc["type"]
         self.key_spec_index = self.desc.get("key_spec_index", None)
-        self.parent_name = parent_name
         self.subargs = []
         self.subargs_name = None
         if self.type in ["oneof", "block"]:
