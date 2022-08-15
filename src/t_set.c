@@ -29,12 +29,13 @@
 
 #include "server.h"
 
-/*-----------------------------------------------------------------------------
- * Set Commands
- *----------------------------------------------------------------------------*/
-
+/* Forward declarations */
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op);
+
+/*-----------------------------------------------------------------------------
+ * Set API
+ *----------------------------------------------------------------------------*/
 
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a regular
@@ -299,6 +300,10 @@ robj *setTypeDup(robj *o) {
     }
     return set;
 }
+
+/*-----------------------------------------------------------------------------
+ * Set Commands
+ *----------------------------------------------------------------------------*/
 
 void saddCommand(client *c) {
     robj *set;
