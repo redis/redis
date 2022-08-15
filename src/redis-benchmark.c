@@ -628,6 +628,50 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
+/* control the QPS of the thread of current client 
+*/
+static int controlQps(void *privdata) {
+    client c = privdata;
+    int thread_id = c->thread_id == -1 ? 0 : c->thread_id;
+    if (config.paused[thread_id]) {
+        /* this thread has been paused, delete event and add it to paused clients list */
+        aeDeleteFileEvent(CLIENT_GET_EVENTLOOP(c), c->context->fd, AE_WRITABLE);
+        listAddNodeTail(config.paused_clients[thread_id], c);
+        atomicDecr(config.requests_issued, config.pipeline);
+        return 1;
+    }
+    if (config.last_resume_time[thread_id] == -1) config.last_resume_time[thread_id] = c->start;
+    if (config.count[thread_id] >= config.control_granularity[thread_id]) {
+        /* reach a control point, compute the time since last resume */
+        long long time_elapsed = c->start - config.last_resume_time[thread_id];
+        config.count[thread_id] = 0;
+        config.last_resume_time[thread_id] = -1;
+        if (time_elapsed < config.resume_interval[thread_id]) {
+            /* need control */
+            config.paused[thread_id] = true;
+            aeDeleteFileEvent(CLIENT_GET_EVENTLOOP(c), c->context->fd, AE_WRITABLE);
+            listAddNodeTail(config.paused_clients[thread_id], c);
+            atomicDecr(config.requests_issued, config.pipeline);
+            aeCreateTimeEvent(CLIENT_GET_EVENTLOOP(c), (config.resume_interval[thread_id]-time_elapsed)/1000, resumeClients, c, NULL);
+            
+            if (config.resume_interval[thread_id] - time_elapsed >= 10000 && config.control_granularity[thread_id] >= 2*config.pipeline) {
+                config.resume_interval[thread_id] /= 2;
+                config.control_granularity[thread_id] /= 2;
+            }
+            return 1;
+        }
+        else {
+            int num_threads = config.num_threads == 0 ? 1 : config.num_threads;
+            if (config.control_granularity[thread_id] < config.qps / num_threads) {
+                config.control_granularity[thread_id] *= 2;
+                config.resume_interval[thread_id] *= 2;
+            }
+        }
+    } 
+    config.count[thread_id] += config.pipeline;
+    return 0;
+}
+
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
     UNUSED(el);
@@ -648,44 +692,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (config.cluster_mode && c->staglen > 0) setClusterKeyHashTag(c);
         atomicGet(config.slots_last_update, c->slots_last_update);
         c->start = ustime();
-        if (config.qps) {
-            int thread_id = c->thread_id == -1 ? 0 : c->thread_id;
-            if (config.paused[thread_id]) {
-                /* this thread has been paused, delete event and add it to paused clients list */
-                aeDeleteFileEvent(CLIENT_GET_EVENTLOOP(c), c->context->fd, AE_WRITABLE);
-                listAddNodeTail(config.paused_clients[thread_id], c);
-                atomicDecr(config.requests_issued, config.pipeline);
-                return;
-            }
-            if (config.last_resume_time[thread_id] == -1) config.last_resume_time[thread_id] = c->start;
-            if (config.count[thread_id] >= config.control_granularity[thread_id]) {
-                /* reach a control point, compute the time since last resume */
-                long long time_elapsed = c->start - config.last_resume_time[thread_id];
-                config.count[thread_id] = 0;
-                config.last_resume_time[thread_id] = -1;
-                if (time_elapsed < config.resume_interval[thread_id]) {
-                    /* need control */
-                    config.paused[thread_id] = true;
-                    aeDeleteFileEvent(CLIENT_GET_EVENTLOOP(c), c->context->fd, AE_WRITABLE);
-                    listAddNodeTail(config.paused_clients[thread_id], c);
-                    atomicDecr(config.requests_issued, config.pipeline);
-                    aeCreateTimeEvent(CLIENT_GET_EVENTLOOP(c), (config.resume_interval[thread_id]-time_elapsed)/1000, resumeClients, c, NULL);
-                    if (config.resume_interval[thread_id] - time_elapsed > 10000 && config.control_granularity[thread_id] > 2*config.pipeline) {
-                        config.control_granularity[thread_id] /= 2;
-                        config.resume_interval[thread_id] /= 2;
-                    }
-                    return;
-                }
-                else {
-                    int num_threads = config.num_threads == 0 ? 1 : config.num_threads;
-                    if (config.control_granularity[thread_id] < config.qps / num_threads) {
-                        config.control_granularity[thread_id] *= 2;
-                        config.resume_interval[thread_id] *= 2;
-                    }
-                }
-            }
-            config.count[thread_id] += config.pipeline;
-        }
+        if (config.qps && controlQps((void *) c)) return;
         c->latency = -1;
     }
     const ssize_t buflen = sdslen(c->obuf);
