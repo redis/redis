@@ -498,6 +498,7 @@ int requestWait(int64_t txid, redisDb *db, robj *key, requestProceed cb, client 
 int requestAck(void *listeners);
 int requestNotify(void *listeners);
 
+list *clientRenewSwapLocks(client *c);
 void clientGotSwapIOAndLock(client *c, swapCtx *ctx, void *lock);
 void clientReleaseSwapLocks(client *c, swapCtx *ctx);
 

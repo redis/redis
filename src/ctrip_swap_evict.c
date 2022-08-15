@@ -128,8 +128,8 @@ void evictClientKeyRequestFinished(client *c, swapCtx *ctx) {
     incrRefCount(key);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientReleaseSwapLocks(c,ctx);
     clientUnholdKey(c,key);
+    clientReleaseSwapLocks(c,ctx);
     decrRefCount(key);
 }
 

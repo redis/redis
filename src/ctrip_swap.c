@@ -28,6 +28,12 @@
 
 #include "ctrip_swap.h"
 
+list *clientRenewSwapLocks(client *c) {
+    list *old = c->swap_locks;
+    c->swap_locks = listCreate();
+    return old;
+}
+
 void clientGotSwapIOAndLock(client *c, swapCtx *ctx, void *lock) {
     serverAssert(ctx->swap_lock == NULL);
     ctx->swap_lock = lock;
@@ -49,22 +55,23 @@ void clientReleaseSwapIO(client *c, swapCtx *ctx) {
 }
 
 void clientReleaseSwapLocks(client *c, swapCtx *ctx) {
-    listIter li;
+    list *locks;
     listNode *ln;
+    listIter li;
 
     switch (c->client_hold_mode) {
     case CLIENT_HOLD_MODE_CMD:
     case CLIENT_HOLD_MODE_REPL:
-        listRewind(c->swap_locks, &li);
-        while((ln = listNext(&li))) {
+        locks = clientRenewSwapLocks(c);
+        listRewind(locks,&li);
+        while ((ln = listNext(&li))) {
             requestNotify(listNodeValue(ln));
         }
-        listEmpty(c->swap_locks);
+        listRelease(locks);
         break;
     case CLIENT_HOLD_MODE_EVICT:
         if (ctx->swap_lock) {
             requestNotify(ctx->swap_lock);
-            ctx->swap_lock = NULL;
         }
         break;
     default:
@@ -120,10 +127,10 @@ void continueProcessCommand(client *c) {
         handleClientsBlockedOnKeys();
     /* unhold keys for current command. */
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_CMD);
-    clientReleaseSwapLocks(c,NULL/*ctx unused*/);
     clientUnholdKeys(c);
     /* post command */
     commandProcessed(c);
+    clientReleaseSwapLocks(c,NULL/*ctx unused*/);
     /* pipelined command might already read into querybuf, if process not
      * restarted, pending commands would not be processed again. */
     processInputBuffer(c);
@@ -376,7 +383,7 @@ void swapInit() {
         server.expire_clients[i] = c;
     }
 
-    server.repl_workers = 256;
+    server.repl_workers = 4;
     server.repl_swapping_clients = listCreate();
     server.repl_worker_clients_free = listCreate();
     server.repl_worker_clients_used = listCreate();

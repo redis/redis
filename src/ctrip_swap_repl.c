@@ -116,8 +116,8 @@ static void processFinishedReplCommands() {
         if (wc->CLIENT_REPL_CMD_DISCARDED) {
             commandProcessed(wc);
             serverAssert(wc->client_hold_mode == CLIENT_HOLD_MODE_REPL);
-            clientReleaseSwapLocks(wc,NULL/*ctx unused*/);
             clientUnholdKeys(wc);
+            clientReleaseSwapLocks(wc,NULL/*ctx unused*/);
             wc->CLIENT_REPL_CMD_DISCARDED = 0;
             continue;
         } else {
@@ -139,10 +139,9 @@ static void processFinishedReplCommands() {
         c->cmd = backup_cmd;
 
         commandProcessed(wc);
+        clientUnholdKeys(wc);
 
         serverAssert(wc->client_hold_mode == CLIENT_HOLD_MODE_REPL);
-        clientReleaseSwapLocks(wc,NULL/*ctx unused*/);
-        clientUnholdKeys(wc);
 
         long long prev_offset = c->reploff;
         /* update reploff */
@@ -171,6 +170,8 @@ static void processFinishedReplCommands() {
 				sdsrange(c->pending_querybuf,applied,-1);
 			}
 		}
+
+        clientReleaseSwapLocks(wc,NULL/*ctx unused*/);
     }
     serverLog(LL_DEBUG, "< processFinishedReplCommands");
 }
@@ -254,8 +255,8 @@ int submitReplWorkerClientRequest(client *wc) {
  * can't catch up with master. 
  * In order to speed up replication stream processing, slave.master client
  * dispatches command to multiple worker client and execute commands when 
- * rocks IO finishes. Note that replicated commands swap in-parallel but we
- * still processed in received order. */
+ * rocks IO finishes. Note that replicated commands swap in-parallel but
+ * processed in received order. */
 int submitReplClientRequests(client *c) {
     client *wc;
     listNode *ln;
