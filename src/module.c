@@ -6093,23 +6093,6 @@ cleanup:
  *
  * This API is documented here: https://redis.io/topics/modules-intro
  */
-
-RedisModuleCallReply *RM_CallWithUser(RedisModuleCtx *ctx, RedisModuleUser *rm_user, const char *cmdname, const char *fmt, ...) {
-    robj **argv = NULL;
-    va_list ap;
-    int argc = 0, argv_len = 0, flags = 0;
-
-    /* Handle arguments. */
-    va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&argv_len,&flags, ap);
-    va_end(ap);
-
-    user *user = rm_user ? rm_user->user : NULL;
-
-    return CallWithUserInternal(ctx, user, argv, argc, argv_len, flags);
-}
-
-/* same as RM_CallWithUser, but executed as the "Root" user of the database, without any ACL enforcement. */
 RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
     robj **argv = NULL;
     va_list ap;
@@ -6121,6 +6104,27 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     va_end(ap);
 
     return CallWithUserInternal(ctx, NULL, argv, argc, argv_len, flags);
+}
+
+/* same as RM_Call, but executed as the provided user with ACL enforcement per that user
+ * If called with a NULL user, returns an error and sets errno to EINVAL
+ */
+RedisModuleCallReply *RM_CallWithUser(RedisModuleCtx *ctx, RedisModuleUser *rm_user, const char *cmdname, const char *fmt, ...) {
+    if (rm_user == NULL) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    robj **argv = NULL;
+    va_list ap;
+    int argc = 0, argv_len = 0, flags = 0;
+
+    /* Handle arguments. */
+    va_start(ap, fmt);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&argv_len,&flags, ap);
+    va_end(ap);
+
+    return CallWithUserInternal(ctx, rm_user->user, argv, argc, argv_len, flags);
 }
 
 /* Return a pointer, and a length, to the protocol returned by the command
