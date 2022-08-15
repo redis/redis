@@ -804,7 +804,11 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
 
 // USR ADDED:
 void scanCallback_KVpairs(void *privdata, const dictEntry *de);
-
+void scanDict_GroupID(void *privdata, const dict *ht, 
+                      const uint32_t group_id,
+                      const unsigned long m0,
+                      const signed char size_exp);
+ 
 /* USR ADDED COMMAND
  * This command is used for KV Migration project.
  * Arguments: Cursor and Count (default: 10) and Group_id (default: 0)
@@ -818,6 +822,7 @@ void MIGRATE_UNBLOCKED(client *c) {
     int arg_count = c->argc;
     char *ptr;
     
+    bool use_cursor = true;
     errno = 0;
     const char* cursor_str = c->argv[1]->ptr; 
     unsigned long cursor = strtoul(cursor_str, &ptr, 10);
@@ -848,6 +853,7 @@ void MIGRATE_UNBLOCKED(client *c) {
         
         // Group_id arg:
         if (arg_count == 4) {
+            use_cursor = false;
             errno = 0;
             const char * group_id_str = c->argv[3]->ptr;
             group_id = (uint32_t) strtoul(group_id_str, &ptr, 2);
@@ -864,6 +870,8 @@ void MIGRATE_UNBLOCKED(client *c) {
         return;
     }
     
+    printf("here!\n");
+
     // Get dictionary
     dict *ht = c->db->dict;
     list *keys = listCreate();
@@ -880,24 +888,32 @@ void MIGRATE_UNBLOCKED(client *c) {
 
         // While no rehashing, all data stored in 0. During rehashing, data stored in 0 and 1.
         int htidx0 = 0;
-        unsigned long m0 = DICTHT_SIZE_MASK(ht->ht_size_exp[htidx0]); // size mask 
+        signed char size_exp = ht->ht_size_exp[htidx0];
+        unsigned long m0 = DICTHT_SIZE_MASK(size_exp); // size mask 
 
         // Get KV Pairs
-        dictEntry *de, *next;
-        while (cursor <= m0 && listLength(keys) < (unsigned long) count) {
-            de = ht->ht_table[htidx0][cursor & m0];
-            while (de) {
-                next = de->next;
-                scanCallback_KVpairs(privdata, de);
-                de = next;
-            }
-            cursor++;     
-        } 
+        if (use_cursor == true) {
+            // Iterate through hash table according to cursor value
+            dictEntry *de, *next;
+            while (cursor <= m0 && listLength(keys) < (unsigned long) count) {
+                de = ht->ht_table[htidx0][cursor & m0];
+                while (de) {
+                    next = de->next;
+                    scanCallback_KVpairs(privdata, de);
+                    de = next;
+                }
+                cursor++;     
+            } 
 
-        if (cursor > m0) {
-            cursor = 0; // indicates scanning is complete
+            if (cursor > m0) {
+                cursor = 0; // indicates scanning is complete
+             }
+
+        } else { 
+            // Iterate through hash table according to group_id value
+            scanDict_GroupID(privdata, ht, group_id, m0, size_exp);
         }
-    
+
         dictResumeRehashing(ht);
     } else {
         addReplyError(c, "hash table is rehashing");
@@ -955,6 +971,82 @@ void scanCallback_KVpairs(void *privdata, const dictEntry *de) {
 
     listAddNodeTail(vals, val);
     listAddNodeTail(keys, key);
+}
+
+/* USR ADDED COMMAND
+ * This command iterates hash table according to group_id.
+*/
+
+void scanDict_GroupID(void *privdata, const dict *ht, 
+                      const uint32_t group_id,
+                      const unsigned long m0,
+                      const signed char size_exp) {
+    void **pd = (void **) privdata;
+    list *keys = pd[0];
+    list *vals = pd[2];
+
+    dictEntry *de, *next;
+    int htidx0 = 0;
+    uint64_t mask_32 = 4294967295; // 0b111...1 (32 1's)
+
+    if (size_exp < 32) {
+        de = ht->ht_table[htidx0][group_id & m0];
+
+        // Iterate through bucket (linked list in bucket)
+        robj *key = NULL;
+        robj *val = NULL;
+        sds sdskey;
+        uint64_t h_64;
+        uint32_t h_32;
+        while (de) {
+            next = de->next;
+        
+            // Get KV pair
+            val = dictGetVal(de);
+            sdskey = dictGetKey(de);
+            key = createStringObject(sdskey, sdslen(sdskey));
+            
+            // Check if key matches group_id
+            h_64 = dictHashKey(ht, key);
+            h_32 = h_64 & mask_32;
+            if (h_32 == group_id) {
+                listAddNodeTail(vals, val);
+                listAddNodeTail(keys, key); 
+            }
+
+            de = next;
+        }
+
+    } else if (size_exp == 32) {
+        de = ht->ht_table[htidx0][group_id & m0];
+
+        // Iterate through bucket (linked list in bucket)
+        robj *key = NULL;
+        robj *val = NULL;
+        sds sdskey;
+        while (de) {
+            next = de->next;
+        
+            // Get KV pair
+            val = dictGetVal(de);
+            sdskey = dictGetKey(de);
+            key = createStringObject(sdskey, sdslen(sdskey));
+            
+            listAddNodeTail(vals, val);
+            listAddNodeTail(keys, key); 
+            
+            de = next;
+        }
+
+
+
+
+    } else {
+
+
+    }
+
+
 }
 
 
