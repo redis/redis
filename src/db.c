@@ -807,10 +807,11 @@ void scanCallback_KVpairs(void *privdata, const dictEntry *de);
 
 /* USR ADDED COMMAND
  * This command is used for KV Migration project.
- * Arguments: Cursor and Count (default: 10)
+ * Arguments: Cursor and Count (default: 10) and Group_id (default: 0)
  * A negative input value for 'count' will be interpreted as a large number (because it's unsigned)
  * Note: This command only works when the hash table is NOT rehashing.
  * Note: It's possible that the outputted number of KV pairs may be greater than 'count'
+ * Note: When group_id is given, the hash table is iterated according to group_id, not cursor.
 */
 void MIGRATE_UNBLOCKED(client *c) {
     // Parse arguments
@@ -830,7 +831,9 @@ void MIGRATE_UNBLOCKED(client *c) {
     }
 
     unsigned long count = 10;
-    if (arg_count == 3) {
+    uint32_t group_id = 0;
+    if (arg_count == 3 || arg_count == 4) {
+        // Count arg:
         errno = 0;
         const char * count_str = c->argv[2]->ptr;
         count = strtoul(count_str, &ptr, 10);
@@ -842,11 +845,25 @@ void MIGRATE_UNBLOCKED(client *c) {
             addReplyError(c, "invalid count");
             return;
         }
-    } else if (arg_count > 3) {
+        
+        // Group_id arg:
+        if (arg_count == 4) {
+            errno = 0;
+            const char * group_id_str = c->argv[3]->ptr;
+            group_id = (uint32_t) strtoul(group_id_str, &ptr, 2);
+            // Error check group_id value
+            if ((group_id == 0 && group_id_str[0] != '0') ||
+                 ptr [0] != '\0' || 
+                 errno == ERANGE) {
+                addReplyError(c, "invalid group_id");
+                return;
+            } 
+	    }
+    } else if (arg_count > 4) {
         addReplyError(c, "too many arguments");
         return;
     }
- 
+    
     // Get dictionary
     dict *ht = c->db->dict;
     list *keys = listCreate();
