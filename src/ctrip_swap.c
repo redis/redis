@@ -383,7 +383,7 @@ void swapInit() {
         server.expire_clients[i] = c;
     }
 
-    server.repl_workers = 4;
+    server.repl_workers = 256;
     server.repl_swapping_clients = listCreate();
     server.repl_worker_clients_free = listCreate();
     server.repl_worker_clients_used = listCreate();
