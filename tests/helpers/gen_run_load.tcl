@@ -1,5 +1,5 @@
 source tests/support/redis.tcl
-
+source tests/support/util.tcl
 set ::tlsdir "tests/tls"
 proc randpath args {
     set path [expr {int(rand()*[llength $args])}]
@@ -16,12 +16,16 @@ proc format_command {args} {
 proc gen_run_load {host port seconds counter tls db code} {
     set start_time [clock seconds]
     set r [redis $host $port 1 $tls]
+    set r1 [redis $host $port ]
+    set constValue [randstring 1024 1024 alpha]
     $r client setname LOAD_HANDLER
     $r select $db
+    $r1 client setname LOAD_HANDLER
+    $r1 select $db
     if {$seconds > 0} {
         while 1 {
             set errcode [catch {uplevel 0 $code} result]
-            if {$result ne {}} {puts "$result"}
+            if {$errcode == 1} {puts "$result"}
             if {[clock seconds]-$start_time > $seconds} {
                 exit 0
             }
@@ -29,7 +33,7 @@ proc gen_run_load {host port seconds counter tls db code} {
     } else {
         while {$counter != 0} {
             set errcode [catch {uplevel 0 $code} result]
-            if {$result ne {}} {puts "$result"}
+            if {$errcode == 1} {puts "$result"}
             set counter [expr $counter - 1]
         }
     }

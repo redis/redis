@@ -29,7 +29,8 @@ set swap_not_supported {
     unit/sort
 }
 
-set ::disk_tests {   
+set ::disk_tests {
+    swap/integration/multi_bighash
     swap/integration/concurrent
     swap/integration/expire_evict
     swap/integration/pipeline
