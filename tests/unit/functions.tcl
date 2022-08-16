@@ -144,7 +144,7 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - test flushall and flushdb do not clean functions} {
         r function flush
-        r function load REPLACE [get_function_code lua test test {return redis.call('set', 'x', '1')}]
+        r function load REPLACE [get_function_code lua test test {return redis.call('set', KEYS[1], '1')}]
         r flushall
         r flushdb
         r function list
@@ -208,15 +208,15 @@ start_server {tags {"scripting"}} {
     } {*unknown subcommand or wrong number of arguments for 'restore'. Try FUNCTION HELP.}
 
     test {FUNCTION - test fcall_ro with write command} {
-        r function load REPLACE [get_no_writes_function_code lua test test {return redis.call('set', 'x', '1')}]
-        catch { r fcall_ro test 0 } e
+        r function load REPLACE [get_no_writes_function_code lua test test {return redis.call('set', KEYS[1], '1')}]
+        catch { r fcall_ro test 1 x } e
         set _ $e
     } {*Write commands are not allowed from read-only scripts*}
 
     test {FUNCTION - test fcall_ro with read only commands} {
-        r function load REPLACE [get_no_writes_function_code lua test test {return redis.call('get', 'x')}]
+        r function load REPLACE [get_no_writes_function_code lua test test {return redis.call('get', KEYS[1])}]
         r set x 1
-        r fcall_ro test 0
+        r fcall_ro test 1 x
     } {1}
 
     test {FUNCTION - test keys and argv} {
@@ -409,8 +409,8 @@ start_server {tags {"scripting repl external:skip"}} {
         } {*can't write against a read only replica*}
 
         test "FUNCTION - function effect is replicated to replica" {
-            r function load REPLACE [get_function_code LUA test test {return redis.call('set', 'x', '1')}]
-            r fcall test 0
+            r function load REPLACE [get_function_code LUA test test {return redis.call('set', KEYS[1], '1')}]
+            r fcall test 1 x
             assert {[r get x] eq {1}}
             wait_for_condition 150 100 {
                 [r -1 get x] eq {1}
@@ -421,7 +421,7 @@ start_server {tags {"scripting repl external:skip"}} {
 
         test "FUNCTION - modify key space of read only replica" {
             catch {
-                r -1 fcall test 0
+                r -1 fcall test 1 x
             } e
             set _ $e
         } {READONLY You can't write against a read only replica.}
@@ -982,7 +982,7 @@ start_server {tags {"scripting"}} {
         r FUNCTION load replace {#!lua name=f1
             redis.register_function{
                 function_name='f1',
-                callback=function() return redis.call('set', 'x', '1') end,
+                callback=function(KEYS) return redis.call('set', KEYS[1], '1') end,
                 flags={'allow-oom'}
             }
         }
@@ -1034,10 +1034,10 @@ start_server {tags {"scripting"}} {
         r function load replace {#!lua name=test
             redis.register_function{
                 function_name = 'f1',
-                callback = function() return redis.call('set', 'x', 1) end
+                callback = function(KEYS) return redis.call('set', KEYS[1], 1) end
             }
         }
-        catch {r fcall_ro f1 0} e
+        catch {r fcall_ro f1 1 x} e
         set _ $e
     } {*Can not execute a script with write flag using \*_ro command*}
 
@@ -1045,17 +1045,17 @@ start_server {tags {"scripting"}} {
         r function load replace {#!lua name=test
             redis.register_function{
                 function_name = 'f1',
-                callback = function() return redis.call('set', 'x', 1) end,
+                callback = function(KEYS) return redis.call('set', KEYS[1], 1) end,
                 flags = {'no-writes'}
             }
         }
-        catch {r fcall f1 0} e
+        catch {r fcall f1 1 x} e
         set _ $e
     } {*Write commands are not allowed from read-only scripts*}
 
     test {FUNCTION - deny oom} {
         r FUNCTION load replace {#!lua name=test
-            redis.register_function('f1', function() return redis.call('set', 'x', '1') end) 
+            redis.register_function('f1', function(KEYS) return redis.call('set', KEYS[1], '1') end)
         }
 
         r config set maxmemory 1
@@ -1083,7 +1083,7 @@ start_server {tags {"scripting"}} {
         r FUNCTION load replace {#!lua name=test
             redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-writes'}}
             redis.register_function{function_name='f2', callback=function() return 'hello' end, flags={'allow-stale', 'no-writes'}}
-            redis.register_function{function_name='f3', callback=function() return redis.call('get', 'x') end, flags={'allow-stale', 'no-writes'}}
+            redis.register_function{function_name='f3', callback=function(KEYS) return redis.call('get', KEYS[1]) end, flags={'allow-stale', 'no-writes'}}
             redis.register_function{function_name='f4', callback=function() return redis.call('info', 'server') end, flags={'allow-stale', 'no-writes'}}
         }
         
@@ -1095,7 +1095,7 @@ start_server {tags {"scripting"}} {
 
         assert_equal {hello} [r fcall f2 0]
 
-        catch {[r fcall f3 0]} e
+        catch {[r fcall f3 1 x]} e
         assert_match {ERR *Can not execute the command on a stale replica*} $e
 
         assert_match {*redis_version*} [r fcall f4 0]

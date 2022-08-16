@@ -68,7 +68,7 @@ start_server {tags {"scripting"}} {
     } {}
 
     test {EVAL - Return table with a metatable that call redis} {
-        run_script {local a = {}; setmetatable(a,{__index=function() redis.call('set', 'x', '1') end}) return a} 0
+        run_script {local a = {}; setmetatable(a,{__index=function(KEYS) redis.call('set', KEYS[1], '1') end}) return a} 1 x
         # make sure x was not set
         r get x
     } {}
@@ -215,55 +215,55 @@ start_server {tags {"scripting"}} {
 
     test {EVAL - Scripts can't run blpop command} {
         set e {}
-        catch {run_script {return redis.pcall('blpop','x',0)} 0} e
+        catch {run_script {return redis.pcall('blpop',KEYS[1],0)} 1 x} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run brpop command} {
         set e {}
-        catch {run_script {return redis.pcall('brpop','empty_list',0)} 0} e
+        catch {run_script {return redis.pcall('brpop', KEYS[1],0)} 1 empty_list} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run brpoplpush command} {
         set e {}
-        catch {run_script {return redis.pcall('brpoplpush','empty_list1', 'empty_list2',0)} 0} e
+        catch {run_script {return redis.pcall('brpoplpush', KEYS[1], KEYS[2], 0)} 2 empty_list1{t} empty_list2{t}} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run blmove command} {
         set e {}
-        catch {run_script {return redis.pcall('blmove','empty_list1', 'empty_list2', 'LEFT', 'LEFT', 0)} 0} e
+        catch {run_script {return redis.pcall('blmove', KEYS[1], KEYS[2], 'LEFT', 'LEFT', 0)} 2 empty_list1{t} empty_list2{t}} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run bzpopmin command} {
         set e {}
-        catch {run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 0} e
+        catch {run_script {return redis.pcall('bzpopmin',KEYS[1], 0)} 1 empty_zset} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run bzpopmax command} {
         set e {}
-        catch {run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 0} e
+        catch {run_script {return redis.pcall('bzpopmax',KEYS[1], 0)} 1 empty_zset} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run XREAD and XREADGROUP with BLOCK option} {
         r del s
         r xgroup create s g $ MKSTREAM
-        set res [run_script {return redis.pcall('xread','STREAMS','s','$')} 1 s]
+        set res [run_script {return redis.pcall('xread','STREAMS',KEYS[1],'$')} 1 s]
         assert {$res eq {}}
-        assert_error "*xread command is not allowed with BLOCK option from scripts" {run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 1 s}
-        set res [run_script {return redis.pcall('xreadgroup','group','g','c','STREAMS','s','>')} 1 s]
+        assert_error "*xread command is not allowed with BLOCK option from scripts" {run_script {return redis.pcall('xread','BLOCK',0,'STREAMS',KEYS[1],'$')} 1 s}
+        set res [run_script {return redis.pcall('xreadgroup','group','g','c','STREAMS',KEYS[1],'>')} 1 s]
         assert {$res eq {}}
-        assert_error "*xreadgroup command is not allowed with BLOCK option from scripts" {run_script {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 1 s}
+        assert_error "*xreadgroup command is not allowed with BLOCK option from scripts" {run_script {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS',KEYS[1],'>')} 1 s}
     }
 
     test {EVAL - Scripts can run non-deterministic commands} {
         set e {}
         catch {
-            run_script "redis.pcall('randomkey'); return redis.pcall('set','x','ciao')" 0
+            run_script {redis.pcall('randomkey'); return redis.pcall('set',KEYS[1],'ciao')} 1 x
         } e
         set e
     } {*OK*}
@@ -591,27 +591,27 @@ start_server {tags {"scripting"}} {
         run_script {
             local i
             local x={}
-            redis.call('del','mylist')
+            redis.call('del',KEYS[1])
             for i=1,100 do
                 table.insert(x,i)
             end
-            redis.call('rpush','mylist',unpack(x))
-            return redis.call('lrange','mylist',0,-1)
+            redis.call('rpush',KEYS[1],unpack(x))
+            return redis.call('lrange',KEYS[1],0,-1)
         } 1 mylist
     } {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100}
 
     test {Number conversion precision test (issue #1118)} {
         run_script {
               local value = 9007199254740991
-              redis.call("set","foo",value)
-              return redis.call("get","foo")
+              redis.call("set",KEYS[1],value)
+              return redis.call("get",KEYS[1])
         } 1 foo
     } {9007199254740991}
 
     test {String containing number precision test (regression of issue #1118)} {
         run_script {
-            redis.call("set", "key", "12039611435714932082")
-            return redis.call("get", "key")
+            redis.call("set", KEYS[1], "12039611435714932082")
+            return redis.call("get", KEYS[1])
         } 1 key
     } {12039611435714932082}
 
@@ -628,11 +628,11 @@ start_server {tags {"scripting"}} {
     test {Correct handling of reused argv (issue #1939)} {
         run_script {
               for i = 0, 10 do
-                  redis.call('SET', 'a{t}', '1')
-                  redis.call('MGET', 'a{t}', 'b{t}', 'c{t}')
-                  redis.call('EXPIRE', 'a{t}', 0)
-                  redis.call('GET', 'a{t}')
-                  redis.call('MGET', 'a{t}', 'b{t}', 'c{t}')
+                  redis.call('SET', KEYS[1], '1')
+                  redis.call('MGET', KEYS[1], KEYS[2], KEYS[3])
+                  redis.call('EXPIRE', KEYS[1], 0)
+                  redis.call('GET', KEYS[1])
+                  redis.call('MGET', KEYS[1], KEYS[2], KEYS[3])
               end
         } 3 a{t} b{t} c{t}
     }
@@ -701,27 +701,27 @@ start_server {tags {"scripting"}} {
             for i=1,7999 do
                 a[i] = 1
             end
-            return redis.call("lpush", "l", unpack(a))
-        } 0
+            return redis.call("lpush", KEYS[1], unpack(a))
+        } 1 l
     } {7999}
 
     test "Script read key with expiration set" {
         r SET key value EX 10
         assert_equal [run_script {
-             if redis.call("EXISTS", "key") then
-                 return redis.call("GET", "key")
+             if redis.call("EXISTS", KEYS[1]) then
+                 return redis.call("GET", KEYS[1])
              else
-                 return redis.call("EXISTS", "key")
+                 return redis.call("EXISTS", KEYS[1])
              end
-        } 0] "value"
+        } 1 key] "value"
     }
 
     test "Script del key with expiration set" {
         r SET key value EX 10
         assert_equal [run_script {
-             redis.call("DEL", "key")
-             return redis.call("EXISTS", "key")
-        } 0] 0
+             redis.call("DEL", KEYS[1])
+             return redis.call("EXISTS", KEYS[1])
+        } 1 key] 0
     }
     
     test "Script ACL check" {
@@ -730,12 +730,12 @@ start_server {tags {"scripting"}} {
         
         # Check permission granted
         assert_equal [run_script {
-            return redis.acl_check_cmd('set','xx',1)
+            return redis.acl_check_cmd('set',KEYS[1],1)
         } 1 xx] 1
 
         # Check permission denied unauthorised command
         assert_equal [run_script {
-            return redis.acl_check_cmd('hset','xx','f',1)
+            return redis.acl_check_cmd('hset',KEYS[1],'f',1)
         } 1 xx] {}
         
         # Check permission denied unauthorised key
@@ -1056,19 +1056,19 @@ start_server {tags {"scripting"}} {
 
             test "Lua scripts using SELECT are replicated correctly" {
                 run_script {
-                    redis.call("set","foo1","bar1")
+                    redis.call("set",KEYS[1],"bar1")
                     redis.call("select","10")
-                    redis.call("incr","x")
+                    redis.call("incr",KEYS[2])
                     redis.call("select","11")
-                    redis.call("incr","z")
-                } 0
+                    redis.call("incr",KEYS[3])
+                } 3 foo1 x z
                 run_script {
-                    redis.call("set","foo1","bar1")
+                    redis.call("set",KEYS[1],"bar1")
                     redis.call("select","10")
-                    redis.call("incr","x")
+                    redis.call("incr",KEYS[2])
                     redis.call("select","11")
-                    redis.call("incr","z")
-                } 0
+                    redis.call("incr",KEYS[3])
+                } 3 foo1 x z
                 wait_for_condition 50 100 {
                     [debug_digest -1] eq [debug_digest]
                 } else {
@@ -1119,14 +1119,14 @@ start_server {tags {"scripting repl external:skip"}} {
         test "Test selective replication of certain Redis commands from Lua" {
             r del a b c d
             run_script {
-                redis.call('set','a','1');
+                redis.call('set',KEYS[1],'1');
                 redis.set_repl(redis.REPL_NONE);
-                redis.call('set','b','2');
+                redis.call('set',KEYS[2],'2');
                 redis.set_repl(redis.REPL_AOF);
-                redis.call('set','c','3');
+                redis.call('set',KEYS[3],'3');
                 redis.set_repl(redis.REPL_ALL);
-                redis.call('set','d','4');
-            } 0
+                redis.call('set',KEYS[4],'4');
+            } 4 a b c d
 
             wait_for_condition 50 100 {
                 [r -1 mget a b c d] eq {1 {} {} 4}
@@ -1355,10 +1355,10 @@ start_server {tags {"scripting needs:debug"}} {
 
     test "Script block the time during execution" {
         assert_equal [run_script {
-            redis.call("SET", "key", "value", "PX", "1")
+            redis.call("SET", KEYS[1], "value", "PX", "1")
             redis.call("DEBUG", "SLEEP", 0.01)
-            return redis.call("EXISTS", "key")
-        } 0] 1
+            return redis.call("EXISTS", KEYS[1])
+        } 1 key] 1
 
         assert_equal 0 [r EXISTS key]
     }
@@ -1371,7 +1371,7 @@ start_server {tags {"scripting needs:debug"}} {
         # use DEBUG OBJECT to make sure it doesn't error (means the key still exists)
         r DEBUG OBJECT key
 
-        assert_equal [run_script "return redis.call('EXISTS', 'key')" 0] 0
+        assert_equal [run_script {return redis.call('EXISTS', KEYS[1])} 1 key] 0
         assert_equal 0 [r EXISTS key]
         r DEBUG set-active-expire 1
     }
