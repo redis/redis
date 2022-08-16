@@ -630,8 +630,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 /* control the QPS of the thread of current client 
 */
-static int controlQps(void *privdata) {
-    client c = privdata;
+static int controlQps(client c) {
     int thread_id = c->thread_id == -1 ? 0 : c->thread_id;
     if (config.paused[thread_id]) {
         /* this thread has been paused, delete event and add it to paused clients list */
@@ -692,7 +691,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (config.cluster_mode && c->staglen > 0) setClusterKeyHashTag(c);
         atomicGet(config.slots_last_update, c->slots_last_update);
         c->start = ustime();
-        if (config.qps && controlQps((void *) c)) return;
+        if (config.qps && controlQps(c)) return;
         c->latency = -1;
     }
     const ssize_t buflen = sdslen(c->obuf);
