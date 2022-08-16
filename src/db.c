@@ -870,8 +870,6 @@ void MIGRATE_UNBLOCKED(client *c) {
         return;
     }
     
-    printf("here!\n");
-
     // Get dictionary
     dict *ht = c->db->dict;
     list *keys = listCreate();
@@ -987,15 +985,17 @@ void scanDict_GroupID(void *privdata, const dict *ht,
 
     dictEntry *de, *next;
     int htidx0 = 0;
+    int id_bit_num = 32;
     uint64_t mask_32 = 4294967295; // 0b111...1 (32 1's)
 
-    if (size_exp < 32) {
+    if (size_exp < id_bit_num) {
         de = ht->ht_table[htidx0][group_id & m0];
 
         // Iterate through bucket (linked list in bucket)
         robj *key = NULL;
         robj *val = NULL;
         sds sdskey;
+        sds copy;
         uint64_t h_64;
         uint32_t h_32;
         while (de) {
@@ -1007,8 +1007,10 @@ void scanDict_GroupID(void *privdata, const dict *ht,
             key = createStringObject(sdskey, sdslen(sdskey));
             
             // Check if key matches group_id
-            h_64 = dictHashKey(ht, key);
+            copy = sdsdup(key->ptr);
+            h_64 = dictHashKey(ht, (void *)copy);
             h_32 = h_64 & mask_32;
+            
             if (h_32 == group_id) {
                 listAddNodeTail(vals, val);
                 listAddNodeTail(keys, key); 
@@ -1017,36 +1019,34 @@ void scanDict_GroupID(void *privdata, const dict *ht,
             de = next;
         }
 
-    } else if (size_exp == 32) {
+    } else if (size_exp == id_bit_num) {
         de = ht->ht_table[htidx0][group_id & m0];
 
         // Iterate through bucket (linked list in bucket)
-        robj *key = NULL;
-        robj *val = NULL;
-        sds sdskey;
         while (de) {
             next = de->next;
-        
-            // Get KV pair
-            val = dictGetVal(de);
-            sdskey = dictGetKey(de);
-            key = createStringObject(sdskey, sdslen(sdskey));
-            
-            listAddNodeTail(vals, val);
-            listAddNodeTail(keys, key); 
-            
+            scanCallback_KVpairs(privdata, de);    
             de = next;
         }
 
-
-
-
     } else {
-
-
+        signed char size_dif_exp = size_exp - id_bit_num;
+        unsigned long size_dif = 1 << size_dif_exp;
+        unsigned long append_bits = 0;
+        unsigned long v0 = 0;
+        for (unsigned long i = 0; i < size_dif; i++) {
+            v0 = (append_bits << id_bit_num) | group_id;
+            de = ht->ht_table[htidx0][v0 & m0];
+            
+            while (de) {
+                next = de->next;
+                scanCallback_KVpairs(privdata, de);
+                de = next;
+            } 
+          
+            append_bits++;
+        }
     }
-
-
 }
 
 
