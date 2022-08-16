@@ -197,6 +197,7 @@ client *createClient(connection *conn) {
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
+    listInitEmbeddedNode(&c->clients_pending_write_node, c);
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);
@@ -226,7 +227,7 @@ void clientInstallWriteHandler(client *c) {
          * a system call. We'll only really install the write handler if
          * we'll not be able to write the whole reply at once. */
         c->flags |= CLIENT_PENDING_WRITE;
-        listAddNodeHead(server.clients_pending_write,c);
+        listAddExistingNodeHead(server.clients_pending_write, &c->clients_pending_write_node);
     }
 }
 
@@ -1332,9 +1333,7 @@ void unlinkClient(client *c) {
 
     /* Remove from the list of pending writes if needed. */
     if (c->flags & CLIENT_PENDING_WRITE) {
-        ln = listSearchKey(server.clients_pending_write,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients_pending_write,ln);
+        listRemoveNode(server.clients_pending_write, &c->clients_pending_write_node);
         c->flags &= ~CLIENT_PENDING_WRITE;
     }
 
@@ -1677,7 +1676,7 @@ int handleClientsWithPendingWrites(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
-        listDelNode(server.clients_pending_write,ln);
+        listRemoveNode(server.clients_pending_write,ln);
 
         /* If a client is protected, don't do anything,
          * that may trigger write error or recreate handler. */
@@ -3684,7 +3683,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         /* Remove clients from the list of pending writes since
          * they are going to be closed ASAP. */
         if (c->flags & CLIENT_CLOSE_ASAP) {
-            listDelNode(server.clients_pending_write, ln);
+            listRemoveNode(server.clients_pending_write, ln);
             continue;
         }
 
@@ -3731,7 +3730,9 @@ int handleClientsWithPendingWritesUsingThreads(void) {
             freeClientAsync(c);
         }
     }
-    listEmpty(server.clients_pending_write);
+    while(listLength(server.clients_pending_write) > 0) {
+        listRemoveNode(server.clients_pending_write, server.clients_pending_write->head);
+    }
 
     /* Update processed count on server */
     server.stat_io_writes_processed += processed;

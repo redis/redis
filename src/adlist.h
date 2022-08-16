@@ -88,6 +88,13 @@ void listRewindTail(list *list, listIter *li);
 void listRotateTailToHead(list *list);
 void listRotateHeadToTail(list *list);
 void listJoin(list *l, list *o);
+static inline void listInitEmbeddedNode(listNode * node, void *parentStruct) {
+    node->prev = (void * )0;
+    node->next = (void * )0;
+    node->value = parentStruct;
+}
+void listAddExistingNodeHead(list *list, listNode *embeddedNode);
+void listRemoveNode(list *list, listNode *embeddedNode);
 
 /* Directions for iterators */
 #define AL_START_HEAD 0

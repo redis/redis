@@ -948,6 +948,7 @@ typedef struct client {
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
+    listNode clients_pending_write_node;
 } client;
 
 struct saveparam {
