@@ -602,11 +602,11 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
        test_assert(requestLockWouldBlock(txid++,db,key2));
        test_assert(requestLockWouldBlock(txid++,db,key3));
        test_assert(requestLockWouldBlock(txid++,db,NULL));
-       requestGetIOAndLock(handle1);
+       requestReleaseLock(handle1);
        test_assert(!requestLockWouldBlock(txid++,db,key1));
-       requestGetIOAndLock(handle2);
+       requestReleaseLock(handle2);
        test_assert(!requestLockWouldBlock(txid++,db,key2));
-       requestGetIOAndLock(handle3);
+       requestReleaseLock(handle3);
        test_assert(!requestLockWouldBlock(txid++,db,key3));
        test_assert(!requestLockWouldBlock(txid++,NULL,NULL));
    } 
@@ -621,11 +621,11 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
        /* first one proceeded, others blocked */
        test_assert(blocked == 2);
        for (i = 0; i < 2; i++) {
-           requestGetIOAndLock(handle1);
+           requestReleaseLock(handle1);
            test_assert(requestLockWouldBlock(txid++,db,key1));
        }
        test_assert(blocked == 0);
-       requestGetIOAndLock(handle1);
+       requestReleaseLock(handle1);
        test_assert(!requestLockWouldBlock(txid++,db,key1));
    }
 
@@ -635,8 +635,8 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
        test_assert(!blocked);
        test_assert(requestLockWouldBlock(txid++,db,NULL));
        test_assert(requestLockWouldBlock(txid++,db2,NULL));
-       requestGetIOAndLock(handledb);
-       requestGetIOAndLock(handledb2);
+       requestReleaseLock(handledb);
+       requestReleaseLock(handledb2);
        test_assert(!requestLockWouldBlock(txid++,db,NULL));
        test_assert(!requestLockWouldBlock(txid++,db2,NULL));
    }
@@ -651,19 +651,19 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
         test_assert(requestLockWouldBlock(txid++,db,NULL));
         test_assert(blocked == 2);
         /* key1/key2 notify */
-        requestGetIOAndLock(handle1);
+        requestReleaseLock(handle1);
         test_assert(requestLockWouldBlock(txid++,db,NULL));
-        requestGetIOAndLock(handle2);
+        requestReleaseLock(handle2);
         test_assert(requestLockWouldBlock(txid++,db,NULL));
         /* db proceeded, key3 still blocked. */
         test_assert(blocked == 1);
         test_assert(handle3 == NULL);
         /* db notified, key3 proceeds but still blocked */
-        requestGetIOAndLock(handledb);
+        requestReleaseLock(handledb);
         test_assert(!blocked);
         test_assert(requestLockWouldBlock(txid++,db,NULL));
         /* db3 proceed, noting would block */
-        requestGetIOAndLock(handle3);
+        requestReleaseLock(handle3);
         test_assert(!requestLockWouldBlock(txid++,db,NULL));
     }
 
@@ -678,19 +678,19 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
         test_assert(requestLockWouldBlock(txid++,db,NULL));
         test_assert(blocked == 2);
         /* key1/key2 notify */
-        requestGetIOAndLock(handle1);
+        requestReleaseLock(handle1);
         test_assert(requestLockWouldBlock(txid++,NULL,NULL));
-        requestGetIOAndLock(handle2);
+        requestReleaseLock(handle2);
         test_assert(requestLockWouldBlock(txid++,NULL,NULL));
         /* svr proceeded, key3 still blocked. */
         test_assert(blocked == 1);
         test_assert(handle3 == NULL);
         /* svr notified, db3 proceeds but still would block */
-        requestGetIOAndLock(handlesvr);
+        requestReleaseLock(handlesvr);
         test_assert(!blocked);
         test_assert(requestLockWouldBlock(txid++,NULL,NULL));
         /* db3 proceed, noting would block */
-        requestGetIOAndLock(handle3);
+        requestReleaseLock(handle3);
         test_assert(!requestLockWouldBlock(txid++,NULL,NULL));
     }
 
@@ -743,12 +743,12 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
        test_assert(handle1 != NULL && handle1 == handle2);
        test_assert(requestLockWouldBlock(11,db,key1));
        requestGetIOAndLock(11,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
-       requestGetIOAndLock(handle1);
-       requestGetIOAndLock(handle2);
+       requestReleaseLock(handle1);
+       requestReleaseLock(handle2);
        test_assert(proceeded == 3);
        test_assert(handle1 == handle3);
        test_assert(requestBindListeners(db,key1,0) != NULL);
-       requestGetIOAndLock(handle3);
+       requestReleaseLock(handle3);
        test_assert(requestBindListeners(db,key1,0) == NULL);
        test_assert(proceeded == 3);
        reentrant_case_reset();
@@ -768,17 +768,17 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
        test_assert(requestLockWouldBlock(22,db,key1));
        requestGetIOAndLock(22,db,key1,proceededCounter,NULL,&handle4,NULL,NULL);
        test_assert(proceeded == 1);
-       requestGetIOAndLock(handle1);
+       requestReleaseLock(handle1);
        test_assert(proceeded == 3);
        test_assert(handle1 == handle2);
        test_assert(handle1 == handle3);
-       requestGetIOAndLock(handle2);
+       requestReleaseLock(handle2);
        test_assert(proceeded == 3);
-       requestGetIOAndLock(handle3);
+       requestReleaseLock(handle3);
        test_assert(proceeded == 4);
        test_assert(handle1 == handle4);
        test_assert(requestBindListeners(db,key1,0) != NULL);
-       requestGetIOAndLock(handle4);
+       requestReleaseLock(handle4);
        test_assert(requestBindListeners(db,key1,0) == NULL);
        reentrant_case_reset();
    }
@@ -795,12 +795,12 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
        requestGetIOAndLock(31,db2,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
        test_assert(proceeded == 3);
        test_assert(handle4 != NULL && handle1 != handle4);
-       requestGetIOAndLock(handle1);
-       requestGetIOAndLock(handle2);
+       requestReleaseLock(handle1);
+       requestReleaseLock(handle2);
        test_assert(proceeded == 4);
        test_assert(handle1 == handle3);
-       requestGetIOAndLock(handle3);
-       requestGetIOAndLock(handle4);
+       requestReleaseLock(handle3);
+       requestReleaseLock(handle4);
        test_assert(proceeded == 4);
        reentrant_case_reset();
    }
@@ -816,15 +816,15 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
        test_assert(proceeded == 2);
        requestGetIOAndLock(41,NULL,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
        test_assert(proceeded == 2);
-       requestGetIOAndLock(handle1);
+       requestReleaseLock(handle1);
        test_assert(proceeded == 2);
-       requestGetIOAndLock(handle2);
+       requestReleaseLock(handle2);
        test_assert(proceeded == 4);
        test_assert(handle1 == handle3);
        test_assert(handle1 == handle4);
-       requestGetIOAndLock(handle3);
+       requestReleaseLock(handle3);
        test_assert(proceeded == 4);
-       requestGetIOAndLock(handle4);
+       requestReleaseLock(handle4);
        test_assert(proceeded == 4);
        reentrant_case_reset();
    }
@@ -842,13 +842,13 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
        requestGetIOAndLock(51,NULL,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
        test_assert(handle4 == NULL);
        test_assert(proceeded == 2);
-       requestGetIOAndLock(handle1);
+       requestReleaseLock(handle1);
        test_assert(handle1 == handle2);
        test_assert(handle4 != NULL);
        test_assert(proceeded == 4);
-       requestGetIOAndLock(handle2);
-       requestGetIOAndLock(handle3);
-       requestGetIOAndLock(handle4);
+       requestReleaseLock(handle2);
+       requestReleaseLock(handle3);
+       requestReleaseLock(handle4);
        test_assert(proceeded == 4);
        reentrant_case_reset();
    }
@@ -870,21 +870,21 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
        test_assert(proceeded == 2);
        requestGetIOAndLock(62,db,key2,proceededCounter,NULL,&handle7,NULL,NULL);
        test_assert(proceeded == 2);
-       requestGetIOAndLock(handle1);
+       requestReleaseLock(handle1);
        test_assert(proceeded == 6);
        test_assert(handle1 == handle2);
        test_assert(handle1 == handle4);
        test_assert(handle5 != NULL && handle1 != handle5 && handle3 != handle5);
        test_assert(handle6 == handle5);
-       requestGetIOAndLock(handle2);
-       requestGetIOAndLock(handle3);
-       requestGetIOAndLock(handle4);
-       requestGetIOAndLock(handle5);
+       requestReleaseLock(handle2);
+       requestReleaseLock(handle3);
+       requestReleaseLock(handle4);
+       requestReleaseLock(handle5);
        test_assert(proceeded == 6);
-       requestGetIOAndLock(handle6);
+       requestReleaseLock(handle6);
        test_assert(proceeded == 7);
        test_assert(handle7 == handle5);
-       requestGetIOAndLock(handle7);
+       requestReleaseLock(handle7);
        test_assert(proceeded == 7);
        reentrant_case_reset();
    }
@@ -903,20 +903,20 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
        test_assert(proceeded == 2 && handle5 == NULL);
        requestGetIOAndLock(72,NULL,NULL,proceededCounter,NULL,&handle6,NULL,NULL);
        test_assert(proceeded == 2);
-       requestGetIOAndLock(handle1);
+       requestReleaseLock(handle1);
        test_assert(proceeded == 3);
        test_assert(handle3 != NULL && handle3 == handle1);
-       requestGetIOAndLock(handle2);
+       requestReleaseLock(handle2);
        test_assert(proceeded == 5);
        test_assert(handle4 != NULL && handle4 == handle2);
        test_assert(handle5 != NULL && handle5 != handle4 && handle5 != handle3);
-       requestGetIOAndLock(handle3);
-       requestGetIOAndLock(handle4);
+       requestReleaseLock(handle3);
+       requestReleaseLock(handle4);
        test_assert(proceeded == 5);
-       requestGetIOAndLock(handle5);
+       requestReleaseLock(handle5);
        test_assert(proceeded == 6);
        test_assert(handle5 == handle6);
-       requestGetIOAndLock(handle6);
+       requestReleaseLock(handle6);
        test_assert(proceeded == 6);
        reentrant_case_reset();
    }
@@ -941,23 +941,23 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
        test_assert(proceeded == 3);
        requestGetIOAndLock(82,NULL,NULL,proceededCounter,NULL,&handle8,NULL,NULL);
        test_assert(proceeded == 3);
-       requestGetIOAndLock(handle1);
+       requestReleaseLock(handle1);
        test_assert(proceeded == 5);
        test_assert(handle4 != NULL && handle4 == handle1);
        test_assert(handle5 != NULL && handle5 != handle4);
-       requestGetIOAndLock(handle2);
+       requestReleaseLock(handle2);
        test_assert(proceeded == 7);
        test_assert(handle6 == handle2);
        test_assert(handle7 != handle6);
-       requestGetIOAndLock(handle3);
-       requestGetIOAndLock(handle4);
-       requestGetIOAndLock(handle5);
-       requestGetIOAndLock(handle6);
+       requestReleaseLock(handle3);
+       requestReleaseLock(handle4);
+       requestReleaseLock(handle5);
+       requestReleaseLock(handle6);
        test_assert(proceeded == 7);
-       requestGetIOAndLock(handle7);
+       requestReleaseLock(handle7);
        test_assert(proceeded == 8);
        test_assert(handle8 == handle7);
-       requestGetIOAndLock(handle8);
+       requestReleaseLock(handle8);
        test_assert(proceeded == 8);
        reentrant_case_reset();
    }
@@ -969,7 +969,7 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
        }
        test_assert(proceeded == count);
        for (i = 0; i < count; i++) {
-           requestGetIOAndLock(handle1);
+           requestReleaseLock(handle1);
        }
        test_assert(proceeded == count);
        reentrant_case_reset();
@@ -992,7 +992,7 @@ int proceedRightaway(void *listeners, redisDb *db, robj *key, client *c, void *p
     *pd = listeners;
     proceeded++;
     requestReleaseIO(listeners);
-    requestGetIOAndLock(listeners);
+    requestReleaseLock(listeners);
     return 0;
 }
 
@@ -1060,13 +1060,13 @@ int swapWaitAckTest(int argc, char *argv[], int accurate) {
         requestReleaseIO(handle7);
         test_assert(handle8 == NULL && proceeded == 7);
 
-        requestGetIOAndLock(handle1), requestGetIOAndLock(handle2), requestGetIOAndLock(handle3),
-            requestGetIOAndLock(handle4), requestGetIOAndLock(handle5), requestGetIOAndLock(handle6),
-            requestGetIOAndLock(handle7);
+        requestReleaseLock(handle1), requestReleaseLock(handle2), requestReleaseLock(handle3),
+            requestReleaseLock(handle4), requestReleaseLock(handle5), requestReleaseLock(handle6),
+            requestReleaseLock(handle7);
 
         test_assert(handle8 == handle6 && proceeded == 8);
         requestReleaseIO(handle8);
-        requestGetIOAndLock(handle8);
+        requestReleaseLock(handle8);
 
         ack_case_reset();
     }
@@ -1091,8 +1091,8 @@ int swapWaitAckTest(int argc, char *argv[], int accurate) {
         requestReleaseIO(handle4);
         test_assert(handle5 != NULL && proceeded == 5);
         requestReleaseIO(handle5);
-        requestGetIOAndLock(handle1), requestGetIOAndLock(handle2), requestGetIOAndLock(handle3),
-            requestGetIOAndLock(handle4), requestGetIOAndLock(handle5);
+        requestReleaseLock(handle1), requestReleaseLock(handle2), requestReleaseLock(handle3),
+            requestReleaseLock(handle4), requestReleaseLock(handle5);
         test_assert(requestBindListeners(db,key1,0) == NULL);
         ack_case_reset();
     }
@@ -1117,10 +1117,10 @@ int swapWaitAckTest(int argc, char *argv[], int accurate) {
         test_assert(handle6 != NULL && handle6 != handle5 && proceeded == 6);
         requestReleaseIO(handle6);
 
-        requestGetIOAndLock(handle1), requestGetIOAndLock(handle2), requestGetIOAndLock(handle3),
-            requestGetIOAndLock(handle4), requestGetIOAndLock(handle5), requestGetIOAndLock(handle6);
+        requestReleaseLock(handle1), requestReleaseLock(handle2), requestReleaseLock(handle3),
+            requestReleaseLock(handle4), requestReleaseLock(handle5), requestReleaseLock(handle6);
         requestReleaseIO(handle7);
-        requestGetIOAndLock(handle7);
+        requestReleaseLock(handle7);
 
         ack_case_reset();
     }
@@ -1138,12 +1138,12 @@ int swapWaitAckTest(int argc, char *argv[], int accurate) {
         requestReleaseIO(handle2);
         test_assert(proceeded == 2);
         test_assert(requestLockWouldBlock(41,db,key1));
-        requestGetIOAndLock(handle1);
+        requestReleaseLock(handle1);
         test_assert(requestLockWouldBlock(41,db,key1));
         requestGetIOAndLock(41,db,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
         test_assert(handle3 == NULL && proceeded == 2);
         /* proceed iff previous tx finished. */
-        requestGetIOAndLock(handle2);
+        requestReleaseLock(handle2);
         test_assert(handle3 != NULL && proceeded == 3);
         requestGetIOAndLock(41,db,key1,proceedWithoutAck,NULL,&handle4,NULL,NULL);
         test_assert(handle4 == NULL && proceeded == 3);
@@ -1165,11 +1165,11 @@ int swapWaitAckTest(int argc, char *argv[], int accurate) {
         requestReleaseIO(handle6);
         test_assert(handle7 != NULL && handle8 == NULL && proceeded == 7);
         requestReleaseIO(handle7);
-        requestGetIOAndLock(handle3), requestGetIOAndLock(handle4), requestGetIOAndLock(handle5),
-            requestGetIOAndLock(handle6), requestGetIOAndLock(handle7);
+        requestReleaseLock(handle3), requestReleaseLock(handle4), requestReleaseLock(handle5),
+            requestReleaseLock(handle6), requestReleaseLock(handle7);
         test_assert(handle8 != NULL && proceeded == 8);
         requestReleaseIO(handle8);
-        requestGetIOAndLock(handle8);
+        requestReleaseLock(handle8);
         test_assert(proceeded == 8);
         ack_case_reset();
     }
@@ -1228,7 +1228,7 @@ int swapWaitAckTest(int argc, char *argv[], int accurate) {
 
         requestReleaseIO(handle1);
         test_assert(handle7 == NULL && proceeded == 7);
-        requestGetIOAndLock(handle1);
+        requestReleaseLock(handle1);
         test_assert(handle7 != NULL && proceeded == 8);
 
         requestReleaseIO(handle7), requestReleaseIO(handle8);
@@ -1238,8 +1238,8 @@ int swapWaitAckTest(int argc, char *argv[], int accurate) {
         test_assert(handle10 != NULL && proceeded == 10);
         requestReleaseIO(handle10);
 
-        requestGetIOAndLock(handle4), requestGetIOAndLock(handle5), requestGetIOAndLock(handle7),
-            requestGetIOAndLock(handle8), requestGetIOAndLock(handle9), requestGetIOAndLock(handle10);
+        requestReleaseLock(handle4), requestReleaseLock(handle5), requestReleaseLock(handle7),
+            requestReleaseLock(handle8), requestReleaseLock(handle9), requestReleaseLock(handle10);
 
         test_assert(!requestLockWouldBlock(62,db,key1));
         ack_case_reset();
