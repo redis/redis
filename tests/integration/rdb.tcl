@@ -135,7 +135,7 @@ start_server {} {
         r debug populate 1000
         r bgsave
         assert_equal [s rdb_bgsave_in_progress] 1
-        after 100
+        after 200
         r flushall
         # wait half a second max
         wait_for_condition 5 100 {
