@@ -106,10 +106,7 @@ int sendbytes(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     dst_offset = 0;
 
     /* Create a pipe and register it to the event loop. */
-    if (pipe(fds) < 0) return REDISMODULE_ERR;
-    if (fcntl(fds[0], F_SETFL, O_NONBLOCK) < 0) return REDISMODULE_ERR;
-    if (fcntl(fds[1], F_SETFL, O_NONBLOCK) < 0) return REDISMODULE_ERR;
-
+    if (anetPipe(fds, O_NONBLOCK, O_NONBLOCK) == -1) return REDISMODULE_ERR;
     if (RedisModule_EventLoopAdd(fds[0], REDISMODULE_EVENTLOOP_READABLE,
         onReadable, "userdataread") != REDISMODULE_OK) return REDISMODULE_ERR;
     if (RedisModule_EventLoopAdd(fds[1], REDISMODULE_EVENTLOOP_WRITABLE,
@@ -121,7 +118,7 @@ int sanity(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    if (pipe(fds) < 0) return REDISMODULE_ERR;
+    if (anetPipe(fds, 0, 0) == -1) return REDISMODULE_ERR;
 
     if (RedisModule_EventLoopAdd(fds[0], 9999999, onReadable, NULL)
         == REDISMODULE_OK || errno != EINVAL) {
