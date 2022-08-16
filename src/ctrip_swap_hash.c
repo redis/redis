@@ -34,7 +34,7 @@ void hashTransformBig(robj *o, objectMeta *m) {
     serverAssert(o && o->type == OBJ_HASH);
 
     //TODO bighash=>wholekey not allowed if there are rocksdb subkeys: 
-    //modify meta need requestWait, which requires extra work. support it if
+    //modify meta need requestGetIOAndLock, which requires extra work. support it if
     //wholekey does have performance advantage.
     if (m != NULL || o->big) return;
 

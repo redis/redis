@@ -381,7 +381,7 @@ static int listenersWaitWouldBlock(int64_t txid, requestListeners *listeners) {
     return listeners->nlistener > ntxlistener || ntxrequest > ntxacked;
 }
 
-int requestWaitWouldBlock(int64_t txid, redisDb *db, robj *key) {
+int requestLockWouldBlock(int64_t txid, redisDb *db, robj *key) {
     requestListeners *listeners = requestBindListeners(db,key,0);
     if (listeners == NULL) return 0;
     return listenersWaitWouldBlock(txid, listeners);
@@ -397,10 +397,10 @@ requestListener *requestBindListener(int64_t txid,
 }
 
 /* Restrictions:
- * - requestWait for one txid MUST next to each other.
- * - requestWait for one txid MUST not trigger requestNotify/requestAck for
+ * - requestGetIOAndLock for one txid MUST next to each other.
+ * - requestGetIOAndLock for one txid MUST not trigger requestGetIOAndLock/requestReleaseIO for
  *   other txid in between. */
-int requestWait(int64_t txid, redisDb *db, robj *key, requestProceed cb,
+int requestGetIOAndLock(int64_t txid, redisDb *db, robj *key, requestProceed cb,
         client *c, void *pd, freefunc pdfree, void *msgs) {
     int blocking;
     requestListeners *listeners;
@@ -484,7 +484,7 @@ static inline void requestListenersAcked(requestListeners *listeners, int64_t tx
     }
 }
 
-int requestAck(void *listeners_) {
+int requestReleaseIO(void *listeners_) {
     requestListeners *listeners = listeners_;
     requestListener *current = requestListenersPeek(listeners);
     current->acked++;
@@ -493,7 +493,7 @@ int requestAck(void *listeners_) {
     return 0;
 }
 
-int requestNotify(void *listeners_) {
+int requestReleaseLock(void *listeners_) {
     requestListeners *listeners = listeners_, *parent;
     requestListener *current, *next;
 
@@ -558,7 +558,7 @@ int proceedNotifyLater(void *listeners, redisDb *db, robj *key, client *c, void 
     void **pd = pd_;
     *pd = listeners;
     blocked--;
-    requestAck(listeners);
+    requestReleaseIO(listeners);
     return 0;
 }
 
@@ -594,104 +594,104 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
 
    TEST("wait: parallel key") {
        handle1 = NULL, handle2 = NULL, handle3 = NULL, handlesvr = NULL;
-       requestWait(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL), blocked++;
-       requestWait(txid++,db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL), blocked++;
-       requestWait(txid++,db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL), blocked++;
+       requestGetIOAndLock(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL), blocked++;
+       requestGetIOAndLock(txid++,db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL), blocked++;
+       requestGetIOAndLock(txid++,db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL), blocked++;
        test_assert(!blocked);
-       test_assert(requestWaitWouldBlock(txid++,db,key1));
-       test_assert(requestWaitWouldBlock(txid++,db,key2));
-       test_assert(requestWaitWouldBlock(txid++,db,key3));
-       test_assert(requestWaitWouldBlock(txid++,db,NULL));
-       requestNotify(handle1);
-       test_assert(!requestWaitWouldBlock(txid++,db,key1));
-       requestNotify(handle2);
-       test_assert(!requestWaitWouldBlock(txid++,db,key2));
-       requestNotify(handle3);
-       test_assert(!requestWaitWouldBlock(txid++,db,key3));
-       test_assert(!requestWaitWouldBlock(txid++,NULL,NULL));
+       test_assert(requestLockWouldBlock(txid++,db,key1));
+       test_assert(requestLockWouldBlock(txid++,db,key2));
+       test_assert(requestLockWouldBlock(txid++,db,key3));
+       test_assert(requestLockWouldBlock(txid++,db,NULL));
+       requestGetIOAndLock(handle1);
+       test_assert(!requestLockWouldBlock(txid++,db,key1));
+       requestGetIOAndLock(handle2);
+       test_assert(!requestLockWouldBlock(txid++,db,key2));
+       requestGetIOAndLock(handle3);
+       test_assert(!requestLockWouldBlock(txid++,db,key3));
+       test_assert(!requestLockWouldBlock(txid++,NULL,NULL));
    } 
 
    TEST("wait: pipelined key") {
        int i;
        for (i = 0; i < 3; i++) {
            blocked++;
-           requestWait(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL);
+           requestGetIOAndLock(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL);
        }
-       test_assert(requestWaitWouldBlock(txid++,db,key1));
+       test_assert(requestLockWouldBlock(txid++,db,key1));
        /* first one proceeded, others blocked */
        test_assert(blocked == 2);
        for (i = 0; i < 2; i++) {
-           requestNotify(handle1);
-           test_assert(requestWaitWouldBlock(txid++,db,key1));
+           requestGetIOAndLock(handle1);
+           test_assert(requestLockWouldBlock(txid++,db,key1));
        }
        test_assert(blocked == 0);
-       requestNotify(handle1);
-       test_assert(!requestWaitWouldBlock(txid++,db,key1));
+       requestGetIOAndLock(handle1);
+       test_assert(!requestLockWouldBlock(txid++,db,key1));
    }
 
    TEST("wait: parallel db") {
-       requestWait(txid++,db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL), blocked++;
-       requestWait(txid++,db2,NULL,proceedNotifyLater,NULL,&handledb2,NULL,NULL), blocked++;
+       requestGetIOAndLock(txid++,db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL), blocked++;
+       requestGetIOAndLock(txid++,db2,NULL,proceedNotifyLater,NULL,&handledb2,NULL,NULL), blocked++;
        test_assert(!blocked);
-       test_assert(requestWaitWouldBlock(txid++,db,NULL));
-       test_assert(requestWaitWouldBlock(txid++,db2,NULL));
-       requestNotify(handledb);
-       requestNotify(handledb2);
-       test_assert(!requestWaitWouldBlock(txid++,db,NULL));
-       test_assert(!requestWaitWouldBlock(txid++,db2,NULL));
+       test_assert(requestLockWouldBlock(txid++,db,NULL));
+       test_assert(requestLockWouldBlock(txid++,db2,NULL));
+       requestGetIOAndLock(handledb);
+       requestGetIOAndLock(handledb2);
+       test_assert(!requestLockWouldBlock(txid++,db,NULL));
+       test_assert(!requestLockWouldBlock(txid++,db2,NULL));
    }
 
     TEST("wait: mixed parallel-key/db/parallel-key") {
         handle1 = NULL, handle2 = NULL, handle3 = NULL, handledb = NULL;
-        requestWait(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL),blocked++;
-        requestWait(txid++,db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL),blocked++;
-        requestWait(txid++,db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL),blocked++;
-        requestWait(txid++,db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
+        requestGetIOAndLock(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL),blocked++;
+        requestGetIOAndLock(txid++,db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL),blocked++;
+        requestGetIOAndLock(txid++,db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL),blocked++;
+        requestGetIOAndLock(txid++,db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
         /* key1/key2 proceeded, db/key3 blocked */
-        test_assert(requestWaitWouldBlock(txid++,db,NULL));
+        test_assert(requestLockWouldBlock(txid++,db,NULL));
         test_assert(blocked == 2);
         /* key1/key2 notify */
-        requestNotify(handle1);
-        test_assert(requestWaitWouldBlock(txid++,db,NULL));
-        requestNotify(handle2);
-        test_assert(requestWaitWouldBlock(txid++,db,NULL));
+        requestGetIOAndLock(handle1);
+        test_assert(requestLockWouldBlock(txid++,db,NULL));
+        requestGetIOAndLock(handle2);
+        test_assert(requestLockWouldBlock(txid++,db,NULL));
         /* db proceeded, key3 still blocked. */
         test_assert(blocked == 1);
         test_assert(handle3 == NULL);
         /* db notified, key3 proceeds but still blocked */
-        requestNotify(handledb);
+        requestGetIOAndLock(handledb);
         test_assert(!blocked);
-        test_assert(requestWaitWouldBlock(txid++,db,NULL));
+        test_assert(requestLockWouldBlock(txid++,db,NULL));
         /* db3 proceed, noting would block */
-        requestNotify(handle3);
-        test_assert(!requestWaitWouldBlock(txid++,db,NULL));
+        requestGetIOAndLock(handle3);
+        test_assert(!requestLockWouldBlock(txid++,db,NULL));
     }
 
     TEST("wait: mixed parallel-key/server/parallel-key") {
         handle1 = NULL, handle2 = NULL, handle3 = NULL, handlesvr = NULL;
-        requestWait(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL),blocked++;
-        requestWait(txid++,db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL),blocked++;
-        requestWait(txid++,NULL,NULL,proceedNotifyLater,NULL,&handlesvr,NULL,NULL),blocked++;
-        requestWait(txid++,db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
+        requestGetIOAndLock(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL),blocked++;
+        requestGetIOAndLock(txid++,db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL),blocked++;
+        requestGetIOAndLock(txid++,NULL,NULL,proceedNotifyLater,NULL,&handlesvr,NULL,NULL),blocked++;
+        requestGetIOAndLock(txid++,db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
         /* key1/key2 proceeded, svr/key3 blocked */
-        test_assert(requestWaitWouldBlock(txid++,NULL,NULL));
-        test_assert(requestWaitWouldBlock(txid++,db,NULL));
+        test_assert(requestLockWouldBlock(txid++,NULL,NULL));
+        test_assert(requestLockWouldBlock(txid++,db,NULL));
         test_assert(blocked == 2);
         /* key1/key2 notify */
-        requestNotify(handle1);
-        test_assert(requestWaitWouldBlock(txid++,NULL,NULL));
-        requestNotify(handle2);
-        test_assert(requestWaitWouldBlock(txid++,NULL,NULL));
+        requestGetIOAndLock(handle1);
+        test_assert(requestLockWouldBlock(txid++,NULL,NULL));
+        requestGetIOAndLock(handle2);
+        test_assert(requestLockWouldBlock(txid++,NULL,NULL));
         /* svr proceeded, key3 still blocked. */
         test_assert(blocked == 1);
         test_assert(handle3 == NULL);
         /* svr notified, db3 proceeds but still would block */
-        requestNotify(handlesvr);
+        requestGetIOAndLock(handlesvr);
         test_assert(!blocked);
-        test_assert(requestWaitWouldBlock(txid++,NULL,NULL));
+        test_assert(requestLockWouldBlock(txid++,NULL,NULL));
         /* db3 proceed, noting would block */
-        requestNotify(handle3);
-        test_assert(!requestWaitWouldBlock(txid++,NULL,NULL));
+        requestGetIOAndLock(handle3);
+        test_assert(!requestLockWouldBlock(txid++,NULL,NULL));
     }
 
     return error;
@@ -704,7 +704,7 @@ int proceededCounter(void *listeners, redisDb *db, robj *key, client *c, void *p
     void **pd = pd_;
     *pd = listeners;
     proceeded++;
-    requestAck(listeners);
+    requestReleaseIO(listeners);
     return 0;
 }
 
@@ -734,230 +734,230 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
     }
 
    TEST("wait-reentrant: key (without prceeding listener)") {
-       test_assert(!requestWaitWouldBlock(10,db,key1));
-       requestWait(10,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(!requestLockWouldBlock(10,db,key1));
+       requestGetIOAndLock(10,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
        test_assert(proceeded == 1);
-       test_assert(!requestWaitWouldBlock(10,db,key1));
-       requestWait(10,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(!requestLockWouldBlock(10,db,key1));
+       requestGetIOAndLock(10,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
        test_assert(proceeded == 2);
        test_assert(handle1 != NULL && handle1 == handle2);
-       test_assert(requestWaitWouldBlock(11,db,key1));
-       requestWait(11,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
-       requestNotify(handle1);
-       requestNotify(handle2);
+       test_assert(requestLockWouldBlock(11,db,key1));
+       requestGetIOAndLock(11,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       requestGetIOAndLock(handle1);
+       requestGetIOAndLock(handle2);
        test_assert(proceeded == 3);
        test_assert(handle1 == handle3);
        test_assert(requestBindListeners(db,key1,0) != NULL);
-       requestNotify(handle3);
+       requestGetIOAndLock(handle3);
        test_assert(requestBindListeners(db,key1,0) == NULL);
        test_assert(proceeded == 3);
        reentrant_case_reset();
    }
 
    TEST("wait-reentrant: key (with prceeding listener)") {
-       test_assert(!requestWaitWouldBlock(20,db,key1));
-       requestWait(20,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(!requestLockWouldBlock(20,db,key1));
+       requestGetIOAndLock(20,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
        test_assert(handle1 != NULL);
        test_assert(proceeded == 1);
-       test_assert(requestWaitWouldBlock(21,db,key1));
-       requestWait(21,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(requestLockWouldBlock(21,db,key1));
+       requestGetIOAndLock(21,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
        test_assert(proceeded == 1);
-       test_assert(requestWaitWouldBlock(21,db,key1));
-       requestWait(21,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(requestLockWouldBlock(21,db,key1));
+       requestGetIOAndLock(21,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
        test_assert(proceeded == 1);
-       test_assert(requestWaitWouldBlock(22,db,key1));
-       requestWait(22,db,key1,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(requestLockWouldBlock(22,db,key1));
+       requestGetIOAndLock(22,db,key1,proceededCounter,NULL,&handle4,NULL,NULL);
        test_assert(proceeded == 1);
-       requestNotify(handle1);
+       requestGetIOAndLock(handle1);
        test_assert(proceeded == 3);
        test_assert(handle1 == handle2);
        test_assert(handle1 == handle3);
-       requestNotify(handle2);
+       requestGetIOAndLock(handle2);
        test_assert(proceeded == 3);
-       requestNotify(handle3);
+       requestGetIOAndLock(handle3);
        test_assert(proceeded == 4);
        test_assert(handle1 == handle4);
        test_assert(requestBindListeners(db,key1,0) != NULL);
-       requestNotify(handle4);
+       requestGetIOAndLock(handle4);
        test_assert(requestBindListeners(db,key1,0) == NULL);
        reentrant_case_reset();
    }
 
    TEST("wait-reentrant: db listener") {
-       requestWait(30,db,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
+       requestGetIOAndLock(30,db,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
        test_assert(proceeded == 1);
        test_assert(handle1 != NULL);
-       requestWait(30,db,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       requestGetIOAndLock(30,db,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
        test_assert(proceeded == 2);
        test_assert(handle1 == handle2);
-       requestWait(31,db,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
+       requestGetIOAndLock(31,db,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
        test_assert(proceeded == 2);
-       requestWait(31,db2,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
+       requestGetIOAndLock(31,db2,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
        test_assert(proceeded == 3);
        test_assert(handle4 != NULL && handle1 != handle4);
-       requestNotify(handle1);
-       requestNotify(handle2);
+       requestGetIOAndLock(handle1);
+       requestGetIOAndLock(handle2);
        test_assert(proceeded == 4);
        test_assert(handle1 == handle3);
-       requestNotify(handle3);
-       requestNotify(handle4);
+       requestGetIOAndLock(handle3);
+       requestGetIOAndLock(handle4);
        test_assert(proceeded == 4);
        reentrant_case_reset();
    }
 
    TEST("wait-reentrant: svr listener") {
-       requestWait(40,NULL,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
+       requestGetIOAndLock(40,NULL,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
        test_assert(proceeded == 1);
        test_assert(handle1 != NULL);
-       requestWait(40,NULL,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       requestGetIOAndLock(40,NULL,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
        test_assert(proceeded == 2);
        test_assert(handle1 == handle2);
-       requestWait(41,NULL,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
+       requestGetIOAndLock(41,NULL,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
        test_assert(proceeded == 2);
-       requestWait(41,NULL,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
+       requestGetIOAndLock(41,NULL,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
        test_assert(proceeded == 2);
-       requestNotify(handle1);
+       requestGetIOAndLock(handle1);
        test_assert(proceeded == 2);
-       requestNotify(handle2);
+       requestGetIOAndLock(handle2);
        test_assert(proceeded == 4);
        test_assert(handle1 == handle3);
        test_assert(handle1 == handle4);
-       requestNotify(handle3);
+       requestGetIOAndLock(handle3);
        test_assert(proceeded == 4);
-       requestNotify(handle4);
+       requestGetIOAndLock(handle4);
        test_assert(proceeded == 4);
        reentrant_case_reset();
    }
 
    TEST("wait-reentrant: db and svr listener") {
-       requestWait(50,db,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
+       requestGetIOAndLock(50,db,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
        test_assert(proceeded == 1);
        test_assert(handle1 != NULL);
-       requestWait(51,db,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       requestGetIOAndLock(51,db,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
        test_assert(proceeded == 1);
        test_assert(handle2 == NULL);
-       requestWait(51,db2,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
+       requestGetIOAndLock(51,db2,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
        test_assert(proceeded == 2);
        test_assert(handle3 != NULL);
-       requestWait(51,NULL,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
+       requestGetIOAndLock(51,NULL,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
        test_assert(handle4 == NULL);
        test_assert(proceeded == 2);
-       requestNotify(handle1);
+       requestGetIOAndLock(handle1);
        test_assert(handle1 == handle2);
        test_assert(handle4 != NULL);
        test_assert(proceeded == 4);
-       requestNotify(handle2);
-       requestNotify(handle3);
-       requestNotify(handle4);
+       requestGetIOAndLock(handle2);
+       requestGetIOAndLock(handle3);
+       requestGetIOAndLock(handle4);
        test_assert(proceeded == 4);
        reentrant_case_reset();
    }
 
    TEST("wait-reentrant: multi-level (with key & db listener)") {
-       requestWait(60,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       requestGetIOAndLock(60,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
        test_assert(proceeded == 1);
        test_assert(handle1 != NULL);
-       requestWait(61,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
+       requestGetIOAndLock(61,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
        test_assert(proceeded == 1);
-       requestWait(61,db,key2,proceededCounter,NULL,&handle3,NULL,NULL);
+       requestGetIOAndLock(61,db,key2,proceededCounter,NULL,&handle3,NULL,NULL);
        test_assert(proceeded == 2);
        test_assert(handle3 != NULL && handle1 != handle3);
-       requestWait(61,db,key1,proceededCounter,NULL,&handle4,NULL,NULL);
+       requestGetIOAndLock(61,db,key1,proceededCounter,NULL,&handle4,NULL,NULL);
        test_assert(proceeded == 2);
-       requestWait(61,db,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
+       requestGetIOAndLock(61,db,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
        test_assert(proceeded == 2);
-       requestWait(61,db,key1,proceededCounter,NULL,&handle6,NULL,NULL);
+       requestGetIOAndLock(61,db,key1,proceededCounter,NULL,&handle6,NULL,NULL);
        test_assert(proceeded == 2);
-       requestWait(62,db,key2,proceededCounter,NULL,&handle7,NULL,NULL);
+       requestGetIOAndLock(62,db,key2,proceededCounter,NULL,&handle7,NULL,NULL);
        test_assert(proceeded == 2);
-       requestNotify(handle1);
+       requestGetIOAndLock(handle1);
        test_assert(proceeded == 6);
        test_assert(handle1 == handle2);
        test_assert(handle1 == handle4);
        test_assert(handle5 != NULL && handle1 != handle5 && handle3 != handle5);
        test_assert(handle6 == handle5);
-       requestNotify(handle2);
-       requestNotify(handle3);
-       requestNotify(handle4);
-       requestNotify(handle5);
+       requestGetIOAndLock(handle2);
+       requestGetIOAndLock(handle3);
+       requestGetIOAndLock(handle4);
+       requestGetIOAndLock(handle5);
        test_assert(proceeded == 6);
-       requestNotify(handle6);
+       requestGetIOAndLock(handle6);
        test_assert(proceeded == 7);
        test_assert(handle7 == handle5);
-       requestNotify(handle7);
+       requestGetIOAndLock(handle7);
        test_assert(proceeded == 7);
        reentrant_case_reset();
    }
 
    TEST("wait-reentrant: multi-level (with key & svr listener)") {
-       requestWait(70,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       requestGetIOAndLock(70,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
        test_assert(proceeded == 1 && handle1 != NULL);
-       requestWait(70,db,key2,proceededCounter,NULL,&handle2,NULL,NULL);
+       requestGetIOAndLock(70,db,key2,proceededCounter,NULL,&handle2,NULL,NULL);
        test_assert(proceeded == 2 && handle2 != NULL);
        test_assert(handle1 != handle2);
-       requestWait(71,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       requestGetIOAndLock(71,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
        test_assert(proceeded == 2);
-       requestWait(71,db,key2,proceededCounter,NULL,&handle4,NULL,NULL);
+       requestGetIOAndLock(71,db,key2,proceededCounter,NULL,&handle4,NULL,NULL);
        test_assert(proceeded == 2);
-       requestWait(71,NULL,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
+       requestGetIOAndLock(71,NULL,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
        test_assert(proceeded == 2 && handle5 == NULL);
-       requestWait(72,NULL,NULL,proceededCounter,NULL,&handle6,NULL,NULL);
+       requestGetIOAndLock(72,NULL,NULL,proceededCounter,NULL,&handle6,NULL,NULL);
        test_assert(proceeded == 2);
-       requestNotify(handle1);
+       requestGetIOAndLock(handle1);
        test_assert(proceeded == 3);
        test_assert(handle3 != NULL && handle3 == handle1);
-       requestNotify(handle2);
+       requestGetIOAndLock(handle2);
        test_assert(proceeded == 5);
        test_assert(handle4 != NULL && handle4 == handle2);
        test_assert(handle5 != NULL && handle5 != handle4 && handle5 != handle3);
-       requestNotify(handle3);
-       requestNotify(handle4);
+       requestGetIOAndLock(handle3);
+       requestGetIOAndLock(handle4);
        test_assert(proceeded == 5);
-       requestNotify(handle5);
+       requestGetIOAndLock(handle5);
        test_assert(proceeded == 6);
        test_assert(handle5 == handle6);
-       requestNotify(handle6);
+       requestGetIOAndLock(handle6);
        test_assert(proceeded == 6);
        reentrant_case_reset();
    }
 
    TEST("wait-reentrant: multi-level (with key & db & svr listener)") {
-       requestWait(80,db,key2,proceededCounter,NULL,&handle1,NULL,NULL);
+       requestGetIOAndLock(80,db,key2,proceededCounter,NULL,&handle1,NULL,NULL);
        test_assert(handle1 != NULL);
-       requestWait(80,db2,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       requestGetIOAndLock(80,db2,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
        test_assert(handle2 != NULL);
        test_assert(proceeded == 2);
-       requestWait(81,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       requestGetIOAndLock(81,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
        test_assert(handle3 != NULL);
        test_assert(handle1 != handle2 && handle1 != handle3);
        test_assert(proceeded == 3);
-       requestWait(81,db,key2,proceededCounter,NULL,&handle4,NULL,NULL);
+       requestGetIOAndLock(81,db,key2,proceededCounter,NULL,&handle4,NULL,NULL);
        test_assert(proceeded == 3);
-       requestWait(81,db,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
+       requestGetIOAndLock(81,db,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
        test_assert(proceeded == 3);
-       requestWait(81,db2,NULL,proceededCounter,NULL,&handle6,NULL,NULL);
+       requestGetIOAndLock(81,db2,NULL,proceededCounter,NULL,&handle6,NULL,NULL);
        test_assert(proceeded == 3);
-       requestWait(81,NULL,NULL,proceededCounter,NULL,&handle7,NULL,NULL);
+       requestGetIOAndLock(81,NULL,NULL,proceededCounter,NULL,&handle7,NULL,NULL);
        test_assert(proceeded == 3);
-       requestWait(82,NULL,NULL,proceededCounter,NULL,&handle8,NULL,NULL);
+       requestGetIOAndLock(82,NULL,NULL,proceededCounter,NULL,&handle8,NULL,NULL);
        test_assert(proceeded == 3);
-       requestNotify(handle1);
+       requestGetIOAndLock(handle1);
        test_assert(proceeded == 5);
        test_assert(handle4 != NULL && handle4 == handle1);
        test_assert(handle5 != NULL && handle5 != handle4);
-       requestNotify(handle2);
+       requestGetIOAndLock(handle2);
        test_assert(proceeded == 7);
        test_assert(handle6 == handle2);
        test_assert(handle7 != handle6);
-       requestNotify(handle3);
-       requestNotify(handle4);
-       requestNotify(handle5);
-       requestNotify(handle6);
+       requestGetIOAndLock(handle3);
+       requestGetIOAndLock(handle4);
+       requestGetIOAndLock(handle5);
+       requestGetIOAndLock(handle6);
        test_assert(proceeded == 7);
-       requestNotify(handle7);
+       requestGetIOAndLock(handle7);
        test_assert(proceeded == 8);
        test_assert(handle8 == handle7);
-       requestNotify(handle8);
+       requestGetIOAndLock(handle8);
        test_assert(proceeded == 8);
        reentrant_case_reset();
    }
@@ -965,11 +965,11 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
    TEST("wait-reentrant: expand entries buf") {
        int i, count = DEFAULT_REQUEST_LISTENER_REENTRANT_SIZE*4;
        for (i = 0; i < count; i++) {
-           requestWait(90,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+           requestGetIOAndLock(90,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
        }
        test_assert(proceeded == count);
        for (i = 0; i < count; i++) {
-           requestNotify(handle1);
+           requestGetIOAndLock(handle1);
        }
        test_assert(proceeded == count);
        reentrant_case_reset();
@@ -991,8 +991,8 @@ int proceedRightaway(void *listeners, redisDb *db, robj *key, client *c, void *p
     void **pd = pd_;
     *pd = listeners;
     proceeded++;
-    requestAck(listeners);
-    requestNotify(listeners);
+    requestReleaseIO(listeners);
+    requestGetIOAndLock(listeners);
     return 0;
 }
 
@@ -1026,222 +1026,222 @@ int swapWaitAckTest(int argc, char *argv[], int accurate) {
 
     TEST("wait-ack: multi-level (db & svr)") {
         test_assert(requestBindListeners(db,NULL,0) != NULL);
-        test_assert(!requestWaitWouldBlock(10,db,NULL));
-        requestWait(10,db,NULL,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        test_assert(!requestLockWouldBlock(10,db,NULL));
+        requestGetIOAndLock(10,db,NULL,proceedWithoutAck,NULL,&handle1,NULL,NULL);
         test_assert(handle1 != NULL && proceeded == 1);
-        test_assert(requestWaitWouldBlock(10,db,NULL));
-        requestWait(10,db,NULL,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+        test_assert(requestLockWouldBlock(10,db,NULL));
+        requestGetIOAndLock(10,db,NULL,proceedWithoutAck,NULL,&handle2,NULL,NULL);
         test_assert(handle2 == NULL && proceeded == 1);
-        requestWait(10,db,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+        requestGetIOAndLock(10,db,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
         test_assert(handle3 == NULL && proceeded == 1);
-        requestWait(10,db2,NULL,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        requestGetIOAndLock(10,db2,NULL,proceedWithoutAck,NULL,&handle4,NULL,NULL);
         test_assert(handle4 != NULL && proceeded == 2);
-        requestWait(10,db2,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        requestGetIOAndLock(10,db2,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL);
         test_assert(handle5 == NULL && proceeded == 2);
-        requestWait(10,NULL,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
+        requestGetIOAndLock(10,NULL,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
         test_assert(handle6 == NULL && proceeded == 2);
-        requestWait(10,db2,key2,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+        requestGetIOAndLock(10,db2,key2,proceedWithoutAck,NULL,&handle7,NULL,NULL);
         test_assert(handle7 == NULL && proceeded == 2);
-        requestWait(11,db,key1,proceedWithoutAck,NULL,&handle8,NULL,NULL);
+        requestGetIOAndLock(11,db,key1,proceedWithoutAck,NULL,&handle8,NULL,NULL);
         test_assert(handle8 == NULL && proceeded == 2);
 
-        requestAck(handle1);
+        requestReleaseIO(handle1);
         test_assert(handle2 == handle1 && proceeded == 3);
-        requestAck(handle4);
+        requestReleaseIO(handle4);
         test_assert(handle5 == handle4 && proceeded == 4);
-        requestAck(handle5);
+        requestReleaseIO(handle5);
         test_assert(handle6 == NULL && proceeded == 4);
-        requestAck(handle2);
+        requestReleaseIO(handle2);
         test_assert(handle3 == handle1 && proceeded == 5);
-        requestAck(handle3);
+        requestReleaseIO(handle3);
         test_assert(handle6 != handle1 && proceeded == 6);
-        requestAck(handle6);
+        requestReleaseIO(handle6);
         test_assert(handle7 == handle6 && proceeded == 7);
-        requestAck(handle7);
+        requestReleaseIO(handle7);
         test_assert(handle8 == NULL && proceeded == 7);
 
-        requestNotify(handle1), requestNotify(handle2), requestNotify(handle3),
-            requestNotify(handle4), requestNotify(handle5), requestNotify(handle6),
-            requestNotify(handle7);
+        requestGetIOAndLock(handle1), requestGetIOAndLock(handle2), requestGetIOAndLock(handle3),
+            requestGetIOAndLock(handle4), requestGetIOAndLock(handle5), requestGetIOAndLock(handle6),
+            requestGetIOAndLock(handle7);
 
         test_assert(handle8 == handle6 && proceeded == 8);
-        requestAck(handle8);
-        requestNotify(handle8);
+        requestReleaseIO(handle8);
+        requestGetIOAndLock(handle8);
 
         ack_case_reset();
     }
 
     TEST("wait-ack: multi-level (key & svr)") {
-        requestWait(20,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        requestGetIOAndLock(20,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
         test_assert(handle1 != NULL && proceeded == 1);
-        requestWait(20,db,key1,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+        requestGetIOAndLock(20,db,key1,proceedWithoutAck,NULL,&handle2,NULL,NULL);
         test_assert(handle2 == NULL && proceeded == 1);
-        requestWait(20,db,key2,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+        requestGetIOAndLock(20,db,key2,proceedWithoutAck,NULL,&handle3,NULL,NULL);
         test_assert(handle3 != NULL && proceeded == 2);
-        requestWait(20,db,key2,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        requestGetIOAndLock(20,db,key2,proceedWithoutAck,NULL,&handle4,NULL,NULL);
         test_assert(handle4 == NULL && proceeded == 2);
-        requestWait(20,NULL,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        requestGetIOAndLock(20,NULL,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL);
         test_assert(handle5 == NULL && proceeded == 2);
-        requestAck(handle3);
+        requestReleaseIO(handle3);
         test_assert(handle4 != NULL && proceeded == 3);
-        requestAck(handle1);
+        requestReleaseIO(handle1);
         test_assert(handle2 != NULL && handle5 == NULL && proceeded == 4);
-        requestAck(handle2);
+        requestReleaseIO(handle2);
         test_assert(handle5 == NULL && proceeded == 4);
-        requestAck(handle4);
+        requestReleaseIO(handle4);
         test_assert(handle5 != NULL && proceeded == 5);
-        requestAck(handle5);
-        requestNotify(handle1), requestNotify(handle2), requestNotify(handle3),
-            requestNotify(handle4), requestNotify(handle5);
+        requestReleaseIO(handle5);
+        requestGetIOAndLock(handle1), requestGetIOAndLock(handle2), requestGetIOAndLock(handle3),
+            requestGetIOAndLock(handle4), requestGetIOAndLock(handle5);
         test_assert(requestBindListeners(db,key1,0) == NULL);
         ack_case_reset();
     }
 
     TEST("wait-ack: multi-level (key & db & svr)") {
-        requestWait(30,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
-        requestWait(30,db,key2,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+        requestGetIOAndLock(30,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        requestGetIOAndLock(30,db,key2,proceedWithoutAck,NULL,&handle2,NULL,NULL);
         test_assert(handle1 != handle2 && handle1 && handle2 && proceeded == 2);
-        requestWait(30,db2,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
-        requestWait(30,db2,key2,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        requestGetIOAndLock(30,db2,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+        requestGetIOAndLock(30,db2,key2,proceedWithoutAck,NULL,&handle4,NULL,NULL);
         test_assert(handle3 != handle4 && handle3 && handle4 && proceeded == 4);
-        requestWait(30,db,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        requestGetIOAndLock(30,db,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL);
         test_assert(handle5 == NULL && proceeded == 4);
-        requestWait(30,NULL,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
+        requestGetIOAndLock(30,NULL,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
         test_assert(handle6 == NULL && proceeded == 4);
-        requestWait(30,db,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+        requestGetIOAndLock(30,db,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
         test_assert(handle6 == NULL && proceeded == 4);
         
-        requestAck(handle4), requestAck(handle3), requestAck(handle2), requestAck(handle1);
+        requestReleaseIO(handle4), requestReleaseIO(handle3), requestReleaseIO(handle2), requestReleaseIO(handle1);
         test_assert(handle5 != NULL && proceeded == 5);
-        requestAck(handle5);
+        requestReleaseIO(handle5);
         test_assert(handle6 != NULL && handle6 != handle5 && proceeded == 6);
-        requestAck(handle6);
+        requestReleaseIO(handle6);
 
-        requestNotify(handle1), requestNotify(handle2), requestNotify(handle3),
-            requestNotify(handle4), requestNotify(handle5), requestNotify(handle6);
-        requestAck(handle7);
-        requestNotify(handle7);
+        requestGetIOAndLock(handle1), requestGetIOAndLock(handle2), requestGetIOAndLock(handle3),
+            requestGetIOAndLock(handle4), requestGetIOAndLock(handle5), requestGetIOAndLock(handle6);
+        requestReleaseIO(handle7);
+        requestGetIOAndLock(handle7);
 
         ack_case_reset();
     }
 
     TEST("wait-ack: proceed ack disorder") {
-        test_assert(!requestWaitWouldBlock(40,db,key1));
-        requestWait(40,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        test_assert(!requestLockWouldBlock(40,db,key1));
+        requestGetIOAndLock(40,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
         test_assert(handle1 != NULL && proceeded == 1);
-        test_assert(requestWaitWouldBlock(40,db,key1));
-        requestWait(40,db,key1,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+        test_assert(requestLockWouldBlock(40,db,key1));
+        requestGetIOAndLock(40,db,key1,proceedWithoutAck,NULL,&handle2,NULL,NULL);
         test_assert(handle2 == NULL && proceeded == 1);
-        requestAck(handle1);
+        requestReleaseIO(handle1);
         test_assert(handle2 != NULL && proceeded == 2);
-        test_assert(requestWaitWouldBlock(41,db,key1));
-        requestAck(handle2);
+        test_assert(requestLockWouldBlock(41,db,key1));
+        requestReleaseIO(handle2);
         test_assert(proceeded == 2);
-        test_assert(requestWaitWouldBlock(41,db,key1));
-        requestNotify(handle1);
-        test_assert(requestWaitWouldBlock(41,db,key1));
-        requestWait(41,db,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+        test_assert(requestLockWouldBlock(41,db,key1));
+        requestGetIOAndLock(handle1);
+        test_assert(requestLockWouldBlock(41,db,key1));
+        requestGetIOAndLock(41,db,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
         test_assert(handle3 == NULL && proceeded == 2);
         /* proceed iff previous tx finished. */
-        requestNotify(handle2);
+        requestGetIOAndLock(handle2);
         test_assert(handle3 != NULL && proceeded == 3);
-        requestWait(41,db,key1,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        requestGetIOAndLock(41,db,key1,proceedWithoutAck,NULL,&handle4,NULL,NULL);
         test_assert(handle4 == NULL && proceeded == 3);
-        requestWait(41,db,key2,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        requestGetIOAndLock(41,db,key2,proceedWithoutAck,NULL,&handle5,NULL,NULL);
         test_assert(handle5 != NULL && proceeded == 4);
-        requestWait(41,db,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
+        requestGetIOAndLock(41,db,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
         test_assert(handle6 == NULL && proceeded == 4);
-        requestWait(41,db,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+        requestGetIOAndLock(41,db,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
         test_assert(handle7 == NULL && proceeded == 4);
-        requestWait(42,db,key2,proceedWithoutAck,NULL,&handle8,NULL,NULL);
+        requestGetIOAndLock(42,db,key2,proceedWithoutAck,NULL,&handle8,NULL,NULL);
         test_assert(handle8 == NULL && proceeded == 4);
 
-        requestAck(handle3);
+        requestReleaseIO(handle3);
         test_assert(handle4 != NULL && handle6 == NULL && proceeded == 5);
-        requestAck(handle5);
+        requestReleaseIO(handle5);
         test_assert(handle6 == NULL && proceeded == 5);
-        requestAck(handle4);
+        requestReleaseIO(handle4);
         test_assert(handle6 != NULL && proceeded == 6);
-        requestAck(handle6);
+        requestReleaseIO(handle6);
         test_assert(handle7 != NULL && handle8 == NULL && proceeded == 7);
-        requestAck(handle7);
-        requestNotify(handle3), requestNotify(handle4), requestNotify(handle5),
-            requestNotify(handle6), requestNotify(handle7);
+        requestReleaseIO(handle7);
+        requestGetIOAndLock(handle3), requestGetIOAndLock(handle4), requestGetIOAndLock(handle5),
+            requestGetIOAndLock(handle6), requestGetIOAndLock(handle7);
         test_assert(handle8 != NULL && proceeded == 8);
-        requestAck(handle8);
-        requestNotify(handle8);
+        requestReleaseIO(handle8);
+        requestGetIOAndLock(handle8);
         test_assert(proceeded == 8);
         ack_case_reset();
     }
 
     TEST("wait-ack: proceed rightaway") {
-        test_assert(!requestWaitWouldBlock(50,db,key1));
-        requestWait(50,db,key1,proceedRightaway,NULL,&handle1,NULL,NULL);
+        test_assert(!requestLockWouldBlock(50,db,key1));
+        requestGetIOAndLock(50,db,key1,proceedRightaway,NULL,&handle1,NULL,NULL);
         test_assert(handle1 != NULL && proceeded == 1);
-        test_assert(!requestWaitWouldBlock(50,db,key1));
-        requestWait(50,db,key1,proceedRightaway,NULL,&handle2,NULL,NULL);
+        test_assert(!requestLockWouldBlock(50,db,key1));
+        requestGetIOAndLock(50,db,key1,proceedRightaway,NULL,&handle2,NULL,NULL);
         test_assert(handle2 != NULL && proceeded == 2);
-        test_assert(!requestWaitWouldBlock(51,db,key1));
-        requestWait(51,db,key1,proceedRightaway,NULL,&handle3,NULL,NULL);
+        test_assert(!requestLockWouldBlock(51,db,key1));
+        requestGetIOAndLock(51,db,key1,proceedRightaway,NULL,&handle3,NULL,NULL);
         test_assert(handle3 != NULL && proceeded == 3);
-        test_assert(!requestWaitWouldBlock(51,db,NULL));
-        requestWait(51,db,NULL,proceedRightaway,NULL,&handle4,NULL,NULL);
+        test_assert(!requestLockWouldBlock(51,db,NULL));
+        requestGetIOAndLock(51,db,NULL,proceedRightaway,NULL,&handle4,NULL,NULL);
         test_assert(handle4 != NULL && proceeded == 4);
-        test_assert(!requestWaitWouldBlock(51,NULL,NULL));
-        requestWait(51,NULL,NULL,proceedRightaway,NULL,&handle5,NULL,NULL);
+        test_assert(!requestLockWouldBlock(51,NULL,NULL));
+        requestGetIOAndLock(51,NULL,NULL,proceedRightaway,NULL,&handle5,NULL,NULL);
         test_assert(handle5 != NULL && proceeded == 5);
         ack_case_reset();
     }
 
     TEST("wait-ack: proceed mixed later & rightaway") {
-        requestWait(60,db2,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        requestGetIOAndLock(60,db2,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
         test_assert(handle1 != NULL && proceeded == 1);
-        requestWait(60,db2,key2,proceedRightaway,NULL,&handle2,NULL,NULL);
+        requestGetIOAndLock(60,db2,key2,proceedRightaway,NULL,&handle2,NULL,NULL);
         test_assert(handle2 != NULL && proceeded == 2);
 
-        requestWait(61,db,key1,proceedRightaway,NULL,&handle3,NULL,NULL);
+        requestGetIOAndLock(61,db,key1,proceedRightaway,NULL,&handle3,NULL,NULL);
         test_assert(handle3 != NULL && proceeded == 3);
-        requestWait(61,db,key1,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        requestGetIOAndLock(61,db,key1,proceedWithoutAck,NULL,&handle4,NULL,NULL);
         test_assert(handle4 != NULL && proceeded == 4);
 
-        requestWait(61,db,key1,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        requestGetIOAndLock(61,db,key1,proceedWithoutAck,NULL,&handle5,NULL,NULL);
         test_assert(handle5 == NULL && proceeded == 4);
-        requestWait(61,db,key2,proceedRightaway,NULL,&handle6,NULL,NULL);
+        requestGetIOAndLock(61,db,key2,proceedRightaway,NULL,&handle6,NULL,NULL);
         test_assert(handle6 != NULL && proceeded == 5);
 
-        requestWait(61,db2,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+        requestGetIOAndLock(61,db2,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
         test_assert(handle7 == NULL && proceeded == 5);
 
-        requestWait(61,db,NULL,proceedWithoutAck,NULL,&handle8,NULL,NULL);
+        requestGetIOAndLock(61,db,NULL,proceedWithoutAck,NULL,&handle8,NULL,NULL);
         test_assert(handle8 == NULL && proceeded == 5);
 
-        requestWait(61,NULL,NULL,proceedWithoutAck,NULL,&handle9,NULL,NULL);
+        requestGetIOAndLock(61,NULL,NULL,proceedWithoutAck,NULL,&handle9,NULL,NULL);
         test_assert(handle9 == NULL && proceeded == 5);
 
-        requestWait(61,db,key1,proceedWithoutAck,NULL,&handle10,NULL,NULL);
+        requestGetIOAndLock(61,db,key1,proceedWithoutAck,NULL,&handle10,NULL,NULL);
         test_assert(handle10 == NULL && proceeded == 5);
 
-        requestAck(handle4);
+        requestReleaseIO(handle4);
         test_assert(handle5 != NULL && proceeded == 6);
-        requestAck(handle5);
+        requestReleaseIO(handle5);
         test_assert(handle8 != NULL && handle9 == NULL && proceeded == 7);
 
-        requestAck(handle1);
+        requestReleaseIO(handle1);
         test_assert(handle7 == NULL && proceeded == 7);
-        requestNotify(handle1);
+        requestGetIOAndLock(handle1);
         test_assert(handle7 != NULL && proceeded == 8);
 
-        requestAck(handle7), requestAck(handle8);
+        requestReleaseIO(handle7), requestReleaseIO(handle8);
 
         test_assert(handle9 != NULL && proceeded == 9);
-        requestAck(handle9);
+        requestReleaseIO(handle9);
         test_assert(handle10 != NULL && proceeded == 10);
-        requestAck(handle10);
+        requestReleaseIO(handle10);
 
-        requestNotify(handle4), requestNotify(handle5), requestNotify(handle7),
-            requestNotify(handle8), requestNotify(handle9), requestNotify(handle10);
+        requestGetIOAndLock(handle4), requestGetIOAndLock(handle5), requestGetIOAndLock(handle7),
+            requestGetIOAndLock(handle8), requestGetIOAndLock(handle9), requestGetIOAndLock(handle10);
 
-        test_assert(!requestWaitWouldBlock(62,db,key1));
+        test_assert(!requestLockWouldBlock(62,db,key1));
         ack_case_reset();
     }
 

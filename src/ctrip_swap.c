@@ -28,13 +28,13 @@
 
 #include "ctrip_swap.h"
 
-list *clientRenewSwapLocks(client *c) {
+list *clientRenewRequestLocks(client *c) {
     list *old = c->swap_locks;
     c->swap_locks = listCreate();
     return old;
 }
 
-void clientGotSwapIOAndLock(client *c, swapCtx *ctx, void *lock) {
+void clientGotRequestIOAndLock(client *c, swapCtx *ctx, void *lock) {
     serverAssert(ctx->swap_lock == NULL);
     ctx->swap_lock = lock;
     switch (c->client_hold_mode) {
@@ -49,12 +49,12 @@ void clientGotSwapIOAndLock(client *c, swapCtx *ctx, void *lock) {
     }
 }
 
-void clientReleaseSwapIO(client *c, swapCtx *ctx) {
+void clientReleaseRequestIO(client *c, swapCtx *ctx) {
     UNUSED(c);
-    requestAck(ctx->swap_lock);
+    requestReleaseIO(ctx->swap_lock);
 }
 
-void clientReleaseSwapLocks(client *c, swapCtx *ctx) {
+void clientReleaseRequestLocks(client *c, swapCtx *ctx) {
     list *locks;
     listNode *ln;
     listIter li;
@@ -62,16 +62,16 @@ void clientReleaseSwapLocks(client *c, swapCtx *ctx) {
     switch (c->client_hold_mode) {
     case CLIENT_HOLD_MODE_CMD:
     case CLIENT_HOLD_MODE_REPL:
-        locks = clientRenewSwapLocks(c);
+        locks = clientRenewRequestLocks(c);
         listRewind(locks,&li);
         while ((ln = listNext(&li))) {
-            requestNotify(listNodeValue(ln));
+            requestReleaseLock(listNodeValue(ln));
         }
         listRelease(locks);
         break;
     case CLIENT_HOLD_MODE_EVICT:
         if (ctx->swap_lock) {
-            requestNotify(ctx->swap_lock);
+            requestReleaseLock(ctx->swap_lock);
         }
         break;
     default:
@@ -130,7 +130,7 @@ void continueProcessCommand(client *c) {
     clientUnholdKeys(c);
     /* post command */
     commandProcessed(c);
-    clientReleaseSwapLocks(c,NULL/*ctx unused*/);
+    clientReleaseRequestLocks(c,NULL/*ctx unused*/);
     /* pipelined command might already read into querybuf, if process not
      * restarted, pending commands would not be processed again. */
     processInputBuffer(c);
@@ -169,7 +169,7 @@ int keyRequestSwapFinished(swapData *data, void *pd) {
     /* release io will trigger either another swap within the same tx or
      * command call, but never both. so swap and main thread will not
      * touch the same key in parallel. */
-    clientReleaseSwapIO(ctx->c,ctx);
+    clientReleaseRequestIO(ctx->c,ctx);
 
     ctx->finished(ctx->c,ctx);
     
@@ -206,7 +206,7 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     uint32_t cmd_intention_flags = ctx->key_request->cmd_intention_flags;
     
     serverAssert(c == ctx->c);
-    clientGotSwapIOAndLock(c,ctx,listeners);
+    clientGotRequestIOAndLock(c,ctx,listeners);
 
     if (db == NULL || key == NULL) {
         reason = "noswap needed for db/svr level request";
@@ -309,7 +309,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         DEBUG_MSGS_APPEND(&ctx->msgs,"request-wait", "key=%s",
                 key ? (sds)key->ptr : "<nil>");
 
-        requestWait(txid,db,key,genericRequestProceed,c,ctx,
+        requestGetIOAndLock(txid,db,key,genericRequestProceed,c,ctx,
                 (freefunc)swapCtxFree,msgs);
     }
 }

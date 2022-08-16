@@ -486,21 +486,21 @@ typedef struct requestListeners {
   int64_t cur_txid;
   int cur_ntxlistener;
   int cur_ntxrequest; 
-  /* # of acked requests for successive requestWait of cur_txid. note that
-   * cur_ntxacked is not correct when requestNotify. */
+  /* # of acked requests for successive GetIOAndLock of cur_txid. note that
+   * cur_ntxacked is not correct when requestReleaseLock. */
   int cur_ntxacked; 
 } requestListeners;
 
 requestListeners *serverRequestListenersCreate(void);
 void serverRequestListenersRelease(requestListeners *s);
-int requestWaitWouldBlock(int64_t txid, redisDb *db, robj *key);
-int requestWait(int64_t txid, redisDb *db, robj *key, requestProceed cb, client *c, void *pd, freefunc pdfree, void *msgs);
-int requestAck(void *listeners);
-int requestNotify(void *listeners);
+int requestLockWouldBlock(int64_t txid, redisDb *db, robj *key);
+int requestGetIOAndLock(int64_t txid, redisDb *db, robj *key, requestProceed cb, client *c, void *pd, freefunc pdfree, void *msgs);
+int requestReleaseIO(void *listeners);
+int requestReleaseLock(void *listeners);
 
-list *clientRenewSwapLocks(client *c);
-void clientGotSwapIOAndLock(client *c, swapCtx *ctx, void *lock);
-void clientReleaseSwapLocks(client *c, swapCtx *ctx);
+list *clientRenewRequestLocks(client *c);
+void clientGotRequestIOAndLock(client *c, swapCtx *ctx, void *lock);
+void clientReleaseRequestLocks(client *c, swapCtx *ctx);
 
 /* --- Evict --- */
 #define EVICT_SUCC_SWAPPED      1

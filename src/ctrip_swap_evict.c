@@ -129,7 +129,7 @@ void evictClientKeyRequestFinished(client *c, swapCtx *ctx) {
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
     clientUnholdKey(c,key);
-    clientReleaseSwapLocks(c,ctx);
+    clientReleaseRequestLocks(c,ctx);
     decrRefCount(key);
 }
 
@@ -151,7 +151,7 @@ int tryEvictKey(redisDb *db, robj *key, int *evict_result) {
     robj *o;
     client *evict_client = server.evict_clients[db->id];
 
-    if (requestWaitWouldBlock(server.swap_txid++, db, key)) {
+    if (requestLockWouldBlock(server.swap_txid++, db, key)) {
         if (evict_result) *evict_result = EVICT_FAIL_SWAPPING;
         return 0;
     }

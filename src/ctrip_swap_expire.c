@@ -34,7 +34,7 @@ void expireClientKeyRequestFinished(client *c, swapCtx *ctx) {
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
     clientUnholdKey(c,key);
-    clientReleaseSwapLocks(c,ctx);
+    clientReleaseRequestLocks(c,ctx);
     decrRefCount(key);
 }
 
