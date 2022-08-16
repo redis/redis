@@ -856,7 +856,7 @@ void MIGRATE_UNBLOCKED(client *c) {
             use_cursor = false;
             errno = 0;
             const char * group_id_str = c->argv[3]->ptr;
-            group_id = (uint32_t) strtoul(group_id_str, &ptr, 2);
+            group_id = (uint32_t) strtoul(group_id_str, &ptr, 10);
             // Error check group_id value
             if ((group_id == 0 && group_id_str[0] != '0') ||
                  ptr [0] != '\0' || 
@@ -1010,7 +1010,7 @@ void scanDict_GroupID(void *privdata, const dict *ht,
             copy = sdsdup(key->ptr);
             h_64 = dictHashKey(ht, (void *)copy);
             h_32 = h_64 & mask_32;
-            
+             
             if (h_32 == group_id) {
                 listAddNodeTail(vals, val);
                 listAddNodeTail(keys, key); 
