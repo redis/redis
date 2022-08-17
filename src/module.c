@@ -357,6 +357,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_NO_WRITES (1<<7)
 #define REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS (1<<8)
 #define REDISMODULE_ARGV_RESPECT_DENY_OOM (1<<9)
+#define REDISMODULE_ARGV_DRY_RUN (1<<10)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -5695,6 +5696,8 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= REDISMODULE_ARGV_RESPECT_DENY_OOM;
         } else if (*p == 'E') {
             if (flags) (*flags) |= REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
+        } else if (*p == 'D') {
+            if (flags) (*flags) |= (REDISMODULE_ARGV_DRY_RUN | REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS);
         } else {
             goto fmterr;
         }
@@ -5746,6 +5749,10 @@ fmterr:
  *              invoking the command, the error is returned using errno mechanism.
  *              This flag allows to get the error also as an error CallReply with
  *              relevant error message.
+ *     * 'D' -- A "Dry Run" mode.  Return before executing the underlying call().
+ *              if everything succeeded, it will return with a NULL, otherwise it will
+ *              return with a CallReply object denoting the error, as if it was called with
+ *              the 'E' code.
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
@@ -5995,6 +6002,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             }
             goto cleanup;
         }
+    }
+
+    if (flags & REDISMODULE_ARGV_DRY_RUN) {
+        goto cleanup;
     }
 
     /* We need to use a global replication_allowed flag in order to prevent
