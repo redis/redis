@@ -684,6 +684,8 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         int requests_issued = 0;
         atomicGetIncr(config.requests_issued, requests_issued, config.pipeline);
         if (requests_issued >= config.requests) {
+            atomicDecr(config.requests_issued, config.pipeline);
+            freeClient(c);
             return;
         }
 
