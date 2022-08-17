@@ -57,7 +57,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
         # this (read) will wait for the node3 to realize the new topology and then unblock via MOVED,
         # or it will unblock with CLUSTERDOWN, depending on the cluster state when clientsCron is called.
         catch {$node3_rd read} err
-        assert {([string range $err 0 4] eq {MOVED}) || ([string range $err 0 10] eq {CLUSTERDOWN})}
+        assert {[string match "*MOVED*" $err] || [string match "*CLUSTERDOWN*" $err]}
 
         # verify there are no blocked clients
         assert_equal [s 0 blocked_clients]  {0}
