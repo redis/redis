@@ -790,13 +790,12 @@ void lremCommand(client *c) {
     listTypeReleaseIterator(li);
 
     if (removed) {
-        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
-    }
-
-    if (listTypeLength(subject) == 0) {
-        dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+        if (listTypeLength(subject) == 0) {
+            dbDelete(c->db,c->argv[1]);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+        }
+        signalModifiedKey(c,c->db,c->argv[1]);
     }
 
     addReplyLongLong(c,removed);
@@ -811,8 +810,8 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
                             server.list_compress_depth);
         dbAdd(c->db,dstkey,dstobj);
     }
-    signalModifiedKey(c,c->db,dstkey);
     listTypePush(dstobj,value,where);
+    signalModifiedKey(c,c->db,dstkey);
     notifyKeyspaceEvent(NOTIFY_LIST,
                         where == LIST_HEAD ? "lpush" : "rpush",
                         dstkey,
