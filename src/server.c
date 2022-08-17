@@ -2442,7 +2442,7 @@ void initServer(void) {
     resetReplicationBuffer();
 
     /* Make sure the locale is set on startup based on the config file. */
-    if (setlocale(LC_COLLATE,server.locale) == NULL) {
+    if (setlocale(LC_COLLATE,server.locale_collate) == NULL) {
         serverLog(LL_WARNING, "Failed to configure LOCALE. %s", strerror(errno));
         exit(1);
     }

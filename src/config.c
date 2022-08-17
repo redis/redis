@@ -2402,8 +2402,8 @@ static int isValidProcTitleTemplate(char *val, const char **err) {
 }
 
 
-static int updateLocale(const char **err) {
-    const char *s = setlocale(LC_COLLATE, server.locale);
+static int updateLocaleCollate(const char **err) {
+    const char *s = setlocale(LC_COLLATE, server.locale_collate);
     if (s == NULL) {
         *err = "Invalid locale name";
         return 0;
@@ -3006,7 +3006,7 @@ standardConfig static_configs[] = {
     createStringConfig("proc-title-template", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.proc_title_template, CONFIG_DEFAULT_PROC_TITLE_TEMPLATE, isValidProcTitleTemplate, updateProcTitleTemplate),
     createStringConfig("bind-source-addr", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bind_source_addr, NULL, NULL, NULL),
     createStringConfig("logfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.logfile, "", NULL, NULL),
-    createStringConfig("locale", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.locale, "", NULL, updateLocale),
+    createStringConfig("locale-collate", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.locale_collate, "", NULL, updateLocaleCollate),
 
     /* SDS Configs */
     createSDSConfig("masterauth", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),

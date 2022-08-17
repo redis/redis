@@ -1943,7 +1943,7 @@ struct redisServer {
     long reply_buffer_peak_reset_time; /* The amount of time (in milliseconds) to wait between reply buffer peak resets */
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
     /* Local environment*/
-    char *locale;
+    char *locale_collate;
 };
 
 #define MAX_KEYS_BUFFER 256
