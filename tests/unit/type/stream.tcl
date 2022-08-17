@@ -480,8 +480,8 @@ start_server {
 	assert {[r xdel somestream 1-1 1-4 1-5 2-1] == 3}
 	assert {[r xlen somestream] == 2}
         set result [r xrange somestream - +]
-        assert {[lindex $result 0 1 1] eq {2}}
-        assert {[lindex $result 1 1 1] eq {3}}
+        assert {[dict get [lindex $result 0 1] b] eq {2}}
+        assert {[dict get [lindex $result 1 1] c] eq {3}}
     }
     # Here the idea is to check the consistency of the stream data structure
     # as we remove all the elements down to zero elements.

@@ -22,11 +22,11 @@ start_server {
 
 	set reply [r xinfo groups mystream]
         set group_info1 [lindex $reply 0]
-        set entries_read1 [lindex $group_info1 9]
+        set entries_read1 [dict get $group_info1 entries-read]
         assert_equal $entries_read1 0
 
         set group_info2 [lindex $reply 1]
-        set entries_read2 [lindex $group_info2 9]
+        set entries_read2 [dict get $group_info2 entries-read]
         assert_equal $entries_read2 3
     } 
 
