@@ -5853,7 +5853,17 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     }
 
     if (flags & REDISMODULE_ARGV_RESPECT_DENY_OOM) {
-        if (cmd->flags & CMD_DENYOOM) {
+        uint64_t flags = cmd->flags;
+
+        if (cmd->group == COMMAND_GROUP_SCRIPTING) {
+            if (cmd->proc == fcallCommand) { /* FCALL */
+                flags = fcallGetCommandFlags(c, flags);
+            } else if (cmd->proc == evalCommand || cmd->proc == evalShaCommand) { /* EVAL/EVALSHA */
+                flags = evalGetCommandFlags(c, flags);
+            }
+        }
+
+        if (flags & CMD_DENYOOM) {
             int oom_state;
             if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
                 /* On background thread we can not count on server.pre_command_oom_state.
