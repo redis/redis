@@ -654,8 +654,9 @@ static int controlQps(client c) {
             aeCreateTimeEvent(CLIENT_GET_EVENTLOOP(c), (config.resume_interval[thread_id]-time_elapsed)/1000, resumeClients, c, NULL);
             
             if (config.resume_interval[thread_id] - time_elapsed >= 10000 && config.control_granularity[thread_id] >= 2*config.pipeline) {
-                config.resume_interval[thread_id] /= 2;
-                config.control_granularity[thread_id] /= 2;
+                int new_granularity = config.control_granularity[thread_id] / 2;
+                config.resume_interval[thread_id] = config.resume_interval[thread_id] * new_granularity / config.control_granularity[thread_id];
+                config.control_granularity[thread_id] = new_granularity;
             }
             return 1;
         }
