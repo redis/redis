@@ -1065,21 +1065,25 @@ static void startBenchmarkThreads() {
 
 static void initQpsControl() {
     int num_threads = config.num_threads == 0 ? 1 : config.num_threads;
-    int qps_per_thread = config.qps / num_threads;
+    int qps_divisor = config.numclients < num_threads ? config.numclients : num_threads;
     config.paused_clients = zmalloc(num_threads * sizeof(list *));
     config.last_resume_time = zmalloc(num_threads * sizeof(long long));
     config.count = zcalloc(num_threads * sizeof(int));
     config.paused = zcalloc(num_threads * sizeof(bool));
     config.control_granularity = zmalloc(num_threads * sizeof(int));
     config.resume_interval = zmalloc(num_threads * sizeof(long long));
-    if (qps_per_thread/config.pipeline <= 0) {
+    if (config.qps/qps_divisor <= config.pipeline) {
         printf("warning: qps is too small with %d threads, qps control may fail\n", num_threads);
-        qps_per_thread = 1;
+        qps_divisor = config.qps / config.pipeline;
+        qps_divisor = qps_divisor <= 0 ? 1 : qps_divisor;
     }
     for (int i = 0; i < num_threads; ++i) {
         config.paused_clients[i] = listCreate();
         config.last_resume_time[i] = -1;
-        config.control_granularity[i] = qps_per_thread;
+        if (i < config.numclients)
+            config.control_granularity[i] = (i+1) * config.qps / qps_divisor - i * config.qps / qps_divisor;
+        else
+            config.control_granularity[i] = 0;
         config.resume_interval[i] = USECOND;
     }
 }
