@@ -248,28 +248,24 @@ start_server {tags {"modules"}} {
     test {rm_call EVAL - OOM} {
         r config set maxmemory 1
 
+        # OOM checking at RM_Call time, but not an allow-oom/no-writes script, so fails
         assert_error {OOM command not allowed when used memory > 'maxmemory'. script*} {
-            r test.rm_call eval {
+            r test.rm_call_flags M eval {
                 redis.call('set','x',1)
                 return 1
             } 1 x
         }
 
-        r test.rm_call eval {#!lua flags=no-writes
+        # OOM checking at RM_Call time, but a non deny oom script, so script runs
+        r test.rm_call_flags M eval {#!lua flags=no-writes
             redis.call('get','x')
             return 2
         } 1 x
 
-        assert_error {OOM allow-oom flag is not set on the script,*} {
-            r test.rm_call eval {#!lua
-                redis.call('get','x')
-                return 3
-            } 1 x
-        }
-
+        # no OOM checking at rm_call, so script runs
         r test.rm_call eval {
-            redis.call('get','x')
-            return 4
+            redis.call('set','x',1)
+            return 1
         } 1 x
 
         r config set maxmemory 0

@@ -5654,6 +5654,8 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
  *     "3" -> REDISMODULE_ARGV_RESP_3
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
  *     "C" -> REDISMODULE_ARGV_RUN_AS_USER
+ *     "C" -> REDISMODULE_ARGV_CHECK_ACL
+ *     "O" -> REDISMODULE_ARGV_ALLOW_OOM_IN_SCRIPTS
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -5934,6 +5936,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
                 goto cleanup;
             }
         }
+    } else {
+        /* if we aren't OOM checking in RM_Call, we want further executions from this client to also not fail on OOM */
+        c->flags |= CLIENT_ALLOW_OOM;
     }
 
     if (flags & REDISMODULE_ARGV_NO_WRITES) {
