@@ -10,7 +10,7 @@ set ::singledb 1
 tags {tls:skip external:skip cluster} {
 
 # start three servers
-set base_conf [list cluster-enabled yes cluster-node-timeout 1]
+set base_conf [list cluster-enabled yes cluster-node-timeout 1000]
 start_multiple_servers 3 [list overrides $base_conf] {
 
     set node1 [srv 0 client]
