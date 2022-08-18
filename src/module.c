@@ -357,6 +357,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_NO_WRITES (1<<7)
 #define REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS (1<<8)
 #define REDISMODULE_ARGV_RESPECT_DENY_OOM (1<<9)
+#define REDISMODULE_ARGV_ALLOW_OOM_IN_SCRIPTS (1<<11)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -5623,6 +5624,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  *     "3" -> REDISMODULE_ARGV_RESP_3
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
  *     "C" -> REDISMODULE_ARGV_CHECK_ACL
+ *     "O" -> REDISMODULE_ARGV_ALLOW_OOM_IN_SCRIPTS
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -5695,8 +5697,10 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= REDISMODULE_ARGV_RESPECT_DENY_OOM;
         } else if (*p == 'E') {
             if (flags) (*flags) |= REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
+        } else if (*p == 'O') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_ALLOW_OOM_IN_SCRIPTS;
         } else {
-            goto fmterr;
+                goto fmterr;
         }
         p++;
     }
@@ -5804,6 +5808,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     } else if (flags & REDISMODULE_ARGV_RESP_AUTO) {
         /* Auto mode means to take the same protocol as the ctx client. */
         c->resp = ctx->client->resp;
+    }
+    if (flags & REDISMODULE_ARGV_ALLOW_OOM_IN_SCRIPTS) {
+        c->flags |= CLIENT_ALLOW_OOM;
     }
     if (ctx->module) ctx->module->in_call++;
 
