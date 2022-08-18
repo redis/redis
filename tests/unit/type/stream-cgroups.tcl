@@ -21,13 +21,15 @@ start_server {
 	r XGROUP CREATE mystream mygroup2 $ ENTRIESREAD 3
 
 	set reply [r xinfo groups mystream]
-        set group_info1 [lindex $reply 0]
-        set entries_read1 [dict get $group_info1 entries-read]
-        assert_equal $entries_read1 0
-
-        set group_info2 [lindex $reply 1]
-        set entries_read2 [dict get $group_info2 entries-read]
-        assert_equal $entries_read2 3
+	foreach group_info $reply {
+	   set group_name [dict get $group_info name]
+           set entries_read [dict get $group_info entries-read]
+	   if {$group_name == "mygroup1"} {
+		assert_equal $entries_read 0
+	   } else {
+		assert_equal $entries_read 3
+	   }
+	}
     } 
 
     test {XGROUP CREATE: automatic stream creation fails without MKSTREAM} {
