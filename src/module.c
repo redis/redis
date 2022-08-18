@@ -11047,6 +11047,7 @@ void moduleFreeArgs(struct redisCommandArg *args, int num_args) {
         zfree((char *)args[j].summary);
         zfree((char *)args[j].since);
         zfree((char *)args[j].deprecated_since);
+        zfree((char *)args[j].display_text);
 
         if (args[j].subargs) {
             moduleFreeArgs(args[j].subargs, args[j].num_args);
