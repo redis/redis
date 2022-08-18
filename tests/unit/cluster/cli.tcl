@@ -10,7 +10,7 @@ set ::singledb 1
 tags {tls:skip external:skip cluster} {
 
 # start three servers
-set base_conf [list cluster-enabled yes cluster-node-timeout 1]
+set base_conf [list cluster-enabled yes cluster-node-timeout 1000]
 start_multiple_servers 3 [list overrides $base_conf] {
 
     set node1 [srv 0 client]
@@ -54,10 +54,8 @@ start_multiple_servers 3 [list overrides $base_conf] {
     }
 
     test "Verify command got unblocked after resharding" {
-        # this (read) will wait for the node3 to realize the new topology and then unblock via MOVED,
-        # or it will unblock with CLUSTERDOWN, depending on the cluster state when clientsCron is called.
-        catch {$node3_rd read} err
-        assert {[string match "*MOVED*" $err] || [string match "*CLUSTERDOWN*" $err]}
+        # this (read) will wait for the node3 to realize the new topology
+        assert_error {*MOVED*} {$node3_rd read}
 
         # verify there are no blocked clients
         assert_equal [s 0 blocked_clients]  {0}
