@@ -1927,6 +1927,7 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
         if (arg->summary) realargs[j].summary = zstrdup(arg->summary);
         if (arg->since) realargs[j].since = zstrdup(arg->since);
         if (arg->deprecated_since) realargs[j].deprecated_since = zstrdup(arg->deprecated_since);
+        if (arg->display_text) realargs[j].display_text = zstrdup(arg->display_text);
         realargs[j].flags = moduleConvertArgFlags(arg->flags);
         if (arg->subargs) realargs[j].subargs = moduleCopyCommandArgs(arg->subargs, version);
     }

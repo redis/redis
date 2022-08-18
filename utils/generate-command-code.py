@@ -245,7 +245,7 @@ class Argument(object):
         if "deprecated_since" in self.desc:
             s += ",.deprecated_since=\"%s\"" % self.desc["deprecated_since"]
         if "display" in self.desc:
-            s += ",.display=\"%s\"" % self.desc["display"].lower()
+            s += ",.display_text=\"%s\"" % self.desc["display"].lower()
         if self.subargs:
             s += ",.subargs=%s" % self.subarg_table_name()
 

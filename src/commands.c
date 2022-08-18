@@ -610,9 +610,9 @@ NULL
 
 /* CLUSTER SETSLOT subcommand argument table */
 struct redisCommandArg CLUSTER_SETSLOT_subcommand_Subargs[] = {
-{"importing",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE,.display="node-id"},
-{"migrating",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE,.display="node-id"},
-{"node",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE,.display="node-id"},
+{"importing",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE,.display_text="node-id"},
+{"migrating",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE,.display_text="node-id"},
+{"node",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE,.display_text="node-id"},
 {"stable",ARG_TYPE_PURE_TOKEN,-1,"STABLE",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
@@ -835,15 +835,15 @@ struct redisCommandArg CLIENT_KILL_filter_new_format_Subargs[] = {
 {"client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",CMD_ARG_OPTIONAL},
 {"client-type",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,.subargs=CLIENT_KILL_filter_new_format_client_type_Subargs},
 {"username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,CMD_ARG_OPTIONAL},
-{"addr",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,.display="ip:port"},
-{"laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,.display="ip:port"},
-{"skipme",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,.display="yes/no"},
+{"addr",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="ip:port"},
+{"laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,.display_text="ip:port"},
+{"skipme",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="yes/no"},
 {0}
 };
 
 /* CLIENT KILL filter argument table */
 struct redisCommandArg CLIENT_KILL_filter_Subargs[] = {
-{"old-format",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,.deprecated_since="2.8.12",.display="ip:port"},
+{"old-format",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,.deprecated_since="2.8.12",.display_text="ip:port"},
 {"new-format",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CLIENT_KILL_filter_new_format_Subargs},
 {0}
 };
@@ -1350,7 +1350,7 @@ struct redisCommandArg MIGRATE_authentication_auth2_Subargs[] = {
 
 /* MIGRATE authentication argument table */
 struct redisCommandArg MIGRATE_authentication_Subargs[] = {
-{"auth",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_NONE,.display="password"},
+{"auth",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_NONE,.display_text="password"},
 {"auth2",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",CMD_ARG_NONE,.subargs=MIGRATE_authentication_auth2_Subargs},
 {0}
 };
@@ -1365,7 +1365,7 @@ struct redisCommandArg MIGRATE_Args[] = {
 {"copy",ARG_TYPE_PURE_TOKEN,-1,"COPY",NULL,"3.0.0",CMD_ARG_OPTIONAL},
 {"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL},
 {"authentication",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=MIGRATE_authentication_Subargs},
-{"keys",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.display="key"},
+{"keys",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.display_text="key"},
 {0}
 };
 
@@ -1701,9 +1701,9 @@ struct redisCommandArg SORT_order_Subargs[] = {
 /* SORT argument table */
 struct redisCommandArg SORT_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"by-pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,.display="pattern"},
+{"by-pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="pattern"},
 {"limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_limit_Subargs},
-{"get-pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.display="pattern"},
+{"get-pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.display_text="pattern"},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_order_Subargs},
 {"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
 {"destination",ARG_TYPE_KEY,2,"STORE",NULL,NULL,CMD_ARG_OPTIONAL},
@@ -1735,9 +1735,9 @@ struct redisCommandArg SORT_RO_order_Subargs[] = {
 /* SORT_RO argument table */
 struct redisCommandArg SORT_RO_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"by-pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,.display="pattern"},
+{"by-pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="pattern"},
 {"limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_limit_Subargs},
-{"get-pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.display="pattern"},
+{"get-pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.display_text="pattern"},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_order_Subargs},
 {"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
@@ -1969,8 +1969,8 @@ struct redisCommandArg GEORADIUS_Args[] = {
 {"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL},
 {"count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUS_count_block_Subargs},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUS_order_Subargs},
-{"storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,.display="key"},
-{"storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,.display="key"},
+{"storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="key"},
+{"storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="key"},
 {0}
 };
 
@@ -2016,8 +2016,8 @@ struct redisCommandArg GEORADIUSBYMEMBER_Args[] = {
 {"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL},
 {"count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUSBYMEMBER_count_block_Subargs},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUSBYMEMBER_order_Subargs},
-{"storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,.display="key"},
-{"storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,.display="key"},
+{"storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="key"},
+{"storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="key"},
 {0}
 };
 
@@ -3701,7 +3701,7 @@ struct redisCommandArg SENTINEL_CONFIG_action_set_Subargs[] = {
 /* SENTINEL CONFIG action argument table */
 struct redisCommandArg SENTINEL_CONFIG_action_Subargs[] = {
 {"set",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_CONFIG_action_set_Subargs},
-{"get",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,.display="parameter"},
+{"get",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,.display_text="parameter"},
 {0}
 };
 
@@ -6399,7 +6399,7 @@ struct redisCommandArg XGROUP_SETID_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XGROUP_SETID_id_selector_Subargs},
-{"entriesread",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,.display="entries-read"},
+{"entriesread",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="entries-read"},
 {0}
 };
 

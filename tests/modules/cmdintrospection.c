@@ -104,6 +104,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                     {
                         .name = "threshold",
                         .type = REDISMODULE_ARG_TYPE_STRING,
+                        .display_text = "threshold" /* Just for coverage, doen't have a visible effect */
                     },
                     {
                         .name = "count",
