@@ -1985,7 +1985,7 @@ typedef struct {
  * 2. keynum: there's an arg that contains the number of key args somewhere before the keys themselves
  */
 
-/* Must be synced with generate-command-code.py */
+/* WARNING! Must be synced with generate-command-code.py and RedisModuleKeySpecBeginSearchType */
 typedef enum {
     KSPEC_BS_INVALID = 0, /* Must be 0 */
     KSPEC_BS_UNKNOWN,
@@ -1993,7 +1993,7 @@ typedef enum {
     KSPEC_BS_KEYWORD
 } kspec_bs_type;
 
-/* Must be synced with generate-command-code.py */
+/* WARNING! Must be synced with generate-command-code.py and RedisModuleKeySpecFindKeysType */
 typedef enum {
     KSPEC_FK_INVALID = 0, /* Must be 0 */
     KSPEC_FK_UNKNOWN,
@@ -2001,6 +2001,7 @@ typedef enum {
     KSPEC_FK_KEYNUM
 } kspec_fk_type;
 
+/* WARNING! This struct must match RedisModuleCommandKeySpec */
 typedef struct {
     /* Declarative data */
     const char *notes;
@@ -2068,6 +2069,7 @@ typedef enum {
 #define CMD_ARG_MULTIPLE        (1<<1)
 #define CMD_ARG_MULTIPLE_TOKEN  (1<<2)
 
+/* WARNING! This struct must match RedisModuleCommandArg */
 typedef struct redisCommandArg {
     const char *name;
     redisCommandArgType type;
@@ -2078,6 +2080,7 @@ typedef struct redisCommandArg {
     int flags;
     const char *deprecated_since;
     struct redisCommandArg *subargs;
+    const char *display_text;
     /* runtime populated data */
     int num_args;
 } redisCommandArg;
@@ -2107,6 +2110,7 @@ typedef enum {
     RESP3_NULL,
 } redisCommandRESP3Type;
 
+/* WARNING! This struct must match RedisModuleCommandHistoryEntry */
 typedef struct {
     const char *since;
     const char *changes;

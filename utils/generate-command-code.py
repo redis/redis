@@ -175,18 +175,36 @@ class KeySpec(object):
         )
 
 
+def verify_no_dup_names(container_fullname, args):
+    name_list = [arg.name for arg in args]
+    name_set = set(name_list)
+    if len(name_list) != len(name_set):
+        print("{}: Dup argument names: {}".format(container_fullname, name_list))
+        exit(1)
+
+
 class Argument(object):
     def __init__(self, parent_name, desc):
+        self.parent_name = parent_name
         self.desc = desc
         self.name = self.desc["name"].lower()
+        if "_" in self.name:
+            print("{}: name ({}) should not contain underscores".format(self.fullname(), self.name))
+            exit(1)
         self.type = self.desc["type"]
         self.key_spec_index = self.desc.get("key_spec_index", None)
-        self.parent_name = parent_name
         self.subargs = []
         self.subargs_name = None
         if self.type in ["oneof", "block"]:
+            self.display = None
             for subdesc in self.desc["arguments"]:
                 self.subargs.append(Argument(self.fullname(), subdesc))
+            if len(self.subargs) < 2:
+                print("{}: oneof or block arg contains less than two subargs".format(self.fullname()))
+                exit(1)
+            verify_no_dup_names(self.fullname(), self.subargs)
+        else:
+            self.display = self.desc.get("display")
 
     def fullname(self):
         return ("%s %s" % (self.parent_name, self.name)).replace("-", "_")
@@ -226,6 +244,8 @@ class Argument(object):
         )
         if "deprecated_since" in self.desc:
             s += ",.deprecated_since=\"%s\"" % self.desc["deprecated_since"]
+        if "display" in self.desc:
+            s += ",.display_text=\"%s\"" % self.desc["display"].lower()
         if self.subargs:
             s += ",.subargs=%s" % self.subarg_table_name()
 
@@ -253,7 +273,9 @@ class Command(object):
         self.subcommands = []
         self.args = []
         for arg_desc in self.desc.get("arguments", []):
-            self.args.append(Argument(self.fullname(), arg_desc))
+            arg = Argument(self.fullname(), arg_desc)
+            self.args.append(arg)
+        verify_no_dup_names(self.fullname(), self.args)
 
     def fullname(self):
         return self.name.replace("-", "_").replace(":", "")

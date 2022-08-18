@@ -51,15 +51,15 @@
                 "type": "string"
             },
             {
-                "name": "id",
+                "name": "id-selector",
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "ID",
+                        "name": "id",
                         "type": "string"
                     },
                     {
-                        "name": "new_id",
+                        "name": "new-id",
                         "type": "pure-token",
                         "token": "$"
                     }
@@ -73,7 +73,7 @@
             },
             {
                 "token": "ENTRIESREAD",
-                "name": "entries_read",
+                "name": "entries-read",
                 "type": "integer",
                 "optional": true
             }
