@@ -93,7 +93,7 @@ start_server {tags {"acl external:skip"}} {
         r AUTH psuser pspass
         catch {r PUBLISH foo bar} e
         set e
-    } {*NOPERM*channels*}
+    } {*NOPERM*channel*}
 
     test {By default, only default user is not able to publish to any shard channel} {
         r AUTH default pwd
@@ -101,7 +101,7 @@ start_server {tags {"acl external:skip"}} {
         r AUTH psuser pspass
         catch {r SPUBLISH foo bar} e
         set e
-    } {*NOPERM*channels*}
+    } {*NOPERM*channel*}
 
     test {By default, only default user is able to subscribe to any channel} {
         set rd [redis_deferring_client]
@@ -117,7 +117,7 @@ start_server {tags {"acl external:skip"}} {
         catch {$rd read} e
         $rd close
         set e
-    } {*NOPERM*channels*}
+    } {*NOPERM*channel*}
 
     test {By default, only default user is able to subscribe to any shard channel} {
         set rd [redis_deferring_client]
@@ -133,7 +133,7 @@ start_server {tags {"acl external:skip"}} {
         catch {$rd read} e
         $rd close
         set e
-    } {*NOPERM*channels*}
+    } {*NOPERM*channel*}
 
     test {By default, only default user is able to subscribe to any pattern} {
         set rd [redis_deferring_client]
@@ -149,7 +149,7 @@ start_server {tags {"acl external:skip"}} {
         catch {$rd read} e
         $rd close
         set e
-    } {*NOPERM*channels*}
+    } {*NOPERM*channel*}
 
     test {It's possible to allow publishing to a subset of channels} {
         r ACL setuser psuser resetchannels &foo:1 &bar:*
@@ -533,9 +533,9 @@ start_server {tags {"acl external:skip"}} {
 
     test "ACL requires explicit permission for scripting for EVAL_RO, EVALSHA_RO and FCALL_RO" {
         r ACL SETUSER scripter on nopass +readonly
-        assert_equal "This user has no permissions to run the 'eval_ro' command" [r ACL DRYRUN scripter EVAL_RO "" 0]
-        assert_equal "This user has no permissions to run the 'evalsha_ro' command" [r ACL DRYRUN scripter EVALSHA_RO "" 0]
-        assert_equal "This user has no permissions to run the 'fcall_ro' command" [r ACL DRYRUN scripter FCALL_RO "" 0]
+        assert_match {*has no permissions to run the 'eval_ro' command*} [r ACL DRYRUN scripter EVAL_RO "" 0]
+        assert_match {*has no permissions to run the 'evalsha_ro' command*} [r ACL DRYRUN scripter EVALSHA_RO "" 0]
+        assert_match {*has no permissions to run the 'fcall_ro' command*} [r ACL DRYRUN scripter FCALL_RO "" 0]
     }
 
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {

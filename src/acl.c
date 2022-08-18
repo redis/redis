@@ -2469,18 +2469,19 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     }
 }
 
-const char* getAclErrorMessage(int acl_res) {
-    /* Notice that a variant of this code also exists on aclCommand so
-     * it also need to be updated on changed. */
+sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, robj **argv, int idx) {
     switch (acl_res) {
     case ACL_DENIED_CMD:
-        return "can't run this command or subcommand";
+        return sdscatfmt(sdsempty(), "User %s has no permissions to run "
+                                     "the '%s' command or a subcommand", user->name, cmd->fullname);
     case ACL_DENIED_KEY:
-        return "can't access at least one of the keys mentioned in the command arguments";
+        return sdscatfmt(sdsempty(), "User %s has no permissions to access "
+                                     "the '%s' key", user->name, argv[idx]->ptr);
     case ACL_DENIED_CHANNEL:
-        return "can't publish to the channel mentioned in the command";
+        return sdscatfmt(sdsempty(), "User %s has no permissions to access "
+                                     "the '%s' channel", user->name, argv[idx]->ptr);
     default:
-        return "lacking the permissions for the command";
+        return sdsnew("lacking the permissions for the command");
     }
     serverPanic("Reached deadcode on getAclErrorMessage");
 }
@@ -2879,18 +2880,15 @@ setuser_cleanup:
         /* Notice that a variant of this code also exists on getAclErrorMessage so
          * it also need to be updated on changed. */
         if (result != ACL_OK) {
-            sds err = sdsempty();
-            if (result == ACL_DENIED_CMD) {
-                err = sdscatfmt(err, "This user has no permissions to run "
-                    "the '%s' command", cmd->fullname);
-            } else if (result == ACL_DENIED_KEY) {
-                err = sdscatfmt(err, "This user has no permissions to access "
-                    "the '%s' key", c->argv[idx + 3]->ptr);
-            } else if (result == ACL_DENIED_CHANNEL) {
-                err = sdscatfmt(err, "This user has no permissions to access "
-                    "the '%s' channel", c->argv[idx + 3]->ptr);
-            } else {
-                serverPanic("Invalid permission result");
+            sds err;
+            switch (result) {
+                case ACL_DENIED_CMD:
+                case ACL_DENIED_KEY:
+                case ACL_DENIED_CHANNEL:
+                    err = getAclErrorMessage(result, u, cmd, c->argv + 3, idx);
+                    break;
+                default:
+                    serverPanic("Invalid permission result");
             }
             addReplyBulkSds(c, err);
             return;
