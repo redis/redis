@@ -558,8 +558,8 @@ start_server {tags {"maxmemory" "external:skip"}} {
         }
 
         assert_replication_stream $repl {
-            {select *}
             {multi}
+            {select *}
             {incr x}
             {incr x}
             {exec}

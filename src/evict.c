@@ -574,7 +574,12 @@ int performEvictions(void) {
     int prev_core_propagates = server.core_propagates;
     serverAssert(server.also_propagate.numops == 0);
     server.core_propagates = 1;
-    server.propagate_no_multi = 1;
+
+    /* Increase nested call counter
+     * we add this in order to prevent any RM_Call that may exist
+     * in the notify CB to be propagated immediately.
+     * we want them in multi/exec with the DEL command */
+    server.in_nested_call++;
 
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
@@ -685,9 +690,10 @@ int performEvictions(void) {
             mem_freed += delta;
             server.stat_evictedkeys++;
             signalModifiedKey(NULL,db,keyobj);
-            notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
-                keyobj, db->id);
             propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
+            notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",keyobj,db->id);
+            /* Propagate notification commandds and the del. */
+            propagatePendingCommands();
             decrRefCount(keyobj);
             keys_freed++;
 
@@ -742,11 +748,8 @@ cant_free:
 
     serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
-    /* Propagate all DELs */
-    propagatePendingCommands();
-
     server.core_propagates = prev_core_propagates;
-    server.propagate_no_multi = 0;
+    server.in_nested_call--;
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);

@@ -791,8 +791,6 @@ typedef struct RedisModuleIO {
     rio *rio;           /* Rio stream. */
     moduleType *type;   /* Module type doing the operation. */
     int error;          /* True if error condition happened. */
-    int ver;            /* Module serialization version: 1 (old),
-                         * 2 (current version with opcodes annotation). */
     struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
     struct redisObject *key;    /* Optional name of key processed */
     int dbid;            /* The dbid of the key being processed, -1 when unknown. */
@@ -805,7 +803,6 @@ typedef struct RedisModuleIO {
     iovar.type = mtype; \
     iovar.bytes = 0; \
     iovar.error = 0; \
-    iovar.ver = 0; \
     iovar.key = keyptr; \
     iovar.dbid = db; \
     iovar.ctx = NULL; \
@@ -1284,6 +1281,7 @@ extern clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUN
  * after the propagation of the executed command. */
 typedef struct redisOp {
     robj **argv;
+    /* target=0 means the operation should not be propagate (unused placeholder), for more info look at redisOpArray */
     int argc, dbid, target;
 } redisOp;
 
@@ -1295,9 +1293,14 @@ typedef struct redisOp {
  * redisOpArrayFree();
  */
 typedef struct redisOpArray {
-    redisOp *ops;
-    int numops;
-    int capacity;
+    redisOp *ops; /* The array of operation to replicated */
+    int numops;   /* The actual number of operations in the array */
+    int used;     /* Spots that is used in the ops array, we need to
+                     differenced between the actual number of operations
+                     and the used spots because there might be spots
+                     that was saved as a placeholder for future command
+                     but was never actually used */
+    int capacity; /* The ops array capacity */
 } redisOpArray;
 
 /* This structure is returned by the getMemoryOverheadData() function in
@@ -1488,7 +1491,6 @@ struct redisServer {
     int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
     const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
     int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
-    int propagate_no_multi;     /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
     int module_ctx_nesting;     /* moduleCreateContext() nesting level */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
@@ -2906,7 +2908,7 @@ int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void propagatePendingCommands();
-void redisOpArrayInit(redisOpArray *oa);
+void redisOpArrayReset(redisOpArray *oa);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
