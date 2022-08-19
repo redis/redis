@@ -67,12 +67,19 @@ test "set the slot other node, src-node will delete keys in the slot and replica
     assert_equal [R 4 exists $randomkey] "0"
     assert_equal [R 4 cluster countkeysinslot $randomkey_slot] "0"
 
-    wait_for_cluster_propagation
-    
     # src master will delete keys in the slot
-    assert_equal [R 0 cluster countkeysinslot $randomkey_slot] "0"
+    wait_for_condition 50 100 {
+        [R 0 cluster countkeysinslot $randomkey_slot] eq 0
+    } else {
+        fail "master:cluster countkeysinslot $randomkey_slot did not eq 0"
+    }
+    
     # src replica will delete keys in the slot
-    assert_equal [R 3 cluster countkeysinslot $randomkey_slot] "0"
+    wait_for_condition 50 100 {
+        [R 3 cluster countkeysinslot $randomkey_slot] eq 0
+    } else {
+        fail "replica:cluster countkeysinslot $randomkey_slot did not eq 0"
+    }
 }
 
 
