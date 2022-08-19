@@ -212,6 +212,7 @@ client *createClient(connection *conn) {
     c->swap_metas = NULL;
     c->swap_errcode = 0;
     c->swap_arg_rewrites = argRewritesCreate();
+    c->gtid_in_merge = 0;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);

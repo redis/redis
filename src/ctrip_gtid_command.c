@@ -77,10 +77,10 @@ end:
 
 /**
  * @brief 
- *      1. gtid A:1 {gtid} set k v
- *      2. gtid A:1 {gtid} exec   
+ *      1. gtid A:1 {db} set k v
+ *      2. gtid A:1 {db} exec   
  *          a. fail (clean queue)
- *      3. gtid A:1 {gtid} \/\*comment\*\/ set k v
+ *      3. gtid A:1 {db} \/\*comment\*\/ set k v
  * 
  */
 void gtidCommand(client *c) {
@@ -199,6 +199,9 @@ void propagateGtidExpire(redisDb *db, robj *key, int lazy) {
     decrRefCount(argv[2]);
 }
 
+int isGtidInMerge(client* c) {
+    return c->gtid_in_merge;
+}
 
 /**
  * @brief 
@@ -221,6 +224,10 @@ int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, in
     }
 
     if (cmd == server.gtidLwmCommand) {
+        return 0;
+    }
+
+    if (cmd == server.gtidMergeStartCommand || cmd == server.gtidMergeEndCommand) {
         return 0;
     }
 
@@ -446,8 +453,10 @@ int LoadGtidInfoAuxFields(robj* key, robj* val) {
  */
 void ctripMergeStartCommand(client* c) {
     //not support crdt gid
-    server.gtid_in_merge = 1;
+    // server.gtid_in_merge = 1;
+    c->gtid_in_merge = 1;
     addReply(c, shared.ok);
+    server.dirty++;
 }
 
 /**
@@ -466,7 +475,7 @@ void ctripMergeSetCommand(client* c) {
  * @param c 
  */
 void ctripMergeCommand(client* c) {
-    if(server.gtid_in_merge == 0) {
+    if(c->gtid_in_merge == 0) {
         addReplyErrorFormat(c, "full sync failed");
         return;
     }
@@ -560,7 +569,7 @@ error:
     if(val != NULL) {
         decrRefCount(val);
     }
-    server.gtid_in_merge = 0;
+    c->gtid_in_merge = 0;
 }
 
 /**
@@ -569,11 +578,11 @@ error:
  * @param c 
  */
 void ctripMergeEndCommand(client* c) {
-    if(server.gtid_in_merge == 0) {
+    if(c->gtid_in_merge == 0) {
         addReplyErrorFormat(c, "full sync failed");
         return;
     }
-    server.gtid_in_merge = 0;
+    c->gtid_in_merge = 0;
     gtidSet* gtid_set = gtidSetDecode(c->argv[1]->ptr, sdslen(c->argv[1]->ptr));
     gtidSetAppendGtidSet(server.gtid_executed, gtid_set);
     gtidSetFree(gtid_set);
