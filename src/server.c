@@ -1160,7 +1160,7 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory ",
      0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
 
-    {"ctrip.merge_end", ctripMergeEndCommand, -1,
+    {"ctrip.merge_end", ctripMergeEndCommand, -2,
      "write use-memory ",
      0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
 
@@ -2895,6 +2895,8 @@ void initServerConfig(void) {
     server.lmoveCommand = lookupCommandByCString("lmove");
     server.gtidCommand = lookupCommandByCString("gtid");
     server.gtidLwmCommand = lookupCommandByCString("gtid.lwm");
+    server.gtidMergeStartCommand = lookupCommandByCString("ctrip.merge_start");
+    server.gtidMergeEndCommand = lookupCommandByCString("ctrip.merge_end");
     server.gtidAutoCommand = lookupCommandByCString("gtid.auto");
     /* Debugging */
     server.watchdog_period = 0;
@@ -3759,7 +3761,7 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
      * client pause, otherwise data may be lossed during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
-    if(execCommandPropagateGtid(cmd, dbid, argv, argc, flags)) {
+    if(!(flags & DISABLE_GTID) && execCommandPropagateGtid(cmd, dbid, argv, argc, flags)) {
         return;
     }
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
@@ -4000,6 +4002,8 @@ void call(client *c, int flags) {
             !(flags & CMD_CALL_PROPAGATE_AOF))
                 propagate_flags &= ~PROPAGATE_AOF;
 
+        if (isGtidInMerge(c)) propagate_flags |= DISABLE_GTID;
+
         /* Call propagate() only if at least one of AOF / replication
          * propagation is needed. Note that modules commands handle replication
          * in an explicit way, so we never replicate them automatically. */
@@ -4043,6 +4047,7 @@ void call(client *c, int flags) {
                 /* Whatever the command wish is, we honor the call() flags. */
                 if (!(flags&CMD_CALL_PROPAGATE_AOF)) target &= ~PROPAGATE_AOF;
                 if (!(flags&CMD_CALL_PROPAGATE_REPL)) target &= ~PROPAGATE_REPL;
+                if (isGtidInMerge(c)) target |= DISABLE_GTID;
                 if (target)
                     propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,target);
             }

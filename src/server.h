@@ -462,6 +462,9 @@ typedef enum {
 #define PROPAGATE_AOF 1
 #define PROPAGATE_REPL 2
 
+/*  Command propagation extension flags see propagate() function */
+#define DISABLE_GTID (1<<31)
+
 /* Client pause types, larger types are more restrictive
  * pause types than smaller pause types. */
 typedef enum {
@@ -1002,6 +1005,7 @@ typedef struct client {
     struct metaScanResult *swap_metas;
     int swap_errcode;
     struct argRewrites *swap_arg_rewrites;
+    int gtid_in_merge; /* gtid full sync*/
 } client;
 
 struct saveparam {
@@ -1323,7 +1327,7 @@ struct redisServer {
                         *zpopmaxCommand, *sremCommand, *execCommand,
                         *expireCommand, *pexpireCommand, *xclaimCommand,
                         *xgroupCommand, *rpoplpushCommand, *lmoveCommand,
-                        *gtidCommand, *gtidLwmCommand, *gtidAutoCommand;
+                        *gtidCommand, *gtidLwmCommand, *gtidAutoCommand, *gtidMergeStartCommand, *gtidMergeEndCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -1763,7 +1767,6 @@ struct redisServer {
     int gtid_enabled;  /* Is gtid enabled? */
     gtidSet *gtid_executed;
     uuidSet* current_uuid;
-    int gtid_in_merge; /* gtid full sync*/
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -2879,6 +2882,7 @@ void gtidAutoCommand(client *c);
 void rejectCommandFormat(client *c, const char *fmt, ...);
 int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags);
+int isGtidInMerge(client* c);
 int isGtidExecCommand(client *c);
 void propagateGtidExpire(redisDb *db, robj *key, int lazy);
 sds gtidCommandTranslate(sds buf, struct redisCommand *cmd, robj **argv, int argc);
