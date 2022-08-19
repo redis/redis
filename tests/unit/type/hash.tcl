@@ -819,4 +819,11 @@ start_server {tags {"hash"}} {
         set _ $k
     } {ZIP_INT_8B 127 ZIP_INT_16B 32767 ZIP_INT_32B 2147483647 ZIP_INT_64B 9223372036854775808 ZIP_INT_IMM_MIN 0 ZIP_INT_IMM_MAX 12}
 
+    if {!$::valgrind} {
+        test {HINCRBYFLOAT does not allow NaN or Infinity} {
+            catch {r hincrbyfloat hfoo field +inf} err
+            assert_match "*would produce*" $err
+            assert_equal 0 [r exists hfoo]
+        }
+    }
 }
