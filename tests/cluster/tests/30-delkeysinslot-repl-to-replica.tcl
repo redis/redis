@@ -14,7 +14,7 @@ test "Cluster is writable" {
     cluster_write_test 0
 }
 
-test "Instance #3 is a slave" {
+test "Instance #3 is a replica" {
     assert {[RI 3 role] eq {slave}}
 }
 
@@ -26,7 +26,7 @@ test "Instance #3 synced with the master" {
     }
 }
 
-test "Instance #4 is a slave" {
+test "Instance #4 is a replica" {
     assert {[RI 4 role] eq {slave}}
 }
 
@@ -42,7 +42,7 @@ set randomkey [R 0 randomkey]
 set randomkey_slot [R 0 cluster keyslot $randomkey]
 set slot_keys_num [R 0 cluster countkeysinslot $randomkey_slot]
 
-test "Instance #3 is a slave, have the 'randomkey'" {
+test "Instance #3 is a replica, have the 'randomkey'" {
     R 3 readonly
     assert_equal [R 3 exists $randomkey] "1"
     assert {$slot_keys_num > 0}
@@ -67,9 +67,11 @@ test "set the slot other node, src-node will delete keys in the slot and replica
     assert_equal [R 4 exists $randomkey] "0"
     assert_equal [R 4 cluster countkeysinslot $randomkey_slot] "0"
 
+    wait_for_cluster_propagation
+    
     # src master will delete keys in the slot
     assert_equal [R 0 cluster countkeysinslot $randomkey_slot] "0"
-    # src slave will delete keys in the slot
+    # src replica will delete keys in the slot
     assert_equal [R 3 cluster countkeysinslot $randomkey_slot] "0"
 }
 

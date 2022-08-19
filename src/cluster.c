@@ -7055,24 +7055,20 @@ void slotToKeyDestroy(redisDb *db) {
  * The number of removed items is returned. */
 unsigned int delKeysInSlot(unsigned int hashslot) {
     unsigned int j = 0;
-    server.propagate_no_multi = 1;
     dictEntry *de = (*server.db->slots_to_keys).by_slot[hashslot].head;
     while (de != NULL) {
         sds sdskey = dictGetKey(de);
         de = dictEntryNextInSlot(de);
         robj *key = createStringObject(sdskey, sdslen(sdskey));
         dbDelete(&server.db[0], key);
+        propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
+        propagatePendingCommands();
         signalModifiedKey(NULL, &server.db[0], key);
         moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
-        propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
         decrRefCount(key);
         j++;
         server.dirty++;
     }
-
-    /* Propagate all DELs */
-    propagatePendingCommands();
-    server.propagate_no_multi = 0;
 
     return j;
 }
