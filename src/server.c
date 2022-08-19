@@ -98,49 +98,64 @@ const char *replstateToString(int replstate);
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
+/* Close the currently open logfile and re-open it based on server.logfile */
+int serverLogOpen(void) {
+    if (server.log_fd != -1 && server.log_fd != STDOUT_FILENO) close(server.log_fd);
+    if (server.logfile[0] == '\0') {
+        server.log_fd = STDOUT_FILENO;
+    } else {
+        server.log_fd = open(server.logfile, O_APPEND|O_CREAT|O_WRONLY|O_CLOEXEC, 0644);
+    }
+    return server.log_fd == -1 ? C_ERR : C_OK;
+}
+
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
     const char *c = ".-*#";
-    FILE *fp;
-    char buf[64];
+    char buf[128];
     int rawmode = (level & LL_RAW);
-    int log_to_stdout = server.logfile[0] == '\0';
+    int ignored __attribute__((unused));
 
     level &= 0xff; /* clear flags */
     if (level < server.verbosity) return;
 
-    fp = log_to_stdout ? stdout : fopen(server.logfile,"a");
-    if (!fp) return;
-
-    if (rawmode) {
-        fprintf(fp,"%s",msg);
-    } else {
-        int off;
-        struct timeval tv;
-        int role_char;
-        pid_t pid = getpid();
-
-        gettimeofday(&tv,NULL);
-        struct tm tm;
-        nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
-        off = strftime(buf,sizeof(buf),"%d %b %Y %H:%M:%S.",&tm);
-        snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
-        if (server.sentinel_mode) {
-            role_char = 'X'; /* Sentinel. */
-        } else if (pid != server.pid) {
-            role_char = 'C'; /* RDB / AOF writing child. */
-        } else {
-            role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
-        }
-        fprintf(fp,"%d:%c %s %c %s\n",
-            (int)getpid(),role_char, buf,c[level],msg);
-    }
-    fflush(fp);
-
-    if (!log_to_stdout) fclose(fp);
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
+    if (server.log_fd == -1 && serverLogOpen() != C_OK) return;
+    if (rawmode) {
+        ignored = write(server.log_fd,msg,strlen(msg));
+        return;
+    }
+
+    pid_t pid = getpid();
+
+    int role_char;
+    if (server.sentinel_mode) {
+        role_char = 'X'; /* Sentinel. */
+    } else if (pid != server.pid) {
+        role_char = 'C'; /* RDB / AOF writing child. */
+    } else {
+        role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
+    }
+
+    struct timeval tv;
+    struct tm tm;
+    gettimeofday(&tv,NULL);
+    nolocks_localtime(&tm, tv.tv_sec, server.timezone, server.daylight_active);
+
+    size_t len = snprintf(buf, sizeof(buf), "%d:%c ", (int) pid, role_char);
+    len += strftime(buf + len, sizeof(buf) - len, "%d %b %Y %H:%M:%S.", &tm);
+    len += snprintf(buf + len, sizeof(buf) - len, "%03d %c ", (int) tv.tv_usec/1000, c[level]);
+
+    char eol[] = "\n";
+    struct iovec iov[3] = {
+        { .iov_base = buf, .iov_len = len },
+        { .iov_base = (void *) msg, .iov_len = strlen(msg) },
+        { .iov_base = eol, .iov_len = 1 }
+    };
+
+    ignored = writev(server.log_fd, iov, 3);
 }
 
 /* Like serverLogRaw() but with printf-alike support. This is the function that
@@ -164,25 +179,29 @@ void _serverLog(int level, const char *fmt, ...) {
  * of view of Redis. Signals that are going to kill the server anyway and
  * where we need printf-alike features are served by serverLog(). */
 void serverLogFromHandler(int level, const char *msg) {
-    int fd;
-    int log_to_stdout = server.logfile[0] == '\0';
     char buf[64];
 
-    if ((level&0xff) < server.verbosity || (log_to_stdout && server.daemonize))
+    if ((level&0xff) < server.verbosity || (server.log_fd == STDOUT_FILENO && server.daemonize))
         return;
-    fd = log_to_stdout ? STDOUT_FILENO :
-                         open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
-    if (fd == -1) return;
+    if (server.log_fd == -1) return;
     ll2string(buf,sizeof(buf),getpid());
-    if (write(fd,buf,strlen(buf)) == -1) goto err;
-    if (write(fd,":signal-handler (",17) == -1) goto err;
+    if (write(server.log_fd,buf,strlen(buf)) == -1) return;
+    if (write(server.log_fd,":signal-handler (",17) == -1) return;
     ll2string(buf,sizeof(buf),time(NULL));
-    if (write(fd,buf,strlen(buf)) == -1) goto err;
-    if (write(fd,") ",2) == -1) goto err;
-    if (write(fd,msg,strlen(msg)) == -1) goto err;
-    if (write(fd,"\n",1) == -1) goto err;
-err:
-    if (!log_to_stdout) close(fd);
+    if (write(server.log_fd,buf,strlen(buf)) == -1) return;
+    if (write(server.log_fd,") ",2) == -1) return;
+    if (write(server.log_fd,msg,strlen(msg)) == -1) return;
+    if (write(server.log_fd,"\n",1) == -1) return;
+}
+
+/* Re-open log file on SIGHUP */
+static void serverLogReopenSigHandler(int signum) {
+    UNUSED(signum);
+
+    if (server.log_fd == -1 || server.log_fd == STDOUT_FILENO) return;
+    serverLogFromHandler(LOG_NOTICE, "Log file closed on signal.");
+    serverLogOpen();
+    serverLogFromHandler(LOG_NOTICE, "Log file re-opened on signal.");
 }
 
 /* Return the UNIX time in microseconds */
@@ -1865,6 +1884,7 @@ void initServerConfig(void) {
     server.ipfd.count = 0;
     server.tlsfd.count = 0;
     server.sofd = -1;
+    server.log_fd = -1;
     server.active_expire_enabled = 1;
     server.skip_checksum_validation = 0;
     server.loading = 0;
@@ -2390,7 +2410,7 @@ void makeThreadKillable(void) {
 void initServer(void) {
     int j;
 
-    signal(SIGHUP, SIG_IGN);
+    signal(SIGHUP, serverLogReopenSigHandler);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
     makeThreadKillable();
@@ -7059,6 +7079,7 @@ int main(int argc, char **argv) {
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
     }
+    if (server.logfile[0] == '\0') server.log_fd = STDOUT_FILENO;
     if (server.sentinel_mode) sentinelCheckConfigFile();
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
