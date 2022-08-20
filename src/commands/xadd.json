@@ -114,22 +114,22 @@
                 ]
             },
             {
-                "name": "id_or_auto",
+                "name": "id-selector",
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "auto_id",
+                        "name": "auto-id",
                         "type": "pure-token",
                         "token": "*"
                     },
                     {
-                        "name": "ID",
+                        "name": "id",
                         "type": "string"
                     }
                 ]
             },
             {
-                "name": "field_value",
+                "name": "data",
                 "type": "block",
                 "multiple": true,
                 "arguments": [

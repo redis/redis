@@ -18,7 +18,7 @@
         ],
         "arguments": [
             {
-                "name": "on_off_skip",
+                "name": "action",
                 "type": "oneof",
                 "arguments": [
                     {

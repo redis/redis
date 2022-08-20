@@ -136,7 +136,7 @@
                 "optional": true
             },
             {
-                "name": "count",
+                "name": "count-block",
                 "type": "block",
                 "optional": true,
                 "arguments": [
@@ -172,14 +172,16 @@
             },
             {
                 "token": "STORE",
-                "name": "key",
+                "name": "storekey",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 1,
                 "optional": true
             },
             {
                 "token": "STOREDIST",
-                "name": "key",
+                "name": "storedistkey",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 2,
                 "optional": true
