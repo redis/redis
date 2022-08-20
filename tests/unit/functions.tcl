@@ -209,14 +209,14 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - test fcall_ro with write command} {
         r function load REPLACE [get_no_writes_function_code lua test test {return redis.call('set', 'x', '1')}]
-        catch { r fcall_ro test 0 } e
+        catch { r fcall_ro test 1 x } e
         set _ $e
     } {*Write commands are not allowed from read-only scripts*}
 
     test {FUNCTION - test fcall_ro with read only commands} {
         r function load REPLACE [get_no_writes_function_code lua test test {return redis.call('get', 'x')}]
         r set x 1
-        r fcall_ro test 0
+        r fcall_ro test 1 x
     } {1}
 
     test {FUNCTION - test keys and argv} {
@@ -410,7 +410,7 @@ start_server {tags {"scripting repl external:skip"}} {
 
         test "FUNCTION - function effect is replicated to replica" {
             r function load REPLACE [get_function_code LUA test test {return redis.call('set', 'x', '1')}]
-            r fcall test 0
+            r fcall test 1 x
             assert {[r get x] eq {1}}
             wait_for_condition 150 100 {
                 [r -1 get x] eq {1}
@@ -421,7 +421,7 @@ start_server {tags {"scripting repl external:skip"}} {
 
         test "FUNCTION - modify key space of read only replica" {
             catch {
-                r -1 fcall test 0
+                r -1 fcall test 1 x
             } e
             set _ $e
         } {READONLY You can't write against a read only replica.}
@@ -643,6 +643,15 @@ start_server {tags {"scripting"}} {
         } e
         set _ $e
     } {*attempted to access nonexistent global variable 'set_repl'*}
+
+    test {LIBRARIES - redis.acl_check_cmd from function load} {
+        catch {
+            r function load replace {#!lua name=lib2
+                return redis.acl_check_cmd('set','xx',1)
+            }
+        } e
+        set _ $e
+    } {*attempted to access nonexistent global variable 'acl_check_cmd'*}
 
     test {LIBRARIES - malicious access test} {
         # the 'library' API is not exposed inside a
@@ -1028,7 +1037,7 @@ start_server {tags {"scripting"}} {
                 callback = function() return redis.call('set', 'x', 1) end
             }
         }
-        catch {r fcall_ro f1 0} e
+        catch {r fcall_ro f1 1 x} e
         set _ $e
     } {*Can not execute a script with write flag using \*_ro command*}
 
@@ -1040,7 +1049,7 @@ start_server {tags {"scripting"}} {
                 flags = {'no-writes'}
             }
         }
-        catch {r fcall f1 0} e
+        catch {r fcall f1 1 x} e
         set _ $e
     } {*Write commands are not allowed from read-only scripts*}
 
@@ -1051,7 +1060,7 @@ start_server {tags {"scripting"}} {
 
         r config set maxmemory 1
 
-        catch {[r fcall f1 1 k]} e
+        catch {[r fcall f1 1 x]} e
         assert_match {OOM *when used memory > 'maxmemory'*} $e
 
         r config set maxmemory 0
@@ -1086,7 +1095,7 @@ start_server {tags {"scripting"}} {
 
         assert_equal {hello} [r fcall f2 0]
 
-        catch {[r fcall f3 0]} e
+        catch {[r fcall f3 1 x]} e
         assert_match {ERR *Can not execute the command on a stale replica*} $e
 
         assert_match {*redis_version*} [r fcall f4 0]

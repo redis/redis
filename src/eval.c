@@ -1629,6 +1629,7 @@ ldbLog(sdsnew("                     next line of code."));
  * to start executing a new line. */
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    serverAssert(rctx); /* Only supported inside script invocation */
     lua_getstack(lua,0,ar);
     lua_getinfo(lua,"Sl",ar);
     ldb.currentline = ar->currentline;

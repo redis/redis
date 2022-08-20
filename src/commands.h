@@ -19,6 +19,7 @@ typedef enum {
 #define CMD_ARG_MULTIPLE        (1<<1)
 #define CMD_ARG_MULTIPLE_TOKEN  (1<<2)
 
+/* WARNING! This struct must match RedisModuleCommandArg */
 typedef struct redisCommandArg {
     const char *name;
     redisCommandArgType type;
@@ -30,6 +31,7 @@ typedef struct redisCommandArg {
     const char *deprecated_since;
     int num_args;
     struct redisCommandArg *subargs;
+    const char *display_text;
 } redisCommandArg;
 
 /* Returns the command group name by group number. */

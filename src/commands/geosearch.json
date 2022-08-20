@@ -49,7 +49,7 @@
                     },
                     {
                         "token": "FROMLONLAT",
-                        "name": "longitude_latitude",
+                        "name": "fromlonlat",
                         "type": "block",
                         "arguments": [
                             {
@@ -166,7 +166,7 @@
                 ]
             },
             {
-                "name": "count",
+                "name": "count-block",
                 "type": "block",
                 "optional": true,
                 "arguments": [

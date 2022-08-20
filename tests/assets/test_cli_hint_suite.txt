@@ -107,4 +107,4 @@
 "ZADD key 0 " "member [score member ...]"
 
 # Empty-valued token argument represented as a pair of double-quotes.
-"MIGRATE " "host port key|\"\" destination-db timeout [COPY] [REPLACE] [[AUTH password]|[AUTH2 username password]] [KEYS key [key ...]]"
+"MIGRATE " "host port key|\"\" destination-db timeout [COPY] [REPLACE] [AUTH password|AUTH2 username password] [KEYS key [key ...]]"

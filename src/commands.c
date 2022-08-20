@@ -72,23 +72,23 @@ keySpec BITCOUNT_Keyspecs[1] = {
 };
 #endif
 
-/* BITCOUNT index index_unit argument table */
-struct COMMAND_ARG BITCOUNT_index_index_unit_Subargs[] = {
+/* BITCOUNT range unit argument table */
+struct COMMAND_ARG BITCOUNT_range_unit_Subargs[] = {
 {MAKE_ARG("byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* BITCOUNT index argument table */
-struct COMMAND_ARG BITCOUNT_index_Subargs[] = {
+/* BITCOUNT range argument table */
+struct COMMAND_ARG BITCOUNT_range_Subargs[] = {
 {MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=BITCOUNT_index_index_unit_Subargs},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=BITCOUNT_range_unit_Subargs},
 };
 
 /* BITCOUNT argument table */
 struct COMMAND_ARG BITCOUNT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=BITCOUNT_index_Subargs},
+{MAKE_ARG("range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=BITCOUNT_range_Subargs},
 };
 
 /********** BITFIELD ********************/
@@ -110,28 +110,28 @@ keySpec BITFIELD_Keyspecs[1] = {
 };
 #endif
 
-/* BITFIELD operation encoding_offset argument table */
-struct COMMAND_ARG BITFIELD_operation_encoding_offset_Subargs[] = {
+/* BITFIELD operation get_block argument table */
+struct COMMAND_ARG BITFIELD_operation_get_block_Subargs[] = {
 {MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* BITFIELD operation write wrap_sat_fail argument table */
-struct COMMAND_ARG BITFIELD_operation_write_wrap_sat_fail_Subargs[] = {
+/* BITFIELD operation write overflow_block argument table */
+struct COMMAND_ARG BITFIELD_operation_write_overflow_block_Subargs[] = {
 {MAKE_ARG("wrap",ARG_TYPE_PURE_TOKEN,-1,"WRAP",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sat",ARG_TYPE_PURE_TOKEN,-1,"SAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("fail",ARG_TYPE_PURE_TOKEN,-1,"FAIL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* BITFIELD operation write write_operation encoding_offset_value argument table */
-struct COMMAND_ARG BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs[] = {
+/* BITFIELD operation write write_operation set_block argument table */
+struct COMMAND_ARG BITFIELD_operation_write_write_operation_set_block_Subargs[] = {
 {MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* BITFIELD operation write write_operation encoding_offset_increment argument table */
-struct COMMAND_ARG BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs[] = {
+/* BITFIELD operation write write_operation incrby_block argument table */
+struct COMMAND_ARG BITFIELD_operation_write_write_operation_incrby_block_Subargs[] = {
 {MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
@@ -139,19 +139,19 @@ struct COMMAND_ARG BITFIELD_operation_write_write_operation_encoding_offset_incr
 
 /* BITFIELD operation write write_operation argument table */
 struct COMMAND_ARG BITFIELD_operation_write_write_operation_Subargs[] = {
-{MAKE_ARG("encoding_offset_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs},
-{MAKE_ARG("encoding_offset_increment",ARG_TYPE_BLOCK,-1,"INCRBY",NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs},
+{MAKE_ARG("set-block",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=BITFIELD_operation_write_write_operation_set_block_Subargs},
+{MAKE_ARG("incrby-block",ARG_TYPE_BLOCK,-1,"INCRBY",NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=BITFIELD_operation_write_write_operation_incrby_block_Subargs},
 };
 
 /* BITFIELD operation write argument table */
 struct COMMAND_ARG BITFIELD_operation_write_Subargs[] = {
-{MAKE_ARG("wrap_sat_fail",ARG_TYPE_ONEOF,-1,"OVERFLOW",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=BITFIELD_operation_write_wrap_sat_fail_Subargs},
-{MAKE_ARG("write_operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BITFIELD_operation_write_write_operation_Subargs},
+{MAKE_ARG("overflow-block",ARG_TYPE_ONEOF,-1,"OVERFLOW",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=BITFIELD_operation_write_overflow_block_Subargs},
+{MAKE_ARG("write-operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BITFIELD_operation_write_write_operation_Subargs},
 };
 
 /* BITFIELD operation argument table */
 struct COMMAND_ARG BITFIELD_operation_Subargs[] = {
-{MAKE_ARG("encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BITFIELD_operation_encoding_offset_Subargs},
+{MAKE_ARG("get-block",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BITFIELD_operation_get_block_Subargs},
 {MAKE_ARG("write",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BITFIELD_operation_write_Subargs},
 };
 
@@ -180,8 +180,8 @@ keySpec BITFIELD_RO_Keyspecs[1] = {
 };
 #endif
 
-/* BITFIELD_RO encoding_offset argument table */
-struct COMMAND_ARG BITFIELD_RO_encoding_offset_Subargs[] = {
+/* BITFIELD_RO get_block argument table */
+struct COMMAND_ARG BITFIELD_RO_get_block_Subargs[] = {
 {MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -189,7 +189,7 @@ struct COMMAND_ARG BITFIELD_RO_encoding_offset_Subargs[] = {
 /* BITFIELD_RO argument table */
 struct COMMAND_ARG BITFIELD_RO_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,2,NULL),.subargs=BITFIELD_RO_encoding_offset_Subargs},
+{MAKE_ARG("get-block",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,2,NULL),.subargs=BITFIELD_RO_get_block_Subargs},
 };
 
 /********** BITOP ********************/
@@ -239,29 +239,29 @@ keySpec BITPOS_Keyspecs[1] = {
 };
 #endif
 
-/* BITPOS index end_index index_unit argument table */
-struct COMMAND_ARG BITPOS_index_end_index_index_unit_Subargs[] = {
+/* BITPOS range end_unit_block unit argument table */
+struct COMMAND_ARG BITPOS_range_end_unit_block_unit_Subargs[] = {
 {MAKE_ARG("byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* BITPOS index end_index argument table */
-struct COMMAND_ARG BITPOS_index_end_index_Subargs[] = {
+/* BITPOS range end_unit_block argument table */
+struct COMMAND_ARG BITPOS_range_end_unit_block_Subargs[] = {
 {MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_index_end_index_index_unit_Subargs},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_range_end_unit_block_unit_Subargs},
 };
 
-/* BITPOS index argument table */
-struct COMMAND_ARG BITPOS_index_Subargs[] = {
+/* BITPOS range argument table */
+struct COMMAND_ARG BITPOS_range_Subargs[] = {
 {MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("end_index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_index_end_index_Subargs},
+{MAKE_ARG("end-unit-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_range_end_unit_block_Subargs},
 };
 
 /* BITPOS argument table */
 struct COMMAND_ARG BITPOS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("bit",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_index_Subargs},
+{MAKE_ARG("range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_range_Subargs},
 };
 
 /********** GETBIT ********************/
@@ -375,15 +375,15 @@ const char *CLUSTER_ADDSLOTSRANGE_Tips[] = {
 #define CLUSTER_ADDSLOTSRANGE_Keyspecs NULL
 #endif
 
-/* CLUSTER ADDSLOTSRANGE start_slot_end_slot argument table */
-struct COMMAND_ARG CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs[] = {
+/* CLUSTER ADDSLOTSRANGE range argument table */
+struct COMMAND_ARG CLUSTER_ADDSLOTSRANGE_range_Subargs[] = {
 {MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* CLUSTER ADDSLOTSRANGE argument table */
 struct COMMAND_ARG CLUSTER_ADDSLOTSRANGE_Args[] = {
-{MAKE_ARG("start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs},
+{MAKE_ARG("range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_ADDSLOTSRANGE_range_Subargs},
 };
 
 /********** CLUSTER BUMPEPOCH ********************/
@@ -496,15 +496,15 @@ const char *CLUSTER_DELSLOTSRANGE_Tips[] = {
 #define CLUSTER_DELSLOTSRANGE_Keyspecs NULL
 #endif
 
-/* CLUSTER DELSLOTSRANGE start_slot_end_slot argument table */
-struct COMMAND_ARG CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs[] = {
+/* CLUSTER DELSLOTSRANGE range argument table */
+struct COMMAND_ARG CLUSTER_DELSLOTSRANGE_range_Subargs[] = {
 {MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* CLUSTER DELSLOTSRANGE argument table */
 struct COMMAND_ARG CLUSTER_DELSLOTSRANGE_Args[] = {
-{MAKE_ARG("start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs},
+{MAKE_ARG("range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_DELSLOTSRANGE_range_Subargs},
 };
 
 /********** CLUSTER FAILOVER ********************/
@@ -709,7 +709,7 @@ const char *CLUSTER_MEET_Tips[] = {
 struct COMMAND_ARG CLUSTER_MEET_Args[] = {
 {MAKE_ARG("ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("cluster_bus_port",ARG_TYPE_INTEGER,-1,NULL,NULL,"4.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("cluster-bus-port",ARG_TYPE_INTEGER,-1,NULL,NULL,"4.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /********** CLUSTER MYID ********************/
@@ -817,15 +817,15 @@ const char *CLUSTER_RESET_Tips[] = {
 #define CLUSTER_RESET_Keyspecs NULL
 #endif
 
-/* CLUSTER RESET hard_soft argument table */
-struct COMMAND_ARG CLUSTER_RESET_hard_soft_Subargs[] = {
+/* CLUSTER RESET reset_type argument table */
+struct COMMAND_ARG CLUSTER_RESET_reset_type_Subargs[] = {
 {MAKE_ARG("hard",ARG_TYPE_PURE_TOKEN,-1,"HARD",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("soft",ARG_TYPE_PURE_TOKEN,-1,"SOFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* CLUSTER RESET argument table */
 struct COMMAND_ARG CLUSTER_RESET_Args[] = {
-{MAKE_ARG("hard_soft",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLUSTER_RESET_hard_soft_Subargs},
+{MAKE_ARG("reset-type",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLUSTER_RESET_reset_type_Subargs},
 };
 
 /********** CLUSTER SAVECONFIG ********************/
@@ -892,9 +892,9 @@ const char *CLUSTER_SETSLOT_Tips[] = {
 
 /* CLUSTER SETSLOT subcommand argument table */
 struct COMMAND_ARG CLUSTER_SETSLOT_subcommand_Subargs[] = {
-{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("importing",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE,0,NULL),.display_text="node-id"},
+{MAKE_ARG("migrating",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE,0,NULL),.display_text="node-id"},
+{MAKE_ARG("node",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE,0,NULL),.display_text="node-id"},
 {MAKE_ARG("stable",ARG_TYPE_PURE_TOKEN,-1,"STABLE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
@@ -1215,8 +1215,8 @@ commandHistory CLIENT_KILL_History[] = {
 #define CLIENT_KILL_Keyspecs NULL
 #endif
 
-/* CLIENT KILL filter new_format normal_master_slave_pubsub argument table */
-struct COMMAND_ARG CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Subargs[] = {
+/* CLIENT KILL filter new_format client_type argument table */
+struct COMMAND_ARG CLIENT_KILL_filter_new_format_client_type_Subargs[] = {
 {MAKE_ARG("normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,"3.2.0",CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("slave",ARG_TYPE_PURE_TOKEN,-1,"SLAVE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
@@ -1227,16 +1227,16 @@ struct COMMAND_ARG CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Suba
 /* CLIENT KILL filter new_format argument table */
 struct COMMAND_ARG CLIENT_KILL_filter_new_format_Subargs[] = {
 {MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("normal_master_slave_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,5,NULL),.subargs=CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Subargs},
+{MAKE_ARG("client-type",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,5,NULL),.subargs=CLIENT_KILL_filter_new_format_client_type_Subargs},
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("yes/no",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("addr",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("skipme",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="yes/no"},
 };
 
 /* CLIENT KILL filter argument table */
 struct COMMAND_ARG CLIENT_KILL_filter_Subargs[] = {
-{MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,"2.8.12")},
+{MAKE_ARG("old-format",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,"2.8.12"),.display_text="ip:port"},
 {MAKE_ARG("new-format",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,6,NULL),.subargs=CLIENT_KILL_filter_new_format_Subargs},
 };
 
@@ -1268,23 +1268,18 @@ const char *CLIENT_LIST_Tips[] = {
 #define CLIENT_LIST_Keyspecs NULL
 #endif
 
-/* CLIENT LIST normal_master_replica_pubsub argument table */
-struct COMMAND_ARG CLIENT_LIST_normal_master_replica_pubsub_Subargs[] = {
+/* CLIENT LIST client_type argument table */
+struct COMMAND_ARG CLIENT_LIST_client_type_Subargs[] = {
 {MAKE_ARG("normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* CLIENT LIST id argument table */
-struct COMMAND_ARG CLIENT_LIST_id_Subargs[] = {
-{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-};
-
 /* CLIENT LIST argument table */
 struct COMMAND_ARG CLIENT_LIST_Args[] = {
-{MAKE_ARG("normal_master_replica_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"5.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=CLIENT_LIST_normal_master_replica_pubsub_Subargs},
-{MAKE_ARG("id",ARG_TYPE_BLOCK,-1,"ID",NULL,"6.2.0",CMD_ARG_OPTIONAL,1,NULL),.subargs=CLIENT_LIST_id_Subargs},
+{MAKE_ARG("client-type",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"5.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=CLIENT_LIST_client_type_Subargs},
+{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"6.2.0",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /********** CLIENT NO_EVICT ********************/
@@ -1363,8 +1358,8 @@ struct COMMAND_ARG CLIENT_PAUSE_Args[] = {
 #define CLIENT_REPLY_Keyspecs NULL
 #endif
 
-/* CLIENT REPLY on_off_skip argument table */
-struct COMMAND_ARG CLIENT_REPLY_on_off_skip_Subargs[] = {
+/* CLIENT REPLY action argument table */
+struct COMMAND_ARG CLIENT_REPLY_action_Subargs[] = {
 {MAKE_ARG("on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("skip",ARG_TYPE_PURE_TOKEN,-1,"SKIP",NULL,NULL,CMD_ARG_NONE,0,NULL)},
@@ -1372,7 +1367,7 @@ struct COMMAND_ARG CLIENT_REPLY_on_off_skip_Subargs[] = {
 
 /* CLIENT REPLY argument table */
 struct COMMAND_ARG CLIENT_REPLY_Args[] = {
-{MAKE_ARG("on_off_skip",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=CLIENT_REPLY_on_off_skip_Subargs},
+{MAKE_ARG("action",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=CLIENT_REPLY_action_Subargs},
 };
 
 /********** CLIENT SETNAME ********************/
@@ -1465,8 +1460,8 @@ struct COMMAND_ARG CLIENT_TRACKING_Args[] = {
 #define CLIENT_UNBLOCK_Keyspecs NULL
 #endif
 
-/* CLIENT UNBLOCK timeout_error argument table */
-struct COMMAND_ARG CLIENT_UNBLOCK_timeout_error_Subargs[] = {
+/* CLIENT UNBLOCK unblock_type argument table */
+struct COMMAND_ARG CLIENT_UNBLOCK_unblock_type_Subargs[] = {
 {MAKE_ARG("timeout",ARG_TYPE_PURE_TOKEN,-1,"TIMEOUT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("error",ARG_TYPE_PURE_TOKEN,-1,"ERROR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -1474,7 +1469,7 @@ struct COMMAND_ARG CLIENT_UNBLOCK_timeout_error_Subargs[] = {
 /* CLIENT UNBLOCK argument table */
 struct COMMAND_ARG CLIENT_UNBLOCK_Args[] = {
 {MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("timeout_error",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLIENT_UNBLOCK_timeout_error_Subargs},
+{MAKE_ARG("unblock-type",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLIENT_UNBLOCK_unblock_type_Subargs},
 };
 
 /********** CLIENT UNPAUSE ********************/
@@ -1573,8 +1568,8 @@ commandHistory HELLO_History[] = {
 #define HELLO_Keyspecs NULL
 #endif
 
-/* HELLO arguments username_password argument table */
-struct COMMAND_ARG HELLO_arguments_username_password_Subargs[] = {
+/* HELLO arguments auth argument table */
+struct COMMAND_ARG HELLO_arguments_auth_Subargs[] = {
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -1582,7 +1577,7 @@ struct COMMAND_ARG HELLO_arguments_username_password_Subargs[] = {
 /* HELLO arguments argument table */
 struct COMMAND_ARG HELLO_arguments_Subargs[] = {
 {MAKE_ARG("protover",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("username_password",ARG_TYPE_BLOCK,-1,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HELLO_arguments_username_password_Subargs},
+{MAKE_ARG("auth",ARG_TYPE_BLOCK,-1,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HELLO_arguments_auth_Subargs},
 {MAKE_ARG("clientname",ARG_TYPE_STRING,-1,"SETNAME",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
@@ -1928,35 +1923,35 @@ keySpec MIGRATE_Keyspecs[2] = {
 };
 #endif
 
-/* MIGRATE key_or_empty_string argument table */
-struct COMMAND_ARG MIGRATE_key_or_empty_string_Subargs[] = {
+/* MIGRATE key_selector argument table */
+struct COMMAND_ARG MIGRATE_key_selector_Subargs[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("empty_string",ARG_TYPE_PURE_TOKEN,-1,"""",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("empty-string",ARG_TYPE_PURE_TOKEN,-1,"""",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* MIGRATE authentication username_password argument table */
-struct COMMAND_ARG MIGRATE_authentication_username_password_Subargs[] = {
+/* MIGRATE authentication auth2 argument table */
+struct COMMAND_ARG MIGRATE_authentication_auth2_Subargs[] = {
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* MIGRATE authentication argument table */
 struct COMMAND_ARG MIGRATE_authentication_Subargs[] = {
-{MAKE_ARG("password",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("username_password",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=MIGRATE_authentication_username_password_Subargs},
+{MAKE_ARG("auth",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_NONE,0,NULL),.display_text="password"},
+{MAKE_ARG("auth2",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",CMD_ARG_NONE,2,NULL),.subargs=MIGRATE_authentication_auth2_Subargs},
 };
 
 /* MIGRATE argument table */
 struct COMMAND_ARG MIGRATE_Args[] = {
 {MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("key_or_empty_string",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=MIGRATE_key_or_empty_string_Subargs},
+{MAKE_ARG("key-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=MIGRATE_key_selector_Subargs},
 {MAKE_ARG("destination-db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("copy",ARG_TYPE_PURE_TOKEN,-1,"COPY",NULL,"3.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("authentication",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=MIGRATE_authentication_Subargs},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("keys",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL),.display_text="key"},
 };
 
 /********** MOVE ********************/
@@ -2435,8 +2430,8 @@ keySpec SORT_Keyspecs[3] = {
 };
 #endif
 
-/* SORT offset_count argument table */
-struct COMMAND_ARG SORT_offset_count_Subargs[] = {
+/* SORT limit argument table */
+struct COMMAND_ARG SORT_limit_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -2450,9 +2445,9 @@ struct COMMAND_ARG SORT_order_Subargs[] = {
 /* SORT argument table */
 struct COMMAND_ARG SORT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_offset_count_Subargs},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,0,NULL)},
+{MAKE_ARG("by-pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="pattern"},
+{MAKE_ARG("limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_limit_Subargs},
+{MAKE_ARG("get-pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,0,NULL),.display_text="pattern"},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_order_Subargs},
 {MAKE_ARG("sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("destination",ARG_TYPE_KEY,2,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
@@ -2477,8 +2472,8 @@ keySpec SORT_RO_Keyspecs[2] = {
 };
 #endif
 
-/* SORT_RO offset_count argument table */
-struct COMMAND_ARG SORT_RO_offset_count_Subargs[] = {
+/* SORT_RO limit argument table */
+struct COMMAND_ARG SORT_RO_limit_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -2492,9 +2487,9 @@ struct COMMAND_ARG SORT_RO_order_Subargs[] = {
 /* SORT_RO argument table */
 struct COMMAND_ARG SORT_RO_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_RO_offset_count_Subargs},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,0,NULL)},
+{MAKE_ARG("by-pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="pattern"},
+{MAKE_ARG("limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_RO_limit_Subargs},
+{MAKE_ARG("get-pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,0,NULL),.display_text="pattern"},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_RO_order_Subargs},
 {MAKE_ARG("sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
@@ -2658,8 +2653,8 @@ struct COMMAND_ARG GEOADD_condition_Subargs[] = {
 {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* GEOADD longitude_latitude_member argument table */
-struct COMMAND_ARG GEOADD_longitude_latitude_member_Subargs[] = {
+/* GEOADD data argument table */
+struct COMMAND_ARG GEOADD_data_Subargs[] = {
 {MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
@@ -2670,7 +2665,7 @@ struct COMMAND_ARG GEOADD_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOADD_condition_Subargs},
 {MAKE_ARG("change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("longitude_latitude_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,3,NULL),.subargs=GEOADD_longitude_latitude_member_Subargs},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,3,NULL),.subargs=GEOADD_data_Subargs},
 };
 
 /********** GEODIST ********************/
@@ -2787,8 +2782,8 @@ struct COMMAND_ARG GEORADIUS_unit_Subargs[] = {
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* GEORADIUS count argument table */
-struct COMMAND_ARG GEORADIUS_count_Subargs[] = {
+/* GEORADIUS count_block argument table */
+struct COMMAND_ARG GEORADIUS_count_block_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 };
@@ -2809,10 +2804,10 @@ struct COMMAND_ARG GEORADIUS_Args[] = {
 {MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_count_Subargs},
+{MAKE_ARG("count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_count_block_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_order_Subargs},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
+{MAKE_ARG("storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
 };
 
 /********** GEORADIUSBYMEMBER ********************/
@@ -2842,8 +2837,8 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_unit_Subargs[] = {
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* GEORADIUSBYMEMBER count argument table */
-struct COMMAND_ARG GEORADIUSBYMEMBER_count_Subargs[] = {
+/* GEORADIUSBYMEMBER count_block argument table */
+struct COMMAND_ARG GEORADIUSBYMEMBER_count_block_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
@@ -2863,10 +2858,10 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_Args[] = {
 {MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_count_Subargs},
+{MAKE_ARG("count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_count_block_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_order_Subargs},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
+{MAKE_ARG("storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
 };
 
 /********** GEORADIUSBYMEMBER_RO ********************/
@@ -2896,8 +2891,8 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_RO_unit_Subargs[] = {
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* GEORADIUSBYMEMBER_RO count argument table */
-struct COMMAND_ARG GEORADIUSBYMEMBER_RO_count_Subargs[] = {
+/* GEORADIUSBYMEMBER_RO count_block argument table */
+struct COMMAND_ARG GEORADIUSBYMEMBER_RO_count_block_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
@@ -2917,7 +2912,7 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_RO_Args[] = {
 {MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_RO_count_Subargs},
+{MAKE_ARG("count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_RO_count_block_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_RO_order_Subargs},
 };
 
@@ -2950,8 +2945,8 @@ struct COMMAND_ARG GEORADIUS_RO_unit_Subargs[] = {
 {MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* GEORADIUS_RO count argument table */
-struct COMMAND_ARG GEORADIUS_RO_count_Subargs[] = {
+/* GEORADIUS_RO count_block argument table */
+struct COMMAND_ARG GEORADIUS_RO_count_block_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 };
@@ -2972,7 +2967,7 @@ struct COMMAND_ARG GEORADIUS_RO_Args[] = {
 {MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_RO_count_Subargs},
+{MAKE_ARG("count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_RO_count_block_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_RO_order_Subargs},
 };
 
@@ -2995,8 +2990,8 @@ keySpec GEOSEARCH_Keyspecs[1] = {
 };
 #endif
 
-/* GEOSEARCH from longitude_latitude argument table */
-struct COMMAND_ARG GEOSEARCH_from_longitude_latitude_Subargs[] = {
+/* GEOSEARCH from fromlonlat argument table */
+struct COMMAND_ARG GEOSEARCH_from_fromlonlat_Subargs[] = {
 {MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -3004,7 +2999,7 @@ struct COMMAND_ARG GEOSEARCH_from_longitude_latitude_Subargs[] = {
 /* GEOSEARCH from argument table */
 struct COMMAND_ARG GEOSEARCH_from_Subargs[] = {
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCH_from_longitude_latitude_Subargs},
+{MAKE_ARG("fromlonlat",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCH_from_fromlonlat_Subargs},
 };
 
 /* GEOSEARCH by circle unit argument table */
@@ -3048,8 +3043,8 @@ struct COMMAND_ARG GEOSEARCH_order_Subargs[] = {
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* GEOSEARCH count argument table */
-struct COMMAND_ARG GEOSEARCH_count_Subargs[] = {
+/* GEOSEARCH count_block argument table */
+struct COMMAND_ARG GEOSEARCH_count_block_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
@@ -3060,7 +3055,7 @@ struct COMMAND_ARG GEOSEARCH_Args[] = {
 {MAKE_ARG("from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCH_from_Subargs},
 {MAKE_ARG("by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCH_by_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCH_order_Subargs},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCH_count_Subargs},
+{MAKE_ARG("count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCH_count_block_Subargs},
 {MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
@@ -3085,8 +3080,8 @@ keySpec GEOSEARCHSTORE_Keyspecs[2] = {
 };
 #endif
 
-/* GEOSEARCHSTORE from longitude_latitude argument table */
-struct COMMAND_ARG GEOSEARCHSTORE_from_longitude_latitude_Subargs[] = {
+/* GEOSEARCHSTORE from fromlonlat argument table */
+struct COMMAND_ARG GEOSEARCHSTORE_from_fromlonlat_Subargs[] = {
 {MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -3094,7 +3089,7 @@ struct COMMAND_ARG GEOSEARCHSTORE_from_longitude_latitude_Subargs[] = {
 /* GEOSEARCHSTORE from argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_from_Subargs[] = {
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCHSTORE_from_longitude_latitude_Subargs},
+{MAKE_ARG("fromlonlat",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCHSTORE_from_fromlonlat_Subargs},
 };
 
 /* GEOSEARCHSTORE by circle unit argument table */
@@ -3138,8 +3133,8 @@ struct COMMAND_ARG GEOSEARCHSTORE_order_Subargs[] = {
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* GEOSEARCHSTORE count argument table */
-struct COMMAND_ARG GEOSEARCHSTORE_count_Subargs[] = {
+/* GEOSEARCHSTORE count_block argument table */
+struct COMMAND_ARG GEOSEARCHSTORE_count_block_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
@@ -3151,7 +3146,7 @@ struct COMMAND_ARG GEOSEARCHSTORE_Args[] = {
 {MAKE_ARG("from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCHSTORE_from_Subargs},
 {MAKE_ARG("by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCHSTORE_by_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCHSTORE_order_Subargs},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCHSTORE_count_Subargs},
+{MAKE_ARG("count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCHSTORE_count_block_Subargs},
 {MAKE_ARG("storedist",ARG_TYPE_PURE_TOKEN,-1,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
@@ -3404,8 +3399,8 @@ keySpec HMSET_Keyspecs[1] = {
 };
 #endif
 
-/* HMSET field_value argument table */
-struct COMMAND_ARG HMSET_field_value_Subargs[] = {
+/* HMSET data argument table */
+struct COMMAND_ARG HMSET_data_Subargs[] = {
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -3413,7 +3408,7 @@ struct COMMAND_ARG HMSET_field_value_Subargs[] = {
 /* HMSET argument table */
 struct COMMAND_ARG HMSET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HMSET_field_value_Subargs},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HMSET_data_Subargs},
 };
 
 /********** HRANDFIELD ********************/
@@ -3499,8 +3494,8 @@ keySpec HSET_Keyspecs[1] = {
 };
 #endif
 
-/* HSET field_value argument table */
-struct COMMAND_ARG HSET_field_value_Subargs[] = {
+/* HSET data argument table */
+struct COMMAND_ARG HSET_data_Subargs[] = {
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -3508,7 +3503,7 @@ struct COMMAND_ARG HSET_field_value_Subargs[] = {
 /* HSET argument table */
 struct COMMAND_ARG HSET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HSET_field_value_Subargs},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HSET_data_Subargs},
 };
 
 /********** HSETNX ********************/
@@ -4350,14 +4345,9 @@ struct COMMAND_ARG RPUSHX_Args[] = {
 #define PSUBSCRIBE_Keyspecs NULL
 #endif
 
-/* PSUBSCRIBE pattern argument table */
-struct COMMAND_ARG PSUBSCRIBE_pattern_Subargs[] = {
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
 /* PSUBSCRIBE argument table */
 struct COMMAND_ARG PSUBSCRIBE_Args[] = {
-{MAKE_ARG("pattern",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,1,NULL),.subargs=PSUBSCRIBE_pattern_Subargs},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /********** PUBLISH ********************/
@@ -4896,15 +4886,15 @@ const char *FUNCTION_FLUSH_Tips[] = {
 #define FUNCTION_FLUSH_Keyspecs NULL
 #endif
 
-/* FUNCTION FLUSH async argument table */
-struct COMMAND_ARG FUNCTION_FLUSH_async_Subargs[] = {
+/* FUNCTION FLUSH flush_type argument table */
+struct COMMAND_ARG FUNCTION_FLUSH_flush_type_Subargs[] = {
 {MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* FUNCTION FLUSH argument table */
 struct COMMAND_ARG FUNCTION_FLUSH_Args[] = {
-{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FUNCTION_FLUSH_async_Subargs},
+{MAKE_ARG("flush-type",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FUNCTION_FLUSH_flush_type_Subargs},
 };
 
 /********** FUNCTION HELP ********************/
@@ -5156,15 +5146,15 @@ const char *SCRIPT_FLUSH_Tips[] = {
 #define SCRIPT_FLUSH_Keyspecs NULL
 #endif
 
-/* SCRIPT FLUSH async argument table */
-struct COMMAND_ARG SCRIPT_FLUSH_async_Subargs[] = {
+/* SCRIPT FLUSH flush_type argument table */
+struct COMMAND_ARG SCRIPT_FLUSH_flush_type_Subargs[] = {
 {MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* SCRIPT FLUSH argument table */
 struct COMMAND_ARG SCRIPT_FLUSH_Args[] = {
-{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=SCRIPT_FLUSH_async_Subargs},
+{MAKE_ARG("flush-type",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=SCRIPT_FLUSH_flush_type_Subargs},
 };
 
 /********** SCRIPT HELP ********************/
@@ -5296,21 +5286,21 @@ struct COMMAND_ARG SENTINEL_CKQUORUM_Args[] = {
 #define SENTINEL_CONFIG_Keyspecs NULL
 #endif
 
-/* SENTINEL CONFIG set_or_get set_param_value argument table */
-struct COMMAND_ARG SENTINEL_CONFIG_set_or_get_set_param_value_Subargs[] = {
+/* SENTINEL CONFIG action set argument table */
+struct COMMAND_ARG SENTINEL_CONFIG_action_set_Subargs[] = {
 {MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* SENTINEL CONFIG set_or_get argument table */
-struct COMMAND_ARG SENTINEL_CONFIG_set_or_get_Subargs[] = {
-{MAKE_ARG("set_param_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_CONFIG_set_or_get_set_param_value_Subargs},
-{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+/* SENTINEL CONFIG action argument table */
+struct COMMAND_ARG SENTINEL_CONFIG_action_Subargs[] = {
+{MAKE_ARG("set",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_CONFIG_action_set_Subargs},
+{MAKE_ARG("get",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,0,NULL),.display_text="parameter"},
 };
 
 /* SENTINEL CONFIG argument table */
 struct COMMAND_ARG SENTINEL_CONFIG_Args[] = {
-{MAKE_ARG("set_or_get",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SENTINEL_CONFIG_set_or_get_Subargs},
+{MAKE_ARG("action",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SENTINEL_CONFIG_action_Subargs},
 };
 
 /********** SENTINEL DEBUG ********************/
@@ -5330,15 +5320,15 @@ struct COMMAND_ARG SENTINEL_CONFIG_Args[] = {
 #define SENTINEL_DEBUG_Keyspecs NULL
 #endif
 
-/* SENTINEL DEBUG parameter_value argument table */
-struct COMMAND_ARG SENTINEL_DEBUG_parameter_value_Subargs[] = {
+/* SENTINEL DEBUG data argument table */
+struct COMMAND_ARG SENTINEL_DEBUG_data_Subargs[] = {
 {MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* SENTINEL DEBUG argument table */
 struct COMMAND_ARG SENTINEL_DEBUG_Args[] = {
-{MAKE_ARG("parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_DEBUG_parameter_value_Subargs},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_DEBUG_data_Subargs},
 };
 
 /********** SENTINEL FAILOVER ********************/
@@ -5669,8 +5659,8 @@ struct COMMAND_ARG SENTINEL_SENTINELS_Args[] = {
 #define SENTINEL_SET_Keyspecs NULL
 #endif
 
-/* SENTINEL SET option_value argument table */
-struct COMMAND_ARG SENTINEL_SET_option_value_Subargs[] = {
+/* SENTINEL SET data argument table */
+struct COMMAND_ARG SENTINEL_SET_data_Subargs[] = {
 {MAKE_ARG("option",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -5678,7 +5668,7 @@ struct COMMAND_ARG SENTINEL_SET_option_value_Subargs[] = {
 /* SENTINEL SET argument table */
 struct COMMAND_ARG SENTINEL_SET_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("option_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_SET_option_value_Subargs},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_SET_data_Subargs},
 };
 
 /********** SENTINEL SIMULATE_FAILURE ********************/
@@ -6321,14 +6311,9 @@ commandHistory CONFIG_GET_History[] = {
 #define CONFIG_GET_Keyspecs NULL
 #endif
 
-/* CONFIG GET parameter argument table */
-struct COMMAND_ARG CONFIG_GET_parameter_Subargs[] = {
-{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
 /* CONFIG GET argument table */
 struct COMMAND_ARG CONFIG_GET_Args[] = {
-{MAKE_ARG("parameter",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,1,NULL),.subargs=CONFIG_GET_parameter_Subargs},
+{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /********** CONFIG HELP ********************/
@@ -6404,15 +6389,15 @@ const char *CONFIG_SET_Tips[] = {
 #define CONFIG_SET_Keyspecs NULL
 #endif
 
-/* CONFIG SET parameter_value argument table */
-struct COMMAND_ARG CONFIG_SET_parameter_value_Subargs[] = {
+/* CONFIG SET data argument table */
+struct COMMAND_ARG CONFIG_SET_data_Subargs[] = {
 {MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* CONFIG SET argument table */
 struct COMMAND_ARG CONFIG_SET_Args[] = {
-{MAKE_ARG("parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CONFIG_SET_parameter_value_Subargs},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CONFIG_SET_data_Subargs},
 };
 
 /* CONFIG command table */
@@ -6533,15 +6518,15 @@ const char *FLUSHALL_Tips[] = {
 #define FLUSHALL_Keyspecs NULL
 #endif
 
-/* FLUSHALL async argument table */
-struct COMMAND_ARG FLUSHALL_async_Subargs[] = {
+/* FLUSHALL flush_type argument table */
+struct COMMAND_ARG FLUSHALL_flush_type_Subargs[] = {
 {MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
 };
 
 /* FLUSHALL argument table */
 struct COMMAND_ARG FLUSHALL_Args[] = {
-{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FLUSHALL_async_Subargs},
+{MAKE_ARG("flush-type",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FLUSHALL_flush_type_Subargs},
 };
 
 /********** FLUSHDB ********************/
@@ -6567,15 +6552,15 @@ const char *FLUSHDB_Tips[] = {
 #define FLUSHDB_Keyspecs NULL
 #endif
 
-/* FLUSHDB async argument table */
-struct COMMAND_ARG FLUSHDB_async_Subargs[] = {
+/* FLUSHDB flush_type argument table */
+struct COMMAND_ARG FLUSHDB_flush_type_Subargs[] = {
 {MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
 };
 
 /* FLUSHDB argument table */
 struct COMMAND_ARG FLUSHDB_Args[] = {
-{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FLUSHDB_async_Subargs},
+{MAKE_ARG("flush-type",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FLUSHDB_flush_type_Subargs},
 };
 
 /********** INFO ********************/
@@ -7073,16 +7058,11 @@ struct COMMAND_ARG MODULE_LOADEX_configs_Subargs[] = {
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* MODULE LOADEX args argument table */
-struct COMMAND_ARG MODULE_LOADEX_args_Subargs[] = {
-{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
 /* MODULE LOADEX argument table */
 struct COMMAND_ARG MODULE_LOADEX_Args[] = {
 {MAKE_ARG("path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,2,NULL),.subargs=MODULE_LOADEX_configs_Subargs},
-{MAKE_ARG("args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,1,NULL),.subargs=MODULE_LOADEX_args_Subargs},
+{MAKE_ARG("args",ARG_TYPE_STRING,-1,"ARGS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /********** MODULE UNLOAD ********************/
@@ -7301,15 +7281,15 @@ commandHistory SHUTDOWN_History[] = {
 #define SHUTDOWN_Keyspecs NULL
 #endif
 
-/* SHUTDOWN nosave_save argument table */
-struct COMMAND_ARG SHUTDOWN_nosave_save_Subargs[] = {
+/* SHUTDOWN save_selector argument table */
+struct COMMAND_ARG SHUTDOWN_save_selector_Subargs[] = {
 {MAKE_ARG("nosave",ARG_TYPE_PURE_TOKEN,-1,"NOSAVE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("save",ARG_TYPE_PURE_TOKEN,-1,"SAVE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* SHUTDOWN argument table */
 struct COMMAND_ARG SHUTDOWN_Args[] = {
-{MAKE_ARG("nosave_save",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SHUTDOWN_nosave_save_Subargs},
+{MAKE_ARG("save-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SHUTDOWN_save_selector_Subargs},
 {MAKE_ARG("now",ARG_TYPE_PURE_TOKEN,-1,"NOW",NULL,"7.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,"7.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,"7.0.0",CMD_ARG_OPTIONAL,0,NULL)},
@@ -8077,8 +8057,8 @@ struct COMMAND_ARG ZADD_comparison_Subargs[] = {
 {MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* ZADD score_member argument table */
-struct COMMAND_ARG ZADD_score_member_Subargs[] = {
+/* ZADD data argument table */
+struct COMMAND_ARG ZADD_data_Subargs[] = {
 {MAKE_ARG("score",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -8090,7 +8070,7 @@ struct COMMAND_ARG ZADD_Args[] = {
 {MAKE_ARG("comparison",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=ZADD_comparison_Subargs},
 {MAKE_ARG("change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"3.0.2",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("increment",ARG_TYPE_PURE_TOKEN,-1,"INCR",NULL,"3.0.2",CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("score_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=ZADD_score_member_Subargs},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=ZADD_data_Subargs},
 };
 
 /********** ZCARD ********************/
@@ -8511,8 +8491,8 @@ struct COMMAND_ARG ZRANGE_sortby_Subargs[] = {
 {MAKE_ARG("bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* ZRANGE offset_count argument table */
-struct COMMAND_ARG ZRANGE_offset_count_Subargs[] = {
+/* ZRANGE limit argument table */
+struct COMMAND_ARG ZRANGE_limit_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -8524,7 +8504,7 @@ struct COMMAND_ARG ZRANGE_Args[] = {
 {MAKE_ARG("stop",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGE_sortby_Subargs},
 {MAKE_ARG("rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGE_offset_count_Subargs},
+{MAKE_ARG("limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGE_limit_Subargs},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
@@ -8547,8 +8527,8 @@ keySpec ZRANGEBYLEX_Keyspecs[1] = {
 };
 #endif
 
-/* ZRANGEBYLEX offset_count argument table */
-struct COMMAND_ARG ZRANGEBYLEX_offset_count_Subargs[] = {
+/* ZRANGEBYLEX limit argument table */
+struct COMMAND_ARG ZRANGEBYLEX_limit_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -8558,7 +8538,7 @@ struct COMMAND_ARG ZRANGEBYLEX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGEBYLEX_offset_count_Subargs},
+{MAKE_ARG("limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGEBYLEX_limit_Subargs},
 };
 
 /********** ZRANGEBYSCORE ********************/
@@ -8582,8 +8562,8 @@ keySpec ZRANGEBYSCORE_Keyspecs[1] = {
 };
 #endif
 
-/* ZRANGEBYSCORE offset_count argument table */
-struct COMMAND_ARG ZRANGEBYSCORE_offset_count_Subargs[] = {
+/* ZRANGEBYSCORE limit argument table */
+struct COMMAND_ARG ZRANGEBYSCORE_limit_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -8594,7 +8574,7 @@ struct COMMAND_ARG ZRANGEBYSCORE_Args[] = {
 {MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,"2.0.0",CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGEBYSCORE_offset_count_Subargs},
+{MAKE_ARG("limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGEBYSCORE_limit_Subargs},
 };
 
 /********** ZRANGESTORE ********************/
@@ -8622,8 +8602,8 @@ struct COMMAND_ARG ZRANGESTORE_sortby_Subargs[] = {
 {MAKE_ARG("bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* ZRANGESTORE offset_count argument table */
-struct COMMAND_ARG ZRANGESTORE_offset_count_Subargs[] = {
+/* ZRANGESTORE limit argument table */
+struct COMMAND_ARG ZRANGESTORE_limit_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -8636,7 +8616,7 @@ struct COMMAND_ARG ZRANGESTORE_Args[] = {
 {MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGESTORE_sortby_Subargs},
 {MAKE_ARG("rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGESTORE_offset_count_Subargs},
+{MAKE_ARG("limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGESTORE_limit_Subargs},
 };
 
 /********** ZRANK ********************/
@@ -8815,8 +8795,8 @@ keySpec ZREVRANGEBYLEX_Keyspecs[1] = {
 };
 #endif
 
-/* ZREVRANGEBYLEX offset_count argument table */
-struct COMMAND_ARG ZREVRANGEBYLEX_offset_count_Subargs[] = {
+/* ZREVRANGEBYLEX limit argument table */
+struct COMMAND_ARG ZREVRANGEBYLEX_limit_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -8826,7 +8806,7 @@ struct COMMAND_ARG ZREVRANGEBYLEX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZREVRANGEBYLEX_offset_count_Subargs},
+{MAKE_ARG("limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZREVRANGEBYLEX_limit_Subargs},
 };
 
 /********** ZREVRANGEBYSCORE ********************/
@@ -8850,8 +8830,8 @@ keySpec ZREVRANGEBYSCORE_Keyspecs[1] = {
 };
 #endif
 
-/* ZREVRANGEBYSCORE offset_count argument table */
-struct COMMAND_ARG ZREVRANGEBYSCORE_offset_count_Subargs[] = {
+/* ZREVRANGEBYSCORE limit argument table */
+struct COMMAND_ARG ZREVRANGEBYSCORE_limit_Subargs[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -8862,7 +8842,7 @@ struct COMMAND_ARG ZREVRANGEBYSCORE_Args[] = {
 {MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZREVRANGEBYSCORE_offset_count_Subargs},
+{MAKE_ARG("limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZREVRANGEBYSCORE_limit_Subargs},
 };
 
 /********** ZREVRANK ********************/
@@ -9084,14 +9064,14 @@ struct COMMAND_ARG XADD_trim_Subargs[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 };
 
-/* XADD id_or_auto argument table */
-struct COMMAND_ARG XADD_id_or_auto_Subargs[] = {
-{MAKE_ARG("auto_id",ARG_TYPE_PURE_TOKEN,-1,"*",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+/* XADD id_selector argument table */
+struct COMMAND_ARG XADD_id_selector_Subargs[] = {
+{MAKE_ARG("auto-id",ARG_TYPE_PURE_TOKEN,-1,"*",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* XADD field_value argument table */
-struct COMMAND_ARG XADD_field_value_Subargs[] = {
+/* XADD data argument table */
+struct COMMAND_ARG XADD_data_Subargs[] = {
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -9101,8 +9081,8 @@ struct COMMAND_ARG XADD_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("nomkstream",ARG_TYPE_PURE_TOKEN,-1,"NOMKSTREAM",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=XADD_trim_Subargs},
-{MAKE_ARG("id_or_auto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_id_or_auto_Subargs},
-{MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=XADD_field_value_Subargs},
+{MAKE_ARG("id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_id_selector_Subargs},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=XADD_data_Subargs},
 };
 
 /********** XAUTOCLAIM ********************/
@@ -9172,7 +9152,7 @@ struct COMMAND_ARG XCLAIM_Args[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"RETRYCOUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("id",ARG_TYPE_STRING,-1,"LASTID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("lastid",ARG_TYPE_STRING,-1,"LASTID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /********** XDEL ********************/
@@ -9221,19 +9201,19 @@ keySpec XGROUP_CREATE_Keyspecs[1] = {
 };
 #endif
 
-/* XGROUP CREATE id argument table */
-struct COMMAND_ARG XGROUP_CREATE_id_Subargs[] = {
+/* XGROUP CREATE id_selector argument table */
+struct COMMAND_ARG XGROUP_CREATE_id_selector_Subargs[] = {
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("new-id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* XGROUP CREATE argument table */
 struct COMMAND_ARG XGROUP_CREATE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_CREATE_id_Subargs},
+{MAKE_ARG("id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_CREATE_id_selector_Subargs},
 {MAKE_ARG("mkstream",ARG_TYPE_PURE_TOKEN,-1,"MKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("entries-read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /********** XGROUP CREATECONSUMER ********************/
@@ -9351,18 +9331,18 @@ keySpec XGROUP_SETID_Keyspecs[1] = {
 };
 #endif
 
-/* XGROUP SETID id argument table */
-struct COMMAND_ARG XGROUP_SETID_id_Subargs[] = {
+/* XGROUP SETID id_selector argument table */
+struct COMMAND_ARG XGROUP_SETID_id_selector_Subargs[] = {
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("new-id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* XGROUP SETID argument table */
 struct COMMAND_ARG XGROUP_SETID_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_SETID_id_Subargs},
-{MAKE_ARG("entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_SETID_id_selector_Subargs},
+{MAKE_ARG("entriesread",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="entries-read"},
 };
 
 /* XGROUP command table */
@@ -9485,15 +9465,16 @@ keySpec XINFO_STREAM_Keyspecs[1] = {
 };
 #endif
 
-/* XINFO STREAM full argument table */
-struct COMMAND_ARG XINFO_STREAM_full_Subargs[] = {
+/* XINFO STREAM full_block argument table */
+struct COMMAND_ARG XINFO_STREAM_full_block_Subargs[] = {
+{MAKE_ARG("full",ARG_TYPE_PURE_TOKEN,-1,"FULL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /* XINFO STREAM argument table */
 struct COMMAND_ARG XINFO_STREAM_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("full",ARG_TYPE_BLOCK,-1,"FULL",NULL,NULL,CMD_ARG_OPTIONAL,1,NULL),.subargs=XINFO_STREAM_full_Subargs},
+{MAKE_ARG("full-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XINFO_STREAM_full_block_Subargs},
 };
 
 /* XINFO command table */
@@ -9665,8 +9646,8 @@ keySpec XREADGROUP_Keyspecs[1] = {
 };
 #endif
 
-/* XREADGROUP group_consumer argument table */
-struct COMMAND_ARG XREADGROUP_group_consumer_Subargs[] = {
+/* XREADGROUP group_block argument table */
+struct COMMAND_ARG XREADGROUP_group_block_Subargs[] = {
 {MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -9679,7 +9660,7 @@ struct COMMAND_ARG XREADGROUP_streams_Subargs[] = {
 
 /* XREADGROUP argument table */
 struct COMMAND_ARG XREADGROUP_Args[] = {
-{MAKE_ARG("group_consumer",ARG_TYPE_BLOCK,-1,"GROUP",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREADGROUP_group_consumer_Subargs},
+{MAKE_ARG("group-block",ARG_TYPE_BLOCK,-1,"GROUP",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREADGROUP_group_block_Subargs},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("noack",ARG_TYPE_PURE_TOKEN,-1,"NOACK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
@@ -9740,8 +9721,8 @@ keySpec XSETID_Keyspecs[1] = {
 struct COMMAND_ARG XSETID_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("last-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("entries_added",ARG_TYPE_INTEGER,-1,"ENTRIESADDED",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("max_deleted_entry_id",ARG_TYPE_STRING,-1,"MAXDELETEDID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("entries-added",ARG_TYPE_INTEGER,-1,"ENTRIESADDED",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("max-deleted-id",ARG_TYPE_STRING,-1,"MAXDELETEDID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /********** XTRIM ********************/
@@ -10099,7 +10080,7 @@ struct COMMAND_ARG LCS_Args[] = {
 {MAKE_ARG("key2",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("len",ARG_TYPE_PURE_TOKEN,-1,"LEN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("idx",ARG_TYPE_PURE_TOKEN,-1,"IDX",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("len",ARG_TYPE_INTEGER,-1,"MINMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("min-match-len",ARG_TYPE_INTEGER,-1,"MINMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("withmatchlen",ARG_TYPE_PURE_TOKEN,-1,"WITHMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
@@ -10151,15 +10132,15 @@ keySpec MSET_Keyspecs[1] = {
 };
 #endif
 
-/* MSET key_value argument table */
-struct COMMAND_ARG MSET_key_value_Subargs[] = {
+/* MSET data argument table */
+struct COMMAND_ARG MSET_data_Subargs[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* MSET argument table */
 struct COMMAND_ARG MSET_Args[] = {
-{MAKE_ARG("key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=MSET_key_value_Subargs},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=MSET_data_Subargs},
 };
 
 /********** MSETNX ********************/
@@ -10184,15 +10165,15 @@ keySpec MSETNX_Keyspecs[1] = {
 };
 #endif
 
-/* MSETNX key_value argument table */
-struct COMMAND_ARG MSETNX_key_value_Subargs[] = {
+/* MSETNX data argument table */
+struct COMMAND_ARG MSETNX_data_Subargs[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* MSETNX argument table */
 struct COMMAND_ARG MSETNX_Args[] = {
-{MAKE_ARG("key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=MSETNX_key_value_Subargs},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=MSETNX_data_Subargs},
 };
 
 /********** PSETEX ********************/

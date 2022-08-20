@@ -12,6 +12,7 @@ typedef struct cliCommandArg {
     int flags;
     int numsubargs;
     struct cliCommandArg *subargs;
+    const char *display_text;
 
     /*
      * For use at runtime.
