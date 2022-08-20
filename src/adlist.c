@@ -93,6 +93,14 @@ list *listAddNodeHead(list *list, void *value)
     if ((node = zmalloc(sizeof(*node))) == NULL)
         return NULL;
     node->value = value;
+    listLinkNodeHead(list, node);
+    return list;
+}
+
+/*
+ * Add a node that has already been mallocced to the head of list
+*/
+void listLinkNodeHead(list* list, listNode *node) {
     if (list->len == 0) {
         list->head = list->tail = node;
         node->prev = node->next = NULL;
@@ -103,7 +111,6 @@ list *listAddNodeHead(list *list, void *value)
         list->head = node;
     }
     list->len++;
-    return list;
 }
 
 /* Add a new node to the list, to tail, containing the specified 'value'
@@ -162,11 +169,20 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
 }
 
 /* Remove the specified node from the specified list.
- * It's up to the caller to free the private value of the node.
+ * The node is freed but it's up to the caller to free the private value of the node.
  *
  * This function can't fail. */
 void listDelNode(list *list, listNode *node)
 {
+    listUnlinkNode(list, node);
+    if (list->free) list->free(node->value);
+    zfree(node);
+}
+
+/*
+ * Remove node from list without freeing node
+*/
+void listUnlinkNode(list *list, listNode *node) {
     if (node->prev)
         node->prev->next = node->next;
     else
@@ -175,8 +191,10 @@ void listDelNode(list *list, listNode *node)
         node->next->prev = node->prev;
     else
         list->tail = node->prev;
-    if (list->free) list->free(node->value);
-    zfree(node);
+
+    node->next = NULL;
+    node->prev = NULL;
+
     list->len--;
 }
 

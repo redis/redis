@@ -945,6 +945,8 @@ typedef struct client {
      * before adding it the new value. */
     uint64_t client_cron_last_memory_usage;
     int      client_cron_last_memory_type;
+    /* list node in clients_pending_write list */
+    listNode clients_pending_write_node;
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
