@@ -7069,7 +7069,6 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         j++;
         server.dirty++;
     }
-
     return j;
 }
 
