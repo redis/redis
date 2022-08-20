@@ -490,7 +490,7 @@ static void cliLegacyIntegrateHelp(void) {
 }
 
 /* Concatenate a string to an sds string, but if it's empty substitute double quote marks. */
-static sds sdscat_orempty(sds params, char *value) {
+static sds sdscat_orempty(sds params, const char *value) {
     if (value[0] == '\0') {
         return sdscat(params, "\"\"");
     }
@@ -518,6 +518,9 @@ static void cliAddCommandDocArg(cliCommandArg *cmdArg, redisReply *argMap) {
         if (!strcmp(key, "name")) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
             cmdArg->name = sdsnew(argMap->element[i + 1]->str);
+        } else if (!strcmp(key, "display_text")) {
+            assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
+            cmdArg->display_text = sdsnew(argMap->element[i + 1]->str);
         } else if (!strcmp(key, "token")) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
             cmdArg->token = sdsnew(argMap->element[i + 1]->str);
@@ -1145,7 +1148,7 @@ static sds addHintForRepeatedArgument(sds hint, cliCommandArg *arg) {
         break;
 
     default:
-        hint = sdscat_orempty(hint, arg->name);
+        hint = sdscat_orempty(hint, arg->display_text ? arg->display_text : arg->name);
         break;
     }
 
@@ -1196,7 +1199,7 @@ static sds addHintForArgument(sds hint, cliCommandArg *arg) {
 
     default:
         if (!arg->matched_name) {
-            hint = sdscat_orempty(hint, arg->name);
+            hint = sdscat_orempty(hint, arg->display_text ? arg->display_text : arg->name);
         }
         break;
     }
