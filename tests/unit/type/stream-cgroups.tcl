@@ -9,6 +9,29 @@ start_server {
         set err
     } {BUSYGROUP*}
 
+    test {XGROUP CREATE: with ENTRIESREAD parameter} {
+        r DEL mystream
+        r XADD mystream 1-1 a 1
+        r XADD mystream 1-2 b 2
+        r XADD mystream 1-3 c 3
+        r XADD mystream 1-4 d 4
+        assert_error "*value for ENTRIESREAD must be positive or -1*" {r XGROUP CREATE mystream mygroup $ ENTRIESREAD -3}
+
+        r XGROUP CREATE mystream mygroup1 $ ENTRIESREAD 0
+        r XGROUP CREATE mystream mygroup2 $ ENTRIESREAD 3
+
+        set reply [r xinfo groups mystream]
+        foreach group_info $reply {
+            set group_name [dict get $group_info name]
+            set entries_read [dict get $group_info entries-read]
+            if {$group_name == "mygroup1"} {
+                assert_equal $entries_read 0
+            } else {
+                assert_equal $entries_read 3
+            }
+        }
+    }
+
     test {XGROUP CREATE: automatic stream creation fails without MKSTREAM} {
         r DEL mystream
         catch {r XGROUP CREATE mystream mygroup $} err
