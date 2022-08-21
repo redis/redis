@@ -30,7 +30,7 @@ start_server {tags {"modules"}} {
         r acl setuser default +get -set +dryrun resetkeys ~x
 
         catch {r dryrun set x 5} e
-        assert_match {*NOPERM*} $e
+        assert_match {*ERR acl verification failed, can't run this command or subcommand*} $e
         assert_equal [r get x] $val
     }
 }
