@@ -5700,7 +5700,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
         } else if (*p == 'O') {
             if (flags) (*flags) |= REDISMODULE_ARGV_ALLOW_OOM_IN_SCRIPTS;
         } else {
-                goto fmterr;
+            goto fmterr;
         }
         p++;
     }
