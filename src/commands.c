@@ -1934,6 +1934,7 @@ struct redisCommandArg GEOPOS_Args[] = {
 /* GEORADIUS history */
 commandHistory GEORADIUS_History[] = {
 {"6.2.0","Added the `ANY` option for `COUNT`."},
+{"7.0.0","Added support for lower-case unit names."},
 {0}
 };
 
@@ -1983,7 +1984,10 @@ struct redisCommandArg GEORADIUS_Args[] = {
 /********** GEORADIUSBYMEMBER ********************/
 
 /* GEORADIUSBYMEMBER history */
-#define GEORADIUSBYMEMBER_History NULL
+commandHistory GEORADIUSBYMEMBER_History[] = {
+{"7.0.0","Added support for lower-case unit names."},
+{0}
+};
 
 /* GEORADIUSBYMEMBER tips */
 #define GEORADIUSBYMEMBER_tips NULL
@@ -2124,7 +2128,10 @@ struct redisCommandArg GEORADIUS_RO_Args[] = {
 /********** GEOSEARCH ********************/
 
 /* GEOSEARCH history */
-#define GEOSEARCH_History NULL
+commandHistory GEOSEARCH_History[] = {
+{"7.0.0","Added support for lower-case unit names."},
+{0}
+};
 
 /* GEOSEARCH tips */
 #define GEOSEARCH_tips NULL
@@ -2213,7 +2220,10 @@ struct redisCommandArg GEOSEARCH_Args[] = {
 /********** GEOSEARCHSTORE ********************/
 
 /* GEOSEARCHSTORE history */
-#define GEOSEARCHSTORE_History NULL
+commandHistory GEOSEARCHSTORE_History[] = {
+{"7.0.0","Added support for lower-case unit names."},
+{0}
+};
 
 /* GEOSEARCHSTORE tips */
 #define GEOSEARCHSTORE_tips NULL
