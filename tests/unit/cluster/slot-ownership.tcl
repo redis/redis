@@ -20,19 +20,19 @@ start_cluster 2 2 {tags {external:skip cluster}} {
         R 0 SET $key TEST
         set key_slot [R 0 cluster keyslot $key]
         set slot_keys_num [R 0 cluster countkeysinslot $key_slot]
+        assert {$slot_keys_num > 0}
 
         # Wait for replica to have the key
         R 2 readonly
         wait_for_condition 1000 50 {
             [R 2 exists $key] eq "1"
         } else {
-            fail "Instance #3 master link status is not up"
+            fail "Test key was not replicated"
         }
-        assert_equal [R 2 exists $key] "1"
-        assert {$slot_keys_num > 0}
+
         assert_equal [R 2 cluster countkeysinslot $key_slot] $slot_keys_num
 
-        # Assert other shard in cluster doesn't have the key
+        # Assert other shards in cluster doesn't have the key
         assert_equal [R 1 cluster countkeysinslot $key_slot] "0"
         assert_equal [R 3 cluster countkeysinslot $key_slot] "0"
 
@@ -48,14 +48,14 @@ start_cluster 2 2 {tags {external:skip cluster}} {
         wait_for_condition 50 100 {
             [R 0 cluster countkeysinslot $key_slot] eq 0
         } else {
-            fail "master:cluster countkeysinslot $key_slot did not eq 0"
+            fail "master 'countkeysinslot $key_slot' did not eq 0"
         }
 
         # src replica will delete keys in the slot
         wait_for_condition 50 100 {
             [R 2 cluster countkeysinslot $key_slot] eq 0
         } else {
-            fail "replica:cluster countkeysinslot $key_slot did not eq 0"
+            fail "replica 'countkeysinslot $key_slot' did not eq 0"
         }
     }
 }
