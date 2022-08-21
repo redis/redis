@@ -219,6 +219,11 @@ start_server {tags {"modules"}} {
             } 1 x
         }
 
+        r test.rm_call_flags O eval {
+            redis.call('set','x',1)
+            return 1
+        } 1 x
+
         r test.rm_call eval {
             redis.call('get','x')
             return 4
