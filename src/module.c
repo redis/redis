@@ -5774,7 +5774,6 @@ fmterr:
  * This API is documented here: https://redis.io/topics/modules-intro
  */
 RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
-    struct redisCommand *cmd;
     client *c = NULL;
     robj **argv = NULL;
     int argc = 0, argv_len = 0, flags = 0;
@@ -5825,7 +5824,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Lookup command now, after filters had a chance to make modifications
      * if necessary.
      */
-    cmd = c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
+    c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
     sds err;
     if (!commandCheckExistence(c, error_as_call_replies? &err : NULL)) {
         errno = ENOENT;
@@ -5840,13 +5839,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         goto cleanup;
     }
 
-    cmd_flags = cmd->flags;
-    if (cmd->proc == fcallCommand || cmd->proc == fcallroCommand) { /* FCALL* */
-        cmd_flags = fcallGetCommandFlags(c, cmd_flags);
-    } else if (cmd->proc == evalCommand || cmd->proc == evalRoCommand ||
-               cmd->proc == evalShaCommand || cmd->proc == evalShaRoCommand) { /* EVAL* */
-        cmd_flags = evalGetCommandFlags(c, cmd_flags);
-    }
+    cmd_flags = getCommandFlags(c);
 
     if (flags & REDISMODULE_ARGV_SCRIPT_MODE) {
         /* Basically on script mode we want to only allow commands that can
