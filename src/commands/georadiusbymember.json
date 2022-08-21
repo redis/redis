@@ -10,7 +10,7 @@
         "history": [
             [
                 "7.0.0",
-                "Added support for lower-case unit names."
+                "Added support for capital-case unit names."
             ]
         ],
         "deprecated_since": "6.2.0",
