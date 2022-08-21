@@ -471,14 +471,14 @@ start_server {
 
     test {XDEL multiply id test} {
         r del somestream
-	r xadd somestream 1-1 a 1
-	r xadd somestream 1-2 b 2
-	r xadd somestream 1-3 c 3
-	r xadd somestream 1-4 d 4
-	r xadd somestream 1-5 e 5
-	assert {[r xlen somestream] == 5}
-	assert {[r xdel somestream 1-1 1-4 1-5 2-1] == 3}
-	assert {[r xlen somestream] == 2}
+        r xadd somestream 1-1 a 1
+        r xadd somestream 1-2 b 2
+        r xadd somestream 1-3 c 3
+        r xadd somestream 1-4 d 4
+        r xadd somestream 1-5 e 5
+        assert {[r xlen somestream] == 5}
+        assert {[r xdel somestream 1-1 1-4 1-5 2-1] == 3}
+        assert {[r xlen somestream] == 2}
         set result [r xrange somestream - +]
         assert {[dict get [lindex $result 0 1] b] eq {2}}
         assert {[dict get [lindex $result 1 1] c] eq {3}}
