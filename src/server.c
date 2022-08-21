@@ -2443,7 +2443,7 @@ void initServer(void) {
 
     /* Make sure the locale is set on startup based on the config file. */
     if (setlocale(LC_COLLATE,server.locale_collate) == NULL) {
-        serverLog(LL_WARNING, "Failed to configure LOCALE. %s", strerror(errno));
+        serverLog(LL_WARNING, "Failed to configure LOCALE for invalid locale name.");
         exit(1);
     }
 

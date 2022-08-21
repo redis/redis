@@ -2401,7 +2401,6 @@ static int isValidProcTitleTemplate(char *val, const char **err) {
     return 1;
 }
 
-
 static int updateLocaleCollate(const char **err) {
     const char *s = setlocale(LC_COLLATE, server.locale_collate);
     if (s == NULL) {
