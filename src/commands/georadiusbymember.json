@@ -7,6 +7,12 @@
         "arity": -5,
         "function": "georadiusbymemberCommand",
         "get_keys_function": "georadiusGetKeys",
+        "history": [
+            [
+                "7.0.0",
+                "Added support for lower-case unit names."
+            ]
+        ],
         "deprecated_since": "6.2.0",
         "replaced_by": "`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments",
         "doc_flags": [
