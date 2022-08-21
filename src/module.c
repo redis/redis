@@ -5782,6 +5782,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     RedisModuleCallReply *reply = NULL;
     int replicate = 0; /* Replicate this command? */
     int error_as_call_replies = 0; /* return errors as RedisModuleCallReply object */
+    uint64_t cmd_flags;
 
     /* Handle arguments. */
     va_start(ap, fmt);
@@ -5839,10 +5840,18 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         goto cleanup;
     }
 
+    cmd_flags = cmd->flags;
+    if (cmd->proc == fcallCommand || cmd->proc == fcallroCommand) { /* FCALL* */
+        cmd_flags = fcallGetCommandFlags(c, cmd_flags);
+    } else if (cmd->proc == evalCommand || cmd->proc == evalRoCommand ||
+               cmd->proc == evalShaCommand || cmd->proc == evalShaRoCommand) { /* EVAL* */
+        cmd_flags = evalGetCommandFlags(c, cmd_flags);
+    }
+
     if (flags & REDISMODULE_ARGV_SCRIPT_MODE) {
         /* Basically on script mode we want to only allow commands that can
          * be executed on scripts (CMD_NOSCRIPT is not set on the command flags) */
-        if (cmd->flags & CMD_NOSCRIPT) {
+        if (cmd_flags & CMD_NOSCRIPT) {
             errno = ESPIPE;
             if (error_as_call_replies) {
                 sds msg = sdscatfmt(sdsempty(), "command '%S' is not allowed on script mode", c->cmd->fullname);
@@ -5853,17 +5862,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     }
 
     if (flags & REDISMODULE_ARGV_RESPECT_DENY_OOM) {
-        uint64_t flags = cmd->flags;
-
-        if (cmd->group == COMMAND_GROUP_SCRIPTING) {
-            if (cmd->proc == fcallCommand) { /* FCALL */
-                flags = fcallGetCommandFlags(c, flags);
-            } else if (cmd->proc == evalCommand || cmd->proc == evalShaCommand) { /* EVAL/EVALSHA */
-                flags = evalGetCommandFlags(c, flags);
-            }
-        }
-
-        if (flags & CMD_DENYOOM) {
+        if (cmd_flags & CMD_DENYOOM) {
             int oom_state;
             if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
                 /* On background thread we can not count on server.pre_command_oom_state.
@@ -5885,7 +5884,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     }
 
     if (flags & REDISMODULE_ARGV_NO_WRITES) {
-        if (cmd->flags & CMD_WRITE) {
+        if (cmd_flags & CMD_WRITE) {
             errno = ENOSPC;
             if (error_as_call_replies) {
                 sds msg = sdscatfmt(sdsempty(), "Write command '%S' was "
@@ -5898,7 +5897,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* Script mode tests */
     if (flags & REDISMODULE_ARGV_SCRIPT_MODE) {
-        if (cmd->flags & CMD_WRITE) {
+        if (cmd_flags & CMD_WRITE) {
             /* on script mode, if a command is a write command,
              * We will not run it if we encounter disk error
              * or we do not have enough replicas */
@@ -5935,7 +5934,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
 
         if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
-            server.repl_serve_stale_data == 0 && !(cmd->flags & CMD_STALE)) {
+            server.repl_serve_stale_data == 0 && !(cmd_flags & CMD_STALE)) {
             errno = ESPIPE;
             if (error_as_call_replies) {
                 sds msg = sdsdup(shared.masterdownerr->ptr);
