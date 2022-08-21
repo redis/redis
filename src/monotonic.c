@@ -168,3 +168,13 @@ const char * monotonicInit() {
 
     return monotonic_info_string;
 }
+
+const char *monotonicInfoString() {
+    return monotonic_info_string;
+}
+
+monotonic_clock_type monotonicGetType() {
+    if (getMonotonicUs == getMonotonicUs_posix)
+        return MONOTONIC_CLOCK_POSIX;
+    return MONOTONIC_CLOCK_HW;
+}

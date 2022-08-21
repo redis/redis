@@ -1,0 +1,143 @@
+{
+    "BITFIELD": {
+        "summary": "Perform arbitrary bitfield integer operations on strings",
+        "complexity": "O(1) for each subcommand specified",
+        "group": "bitmap",
+        "since": "3.2.0",
+        "arity": -2,
+        "function": "bitfieldCommand",
+        "get_keys_function": "bitfieldGetKeys",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "BITMAP"
+        ],
+        "key_specs": [
+            {
+                "notes": "This command allows both access and modification of the key",
+                "flags": [
+                    "RW",
+                    "UPDATE",
+                    "ACCESS",
+                    "VARIABLE_FLAGS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "operation",
+                "type": "oneof",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "token": "GET",
+                        "name": "get-block",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "encoding",
+                                "type": "string"
+                            },
+                            {
+                                "name": "offset",
+                                "type": "integer"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "write",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "token": "OVERFLOW",
+                                "name": "overflow-block",
+                                "type": "oneof",
+                                "optional": true,
+                                "arguments": [
+                                    {
+                                        "name": "wrap",
+                                        "type": "pure-token",
+                                        "token": "WRAP"
+                                    },
+                                    {
+                                        "name": "sat",
+                                        "type": "pure-token",
+                                        "token": "SAT"
+                                    },
+                                    {
+                                        "name": "fail",
+                                        "type": "pure-token",
+                                        "token": "FAIL"
+                                    }
+                                ]
+                            },
+                            {
+                                "name": "write-operation",
+                                "type": "oneof",
+                                "arguments": [
+                                    {
+                                        "token": "SET",
+                                        "name": "set-block",
+                                        "type": "block",
+                                        "arguments": [
+                                            {
+                                                "name": "encoding",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "name": "offset",
+                                                "type": "integer"
+                                            },
+                                            {
+                                                "name": "value",
+                                                "type": "integer"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "token": "INCRBY",
+                                        "name": "incrby-block",
+                                        "type": "block",
+                                        "arguments": [
+                                            {
+                                                "name": "encoding",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "name": "offset",
+                                                "type": "integer"
+                                            },
+                                            {
+                                                "name": "increment",
+                                                "type": "integer"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

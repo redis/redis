@@ -31,6 +31,9 @@
 #ifndef __REDIS_CONNECTION_H
 #define __REDIS_CONNECTION_H
 
+#include <errno.h>
+#include <sys/uio.h>
+
 #define CONN_INFO_LEN   32
 
 struct aeEventLoop;
@@ -57,6 +60,7 @@ typedef struct ConnectionType {
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
     int (*connect)(struct connection *conn, const char *addr, int port, const char *source_addr, ConnectionCallbackFunc connect_handler);
     int (*write)(struct connection *conn, const void *data, size_t data_len);
+    int (*writev)(struct connection *conn, const struct iovec *iov, int iovcnt);
     int (*read)(struct connection *conn, void *buf, size_t buf_len);
     void (*close)(struct connection *conn);
     int (*accept)(struct connection *conn, ConnectionCallbackFunc accept_handler);
@@ -140,6 +144,18 @@ static inline int connWrite(connection *conn, const void *data, size_t data_len)
     return conn->type->write(conn, data, data_len);
 }
 
+/* Gather output data from the iovcnt buffers specified by the members of the iov
+ * array: iov[0], iov[1], ..., iov[iovcnt-1] and write to connection, behaves the same as writev(3).
+ *
+ * Like writev(3), a short write is possible. A -1 return indicates an error.
+ *
+ * The caller should NOT rely on errno. Testing for an EAGAIN-like condition, use
+ * connGetState() to see if the connection state is still CONN_STATE_CONNECTED.
+ */
+static inline int connWritev(connection *conn, const struct iovec *iov, int iovcnt) {
+    return conn->type->writev(conn, iov, iovcnt);
+}
+
 /* Read from the connection, behaves the same as read(2).
  * 
  * Like read(2), a short read is possible.  A return value of 0 will indicate the
@@ -149,7 +165,8 @@ static inline int connWrite(connection *conn, const void *data, size_t data_len)
  * connGetState() to see if the connection state is still CONN_STATE_CONNECTED.
  */
 static inline int connRead(connection *conn, void *buf, size_t buf_len) {
-    return conn->type->read(conn, buf, buf_len);
+    int ret = conn->type->read(conn, buf, buf_len);
+    return ret;
 }
 
 /* Register a write handler, to be called when the connection is writable.
@@ -201,6 +218,10 @@ static inline ssize_t connSyncReadLine(connection *conn, char *ptr, ssize_t size
 /* Return CONN_TYPE_* for the specified connection */
 static inline int connGetType(connection *conn) {
     return conn->type->get_type(conn);
+}
+
+static inline int connLastErrorRetryable(connection *conn) {
+    return conn->last_errno == EINTR;
 }
 
 connection *connCreateSocket();

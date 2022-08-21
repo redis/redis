@@ -193,14 +193,14 @@ start_server {tags {"geo"}} {
             r geoadd nyc xx nx -73.9454966 40.747533 "lic market"
         } err
         set err
-    } {ERR*syntax*}
+    } {ERR *syntax*}
 
     test {GEOADD update with invalid option} {
         catch {
             r geoadd nyc ch xx foo -73.9454966 40.747533 "lic market"
         } err
         set err
-    } {ERR*syntax*}
+    } {ERR *syntax*}
 
     test {GEOADD invalid coordinates} {
         catch {
@@ -229,27 +229,27 @@ start_server {tags {"geo"}} {
     test {GEOSEARCH FROMLONLAT and FROMMEMBER cannot exist at the same time} {
         catch {r geosearch nyc fromlonlat -73.9798091 40.7598464 frommember xxx bybox 6 6 km asc} e
         set e
-    } {ERR*syntax*}
+    } {ERR *syntax*}
 
     test {GEOSEARCH FROMLONLAT and FROMMEMBER one must exist} {
         catch {r geosearch nyc bybox 3 3 km asc desc withhash withdist withcoord} e
         set e
-    } {ERR*exactly one of FROMMEMBER or FROMLONLAT*}
+    } {ERR *exactly one of FROMMEMBER or FROMLONLAT*}
 
     test {GEOSEARCH BYRADIUS and BYBOX cannot exist at the same time} {
         catch {r geosearch nyc fromlonlat -73.9798091 40.7598464 byradius 3 km bybox 3 3 km asc} e
         set e
-    } {ERR*syntax*}
+    } {ERR *syntax*}
 
     test {GEOSEARCH BYRADIUS and BYBOX one must exist} {
         catch {r geosearch nyc fromlonlat -73.9798091 40.7598464 asc desc withhash withdist withcoord} e
         set e
-    } {ERR*exactly one of BYRADIUS and BYBOX*}
+    } {ERR *exactly one of BYRADIUS and BYBOX*}
 
     test {GEOSEARCH with STOREDIST option} {
         catch {r geosearch nyc fromlonlat -73.9798091 40.7598464 bybox 6 6 km asc storedist} e
         set e
-    } {ERR*syntax*}
+    } {ERR *syntax*}
 
     test {GEORADIUS withdist (sorted)} {
         r georadius nyc -73.9798091 40.7598464 3 km withdist asc
@@ -274,12 +274,12 @@ start_server {tags {"geo"}} {
     test {GEORADIUS with ANY but no COUNT} {
         catch {r georadius nyc -73.9798091 40.7598464 10 km ANY ASC} e
         set e
-    } {ERR*ANY*requires*COUNT*}
+    } {ERR *ANY*requires*COUNT*}
 
     test {GEORADIUS with COUNT but missing integer argument} {
         catch {r georadius nyc -73.9798091 40.7598464 10 km COUNT} e
         set e
-    } {ERR*syntax*}
+    } {ERR *syntax*}
 
     test {GEORADIUS with COUNT DESC} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 2 DESC
@@ -293,6 +293,31 @@ start_server {tags {"geo"}} {
     test {GEORADIUSBYMEMBER simple (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km
     } {{wtc one} {union square} {central park n/q/r} 4545 {lic market}}
+    
+    test {GEORADIUSBYMEMBER search areas contain satisfied points in oblique direction} {
+        r del k1
+        
+        r geoadd k1 -0.15307903289794921875 85 n1 0.3515625 85.00019260486917005437 n2
+        set ret1 [r GEORADIUSBYMEMBER k1 n1 4891.94 m]
+        assert_equal $ret1 {n1 n2}
+        
+        r zrem k1 n1 n2
+        r geoadd k1 -4.95211958885192871094 85 n3 11.25 85.0511 n4
+        set ret2 [r GEORADIUSBYMEMBER k1 n3 156544 m]
+        assert_equal $ret2 {n3 n4}
+        
+        r zrem k1 n3 n4
+        r geoadd k1 -45 65.50900022111811438208 n5 90 85.0511 n6
+        set ret3 [r GEORADIUSBYMEMBER k1 n5 5009431 m]
+        assert_equal $ret3 {n5 n6}
+    }
+
+    test {GEORADIUSBYMEMBER crossing pole search} {
+        r del k1
+        r geoadd k1 45 65 n1 -135 85.05 n2
+        set ret [r GEORADIUSBYMEMBER k1 n1 5009431 m]
+        assert_equal $ret {n1 n2}
+    }
 
     test {GEOSEARCH FROMMEMBER simple (sorted)} {
         r geosearch nyc frommember "wtc one" bybox 14 14 km

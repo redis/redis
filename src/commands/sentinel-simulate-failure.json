@@ -1,0 +1,37 @@
+{
+    "SIMULATE-FAILURE": {
+        "summary": "Simulate failover scenarios",
+        "group": "sentinel",
+        "since": "3.2.0",
+        "arity": -3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "mode",
+                "type": "oneof",
+                "optional":true,
+                "multiple":true,
+                "arguments": [
+                    {
+                        "name": "crash-after-election",
+                        "type": "pure-token"
+                    },
+                    {
+                        "name": "crash-after-promotion",
+                        "type": "pure-token"
+                    },
+                    {
+                        "name": "help",
+                        "type": "pure-token"
+                    }
+                ]
+            }            
+        ]
+    }
+}

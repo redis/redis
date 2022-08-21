@@ -31,6 +31,7 @@
 #define __CONFIG_H
 
 #ifdef __APPLE__
+#include <fcntl.h> // for fcntl(fd, F_FULLFSYNC)
 #include <AvailabilityMacros.h>
 #endif
 
@@ -62,6 +63,13 @@
 #define HAVE_TASKINFO 1
 #endif
 
+/* Test for somaxconn check */
+#if defined(__APPLE__) || defined(__FreeBSD__)
+#define HAVE_SYSCTL_KIPC_SOMAXCONN 1
+#elif defined(__OpenBSD__)
+#define HAVE_SYSCTL_KERN_SOMAXCONN 1
+#endif
+
 /* Test for backtrace() */
 #if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
     defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\
@@ -72,6 +80,10 @@
 /* MSG_NOSIGNAL. */
 #ifdef __linux__
 #define HAVE_MSG_NOSIGNAL 1
+#if defined(SO_MARK)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_MARK
+#endif
 #endif
 
 /* Test for polling API */
@@ -97,10 +109,26 @@
 #endif
 
 /* Define redis_fsync to fdatasync() in Linux and fsync() for all the rest */
-#ifdef __linux__
-#define redis_fsync fdatasync
+#if defined(__linux__)
+#define redis_fsync(fd) fdatasync(fd)
+#elif defined(__APPLE__)
+#define redis_fsync(fd) fcntl(fd, F_FULLFSYNC)
 #else
-#define redis_fsync fsync
+#define redis_fsync(fd) fsync(fd)
+#endif
+
+#if defined(__FreeBSD__)
+#if defined(SO_USER_COOKIE)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_USER_COOKIE
+#endif
+#endif
+
+#if defined(__OpenBSD__)
+#if defined(SO_RTABLE)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_RTABLE
+#endif
 #endif
 
 #if __GNUC__ >= 4
@@ -117,11 +145,22 @@
 #define unlikely(x) (x)
 #endif
 
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
+#define REDIS_NO_SANITIZE(sanitizer) __attribute__((no_sanitize(sanitizer)))
+#endif
+#endif
+#if !defined(REDIS_NO_SANITIZE)
+#define REDIS_NO_SANITIZE(sanitizer)
+#endif
+
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
  * the plain fsync() call. */
 #if (defined(__linux__) && defined(SYNC_FILE_RANGE_WAIT_BEFORE))
 #define HAVE_SYNC_FILE_RANGE 1
 #define rdb_fsync_range(fd,off,size) sync_file_range(fd,off,size,SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE)
+#elif defined(__APPLE__)
+#define rdb_fsync_range(fd,off,size) fcntl(fd, F_FULLFSYNC)
 #else
 #define rdb_fsync_range(fd,off,size) fsync(fd)
 #endif
@@ -268,6 +307,16 @@ int pthread_setname_np(const char *name);
 #if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
 #define USE_SETCPUAFFINITY
 void setcpuaffinity(const char *cpulist);
+#endif
+
+/* deprecate unsafe functions
+ *
+ * NOTE: We do not use the poison pragma since it
+ * will error on stdlib definitions in files as well*/
+#if (__GNUC__ && __GNUC__ >= 4) && !defined __APPLE__
+int sprintf(char *str, const char *format, ...) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of snprintf instead")));
+char *strcpy(char *restrict dest, const char *src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcpy instead")));
+char *strcat(char *restrict dest, const char *restrict src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcat instead")));
 #endif
 
 #endif

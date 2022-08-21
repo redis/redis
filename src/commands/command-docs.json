@@ -1,0 +1,30 @@
+{
+    "DOCS": {
+        "summary": "Get array of specific Redis command documentation",
+        "complexity": "O(N) where N is the number of commands to look up",
+        "group": "server",
+        "since": "7.0.0",
+        "arity": -2,
+        "container": "COMMAND",
+        "function": "commandDocsCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT_ORDER"
+        ],
+        "arguments": [
+            {
+                "name": "command-name",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,146 @@
+{
+    "GEORADIUS_RO": {
+        "summary": "A read-only variant for GEORADIUS",
+        "complexity": "O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.",
+        "group": "geo",
+        "since": "3.2.10",
+        "arity": -6,
+        "function": "georadiusroCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added the `ANY` option for `COUNT`."
+            ]
+        ],
+        "deprecated_since": "6.2.0",
+        "replaced_by": "`GEOSEARCH` with the `BYRADIUS` argument",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "GEO"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "longitude",
+                "type": "double"
+            },
+            {
+                "name": "latitude",
+                "type": "double"
+            },
+            {
+                "name": "radius",
+                "type": "double"
+            },
+            {
+                "name": "unit",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "m",
+                        "type": "pure-token",
+                        "token": "m"
+                    },
+                    {
+                        "name": "km",
+                        "type": "pure-token",
+                        "token": "km"
+                    },
+                    {
+                        "name": "ft",
+                        "type": "pure-token",
+                        "token": "ft"
+                    },
+                    {
+                        "name": "mi",
+                        "type": "pure-token",
+                        "token": "mi"
+                    }
+                ]
+            },
+            {
+                "name": "withcoord",
+                "token": "WITHCOORD",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "name": "withdist",
+                "token": "WITHDIST",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "name": "withhash",
+                "token": "WITHHASH",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "name": "count-block",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "token": "COUNT",
+                        "name": "count",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "any",
+                        "token": "ANY",
+                        "type": "pure-token",
+                        "optional": true,
+                        "since": "6.2.0"
+                    }
+                ]
+            },
+            {
+                "name": "order",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "asc",
+                        "type": "pure-token",
+                        "token": "ASC"
+                    },
+                    {
+                        "name": "desc",
+                        "type": "pure-token",
+                        "token": "DESC"
+                    }
+                ]
+            }
+        ]
+    }
+}

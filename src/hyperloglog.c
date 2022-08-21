@@ -350,10 +350,10 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
  * 'p' is an array of unsigned bytes. */
 #define HLL_DENSE_SET_REGISTER(p,regnum,val) do { \
     uint8_t *_p = (uint8_t*) p; \
-    unsigned long _byte = regnum*HLL_BITS/8; \
-    unsigned long _fb = regnum*HLL_BITS&7; \
+    unsigned long _byte = (regnum)*HLL_BITS/8; \
+    unsigned long _fb = (regnum)*HLL_BITS&7; \
     unsigned long _fb8 = 8 - _fb; \
-    unsigned long _v = val; \
+    unsigned long _v = (val); \
     _p[_byte] &= ~(HLL_REGISTER_MAX << _fb); \
     _p[_byte] |= _v << _fb; \
     _p[_byte+1] &= ~(HLL_REGISTER_MAX >> _fb8); \
@@ -393,6 +393,7 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
 /* Our hash function is MurmurHash2, 64 bit version.
  * It was modified for Redis in order to provide the same result in
  * big and little endian archs (endian neutral). */
+REDIS_NO_SANITIZE("alignment")
 uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
     const uint64_t m = 0xc6a4a7935bd1e995;
     const int r = 47;
@@ -1257,8 +1258,15 @@ void pfcountCommand(client *c) {
     /* Case 2: cardinality of the single HLL.
      *
      * The user specified a single key. Either return the cached value
-     * or compute one and update the cache. */
-    o = lookupKeyWrite(c->db,c->argv[1]);
+     * or compute one and update the cache.
+     *
+     * Since a HLL is a regular Redis string type value, updating the cache does
+     * modify the value. We do a lookupKeyRead anyway since this is flagged as a
+     * read-only command. The difference is that with lookupKeyWrite, a
+     * logically expired key on a replica is deleted, while with lookupKeyRead
+     * it isn't, but the lookup returns NULL either way if the key is logically
+     * expired, which is what matters here. */
+    o = lookupKeyRead(c->db,c->argv[1]);
     if (o == NULL) {
         /* No key? Cardinality is zero since no element was added, otherwise
          * we would have a key as HLLADD creates it as a side effect. */
@@ -1295,8 +1303,7 @@ void pfcountCommand(client *c) {
             hdr->card[5] = (card >> 40) & 0xff;
             hdr->card[6] = (card >> 48) & 0xff;
             hdr->card[7] = (card >> 56) & 0xff;
-            /* This is not considered a read-only command even if the
-             * data structure is not modified, since the cached value
+            /* This is considered a read-only command even if the cached value
              * may be modified and given that the HLL is a Redis string
              * we need to propagate the change. */
             signalModifiedKey(c,c->db,c->argv[1]);
@@ -1488,8 +1495,13 @@ cleanup:
     if (o) decrRefCount(o);
 }
 
-/* PFDEBUG <subcommand> <key> ... args ...
- * Different debugging related operations about the HLL implementation. */
+/* Different debugging related operations about the HLL implementation.
+ *
+ * PFDEBUG GETREG <key>
+ * PFDEBUG DECODE <key>
+ * PFDEBUG ENCODING <key>
+ * PFDEBUG TODENSE <key>
+ */
 void pfdebugCommand(client *c) {
     char *cmd = c->argv[1]->ptr;
     struct hllhdr *hdr;

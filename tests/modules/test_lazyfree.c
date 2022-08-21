@@ -98,7 +98,7 @@ int LazyFreeLinkLen_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
     if (argc != 2) return RedisModule_WrongArity(ctx);
     RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
-        REDISMODULE_READ|REDISMODULE_WRITE);
+                                              REDISMODULE_READ);
     int type = RedisModule_KeyType(key);
     if (type != REDISMODULE_KEYTYPE_EMPTY &&
         RedisModule_ModuleTypeGetType(key) != LazyFreeLinkType)

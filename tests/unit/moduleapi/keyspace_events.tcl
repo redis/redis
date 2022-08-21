@@ -83,6 +83,17 @@ tags "modules" {
             $rd1 close
         }
 
+        test {Test expired key space event} {
+            set prev_expired [s expired_keys]
+            r set exp 1 PX 10
+            wait_for_condition 100 10 {
+                [s expired_keys] eq $prev_expired + 1
+            } else {
+                fail "key not expired"
+            }
+            assert_equal [r get testkeyspace:expired] 1
+        }
+
         test {Test removed key space event} {
             r set a abcd
             r del a
@@ -136,5 +147,9 @@ tags "modules" {
             r del i
             assert_equal {1 abcd} [r keyspace.is_key_removed i]
         } {} {needs:debug}
-	}
+
+        test "Unload the module - testkeyspace" {
+            assert_equal {OK} [r module unload testkeyspace]
+        }
+    }
 }

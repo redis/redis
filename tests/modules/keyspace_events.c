@@ -30,11 +30,15 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDISMODULE_EXPERIMENTAL_API
+#define _BSD_SOURCE
+#define _DEFAULT_SOURCE /* For usleep */
 
 #include "redismodule.h"
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+
+ustime_t cached_time = 0;
 
 /** stores all the keys on which we got 'loaded' keyspace notification **/
 RedisModuleDict *loaded_event_log = NULL;
@@ -62,6 +66,12 @@ static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char
 static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
 
+    if (cached_time) {
+        RedisModule_Assert(cached_time == RedisModule_CachedMicroseconds());
+        usleep(1);
+        RedisModule_Assert(cached_time != RedisModule_Microseconds());
+    }
+
     if (strcmp(event, "del") == 0) {
         RedisModuleString *copykey = RedisModule_CreateStringPrintf(ctx, "%s_copy", RedisModule_StringPtrLen(key, NULL));
         RedisModuleCallReply* rep = RedisModule_Call(ctx, "DEL", "s!", copykey);
@@ -78,6 +88,37 @@ static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const cha
             RedisModule_FreeCallReply(rep);
         }
     }
+
+    return REDISMODULE_OK;
+}
+
+static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+    REDISMODULE_NOT_USED(key);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "c!", "testkeyspace:expired");
+    RedisModule_FreeCallReply(rep);
+
+    return REDISMODULE_OK;
+}
+
+/* This key miss notification handler is performing a write command inside the notification callback.
+ * Notice, it is discourage and currently wrong to perform a write command inside key miss event.
+ * It can cause read commands to be replicated to the replica/aof. This test is here temporary (for coverage and
+ * verification that it's not crashing). */
+static int KeySpace_NotificationModuleKeyMiss(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+    REDISMODULE_NOT_USED(key);
+
+    int flags = RedisModule_GetContextFlags(ctx);
+    if (!(flags & REDISMODULE_CTX_FLAGS_MASTER)) {
+        return REDISMODULE_OK; // ignore the event on replica
+    }
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "incr", "!c", "missed");
+    RedisModule_FreeCallReply(rep);
 
     return REDISMODULE_OK;
 }
@@ -197,6 +238,8 @@ static int cmdDelKeyCopy(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (argc != 2)
         return RedisModule_WrongArity(ctx);
 
+    cached_time = RedisModule_CachedMicroseconds();
+
     RedisModuleCallReply* rep = RedisModule_Call(ctx, "DEL", "s!", argv[1]);
     if (!rep) {
         RedisModule_ReplyWithError(ctx, "NULL reply returned");
@@ -204,6 +247,7 @@ static int cmdDelKeyCopy(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         RedisModule_ReplyWithCallReply(ctx, rep);
         RedisModule_FreeCallReply(rep);
     }
+    cached_time = 0;
     return REDISMODULE_OK;
 }
 
@@ -284,7 +328,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_EXPIRED, KeySpace_NotificationExpired) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_MODULE, KeySpace_NotificationModule) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_KEY_MISS, KeySpace_NotificationModuleKeyMiss) != REDISMODULE_OK){
         return REDISMODULE_ERR;
     }
 
@@ -308,19 +360,23 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_CreateCommand(ctx,"keyspace.del_key_copy", cmdDelKeyCopy,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.del_key_copy", cmdDelKeyCopy,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
     
-    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case1", cmdIncrCase1,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case1", cmdIncrCase1,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
     
-    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case2", cmdIncrCase2,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case2", cmdIncrCase2,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
     
-    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case3", cmdIncrCase3,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case3", cmdIncrCase3,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 

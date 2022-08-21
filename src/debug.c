@@ -29,14 +29,17 @@
  */
 
 #include "server.h"
+#include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
 #include "bio.h"
+#include "quicklist.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #ifdef HAVE_BACKTRACE
@@ -76,13 +79,13 @@ void logStackTrace(void *eip, int uplevel);
  * "add" digests relative to unordered elements.
  *
  * So digest(a,b,c,d) will be the same of digest(b,a,c,d) */
-void xorDigest(unsigned char *digest, void *ptr, size_t len) {
+void xorDigest(unsigned char *digest, const void *ptr, size_t len) {
     SHA1_CTX ctx;
-    unsigned char hash[20], *s = ptr;
+    unsigned char hash[20];
     int j;
 
     SHA1Init(&ctx);
-    SHA1Update(&ctx,s,len);
+    SHA1Update(&ctx,ptr,len);
     SHA1Final(hash,&ctx);
 
     for (j = 0; j < 20; j++)
@@ -109,11 +112,10 @@ void xorStringObjectDigest(unsigned char *digest, robj *o) {
  * Also note that mixdigest("foo") followed by mixdigest("bar")
  * will lead to a different digest compared to "fo", "obar".
  */
-void mixDigest(unsigned char *digest, void *ptr, size_t len) {
+void mixDigest(unsigned char *digest, const void *ptr, size_t len) {
     SHA1_CTX ctx;
-    char *s = ptr;
 
-    xorDigest(digest,s,len);
+    xorDigest(digest,ptr,len);
     SHA1Init(&ctx);
     SHA1Update(&ctx,digest,20);
     SHA1Final(digest,&ctx);
@@ -414,9 +416,8 @@ void debugCommand(client *c) {
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
-"LUA-ALWAYS-REPLICATE-COMMANDS <0|1>",
-"    Setting it to 1 makes Lua replication defaulting to replicating single",
-"    commands, without the script having to enable effects replication.",
+"REPLICATE <string>",
+"    Replicates the provided string to replicas, allowing data divergence.",
 #ifdef USE_JEMALLOC
 "MALLCTL <key> [<val>]",
 "    Get or set a malloc tuning integer.",
@@ -425,13 +426,17 @@ void debugCommand(client *c) {
 #endif
 "OBJECT <key>",
 "    Show low level info about `key` and associated value.",
+"DROP-CLUSTER-PACKET-FILTER <packet-type>",
+"    Drop all packets that match the filtered type. Set to -1 allow all packets.",
 "OOM",
 "    Crash the server simulating an out-of-memory error.",
 "PANIC",
 "    Crash the server simulating a panic.",
 "POPULATE <count> [<prefix>] [<size>]",
 "    Create <count> string keys named key:<num>. If <prefix> is specified then",
-"    it is used instead of the 'key' prefix.",
+"    it is used instead of the 'key' prefix. These are not propagated to",
+"    replicas. Cluster slots are not respected so keys not belonging to the",
+"    current node can be created in cluster mode.",
 "PROTOCOL <type>",
 "    Reply with a test value of the specified type. <type> can be: string,",
 "    integer, double, bignum, null, array, set, map, attrib, push, verbatim,",
@@ -459,6 +464,9 @@ void debugCommand(client *c) {
 "    Setting it to 0 disables expiring keys in background when they are not",
 "    accessed (otherwise the Redis behavior). Setting it to 1 reenables back the",
 "    default.",
+"QUICKLIST-PACKED-THRESHOLD <size>",
+"    Sets the threshold for elements to be inserted as plain vs packed nodes",
+"    Default value is 1GB, allows values up to 4GB",
 "SET-SKIP-CHECKSUM-VALIDATION <0|1>",
 "    Enables or disables checksum checks for RDB files and RESTORE's payload.",
 "SLEEP <seconds>",
@@ -467,17 +475,30 @@ void debugCommand(client *c) {
 "    Run a fuzz tester against the stringmatchlen() function.",
 "STRUCTSIZE",
 "    Return the size of different Redis core C structures.",
-"ZIPLIST <key>",
-"    Show low level info about the ziplist encoding of <key>.",
+"LISTPACK <key>",
+"    Show low level info about the listpack encoding of <key>.",
+"QUICKLIST <key> [<0|1>]",
+"    Show low level info about the quicklist encoding of <key>.",
+"    The optional argument (0 by default) sets the level of detail",
 "CLIENT-EVICTION",
 "    Show low level client eviction pools info (maxmemory-clients).",
 "PAUSE-CRON <0|1>",
 "    Stop periodic cron job processing.",
+"REPLYBUFFER PEAK-RESET-TIME <NEVER||RESET|time>",
+"    Sets the time (in milliseconds) to wait between client reply buffer peak resets.",
+"    In case NEVER is provided the last observed peak will never be reset",
+"    In case RESET is provided the peak reset time will be restored to the default value",
+"REPLYBUFFER RESIZING <0|1>",
+"    Enable or disable the replay buffer resize cron job",
 NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
-        *((char*)-1) = 'x';
+        /* Compiler gives warnings about writing to a random address
+         * e.g "*((char*)-1) = 'x';". As a workaround, we map a read-only area
+         * and try to write there to trigger segmentation fault. */
+        char* p = mmap(NULL, 4096, PROT_READ, MAP_PRIVATE | MAP_ANON, -1, 0);
+        *p = 'x';
     } else if (!strcasecmp(c->argv[1]->ptr,"panic")) {
         serverPanic("DEBUG PANIC called at Unix time %lld", (long long)time(NULL));
     } else if (!strcasecmp(c->argv[1]->ptr,"restart") ||
@@ -532,7 +553,7 @@ NULL
         if (save) {
             rdbSaveInfo rsi, *rsiptr;
             rsiptr = rdbPopulateSaveInfo(&rsi);
-            if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
+            if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) != C_OK) {
                 addReplyErrorObject(c,shared.err);
                 return;
             }
@@ -541,27 +562,36 @@ NULL
         /* The default behavior is to remove the current dataset from
          * memory before loading the RDB file, however when MERGE is
          * used together with NOFLUSH, we are able to merge two datasets. */
-        if (flush) emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+        if (flush) emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
 
         protectClient(c);
         int ret = rdbLoad(server.rdb_filename,NULL,flags);
         unprotectClient(c);
-        if (ret != C_OK) {
-            addReplyError(c,"Error trying to load the RDB dump");
+        if (ret != RDB_OK) {
+            addReplyError(c,"Error trying to load the RDB dump, check server logs.");
             return;
         }
         serverLog(LL_WARNING,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
-        emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+        emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
-        int ret = loadAppendOnlyFile(server.aof_filename);
+        if (server.aof_manifest) aofManifestFree(server.aof_manifest);
+        aofLoadManifestFromDisk();
+        aofDelHistoryFiles();
+        int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret != AOF_OK && ret != AOF_EMPTY)
             exit(1);
         unprotectClient(c);
         server.dirty = 0; /* Prevent AOF / replication */
         serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"drop-cluster-packet-filter") && c->argc == 3) {
+        long packet_type;
+        if (getLongFromObjectOrReply(c, c->argv[2], &packet_type, NULL) != C_OK)
+            return;
+        server.cluster_drop_packet_filter = packet_type;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
         dictEntry *de;
@@ -589,8 +619,8 @@ NULL
             used = snprintf(nextra, remaining, " ql_avg_node:%.2f", avg);
             nextra += used;
             remaining -= used;
-            /* Add quicklist fill level / max ziplist size */
-            used = snprintf(nextra, remaining, " ql_ziplist_max:%d", ql->fill);
+            /* Add quicklist fill level / max listpack size */
+            used = snprintf(nextra, remaining, " ql_listpack_max:%d", ql->fill);
             nextra += used;
             remaining -= used;
             /* Add isCompressed? */
@@ -640,17 +670,32 @@ NULL
                 (long long) sdsavail(val->ptr),
                 (long long) getStringObjectSdsUsedMemory(val));
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"ziplist") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"listpack") && c->argc == 3) {
         robj *o;
 
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
                 == NULL) return;
 
-        if (o->encoding != OBJ_ENCODING_ZIPLIST) {
-            addReplyError(c,"Not a ziplist encoded object.");
+        if (o->encoding != OBJ_ENCODING_LISTPACK) {
+            addReplyError(c,"Not a listpack encoded object.");
         } else {
-            ziplistRepr(o->ptr);
-            addReplyStatus(c,"Ziplist structure printed on stdout");
+            lpRepr(o->ptr);
+            addReplyStatus(c,"Listpack structure printed on stdout");
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr,"quicklist") && (c->argc == 3 || c->argc == 4)) {
+        robj *o;
+
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
+            == NULL) return;
+
+        int full = 0;
+        if (c->argc == 4)
+            full = atoi(c->argv[3]->ptr);
+        if (o->encoding != OBJ_ENCODING_QUICKLIST) {
+            addReplyError(c,"Not a quicklist encoded object.");
+        } else {
+            quicklistRepr(o->ptr, full);
+            addReplyStatus(c,"Quicklist structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") &&
                c->argc >= 3 && c->argc <= 5) {
@@ -723,7 +768,7 @@ NULL
         } else if (!strcasecmp(name,"integer")) {
             addReplyLongLong(c,12345);
         } else if (!strcasecmp(name,"double")) {
-            addReplyDouble(c,3.14159265359);
+            addReplyDouble(c,3.141);
         } else if (!strcasecmp(name,"bignum")) {
             addReplyBigNum(c,"1234567999999999999999999999999999999",37);
         } else if (!strcasecmp(name,"null")) {
@@ -752,6 +797,10 @@ NULL
              * also have a normal reply type after the attribute. */
             addReplyBulkCString(c,"Some real reply following the attribute");
         } else if (!strcasecmp(name,"push")) {
+            if (c->resp < 3) {
+                addReplyError(c,"RESP2 is not supported by this command");
+                return;
+	    }
             addReplyPushLen(c,2);
             addReplyBulkCString(c,"server-cpu-usage");
             addReplyLongLong(c,42);
@@ -782,6 +831,16 @@ NULL
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"quicklist-packed-threshold") &&
+               c->argc == 3)
+    {
+        int memerr;
+        unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);
+        if (memerr || !quicklistisSetPackedThreshold(sz)) {
+            addReplyError(c, "argument must be a memory value bigger than 1 and smaller than 4gb");
+        } else {
+            addReply(c,shared.ok);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") &&
                c->argc == 3)
     {
@@ -792,10 +851,9 @@ NULL
     {
         server.aof_flush_sleep = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"lua-always-replicate-commands") &&
-               c->argc == 3)
-    {
-        server.lua_always_replicate_commands = atoi(c->argv[2]->ptr);
+    } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc >= 3) {
+        replicationFeedSlaves(server.slaves, -1,
+                c->argv + 2, c->argc - 2);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"error") && c->argc == 3) {
         sds errstr = sdsnewlen("-",1);
@@ -879,12 +937,12 @@ NULL
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
     } else if (!strcasecmp(c->argv[1]->ptr,"set-disable-deny-scripts") && c->argc == 3)
     {
-        server.lua_disable_deny_script = atoi(c->argv[2]->ptr);;
+        server.script_disable_deny_script = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)
-            addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
+            addReplyErrorFormat(c, "CONFIG-REWRITE-FORCE-ALL failed: %s", strerror(errno));
         else
             addReply(c, shared.ok);
     } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
@@ -916,6 +974,23 @@ NULL
     {
         server.pause_cron = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"replybuffer") && c->argc == 4 ) {
+        if(!strcasecmp(c->argv[2]->ptr, "peak-reset-time")) {
+            if (!strcasecmp(c->argv[3]->ptr, "never")) {
+                server.reply_buffer_peak_reset_time = -1;
+            } else if(!strcasecmp(c->argv[3]->ptr, "reset")) {
+                server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
+            } else {
+                if (getLongFromObjectOrReply(c, c->argv[3], &server.reply_buffer_peak_reset_time, NULL) != C_OK)
+                    return;
+            }
+        } else if(!strcasecmp(c->argv[2]->ptr,"resizing")) {
+            server.reply_buffer_resizing_enabled = atoi(c->argv[3]->ptr);
+        } else {
+            addReplySubcommandSyntaxError(c);
+            return;
+        }
+        addReply(c, shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
@@ -1121,6 +1196,7 @@ static void *getMcontextEip(ucontext_t *uc) {
 #undef NOT_SUPPORTED
 }
 
+REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
     int i;
     for (i = 15; i >= 0; i--) {
@@ -1638,13 +1714,19 @@ void logStackTrace(void *eip, int uplevel) {
 void logServerInfo(void) {
     sds infostring, clients;
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ INFO OUTPUT ------\n");
-    infostring = genRedisInfoString("all");
+    int all = 0, everything = 0;
+    robj *argv[1];
+    argv[0] = createStringObject("all", strlen("all"));
+    dict *section_dict = genInfoSectionDict(argv, 1, NULL, &all, &everything);
+    infostring = genRedisInfoString(section_dict, all, everything);
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
     clients = getAllClientsInfoString(-1);
     serverLogRaw(LL_WARNING|LL_RAW, clients);
     sdsfree(infostring);
     sdsfree(clients);
+    releaseInfoSectionDict(section_dict);
+    decrRefCount(argv[0]);
 }
 
 /* Log certain config values, which can be used for debuggin */
@@ -1680,10 +1762,10 @@ void logCurrentClient(void) {
     sdsfree(client);
     for (j = 0; j < cc->argc; j++) {
         robj *decoded;
-
         decoded = getDecodedObject(cc->argv[j]);
-        serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j,
-            (char*)decoded->ptr);
+        sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
+        serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
+        sdsfree(repr);
         decrRefCount(decoded);
     }
     /* Check if the first argument, usually a key, is found inside the
@@ -1721,7 +1803,10 @@ int memtest_test_linux_anonymous_maps(void) {
     if (!fd) return 0;
 
     fp = fopen("/proc/self/maps","r");
-    if (!fp) return 0;
+    if (!fp) {
+        closeDirectLogFiledes(fd);
+        return 0;
+    }
     while(fgets(line,sizeof(line),fp) != NULL) {
         char *start, *end, *p = line;
 
@@ -1823,7 +1908,9 @@ void dumpX86Calls(void *addr, size_t len) {
     for (j = 0; j < len-4; j++) {
         if (p[j] != 0xE8) continue; /* Not an E8 CALL opcode. */
         unsigned long target = (unsigned long)addr+j+5;
-        target += *((int32_t*)(p+j+1));
+        uint32_t tmp;
+        memcpy(&tmp, p+j+1, sizeof(tmp));
+        target += tmp;
         if (dladdr((void*)target, &info) != 0 && info.dli_sname != NULL) {
             if (ht[target&0xff] != target) {
                 printf("Function at 0x%lx is %s\n",target,info.dli_sname);
@@ -1875,7 +1962,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         serverLog(LL_WARNING,
         "Accessing address: %p", (void*)info->si_addr);
     }
-    if (info->si_code <= SI_USER && info->si_pid != -1) {
+    if (info->si_code == SI_USER && info->si_pid != -1) {
         serverLog(LL_WARNING, "Killed by PID: %ld, UID: %d", (long) info->si_pid, info->si_uid);
     }
 
@@ -1927,15 +2014,21 @@ void bugReportEnd(int killViaSignal, int sig) {
 "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
 "       Please report the crash by opening an issue on github:\n\n"
 "           http://github.com/redis/redis/issues\n\n"
+"  If a Redis module was involved, please open in the module's repo instead.\n\n"
 "  Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
+"  Some other issues could be detected by redis-server --check-system\n"
 );
 
     /* free(messages); Don't call free() with possibly corrupted memory. */
     if (server.daemonize && server.supervised == 0 && server.pidfile) unlink(server.pidfile);
 
     if (!killViaSignal) {
-        if (server.use_exit_on_panic)
-            exit(1);
+        /* To avoid issues with valgrind, we may wanna exit rahter than generate a signal */
+        if (server.use_exit_on_panic) {
+             /* Using _exit to bypass false leak reports by gcc ASAN */
+             fflush(stdout);
+            _exit(1);
+        }
         abort();
     }
 
@@ -2007,43 +2100,33 @@ void watchdogScheduleSignal(int period) {
     it.it_interval.tv_usec = 0;
     setitimer(ITIMER_REAL, &it, NULL);
 }
+void applyWatchdogPeriod() {
+    struct sigaction act;
 
-/* Enable the software watchdog with the specified period in milliseconds. */
-void enableWatchdog(int period) {
-    int min_period;
-
+    /* Disable watchdog when period is 0 */
     if (server.watchdog_period == 0) {
-        struct sigaction act;
+        watchdogScheduleSignal(0); /* Stop the current timer. */
 
-        /* Watchdog was actually disabled, so we have to setup the signal
-         * handler. */
+        /* Set the signal handler to SIG_IGN, this will also remove pending
+         * signals from the queue. */
+        sigemptyset(&act.sa_mask);
+        act.sa_flags = 0;
+        act.sa_handler = SIG_IGN;
+        sigaction(SIGALRM, &act, NULL);
+    } else {
+        /* Setup the signal handler. */
         sigemptyset(&act.sa_mask);
         act.sa_flags = SA_SIGINFO;
         act.sa_sigaction = watchdogSignalHandler;
         sigaction(SIGALRM, &act, NULL);
+
+        /* If the configured period is smaller than twice the timer period, it is
+         * too short for the software watchdog to work reliably. Fix it now
+         * if needed. */
+        int min_period = (1000/server.hz)*2;
+        if (server.watchdog_period < min_period) server.watchdog_period = min_period;
+        watchdogScheduleSignal(server.watchdog_period); /* Adjust the current timer. */
     }
-    /* If the configured period is smaller than twice the timer period, it is
-     * too short for the software watchdog to work reliably. Fix it now
-     * if needed. */
-    min_period = (1000/server.hz)*2;
-    if (period < min_period) period = min_period;
-    watchdogScheduleSignal(period); /* Adjust the current timer. */
-    server.watchdog_period = period;
-}
-
-/* Disable the software watchdog. */
-void disableWatchdog(void) {
-    struct sigaction act;
-    if (server.watchdog_period == 0) return; /* Already disabled. */
-    watchdogScheduleSignal(0); /* Stop the current timer. */
-
-    /* Set the signal handler to SIG_IGN, this will also remove pending
-     * signals from the queue. */
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = 0;
-    act.sa_handler = SIG_IGN;
-    sigaction(SIGALRM, &act, NULL);
-    server.watchdog_period = 0;
 }
 
 /* Positive input is sleep time in microseconds. Negative input is fractions

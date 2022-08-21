@@ -1003,6 +1003,32 @@ start_server {tags {"zset"}} {
             }
         }
 
+        foreach {pop} {ZPOPMIN ZPOPMAX} {
+            test "$pop with the count 0 returns an empty array" {
+                r del zset
+                r zadd zset 1 a 2 b 3 c
+                assert_equal {} [r $pop zset 0]
+
+                # Make sure we can distinguish between an empty array and a null response
+                r readraw 1
+                assert_equal {*0} [r $pop zset 0]
+                r readraw 0
+
+                assert_equal 3 [r zcard zset]
+            }
+
+            test "$pop with negative count" {
+                r set zset foo
+                assert_error "ERR *must be positive" {r $pop zset -1}
+
+                r del zset
+                assert_error "ERR *must be positive" {r $pop zset -2}
+
+                r zadd zset 1 a 2 b 3 c
+                assert_error "ERR *must be positive" {r $pop zset -3}
+            }
+        }
+
     foreach {popmin popmax} {ZPOPMIN ZPOPMAX ZMPOP_MIN ZMPOP_MAX} {
         test "Basic $popmin/$popmax with a single key - $encoding" {
             r del zset
@@ -1037,6 +1063,7 @@ start_server {tags {"zset"}} {
             verify_bzpop_response $rd $popmin zset 5 0 {zset b 1} {zset {{b 1}}}
             verify_bzpop_response $rd $popmax zset 5 0 {zset c 2} {zset {{c 2}}}
             assert_equal 0 [r exists zset]
+            $rd close
         }
 
         test "$popmin/$popmax with multiple existing sorted sets - $encoding" {
@@ -1053,6 +1080,7 @@ start_server {tags {"zset"}} {
             verify_bzpop_two_key_response $rd $popmin z2{t} z1{t} 5 0 {z2{t} d 3} {z2{t} {{d 3}}}
             assert_equal 1 [r zcard z1{t}]
             assert_equal 1 [r zcard z2{t}]
+            $rd close
         }
 
         test "$popmin/$popmax second sorted set has members - $encoding" {
@@ -1064,6 +1092,7 @@ start_server {tags {"zset"}} {
             verify_bzpop_two_key_response $rd $popmin z1{t} z2{t} 5 0 {z2{t} d 3} {z2{t} {{d 3}}}
             assert_equal 0 [r zcard z1{t}]
             assert_equal 1 [r zcard z2{t}]
+            $rd close
         }
     }
 
@@ -1098,6 +1127,7 @@ start_server {tags {"zset"}} {
 
             assert_equal 0 [r exists zset]
             r hello 2
+            $rd close
         }
     }
 
@@ -1111,7 +1141,9 @@ start_server {tags {"zset"}} {
     test "ZPOP/ZMPOP against wrong type" {
         r set foo{t} bar
         assert_error "*WRONGTYPE*" {r zpopmin foo{t}}
+        assert_error "*WRONGTYPE*" {r zpopmin foo{t} 0}
         assert_error "*WRONGTYPE*" {r zpopmax foo{t}}
+        assert_error "*WRONGTYPE*" {r zpopmax foo{t} 0}
         assert_error "*WRONGTYPE*" {r zpopmin foo{t} 2}
 
         assert_error "*WRONGTYPE*" {r zmpop 1 foo{t} min}
@@ -1125,9 +1157,9 @@ start_server {tags {"zset"}} {
     }
 
     test "ZMPOP with illegal argument" {
-        assert_error "ERR wrong number of arguments*" {r zmpop}
-        assert_error "ERR wrong number of arguments*" {r zmpop 1}
-        assert_error "ERR wrong number of arguments*" {r zmpop 1 myzset{t}}
+        assert_error "ERR wrong number of arguments for 'zmpop' command" {r zmpop}
+        assert_error "ERR wrong number of arguments for 'zmpop' command" {r zmpop 1}
+        assert_error "ERR wrong number of arguments for 'zmpop' command" {r zmpop 1 myzset{t}}
 
         assert_error "ERR numkeys*" {r zmpop 0 myzset{t} MIN}
         assert_error "ERR numkeys*" {r zmpop a myzset{t} MIN}
@@ -1137,6 +1169,7 @@ start_server {tags {"zset"}} {
         assert_error "ERR syntax error*" {r zmpop 1 myzset{t} MIN bar_arg}
         assert_error "ERR syntax error*" {r zmpop 1 myzset{t} MAX MIN}
         assert_error "ERR syntax error*" {r zmpop 1 myzset{t} COUNT}
+        assert_error "ERR syntax error*" {r zmpop 1 myzset{t} MAX COUNT 1 COUNT 2}
         assert_error "ERR syntax error*" {r zmpop 2 myzset{t} myzset2{t} bad_arg}
 
         assert_error "ERR count*" {r zmpop 1 myzset{t} MIN COUNT 0}
@@ -1186,14 +1219,24 @@ start_server {tags {"zset"}} {
             {zpopmin myzset{t} 3}
             {zpopmax myzset2{t} 3}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     foreach resp {3 2} {
+        set rd [redis_deferring_client]
+
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$resp == 3} {continue}
+        } else {
+            r hello $resp
+            $rd hello $resp
+            $rd read
+        }
+
         test "ZPOPMIN/ZPOPMAX readraw in RESP$resp" {
             r del zset{t}
             create_zset zset2{t} {1 a 2 b 3 c 4 d 5 e}
 
-            r hello $resp
             r readraw 1
 
             # ZPOP against non existing key.
@@ -1226,9 +1269,6 @@ start_server {tags {"zset"}} {
             r del zset{t}
             create_zset zset2{t} {1 a 2 b 3 c 4 d 5 e}
 
-            set rd [redis_deferring_client]
-            $rd hello $resp
-            $rd read
             $rd readraw 1
 
             # BZPOP released on timeout.
@@ -1265,7 +1305,6 @@ start_server {tags {"zset"}} {
             create_zset zset3{t} {1 a}
             create_zset zset4{t} {1 a 2 b 3 c 4 d 5 e}
 
-            r hello $resp
             r readraw 1
 
             # ZMPOP against non existing key.
@@ -1305,9 +1344,6 @@ start_server {tags {"zset"}} {
             r del zset{t} zset2{t}
             create_zset zset3{t} {1 a 2 b 3 c 4 d 5 e}
 
-            set rd [redis_deferring_client]
-            $rd hello $resp
-            $rd read
             $rd readraw 1
 
             # BZMPOP released on timeout.
@@ -1346,8 +1382,9 @@ start_server {tags {"zset"}} {
             assert_equal [$rd read] {b}
             verify_score_response $rd $resp 2
 
-            $rd readraw 0
         }
+
+        $rd close
     }
 
     test {ZINTERSTORE regression with two sets, intset+hashtable} {
@@ -1439,6 +1476,16 @@ start_server {tags {"zset"}} {
 
     test "ZSET commands don't accept the empty strings as valid score" {
         assert_error "*not*float*" {r zadd myzset "" abc}
+    }
+
+    test "zunionInterDiffGenericCommand at least 1 input key" {
+        assert_error {*at least 1 input key * 'zunion' command} {r zunion 0 key{t}}
+        assert_error {*at least 1 input key * 'zunionstore' command} {r zunionstore dst_key{t} 0 key{t}}
+        assert_error {*at least 1 input key * 'zinter' command} {r zinter 0 key{t}}
+        assert_error {*at least 1 input key * 'zinterstore' command} {r zinterstore dst_key{t} 0 key{t}}
+        assert_error {*at least 1 input key * 'zdiff' command} {r zdiff 0 key{t}}
+        assert_error {*at least 1 input key * 'zdiffstore' command} {r zdiffstore dst_key{t} 0 key{t}}
+        assert_error {*at least 1 input key * 'zintercard' command} {r zintercard 0 key{t}}
     }
 
     proc stressers {encoding} {
@@ -1800,6 +1847,7 @@ start_server {tags {"zset"}} {
             r zadd zset 1 bar
 
             verify_pop_response $pop [$rd read] {zset bar 1} {zset {{bar 1}}}
+            $rd close
         }
 
         test "$pop, ZADD + DEL + SET should not awake blocked client" {
@@ -1818,6 +1866,7 @@ start_server {tags {"zset"}} {
             r zadd zset 1 bar
 
             verify_pop_response $pop [$rd read] {zset bar 1} {zset {{bar 1}}}
+            $rd close
         }
     }
 
@@ -1842,6 +1891,7 @@ start_server {tags {"zset"}} {
             assert_equal [$rd read] {z1{t} a 0}
             $rd bzpopmin z1{t} z2{t} z2{t} z1{t} 0
             assert_equal [$rd read] {z2{t} b 1}
+            $rd close
         }
 
     foreach {pop} {BZPOPMIN BZMPOP_MIN} {
@@ -1859,6 +1909,7 @@ start_server {tags {"zset"}} {
             r exec
 
             verify_pop_response $pop [$rd read] {zset a 0} {zset {{a 0}}}
+            $rd close
         }
 
         test "$pop with variadic ZADD" {
@@ -1872,6 +1923,7 @@ start_server {tags {"zset"}} {
             if {$::valgrind} {after 100}
             verify_pop_response $pop [$rd read] {zset foo -1} {zset {{foo -1}}}
             assert_equal {bar} [r zrange zset 0 -1]
+            $rd close
         }
 
         test "$pop with zero timeout should block indefinitely" {
@@ -1882,6 +1934,7 @@ start_server {tags {"zset"}} {
             after 1000
             r zadd zset 0 foo
             verify_pop_response $pop [$rd read] {zset foo 0} {zset {{foo 0}}}
+            $rd close
         }
     }
 
@@ -1910,9 +1963,9 @@ start_server {tags {"zset"}} {
     }
 
     test "BZMPOP with illegal argument" {
-        assert_error "ERR wrong number of arguments*" {r bzmpop}
-        assert_error "ERR wrong number of arguments*" {r bzmpop 0 1}
-        assert_error "ERR wrong number of arguments*" {r bzmpop 0 1 myzset{t}}
+        assert_error "ERR wrong number of arguments for 'bzmpop' command" {r bzmpop}
+        assert_error "ERR wrong number of arguments for 'bzmpop' command" {r bzmpop 0 1}
+        assert_error "ERR wrong number of arguments for 'bzmpop' command" {r bzmpop 0 1 myzset{t}}
 
         assert_error "ERR numkeys*" {r bzmpop 1 0 myzset{t} MIN}
         assert_error "ERR numkeys*" {r bzmpop 1 a myzset{t} MIN}
@@ -1922,6 +1975,7 @@ start_server {tags {"zset"}} {
         assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} MIN bar_arg}
         assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} MAX MIN}
         assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} COUNT}
+        assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} MIN COUNT 1 COUNT 2}
         assert_error "ERR syntax error*" {r bzmpop 1 2 myzset{t} myzset2{t} bad_arg}
 
         assert_error "ERR count*" {r bzmpop 1 1 myzset{t} MIN COUNT 0}
@@ -1938,8 +1992,11 @@ start_server {tags {"zset"}} {
         r del myzset{t} myzset2{t}
 
         $rd1 bzmpop 0 2 myzset{t} myzset2{t} min count 1
+        wait_for_blocked_clients_count 1
         $rd2 bzmpop 0 2 myzset{t} myzset2{t} max count 10
+        wait_for_blocked_clients_count 2
         $rd3 bzmpop 0 2 myzset{t} myzset2{t} min count 10
+        wait_for_blocked_clients_count 3
         $rd4 bzmpop 0 2 myzset{t} myzset2{t} max count 1
         wait_for_blocked_clients_count 4
 
@@ -1956,6 +2013,10 @@ start_server {tags {"zset"}} {
         assert_equal {myzset2{t} {{c 3}}} [$rd4 read]
 
         r del myzset{t} myzset2{t}
+        $rd1 close
+        $rd2 close
+        $rd3 close
+        $rd4 close
     }
 
     test "BZMPOP propagate as pop with count command to replica" {
@@ -1984,6 +2045,8 @@ start_server {tags {"zset"}} {
         assert_equal {} [r bzmpop 0.01 1 myzset{t} max count 10]
         r set foo{t} bar ;# something else to propagate after, so we can make sure the above pop didn't.
 
+        $rd close
+
         assert_replication_stream $repl {
             {select *}
             {zadd myzset{t} 1 one 2 two 3 three}
@@ -1999,7 +2062,35 @@ start_server {tags {"zset"}} {
             {zpopmax myzset2{t} 3}
             {set foo{t} bar}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
+
+    test "BZMPOP should not blocks on non key arguments - #10762" {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        r del myzset myzset2 myzset3
+
+        $rd1 bzmpop 0 1 myzset min count 10
+        wait_for_blocked_clients_count 1
+        $rd2 bzmpop 0 2 myzset2 myzset3 max count 10
+        wait_for_blocked_clients_count 2
+
+        # These non-key keys will not unblock the clients.
+        r zadd 0 100 timeout_value
+        r zadd 1 200 numkeys_value
+        r zadd min 300 min_token
+        r zadd max 400 max_token
+        r zadd count 500 count_token
+        r zadd 10 600 count_value
+
+        r zadd myzset 1 zset
+        r zadd myzset3 1 zset3
+        assert_equal {myzset {{zset 1}}} [$rd1 read]
+        assert_equal {myzset3 {{zset3 1}}} [$rd2 read]
+
+        $rd1 close
+        $rd2 close
+    } {0} {cluster:skip}
 
     test {ZSET skiplist order consistency when elements are moved} {
         set original_max [lindex [r config get zset-max-ziplist-entries] 1]
@@ -2117,6 +2208,27 @@ start_server {tags {"zset"}} {
         assert_match "*syntax*" $err
     }
 
+    test {ZRANGESTORE with zset-max-listpack-entries 0 #10767 case} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del z1{t} z2{t}
+        r zadd z1{t} 1 a
+        assert_equal 1 [r zrangestore z2{t} z1{t} 0 -1]
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZRANGESTORE with zset-max-listpack-entries 1 dst key should use skiplist encoding} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 1
+        r del z1{t} z2{t} z3{t}
+        r zadd z1{t} 1 a 2 b
+        assert_equal 1 [r zrangestore z2{t} z1{t} 0 0]
+        assert_encoding listpack z2{t}
+        assert_equal 2 [r zrangestore z3{t} z1{t} 0 1]
+        assert_encoding skiplist z3{t}
+        r config set zset-max-listpack-entries $original_max
+    }
+
     test {ZRANGE invalid syntax} {
         catch {r zrange z1{t} 0 -1 limit 1 2} err
         assert_match "*syntax*" $err
@@ -2211,10 +2323,7 @@ start_server {tags {"zset"}} {
             assert_encoding $type myzset
 
             # create a dict for easy lookup
-            unset -nocomplain mydict
-            foreach {k v} [r zrange myzset 0 -1 withscores] {
-                dict append mydict $k $v
-            }
+            set mydict [dict create {*}[r zrange myzset 0 -1 withscores]]
 
             # We'll stress different parts of the code, see the implementation
             # of ZRANDMEMBER for more information, but basically there are
@@ -2340,5 +2449,13 @@ start_server {tags {"zset"}} {
         }
         r config set zset-max-ziplist-value $original_max_value
     }
+
+    test {zset score double range} {
+        set dblmax 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.00000000000000000
+        r del zz
+        r zadd zz $dblmax dblmax
+        assert_encoding listpack zz
+        r zscore zz dblmax
+    } {1.7976931348623157e+308}
 
 }

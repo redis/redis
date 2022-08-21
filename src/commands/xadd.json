@@ -1,0 +1,148 @@
+{
+    "XADD": {
+        "summary": "Appends a new entry to a stream",
+        "complexity": "O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -5,
+        "function": "xaddCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."
+            ],
+            [
+                "7.0.0",
+                "Added support for the `<ms>-*` explicit ID form."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "FAST"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "key_specs": [
+            {
+                "notes": "UPDATE instead of INSERT because of the optional trimming feature",
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "token": "NOMKSTREAM",
+                "name": "nomkstream",
+                "type": "pure-token",
+                "optional": true,
+                "since": "6.2.0"
+            },
+            {
+                "name": "trim",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "strategy",
+                        "type": "oneof",
+                        "arguments": [
+                            {
+                                "name": "maxlen",
+                                "type": "pure-token",
+                                "token": "MAXLEN"
+                            },
+                            {
+                                "name": "minid",
+                                "type": "pure-token",
+                                "token": "MINID",
+                                "since": "6.2.0"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "operator",
+                        "type": "oneof",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "equal",
+                                "type": "pure-token",
+                                "token": "="
+                            },
+                            {
+                                "name": "approximately",
+                                "type": "pure-token",
+                                "token": "~"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "threshold",
+                        "type": "string"
+                    },
+                    {
+                        "token": "LIMIT",
+                        "name": "count",
+                        "type": "integer",
+                        "optional": true,
+                        "since": "6.2.0"
+                    }
+                ]
+            },
+            {
+                "name": "id-selector",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "auto-id",
+                        "type": "pure-token",
+                        "token": "*"
+                    },
+                    {
+                        "name": "id",
+                        "type": "string"
+                    }
+                ]
+            },
+            {
+                "name": "data",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "field",
+                        "type": "string"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string"
+                    }
+                ]
+            }
+        ]
+    }
+}

@@ -219,15 +219,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx, "list", 1, REDISMODULE_APIVER_1) == REDISMODULE_OK &&
         RedisModule_CreateCommand(ctx, "list.getall", list_getall, "",
                                   1, 1, 1) == REDISMODULE_OK &&
-        RedisModule_CreateCommand(ctx, "list.edit", list_edit, "",
+        RedisModule_CreateCommand(ctx, "list.edit", list_edit, "write",
                                   1, 1, 1) == REDISMODULE_OK &&
-        RedisModule_CreateCommand(ctx, "list.get", list_get, "",
+        RedisModule_CreateCommand(ctx, "list.get", list_get, "write",
                                   1, 1, 1) == REDISMODULE_OK &&
-        RedisModule_CreateCommand(ctx, "list.set", list_set, "",
+        RedisModule_CreateCommand(ctx, "list.set", list_set, "write",
                                   1, 1, 1) == REDISMODULE_OK &&
-        RedisModule_CreateCommand(ctx, "list.insert", list_insert, "",
+        RedisModule_CreateCommand(ctx, "list.insert", list_insert, "write",
                                   1, 1, 1) == REDISMODULE_OK &&
-        RedisModule_CreateCommand(ctx, "list.delete", list_delete, "",
+        RedisModule_CreateCommand(ctx, "list.delete", list_delete, "write",
                                   1, 1, 1) == REDISMODULE_OK) {
         return REDISMODULE_OK;
     } else {

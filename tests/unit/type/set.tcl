@@ -144,8 +144,8 @@ start_server {
     } {3}
 
     test "SINTERCARD with illegal arguments" {
-        assert_error "ERR wrong number of arguments*" {r sintercard}
-        assert_error "ERR wrong number of arguments*" {r sintercard 1}
+        assert_error "ERR wrong number of arguments for 'sintercard' command" {r sintercard}
+        assert_error "ERR wrong number of arguments for 'sintercard' command" {r sintercard 1}
 
         assert_error "ERR numkeys*" {r sintercard 0 myset{t}}
         assert_error "ERR numkeys*" {r sintercard a myset{t}}
@@ -284,6 +284,13 @@ start_server {
                 assert_encoding intset setres{t}
             }
             assert_equal {1 2 3 4} [lsort [r smembers setres{t}]]
+        }
+
+        test "SINTER/SUNION/SDIFF with three same sets - $type" {
+            set expected [lsort "[r smembers set1{t}]"]
+            assert_equal $expected [lsort [r sinter set1{t} set1{t} set1{t}]]
+            assert_equal $expected [lsort [r sunion set1{t} set1{t} set1{t}]]
+            assert_equal {} [lsort [r sdiff set1{t} set1{t} set1{t}]]
         }
     }
 
@@ -934,3 +941,40 @@ start_server {
         }
     }
 }
+
+run_solo {set-large-memory} {
+start_server [list overrides [list save ""] ] {
+
+# test if the server supports such large configs (avoid 32 bit builds)
+catch {
+    r config set proto-max-bulk-len 10000000000 ;#10gb
+    r config set client-query-buffer-limit 10000000000 ;#10gb
+}
+if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
+
+    set str_length 4400000000 ;#~4.4GB
+
+    test {SADD, SCARD, SISMEMBER - large data} {
+        r flushdb
+        r write "*3\r\n\$4\r\nSADD\r\n\$5\r\nmyset\r\n"
+        assert_equal 1 [write_big_bulk $str_length "aaa"]
+        r write "*3\r\n\$4\r\nSADD\r\n\$5\r\nmyset\r\n"
+        assert_equal 1 [write_big_bulk $str_length "bbb"]
+        r write "*3\r\n\$4\r\nSADD\r\n\$5\r\nmyset\r\n"
+        assert_equal 0 [write_big_bulk $str_length "aaa"]
+        assert_encoding hashtable myset
+        set s0 [s used_memory]
+        assert {$s0 > [expr $str_length * 2]}
+        assert_equal 2 [r scard myset]
+
+        r write "*3\r\n\$9\r\nSISMEMBER\r\n\$5\r\nmyset\r\n"
+        assert_equal 1 [write_big_bulk $str_length "aaa"]
+        r write "*3\r\n\$9\r\nSISMEMBER\r\n\$5\r\nmyset\r\n"
+        assert_equal 0 [write_big_bulk $str_length "ccc"]
+        r write "*3\r\n\$4\r\nSREM\r\n\$5\r\nmyset\r\n"
+        assert_equal 1 [write_big_bulk $str_length "bbb"]
+        assert_equal [read_big_bulk {r spop myset} yes "aaa"] $str_length
+    } {} {large-memory}
+} ;# skip 32bit builds
+}
+} ;# run_solo

@@ -130,16 +130,6 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
         r ping
     } {PONG}
 
-    proc get_nonloopback_addr {} {
-        set addrlist [list {}]
-        catch { set addrlist [exec hostname -I] }
-        return [lindex $addrlist 0]
-    }
-
-    proc get_nonloopback_client {} {
-        return [redis [get_nonloopback_addr] [srv 0 "port"] 0 $::tls]
-    }
-
     test {Protected mode works as expected} {
         # Get a non-loopback address of this instance for this test.
         set myaddr [get_nonloopback_addr]

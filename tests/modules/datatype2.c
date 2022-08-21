@@ -627,7 +627,7 @@ void MemAllocDigest(RedisModuleDigest *md, void *value) {
 
         struct MemBlock *block = mem;
         while (block) {
-            RedisModule_DigestAddStringBuffer(md, (unsigned char *)block->block, BLOCK_SIZE);
+            RedisModule_DigestAddStringBuffer(md, (const char *)block->block, BLOCK_SIZE);
             block = block->next;
         }
     }
@@ -657,8 +657,9 @@ void *MemAllocCopy2(RedisModuleKeyOptCtx *ctx, const void *value) {
     return new;
 }
 
-size_t MemAllocMemUsage2(RedisModuleKeyOptCtx *ctx, const void *value) {
+size_t MemAllocMemUsage2(RedisModuleKeyOptCtx *ctx, const void *value, size_t sample_size) {
     REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(sample_size);
     uint64_t size = 0;
     MemAllocObject *o = (MemAllocObject *)value;
 

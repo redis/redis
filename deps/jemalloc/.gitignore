@@ -30,7 +30,6 @@
 /include/jemalloc/internal/public_namespace.h
 /include/jemalloc/internal/public_symbols.txt
 /include/jemalloc/internal/public_unnamespace.h
-/include/jemalloc/internal/size_classes.h
 /include/jemalloc/jemalloc.h
 /include/jemalloc/jemalloc_defs.h
 /include/jemalloc/jemalloc_macros.h

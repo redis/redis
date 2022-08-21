@@ -1,0 +1,51 @@
+{
+    "LTRIM": {
+        "summary": "Trim a list to the specified range",
+        "complexity": "O(N) where N is the number of elements to be removed by the operation.",
+        "group": "list",
+        "since": "1.0.0",
+        "arity": 4,
+        "function": "ltrimCommand",
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "LIST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "start",
+                "type": "integer"
+            },
+            {
+                "name": "stop",
+                "type": "integer"
+            }
+        ]
+    }
+}

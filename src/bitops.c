@@ -328,8 +328,9 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
 
     /* Note that maxincr and minincr could overflow, but we use the values
      * only after checking 'value' range, so when we use it no overflow
-     * happens. */
-    int64_t maxincr = max-value;
+     * happens. 'uint64_t' cast is there just to prevent undefined behavior on
+     * overflow */
+    int64_t maxincr = (uint64_t)max-value;
     int64_t minincr = min-value;
 
     if (value > max || (bits != 64 && incr > maxincr) || (value >= 0 && incr > 0 && incr > maxincr))
@@ -429,7 +430,7 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
     if (usehash) loffset *= bits;
 
     /* Limit offset to server.proto_max_bulk_len (512MB in bytes by default) */
-    if ((loffset < 0) || (loffset >> 3) >= server.proto_max_bulk_len)
+    if (loffset < 0 || (!mustObeyClient(c) && (loffset >> 3) >= server.proto_max_bulk_len))
     {
         addReplyError(c,err);
         return C_ERR;
@@ -477,19 +478,21 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * so that the 'maxbit' bit can be addressed. The object is finally
  * returned. Otherwise if the key holds a wrong type NULL is returned and
  * an error is sent to the client. */
-robj *lookupStringForBitCommand(client *c, uint64_t maxbit, int *created) {
+robj *lookupStringForBitCommand(client *c, uint64_t maxbit, int *dirty) {
     size_t byte = maxbit >> 3;
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
     if (checkType(c,o,OBJ_STRING)) return NULL;
+    if (dirty) *dirty = 0;
 
     if (o == NULL) {
-        if (created) *created = 1;
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
         dbAdd(c->db,c->argv[1],o);
+        if (dirty) *dirty = 1;
     } else {
-        if (created) *created = 0;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
+        size_t oldlen = sdslen(o->ptr);
         o->ptr = sdsgrowzero(o->ptr,byte+1);
+        if (dirty && oldlen != sdslen(o->ptr)) *dirty = 1;
     }
     return o;
 }
@@ -508,7 +511,7 @@ robj *lookupStringForBitCommand(client *c, uint64_t maxbit, int *created) {
  * If the source object is NULL the function is guaranteed to return NULL
  * and set 'len' to 0. */
 unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
-    serverAssert(o->type == OBJ_STRING);
+    serverAssert(!o || o->type == OBJ_STRING);
     unsigned char *p = NULL;
 
     /* Set the 'p' pointer to the string, that can be just a stack allocated
@@ -546,8 +549,8 @@ void setbitCommand(client *c) {
         return;
     }
 
-    int created;
-    if ((o = lookupStringForBitCommand(c,bitoffset,&created)) == NULL) return;
+    int dirty;
+    if ((o = lookupStringForBitCommand(c,bitoffset,&dirty)) == NULL) return;
 
     /* Get current values */
     byte = bitoffset >> 3;
@@ -555,10 +558,10 @@ void setbitCommand(client *c) {
     bit = 7 - (bitoffset & 0x7);
     bitval = byteval & (1 << bit);
 
-    /* Either it is newly created, or the bit changes before and after.
+    /* Either it is newly created, changed length, or the bit changes before and after.
      * Note that the bitval here is actually a decimal number.
      * So we need to use `!!` to convert it to 0 or 1 for comparison. */
-    if (created || (!!bitval != on)) {
+    if (dirty || (!!bitval != on)) {
         /* Update byte with new bit value. */
         byteval &= ~(1 << bit);
         byteval |= ((on & 0x1) << bit);
@@ -600,6 +603,7 @@ void getbitCommand(client *c) {
 }
 
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
+REDIS_NO_SANITIZE("alignment")
 void bitopCommand(client *c) {
     char *opname = c->argv[1]->ptr;
     robj *o, *targetkey = c->argv[2];
@@ -682,7 +686,6 @@ void bitopCommand(client *c) {
             unsigned long *lp[16];
             unsigned long *lres = (unsigned long*) res;
 
-            /* Note: sds pointer is always aligned to 8 byte boundary. */
             memcpy(lp,src,sizeof(unsigned long*)*numkeys);
             memcpy(res,src[0],minlen);
 
@@ -777,7 +780,7 @@ void bitopCommand(client *c) {
     /* Store the computed value into the target key */
     if (maxlen) {
         o = createObject(OBJ_STRING,res);
-        setKey(c,c->db,targetkey,o);
+        setKey(c,c->db,targetkey,o,0);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
         decrRefCount(o);
         server.dirty++;
@@ -999,7 +1002,7 @@ void bitposCommand(client *c) {
     }
 }
 
-/* BITFIELD key subcommmand-1 arg ... subcommand-2 arg ... subcommand-N ...
+/* BITFIELD key subcommand-1 arg ... subcommand-2 arg ... subcommand-N ...
  *
  * Supported subcommands:
  *
@@ -1027,7 +1030,7 @@ struct bitfieldOp {
 void bitfieldGeneric(client *c, int flags) {
     robj *o;
     uint64_t bitoffset;
-    int j, numops = 0, changes = 0, created = 0;
+    int j, numops = 0, changes = 0, dirty = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
@@ -1121,7 +1124,7 @@ void bitfieldGeneric(client *c, int flags) {
         /* Lookup by making room up to the farthest bit reached by
          * this operation. */
         if ((o = lookupStringForBitCommand(c,
-            highest_write_offset,&created)) == NULL) {
+            highest_write_offset,&dirty)) == NULL) {
             zfree(ops);
             return;
         }
@@ -1152,10 +1155,9 @@ void bitfieldGeneric(client *c, int flags) {
                         thisop->bits);
 
                 if (thisop->opcode == BITFIELDOP_INCRBY) {
-                    newval = oldval + thisop->i64;
                     overflow = checkSignedBitfieldOverflow(oldval,
                             thisop->i64,thisop->bits,thisop->owtype,&wrapped);
-                    if (overflow) newval = wrapped;
+                    newval = overflow ? wrapped : oldval + thisop->i64;
                     retval = newval;
                 } else {
                     newval = thisop->i64;
@@ -1172,7 +1174,7 @@ void bitfieldGeneric(client *c, int flags) {
                     setSignedBitfield(o->ptr,thisop->offset,
                                       thisop->bits,newval);
 
-                    if (created || (oldval != newval))
+                    if (dirty || (oldval != newval))
                         changes++;
                 } else {
                     addReplyNull(c);
@@ -1204,7 +1206,7 @@ void bitfieldGeneric(client *c, int flags) {
                     setUnsignedBitfield(o->ptr,thisop->offset,
                                         thisop->bits,newval);
 
-                    if (created || (oldval != newval))
+                    if (dirty || (oldval != newval))
                         changes++;
                 } else {
                     addReplyNull(c);

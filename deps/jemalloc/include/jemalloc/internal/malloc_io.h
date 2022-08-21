@@ -54,7 +54,7 @@ size_t malloc_vsnprintf(char *str, size_t size, const char *format,
 size_t malloc_snprintf(char *str, size_t size, const char *format, ...)
     JEMALLOC_FORMAT_PRINTF(3, 4);
 /*
- * The caller can set write_cb and cbopaque to null to choose to print with the
+ * The caller can set write_cb to null to choose to print with the
  * je_malloc_message hook.
  */
 void malloc_vcprintf(void (*write_cb)(void *, const char *), void *cbopaque,

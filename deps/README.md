@@ -5,6 +5,7 @@ should be provided by the operating system.
 * **hiredis** is the official C client library for Redis. It is used by redis-cli, redis-benchmark and Redis Sentinel. It is part of the Redis official ecosystem but is developed externally from the Redis repository, so we just upgrade it as needed.
 * **linenoise** is a readline replacement. It is developed by the same authors of Redis but is managed as a separated project and updated as needed.
 * **lua** is Lua 5.1 with minor changes for security and additional libraries.
+* **hdr_histogram** Used for per-command latency tracking histograms.
 
 How to upgrade the above dependencies
 ===
@@ -40,6 +41,22 @@ the following additional steps:
    with Redis, and rewrite it according to the new Jemalloc internals, if they
    changed, otherwise you could just copy the old implementation if you are
    upgrading just to a similar version of Jemalloc.
+
+#### Updating/upgrading jemalloc
+
+The jemalloc directory is pulled as a subtree from the upstream jemalloc github repo. To update it you should run from the project root:
+
+1. `git subtree pull --prefix deps/jemalloc https://github.com/jemalloc/jemalloc.git <version-tag> --squash`<br>
+This should hopefully merge the local changes into the new version.
+2. In case any conflicts arise (due to our changes) you'll need to resolve them and commit.
+3. Reconfigure jemalloc:<br>
+```sh
+rm deps/jemalloc/VERSION deps/jemalloc/configure
+cd deps/jemalloc
+./autogen.sh --with-version=<version-tag>-0-g0
+```
+4. Update jemalloc's version in `deps/Makefile`: search for "`--with-version=<old-version-tag>-0-g0`" and update it accordingly.
+5. Commit the changes (VERSION,configure,Makefile).
 
 Hiredis
 ---
@@ -79,4 +96,12 @@ and our version:
 2. We have the implementation source code, and directly link to the following external libraries: `lua_cjson.o`, `lua_struct.o`, `lua_cmsgpack.o` and `lua_bit.o`.
 3. There is a security fix in `ldo.c`, line 498: The check for `LUA_SIGNATURE[0]` is removed in order to avoid direct bytecode execution.
 
+Hdr_Histogram
+---
+
+Updated source can be found here: https://github.com/HdrHistogram/HdrHistogram_c
+We use a customized version based on master branch commit e4448cf6d1cd08fff519812d3b1e58bd5a94ac42.
+1. Compare all changes under /hdr_histogram directory to upstream master commit e4448cf6d1cd08fff519812d3b1e58bd5a94ac42
+2. Copy updated files from newer version onto files in /hdr_histogram.
+3. Apply the changes from 1 above to the updated files.
 

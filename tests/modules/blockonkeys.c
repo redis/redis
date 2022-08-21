@@ -1,4 +1,3 @@
-#define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
 
 #include <string.h>
@@ -136,22 +135,29 @@ int bpop_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return RedisModule_ReplyWithSimpleString(ctx, "Request timedout");
 }
 
-/* FSL.BPOP <key> <timeout> - Block clients until list has two or more elements.
+/* FSL.BPOP <key> <timeout> [NO_TO_CB]- Block clients until list has two or more elements.
  * When that happens, unblock client and pop the last two elements (from the right). */
 int fsl_bpop(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 3)
+    if (argc < 3)
         return RedisModule_WrongArity(ctx);
 
     long long timeout;
     if (RedisModule_StringToLongLong(argv[2],&timeout) != REDISMODULE_OK || timeout < 0)
         return RedisModule_ReplyWithError(ctx,"ERR invalid timeout");
 
+    int to_cb = 1;
+    if (argc == 4) {
+        if (strcasecmp("NO_TO_CB", RedisModule_StringPtrLen(argv[3], NULL)))
+            return RedisModule_ReplyWithError(ctx,"ERR invalid argument");
+        to_cb = 0;
+    }
+
     fsl_t *fsl;
     if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &fsl, 1))
         return REDISMODULE_OK;
 
     if (!fsl) {
-        RedisModule_BlockClientOnKeys(ctx, bpop_reply_callback, bpop_timeout_callback,
+        RedisModule_BlockClientOnKeys(ctx, bpop_reply_callback, to_cb ? bpop_timeout_callback : NULL,
                                       NULL, timeout, &argv[1], 1, NULL);
     } else {
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
@@ -470,35 +476,35 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (fsltype == NULL)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.push",fsl_push,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.push",fsl_push,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.bpop",fsl_bpop,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.bpop",fsl_bpop,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.bpopgt",fsl_bpopgt,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.bpopgt",fsl_bpopgt,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.bpoppush",fsl_bpoppush,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.bpoppush",fsl_bpoppush,"write",1,2,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.getall",fsl_getall,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.getall",fsl_getall,"",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.popall", blockonkeys_popall,
-                                  "", 1, 1, 1) == REDISMODULE_ERR)
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.lpush", blockonkeys_lpush,
-                                  "", 1, 1, 1) == REDISMODULE_ERR)
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.lpush_unblock", blockonkeys_lpush,
-                                  "", 1, 1, 1) == REDISMODULE_ERR)
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.blpopn", blockonkeys_blpopn,
-                                  "", 1, 1, 1) == REDISMODULE_ERR)
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

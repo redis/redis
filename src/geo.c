@@ -128,17 +128,17 @@ int longLatFromMember(robj *zobj, robj *member, double *xy) {
 double extractUnitOrReply(client *c, robj *unit) {
     char *u = unit->ptr;
 
-    if (!strcmp(u, "m")) {
+    if (!strcasecmp(u, "m")) {
         return 1;
-    } else if (!strcmp(u, "km")) {
+    } else if (!strcasecmp(u, "km")) {
         return 1000;
-    } else if (!strcmp(u, "ft")) {
+    } else if (!strcasecmp(u, "ft")) {
         return 0.3048;
-    } else if (!strcmp(u, "mi")) {
+    } else if (!strcasecmp(u, "mi")) {
         return 1609.34;
     } else {
         addReplyError(c,
-            "unsupported unit provided. please use m, km, ft, mi");
+            "unsupported unit provided. please use M, KM, FT, MI");
         return -1;
     }
 }
@@ -444,7 +444,7 @@ void geoaddCommand(client *c) {
         char *opt = c->argv[longidx]->ptr;
         if (!strcasecmp(opt,"nx")) nx = 1;
         else if (!strcasecmp(opt,"xx")) xx = 1;
-        else if (!strcasecmp(opt,"ch")) {}
+        else if (!strcasecmp(opt,"ch")) { /* Handle in zaddCommand. */ }
         else break;
         longidx++;
     }
@@ -797,7 +797,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         robj *zobj;
         zset *zs;
         int i;
-        size_t maxelelen = 0;
+        size_t maxelelen = 0, totelelen = 0;
 
         if (returned_items) {
             zobj = createZsetObject();
@@ -812,14 +812,15 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
             size_t elelen = sdslen(gp->member);
 
             if (maxelelen < elelen) maxelelen = elelen;
+            totelelen += elelen;
             znode = zslInsert(zs->zsl,score,gp->member);
             serverAssert(dictAdd(zs->dict,gp->member,&znode->score) == DICT_OK);
             gp->member = NULL;
         }
 
         if (returned_items) {
-            zsetConvertToListpackIfNeeded(zobj,maxelelen);
-            setKey(c,c->db,storekey,zobj);
+            zsetConvertToListpackIfNeeded(zobj,maxelelen,totelelen);
+            setKey(c,c->db,storekey,zobj,0);
             decrRefCount(zobj);
             notifyKeyspaceEvent(NOTIFY_ZSET,flags & GEOSEARCH ? "geosearchstore" : "georadiusstore",storekey,
                                 c->db->id);

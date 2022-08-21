@@ -30,7 +30,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDISMODULE_EXPERIMENTAL_API
 #include "../redismodule.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,7 +44,7 @@ int PingallCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    RedisModule_SendClusterMessage(ctx,NULL,MSGTYPE_PING,(unsigned char*)"Hey",3);
+    RedisModule_SendClusterMessage(ctx,NULL,MSGTYPE_PING,"Hey",3);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -76,8 +75,9 @@ int ListCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 void PingReceiver(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len) {
     RedisModule_Log(ctx,"notice","PING (type %d) RECEIVED from %.*s: '%.*s'",
         type,REDISMODULE_NODE_ID_LEN,sender_id,(int)len, payload);
-    RedisModule_SendClusterMessage(ctx,NULL,MSGTYPE_PONG,(unsigned char*)"Ohi!",4);
-    RedisModule_Call(ctx, "INCR", "c", "pings_received");
+    RedisModule_SendClusterMessage(ctx,NULL,MSGTYPE_PONG,"Ohi!",4);
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "INCR", "c", "pings_received");
+    RedisModule_FreeCallReply(reply);
 }
 
 /* Callback for message MSGTYPE_PONG. */

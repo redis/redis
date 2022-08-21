@@ -99,7 +99,7 @@ typedef struct dictIterator {
     int table, safe;
     dictEntry *entry, *nextEntry;
     /* unsafe iterator fingerprint for misuse detection. */
-    long long fingerprint;
+    unsigned long long fingerprint;
 } dictIterator;
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
@@ -110,9 +110,10 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 #define DICT_HT_INITIAL_SIZE     (1<<(DICT_HT_INITIAL_EXP))
 
 /* ------------------------------- Macros ------------------------------------*/
-#define dictFreeVal(d, entry) \
-    if ((d)->type->valDestructor) \
-        (d)->type->valDestructor((d), (entry)->v.val)
+#define dictFreeVal(d, entry) do {                     \
+    if ((d)->type->valDestructor)                      \
+        (d)->type->valDestructor((d), (entry)->v.val); \
+   } while(0)
 
 #define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
@@ -150,7 +151,7 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 #define dictMetadataSize(d) ((d)->type->dictEntryMetadataBytes \
                              ? (d)->type->dictEntryMetadataBytes(d) : 0)
 
-#define dictHashKey(d, key) (d)->type->hashFunction(key)
+#define dictHashKey(d, key) ((d)->type->hashFunction(key))
 #define dictGetKey(he) ((he)->key)
 #define dictGetVal(he) ((he)->v.val)
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
@@ -159,8 +160,8 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 #define dictSlots(d) (DICTHT_SIZE((d)->ht_size_exp[0])+DICTHT_SIZE((d)->ht_size_exp[1]))
 #define dictSize(d) ((d)->ht_used[0]+(d)->ht_used[1])
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
-#define dictPauseRehashing(d) (d)->pauserehash++
-#define dictResumeRehashing(d) (d)->pauserehash--
+#define dictPauseRehashing(d) ((d)->pauserehash++)
+#define dictResumeRehashing(d) ((d)->pauserehash--)
 
 /* If our unsigned long type can store a 64 bit number, use a 64 bit PRNG. */
 #if ULONG_MAX >= 0xffffffffffffffff
@@ -194,8 +195,8 @@ dictEntry *dictGetRandomKey(dict *d);
 dictEntry *dictGetFairRandomKey(dict *d);
 unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
 void dictGetStats(char *buf, size_t bufsize, dict *d);
-uint64_t dictGenHashFunction(const void *key, int len);
-uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len);
+uint64_t dictGenHashFunction(const void *key, size_t len);
+uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len);
 void dictEmpty(dict *d, void(callback)(dict*));
 void dictEnableResize(void);
 void dictDisableResize(void);
@@ -208,7 +209,7 @@ uint64_t dictGetHash(dict *d, const void *key);
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 
 #ifdef REDIS_TEST
-int dictTest(int argc, char *argv[], int accurate);
+int dictTest(int argc, char *argv[], int flags);
 #endif
 
 #endif /* __DICT_H */

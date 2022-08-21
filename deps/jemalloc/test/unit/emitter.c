@@ -169,7 +169,7 @@ static void emit_nested_dict(emitter_t *emitter) {
 	emitter_end(emitter);
 }
 
-static const char *nested_dict_json =
+static const char *nested_object_json =
 "{\n"
 "\t\"json1\": {\n"
 "\t\t\"json2\": {\n"
@@ -183,7 +183,7 @@ static const char *nested_dict_json =
 "\t}\n"
 "}\n";
 
-static const char *nested_dict_table =
+static const char *nested_object_table =
 "Dict 1\n"
 "  Dict 2\n"
 "    A primitive: 123\n"
@@ -192,8 +192,8 @@ static const char *nested_dict_table =
 "  Another primitive: 123\n";
 
 TEST_BEGIN(test_nested_dict) {
-	assert_emit_output(&emit_nested_dict, nested_dict_json,
-	    nested_dict_table);
+	assert_emit_output(&emit_nested_dict, nested_object_json,
+	    nested_object_table);
 }
 TEST_END
 
@@ -256,13 +256,14 @@ emit_modal(emitter_t *emitter) {
 	int val = 123;
 	emitter_begin(emitter);
 	emitter_dict_begin(emitter, "j0", "T0");
-	emitter_json_dict_begin(emitter, "j1");
+	emitter_json_key(emitter, "j1");
+	emitter_json_object_begin(emitter);
 	emitter_kv(emitter, "i1", "I1", emitter_type_int, &val);
 	emitter_json_kv(emitter, "i2", emitter_type_int, &val);
 	emitter_table_kv(emitter, "I3", emitter_type_int, &val);
 	emitter_table_dict_begin(emitter, "T1");
 	emitter_kv(emitter, "i4", "I4", emitter_type_int, &val);
-	emitter_json_dict_end(emitter); /* Close j1 */
+	emitter_json_object_end(emitter); /* Close j1 */
 	emitter_kv(emitter, "i5", "I5", emitter_type_int, &val);
 	emitter_table_dict_end(emitter); /* Close T1 */
 	emitter_kv(emitter, "i6", "I6", emitter_type_int, &val);
@@ -302,24 +303,26 @@ emit_json_arr(emitter_t *emitter) {
 	int ival = 123;
 
 	emitter_begin(emitter);
-	emitter_json_dict_begin(emitter, "dict");
-	emitter_json_arr_begin(emitter, "arr");
-	emitter_json_arr_obj_begin(emitter);
+	emitter_json_key(emitter, "dict");
+	emitter_json_object_begin(emitter);
+	emitter_json_key(emitter, "arr");
+	emitter_json_array_begin(emitter);
+	emitter_json_object_begin(emitter);
 	emitter_json_kv(emitter, "foo", emitter_type_int, &ival);
-	emitter_json_arr_obj_end(emitter); /* Close arr[0] */
+	emitter_json_object_end(emitter); /* Close arr[0] */
 	/* arr[1] and arr[2] are primitives. */
-	emitter_json_arr_value(emitter, emitter_type_int, &ival);
-	emitter_json_arr_value(emitter, emitter_type_int, &ival);
-	emitter_json_arr_obj_begin(emitter);
+	emitter_json_value(emitter, emitter_type_int, &ival);
+	emitter_json_value(emitter, emitter_type_int, &ival);
+	emitter_json_object_begin(emitter);
 	emitter_json_kv(emitter, "bar", emitter_type_int, &ival);
 	emitter_json_kv(emitter, "baz", emitter_type_int, &ival);
-	emitter_json_arr_obj_end(emitter); /* Close arr[3]. */
-	emitter_json_arr_end(emitter); /* Close arr. */
-	emitter_json_dict_end(emitter); /* Close dict. */
+	emitter_json_object_end(emitter); /* Close arr[3]. */
+	emitter_json_array_end(emitter); /* Close arr. */
+	emitter_json_object_end(emitter); /* Close dict. */
 	emitter_end(emitter);
 }
 
-static const char *json_arr_json =
+static const char *json_array_json =
 "{\n"
 "\t\"dict\": {\n"
 "\t\t\"arr\": [\n"
@@ -336,10 +339,62 @@ static const char *json_arr_json =
 "\t}\n"
 "}\n";
 
-static const char *json_arr_table = "";
+static const char *json_array_table = "";
 
 TEST_BEGIN(test_json_arr) {
-	assert_emit_output(&emit_json_arr, json_arr_json, json_arr_table);
+	assert_emit_output(&emit_json_arr, json_array_json, json_array_table);
+}
+TEST_END
+
+static void
+emit_json_nested_array(emitter_t *emitter) {
+	int ival = 123;
+	char *sval = "foo";
+	emitter_begin(emitter);
+	emitter_json_array_begin(emitter);
+		emitter_json_array_begin(emitter);
+		emitter_json_value(emitter, emitter_type_int, &ival);
+		emitter_json_value(emitter, emitter_type_string, &sval);
+		emitter_json_value(emitter, emitter_type_int, &ival);
+		emitter_json_value(emitter, emitter_type_string, &sval);
+		emitter_json_array_end(emitter);
+		emitter_json_array_begin(emitter);
+		emitter_json_value(emitter, emitter_type_int, &ival);
+		emitter_json_array_end(emitter);
+		emitter_json_array_begin(emitter);
+		emitter_json_value(emitter, emitter_type_string, &sval);
+		emitter_json_value(emitter, emitter_type_int, &ival);
+		emitter_json_array_end(emitter);
+		emitter_json_array_begin(emitter);
+		emitter_json_array_end(emitter);
+	emitter_json_array_end(emitter);
+	emitter_end(emitter);
+}
+
+static const char *json_nested_array_json =
+"{\n"
+"\t[\n"
+"\t\t[\n"
+"\t\t\t123,\n"
+"\t\t\t\"foo\",\n"
+"\t\t\t123,\n"
+"\t\t\t\"foo\"\n"
+"\t\t],\n"
+"\t\t[\n"
+"\t\t\t123\n"
+"\t\t],\n"
+"\t\t[\n"
+"\t\t\t\"foo\",\n"
+"\t\t\t123\n"
+"\t\t],\n"
+"\t\t[\n"
+"\t\t]\n"
+"\t]\n"
+"}\n";
+
+TEST_BEGIN(test_json_nested_arr) {
+	assert_emit_output(&emit_json_nested_array, json_nested_array_json,
+	    json_array_table);
 }
 TEST_END
 
@@ -347,11 +402,11 @@ static void
 emit_table_row(emitter_t *emitter) {
 	emitter_begin(emitter);
 	emitter_row_t row;
-	emitter_col_t abc = {emitter_justify_left, 10, emitter_type_title};
+	emitter_col_t abc = {emitter_justify_left, 10, emitter_type_title, {0}, {0, 0}};
 	abc.str_val = "ABC title";
-	emitter_col_t def = {emitter_justify_right, 15, emitter_type_title};
+	emitter_col_t def = {emitter_justify_right, 15, emitter_type_title, {0}, {0, 0}};
 	def.str_val = "DEF title";
-	emitter_col_t ghi = {emitter_justify_right, 5, emitter_type_title};
+	emitter_col_t ghi = {emitter_justify_right, 5, emitter_type_title, {0}, {0, 0}};
 	ghi.str_val = "GHI";
 
 	emitter_row_init(&row);
@@ -409,5 +464,6 @@ main(void) {
 	    test_types,
 	    test_modal,
 	    test_json_arr,
+	    test_json_nested_arr,
 	    test_table_row);
 }

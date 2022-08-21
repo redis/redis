@@ -41,7 +41,7 @@ start_server {tags {"hash"}} {
         assert_encoding $type myhash
 
         # coverage for objectComputeSize
-        assert_morethan [r memory usage myhash] 0
+        assert_morethan [memory_usage myhash] 0
 
         test "HRANDFIELD - $type" {
             unset -nocomplain myhash
@@ -98,10 +98,7 @@ start_server {tags {"hash"}} {
             assert_encoding $type myhash
 
             # create a dict for easy lookup
-            unset -nocomplain mydict
-            foreach {k v} [r hgetall myhash] {
-                dict append mydict $k $v
-            }
+            set mydict [dict create {*}[r hgetall myhash]]
 
             # We'll stress different parts of the code, see the implementation
             # of HRANDFIELD for more information, but basically there are
@@ -313,10 +310,10 @@ start_server {tags {"hash"}} {
         set _ $result
     } {foo}
 
-    test {HMSET wrong number of args} {
-        catch {r hmset smallhash key1 val1 key2} err
-        format $err
-    } {*wrong number*}
+    test {HSET/HMSET wrong number of args} {
+        assert_error {*wrong number of arguments for 'hset' command} {r hset smallhash key1 val1 key2}
+        assert_error {*wrong number of arguments for 'hmset' command} {r hmset smallhash key1 val1 key2}
+    }
 
     test {HMSET - small hash} {
         set args {}
@@ -510,8 +507,8 @@ start_server {tags {"hash"}} {
         catch {r hincrby smallhash str 1} smallerr
         catch {r hincrby bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not an integer*" $smallerr]
-        lappend rv [string match "ERR*not an integer*" $bigerr]
+        lappend rv [string match "ERR *not an integer*" $smallerr]
+        lappend rv [string match "ERR *not an integer*" $bigerr]
     } {1 1}
 
     test {HINCRBY fails against hash value with spaces (right)} {
@@ -520,8 +517,8 @@ start_server {tags {"hash"}} {
         catch {r hincrby smallhash str 1} smallerr
         catch {r hincrby bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not an integer*" $smallerr]
-        lappend rv [string match "ERR*not an integer*" $bigerr]
+        lappend rv [string match "ERR *not an integer*" $smallerr]
+        lappend rv [string match "ERR *not an integer*" $bigerr]
     } {1 1}
 
     test {HINCRBY can detect overflows} {
@@ -582,8 +579,8 @@ start_server {tags {"hash"}} {
         catch {r hincrbyfloat smallhash str 1} smallerr
         catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not*float*" $smallerr]
-        lappend rv [string match "ERR*not*float*" $bigerr]
+        lappend rv [string match "ERR *not*float*" $smallerr]
+        lappend rv [string match "ERR *not*float*" $bigerr]
     } {1 1}
 
     test {HINCRBYFLOAT fails against hash value with spaces (right)} {
@@ -592,15 +589,15 @@ start_server {tags {"hash"}} {
         catch {r hincrbyfloat smallhash str 1} smallerr
         catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not*float*" $smallerr]
-        lappend rv [string match "ERR*not*float*" $bigerr]
+        lappend rv [string match "ERR *not*float*" $smallerr]
+        lappend rv [string match "ERR *not*float*" $bigerr]
     } {1 1}
 
     test {HINCRBYFLOAT fails against hash value that contains a null-terminator in the middle} {
         r hset h f "1\x002"
         catch {r hincrbyfloat h f 1} err
         set rv {}
-        lappend rv [string match "ERR*not*float*" $err]
+        lappend rv [string match "ERR *not*float*" $err]
     } {1}
 
     test {HSTRLEN against the small hash} {
@@ -649,6 +646,31 @@ start_server {tags {"hash"}} {
             assert {$len1 == $len2}
             assert {$len2 == $len3}
         }
+    }
+
+    test {HINCRBYFLOAT over hash-max-listpack-value encoded with a listpack} {
+        set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
+        r config set hash-max-listpack-value 8
+        
+        # hash's value exceeds hash-max-listpack-value
+        r del smallhash
+        r del bighash
+        r hset smallhash tmp 0
+        r hset bighash tmp 0
+        r hincrbyfloat smallhash tmp 0.000005
+        r hincrbyfloat bighash tmp 0.0000005
+        assert_encoding listpack smallhash
+        assert_encoding hashtable bighash
+
+        # hash's field exceeds hash-max-listpack-value
+        r del smallhash
+        r del bighash
+        r hincrbyfloat smallhash abcdefgh 1
+        r hincrbyfloat bighash abcdefghi 1
+        assert_encoding listpack smallhash
+        assert_encoding hashtable bighash
+
+        r config set hash-max-listpack-value $original_max_value
     }
 
     test {Hash ziplist regression test for large keys} {

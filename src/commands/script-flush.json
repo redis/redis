@@ -1,0 +1,47 @@
+{
+    "FLUSH": {
+        "summary": "Remove all the scripts from the script cache.",
+        "complexity": "O(N) with N being the number of scripts in cache",
+        "group": "scripting",
+        "since": "2.6.0",
+        "arity": -2,
+        "container": "SCRIPT",
+        "function": "scriptCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added the `ASYNC` and `SYNC` flushing mode modifiers."
+            ]
+        ],
+        "command_flags": [
+            "NOSCRIPT"
+        ],
+        "acl_categories": [
+            "SCRIPTING"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_NODES",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
+        "arguments": [
+            {
+                "name": "flush-type",
+                "type": "oneof",
+                "optional": true,
+                "since": "6.2.0",
+                "arguments": [
+                    {
+                        "name": "async",
+                        "type": "pure-token",
+                        "token": "ASYNC"
+                    },
+                    {
+                        "name": "sync",
+                        "type": "pure-token",
+                        "token": "SYNC"
+                    }
+                ]
+            }
+        ]
+    }
+}

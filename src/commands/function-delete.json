@@ -1,0 +1,28 @@
+{
+    "DELETE": {
+        "summary": "Delete a function by name",
+        "complexity": "O(1)",
+        "group": "scripting",
+        "since": "7.0.0",
+        "arity": 3,
+        "container": "FUNCTION",
+        "function": "functionDeleteCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "WRITE"
+        ],
+        "acl_categories": [
+            "SCRIPTING"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
+        "arguments": [
+            {
+                "name": "library-name",
+                "type": "string"
+            }
+        ]
+    }
+}

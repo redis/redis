@@ -4,7 +4,10 @@
 
 #include <hiredis.h>
 #include <hiredis_ssl.h>
-#include <win32.h>
+
+#ifdef _MSC_VER
+#include <winsock2.h> /* For struct timeval */
+#endif
 
 int main(int argc, char **argv) {
     unsigned int j;

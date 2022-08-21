@@ -1,0 +1,24 @@
+{
+    "PSUBSCRIBE": {
+        "summary": "Listen for messages published to channels matching the given patterns",
+        "complexity": "O(N) where N is the number of patterns the client is already subscribed to.",
+        "group": "pubsub",
+        "since": "2.0.0",
+        "arity": -2,
+        "function": "psubscribeCommand",
+        "command_flags": [
+            "PUBSUB",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "pattern",
+                "type": "pattern",
+                "multiple": true
+            }
+        ]
+    }
+}

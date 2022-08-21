@@ -115,6 +115,7 @@ start_server {tags {"obuf-limits external:skip"}} {
     }
 
     test {No response for single command if client output buffer hard limit is enforced} {
+        r config set latency-tracking no
         r config set client-output-buffer-limit {normal 100000 0 0}
         # Total size of all items must be more than 100k
         set item [string repeat "x" 1000]
@@ -139,7 +140,7 @@ start_server {tags {"obuf-limits external:skip"}} {
 
         # Read nothing
         set fd [$rd channel]
-        assert_equal {} [read $fd]
+        assert_equal {} [$rd rawread]
     }
 
     # Note: This test assumes that what's written with one write, will be read by redis in one read.
@@ -179,8 +180,7 @@ start_server {tags {"obuf-limits external:skip"}} {
         assert_equal "PONG" [r ping]
         set clients [r client list]
         assert_no_match "*name=multicommands*" $clients
-        set fd [$rd2 channel]
-        assert_equal {} [read $fd]
+        assert_equal {} [$rd2 rawread]
     }
 
     test {Execute transactions completely even if client output buffer limit is enforced} {

@@ -1,0 +1,69 @@
+{
+    "PFMERGE": {
+        "summary": "Merge N different HyperLogLogs into a single one.",
+        "complexity": "O(N) to merge N HyperLogLogs, but with high constant times.",
+        "group": "hyperloglog",
+        "since": "2.8.9",
+        "arity": -2,
+        "function": "pfmergeCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "HYPERLOGLOG"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "destkey",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "sourcekey",
+                "type": "key",
+                "key_spec_index": 1,
+                "multiple": true
+            }
+        ]
+    }
+}

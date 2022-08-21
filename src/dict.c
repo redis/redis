@@ -83,18 +83,17 @@ uint8_t *dictGetHashFunctionSeed(void) {
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
 
-uint64_t dictGenHashFunction(const void *key, int len) {
+uint64_t dictGenHashFunction(const void *key, size_t len) {
     return siphash(key,len,dict_hash_function_seed);
 }
 
-uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len) {
+uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
     return siphash_nocase(buf,len,dict_hash_function_seed);
 }
 
 /* ----------------------------- API implementation ------------------------- */
 
-/* Reset a hash table already initialized with ht_init().
- * NOTE: This function should only be called by ht_destroy(). */
+/* Reset hash table parameters already initialized with _dictInit()*/
 static void _dictReset(dict *d, int htidx)
 {
     d->ht_table[htidx] = NULL;
@@ -283,7 +282,7 @@ int dictRehashMilliseconds(dict *d, int ms) {
 /* This function performs just a step of rehashing, and only if hashing has
  * not been paused for our hash table. When we have iterators in the
  * middle of a rehashing we can't mess with the two hash tables otherwise
- * some element can be missed or duplicated.
+ * some elements can be missed or duplicated.
  *
  * This function is called by common lookup or update operations in the
  * dictionary so that the hash table automatically migrates from H1 to H2
@@ -589,8 +588,8 @@ void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table
  * the fingerprint again when the iterator is released.
  * If the two fingerprints are different it means that the user of the iterator
  * performed forbidden operations against the dictionary while iterating. */
-long long dictFingerprint(dict *d) {
-    long long integers[6], hash = 0;
+unsigned long long dictFingerprint(dict *d) {
+    unsigned long long integers[6], hash = 0;
     int j;
 
     integers[0] = (long) d->ht_table[0];
@@ -1203,8 +1202,7 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx) {
         if (clvector[i] == 0) continue;
         if (l >= bufsize) break;
         l += snprintf(buf+l,bufsize-l,
-            "   %s%ld: %ld (%.02f%%)\n",
-            (i == DICT_STATS_VECTLEN-1)?">= ":"",
+            "   %ld: %ld (%.02f%%)\n",
             i, clvector[i], ((float)clvector[i]/DICTHT_SIZE(d->ht_size_exp[htidx]))*100);
     }
 
@@ -1231,6 +1229,7 @@ void dictGetStats(char *buf, size_t bufsize, dict *d) {
 /* ------------------------------- Benchmark ---------------------------------*/
 
 #ifdef REDIS_TEST
+#include "testhelp.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -1259,7 +1258,7 @@ char *stringFromLongLong(long long value) {
     int len;
     char *s;
 
-    len = sprintf(buf,"%lld",value);
+    len = snprintf(buf,sizeof(buf),"%lld",value);
     s = zmalloc(len+1);
     memcpy(s, buf, len);
     s[len] = '\0';
@@ -1283,11 +1282,12 @@ dictType BenchmarkDictType = {
 } while(0)
 
 /* ./redis-server test dict [<count> | --accurate] */
-int dictTest(int argc, char **argv, int accurate) {
+int dictTest(int argc, char **argv, int flags) {
     long j;
     long long start, elapsed;
     dict *dict = dictCreate(&BenchmarkDictType);
     long count = 0;
+    int accurate = (flags & REDIS_TEST_ACCURATE);
 
     if (argc == 4) {
         if (accurate) {

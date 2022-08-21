@@ -1,6 +1,7 @@
 #include "server.h"
 #include "bio.h"
 #include "atomicvar.h"
+#include "functions.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;
@@ -42,6 +43,27 @@ void lazyFreeLuaScripts(void *args[]) {
     dict *lua_scripts = args[0];
     long long len = dictSize(lua_scripts);
     dictRelease(lua_scripts);
+    atomicDecr(lazyfree_objects,len);
+    atomicIncr(lazyfreed_objects,len);
+}
+
+/* Release the functions ctx. */
+void lazyFreeFunctionsCtx(void *args[]) {
+    functionsLibCtx *functions_lib_ctx = args[0];
+    size_t len = functionsLibCtxfunctionsLen(functions_lib_ctx);
+    functionsLibCtxFree(functions_lib_ctx);
+    atomicDecr(lazyfree_objects,len);
+    atomicIncr(lazyfreed_objects,len);
+}
+
+/* Release replication backlog referencing memory. */
+void lazyFreeReplicationBacklogRefMem(void *args[]) {
+    list *blocks = args[0];
+    rax *index = args[1];
+    long long len = listLength(blocks);
+    len += raxSize(index);
+    listRelease(blocks);
+    raxFree(index);
     atomicDecr(lazyfree_objects,len);
     atomicIncr(lazyfreed_objects,len);
 }
@@ -178,5 +200,28 @@ void freeLuaScriptsAsync(dict *lua_scripts) {
         bioCreateLazyFreeJob(lazyFreeLuaScripts,1,lua_scripts);
     } else {
         dictRelease(lua_scripts);
+    }
+}
+
+/* Free functions ctx, if the functions ctx contains enough functions, free it in async way. */
+void freeFunctionsAsync(functionsLibCtx *functions_lib_ctx) {
+    if (functionsLibCtxfunctionsLen(functions_lib_ctx) > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects,functionsLibCtxfunctionsLen(functions_lib_ctx));
+        bioCreateLazyFreeJob(lazyFreeFunctionsCtx,1,functions_lib_ctx);
+    } else {
+        functionsLibCtxFree(functions_lib_ctx);
+    }
+}
+
+/* Free replication backlog referencing buffer blocks and rax index. */
+void freeReplicationBacklogRefMemAsync(list *blocks, rax *index) {
+    if (listLength(blocks) > LAZYFREE_THRESHOLD ||
+        raxSize(index) > LAZYFREE_THRESHOLD)
+    {
+        atomicIncr(lazyfree_objects,listLength(blocks)+raxSize(index));
+        bioCreateLazyFreeJob(lazyFreeReplicationBacklogRefMem,2,blocks,index);
+    } else {
+        listRelease(blocks);
+        raxFree(index);
     }
 }

@@ -1,0 +1,17 @@
+{
+    "RESETSTAT": {
+        "summary": "Reset the stats returned by INFO",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.0.0",
+        "arity": 2,
+        "container": "CONFIG",
+        "function": "configResetStatCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ]
+    }
+}

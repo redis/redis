@@ -1,0 +1,72 @@
+{
+    "STREAM": {
+        "summary": "Get information about a stream",
+        "complexity": "O(1)",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -3,
+        "container": "XINFO",
+        "history": [
+            [
+                "6.0.0",
+                "Added the `FULL` modifier."
+            ],
+            [
+                "7.0.0",
+                "Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"
+            ]
+        ],
+        "function": "xinfoCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "full-block",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "full",
+                        "token": "FULL",
+                        "type": "pure-token"
+                    },
+                    {
+                        "token": "COUNT",
+                        "name": "count",
+                        "type": "integer",
+                        "optional": true
+                    }
+                ]
+            }
+        ]
+    }
+}

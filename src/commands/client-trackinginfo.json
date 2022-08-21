@@ -1,0 +1,20 @@
+{
+    "TRACKINGINFO": {
+        "summary": "Return information about server assisted client side caching for the current connection",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "6.2.0",
+        "arity": 2,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ]
+    }
+}

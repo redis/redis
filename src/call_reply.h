@@ -34,7 +34,8 @@
 
 typedef struct CallReply CallReply;
 
-CallReply *callReplyCreate(sds reply, void *private_data);
+CallReply *callReplyCreate(sds reply, list *deferred_error_list, void *private_data);
+CallReply *callReplyCreateError(sds reply, void *private_data);
 int callReplyType(CallReply *rep);
 const char *callReplyGetString(CallReply *rep, size_t *len);
 long long callReplyGetLongLong(CallReply *rep);
@@ -51,6 +52,7 @@ const char *callReplyGetVerbatim(CallReply *rep, size_t *len, const char **forma
 const char *callReplyGetProto(CallReply *rep, size_t *len);
 void *callReplyGetPrivateData(CallReply *rep);
 int callReplyIsResp3(CallReply *rep);
+list *callReplyDeferredErrorList(CallReply *rep);
 void freeCallReply(CallReply *rep);
 
 #endif /* SRC_CALL_REPLY_H_ */

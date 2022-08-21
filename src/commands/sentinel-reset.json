@@ -1,0 +1,22 @@
+{
+    "RESET": {
+        "summary": "Reset masters by name pattern",
+        "complexity": "O(N) where N is the number of monitored masters",
+        "group": "sentinel",
+        "since": "2.8.4",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "pattern",
+                "type": "pattern"
+            }
+        ]
+    }
+}

@@ -262,8 +262,8 @@ base_block_alloc(tsdn_t *tsdn, base_t *base, extent_hooks_t *extent_hooks,
 	 */
 	size_t min_block_size = HUGEPAGE_CEILING(sz_psz2u(header_size + gap_size
 	    + usize));
-	pszind_t pind_next = (*pind_last + 1 < NPSIZES) ? *pind_last + 1 :
-	    *pind_last;
+	pszind_t pind_next = (*pind_last + 1 < sz_psz2ind(SC_LARGE_MAXCLASS)) ?
+	    *pind_last + 1 : *pind_last;
 	size_t next_block_size = HUGEPAGE_CEILING(sz_pind2sz(pind_next));
 	size_t block_size = (min_block_size > next_block_size) ? min_block_size
 	    : next_block_size;
@@ -372,7 +372,7 @@ base_new(tsdn_t *tsdn, unsigned ind, extent_hooks_t *extent_hooks) {
 	base->extent_sn_next = extent_sn_next;
 	base->blocks = block;
 	base->auto_thp_switched = false;
-	for (szind_t i = 0; i < NSIZES; i++) {
+	for (szind_t i = 0; i < SC_NSIZES; i++) {
 		extent_heap_new(&base->avail[i]);
 	}
 	if (config_stats) {
@@ -426,7 +426,7 @@ base_alloc_impl(tsdn_t *tsdn, base_t *base, size_t size, size_t alignment,
 
 	extent_t *extent = NULL;
 	malloc_mutex_lock(tsdn, &base->mtx);
-	for (szind_t i = sz_size2index(asize); i < NSIZES; i++) {
+	for (szind_t i = sz_size2index(asize); i < SC_NSIZES; i++) {
 		extent = extent_heap_remove_first(&base->avail[i]);
 		if (extent != NULL) {
 			/* Use existing space. */

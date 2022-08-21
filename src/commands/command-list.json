@@ -1,0 +1,47 @@
+{
+    "LIST": {
+        "summary": "Get an array of Redis command names",
+        "complexity": "O(N) where N is the total number of Redis commands",
+        "group": "server",
+        "since": "7.0.0",
+        "arity": -2,
+        "container": "COMMAND",
+        "function": "commandListCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT_ORDER"
+        ],
+        "arguments": [
+            {
+                "name": "filterby",
+                "token": "FILTERBY",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "module-name",
+                        "type": "string",
+                        "token": "MODULE"
+                    },
+                    {
+                        "name": "category",
+                        "type": "string",
+                        "token": "ACLCAT"
+                    },
+                    {
+                        "name": "pattern",
+                        "type": "pattern",
+                        "token": "PATTERN"
+                    }
+                ]
+            }
+        ]
+    }
+}

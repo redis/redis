@@ -1,0 +1,24 @@
+{
+    "NUMSUB": {
+        "summary": "Get the count of subscribers for channels",
+        "complexity": "O(N) for the NUMSUB subcommand, where N is the number of requested channels",
+        "group": "pubsub",
+        "since": "2.8.0",
+        "arity": -2,
+        "container": "PUBSUB",
+        "function": "pubsubCommand",
+        "command_flags": [
+            "PUBSUB",
+            "LOADING",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "channel",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
+        ]
+    }
+}

@@ -66,7 +66,10 @@ int setTypeAdd(robj *subject, sds value) {
             if (success) {
                 /* Convert to regular set when the intset contains
                  * too many entries. */
-                if (intsetLen(subject->ptr) > server.set_max_intset_entries)
+                size_t max_entries = server.set_max_intset_entries;
+                /* limit to 1G entries due to intset internals. */
+                if (max_entries >= 1<<30) max_entries = 1<<30;
+                if (intsetLen(subject->ptr) > max_entries)
                     setTypeConvert(subject,OBJ_ENCODING_HT);
                 return 1;
             }
@@ -200,7 +203,7 @@ sds setTypeNextObject(setTypeIterator *si) {
  * The caller provides both pointers to be populated with the right
  * object. The return value of the function is the object->encoding
  * field of the object and is used by the caller to check if the
- * int64_t pointer or the redis object pointer was populated.
+ * int64_t pointer or the sds pointer was populated.
  *
  * Note that both the sdsele and llele pointers should be passed and cannot
  * be NULL since the function will try to defensively populate the non
@@ -487,11 +490,20 @@ void spopWithCountCommand(client *c) {
 
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
+
+        /* todo: Move the spop notification to be executed after the command logic.
+         * We can then decide if we want to keep the `alsoPropagate` or move to `rewriteClientCommandVector`. */
+
+        /* Propagate del command */
+        robj *propagate[2];
+        propagate[0] = shared.del;
+        propagate[1] = c->argv[1];
+        alsoPropagate(c->db->id,propagate,2,PROPAGATE_AOF|PROPAGATE_REPL);
+
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 
-        /* Propagate this command as a DEL operation */
-        rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c,c->db,c->argv[1]);
+        preventCommandPropagation(c);
         return;
     }
 
@@ -802,7 +814,7 @@ void srandmemberWithCountCommand(client *c) {
     }
 }
 
-/* SRANDMEMBER [<count>] */
+/* SRANDMEMBER <key> [<count>] */
 void srandmemberCommand(client *c) {
     robj *set;
     sds ele;
@@ -847,7 +859,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     return 0;
 }
 
-/* SINTER / SINTERSTORE / SINTERCARD
+/* SINTER / SMEMBERS / SINTERSTORE / SINTERCARD
  *
  * 'cardinality_only' work for SINTERCARD, only return the cardinality
  * with minimum processing and memory overheads.
@@ -868,9 +880,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
     int encoding, empty = 0;
 
     for (j = 0; j < setnum; j++) {
-        robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j]) :
-            lookupKeyRead(c->db,setkeys[j]);
+        robj *setobj = lookupKeyRead(c->db, setkeys[j]);
         if (!setobj) {
             /* A NULL is considered an empty set */
             empty += 1;
@@ -984,7 +994,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
         /* Store the resulting set into the target, if the intersection
          * is not an empty set. */
         if (setTypeSize(dstset) > 0) {
-            setKey(c,c->db,dstkey,dstset);
+            setKey(c,c->db,dstkey,dstset,0);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,"sinterstore",
                 dstkey,c->db->id);
@@ -1046,10 +1056,6 @@ void sinterstoreCommand(client *c) {
     sinterGenericCommand(c, c->argv+2, c->argc-2, c->argv[1], 0, 0);
 }
 
-#define SET_OP_UNION 0
-#define SET_OP_DIFF 1
-#define SET_OP_INTER 2
-
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
@@ -1058,11 +1064,10 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     sds ele;
     int j, cardinality = 0;
     int diff_algo = 1;
+    int sameset = 0; 
 
     for (j = 0; j < setnum; j++) {
-        robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j]) :
-            lookupKeyRead(c->db,setkeys[j]);
+        robj *setobj = lookupKeyRead(c->db, setkeys[j]);
         if (!setobj) {
             sets[j] = NULL;
             continue;
@@ -1072,6 +1077,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             return;
         }
         sets[j] = setobj;
+        if (j > 0 && sets[0] == sets[j]) {
+            sameset = 1; 
+        }
     }
 
     /* Select what DIFF algorithm to use.
@@ -1083,7 +1091,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
      * the sets.
      *
      * We compute what is the best bet with the current input here. */
-    if (op == SET_OP_DIFF && sets[0]) {
+    if (op == SET_OP_DIFF && sets[0] && !sameset) {
         long long algo_one_work = 0, algo_two_work = 0;
 
         for (j = 0; j < setnum; j++) {
@@ -1125,6 +1133,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             }
             setTypeReleaseIterator(si);
         }
+    } else if (op == SET_OP_DIFF && sameset) {
+        /* At least one of the sets is the same one (same key) as the first one, result must be empty. */
     } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 1) {
         /* DIFF Algorithm 1:
          *
@@ -1192,7 +1202,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         /* If we have a target key where to store the resulting set
          * create this key with the result set inside */
         if (setTypeSize(dstset) > 0) {
-            setKey(c,c->db,dstkey,dstset);
+            setKey(c,c->db,dstkey,dstset,0);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,
                 op == SET_OP_UNION ? "sunionstore" : "sdiffstore",

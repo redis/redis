@@ -1,0 +1,65 @@
+{
+    "SHUTDOWN": {
+        "summary": "Synchronously save the dataset to disk and then shut down the server",
+        "complexity": "O(N) when saving, where N is the total number of keys in all databases when saving data, otherwise O(1)",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": -1,
+        "function": "shutdownCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the `NOW`, `FORCE` and `ABORT` modifiers."
+            ]
+        ],
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "NO_MULTI",
+            "SENTINEL",
+            "ALLOW_BUSY"
+        ],
+        "arguments": [
+            {
+                "name": "save-selector",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "nosave",
+                        "type": "pure-token",
+                        "token": "NOSAVE"
+                    },
+                    {
+                        "name": "save",
+                        "type": "pure-token",
+                        "token": "SAVE"
+                    }
+                ]
+            },
+            {
+                "name": "now",
+                "type": "pure-token",
+                "token": "NOW",
+                "optional": true,
+                "since": "7.0.0"
+            },
+            {
+                "name": "force",
+                "type": "pure-token",
+                "token": "FORCE",
+                "optional": true,
+                "since": "7.0.0"
+            },
+            {
+                "name": "abort",
+                "type": "pure-token",
+                "token": "ABORT",
+                "optional": true,
+                "since": "7.0.0"
+            }
+        ]
+    }
+}

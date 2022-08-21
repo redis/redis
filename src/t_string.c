@@ -38,7 +38,7 @@ int getGenericCommand(client *c);
  *----------------------------------------------------------------------------*/
 
 static int checkStringLength(client *c, long long size) {
-    if (!(c->flags & CLIENT_MASTER) && size > server.proto_max_bulk_len) {
+    if (!mustObeyClient(c) && size > server.proto_max_bulk_len) {
         addReplyError(c,"string exceeds maximum allowed size (proto-max-bulk-len)");
         return C_ERR;
     }
@@ -77,6 +77,9 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
+    int found = 0;
+    int setkey_flags = 0;
+
     if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
         return;
     }
@@ -85,8 +88,10 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (getGenericCommand(c) == C_ERR) return;
     }
 
-    if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
-        (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
+    found = (lookupKeyWrite(c->db,key) != NULL);
+
+    if ((flags & OBJ_SET_NX && found) ||
+        (flags & OBJ_SET_XX && !found))
     {
         if (!(flags & OBJ_SET_GET)) {
             addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
@@ -94,7 +99,10 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         return;
     }
 
-    genericSetKey(c,c->db,key, val,flags & OBJ_KEEPTTL,1);
+    setkey_flags |= (flags & OBJ_KEEPTTL) ? SETKEY_KEEPTTL : 0;
+    setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
+
+    setKey(c,c->db,key,val,setkey_flags);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
@@ -152,7 +160,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
     if (*milliseconds <= 0 || (unit == UNIT_SECONDS && *milliseconds > LLONG_MAX / 1000)) {
         /* Negative value provided or multiplication is gonna overflow. */
-        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        addReplyErrorExpireTime(c);
         return C_ERR;
     }
 
@@ -164,7 +172,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
     if (*milliseconds <= 0) {
         /* Overflow detected. */
-        addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+        addReplyErrorExpireTime(c);
         return C_ERR;
     }
 
@@ -418,7 +426,7 @@ void getdelCommand(client *c) {
 void getsetCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c,c->db,c->argv[1],c->argv[2]);
+    setKey(c,c->db,c->argv[1],c->argv[2],0);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -549,8 +557,7 @@ void msetGenericCommand(client *c, int nx) {
     int j;
 
     if ((c->argc % 2) == 0) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-                            c->cmd->name);
+        addReplyErrorArity(c);
         return;
     }
 
@@ -567,7 +574,7 @@ void msetGenericCommand(client *c, int nx) {
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c,c->db,c->argv[j],c->argv[j+1]);
+        setKey(c,c->db,c->argv[j],c->argv[j+1],0);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;
@@ -718,31 +725,33 @@ void strlenCommand(client *c) {
     addReplyLongLong(c,stringObjectLen(o));
 }
 
-
-/* STRALGO -- Implement complex algorithms on strings.
- *
- * STRALGO <algorithm> ... arguments ... */
-void stralgoLCS(client *c);     /* This implements the LCS algorithm. */
-void stralgoCommand(client *c) {
-    /* Select the algorithm. */
-    if (!strcasecmp(c->argv[1]->ptr,"lcs")) {
-        stralgoLCS(c);
-    } else {
-        addReplyErrorObject(c,shared.syntaxerr);
-    }
-}
-
-/* STRALGO <algo> [IDX] [LEN] [MINMATCHLEN <len>] [WITHMATCHLEN]
- *     STRINGS <string> <string> | KEYS <keya> <keyb>
- */
-void stralgoLCS(client *c) {
+/* LCS key1 key2 [LEN] [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN] */
+void lcsCommand(client *c) {
     uint32_t i, j;
     long long minmatchlen = 0;
     sds a = NULL, b = NULL;
     int getlen = 0, getidx = 0, withmatchlen = 0;
     robj *obja = NULL, *objb = NULL;
 
-    for (j = 2; j < (uint32_t)c->argc; j++) {
+    obja = lookupKeyRead(c->db,c->argv[1]);
+    objb = lookupKeyRead(c->db,c->argv[2]);
+    if ((obja && obja->type != OBJ_STRING) ||
+        (objb && objb->type != OBJ_STRING))
+    {
+        addReplyError(c,
+            "The specified keys must contain string values");
+        /* Don't cleanup the objects, we need to do that
+         * only after calling getDecodedObject(). */
+        obja = NULL;
+        objb = NULL;
+        goto cleanup;
+    }
+    obja = obja ? getDecodedObject(obja) : createStringObject("",0);
+    objb = objb ? getDecodedObject(objb) : createStringObject("",0);
+    a = obja->ptr;
+    b = objb->ptr;
+
+    for (j = 3; j < (uint32_t)c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc-1) - j;
 
@@ -757,37 +766,6 @@ void stralgoLCS(client *c) {
                 != C_OK) goto cleanup;
             if (minmatchlen < 0) minmatchlen = 0;
             j++;
-        } else if (!strcasecmp(opt,"STRINGS") && moreargs > 1) {
-            if (a != NULL) {
-                addReplyError(c,"Either use STRINGS or KEYS");
-                goto cleanup;
-            }
-            a = c->argv[j+1]->ptr;
-            b = c->argv[j+2]->ptr;
-            j += 2;
-        } else if (!strcasecmp(opt,"KEYS") && moreargs > 1) {
-            if (a != NULL) {
-                addReplyError(c,"Either use STRINGS or KEYS");
-                goto cleanup;
-            }
-            obja = lookupKeyRead(c->db,c->argv[j+1]);
-            objb = lookupKeyRead(c->db,c->argv[j+2]);
-            if ((obja && obja->type != OBJ_STRING) ||
-                (objb && objb->type != OBJ_STRING))
-            {
-                addReplyError(c,
-                    "The specified keys must contain string values");
-                /* Don't cleanup the objects, we need to do that
-                 * only after calling getDecodedObject(). */
-                obja = NULL;
-                objb = NULL;
-                goto cleanup;
-            }
-            obja = obja ? getDecodedObject(obja) : createStringObject("",0);
-            objb = objb ? getDecodedObject(objb) : createStringObject("",0);
-            a = obja->ptr;
-            b = objb->ptr;
-            j += 2;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             goto cleanup;
@@ -795,14 +773,9 @@ void stralgoLCS(client *c) {
     }
 
     /* Complain if the user passed ambiguous parameters. */
-    if (a == NULL) {
-        addReplyError(c,"Please specify two strings: "
-                        "STRINGS or KEYS options are mandatory");
-        goto cleanup;
-    } else if (getlen && getidx) {
+    if (getlen && getidx) {
         addReplyError(c,
-            "If you want both the length and indexes, please "
-            "just use IDX.");
+            "If you want both the length and indexes, please just use IDX.");
         goto cleanup;
     }
 
@@ -819,17 +792,22 @@ void stralgoLCS(client *c) {
 
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
-     * we index it as LCS[j+(blen+1)*j] */
+     * we index it as LCS[j+(blen+1)*i] */
     #define LCS(A,B) lcs[(B)+((A)*(blen+1))]
 
     /* Try to allocate the LCS table, and abort on overflow or insufficient memory. */
     unsigned long long lcssize = (unsigned long long)(alen+1)*(blen+1); /* Can't overflow due to the size limits above. */
     unsigned long long lcsalloc = lcssize * sizeof(uint32_t);
     uint32_t *lcs = NULL;
-    if (lcsalloc < SIZE_MAX && lcsalloc / lcssize == sizeof(uint32_t))
+    if (lcsalloc < SIZE_MAX && lcsalloc / lcssize == sizeof(uint32_t)) {
+        if (lcsalloc > (size_t)server.proto_max_bulk_len) {
+            addReplyError(c, "Insufficient memory, transient memory for LCS exceeds proto-max-bulk-len");
+            goto cleanup;
+        }
         lcs = ztrymalloc(lcsalloc);
+    }
     if (!lcs) {
-        addReplyError(c, "Insufficient memory");
+        addReplyError(c, "Insufficient memory, failed allocating transient memory for LCS");
         goto cleanup;
     }
 

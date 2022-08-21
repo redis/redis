@@ -1,0 +1,24 @@
+{
+    "ECHO": {
+        "summary": "Echo the given string",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "1.0.0",
+        "arity": 2,
+        "function": "echoCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "arguments": [
+            {
+                "name": "message",
+                "type": "string"
+            }
+        ]
+    }
+}

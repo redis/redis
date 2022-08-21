@@ -1,6 +1,5 @@
 set testmodule [file normalize tests/modules/basics.so]
 
-
 start_server {tags {"modules"}} {
     r module load $testmodule
 
@@ -30,5 +29,13 @@ start_server {tags {"modules"}} {
         assert_equal $reply 3
     }
 
-    r module unload test
+    test "Unload the module - test" {
+        assert_equal {OK} [r module unload test]
+    }
+}
+
+start_server {tags {"modules external:skip"} overrides {enable-module-command no}} {
+    test {module command disabled} {
+       assert_error "ERR *MODULE command not allowed*" {r module load $testmodule}
+    }
 }
