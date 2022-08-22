@@ -183,3 +183,22 @@ int connTypeProcessPendingData(void) {
     return ret;
 }
 
+sds getListensInfoString(sds info) {
+    for (int j = 0; j < CONN_TYPE_MAX; j++) {
+        connListener *listener = &server.listeners[j];
+        if (listener->ct == NULL)
+            continue;
+
+        info = sdscatfmt(info, "listener%i:name=%s", j, listener->ct->get_type(NULL));
+        for (int i = 0; i < listener->count; i++) {
+            info = sdscatfmt(info, ",bind=%s", listener->bindaddr[i]);
+        }
+
+        if (listener->port)
+            info = sdscatfmt(info, ",port=%i", listener->port);
+
+        info = sdscatfmt(info, "\r\n");
+    }
+
+    return info;
+}

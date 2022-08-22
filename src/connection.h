@@ -275,7 +275,7 @@ static inline int connLastErrorRetryable(connection *conn) {
 }
 
 /* Get address information of a connection.
- * @remote works as boolean type to get local/remote address */
+ * remote works as boolean type to get local/remote address */
 static inline int connAddr(connection *conn, char *ip, size_t ip_len, int *port, int remote) {
     if (conn && conn->type->addr) {
         return conn->type->addr(conn, ip, ip_len, port, remote);
@@ -287,8 +287,8 @@ static inline int connAddr(connection *conn, char *ip, size_t ip_len, int *port,
 /* Format an IP,port pair into something easy to parse. If IP is IPv6
  * (matches for ":"), the ip is surrounded by []. IP and port are just
  * separated by colons. This the standard to display addresses within Redis. */
-static  inline int formatAddr(char *buf, size_t buf_len, char *ip, int port) {
-    return snprintf(buf,buf_len, strchr(ip,':') ?
+static inline int formatAddr(char *buf, size_t buf_len, char *ip, int port) {
+    return snprintf(buf, buf_len, strchr(ip,':') ?
            "[%s]:%d" : "%s:%d", ip, port);
 }
 
@@ -400,19 +400,19 @@ static inline connection *connCreate(ConnectionType *ct) {
 }
 
 /* Create a accepted connection of specified type.
- * @priv is connection type specified argument */
+ * priv is connection type specified argument */
 static inline connection *connCreateAccepted(ConnectionType *ct, int fd, void *priv) {
     return ct->conn_create_accepted(fd, priv);
 }
 
 /* Configure a connection type. A typical case is to configure TLS.
- * @priv is connection type specified,
- * @reconfigure is boolean type to specify if overwrite the original config */
+ * priv is connection type specified,
+ * reconfigure is boolean type to specify if overwrite the original config */
 static inline int connTypeConfigure(ConnectionType *ct, void *priv, int reconfigure) {
     return ct->configure(priv, reconfigure);
 }
 
-/* Walk all the connection type, and cleanup them all if possible */
+/* Walk all the connection types and cleanup them all if possible */
 void connTypeCleanupAll();
 
 /* Test all the connection type has pending data or not. */
@@ -432,6 +432,9 @@ static inline aeFileProc *connAcceptHandler(ConnectionType *ct) {
         return ct->accept_handler;
     return NULL;
 }
+
+/* Get Listeners information, note that caller should free the non-empty string */
+sds getListensInfoString(sds info);
 
 int RedisRegisterConnectionTypeSocket();
 int RedisRegisterConnectionTypeUnix();

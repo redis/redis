@@ -5426,6 +5426,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "shutdown_in_milliseconds:%I\r\n",
                 (int64_t)(server.shutdown_mstime - server.mstime));
         }
+
+        /* get all the listeners information */
+        info = getListensInfoString(info);
     }
 
     /* Clients */
