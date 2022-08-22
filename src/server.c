@@ -6153,8 +6153,8 @@ void monitorCommand(client *c) {
             }else if(!strcasecmp(c->argv[i]->ptr,"key") && moreargs){
                 mfc->type = MONITOR_KEY;
                 mfc->content = sdsnew(c->argv[i+1]->ptr);
-            }else if(!strcasecmp(c->argv[i]->ptr,"pattern") && moreargs){
-                mfc->type = MONITOR_PATTERN;
+            }else if(!strcasecmp(c->argv[i]->ptr,"match") && moreargs){
+                mfc->type = MONITOR_MATCH;
                 mfc->content = sdsnew(c->argv[i+1]->ptr);
             }else{
                 zfree(mfc);

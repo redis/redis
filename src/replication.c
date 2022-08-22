@@ -644,7 +644,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
                         isReplyToMonitor = false;
                         break;
                     }
-                } else if (mfc->type == MONITOR_PATTERN){
+                } else if (mfc->type == MONITOR_MATCH){
                     /*  pattern string */
                     sds pattern = mfc->content;
                     int plen = sdslen(pattern);

@@ -402,7 +402,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define MONITOR_ID 3
 #define MONITOR_COMMAND 4
 #define MONITOR_KEY 5
-#define MONITOR_PATTERN 6
+#define MONITOR_MATCH 6
 
 /* Slave replication state. Used in server.repl_state for slaves to remember
  * what to do next. */
