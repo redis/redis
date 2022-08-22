@@ -14,7 +14,7 @@
             ],
             [
                 "7.0.0",
-                "Added support for capital-case unit names."
+                "Added support for uppercase unit names."
             ]
         ],
         "deprecated_since": "6.2.0",
