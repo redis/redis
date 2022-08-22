@@ -32,18 +32,34 @@
 #include <rocksdb/c.h>
 #include "atomicvar.h"
 
+
 /* --- Cmd --- */
 #define REQUEST_LEVEL_SVR  0
 #define REQUEST_LEVEL_DB   1
 #define REQUEST_LEVEL_KEY  2
 
 /* Delete key in rocksdb after right after swap in. */
-#define INTENTION_IN_DEL (1<<0)
+#define INTENTION_CMD_IN_DEL (1U<<0)
 /* No need to swap if this is a big object */
-#define INTENTION_IN_META (1<<1)
-/* Delete key in rocksdb without touching keyspace. */
-#define INTENTION_DEL_ASYNC (1<<2)
+#define INTENTION_CMD_IN_META (1U<<1)
 
+/* Delete rocksdb data key */
+#define INTENTION_EXEC_DEL_DATA (1U<<8)
+/* Delete rocksdb meta key */
+#define INTENTION_EXEC_DEL_META (1U<<9)
+/* Put rocksdb meta key */
+#define INTENTION_EXEC_OUT_META (1U<<10)
+
+/* Don't delete key in keyspace when swap (Delete key in rocksdb) finish. */
+#define INTENTION_FIN_NO_DEL (1U<<16)
+/* Propagate expired when swap finish */
+#define INTENTION_FIN_PROP_EXPIRED (1U<<17)
+/* Set object dirty when swap finish */
+#define INTENTION_FIN_SET_DIRTY (1U<<18)
+
+
+
+typedef void (*freefunc)(void *);
 
 static inline const char *requestLevelName(int level) {
   const char *name = "?";
@@ -102,6 +118,7 @@ void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 #define IN        /* Input parameter */
 #define OUT       /* Output parameter */
 #define INOUT     /* Input/Output parameter */
+#define MOVE      /* Moved ownership */
 
 #define SWAP_NOP    0
 #define SWAP_IN     1
@@ -126,6 +143,14 @@ static inline const char *swapIntentionName(int intention) {
  * key swapping, misc dynamic data are save in dataCtx. */
 typedef struct swapData {
   struct swapDataType *type;
+  redisDb *db;
+  robj *key;
+  robj *value;
+  long long expire;
+  unsigned long propagate_expire:1;
+  unsigned long set_dirty:1;
+  unsigned long reserved:62;
+  void *extends[4];
 } swapData;
 
 /* keyRequest: client request parse from command.
@@ -133,31 +158,43 @@ typedef struct swapData {
  * dataCtx: dynamic data when swapping.  */
 typedef struct swapDataType {
   char *name;
-  int (*swapAna)(struct swapData *data, int cmd_intention, uint32_t cmd_intention_flags, OUT struct keyRequest *key_request, OUT int *intention, OUT uint32_t *intention_flags, OUT void *datactx);
-  int (*encodeKeys)(struct swapData *data, int intention, void *datactx, OUT int *action, OUT int *num, OUT sds **rawkeys);
-  int (*encodeData)(struct swapData *data, int intention, void *datactx, OUT int *action, OUT int *num, OUT sds **rawkeys, OUT sds **rawvals);
-  int (*decodeData)(struct swapData *data, int num, sds *rawkeys, sds *rawvals, OUT robj **decoded);
+  int (*swapAna)(struct swapData *data, struct keyRequest *key_request, OUT int *intention, OUT uint32_t *intention_flags, OUT void *datactx);
+  int (*encodeKeys)(struct swapData *data, int intention, void *datactx, OUT int *action, OUT int *num, OUT int **cfs, OUT sds **rawkeys);
+  int (*encodeData)(struct swapData *data, int intention, void *datactx, OUT int *action, OUT int *num, OUT int **cfs, OUT sds **rawkeys, OUT sds **rawvals);
+  int (*decodeData)(struct swapData *data, int num, int *cfs, sds *rawkeys, sds *rawvals, OUT robj **decoded);
   int (*swapIn)(struct swapData *data, robj *result, void *datactx);
   int (*swapOut)(struct swapData *data, void *datactx);
   int (*swapDel)(struct swapData *data, void *datactx, int async);
   robj *(*createOrMergeObject)(struct swapData *data, robj *decoded, void *datactx);
   int (*cleanObject)(struct swapData *data, void *datactx);
   void (*free)(struct swapData *data, void *datactx);
+  sds (*encodeMetaVal) (struct swapData *data);
+  int (*decodeMetaVal) (struct swapData *data, sds rawval, OUT int *object_type, OUT long long *expire, void **object_meta);
 } swapDataType;
 
-int swapDataAna(swapData *d, int cmd_intention, uint32_t cmd_intention_flags, struct keyRequest *key_request, int *intention, uint32_t *intention_flag, void *datactx);
-int swapDataEncodeKeys(swapData *d, int intention, void *datactx, int *action, int *num, sds **rawkeys);
-int swapDataEncodeData(swapData *d, int intention, void *datactx, int *action, int *num, sds **rawkeys, sds **rawvals);
-int swapDataDecodeData(swapData *d, int num, sds *rawkeys, sds *rawvals, robj **decoded);
+swapData *createSwapData(redisDb *db, robj *key, robj *value);
+int swapDataSetupMeta(swapData *d, int object_type, long long expire, void *object_meta, OUT void **datactx);
+int swapDataAlreadySetup(swapData *d);
+int swapDataAna(swapData *d, struct keyRequest *key_request, int *intention, uint32_t *intention_flag, void *datactx);
+sds swapDataEncodeMetaKey(swapData *d);
+sds swapDataEncodeMetaVal(swapData *d);
+int swapDataEncodeKeys(swapData *d, int intention, void *datactx, int *action, int *num, int **cfs, sds **rawkeys);
+int swapDataEncodeData(swapData *d, int intention, void *datactx, int *action, int *num, int **cfs, sds **rawkeys, sds **rawvals);
+int swapDataDecodeMetaVal(swapData *d, sds rawval, OUT int *object_type, OUT long long *expire, void **object_meta);
+int swapDataDecodeData(swapData *d, int num, int *cfs, sds *rawkeys, sds *rawvals, robj **decoded);
 int swapDataSwapIn(swapData *d, robj *result, void *datactx);
 int swapDataSwapOut(swapData *d, void *datactx);
 int swapDataSwapDel(swapData *d, void *datactx, int async);
 robj *swapDataCreateOrMergeObject(swapData *d, robj *decoded, void *datactx);
 int swapDataCleanObject(swapData *d, void *datactx);
+int swapDataKeyRequestFinished(swapData *data);
+char swapDataGetObjectAbbrev(robj *value);
 void swapDataFree(swapData *data, void *datactx);
-int dbAddEvictRDBLoad(redisDb* db, sds key, robj* evict);
 int rdbLoadStringVerbatim(rio *rdb, sds *verbatim);
 int rdbLoadHashFieldsVerbatim(rio *rdb, unsigned long long len, sds *verbatim);
+
+sds rocksEncodeMetaKey(redisDb *db, sds key);
+sds rocksEncodeMetaVal(int object_type, long long expire, sds extend);
 
 /* Debug msgs */
 #ifdef SWAP_DEBUG
@@ -202,8 +239,6 @@ typedef struct swapCtx {
   unsigned int expired:1;
   unsigned int set_dirty:1;
   unsigned int reserved:32;
-  int swap_intention;
-  uint32_t swap_intention_flags;
   swapData *data;
   void *datactx;
   clientKeyRequestFinished finished;
@@ -215,24 +250,21 @@ typedef struct swapCtx {
 } swapCtx;
 
 swapCtx *swapCtxCreate(client *c, keyRequest *key_request, clientKeyRequestFinished finished);
+void swapCtxSetData(swapCtx *ctx, MOVE swapData *data, MOVE void *datactx);
 void swapCtxFree(swapCtx *ctx);
 
-struct objectMeta;
-swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict, struct objectMeta *meta, void **datactx);
+extern swapDataType wholeKeySwapDataType;
 
-/* Whole key */
+struct objectMeta;
+
 typedef struct wholeKeySwapData {
   swapData d;
-  redisDb *db;
-  robj *key;
-  robj *value;
-  robj *evict;
 } wholeKeySwapData;
 
-swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value, robj *evict, void **datactx);
+int swapDataSetupWholeKey(swapData *d, void *object_meta, OUT void **datactx);
 
 /* Object */
-extern dictType dbMetaDictType;
+extern dictType objectMetaDictType;
 
 #define setObjectDirty(o) do { \
     if (o) o->dirty = 1; \
@@ -243,21 +275,26 @@ extern dictType dbMetaDictType;
 } while(0)
 
 typedef struct objectMeta {
-  ssize_t len;
-  uint64_t version;
+  int object_type;
+  union {
+    struct {
+      ssize_t len;
+    } hash;
+    struct {
+      ssize_t len;
+    } set;
+    struct {
+      ssize_t len;
+    } zset;
+  };
 } objectMeta;
 
-objectMeta *createObjectMeta(size_t len);
-objectMeta *dupObjectMeta(objectMeta *m);
-void freeObjectMeta(objectMeta *m);
+void freeObjectMeta(objectMeta *om);
 
 objectMeta *lookupMeta(redisDb *db, robj *key);
 void dbAddMeta(redisDb *db, robj *key, objectMeta *m);
 int dbDeleteMeta(redisDb *db, robj *key);
 
-robj *lookupEvictKey(redisDb *db, robj *key);
-void dbAddEvict(redisDb *db, robj *key, robj *evict);
-int dbDeleteEvict(redisDb *db, robj *key);
 void dbSetDirty(redisDb *db, robj *key);
 int objectIsDirty(robj *o);
 void dbSetBig(redisDb *db, robj *key);
@@ -266,11 +303,6 @@ int objectIsBig(robj *o);
 /* Big hash */
 typedef struct bigHashSwapData {
   swapData d;
-  redisDb *db;
-  robj *key;
-  robj *value;
-  robj *evict;
-  objectMeta *meta;
 } bigHashSwapData;
 
 typedef struct bigHashDataCtx {
@@ -280,17 +312,18 @@ typedef struct bigHashDataCtx {
   objectMeta *new_meta; /* ref, will be moved to db.meta */
 } bigHashDataCtx;
 
-void hashTransformBig(robj *o, objectMeta *m);
-swapData *createBigHashSwapData(redisDb *db, robj *key, robj *value, robj *evict, objectMeta *meta, void **pdatactx);
-
 /* --- Exec --- */
 struct swapRequest;
 
 typedef int (*swapRequestNotifyCallback)(struct swapRequest *req, void *pd);
 typedef int (*swapRequestFinishedCallback)(swapData *data, void *pd);
 
+#define SWAP_REQUEST_TYPE_DATA 0
+#define SWAP_REQUEST_TYPE_META 0
+
 typedef struct swapRequest {
-  int intention;
+  keyRequest *key_request; /* key_request for meta swap request */
+  int intention; /* intention for data swap request */
   uint32_t intention_flags;
   swapData *data;
   void *datactx;
@@ -305,11 +338,12 @@ typedef struct swapRequest {
 #endif
 } swapRequest;
 
-swapRequest *swapRequestNew(int intention, uint32_t intention_flags, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
+swapRequest *swapRequestNew(keyRequest *key_request, int intention, uint32_t intention_flags, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
 void swapRequestFree(swapRequest *req);
-int executeSwapRequest(swapRequest *req);
+int processSwapRequest(swapRequest *req);
 int finishSwapRequest(swapRequest *req);
-void submitSwapRequest(int mode, int intention, uint32_t intention_flags, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
+void submitSwapDataRequest(int mode, int intention, uint32_t intention_flags, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
+void submitSwapMetaRequest(int mode, keyRequest *key_request,swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
 
 /* --- Threads (encode/rio/decode/finish) --- */
 #define SWAP_THREADS_DEFAULT     4
@@ -351,14 +385,17 @@ typedef struct RIO {
 	int action;
 	union {
 		struct {
+      int cf;
 			sds rawkey;
 			sds rawval;
 		} get;
 		struct {
+      int cf;
 			sds rawkey;
 			sds rawval;
 		} put;
 		struct {
+      int cf;
 			sds rawkey;
 		} del;
 		struct {
@@ -366,16 +403,19 @@ typedef struct RIO {
 		} write;
 		struct {
 			int numkeys;
+      int *cfs;
 			sds *rawkeys;
 			sds *rawvals;
 		} multiget;
 		struct {
+      int cf;
 			sds prefix;
 			int numkeys;
 			sds *rawkeys;
 			sds *rawvals;
 		} scan;
 		struct {
+      int cf;
 			sds start_key;
       sds end_key;
 		} delete_range;
@@ -383,12 +423,13 @@ typedef struct RIO {
   sds err;
 } RIO;
 
-void RIOInitGet(RIO *rio, sds rawkey);
-void RIOInitPut(RIO *rio, sds rawkey, sds rawval);
-void RIOInitDel(RIO *rio, sds rawkey);
+void RIOInitGet(RIO *rio, int cf, sds rawkey);
+void RIOInitPut(RIO *rio, int cf, sds rawkey, sds rawval);
+void RIOInitDel(RIO *rio, int cf, sds rawkey);
 void RIOInitWrite(RIO *rio, rocksdb_writebatch_t *wb);
-void RIOInitMultiGet(RIO *rio, int numkeys, sds *rawkeys);
-void RIOInitScan(RIO *rio, sds prefix);
+void RIOInitMultiGet(RIO *rio, int numkeys, int *cfs, sds *rawkeys);
+void RIOInitScan(RIO *rio, int cf, sds prefix);
+void RIOInitDeleteRange(RIO *rio, int cf, sds start_key, sds end_key);
 void RIODeinit(RIO *rio);
 
 #define SWAP_MODE_ASYNC 0
@@ -436,7 +477,6 @@ int parallelSyncSwapRequestSubmit(swapRequest *req);
 #define REQUEST_NOTIFY_ACK  (1<<0)
 #define REQUEST_NOTIFY_RLS  (1<<1)
 
-typedef void (*freefunc)(void *);
 typedef int (*requestProceed)(void *listeners, redisDb *db, robj *key, client *c, void *pd);
 
 typedef struct requestListenerEntry {
@@ -532,6 +572,8 @@ int submitExpireClientRequest(client *c, robj *key);
 typedef struct rocks {
     rocksdb_t *db;
     rocksdb_column_family_handle_t *default_cf;
+    rocksdb_column_family_handle_t *meta_cf;
+    rocksdb_column_family_handle_t *score_cf;
     rocksdb_cache_t *block_cache;
     rocksdb_block_based_table_options_t *block_opts;
     rocksdb_options_t *db_opts;
@@ -647,14 +689,16 @@ typedef struct rocksIter{
     int io_thread_exited;
     pthread_mutex_t io_thread_exit_mutex;
     bufferedIterCompleteQueue *buffered_cq;
-    rocksdb_iterator_t *rocksdb_iter;
+    rocksdb_iterator_t *rocksdb_iter; //TODO remove
+    rocksdb_iterator_t *data_iter;
+    rocksdb_iterator_t *meta_iter;
     rocksdb_t* checkpoint_db;
 } rocksIter;
 
 rocksIter *rocksCreateIter(struct rocks *rocks, redisDb *db);
 int rocksIterSeekToFirst(rocksIter *it);
 int rocksIterNext(rocksIter *it);
-void rocksIterKeyTypeValue(rocksIter *it, sds *rawkey, unsigned char *type, sds *rawval);
+void rocksIterKeyTypeValue(rocksIter *it, int *cf, sds *rawkey, unsigned char *type, sds *rawval);
 void rocksReleaseIter(rocksIter *it);
 void rocksIterGetError(rocksIter *it, char **error);
 
@@ -670,6 +714,7 @@ typedef struct ctripRdbLoadCtx {
     size_t memory;
     size_t count;
     size_t index;
+    int *cfs;
     sds *rawkeys;
     sds *rawvals;
   } batch;
@@ -678,20 +723,32 @@ typedef struct ctripRdbLoadCtx {
 void evictStartLoading(void);
 void evictStopLoading(int success);
 
+#define META_CF 0
+#define DATA_CF 1
+#define SCORE_CF 2
+
 /* rdb key type. */ 
 #define DEFAULT_HASH_FIELD_SIZE 256
 
 #define RDB_KEY_TYPE_WHOLEKEY 0
 #define RDB_KEY_TYPE_BIGHASH 1
-#define RDB_KEY_TYPE_MEMKEY 2
 
 typedef struct decodeResult {
-    unsigned char enc_type;
-    size_t version;
-    sds key;
-    sds subkey;
-    unsigned char rdbtype;
-    sds rdbraw;
+  int cfid;
+  int dbid;
+  sds key;
+  sds subkey;
+  union {
+    struct {
+      int object_type;
+      long long expire;
+      sds extend;
+    } meta;
+    struct {
+      int rdbtype;
+      sds rdbraw;
+    } data;
+  } cf;
 } decodeResult;
 
 void decodeResultDeinit(decodeResult *decoded);
@@ -702,7 +759,8 @@ typedef struct rdbKeyType {
     int (*save)(struct rdbKeyData *keydata, rio *rdb, decodeResult *decoded);
     int (*save_end)(struct rdbKeyData *keydata, int save_result);
     void (*save_deinit)(struct rdbKeyData *keydata);
-    int (*load)(struct rdbKeyData *keydata, rio *rdb, OUT sds *rawkey, OUT sds *rawval, OUT int *error);
+    int (*load_start)(struct rdbKeyData *keydata, rio *rdb, OUT int *cf, OUT sds *rawkey, OUT sds *rawval, OUT int *error);
+    int (*load)(struct rdbKeyData *keydata, rio *rdb, OUT int *cf, OUT sds *rawkey, OUT sds *rawval, OUT int *error);
     int (*load_end)(struct rdbKeyData *keydata,rio *rdb);
     int (*load_dbadd)(struct rdbKeyData *keydata, redisDb *db);
     void (*load_expired)(struct rdbKeyData *keydata);
@@ -714,8 +772,8 @@ typedef struct rdbKeyData {
     struct {
         int type;
         robj *value; /* ref: incrRefcount will cause cow */
-        robj *evict; /* ref: incrRefcount will cause cow */
         long long expire;
+        // long long now;
         union {
           struct {
             int nop;
@@ -728,23 +786,20 @@ typedef struct rdbKeyData {
         };
     } savectx;
     struct {
+        redisDb *db;
+        long long expire;
+        long long now;
         int type;
         int rdbtype;
         sds key; /* ref */
         int nfeeds;
         union {
           struct {
-            robj *value; /* moved to db.dict */
-          } memkey;
-          struct {
-            robj *evict; /* moved (to db.evict) */
-            int hash_nfields; /* parsed hash nfields from header */
-            sds hash_header; /* moved (to rdbLoadSwapData) */
+            int nop;
           } wholekey;
           struct {
             int hash_nfields;
             int scanned_fields;
-            robj *evict; /* moved (to db.evict) */
             objectMeta *meta; /* moved (to db.meta) */
           } bighash;
         };
@@ -756,7 +811,7 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags);
 void initSwapWholeKey();
 
 int rdbSaveKeyHeader(rio *rdb, robj *key, robj *evict, unsigned char rdbtype, long long expiretime);
-void rdbKeyDataInitSaveKey(rdbKeyData *keydata, robj *value, robj *evict, long long expire);
+void rdbKeyDataInitSaveKey(rdbKeyData *keydata, robj *value, long long expire);
 int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, decodeResult *decoded);
 void rdbKeyDataDeinitSave(rdbKeyData *keydata);
 
@@ -764,7 +819,7 @@ int rdbKeySaveStart(struct rdbKeyData *keydata, rio *rdb);
 int rdbKeySave(struct rdbKeyData *keydata, rio *rdb, decodeResult *d);
 int rdbKeySaveEnd(struct rdbKeyData *keydata, int save_result);
 /* whole key */
-void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value, robj *evict, long long expire);
+void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value, long long expire);
 int wholekeySaveStart(rdbKeyData *keydata, rio *rdb);
 int wholekeySave(rdbKeyData *keydata,  rio *rdb, decodeResult *d);
 int wholekeySaveEnd(rdbKeyData *keydata, int save_result); 
@@ -778,13 +833,13 @@ void bighashSaveDeinit(rdbKeyData *keydata);
 static inline sds rdbVerbatimNew(unsigned char rdbtype) {
     return sdsnewlen(&rdbtype,1);
 }
-int ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, rdbKeyData *keydata);
+int ctripRdbLoadObject(int rdbtype, rio *rdb, redisDb *db, sds key, long long expire, long long now, rdbKeyData *keydata);
 robj *rdbKeyLoadGetObject(rdbKeyData *keydata);
-int rdbKeyDataInitLoad(rdbKeyData *keydata, rio *rdb, int rdbtype, sds key);
+int rdbKeyDataInitLoad(rdbKeyData *keydata, rio *rdb, int rdbtype, redisDb *db, sds key, long long expire, long long now);
 void rdbKeyDataDeinitLoad(rdbKeyData *keydata);
-void rdbKeyDataInitLoadKey(rdbKeyData *keydata, int rdbtype, sds key);
-int rdbKeyLoadStart(struct rdbKeyData *keydata, rio *rdb, int rdbtype, sds key);
-int rdbKeyLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey, sds *rawval, int *error);
+void rdbKeyDataInitLoadKey(rdbKeyData *keydata, int rdbtype, redisDb *db, sds key, long long expire, long long now);
+int rdbKeyLoadStart(struct rdbKeyData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
+int rdbKeyLoad(struct rdbKeyData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
 int rdbKeyLoadEnd(struct rdbKeyData *keydata, rio *rdb);
 int rdbKeyLoadDbAdd(struct rdbKeyData *keydata, redisDb *db);
 void rdbKeyLoadExpired(struct rdbKeyData *keydata);
@@ -794,16 +849,11 @@ int memkeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey, sds *rawval
 int memkeyRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db);
 void memkeyRdbLoadExpired(struct rdbKeyData *keydata);
 /* whole key */
-void rdbKeyDataInitLoadWholeKey(rdbKeyData *keydata, int rdbtype, sds key);
-int wholekeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey, sds *rawval, int *error);
+void rdbKeyDataInitLoadWholeKey(rdbKeyData *keydata, int rdbtype, redisDb *db, sds key,long long expire, long long now);
+int wholekeyRdbLoadStart(struct rdbKeyData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
+int wholekeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
 int wholekeyRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db);
 void wholekeyRdbLoadExpired(struct rdbKeyData *keydata);
-/* big hash */
-void rdbKeyDataInitLoadBigHash(rdbKeyData *keydata, int rdbtype, sds key);
-int bighashRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey, sds *rawval, int *error);
-int bighashRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db);
-void bighashRdbLoadExpired(struct rdbKeyData *keydata);
-
 
 /* --- Util --- */
 #define ROCKS_VAL_TYPE_LEN 1
@@ -836,12 +886,14 @@ sds rocksEncodeValRdb(robj *value);
 int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *klen);
 int rocksDecodeSubkey(const char *raw, size_t rawlen, uint64_t *version, const char **key, size_t *klen, const char **sub, size_t *slen);
 robj *rocksDecodeValRdb(sds raw);
+sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey);
 robj *unshareStringValue(robj *value);
 size_t objectEstimateSize(robj *o);
 size_t keyEstimateSize(redisDb *db, robj *key);
 void swapCommand(client *c);
 void expiredCommand(client *c);
 const char *strObjectType(int type);
+int keyIsHot(robj *value, objectMeta *om);
 
 
 #ifdef REDIS_TEST

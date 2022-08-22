@@ -207,7 +207,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"getdel",getdelCommand,2,
      "write fast @string",
-     0,NULL,NULL,SWAP_IN,INTENTION_IN_DEL,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,INTENTION_CMD_IN_DEL,1,1,1,0,0,0},
 
     /* Note that we can't flag set as fast, since it may perform an
      * implicit DEL of a large key. */
@@ -237,11 +237,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"del",delCommand,-2,
      "write @keyspace",
-     0,NULL,NULL,SWAP_IN,INTENTION_IN_DEL,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,INTENTION_CMD_IN_DEL,1,-1,1,0,0,0},
 
     {"unlink",unlinkCommand,-2,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,INTENTION_IN_DEL,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,INTENTION_CMD_IN_DEL,1,-1,1,0,0,0},
 
     {"exists",existsCommand,-2,
      "read-only fast @keyspace",
@@ -589,11 +589,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"hdel",hdelCommand,-3,
      "write fast @hash",
-     0,NULL,getKeyRequestsHdel,SWAP_IN,INTENTION_IN_DEL,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHdel,SWAP_IN,INTENTION_CMD_IN_DEL,1,1,1,0,0,0},
 
     {"hlen",hlenCommand,2,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,INTENTION_IN_META,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,INTENTION_CMD_IN_META,1,1,1,0,0,0},
 
     {"hstrlen",hstrlenCommand,3,
      "read-only fast @hash",
@@ -1465,17 +1465,6 @@ dictType dbDictType = {
     dictExpandAllowed           /* allow to expand */
 };
 
-/* Db->evict, keys are sds strings, values NULL. */
-dictType evictDictType = {
-    dictSdsHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictObjectShellDestructor,  /* val destructor */
-    NULL,                       /* allow to expand */
-};
-
 /* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
 dictType shaScriptObjectDictType = {
     dictSdsCaseHash,            /* hash function */
@@ -1621,8 +1610,6 @@ void tryResizeHashTables(int dbid) {
         dictResize(server.db[dbid].dict);
     if (htNeedsResize(server.db[dbid].expires))
         dictResize(server.db[dbid].expires);
-    if (htNeedsResize(server.db[dbid].evict))
-        dictResize(server.db[dbid].evict);
     if (htNeedsResize(server.db[dbid].meta))
         dictResize(server.db[dbid].meta);
 }
@@ -1643,11 +1630,6 @@ int incrementallyRehash(int dbid) {
     /* Expires */
     if (dictIsRehashing(server.db[dbid].expires)) {
         dictRehashMilliseconds(server.db[dbid].expires,1);
-        return 1; /* already used our millisecond for this loop... */
-    }
-    /* Evicts */
-    if (dictIsRehashing(server.db[dbid].evict)) {
-        dictRehashMilliseconds(server.db[dbid].evict,1);
         return 1; /* already used our millisecond for this loop... */
     }
     /* Metas */
@@ -2182,17 +2164,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (server.verbosity <= LL_VERBOSE) {
         run_with_period(5000) {
             for (j = 0; j < server.dbnum; j++) {
-                long long size, esize, used, eused, tused, vkeys;
+                long long size, used, vkeys;
 
                 size = dictSlots(server.db[j].dict);
-                esize = dictSlots(server.db[j].evict);
                 used = dictSize(server.db[j].dict);
-                eused = dictSize(server.db[j].evict);
-                tused = used+eused;
 
                 vkeys = dictSize(server.db[j].expires);
-                if (tused || vkeys) {
-                    serverLog(LL_VERBOSE,"DB %d %lld(%lld,%lld) keys (%lld volatile) in (%lld,%lld) slots HT.",j,used,eused,tused,vkeys,size,esize);
+                if (used || vkeys) {
+                    serverLog(LL_VERBOSE,"DB %d %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
                 }
             }
         }
@@ -3333,8 +3312,7 @@ void initServer(void) {
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&dbExpiresDictType,NULL);
-        server.db[j].evict = dictCreate(&evictDictType, NULL);
-        server.db[j].meta = dictCreate(&dbMetaDictType, NULL);
+        server.db[j].meta = dictCreate(&objectMetaDictType, NULL);
         server.db[j].hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
         server.db[j].evict_asap = listCreate();
         server.db[j].expires_cursor = 0;
@@ -5473,16 +5451,15 @@ sds genRedisInfoString(const char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
-            long long keys, vkeys, evicts, metas;
+            long long keys, vkeys, metas;
 
             keys = dictSize(server.db[j].dict);
-            evicts = dictSize(server.db[j].evict);
             vkeys = dictSize(server.db[j].expires);
             metas = dictSize(server.db[j].meta);
-            if (keys || evicts || vkeys) {
+            if (keys || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,evicts=%lld,metas=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j,keys,evicts,metas,vkeys,server.db[j].avg_ttl);
+                    "db%d:keys=%lld,metas=%lld,expires=%lld,avg_ttl=%lld\r\n",
+                    j,keys,metas,vkeys,server.db[j].avg_ttl);
             }
         }
     }

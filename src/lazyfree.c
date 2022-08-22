@@ -207,13 +207,13 @@ void freeObjAsync(robj *key, robj *obj) {
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
     dict *oldht1 = db->dict, *oldht2 = db->expires,
-         *oldht3 = db->evict, *oldht4 = db->meta;
+         *oldht3 = db->meta;
     db->dict = dictCreate(&dbDictType,NULL);
     db->expires = dictCreate(&dbExpiresDictType,NULL);
-    db->evict = dictCreate(&evictDictType,NULL);
-    db->meta = dictCreate(&dbMetaDictType,NULL);
-    atomicIncr(lazyfree_objects,dictSize(oldht1)+dictSize(oldht3));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase,4,oldht1,oldht2,oldht3,oldht4);
+    db->meta = dictCreate(&objectMetaDictType,NULL);
+    //FIXME handle cold
+    atomicIncr(lazyfree_objects,dictSize(oldht1));
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase,4,oldht1,oldht2,oldht3);
 }
 
 /* Release the radix tree mapping Redis Cluster keys to slots asynchronously. */

@@ -519,32 +519,14 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
         return;
     }
+
     /* No key, return zero. */
-    if (lookupKeyWrite(c->db,key) == NULL &&
-            lookupEvictKey(c->db,key) == NULL) {
+    if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
     }
 
     if (checkAlreadyExpired(when)) when = 0;
-    /* if (checkAlreadyExpired(when)) { */
-        /* robj *aux; */
-
-        /* int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) : */
-                                                    /* dbSyncDelete(c->db,key); */
-        /* dictDelete(c->db->evict,key->ptr); */
-        /* serverAssertWithInfo(c,key,deleted); */
-        /* server.dirty++; */
-
-        /* Replicate/AOF this as an explicit DEL or UNLINK. */
-        /* aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del; */
-        /* rewriteClientCommandVector(c,2,aux,key); */
-        /* signalModifiedKey(c,c->db,key); */
-        /* notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id); */
-
-        /* addReply(c, shared.cone); */
-        /* return; */
-    /* } else { */
     {
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
@@ -580,8 +562,8 @@ void ttlGenericCommand(client *c, int output_ms) {
     long long expire, ttl = -1;
 
     /* If the key does not exist at all, return -2 */
-    if (lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH) == NULL &&
-            lookupEvictKey(c->db,c->argv[1]) == NULL) {
+    // FIXME handle cold key
+    if (lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH) == NULL) {
         addReplyLongLong(c,-2);
         return;
     }
@@ -611,8 +593,8 @@ void pttlCommand(client *c) {
 
 /* PERSIST key */
 void persistCommand(client *c) {
-    if (lookupKeyWrite(c->db,c->argv[1]) ||
-            lookupEvictKey(c->db,c->argv[1])) {
+    // FIXME handle cold key
+    if (lookupKeyWrite(c->db,c->argv[1])) {
         if (removeExpire(c->db,c->argv[1])) {
             signalModifiedKey(c,c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);

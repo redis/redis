@@ -28,25 +28,27 @@
 
 #include "ctrip_swap.h"
 
-int wholeKeySwapAna(swapData *data_, int cmd_intention,
-        uint32_t cmd_intention_flags, struct keyRequest *req,
+int wholeKeySwapAna(swapData *data_, struct keyRequest *req,
         int *intention, uint32_t *intention_flags, void *datactx) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
+    int cmd_intention = req->cmd_intention;
+    uint32_t cmd_intention_flags = req->cmd_intention_flags;
+
     UNUSED(req), UNUSED(datactx);
+
     if (intention_flags) *intention_flags = cmd_intention_flags;
+
     switch(cmd_intention) {
     case SWAP_NOP:
         *intention = SWAP_NOP;
         break;
     case SWAP_IN:
-        if (data->evict) {
-            serverAssert(!data->value);
+        if (!data->d.value) {
             *intention = SWAP_IN;
-        } else if (data->value) {
-            serverAssert(!data->evict);
-            if (cmd_intention_flags & INTENTION_IN_DEL) {
+        } else if (data->d.value) {
+            if (cmd_intention_flags & INTENTION_CMD_IN_DEL) {
                 *intention = SWAP_DEL;
-                *intention_flags = INTENTION_DEL_ASYNC;
+                *intention_flags = INTENTION_FIN_NO_DEL;
             } else {
                 *intention = SWAP_NOP;
             }
@@ -55,9 +57,8 @@ int wholeKeySwapAna(swapData *data_, int cmd_intention,
         }
         break;
     case SWAP_OUT:
-        if (data->value) {
-            serverAssert(!data->evict);
-            if (data->value->dirty) {
+        if (data->d.value) {
+            if (data->d.value->dirty) {
                 *intention = SWAP_OUT;
             } else {
                 /* Not dirty: swapout right away without swap. */
@@ -69,11 +70,8 @@ int wholeKeySwapAna(swapData *data_, int cmd_intention,
         }
         break;
     case SWAP_DEL:
-        if (data->value || data->evict) {
-            *intention = SWAP_DEL;
-        } else {
-            *intention = SWAP_NOP;
-        }
+        *intention = SWAP_DEL;
+        *intention_flags |= INTENTION_EXEC_DEL_META;
         break;
     default:
         break;
@@ -82,23 +80,17 @@ int wholeKeySwapAna(swapData *data_, int cmd_intention,
     return 0;
 }
 
-static sds wholeKeyEncodeKey(swapData *data_) {
-    int obj_type = 0;
-    unsigned char enc_type;
-    wholeKeySwapData *data = (wholeKeySwapData*)data_;
-    if (data->value) obj_type = data->value->type;
-    if (data->evict) obj_type = data->evict->type;
-    enc_type = rocksGetEncType(obj_type,0);
-    return rocksEncodeKey(enc_type, data->key->ptr);
-}
-
 int wholeKeyEncodeKeys(swapData *data, int intention, void *datactx,
-        int *action, int *numkeys, sds **prawkeys) {
-    sds *rawkeys = zmalloc(sizeof(sds*));
+        int *action, int *numkeys, int **pcfs, sds **prawkeys) {
+    sds *rawkeys = zmalloc(sizeof(sds));
+    int *cfs = zmalloc(sizeof(int));
+
     UNUSED(datactx);
-    rawkeys[0] = wholeKeyEncodeKey(data);
+    rawkeys[0] = rocksEncodeDataKey(data->db,data->key->ptr,NULL);
+    cfs[0] = DATA_CF;
     *numkeys = 1;
     *prawkeys = rawkeys;
+    *pcfs = cfs;
 
     switch (intention) {
     case SWAP_IN:
@@ -120,36 +112,39 @@ int wholeKeyEncodeKeys(swapData *data, int intention, void *datactx,
     return C_OK;
 }
 
-static sds wholeKeyEncodeVal(swapData *data_) {
-    wholeKeySwapData *data = (wholeKeySwapData*)data_;
-    if (data->value) {
-        return rocksEncodeValRdb(data->value);
-    } else {
-        return NULL;
-    }
+static sds wholeKeyEncodeDataKey(swapData *data) {
+    return data->key ? rocksEncodeDataKey(data->db,data->key->ptr,NULL) : NULL;
+}
+
+static sds wholeKeyEncodeDataVal(swapData *data) {
+    return data->value ? rocksEncodeValRdb(data->value) : NULL;
 }
 
 int wholeKeyEncodeData(swapData *data, int intention, void *datactx,
-        int *action, int *numkeys, sds **prawkeys, sds **prawvals) {
+        int *action, int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
     UNUSED(datactx);
     serverAssert(intention == SWAP_OUT);
-    sds *rawkeys = zmalloc(sizeof(sds*));
-    sds *rawvals = zmalloc(sizeof(sds*));
-    rawkeys[0] = wholeKeyEncodeKey(data);
-    rawvals[0] = wholeKeyEncodeVal(data);
+    sds *rawkeys = zmalloc(sizeof(sds));
+    sds *rawvals = zmalloc(sizeof(sds));
+    int *cfs = zmalloc(sizeof(int));
+    rawkeys[0] = wholeKeyEncodeDataKey(data);
+    rawvals[0] = wholeKeyEncodeDataVal(data);
+    cfs[0] = DATA_CF;
     *action = ROCKS_PUT;
     *numkeys = 1;
     *prawkeys = rawkeys;
     *prawvals = rawvals;
+    *pcfs = cfs;
     return C_OK;
 }
 
 /* decoded move to exec module */
-int wholeKeyDecodeData(swapData *data, int num, sds *rawkeys,
+int wholeKeyDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
         sds *rawvals, robj **pdecoded) {
     serverAssert(num == 1);
     UNUSED(data);
     UNUSED(rawkeys);
+    UNUSED(cfs);
     sds rawval = rawvals[0];
     *pdecoded = rocksDecodeValRdb(rawval);
     return 0;
@@ -170,16 +165,13 @@ robj *dupSharedObject(robj *o) {
     }
 }
 
-static robj *createSwapInObject(robj *newval, robj *evict) {
+static robj *createSwapInObject(robj *newval) {
     robj *swapin = newval;
     serverAssert(newval);
     incrRefCount(newval);
-    serverAssert(evict);
-    serverAssert(evict->type == newval->type);
     /* Copy swapin object before modifing If newval is shared object. */
     if (newval->refcount == OBJ_SHARED_REFCOUNT)
         swapin = dupSharedObject(newval);
-    swapin->lru = evict->lru;
     swapin->dirty = 0;
     return swapin;
 }
@@ -188,58 +180,31 @@ int wholeKeySwapIn(swapData *data_, robj *result, void *datactx) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
     UNUSED(datactx);
     robj *swapin;
-    long long expire;
-    expire = getExpire(data->db,data->key);
-    swapin = createSwapInObject(result,data->evict);
-    if (expire != -1) removeExpire(data->db,data->key);
-    dictDelete(data->db->evict,data->key->ptr);
-    dbAdd(data->db,data->key,swapin);
-    if (expire != -1) setExpire(NULL,data->db,data->key,expire);
+    serverAssert(data->d.value == NULL);
+    swapin = createSwapInObject(result);
+    dbAdd(data->d.db,data->d.key,swapin);
+    if (data->d.expire != -1)
+        setExpire(NULL,data->d.db,data->d.key,data->d.expire);
     return 0;
 }
 
-static robj *createSwapOutObject(robj *value, robj *evict) {
-    robj *swapout;
-
-    serverAssert(value);
-    serverAssert(evict == NULL);
-
-    if (evict == NULL) {
-        swapout = createObject(value->type, NULL);
-    } else {
-        incrRefCount(evict);
-        swapout = evict;
-    }
-
-    swapout->lru = value->lru;
-    swapout->type = value->type;
-
-    return swapout;
-}
-
-int wholeKeySwapOut(swapData *data_, void *datactx) {
-    robj *swapout;
-    long long expire;
-    wholeKeySwapData *data = (wholeKeySwapData*)data_;
+int wholeKeySwapOut(swapData *data, void *datactx) {
     UNUSED(datactx);
-    expire = getExpire(data->db,data->key);
-    if (expire != -1) removeExpire(data->db,data->key);
-    swapout = createSwapOutObject(data->value, data->evict);
-    if (data->evict) dictDelete(data->db->evict, data->key->ptr);
-    if (data->value) dictDelete(data->db->dict, data->key->ptr);
-    dbAddEvict(data->db,data->key,swapout);
-    if (expire != -1) setExpire(NULL,data->db,data->key,expire);
+    redisDb *db = data->db;
+    robj *key = data->key;
+    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+    /* TODO opt lazyfree_lazy_swap_del */
+    if (dictSize(db->dict) > 0) dictDelete(db->dict,key->ptr);
     return 0;
 }
 
-int wholeKeySwapDel(swapData *data_, void *datactx, int async) {
-    wholeKeySwapData *data = (wholeKeySwapData*)data_;
+int wholeKeySwapDel(swapData *data, void *datactx, int async) {
     UNUSED(datactx);
+    redisDb *db = data->db;
+    robj *key = data->key;
     if (async) return 0;
-    if (dictSize(data->db->expires) > 0)
-        dictDelete(data->db->expires,data->key->ptr);
-    if (data->value) dbDelete(data->db,data->key);
-    if (data->evict) dbDeleteEvict(data->db,data->key);
+    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+    if (data->value) dictDelete(db->dict,key->ptr);
     return 0;
 }
 
@@ -251,44 +216,27 @@ robj *wholeKeyCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) 
     return decoded;
 }
 
-void freeWholeKeySwapData(swapData *data_, void *datactx) {
-    wholeKeySwapData *data = (wholeKeySwapData*)data_;
-    UNUSED(datactx);
-    if (data->key) decrRefCount(data->key);
-    if (data->value) decrRefCount(data->value);
-    if (data->evict) decrRefCount(data->evict);
-    zfree(data);
-}
-
 swapDataType wholeKeySwapDataType = {
     .name = "wholekey",
     .swapAna = wholeKeySwapAna,
     .encodeKeys = wholeKeyEncodeKeys,
     .encodeData = wholeKeyEncodeData,
     .decodeData = wholeKeyDecodeData,
+    .encodeMetaVal = NULL,
+    .decodeMetaVal = NULL,
     .swapIn = wholeKeySwapIn,
     .swapOut = wholeKeySwapOut,
     .swapDel = wholeKeySwapDel,
     .createOrMergeObject = wholeKeyCreateOrMergeObject,
-    /* TODO OPT: zset/set/list could clean subkey in cleanObject to reduce
-     * cpu usage in main thread. */
     .cleanObject = NULL,
-    .free = freeWholeKeySwapData,
+    .free = NULL,
 };
 
-swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value,
-        robj *evict, void **pdatactx) {
-    wholeKeySwapData *data = zmalloc(sizeof(wholeKeySwapData));
-    if (pdatactx) *pdatactx = NULL;
-    data->d.type = &wholeKeySwapDataType;
-    data->db = db;
-    if (key) incrRefCount(key);
-    data->key = key;
-    if (value) incrRefCount(value);
-    data->value = value;
-    if (evict) incrRefCount(evict);
-    data->evict = evict;
-    return (swapData*)data;
+int swapDataSetupWholeKey(swapData *d, void *object_meta, void **datactx) {
+    serverAssert(object_meta == NULL);
+    d->type = &wholeKeySwapDataType;
+    *datactx = NULL;
+    return 0;
 }
 
 /* ------------------- whole key rdb swap -------------------------------- */
@@ -297,44 +245,48 @@ rdbKeyType wholekeyRdbType = {
     .save = wholekeySave,
     .save_end = NULL,
     .save_deinit = NULL,
+    .load_start = wholekeyRdbLoadStart,
     .load = wholekeyRdbLoad,
     .load_end = NULL,
-    .load_dbadd = wholekeyRdbLoadDbAdd,
-    .load_expired = wholekeyRdbLoadExpired,
+    .load_dbadd = NULL,
+    .load_expired = NULL, /* TODO opt: delete saved key in datacf. */
     .load_deinit = NULL,
 };
 
-void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value, robj *evict,
+void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value,
         long long expire) {
-    rdbKeyDataInitSaveKey(keydata,value,evict,expire);
+    rdbKeyDataInitSaveKey(keydata,value,expire);
     keydata->type = &wholekeyRdbType;
     keydata->savectx.type = RDB_KEY_TYPE_WHOLEKEY;
-    serverAssert(value == NULL && evict->big == 0);
+    serverAssert(value == NULL);
 }
 
 int wholekeySave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded) {
     robj keyobj;
 
+    serverAssert(decoded->cfid == DATA_CF); 
     initStaticStringObject(keyobj,decoded->key);
-    if (rdbSaveKeyHeader(rdb,&keyobj,keydata->savectx.evict,
-                decoded->rdbtype,keydata->savectx.expire) == -1) {
+
+    //TODO opt: save key LFU in metaCF
+    if (rdbSaveKeyHeader(rdb,&keyobj,&keyobj,
+                decoded->cf.data.rdbtype,
+                keydata->savectx.expire) == -1) {
         return -1;
     }
 
-    if (rdbWriteRaw(rdb,decoded->rdbraw,sdslen(decoded->rdbraw)) == -1) {
+    if (rdbWriteRaw(rdb,decoded->cf.data.rdbraw,
+                sdslen(decoded->cf.data.rdbraw)) == -1) {
         return -1;
     }
 
     return 0;
 }
 
-void rdbKeyDataInitLoadWholeKey(rdbKeyData *keydata, int rdbtype, sds key) {
-    rdbKeyDataInitLoadKey(keydata,rdbtype,key);
+void rdbKeyDataInitLoadWholeKey(rdbKeyData *keydata, int rdbtype, redisDb *db,
+        sds key, long long expire, long long now) {
+    rdbKeyDataInitLoadKey(keydata,rdbtype,db,key,expire,now);
     keydata->type = &wholekeyRdbType;
     keydata->loadctx.type = RDB_KEY_TYPE_WHOLEKEY;
-    keydata->loadctx.wholekey.evict = NULL;
-    keydata->loadctx.wholekey.hash_header = NULL;
-    keydata->loadctx.wholekey.hash_nfields = 0;
 }
 
 sds empty_hash_ziplist_verbatim;
@@ -349,67 +301,37 @@ static inline int hashZiplistVerbatimIsEmpty(sds verbatim) {
     return !sdscmp(empty_hash_ziplist_verbatim, verbatim);
 }
 
-int wholekeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey,
-        sds *rawval, int *error) {
-    robj *evict = NULL;
+int wholekeyRdbLoadStart(struct rdbKeyData *keydata, rio *rdb, int *cf,
+        sds *rawkey, sds *rawval, int *error) {
+    UNUSED(rdb);
+    *cf = META_CF;
+    *rawkey = rocksEncodeMetaKey(keydata->loadctx.db,keydata->loadctx.key);
+    *rawval = rocksEncodeMetaVal(keydata->loadctx.type,keydata->loadctx.expire,NULL);
+    *error = 0;
+    return 0;
+}
+
+int wholekeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, int *cf,
+        sds *rawkey, sds *rawval, int *error) {
     *error = RDB_LOAD_ERR_OTHER;
-    int hash_nfields, rdbtype = keydata->loadctx.rdbtype;
+    int rdbtype = keydata->loadctx.rdbtype;
     sds verbatim = NULL, key = keydata->loadctx.key;
-    switch (rdbtype) {
-    case RDB_TYPE_STRING:
-        verbatim = rdbVerbatimNew((unsigned char)rdbtype);
-        if (rdbLoadStringVerbatim(rdb,&verbatim)) goto err;
-        evict = createObject(OBJ_STRING, NULL);
-        break;
-    case RDB_TYPE_HASH:
-        /* small hash is a bit different: hash len is already consumed and
-         * saved into loadctx when judging small/big hash. */
-        verbatim = keydata->loadctx.wholekey.hash_header;
-        hash_nfields = keydata->loadctx.wholekey.hash_nfields;
-        if (hash_nfields == 0) {
-            *error = RDB_LOAD_ERR_EMPTY_KEY;
-            goto err;
-        }
-        if (rdbLoadHashFieldsVerbatim(rdb,hash_nfields,&verbatim)) goto err;
-        evict = createObject(OBJ_HASH,NULL);
-        break;
-    case RDB_TYPE_HASH_ZIPLIST:
-        verbatim = rdbVerbatimNew((unsigned char)rdbtype);
-        if (rdbLoadStringVerbatim(rdb,&verbatim)) goto err;
-        if (hashZiplistVerbatimIsEmpty(verbatim)) {
-            *error = RDB_LOAD_ERR_EMPTY_KEY;
-            goto err;
-        }
-        evict = createObject(OBJ_HASH,NULL);
-        break;
-    default:
-        serverPanic("unsupported rdbtype:%d", rdbtype);
-        break;
-    }
+    redisDb *db = keydata->loadctx.db;
+
+    serverAssert(rdbtype == RDB_TYPE_STRING);
+
+    verbatim = rdbVerbatimNew((unsigned char)rdbtype);
+    if (rdbLoadStringVerbatim(rdb,&verbatim)) goto err;
 
     *error = 0;
-    *rawkey = rocksEncodeKey(rocksGetEncType(evict->type,0),key);
+    *cf = DATA_CF;
+    *rawkey = rocksEncodeDataKey(db,key,NULL);
     *rawval = verbatim;
-    keydata->loadctx.wholekey.evict = evict;
     return 0;
 
 err:
     if (verbatim) sdsfree(verbatim);
-    if (evict) decrRefCount(evict);
     return 0;
-}
-
-int wholekeyRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db) {
-    return dbAddEvictRDBLoad(db,keydata->loadctx.key,
-            keydata->loadctx.wholekey.evict);
-}
-
-void wholekeyRdbLoadExpired(struct rdbKeyData *keydata) {
-    robj *evict = keydata->loadctx.wholekey.evict;
-    if (evict) {
-        decrRefCount(evict);
-        keydata->loadctx.wholekey.evict = NULL;
-    }
 }
 
 

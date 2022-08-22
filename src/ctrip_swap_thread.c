@@ -53,7 +53,7 @@ void *swapThreadMain (void *arg) {
         listRewind(processing_reqs, &li);
         atomicSetWithSync(thread->is_running_rio, 1);
         while ((ln = listNext(&li))) {
-            executeSwapRequest(listNodeValue(ln));
+            processSwapRequest(listNodeValue(ln));
         }
 
         atomicSetWithSync(thread->is_running_rio, 0);

@@ -272,10 +272,11 @@ int rocksIterSeekToFirst(rocksIter *it) {
 }
 
 /* rocks iter rawkey, rawval moved. */
-void rocksIterKeyTypeValue(rocksIter *it, sds *rawkey, unsigned char *type, sds *rawval) {
+void rocksIterKeyTypeValue(rocksIter *it, int *cf, sds *rawkey, unsigned char *type, sds *rawval) {
     int idx;
     iterResult *cur;
     bufferedIterCompleteQueue *cq = it->buffered_cq;
+    UNUSED(cf);
     idx = cq->processed_count % cq->buffer_capacity;
     cur = it->buffered_cq->buffered+idx;
     if (type) *type = cur->type;

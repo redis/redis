@@ -280,23 +280,16 @@ void setKey(client *c, redisDb *db, robj *key, robj *val) {
  * The function makes sure to return keys not already expired. */
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
-    dict *d1, *d2;
     int maxtries = 100;
     int allvolatile = dictSize(db->dict) == dictSize(db->expires);
 
     while(1) {
         sds key;
         robj *keyobj;
-        size_t slots = dictSlots(db->dict)+dictSlots(db->evict);
-
+        //TODO handle cold
+        size_t slots = dictSlots(db->dict);
         if (slots == 0) return NULL;
-		if (random()%slots < dictSlots(db->dict)) {
-			d1 = db->dict, d2 = db->evict;
-		} else {
-			d1 = db->evict, d2 = db->dict;
-		}
-        de = dictGetFairRandomKey(d1);
-		if (de == NULL) de = dictGetRandomKey(d2);
+        de = dictGetFairRandomKey(db->dict);
         if (de == NULL) return NULL;
 
         key = dictGetKey(de);
@@ -408,13 +401,11 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
 
     for (int j = startdb; j <= enddb; j++) {
         removed += dictSize(dbarray[j].dict);
-        removed += dictSize(dbarray[j].evict);
         if (async) {
             emptyDbAsync(&dbarray[j]);
         } else {
             dictEmpty(dbarray[j].dict,callback);
             dictEmpty(dbarray[j].expires,callback);
-			dictEmpty(dbarray[j].evict,callback);
 			dictEmpty(dbarray[j].meta,callback);
         }
         /* Because all keys of database are removed, reset average ttl. */
@@ -428,14 +419,12 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
 void dbPauseRehash(redisDb *db) {
     dictPauseRehashing(db->dict);
     dictPauseRehashing(db->expires);
-    dictPauseRehashing(db->evict);
     dictPauseRehashing(db->meta);
 }
 
 void dbResumeRehash(redisDb *db) {
     dictResumeRehashing(db->dict);
     dictResumeRehashing(db->expires);
-    dictResumeRehashing(db->evict);
     dictResumeRehashing(db->meta);
 }
 
@@ -508,8 +497,7 @@ dbBackup *backupDb(void) {
         backup->dbarray[i] = server.db[i];
         server.db[i].dict = dictCreate(&dbDictType,NULL);
         server.db[i].expires = dictCreate(&dbExpiresDictType,NULL);
-        server.db[i].evict = dictCreate(&evictDictType,NULL);
-        server.db[i].meta = dictCreate(&dbMetaDictType,NULL);
+        server.db[i].meta = dictCreate(&objectMetaDictType,NULL);
     }
 
     /* Backup cluster slots to keys map if enable cluster. */
@@ -539,7 +527,6 @@ void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
     for (int i=0; i<server.dbnum; i++) {
         dictRelease(buckup->dbarray[i].dict);
         dictRelease(buckup->dbarray[i].expires);
-        dictRelease(buckup->dbarray[i].evict);
         dictRelease(buckup->dbarray[i].meta);
     }
 
@@ -564,11 +551,9 @@ void restoreDbBackup(dbBackup *buckup) {
     for (int i=0; i<server.dbnum; i++) {
         serverAssert(dictSize(server.db[i].dict) == 0);
         serverAssert(dictSize(server.db[i].expires) == 0);
-        serverAssert(dictSize(server.db[i].evict) == 0);
         serverAssert(dictSize(server.db[i].meta) == 0);
         dictRelease(server.db[i].dict);
         dictRelease(server.db[i].expires);
-        dictRelease(server.db[i].evict);
         dictRelease(server.db[i].meta);
         server.db[i] = buckup->dbarray[i];
     }
@@ -598,11 +583,12 @@ int selectDb(client *c, int id) {
     return C_OK;
 }
 
+//TODO opt use dbsize
 long long dbTotalServerKeyCount() {
     long long total = 0;
     int j;
     for (j = 0; j < server.dbnum; j++) {
-        total += dictSize(server.db[j].dict) + dictSize(server.db[j].evict);
+        total += dictSize(server.db[j].dict);
     }
     return total;
 }
@@ -756,8 +742,8 @@ void existsCommand(client *c) {
     int j;
 
 	for (j = 1; j < c->argc; j++) {
-		if (lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH) ||
-				lookupEvictKey(c->db,c->argv[j]))
+        //FIXME hanle cold key
+		if (lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH))
 			count++;
     }
     addReplyLongLong(c,count);
@@ -808,7 +794,8 @@ void keysCommand(client *c) {
     int plen = sdslen(pattern), allkeys;
     unsigned long numkeys = 0, i;
     void *replylen = addReplyDeferredLen(c);
-    dict *dicts[2] = {c->db->dict,c->db->evict};
+    //handle cold
+    dict *dicts[2] = {c->db->dict};
 
     allkeys = (pattern[0] == '*' && plen == 1);
     for (i = 0; i < sizeof(dicts)/sizeof(dict*); i++) {
@@ -964,7 +951,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     ht = NULL;
     if (o == NULL) {
         if (IS_DICT(orig_cursor)) ht = c->db->dict;
-        else ht = c->db->evict;
+        //FIXME handle cold key
+        else ht = c->db->dict;
         cursor = O2I(orig_cursor);
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
@@ -1045,7 +1033,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         /* Filter an element if it isn't the type we want. */
         if (!filter && o == NULL && typename){
             robj* typecheck = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
-            if (typecheck == NULL) typecheck = lookupEvictKey(c->db, kobj);
+            //FIXME handle cold key
+            //if (typecheck == NULL) typecheck = lookupEvictKey(c->db, kobj);
             char* type = getObjectTypeName(typecheck);
             if (strcasecmp((char*) typename, type)) filter = 1;
         }
@@ -1109,8 +1098,9 @@ void scanCommand(client *c) {
     scanGenericCommand(c,NULL,cursor);
 }
 
+//TODO fixme
 void dbsizeCommand(client *c) {
-    addReplyLongLong(c,dictSize(c->db->dict)+dictSize(c->db->evict));
+    addReplyLongLong(c,dictSize(c->db->dict));
 }
 
 void lastsaveCommand(client *c) {
@@ -1142,7 +1132,8 @@ char* getObjectTypeName(robj *o) {
 void typeCommand(client *c) {
     robj *o;
     o = lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH);
-	if (o == NULL) o = lookupEvictKey(c->db,c->argv[1]);
+    //FIXME handle cold key
+	// if (o == NULL) o = lookupEvictKey(c->db,c->argv[1]);
     addReplyStatus(c, getObjectTypeName(o));
 }
 
@@ -1482,7 +1473,7 @@ void swapdbCommand(client *c) {
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
-    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr)||dictFind(db->evict,key->ptr));
+    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr));
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
@@ -1495,7 +1486,6 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
 
     /* Reuse the sds from the main dict in the expire dict */
     kde = dictFind(db->dict,key->ptr);
-	if (!kde) kde = dictFind(db->evict,key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
     de = dictAddOrFind(db->expires,dictGetKey(kde));
     dictSetSignedIntegerVal(de,when);
@@ -1516,7 +1506,7 @@ long long getExpire(redisDb *db, robj *key) {
 
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
-    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr)||dictFind(db->evict,key->ptr));
+    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr));
     return dictGetSignedIntegerVal(de);
 }
 
@@ -1528,7 +1518,7 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
         dbAsyncDelete(db,keyobj);
     else
         dbSyncDelete(db,keyobj);
-    dbDeleteEvict(db,keyobj);
+    //FIXME handle cold key
     latencyEndMonitor(expire_latency);
     latencyAddSampleIfNeeded("expire-del",expire_latency);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,"expired",keyobj,db->id);

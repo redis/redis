@@ -1267,7 +1267,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        if (dictSize(db->dict) == 0 && dictSize(db->evict) == 0) continue;
+        //FIXME handle cold
+        if (dictSize(db->dict) == 0) continue;
 
         /* Write the SELECT DB opcode */
         if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
@@ -1275,7 +1276,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
         /* Write the RESIZE DB opcode. */
         uint64_t db_size, expires_size;
-        db_size = dictSize(db->dict)+dictSize(db->evict);
+        //FIXME handle cold
+        db_size = dictSize(db->dict);
         expires_size = dictSize(db->expires);
         if (rdbSaveType(rdb,RDB_OPCODE_RESIZEDB) == -1) goto werr;
         if (rdbSaveLen(rdb,db_size) == -1) goto werr;
@@ -1290,13 +1292,12 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
-            objectMeta *meta;
+            objectMeta *om = lookupMeta(db,&key);
             long long expire;
 
             initStaticStringObject(key,keystr);
             /* cold or warm bighash will be saved later in rdbSaveRocks. */
-            if ((meta = lookupMeta(db,&key)) != NULL && meta->len > 0)
-                continue;
+            if (!keyIsHot(o,om)) continue;
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
             rdbSaveProgress(rdb,rdbflags);
@@ -2548,7 +2549,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            dictExpand(db->evict,db_size);
+            // FIXME handle cold
             dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
@@ -2677,7 +2678,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             val = rdbLoadObject(type,rdb,key,&error);
         } else {
             /*could be evict or value */
-            error = ctripRdbLoadObject(type,rdb,key,keydata);
+            error = ctripRdbLoadObject(type,rdb,db,key,expiretime,now,keydata);
         }
 
         /* Check if the key already expired. This function is used when loading
@@ -2701,25 +2702,26 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 sdsfree(key);
                 goto eoferr;
             }
+        } else if (server.swap_mode != SWAP_MODE_MEMORY) {
+            robj keyobj;
+            /* a) Expired keys handled later
+             * b) expire/lfu/object meta already persisted to metaCF. */
+            initStaticStringObject(keyobj,key);
+            moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
+            rdbKeyDataDeinitLoad(keydata);
         } else if (iAmMaster() &&
             !(rdbflags&RDBFLAGS_AOF_PREAMBLE) &&
             expiretime != -1 && expiretime < now)
         {
             sdsfree(key);
-            if (server.swap_mode == SWAP_MODE_MEMORY)
-                decrRefCount(val);
-            else
-                rdbKeyLoadExpired(keydata);
+            decrRefCount(val);
             expired_keys_skipped++;
         } else {
             robj keyobj;
             int added;
 
             initStaticStringObject(keyobj,key);
-            if (server.swap_mode == SWAP_MODE_MEMORY)
-                added = dbAddRDBLoad(db,key,val);
-            else
-                added = rdbKeyLoadDbAdd(keydata,db);
+            added = dbAddRDBLoad(db,key,val);
             keys_loaded++;
             if (!added) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
@@ -2727,10 +2729,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                      * When it's set we allow new keys to replace the current
                      * keys with the same name. */
                     dbSyncDelete(db,&keyobj);
-                    if (server.swap_mode == SWAP_MODE_MEMORY)
-                        dbAddRDBLoad(db,key,val);
-                    else
-                        rdbKeyLoadDbAdd(keydata,db);
+                    dbAddRDBLoad(db,key,val);
                 } else {
                     serverLog(LL_WARNING,
                             "RDB has duplicated key '%s' in DB %d",key,db->id);
@@ -2743,19 +2742,11 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 setExpire(NULL,db,&keyobj,expiretime);
             }
 
-            if (server.swap_mode != SWAP_MODE_MEMORY) {
-                val = rdbKeyLoadGetObject(keydata);
-            }
-
             /* Set usage information (for eviction). */
             objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);
 
             /* call key space notification on key loaded for modules only */
             moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
-        }
-
-        if (server.swap_mode != SWAP_MODE_MEMORY) {
-            rdbKeyDataDeinitLoad(keydata);
         }
 
         /* Loading the database more slowly is useful in order to test

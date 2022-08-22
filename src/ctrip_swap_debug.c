@@ -46,8 +46,8 @@ static sds getSwapObjectInfo(robj *o) {
 static sds getSwapMetaInfo(objectMeta *m) {
     if (m) {
         return sdscatprintf(sdsempty(),
-                "at=%p,len=%ld,version=%lu",
-                (void*)m, m->len, m->version);
+                "at=%p,len=%ld",
+                (void*)m, m->hash.len);
     } else {
         return sdsnew("<nil>");
     }
@@ -75,21 +75,19 @@ NULL
         redisDb *db = c->db;
         robj *key = c->argv[2];
         robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-        robj *evict = lookupEvictKey(db,key);
         objectMeta *meta = lookupMeta(db,key);
-        if (!value && !evict) {
+        //FIXME handle code key
+        if (!value) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
         sds value_info = getSwapObjectInfo(value);
-        sds evict_info = getSwapObjectInfo(evict);
         sds meta_info = getSwapMetaInfo(meta);
         sds info = sdscatprintf(sdsempty(),
                 "value: %s\nevict: %s\nmeta: %s",
-                value_info,evict_info,meta_info);
+                value_info,"FIXME",meta_info);
         addReplyVerbatim(c,info,sdslen(info),"txt");
         sdsfree(value_info);
-        sdsfree(evict_info);
         sdsfree(meta_info);
         sdsfree(info);
     } else if (!strcasecmp(c->argv[1]->ptr,"encode-key") && c->argc >= 4) {
@@ -148,7 +146,7 @@ NULL
         addReplyArrayLen(c, c->argc-2);
         for (int i = 2; i < c->argc; i++) {
             rawkey = sdsdup(c->argv[i]->ptr);
-            RIOInitGet(rio,rawkey);
+            RIOInitGet(rio,DATA_CF,rawkey);
             doRIO(rio);
             rawval = rio->get.rawval;
             if (rawval == NULL) {
@@ -161,7 +159,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"rio-scan") && c->argc == 3) {
         RIO _rio, *rio = &_rio;
         sds prefix = sdsdup(c->argv[2]->ptr);
-        RIOInitScan(rio,prefix);
+        RIOInitScan(rio,DATA_CF,prefix);
         doRIO(rio);
         addReplyArrayLen(c,rio->scan.numkeys);
         for (int i = 0; i < rio->scan.numkeys; i++) {

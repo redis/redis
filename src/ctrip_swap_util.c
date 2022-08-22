@@ -101,24 +101,6 @@ sds rocksEncodeSubkey(unsigned char enc_type, uint64_t version, sds key, sds sub
     return rawkey;
 }
 
-sds rocksEncodeValRdb(robj *value) {
-    rio sdsrdb;
-    rioInitWithBuffer(&sdsrdb,sdsempty());
-    rdbSaveObjectType(&sdsrdb,value) ;
-    rdbSaveObject(&sdsrdb,value,NULL);
-    return sdsrdb.io.buffer.ptr;
-}
-
-robj *rocksDecodeValRdb(sds raw) {
-    robj *value;
-    rio sdsrdb;
-    int rdbtype;
-    rioInitWithBuffer(&sdsrdb,raw);
-    rdbtype = rdbLoadObjectType(&sdsrdb);
-    value = rdbLoadObject(rdbtype,&sdsrdb,NULL,NULL);
-    return value;
-}
-
 int rocksDecodeKey(const char *raw, size_t rawlen, const char **key,
         size_t *klen) {
     int obj_type;
@@ -225,5 +207,75 @@ const char *strObjectType(int type) {
     case OBJ_STREAM: return "stream";
     default: return "unknown";
     }
+}
+
+sds rocksEncodeMetaKey(redisDb *db, sds key) {
+    int dbid = db->id;
+    sds rawkey = sdsnewlen(SDS_NOINIT,sizeof(dbid)+sdslen(key));
+    memcpy(rawkey,&dbid,sizeof(dbid));
+    memcpy(rawkey+sizeof(dbid),key,sdslen(key));
+    return rawkey;
+}
+
+static inline char objectType2Abbrev(int object_type) {
+    char abbrevs[] = {'K','L','H','S','Z','M','X'};
+    if (object_type > 0 && object_type < (int)sizeof(abbrevs)) {
+        return abbrevs[object_type];
+    } else {
+        return '?';
+    }
+}
+
+sds rocksEncodeMetaVal(int object_type, long long expire, sds extend) {
+    size_t len = 1 + sizeof(expire) + (extend ? sdslen(extend) : 0);
+    sds raw = sdsnewlen(SDS_NOINIT,len), ptr = raw;
+    ptr[0] = objectType2Abbrev(object_type), ptr++;
+    memcpy(raw+1,&expire,sizeof(expire)), ptr+=sizeof(expire);
+    if (extend) memcpy(ptr,extend,sdslen(extend));
+    return raw;
+}
+
+sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey) {
+    int dbid = db->id;
+    keylen_t keylen = key ? sdslen(key) : 0;
+    keylen_t subkeylen = subkey ? sdslen(subkey) : 0;
+    size_t rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen+subkeylen;
+    sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen), ptr = rawkey;
+    memcpy(ptr, &dbid, sizeof(dbid)), ptr += sizeof(dbid);
+    memcpy(ptr, &keylen, sizeof(keylen_t)), ptr += sizeof(keylen_t);
+    memcpy(ptr, key, keylen), ptr += keylen;
+    if (subkey) memcpy(ptr, subkey, subkeylen), ptr += subkeylen;
+    return rawkey;
+}
+
+sds rocksEncodeValRdb(robj *value) {
+    rio sdsrdb;
+    rioInitWithBuffer(&sdsrdb,sdsempty());
+    rdbSaveObjectType(&sdsrdb,value) ;
+    rdbSaveObject(&sdsrdb,value,NULL);
+    return sdsrdb.io.buffer.ptr;
+}
+
+robj *rocksDecodeValRdb(sds raw) {
+    robj *value;
+    rio sdsrdb;
+    int rdbtype;
+    rioInitWithBuffer(&sdsrdb,raw);
+    rdbtype = rdbLoadObjectType(&sdsrdb);
+    value = rdbLoadObject(rdbtype,&sdsrdb,NULL,NULL);
+    return value;
+}
+
+int keyIsHot(robj *value, objectMeta *om) {
+    if (value == NULL) return 0;
+    if (om == NULL) return 1;
+    serverAssert(om->object_type == value->type);
+    switch (value->type) {
+    case OBJ_HASH:
+        return om->hash.len == 0;
+    default:
+        return 0;
+    }
+    return 0;
 }
 

@@ -742,7 +742,6 @@ typedef struct redisDb {
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
     /* swap */
-    dict *evict;                /* evicted keys(or subkeys). */
     dict *meta;                 /* meta for rocksdb subkeys of big object . */
     dict *hold_keys;            /* holded keys. */
     list *evict_asap;           /* keys to be evicted asap. */
@@ -1128,7 +1127,6 @@ struct redisMemOverhead {
         size_t dbid;
         size_t overhead_ht_main;
         size_t overhead_ht_expires;
-        size_t overhead_ht_evict;
         size_t overhead_ht_meta;
     } *db;
     struct rocksdbMemOverhead *rocks;
@@ -1855,7 +1853,6 @@ extern dictType zsetDictType;
 extern dictType clusterNodesDictType;
 extern dictType clusterNodesBlackListDictType;
 extern dictType dbDictType;
-extern dictType evictDictType;
 extern dictType shaScriptObjectDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;

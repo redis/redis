@@ -395,6 +395,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
  * replaced_with: for SWAPDB, the WATCH should be invalidated if
  * the key exists in either of them, and skipped only if it
  * doesn't exist in both. */
+//TODO fixme
 void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
     listIter li;
     listNode *ln;
@@ -410,10 +411,9 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
         listRewind(clients,&li);
         while((ln = listNext(&li))) {
             client *c = listNodeValue(ln);
-            if (dictFind(emptied->dict, key->ptr)||dictFind(emptied->evict, key->ptr)) {
+            if (dictFind(emptied->dict, key->ptr)) {
                 c->flags |= CLIENT_DIRTY_CAS;
-            } else if (replaced_with && (dictFind(replaced_with->dict, key->ptr) ||
-                        dictFind(replaced_with->evict, key->ptr))) {
+            } else if (replaced_with && (dictFind(replaced_with->dict, key->ptr))) {
                 c->flags |= CLIENT_DIRTY_CAS;
             }
         }

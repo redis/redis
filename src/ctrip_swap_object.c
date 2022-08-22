@@ -31,40 +31,6 @@
 /*-----------------------------------------------------------------------------
  * db.evict related API
  *----------------------------------------------------------------------------*/
-robj *lookupEvictKey(redisDb *db, robj *key) {
-    return dictFetchValue(db->evict,key->ptr);
-}
-
-void dbAddEvict(redisDb *db, robj *key, robj *evict) {
-    sds copy = sdsdup(key->ptr);
-    int retval = dictAdd(db->evict, copy, evict);
-    serverAssertWithInfo(NULL,key,retval == DICT_OK);
-}
-
-/* Note: 
- * - only evict object shell will be deleted.
- * - corresponding expire will be deleted (expire must not survive alone) */
-int dbDeleteEvict(redisDb *db, robj *key) {
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    if (dictSize(db->meta) > 0) dictDelete(db->meta,key->ptr);
-    dictEntry *de = dictUnlink(db->evict,key->ptr);
-    if (de) {
-        robj *evict = dictGetVal(de);
-        /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,evict);
-        /* Only free evict object shell */ 
-        if (evict->type == OBJ_MODULE) {
-            moduleValue *mv = evict->ptr;
-            if (mv) mv->value = NULL;
-        } else {
-            evict->ptr = NULL;
-        }
-        dictFreeUnlinkedEntry(db->evict,de);
-        return 1;
-    } else {
-        return 0;
-    }
-}
 
 void dbSetDirty(redisDb *db, robj *key) {
     robj *o = lookupKey(db,key,LOOKUP_NOTOUCH);
@@ -73,6 +39,10 @@ void dbSetDirty(redisDb *db, robj *key) {
 
 int objectIsDirty(robj *o) {
     return o->dirty;
+}
+
+void freeObjectMeta(objectMeta *m) {
+    zfree(m);
 }
 
 /* Note that db.meta is a satellite dict just like db.expire. */ 
@@ -84,7 +54,7 @@ void dictObjectMetaFree(void *privdata, void *val) {
     freeObjectMeta(val);
 }
 
-dictType dbMetaDictType = {
+dictType objectMetaDictType = {
     dictSdsHash,                /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
@@ -94,24 +64,6 @@ dictType dbMetaDictType = {
     dictExpandAllowed           /* allow to expand */
 };
 
-objectMeta *createObjectMeta(size_t len) {
-    objectMeta *m = zmalloc(sizeof(objectMeta));
-    m->len = len;
-    m->version = server.meta_version++;
-    return m;
-}
-
-objectMeta *dupObjectMeta(objectMeta *ms) {
-    objectMeta *m = zmalloc(sizeof(objectMeta));
-    m->len = ms->len;
-    m->version = ms->version;
-    return m;
-}
-
-void freeObjectMeta(objectMeta *m) {
-    zfree(m);
-}
-
 objectMeta *lookupMeta(redisDb *db, robj *key) {
     return dictFetchValue(db->meta,key->ptr);
 }
@@ -119,7 +71,6 @@ objectMeta *lookupMeta(redisDb *db, robj *key) {
 void dbAddMeta(redisDb *db, robj *key, objectMeta *m) {
     dictEntry *kde;
     kde = dictFind(db->dict,key->ptr);
-	if (!kde) kde = dictFind(db->evict,key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
     serverAssert(dictAdd(db->meta,dictGetKey(kde),m) == DICT_OK);
 }
@@ -127,15 +78,6 @@ void dbAddMeta(redisDb *db, robj *key, objectMeta *m) {
 int dbDeleteMeta(redisDb *db, robj *key) {
     if (dictSize(db->meta) == 0) return 0;
     return dictDelete(db->meta,key->ptr) == DICT_OK ? 1 : 0;
-}
-
-void dbSetBig(redisDb *db, robj *key) {
-    robj *o = lookupKey(db,key,LOOKUP_NOTOUCH);
-    if (o) setObjectBig(o);
-}
-
-int objectIsBig(robj *o) {
-    return o->big;
 }
 
 #ifdef REDIS_TEST

@@ -827,9 +827,10 @@ void hmgetCommand(client *c) {
     }
 }
 
+//TODO confirm
 size_t hashMetaLength(redisDb *db, robj *key) {
-    objectMeta *m = lookupMeta(db, key);
-    return m ? m->len : 0;
+    objectMeta *om = lookupMeta(db, key);
+    return om ? om->hash.len : 0;
 }
 
 void hdelCommand(client *c) {
@@ -868,9 +869,9 @@ void hdelCommand(client *c) {
 
 void hlenCommand(client *c) {
     robj *o;
-    objectMeta *m = lookupMeta(c->db,c->argv[1]);
-    if (m != NULL) {
-        size_t hash_len = m->len;
+    objectMeta *om = lookupMeta(c->db,c->argv[1]);
+    if (om != NULL) {
+        size_t hash_len = om->hash.len;
         o = lookupKeyRead(c->db, c->argv[1]);
         if (o != NULL) hash_len += hashTypeLength(o);
         addReplyLongLong(c,hash_len);

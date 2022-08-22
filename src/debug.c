@@ -324,7 +324,7 @@ void computeKeysDigest(unsigned char *final) {
     for (j = 0; j < server.dbnum; j++) {
         int d;
         redisDb *db = server.db+j;
-        dict *dicts[] = {db->dict, db->evict};
+        dict *dicts[] = {db->dict}; /* FIXME handle cold keys */
 
         for (d= 0; d < (int)(sizeof(dicts)/sizeof(dict*)); d++) {
             dict *dict = dicts[d];

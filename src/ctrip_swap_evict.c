@@ -167,10 +167,11 @@ int tryEvictKey(redisDb *db, robj *key, int *evict_result) {
     }
 
     /* transformt hash big property */
-    if (o->type == OBJ_HASH) {
-        objectMeta *m = lookupMeta(db, key);
-        hashTransformBig(o, m);
-    }
+    //TODO fixme
+    /* if (o->type == OBJ_HASH) { */
+        /* objectMeta *m = lookupMeta(db, key); */
+        /* hashTransformBig(o, m); */
+    /* } */
 
     dirty = o->dirty;
     old_keyrequests_count = evict_client->keyrequests_count;

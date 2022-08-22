@@ -1054,7 +1054,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        long long keyscount = dictSize(db->dict)+dictSize(db->evict);
+        long long keyscount = dictSize(db->dict);
         if (keyscount==0) continue;
 
         mh->total_keys += keyscount;
@@ -1070,12 +1070,6 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mem = dictSize(db->expires) * sizeof(dictEntry) +
               dictSlots(db->expires) * sizeof(dictEntry*);
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
-        mem_total+=mem;
-
-        mem = dictSize(db->evict) * sizeof(dictEntry)  +
-            dictSlots(db->evict) * sizeof(dictEntry*) + 
-            dictSize(db->evict) * sizeof(robj);
-        mh->db[mh->num_dbs].overhead_ht_evict = mem;
         mem_total+=mem;
 
         mem = dictSize(db->meta) * sizeof(dictEntry)  +
@@ -1421,13 +1415,10 @@ NULL
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMapLen(c,4);
+            addReplyMapLen(c,3);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);
-
-            addReplyBulkCString(c,"overhead.hashtable.evict");
-            addReplyLongLong(c,mh->db[j].overhead_ht_evict);
 
             addReplyBulkCString(c,"overhead.hashtable.expires");
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);

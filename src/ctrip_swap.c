@@ -102,6 +102,11 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
     return ctx;
 }
 
+void swapCtxSetSwapData(swapCtx *ctx, MOVE swapData *data, MOVE void *datactx) {
+    ctx->data = data;
+    ctx->datactx = datactx;
+}
+
 void swapCtxFree(swapCtx *ctx) {
     if (!ctx) return;
 #ifdef SWAP_DEBUG
@@ -151,20 +156,11 @@ void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
 int keyRequestSwapFinished(swapData *data, void *pd) {
     UNUSED(data);
     swapCtx *ctx = pd;
-    redisDb *db = ctx->c->db;
-    robj *key = ctx->key_request->key;
 
-    if (ctx->expired && key) {
-        deleteExpiredKeyAndPropagate(db,key);
-        DEBUG_MSGS_APPEND(&ctx->msgs,"swap-finished",
-                "expired=%s", (sds)key->ptr);
-    }
-
-    if (ctx->set_dirty) {
-        dbSetDirty(db, key);
-        DEBUG_MSGS_APPEND(&ctx->msgs,"swap-finished",
-                "set_dirty=%s", (sds)key->ptr);
-    }
+    swapDataKeyRequestFinished(data);
+    DEBUG_MSGS_APPEND(&ctx->msgs,"swap-finished",
+            "key=%s,propagate_expire=%d,set_dirty=%s",
+            (sds)data->key->ptr,data->propagate_expire,data->set_dirty);
 
     /* release io will trigger either another swap within the same tx or
      * command call, but never both. so swap and main thread will not
@@ -191,20 +187,24 @@ int keyExpiredAndShouldDelete(redisDb *db, robj *key) {
 #define NOSWAP_REASON_SWAPANADECIDED 4
 #define NOSWAP_REASON_UNEXPECTED 100
 
-int genericRequestProceed(void *listeners, redisDb *db, robj *key,
+int keyRequestProceed(void *listeners, redisDb *db, robj *key,
         client *c, void *pd) {
-    int retval = C_OK, reason_num = 0;
-    void *datactx;
+    int retval = C_OK, reason_num = 0, swap_intention;
+    void *datactx = NULL;
     swapData *data = NULL;
     swapCtx *ctx = pd;
-    robj *value, *evict;
-    objectMeta *meta;
+    robj *value;
+    objectMeta *object_meta;
     char *reason;
     void *msgs = NULL;
+    uint32_t swap_intention_flags;
+    long long expire;
     UNUSED(reason), UNUSED(c);
-    int cmd_intention = ctx->key_request->cmd_intention;
-    uint32_t cmd_intention_flags = ctx->key_request->cmd_intention_flags;
     
+#ifdef SWAP_DEBUG
+    msgs = &ctx->msgs;
+#endif
+
     serverAssert(c == ctx->c);
     clientGotRequestIOAndLock(c,ctx,listeners);
 
@@ -215,37 +215,29 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     }
 
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
-    evict = lookupEvictKey(db,key);
-    meta = lookupMeta(db,key);
 
-    if (!value && !evict) {
-        reason = "key not exists";
-        reason_num = NOSWAP_REASON_KEYNOTEXISTS;
-        goto noswap;
-    }
-
-    /* Expired key will be delete before execute command proc. */
-    if ((c->cmd && c->cmd->proc == expiredCommand) ||
-            keyExpiredAndShouldDelete(db,key)) {
-        cmd_intention = SWAP_DEL;
-        cmd_intention_flags = 0;
-        ctx->expired = 1;
-    }
-
-    data = createSwapData(db,key,value,evict,meta,&datactx);
-
+    data = createSwapData(db,key,value);
     if (data == NULL) {
         reason = "data not support swap";
         reason_num = NOSWAP_REASON_KEYNOTSUPPORT;
         goto noswap;
     }
 
-    ctx->data = data;
-    ctx->datactx = datactx;
+    if (value != NULL) {
+        submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
+                data,datactx,keyRequestSwapFinished,ctx,msgs);
+        return C_OK;
+    }
 
-    if (swapDataAna(data,cmd_intention,cmd_intention_flags,
-                ctx->key_request, &ctx->swap_intention,
-                &ctx->swap_intention_flags,ctx->datactx)) {
+    object_meta = lookupMeta(db,key);
+    expire = getExpire(db,key);
+
+    swapDataSetupMeta(data,value->type,expire,object_meta,datactx);
+
+    swapCtxSetSwapData(ctx,data,datactx);
+
+    if (swapDataAna(data,ctx->key_request,&swap_intention,
+                &swap_intention_flags,datactx)) {
         ctx->errcode = SWAP_ERR_ANA_FAIL;
         retval = C_ERR;
         reason = "swap ana failed";
@@ -253,27 +245,16 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
         goto noswap;
     }
 
-    if (ctx->swap_intention == SWAP_NOP) {
+    if (swap_intention == SWAP_NOP) {
         reason = "swapana decided no swap";
         reason_num = NOSWAP_REASON_SWAPANADECIDED;
         goto noswap;
     }
 
-    if ((ctx->swap_intention_flags & INTENTION_DEL_ASYNC) ||
-            ctx->swap_intention_flags & INTENTION_IN_DEL) {
-        /* rocksdb and mem differs after rocksdb del. */
-        ctx->set_dirty = 1;
-    }
-
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed","start swap=%s",
-            swapIntentionName(ctx->swap_intention));
+            swapIntentionName(swap_intention));
 
-#ifdef SWAP_DEBUG
-    msgs = &ctx->msgs;
-#endif
-
-    submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,
-            ctx->swap_intention_flags,
+    submitSwapDataRequest(SWAP_MODE_ASYNC,swap_intention,swap_intention_flags,
             data,datactx,keyRequestSwapFinished,ctx,msgs);
 
     return C_OK;
@@ -281,8 +262,7 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
 noswap:
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed",
             "no swap needed: %s", reason);
-    if (c->cmd && (c->cmd->flags & CMD_READONLY) &&
-            cmd_intention == SWAP_IN &&
+    if (ctx->key_request->cmd_intention == SWAP_IN &&
             reason_num == NOSWAP_REASON_SWAPANADECIDED) {
         server.stat_memory_hits++;
     }
@@ -309,7 +289,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         DEBUG_MSGS_APPEND(&ctx->msgs,"request-wait", "key=%s",
                 key ? (sds)key->ptr : "<nil>");
 
-        requestGetIOAndLock(txid,db,key,genericRequestProceed,c,ctx,
+        requestGetIOAndLock(txid,db,key,keyRequestProceed,c,ctx,
                 (freefunc)swapCtxFree,msgs);
     }
 }
@@ -413,8 +393,7 @@ int initTestRedisDb() {
     for (int j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&dbExpiresDictType,NULL);
-        server.db[j].evict = dictCreate(&evictDictType, NULL);
-        server.db[j].meta = dictCreate(&dbMetaDictType, NULL);
+        server.db[j].meta = dictCreate(&objectMetaDictType, NULL);
         server.db[j].hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
         server.db[j].evict_asap = listCreate();
         server.db[j].expires_cursor = 0;

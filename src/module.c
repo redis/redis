@@ -2300,7 +2300,7 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     int flags = mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0;
 
     /* db.evict */
-    if (mode & REDISMODULE_EVICT) evict = lookupEvictKey(ctx->client->db,keyname);
+    // if (mode & REDISMODULE_EVICT) evict = lookupEvictKey(ctx->client->db,keyname);
 
     /* db.dict */
     if (mode & REDISMODULE_WRITE) {
@@ -4686,108 +4686,6 @@ int RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_val
     if (old_value)
         *old_value = mv->value;
     mv->value = new_value;
-
-    return REDISMODULE_OK;
-}
-
-int RM_ModuleTypeAddEvict(RedisModuleKey *key) {
-    if (!(key->mode & REDISMODULE_EVICT)) return REDISMODULE_ERR;
-    if (key->value == NULL || key->value->type != OBJ_MODULE)
-        return REDISMODULE_ERR;
-    if (key->evict) return REDISMODULE_ERR;
-
-    moduleType *mt = RM_ModuleTypeGetType(key);
-    robj *e = createModuleObject(mt,NULL);
-    dictAdd(key->db->evict, sdsdup(key->key->ptr), e);
-    key->evict = e;
-    return REDISMODULE_OK;
-}
-
-int RM_ModuleTypeEvictExists(RedisModuleKey *key) {
-    if (key == NULL || !(key->mode & REDISMODULE_EVICT)) return 0;
-    return key->evict != NULL;
-}
-
-int RM_ModuleTypeReplaceEvict(RedisModuleKey *key, moduleType *mt, void *new_evict,
-        void **old_evict) {
-    if (!(key->mode & REDISMODULE_EVICT) || key->iter) return REDISMODULE_ERR;
-    if (!key->evict || key->evict->type != OBJ_MODULE) return REDISMODULE_ERR;
-
-    moduleValue *mv = key->evict->ptr;
-    if (mv->type != mt) return REDISMODULE_ERR;
-
-    if (old_evict) *old_evict = mv->value;
-    mv->value = new_evict;
-
-    return REDISMODULE_OK;
-}
-
-/* Note that key->evict have the same module type as key->value, but actually
- * key->evict points to swapping client list which can't free by mt->free, so
- * we set evict->ptr to NULL to avoid deleting evict->ptr. */
-int RM_DeleteEvict(RedisModuleKey *key) {
-    if (!(key->mode & REDISMODULE_EVICT)) return REDISMODULE_ERR;
-    if (key->value && key->value->type != OBJ_MODULE) return REDISMODULE_ERR;
-    if (key->evict && key->evict->type != OBJ_MODULE) return REDISMODULE_ERR;
-    if (key->evict) {
-        moduleValue *mv = key->evict->ptr;
-        mv->value = NULL; /* free only robj shell */
-        dictDelete(key->db->evict, key->key->ptr);
-        key->evict = NULL;
-    }
-    return REDISMODULE_OK;
-}
-
-/* Only robj shell(excluding ptr) would be swapped into keyspace */
-int RM_ModuleTypeSwapIn(RedisModuleKey *key, void *new_value) {
-    if (!(key->mode & REDISMODULE_EVICT) || key->iter) return REDISMODULE_ERR;
-    if (key->evict == NULL || key->value != NULL)
-        return REDISMODULE_ERR;
-    if (key->evict->type != OBJ_MODULE) return REDISMODULE_ERR;
-
-    /* Move key from evict to dict. */
-    dictEntry *de = dictUnlink(key->db->evict, key->key->ptr);
-    dictLink(key->db->dict, de);
-    key->value = key->evict;
-    key->evict = NULL;
-
-    moduleValue *mv = key->value->ptr;
-    /* Set value to new value*/
-    mv->value = new_value;
-    key->value->dirty = 0;
-
-    return REDISMODULE_OK;
-}
-
-/* Only robj shell(excluding ptr) would be swapped outto rocksdb.
- * Note that we would overwrite db->evict 'cause db->value has the lru value
- * we need. */
-int RM_ModuleTypeSwapOut(RedisModuleKey *key, void **old_value) {
-    moduleValue *mv;
-
-    if (!(key->mode & REDISMODULE_EVICT) || key->iter) return REDISMODULE_ERR;
-    if (key->value == NULL || key->value->type != OBJ_MODULE)
-        return REDISMODULE_ERR;
-
-    if (key->evict) {
-        mv = key->evict->ptr;
-        mv->value = NULL; /* free robj shell */
-        dictDelete(key->db->evict, key->key->ptr);
-    }
-
-    /* If key->value still have contents, value would be saved into old_value,
-     * but robj shell are swapped out (e.g. lfu info) */
-    mv = key->value->ptr;
-    if (mv->value != NULL) {
-        if (old_value) *old_value = mv->value;
-        mv->value = NULL;
-    }
-
-    mv->value = NULL;
-    dictEntry *de = dictUnlink(key->db->dict, key->key->ptr);
-    dictLink(key->db->evict, de);
-    key->evict = key->value;
-    key->value = NULL;
 
     return REDISMODULE_OK;
 }
@@ -9559,15 +9457,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ModuleTypeGetValue);
     REGISTER_API(ModuleTypeGetDirty);
     REGISTER_API(DbSetDirty);
-    REGISTER_API(ModuleTypeSwapIn);
-    REGISTER_API(ModuleTypeSwapOut);
     REGISTER_API(ModuleTypeFreeValue);
     REGISTER_API(ModuleTypeGetName);
     REGISTER_API(ModuleTypeReplaceValue);
-    REGISTER_API(DeleteEvict);
-    REGISTER_API(ModuleTypeAddEvict);
-    REGISTER_API(ModuleTypeEvictExists);
-    REGISTER_API(ModuleTypeReplaceEvict);
     REGISTER_API(RdbEncode);
     REGISTER_API(RdbDecode);
     REGISTER_API(IsIOError);
