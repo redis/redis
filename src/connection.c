@@ -30,19 +30,24 @@
 static ConnectionType *connTypes[CONN_TYPE_MAX];
 
 int connTypeRegister(ConnectionType *ct) {
-    int type = ct->get_type(NULL);
+    const char *typename = ct->get_type(NULL);
+    ConnectionType *tmpct;
+    int type;
 
-    /* unknown connection type as a fatal error */
-    if (type >= CONN_TYPE_MAX) {
-        serverPanic("Unsupported connection type %d", type);
+    /* find an empty slot to store the new connection type */
+    for (type = 0; type < CONN_TYPE_MAX; type++) {
+        tmpct = connTypes[type];
+        if (!tmpct)
+            break;
+
+        /* ignore case, we really don't care "tls"/"TLS" */
+        if (!strcasecmp(typename, tmpct->get_type(NULL))) {
+            serverLog(LL_WARNING, "Connection types %s already registered", typename);
+            return C_ERR;
+        }
     }
 
-    if (connTypes[type] == ct) {
-        serverLog(LL_WARNING, "Connection type %d already registered", type);
-        return C_OK;
-    }
-
-    serverLog(LL_VERBOSE, "Connection type %d registered", type);
+    serverLog(LL_VERBOSE, "Connection type %s registered", typename);
     connTypes[type] = ct;
 
     if (ct->init) {
@@ -65,43 +70,85 @@ int connTypeInitialize() {
     return C_OK;
 }
 
-ConnectionType *connectionByType(int type) {
+ConnectionType *connectionByType(const char *typename) {
     ConnectionType *ct;
 
-    serverAssert(type < CONN_TYPE_MAX);
+    for (int type = 0; type < CONN_TYPE_MAX; type++) {
+        ct = connTypes[type];
+        if (!ct)
+            break;
 
-    ct = connTypes[type];
-    if (!ct) {
-        serverLog(LL_WARNING, "Missing implement of connection type %d", type);
+        if (!strcasecmp(typename, ct->get_type(NULL)))
+            return ct;
     }
 
-    return ct;
+    serverLog(LL_WARNING, "Missing implement of connection type %s", typename);
+
+    return NULL;
 }
 
-void connTypeCleanup(int type) {
-    ConnectionType *ct = connectionByType(type);
+/* Cache TCP connection type, query it by string once */
+ConnectionType *connectionTypeTcp() {
+    static ConnectionType *ct_tcp = NULL;
 
-    if (ct && ct->cleanup) {
-        ct->cleanup();
+    if (ct_tcp != NULL)
+        return ct_tcp;
+
+    ct_tcp = connectionByType(CONN_TYPE_SOCKET);
+    serverAssert(ct_tcp != NULL);
+
+    return ct_tcp;
+}
+
+/* Cache TLS connection type, query it by string once */
+ConnectionType *connectionTypeTls() {
+    static ConnectionType *ct_tls = NULL;
+
+    if (ct_tls != NULL)
+        return ct_tls;
+
+    ct_tls = connectionByType(CONN_TYPE_TLS);
+    return ct_tls;
+}
+
+/* Cache Unix connection type, query it by string once */
+ConnectionType *connectionTypeUnix() {
+    static ConnectionType *ct_unix = NULL;
+
+    if (ct_unix != NULL)
+        return ct_unix;
+
+    ct_unix = connectionByType(CONN_TYPE_UNIX);
+    return ct_unix;
+}
+
+int connectionIndexByType(const char *typename) {
+    ConnectionType *ct;
+
+    for (int type = 0; type < CONN_TYPE_MAX; type++) {
+        ct = connTypes[type];
+        if (!ct)
+            break;
+
+        if (!strcasecmp(typename, ct->get_type(NULL)))
+            return type;
     }
+
+    return -1;
 }
 
 void connTypeCleanupAll() {
+    ConnectionType *ct;
     int type;
 
     for (type = 0; type < CONN_TYPE_MAX; type++) {
-        connTypeCleanup(type);
+        ct = connTypes[type];
+        if (!ct)
+            break;
+
+        if (ct->cleanup)
+            ct->cleanup();
     }
-}
-
-int connTypeConfigure(int type, void *priv, int reconfigure) {
-    ConnectionType *ct = connectionByType(type);
-
-    if (ct && ct->configure) {
-        return ct->configure(priv, reconfigure);
-    }
-
-    return C_ERR;
 }
 
 /* walk all the connection types until has pending data */
@@ -136,37 +183,3 @@ int connTypeProcessPendingData(void) {
     return ret;
 }
 
-void *connTypeGetCtx(int type) {
-    ConnectionType *ct = connectionByType(type);
-
-    if (ct && ct->get_ctx) {
-        return ct->get_ctx();
-    }
-
-    return NULL;
-}
-
-void *connTypeGetClientCtx(int type) {
-    ConnectionType *ct = connectionByType(type);
-
-    if (ct && ct->get_client_ctx) {
-        return ct->get_client_ctx();
-    }
-
-    return NULL;
-}
-connection *connCreate(int type) {
-    ConnectionType *ct = connectionByType(type);
-
-    serverAssert(ct && ct->conn_create);
-
-    return ct->conn_create();
-}
-
-connection *connCreateAccepted(int type, int fd, void *priv) {
-    ConnectionType *ct = connectionByType(type);
-
-    serverAssert(ct && ct->conn_create_accepted);
-
-    return ct->conn_create_accepted(fd, priv);
-}

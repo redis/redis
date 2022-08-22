@@ -763,7 +763,7 @@ static void connTLSClose(connection *conn_) {
         conn->pending_list_node = NULL;
     }
 
-    connectionByType(CONN_TYPE_SOCKET)->close(conn_);
+    connectionTypeTcp()->close(conn_);
 }
 
 static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handler) {
@@ -802,7 +802,7 @@ static int connTLSConnect(connection *conn_, const char *addr, int port, const c
     ERR_clear_error();
 
     /* Initiate Socket connection first */
-    if (connectionByType(CONN_TYPE_SOCKET)->connect(conn_, addr, port, src_addr, connect_handler) == C_ERR) return C_ERR;
+    if (connectionTypeTcp()->connect(conn_, addr, port, src_addr, connect_handler) == C_ERR) return C_ERR;
 
     /* Return now, once the socket is connected we'll initiate
      * TLS connection from the event handler.
@@ -965,7 +965,7 @@ static int connTLSBlockingConnect(connection *conn_, const char *addr, int port,
     if (conn->c.state != CONN_STATE_NONE) return C_ERR;
 
     /* Initiate socket blocking connect first */
-    if (connectionByType(CONN_TYPE_SOCKET)->blocking_connect(conn_, addr, port, timeout) == C_ERR) return C_ERR;
+    if (connectionTypeTcp()->blocking_connect(conn_, addr, port, timeout) == C_ERR) return C_ERR;
 
     /* Initiate TLS connection now.  We set up a send/recv timeout on the socket,
      * which means the specified timeout will not be enforced accurately. */
@@ -1034,7 +1034,7 @@ exit:
     return nread;
 }
 
-static int connTLSGetType(connection *conn_) {
+static const char *connTLSGetType(connection *conn_) {
     (void) conn_;
 
     return CONN_TYPE_TLS;
@@ -1064,7 +1064,7 @@ static int tlsProcessPendingData() {
  */
 static sds connTLSGetPeerCert(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
-    if (conn_->type->get_type(conn_) != CONN_TYPE_TLS || !conn->ssl) return NULL;
+    if ((conn_->type != connectionTypeTls()) || !conn->ssl) return NULL;
 
     X509 *cert = SSL_get_peer_certificate(conn->ssl);
     if (!cert) return NULL;

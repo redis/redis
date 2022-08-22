@@ -363,7 +363,7 @@ static ssize_t connSocketSyncReadLine(connection *conn, char *ptr, ssize_t size,
     return syncReadLine(conn->fd, ptr, size, timeout);
 }
 
-static int connSocketGetType(connection *conn) {
+static const char *connSocketGetType(connection *conn) {
     (void) conn;
 
     return CONN_TYPE_SOCKET;

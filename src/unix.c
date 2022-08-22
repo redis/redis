@@ -29,18 +29,18 @@
 
 static ConnectionType CT_Unix;
 
-static int connUnixGetType(connection *conn) {
-    (void) conn;
+static const char *connUnixGetType(connection *conn) {
+    UNUSED(conn);
 
     return CONN_TYPE_UNIX;
 }
 
 static void connUnixEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask) {
-    connectionByType(CONN_TYPE_SOCKET)->ae_handler(el, fd, clientData, mask);
+    connectionTypeTcp()->ae_handler(el, fd, clientData, mask);
 }
 
 static int connUnixAddr(connection *conn, char *ip, size_t ip_len, int *port, int remote) {
-    return connectionByType(CONN_TYPE_SOCKET)->addr(conn, ip, ip_len, port, remote);
+    return connectionTypeTcp()->addr(conn, ip, ip_len, port, remote);
 }
 
 static connection *connCreateUnix(void) {
@@ -79,31 +79,31 @@ static void connUnixAcceptHandler(aeEventLoop *el, int fd, void *privdata, int m
 }
 
 static void connUnixClose(connection *conn) {
-    connectionByType(CONN_TYPE_SOCKET)->close(conn);
+    connectionTypeTcp()->close(conn);
 }
 
 static int connUnixAccept(connection *conn, ConnectionCallbackFunc accept_handler) {
-    return connectionByType(CONN_TYPE_SOCKET)->accept(conn, accept_handler);
+    return connectionTypeTcp()->accept(conn, accept_handler);
 }
 
 static int connUnixWrite(connection *conn, const void *data, size_t data_len) {
-    return connectionByType(CONN_TYPE_SOCKET)->write(conn, data, data_len);
+    return connectionTypeTcp()->write(conn, data, data_len);
 }
 
 static int connUnixWritev(connection *conn, const struct iovec *iov, int iovcnt) {
-    return connectionByType(CONN_TYPE_SOCKET)->writev(conn, iov, iovcnt);
+    return connectionTypeTcp()->writev(conn, iov, iovcnt);
 }
 
 static int connUnixRead(connection *conn, void *buf, size_t buf_len) {
-    return connectionByType(CONN_TYPE_SOCKET)->read(conn, buf, buf_len);
+    return connectionTypeTcp()->read(conn, buf, buf_len);
 }
 
 static int connUnixSetWriteHandler(connection *conn, ConnectionCallbackFunc func, int barrier) {
-    return connectionByType(CONN_TYPE_SOCKET)->set_write_handler(conn, func, barrier);
+    return connectionTypeTcp()->set_write_handler(conn, func, barrier);
 }
 
 static int connUnixSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
-    return connectionByType(CONN_TYPE_SOCKET)->set_read_handler(conn, func);
+    return connectionTypeTcp()->set_read_handler(conn, func);
 }
 
 static const char *connUnixGetLastError(connection *conn) {

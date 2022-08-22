@@ -2447,7 +2447,7 @@ void initServer(void) {
     }
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
-         && connTypeConfigure(CONN_TYPE_TLS, &server.tls_ctx_config, 1) == C_ERR) {
+         && connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
     }
@@ -2586,13 +2586,13 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
-    if (createSocketAcceptHandler(&server.ipfd, connAcceptHandler(CONN_TYPE_SOCKET)) != C_OK) {
+    if (createSocketAcceptHandler(&server.ipfd, connAcceptHandler(connectionTypeTcp())) != C_OK) {
         serverPanic("Unrecoverable error creating TCP socket accept handler.");
     }
-    if (createSocketAcceptHandler(&server.tlsfd, connAcceptHandler(CONN_TYPE_TLS)) != C_OK) {
+    if (createSocketAcceptHandler(&server.tlsfd, connAcceptHandler(connectionTypeTls())) != C_OK) {
         serverPanic("Unrecoverable error creating TLS socket accept handler.");
     }
-    if (createSocketAcceptHandler(&server.sofd, connAcceptHandler(CONN_TYPE_UNIX)) != C_OK) {
+    if (createSocketAcceptHandler(&server.sofd, connAcceptHandler(connectionTypeUnix())) != C_OK) {
         serverPanic("Unrecoverable error creating server.sofd file event.");
     }
 
@@ -6282,10 +6282,10 @@ int changeBindAddr(void) {
     }
 
     /* Create TCP and TLS event handlers */
-    if (createSocketAcceptHandler(&server.ipfd, connAcceptHandler(CONN_TYPE_SOCKET)) != C_OK) {
+    if (createSocketAcceptHandler(&server.ipfd, connAcceptHandler(connectionTypeTcp())) != C_OK) {
         serverPanic("Unrecoverable error creating TCP socket accept handler.");
     }
-    if (createSocketAcceptHandler(&server.tlsfd, connAcceptHandler(CONN_TYPE_TLS)) != C_OK) {
+    if (createSocketAcceptHandler(&server.tlsfd, connAcceptHandler(connectionTypeTls())) != C_OK) {
         serverPanic("Unrecoverable error creating TLS socket accept handler.");
     }
 

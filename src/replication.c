@@ -55,12 +55,12 @@ int cancelReplicationHandshake(int reconnect);
 int RDBGeneratedByReplication = 0;
 
 /* --------------------------- Utility functions ---------------------------- */
-static int connTypeOfReplication() {
+static ConnectionType *connTypeOfReplication() {
     if (server.tls_replication) {
-        return CONN_TYPE_TLS;
+        return connectionTypeTls();
     }
 
-    return CONN_TYPE_SOCKET;
+    return connectionTypeTcp();
 }
 
 /* Return the pointer to a string representing the slave ip:listening_port

@@ -3327,7 +3327,7 @@ int modulePopulateClientInfoStructure(void *ci, client *client, int structver) {
         ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_TRACKING;
     if (client->flags & CLIENT_BLOCKED)
         ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_BLOCKED;
-    if (connGetType(client->conn) == CONN_TYPE_TLS)
+    if (client->conn->type == connectionTypeTls())
         ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_SSL;
 
     int port;

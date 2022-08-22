@@ -2430,7 +2430,7 @@ static int updateHZ(const char **err) {
 }
 
 static int updatePort(const char **err) {
-    if (changeListenPort(server.port, &server.ipfd, connAcceptHandler(CONN_TYPE_SOCKET)) == C_ERR) {
+    if (changeListenPort(server.port, &server.ipfd, connAcceptHandler(connectionTypeTcp())) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
         return 0;
     }
@@ -2577,7 +2577,7 @@ static int applyTlsCfg(const char **err) {
 
     /* If TLS is enabled, try to configure OpenSSL. */
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
-         && connTypeConfigure(CONN_TYPE_TLS, &server.tls_ctx_config, 1) == C_ERR) {
+         && connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
         *err = "Unable to update TLS configuration. Check server logs.";
         return 0;
     }
@@ -2586,12 +2586,12 @@ static int applyTlsCfg(const char **err) {
 
 static int applyTLSPort(const char **err) {
     /* Configure TLS in case it wasn't enabled */
-    if (connTypeConfigure(CONN_TYPE_TLS, &server.tls_ctx_config, 0) == C_ERR) {
+    if (connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 0) == C_ERR) {
         *err = "Unable to update TLS configuration. Check server logs.";
         return 0;
     }
 
-    if (changeListenPort(server.tls_port, &server.tlsfd, connAcceptHandler(CONN_TYPE_TLS)) == C_ERR) {
+    if (changeListenPort(server.tls_port, &server.tlsfd, connAcceptHandler(connectionTypeTls())) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
         return 0;
     }

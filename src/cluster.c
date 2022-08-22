@@ -119,12 +119,12 @@ dictType clusterNodesBlackListDictType = {
         NULL                        /* allow to expand */
 };
 
-static int connTypeOfCluster() {
+static ConnectionType *connTypeOfCluster() {
     if (server.tls_cluster) {
-        return CONN_TYPE_TLS;
+        return connectionTypeTls();
     }
 
-    return CONN_TYPE_SOCKET;
+    return connectionTypeTcp();
 }
 
 /* -----------------------------------------------------------------------------
@@ -5030,7 +5030,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     
     /* Report non-TLS ports to non-TLS client in TLS cluster if available. */
     int use_pport = (server.tls_cluster &&
-                     c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+                     c->conn && (c->conn->type != connectionTypeTls()));
     addReplyLongLong(c, use_pport && node->pport ? node->pport : node->port);
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
@@ -5335,7 +5335,7 @@ NULL
         /* Report plaintext ports, only if cluster is TLS but client is known to
          * be non-TLS). */
         int use_pport = (server.tls_cluster &&
-                        c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+                        c->conn && (c->conn->type != connectionTypeTls()));
         sds nodes = clusterGenNodesDescription(0, use_pport);
         addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
         sdsfree(nodes);
@@ -5767,7 +5767,7 @@ NULL
 
         /* Use plaintext port if cluster is TLS but client is non-TLS. */
         int use_pport = (server.tls_cluster &&
-                         c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+                         c->conn && (c->conn->type != connectionTypeTls()));
         addReplyArrayLen(c,n->numslaves);
         for (j = 0; j < n->numslaves; j++) {
             sds ni = clusterGenNodeDescription(n->slaves[j], use_pport);
@@ -6896,7 +6896,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
         /* Redirect to IP:port. Include plaintext port if cluster is TLS but
          * client is non-TLS. */
         int use_pport = (server.tls_cluster &&
-                        c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+                        c->conn && (c->conn->type != connectionTypeTls()));
         int port = use_pport && n->pport ? n->pport : n->port;
         addReplyErrorSds(c,sdscatprintf(sdsempty(),
             "-%s %d %s:%d",

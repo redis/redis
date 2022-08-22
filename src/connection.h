@@ -57,16 +57,16 @@ typedef enum {
 #define CONN_FLAG_CLOSE_SCHEDULED   (1<<0)      /* Closed scheduled by a handler */
 #define CONN_FLAG_WRITE_BARRIER     (1<<1)      /* Write barrier requested */
 
-#define CONN_TYPE_SOCKET            0
-#define CONN_TYPE_UNIX              1
-#define CONN_TYPE_TLS               2
-#define CONN_TYPE_MAX               3
+#define CONN_TYPE_SOCKET            "tcp"
+#define CONN_TYPE_UNIX              "unix"
+#define CONN_TYPE_TLS               "tls"
+#define CONN_TYPE_MAX               8           /* 8 is enough to be extendable */
 
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
 
 typedef struct ConnectionType {
     /* connection type */
-    int (*get_type)(struct connection *conn);
+    const char *(*get_type)(struct connection *conn);
 
     /* connection type initialize & finalize & configure */
     void (*init)(void); /* auto-call during register */
@@ -251,7 +251,7 @@ static inline ssize_t connSyncReadLine(connection *conn, char *ptr, ssize_t size
 }
 
 /* Return CONN_TYPE_* for the specified connection */
-static inline int connGetType(connection *conn) {
+static inline const char *connGetType(connection *conn) {
     return conn->type->get_type(conn);
 }
 
@@ -341,8 +341,13 @@ int connSendTimeout(connection *conn, long long ms);
 int connRecvTimeout(connection *conn, long long ms);
 
 /* Helpers for tls special considerations */
-void *connTypeGetCtx(int type);
-void *connTypeGetClientCtx(int type);
+static inline void *connTypeGetCtx(ConnectionType *ct) {
+    return ct->get_ctx();
+}
+
+static inline void *connTypeGetClientCtx(ConnectionType *ct) {
+    return ct->get_client_ctx();
+}
 
 /* Get cert for the secure connection */
 static inline sds connGetPeerCert(connection *conn) {
@@ -359,23 +364,38 @@ int connTypeInitialize();
 /* Register a connection type into redis connection framework */
 int connTypeRegister(ConnectionType *ct);
 
-/* Lookup a connection type by index */
-ConnectionType *connectionByType(int type);
+/* Lookup a connection type by type name */
+ConnectionType *connectionByType(const char *typename);
+
+/* Fast path to get TCP connection type */
+ConnectionType *connectionTypeTcp();
+
+/* Fast path to get TLS connection type */
+ConnectionType *connectionTypeTls();
+
+/* Fast path to get Unix connection type */
+ConnectionType *connectionTypeUnix();
+
+/* Lookup the index of a connection type by type name, return -1 if not found */
+int connectionIndexByType(const char *typename);
 
 /* Create a connection of specified type */
-connection *connCreate(int type);
+static inline connection *connCreate(ConnectionType *ct) {
+    return ct->conn_create();
+}
 
 /* Create a accepted connection of specified type.
  * @priv is connection type specified argument */
-connection *connCreateAccepted(int type, int fd, void *priv);
+static inline connection *connCreateAccepted(ConnectionType *ct, int fd, void *priv) {
+    return ct->conn_create_accepted(fd, priv);
+}
 
 /* Configure a connection type. A typical case is to configure TLS.
  * @priv is connection type specified,
  * @reconfigure is boolean type to specify if overwrite the original config */
-int connTypeConfigure(int type, void *priv, int reconfigure);
-
-/* Cleanup a connection type. A typical case is to cleanup TLS. */
-void connTypeCleanup(int type);
+static inline int connTypeConfigure(ConnectionType *ct, void *priv, int reconfigure) {
+    return ct->configure(priv, reconfigure);
+}
 
 /* Walk all the connection type, and cleanup them all if possible */
 void connTypeCleanupAll();
@@ -387,8 +407,7 @@ int connTypeHasPendingData(void);
 int connTypeProcessPendingData(void);
 
 /* Get accept_handler of a connection type */
-static inline aeFileProc *connAcceptHandler(int type) {
-    ConnectionType *ct = connectionByType(type);
+static inline aeFileProc *connAcceptHandler(ConnectionType *ct) {
     if (ct)
         return ct->accept_handler;
     return NULL;
