@@ -141,7 +141,7 @@ static void initCryptoLocks(void) {
 }
 #endif /* USE_CRYPTO_LOCKS */
 
-void tlsInit(void) {
+static void tlsInit(void) {
     /* Enable configuring OpenSSL using the standard openssl.cnf
      * OPENSSL_config()/OPENSSL_init_crypto() should be the first 
      * call to the OpenSSL* library.
@@ -169,7 +169,7 @@ void tlsInit(void) {
     pending_list = listCreate();
 }
 
-void tlsCleanup(void) {
+static void tlsCleanup(void) {
     if (redis_tls_ctx) {
         SSL_CTX_free(redis_tls_ctx);
         redis_tls_ctx = NULL;
@@ -281,11 +281,19 @@ error:
 
 /* Attempt to configure/reconfigure TLS. This operation is atomic and will
  * leave the SSL_CTX unchanged if fails.
+ * @priv: config of redisTLSContextConfig.
+ * @reconfigure: if true, ignore the previous configure; if false, only
+ *               configure from @ctx_config if redis_tls_ctx is NULL.
  */
-int tlsConfigure(redisTLSContextConfig *ctx_config) {
+static int tlsConfigure(void *priv, int reconfigure) {
+    redisTLSContextConfig *ctx_config = (redisTLSContextConfig *)priv;
     char errbuf[256];
     SSL_CTX *ctx = NULL;
     SSL_CTX *client_ctx = NULL;
+
+    if (!reconfigure && redis_tls_ctx) {
+        return C_OK;
+    }
 
     if (!ctx_config->cert_file) {
         serverLog(LL_WARNING, "No tls-cert-file configured!");
@@ -404,12 +412,6 @@ error:
     if (ctx) SSL_CTX_free(ctx);
     if (client_ctx) SSL_CTX_free(client_ctx);
     return C_ERR;
-}
-
-/* Return 1 if TLS was already configured, 0 otherwise.
- */
-int isTlsConfigured(void) {
-    return redis_tls_ctx != NULL;
 }
 
 #ifdef TLS_DEBUGGING
@@ -1066,6 +1068,11 @@ ConnectionType CT_TLS = {
     /* connection type */
     .get_type = connTLSGetType,
 
+    /* connection type initialize & finalize & configure */
+    .init = tlsInit,
+    .cleanup = tlsCleanup,
+    .configure = tlsConfigure,
+
     /* ae & accept & listen & error & address handler */
     .ae_handler = tlsEventHandler,
     .addr = connTLSAddr,
@@ -1090,17 +1097,16 @@ ConnectionType CT_TLS = {
     .sync_readline = connTLSSyncReadLine,
 };
 
+int RedisRegisterConnectionTypeTLS()
+{
+    return connTypeRegister(&CT_TLS);
+}
+
 #else   /* USE_OPENSSL */
 
-void tlsInit(void) {
-}
-
-void tlsCleanup(void) {
-}
-
-int tlsConfigure(redisTLSContextConfig *ctx_config) {
-    UNUSED(ctx_config);
-    return C_OK;
+int RedisRegisterConnectionTypeTLS()
+{
+    return C_ERR;
 }
 
 connection *connCreateTLS(void) { 

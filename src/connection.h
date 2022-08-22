@@ -54,14 +54,20 @@ typedef enum {
 #define CONN_FLAG_CLOSE_SCHEDULED   (1<<0)      /* Closed scheduled by a handler */
 #define CONN_FLAG_WRITE_BARRIER     (1<<1)      /* Write barrier requested */
 
-#define CONN_TYPE_SOCKET            1
-#define CONN_TYPE_TLS               2
+#define CONN_TYPE_SOCKET            0
+#define CONN_TYPE_TLS               1
+#define CONN_TYPE_MAX               2
 
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
 
 typedef struct ConnectionType {
     /* connection type */
     int (*get_type)(struct connection *conn);
+
+    /* connection type initialize & finalize & configure */
+    void (*init)(void); /* auto-call during register */
+    void (*cleanup)(void);
+    int (*configure)(void *priv, int reconfigure);
 
     /* ae & accept & listen & error & address handler */
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
@@ -328,5 +334,25 @@ int connRecvTimeout(connection *conn, long long ms);
 sds connTLSGetPeerCert(connection *conn);
 int tlsHasPendingData();
 int tlsProcessPendingData();
+
+/* Initialize the redis connection framework */
+int connTypeInitialize();
+
+/* Register a connection type into redis connection framework */
+int connTypeRegister(ConnectionType *ct);
+
+/* Configure a connection type. A typical case is to configure TLS.
+ * @priv is connection type specified,
+ * @reconfigure is boolean type to specify if overwrite the original config */
+int connTypeConfigure(int type, void *priv, int reconfigure);
+
+/* Cleanup a connection type. A typical case is to cleanup TLS. */
+void connTypeCleanup(int type);
+
+/* Walk all the connection type, and cleanup them all if possible */
+void connTypeCleanupAll();
+
+int RedisRegisterConnectionTypeSocket();
+int RedisRegisterConnectionTypeTLS();
 
 #endif  /* __REDIS_CONNECTION_H */
