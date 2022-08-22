@@ -2446,12 +2446,6 @@ void initServer(void) {
         exit(1);
     }
 
-    if ((server.tls_port || server.tls_replication || server.tls_cluster)
-         && connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
-        serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
-        exit(1);
-    }
-
     for (j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
         server.client_mem_usage_buckets[j].mem_usage_sum = 0;
         server.client_mem_usage_buckets[j].clients = listCreate();
@@ -2469,40 +2463,6 @@ void initServer(void) {
         exit(1);
     }
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
-
-    /* Setup listeners from server config for TCP/TLS/Unix */
-    int conn_index;
-    connListener *listener;
-    if (server.port != 0) {
-        conn_index = connectionIndexByType(CONN_TYPE_SOCKET);
-        if (conn_index < 0)
-            serverPanic("Failed finding connection listener of %s", CONN_TYPE_SOCKET);
-        listener = &server.listeners[conn_index];
-        listener->bindaddr = server.bindaddr;
-        listener->bindaddr_count = server.bindaddr_count;
-        listener->port = server.port;
-        listener->ct = connectionByType(CONN_TYPE_SOCKET);
-    }
-    if (server.tls_port != 0) {
-        conn_index = connectionIndexByType(CONN_TYPE_TLS);
-        if (conn_index < 0)
-            serverPanic("Failed finding connection listener of %s", CONN_TYPE_TLS);
-        listener = &server.listeners[conn_index];
-        listener->bindaddr = server.bindaddr;
-        listener->bindaddr_count = server.bindaddr_count;
-        listener->port = server.tls_port;
-        listener->ct = connectionByType(CONN_TYPE_TLS);
-    }
-    if (server.unixsocket != NULL) {
-        conn_index = connectionIndexByType(CONN_TYPE_UNIX);
-        if (conn_index < 0)
-            serverPanic("Failed finding connection listener of %s", CONN_TYPE_UNIX);
-        listener = &server.listeners[conn_index];
-        listener->bindaddr = &server.unixsocket;
-        listener->bindaddr_count = 1;
-        listener->ct = connectionByType(CONN_TYPE_UNIX);
-        listener->priv = &server.unixsocketperm; /* Unix socket specified */
-    }
 
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
@@ -2584,29 +2544,6 @@ void initServer(void) {
         exit(1);
     }
 
-    /* create all the configured listener, and add handler to start to accept */
-    int listen_fds = 0;
-    for (j = 0; j < CONN_TYPE_MAX; j++) {
-        listener = &server.listeners[j];
-        if (listener->ct == NULL)
-            continue;
-
-        if (connListen(listener) == C_ERR) {
-            serverLog(LL_WARNING, "Failed listening on port %u (%s), aborting.", listener->port, listener->ct->get_type(NULL));
-            exit(1);
-        }
-
-        if (createSocketAcceptHandler(listener, connAcceptHandler(listener->ct)) != C_OK)
-            serverPanic("Unrecoverable error creating %s listener accept handler.", listener->ct->get_type(NULL));
-
-       listen_fds += listener->count;
-    }
-
-    if (listen_fds == 0) {
-        serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
-        exit(1);
-    }
-
     /* Register a readable event for the pipe used to awake the event loop
      * from module threads. */
     if (aeCreateFileEvent(server.el, server.module_pipe[0], AE_READABLE,
@@ -2630,7 +2567,6 @@ void initServer(void) {
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
-    if (server.cluster_enabled) clusterInit();
     scriptingInit(1);
     functionsInit();
     slowlogInit();
@@ -2640,6 +2576,78 @@ void initServer(void) {
     ACLUpdateDefaultUserPassword(server.requirepass);
 
     applyWatchdogPeriod();
+}
+
+void initListeners() {
+    /* Setup listeners from server config for TCP/TLS/Unix */
+    int conn_index;
+    connListener *listener;
+    if (server.port != 0) {
+        conn_index = connectionIndexByType(CONN_TYPE_SOCKET);
+        if (conn_index < 0)
+            serverPanic("Failed finding connection listener of %s", CONN_TYPE_SOCKET);
+        listener = &server.listeners[conn_index];
+        listener->bindaddr = server.bindaddr;
+        listener->bindaddr_count = server.bindaddr_count;
+        listener->port = server.port;
+        listener->ct = connectionByType(CONN_TYPE_SOCKET);
+    }
+
+    if (server.tls_port || server.tls_replication || server.tls_cluster) {
+        ConnectionType *ct_tls = connectionTypeTls();
+        if (!ct_tls) {
+            serverLog(LL_WARNING, "Failed finding TLS support.");
+            exit(1);
+        }
+        if (connTypeConfigure(ct_tls, &server.tls_ctx_config, 1) == C_ERR) {
+            serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
+            exit(1);
+        }
+    }
+
+    if (server.tls_port != 0) {
+        conn_index = connectionIndexByType(CONN_TYPE_TLS);
+        if (conn_index < 0)
+            serverPanic("Failed finding connection listener of %s", CONN_TYPE_TLS);
+        listener = &server.listeners[conn_index];
+        listener->bindaddr = server.bindaddr;
+        listener->bindaddr_count = server.bindaddr_count;
+        listener->port = server.tls_port;
+        listener->ct = connectionByType(CONN_TYPE_TLS);
+    }
+    if (server.unixsocket != NULL) {
+        conn_index = connectionIndexByType(CONN_TYPE_UNIX);
+        if (conn_index < 0)
+            serverPanic("Failed finding connection listener of %s", CONN_TYPE_UNIX);
+        listener = &server.listeners[conn_index];
+        listener->bindaddr = &server.unixsocket;
+        listener->bindaddr_count = 1;
+        listener->ct = connectionByType(CONN_TYPE_UNIX);
+        listener->priv = &server.unixsocketperm; /* Unix socket specified */
+    }
+
+    /* create all the configured listener, and add handler to start to accept */
+    int listen_fds = 0;
+    for (int j = 0; j < CONN_TYPE_MAX; j++) {
+        listener = &server.listeners[j];
+        if (listener->ct == NULL)
+            continue;
+
+        if (connListen(listener) == C_ERR) {
+            serverLog(LL_WARNING, "Failed listening on port %u (%s), aborting.", listener->port, listener->ct->get_type(NULL));
+            exit(1);
+        }
+
+        if (createSocketAcceptHandler(listener, connAcceptHandler(listener->ct)) != C_OK)
+            serverPanic("Unrecoverable error creating %s listener accept handler.", listener->ct->get_type(NULL));
+
+       listen_fds += listener->count;
+    }
+
+    if (listen_fds == 0) {
+        serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
+        exit(1);
+    }
 }
 
 /* Some steps in server initialization need to be done last (after modules
@@ -7086,6 +7094,16 @@ int main(int argc, char **argv) {
     if (server.set_proc_title) redisSetProcTitle(NULL);
     redisAsciiArt();
     checkTcpBacklogSettings();
+    if (!server.sentinel_mode) {
+        moduleInitModulesSystemLast();
+        moduleLoadFromQueue();
+    }
+    ACLLoadUsersAtStartup();
+    initListeners();
+    if (server.cluster_enabled) {
+        clusterInit();
+    }
+    InitServerLast();
 
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
@@ -7114,10 +7132,6 @@ int main(int argc, char **argv) {
         }
     #endif /* __arm64__ */
     #endif /* __linux__ */
-        moduleInitModulesSystemLast();
-        moduleLoadFromQueue();
-        ACLLoadUsersAtStartup();
-        InitServerLast();
         aofLoadManifestFromDisk();
         loadDataFromDisk();
         aofOpenIfNeededOnServerStart();
@@ -7148,8 +7162,6 @@ int main(int argc, char **argv) {
             redisCommunicateSystemd("READY=1\n");
         }
     } else {
-        ACLLoadUsersAtStartup();
-        InitServerLast();
         sentinelIsRunning();
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             redisCommunicateSystemd("STATUS=Ready to accept connections\n");

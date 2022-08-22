@@ -27,12 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define REDISMODULE_CORE_MODULE /* A module that's part of the redis core, uses server.h too. */
 
 #include "server.h"
 #include "connhelpers.h"
 #include "adlist.h"
 
-#ifdef USE_OPENSSL
+#if (USE_OPENSSL == 1 /* BUILD_YES */ ) || ((USE_OPENSSL == 2 /* BUILD_MODULE */) && (BUILD_TLS_MODULE == 2))
 
 #include <openssl/conf.h>
 #include <openssl/ssl.h>
@@ -56,8 +57,8 @@
 #define REDIS_TLS_PROTO_DEFAULT     (REDIS_TLS_PROTO_TLSv1_2)
 #endif
 
-static SSL_CTX *redis_tls_ctx = NULL;
-static SSL_CTX *redis_tls_client_ctx = NULL;
+SSL_CTX *redis_tls_ctx = NULL;
+SSL_CTX *redis_tls_client_ctx = NULL;
 
 static int parseProtocolsConfig(const char *str) {
     int i, count = 0;
@@ -1087,14 +1088,6 @@ static sds connTLSGetPeerCert(connection *conn_) {
     return cert_pem;
 }
 
-static void *tlsGetCtx(void) {
-    return redis_tls_ctx;
-}
-
-static void *tlsGetClientCtx(void) {
-    return redis_tls_client_ctx;
-}
-
 static ConnectionType CT_TLS = {
     /* connection type */
     .get_type = connTLSGetType,
@@ -1137,20 +1130,55 @@ static ConnectionType CT_TLS = {
 
     /* TLS specified methods */
     .get_peer_cert = connTLSGetPeerCert,
-    .get_ctx = tlsGetCtx,
-    .get_client_ctx = tlsGetClientCtx
 };
 
-int RedisRegisterConnectionTypeTLS()
-{
+int RedisRegisterConnectionTypeTLS() {
     return connTypeRegister(&CT_TLS);
 }
 
 #else   /* USE_OPENSSL */
 
-int RedisRegisterConnectionTypeTLS()
-{
+int RedisRegisterConnectionTypeTLS() {
+    serverLog(LL_VERBOSE, "Connection type %s not builtin", CONN_TYPE_TLS);
     return C_ERR;
 }
 
+#endif
+
+#if BUILD_TLS_MODULE == 2 /* BUILD_MODULE */
+
+#include "release.h"
+
+int RedisModule_OnLoad(void *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+
+    /* Connection modules must be part of the same build as redis. */
+    if (strcmp(REDIS_BUILD_ID_RAW, redisBuildIdRaw())) {
+        serverLog(LL_NOTICE, "Connection type %s was not built together with the redis-server used.", CONN_TYPE_TLS);
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_Init(ctx,"tls",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    /* Connection modules is available only bootup. */
+    if ((RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SERVER_STARTUP) == 0) {
+        serverLog(LL_NOTICE, "Connection type %s can be loaded only during bootup", CONN_TYPE_TLS);
+        return REDISMODULE_ERR;
+    }
+
+    RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD);
+
+    if(connTypeRegister(&CT_TLS) != C_OK)
+        return REDISMODULE_ERR;
+
+    return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(void *arg) {
+    UNUSED(arg);
+    serverLog(LL_NOTICE, "Connection type %s can not be unloaded", CONN_TYPE_TLS);
+    return REDISMODULE_ERR;
+}
 #endif

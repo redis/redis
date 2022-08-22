@@ -69,14 +69,14 @@
  * pointers that have an API the module can call with them)
  * -------------------------------------------------------------------------- */
 
-typedef struct RedisModuleInfoCtx {
+struct RedisModuleInfoCtx {
     struct RedisModule *module;
     dict *requested_sections;
     sds info;           /* info string we collected so far */
     int sections;       /* number of sections we collected so far */
     int in_section;     /* indication if we're in an active section or not */
     int in_dict_field;  /* indication that we're currently appending to a dict */
-} RedisModuleInfoCtx;
+};
 
 /* This represents a shared API. Shared APIs will be used to populate
  * the server.sharedapi dictionary, mapping names of APIs exported by
@@ -12211,13 +12211,13 @@ const char *RM_GetCurrentCommandName(RedisModuleCtx *ctx) {
 /* The defrag context, used to manage state during calls to the data type
  * defrag callback.
  */
-typedef struct RedisModuleDefragCtx {
+struct RedisModuleDefragCtx {
     long defragged;
     long long int endtime;
     unsigned long *cursor;
     struct redisObject *key; /* Optional name of key processed, NULL when unknown. */
     int dbid;                /* The dbid of the key being processed, -1 when unknown. */
-} RedisModuleDefragCtx;
+};
 
 /* Register a defrag callback for global data, i.e. anything that the module
  * may allocate that is not tied to a specific data type.

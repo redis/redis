@@ -107,8 +107,6 @@ typedef struct ConnectionType {
 
     /* TLS specified methods */
     sds (*get_peer_cert)(struct connection *conn);
-    void* (*get_ctx)(void);
-    void* (*get_client_ctx)(void);
 } ConnectionType;
 
 struct connection {
@@ -355,15 +353,6 @@ int connKeepAlive(connection *conn, int interval);
 int connSendTimeout(connection *conn, long long ms);
 int connRecvTimeout(connection *conn, long long ms);
 
-/* Helpers for tls special considerations */
-static inline void *connTypeGetCtx(ConnectionType *ct) {
-    return ct->get_ctx();
-}
-
-static inline void *connTypeGetClientCtx(ConnectionType *ct) {
-    return ct->get_client_ctx();
-}
-
 /* Get cert for the secure connection */
 static inline sds connGetPeerCert(connection *conn) {
     if (conn->type->get_peer_cert) {
@@ -399,7 +388,7 @@ static inline connection *connCreate(ConnectionType *ct) {
     return ct->conn_create();
 }
 
-/* Create a accepted connection of specified type.
+/* Create an accepted connection of specified type.
  * priv is connection type specified argument */
 static inline connection *connCreateAccepted(ConnectionType *ct, int fd, void *priv) {
     return ct->conn_create_accepted(fd, priv);

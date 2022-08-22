@@ -30,7 +30,7 @@
 
 #include "server.h"
 #include "hiredis.h"
-#ifdef USE_OPENSSL
+#if USE_OPENSSL == 1 /* BUILD_YES */
 #include "openssl/ssl.h"
 #include "hiredis_ssl.h"
 #endif
@@ -43,6 +43,11 @@
 #include <fcntl.h>
 
 extern char **environ;
+
+#if USE_OPENSSL == 1 /* BUILD_YES */
+extern SSL_CTX *redis_tls_ctx;
+extern SSL_CTX *redis_tls_client_ctx;
+#endif
 
 #define REDIS_SENTINEL_PORT 26379
 
@@ -2373,12 +2378,7 @@ void sentinelSetClientName(sentinelRedisInstance *ri, redisAsyncContext *c, char
 }
 
 static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
-#ifndef USE_OPENSSL
-    (void) context;
-#else
-    SSL_CTX *redis_tls_ctx = connTypeGetCtx(connectionTypeTls());
-    SSL_CTX *redis_tls_client_ctx = connTypeGetClientCtx(connectionTypeTls());
-
+#if USE_OPENSSL == 1 /* BUILD_YES */
     if (!redis_tls_ctx) return C_ERR;
     SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);
     if (!ssl) return C_ERR;
@@ -2387,6 +2387,8 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
         SSL_free(ssl);
         return C_ERR;
     }
+#else
+    UNUSED(context);
 #endif
     return C_OK;
 }
