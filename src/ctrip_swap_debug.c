@@ -179,19 +179,6 @@ NULL
     }
 }
 
-int getKeyRequestsSwap(struct redisCommand *cmd, robj **argv, int argc,
-        struct getKeyRequestsResult *result) {
-    UNUSED(cmd);
-    if (!strcasecmp(argv[1]->ptr,"object") && argc == 3) {
-        getKeyRequestsPrepareResult(result,result->num+1);
-        incrRefCount(argv[2]);
-        //TODO 确认intention
-        getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[2],0,NULL,
-                cmd->intention,cmd->intention_flags,KEYREQUESTS_DBID);
-    }
-    return 0;
-}
-
 #ifdef SWAP_DEBUG
 
 void swapDebugMsgsInit(swapDebugMsgs *msgs, char *identity) {

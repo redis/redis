@@ -43,7 +43,7 @@ int submitExpireClientRequest(client *c, robj *key) {
     getKeyRequestsPrepareResult(&result,1);
     incrRefCount(key);
     getKeyRequestsAppendResult(&result,REQUEST_LEVEL_KEY,key,0,NULL,
-            c->cmd->intention,c->cmd->intention_flags,KEYREQUESTS_DBID);
+            c->cmd->intention,c->cmd->intention_flags,c->db->id);
     c->keyrequests_count++;
     submitClientKeyRequests(c,&result,expireClientKeyRequestFinished);
     releaseKeyRequests(&result);

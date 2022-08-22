@@ -84,8 +84,8 @@ void moveKeyRequest(keyRequest *dst, keyRequest *src);
 void keyRequestDeinit(keyRequest *key_request);
 void getKeyRequests(client *c, struct getKeyRequestsResult *result);
 void releaseKeyRequests(struct getKeyRequestsResult *result);
-int getKeyRequestsNone(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
-int getKeyRequestsGlobal(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsNone(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsGlobal(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
 #define getKeyRequestsHsetnx getKeyRequestsHset
 #define getKeyRequestsHget getKeyRequestsHmget
@@ -94,14 +94,12 @@ int getKeyRequestsGlobal(struct redisCommand *cmd, robj **argv, int argc, struct
 #define getKeyRequestsHincrby getKeyRequestsHget
 #define getKeyRequestsHincrbyfloat getKeyRequestsHmget
 #define getKeyRequestsHexists getKeyRequestsHmget
-int getKeyRequestsHset(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
-int getKeyRequestsHmget(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
-int getKeyRequestsHlen(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsHset(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsHmget(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsHlen(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
 #define MAX_KEYREQUESTS_BUFFER 128
 #define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYREQUESTS_BUFFER}
-
-#define KEYREQUESTS_DBID 0
 
 typedef struct getKeyRequestsResult {
 	keyRequest buffer[MAX_KEYREQUESTS_BUFFER];

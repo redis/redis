@@ -753,7 +753,7 @@ int ctripRdbLoadObject(int rdbtype, rio *rdb, redisDb *db, sds key,
     return error;
 }
 
-#ifdef REDIS_TEST
+#ifdef REDIS_TEST0
 
 sds dumpHashObject(robj *o) {
     hashTypeIterator *hi;

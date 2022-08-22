@@ -80,7 +80,7 @@ int dbDeleteMeta(redisDb *db, robj *key) {
     return dictDelete(db->meta,key->ptr) == DICT_OK ? 1 : 0;
 }
 
-#ifdef REDIS_TEST
+#ifdef REDIS_TEST0
 int swapObjectTest(int argc, char *argv[], int accurate) {
     initTestRedisServer();
     redisDb* db = server.db + 0;

@@ -876,7 +876,7 @@ void swapRequestFree(swapRequest *req) {
     zfree(req);
 }
 
-#ifdef REDIS_TEST
+#ifdef REDIS_TEST0
 
 int mockNotifyCallback(swapRequest *req, void *pd) {
     UNUSED(req),UNUSED(pd);

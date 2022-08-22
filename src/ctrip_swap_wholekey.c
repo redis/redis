@@ -335,7 +335,7 @@ err:
 }
 
 
-#ifdef REDIS_TEST
+#ifdef REDIS_TEST0
 #include <stdio.h>
 #include <limits.h>
 #include <assert.h>

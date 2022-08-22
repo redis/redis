@@ -156,16 +156,17 @@ static void getSingleCmdKeyRequests(client *c, getKeyRequestsResult *result) {
 
             incrRefCount(key);
             getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,key,0,NULL,
-                    cmd->intention,cmd->intention_flags,KEYREQUESTS_DBID);
+                    cmd->intention,cmd->intention_flags,c->db->id);
         }
         getKeysFreeResult(&keys); 
     } else if (cmd->flags & CMD_MODULE) {
         // TODO support module
     } else {
-        cmd->getkeyrequests_proc(cmd,c->argv,c->argc,result);
+        cmd->getkeyrequests_proc(c->db->id,cmd,c->argv,c->argc,result);
     }
 }
 
+//TODO support select in multi/exec
 void getKeyRequests(client *c, getKeyRequestsResult *result) {
     getKeyRequestsPrepareResult(result, MAX_KEYREQUESTS_BUFFER);
 
@@ -194,8 +195,9 @@ void getKeyRequests(client *c, getKeyRequestsResult *result) {
     }
 }
 
-int getKeyRequestsNone(struct redisCommand *cmd, robj **argv, int argc,
+int getKeyRequestsNone(int dbid, struct redisCommand *cmd, robj **argv, int argc,
         getKeyRequestsResult *result) {
+    UNUSED(dbid);
     UNUSED(cmd);
     UNUSED(argc);
     UNUSED(argv);
@@ -204,13 +206,13 @@ int getKeyRequestsNone(struct redisCommand *cmd, robj **argv, int argc,
 }
 
 /* Used by flushdb/flushall to get global scs(similar to table lock). */
-int getKeyRequestsGlobal(struct redisCommand *cmd, robj **argv, int argc,
-        getKeyRequestsResult *result) {
+int getKeyRequestsGlobal(int dbid, struct redisCommand *cmd, robj **argv,
+        int argc, getKeyRequestsResult *result) {
     UNUSED(cmd);
     UNUSED(argc);
     UNUSED(argv);
     getKeyRequestsAppendResult(result,REQUEST_LEVEL_SVR,NULL,0,NULL,
-            cmd->intention,cmd->intention_flags,KEYREQUESTS_DBID);
+            cmd->intention,cmd->intention_flags,dbid);
     return 0;
 }
 
@@ -221,7 +223,7 @@ void expiredCommand(client *c) {
 #define GETKEYS_RESULT_SUBKEYS_INIT_LEN 8
 #define GETKEYS_RESULT_SUBKEYS_LINER_LEN 1024
 
-int getKeyRequestsSingleKeyWithSubkeys(struct redisCommand *cmd, robj **argv,
+int getKeyRequestsSingleKeyWithSubkeys(int dbid, struct redisCommand *cmd, robj **argv,
         int argc, struct getKeyRequestsResult *result,
         int key_index, int first_subkey, int last_subkey, int subkey_step) {
     int i, num = 0, capacity = GETKEYS_RESULT_SUBKEYS_INIT_LEN;
@@ -249,19 +251,19 @@ int getKeyRequestsSingleKeyWithSubkeys(struct redisCommand *cmd, robj **argv,
         subkeys[num++] = subkey;
     }
     getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,key,num,subkeys,
-            cmd->intention,cmd->intention_flags,KEYREQUESTS_DBID);
+            cmd->intention,cmd->intention_flags,dbid);
 
     return 0;
 }
 
-int getKeyRequestsHset(struct redisCommand *cmd, robj **argv, int argc,
+int getKeyRequestsHset(int dbid,struct redisCommand *cmd, robj **argv, int argc,
         struct getKeyRequestsResult *result) {
-    return getKeyRequestsSingleKeyWithSubkeys(cmd,argv,argc,result,1,2,-1,2);
+    return getKeyRequestsSingleKeyWithSubkeys(dbid,cmd,argv,argc,result,1,2,-1,2);
 }
 
-int getKeyRequestsHmget(struct redisCommand *cmd, robj **argv, int argc,
+int getKeyRequestsHmget(int dbid, struct redisCommand *cmd, robj **argv, int argc,
         struct getKeyRequestsResult *result) {
-    return getKeyRequestsSingleKeyWithSubkeys(cmd,argv,argc,result,1,2,-1,1);
+    return getKeyRequestsSingleKeyWithSubkeys(dbid,cmd,argv,argc,result,1,2,-1,1);
 }
 
 #ifdef REDIS_TEST
@@ -295,6 +297,8 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         ACLInit();
         server.hz = 10;
         c = createClient(NULL);
+        initTestRedisDb();
+        selectDb(c,0);
     }
 
     TEST("cmd: no key") {
@@ -345,6 +349,8 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(result.key_requests[1].subkeys == NULL);
         test_assert(!strcmp(result.key_requests[2].key->ptr, "KEY3"));
         test_assert(result.key_requests[2].subkeys == NULL);
+        test_assert(result.key_requests[2].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[2].cmd_intention_flags == 0);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
@@ -394,6 +400,12 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
         rewriteResetClientCommandCString(c,4,"MGET", "K1", "K2", "K1");
         getKeyRequests(c,&result);
+        test_assert(result.num == 3);
+        test_assert(!strcmp(result.key_requests[0].key->ptr, "K1"));
+        test_assert(result.key_requests[0].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[0].cmd_intention_flags == 0);
+        test_assert(!strcmp(result.key_requests[1].key->ptr, "K2"));
+        test_assert(!strcmp(result.key_requests[2].key->ptr, "K1"));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
@@ -410,8 +422,12 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(result.num == 2);
         test_assert(!strcmp(result.key_requests[0].key->ptr, "HASH"));
         test_assert(result.key_requests[0].num_subkeys == 1);
+        test_assert(result.key_requests[0].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[0].cmd_intention_flags == 0);
         test_assert(!strcmp(result.key_requests[1].key->ptr, "HASH"));
         test_assert(result.key_requests[1].subkeys == NULL);
+        test_assert(result.key_requests[1].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[1].cmd_intention_flags == INTENTION_CMD_IN_DEL);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
@@ -428,10 +444,54 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequests(c,&result);
         test_assert(result.num == 1);
         test_assert(result.key_requests[0].key == NULL);
+        test_assert(result.key_requests[0].cmd_intention == SWAP_NOP);
+        test_assert(result.key_requests[0].cmd_intention_flags == 0);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
     }
+
+    TEST("cmd: dbid, cmd_intention, cmd_intention_flags set properly") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        selectDb(c,1);
+        c->flags |= CLIENT_MULTI;
+        rewriteResetClientCommandCString(c,1,"PING");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,3,"MGET","KEY1","KEY2");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,5,"HDEL","HASH","F1","F2","F3");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,1,"FLUSHDB");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,1,"EXEC");
+        getKeyRequests(c,&result);
+        test_assert(result.num == 4);
+        test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY1"));
+        test_assert(result.key_requests[0].subkeys == NULL);
+        test_assert(result.key_requests[0].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[0].cmd_intention_flags == 0);
+        test_assert(result.key_requests[0].dbid == 1);
+        test_assert(!strcmp(result.key_requests[1].key->ptr, "KEY2"));
+        test_assert(result.key_requests[1].subkeys == NULL);
+        test_assert(result.key_requests[1].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[1].cmd_intention_flags == 0);
+        test_assert(result.key_requests[1].dbid == 1);
+        test_assert(!strcmp(result.key_requests[2].key->ptr, "HASH"));
+        test_assert(!strcmp(result.key_requests[2].subkeys[0]->ptr, "F1"));
+        test_assert(!strcmp(result.key_requests[2].subkeys[1]->ptr, "F2"));
+        test_assert(!strcmp(result.key_requests[2].subkeys[2]->ptr, "F3"));
+        test_assert(result.key_requests[2].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[2].cmd_intention_flags == INTENTION_CMD_IN_DEL);
+        test_assert(result.key_requests[2].dbid == 1);
+        test_assert(result.key_requests[3].key == NULL);
+        test_assert(result.key_requests[3].cmd_intention == SWAP_NOP);
+        test_assert(result.key_requests[3].cmd_intention_flags == 0);
+        test_assert(result.key_requests[3].dbid == 1);
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+        discardTransaction(c);
+    }
+
 
     return error;
 }

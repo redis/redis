@@ -238,7 +238,7 @@ typedef struct RedisModuleKey RedisModuleKey;
 struct RedisModuleBlockedClient;
 typedef int (*RedisModuleCmdFunc) (RedisModuleCtx *ctx, void **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc) (RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc);
-typedef int (*RedisModuleGetSwapsFunc) (RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisModuleGetSwapsResult *result);
+typedef int (*RedisModuleGetSwapsFunc) (int dbid, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisModuleGetSwapsResult *result);
 
 /* This struct holds the information about a command registered by a module.*/
 struct RedisModuleCommandProxy {

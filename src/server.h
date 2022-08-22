@@ -1746,7 +1746,7 @@ typedef struct {
 
 typedef void redisCommandProc(client *c);
 typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-typedef int (*redisGetKeyRequestsProc)(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+typedef int (*redisGetKeyRequestsProc)(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 struct redisCommand {
     char *name;
     redisCommandProc *proc;
