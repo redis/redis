@@ -2387,6 +2387,18 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+int monitorListMatch(void *val , void *target) {
+    return target == ((monitorObject*)val)->monitor;
+}
+void freeMonitorFilterContent(void *val) {
+    sdsfree(((monitorFilterContent*)val)->content);
+}
+void freeMonitorNode(void *val) {
+    if (((monitorObject*)val)->filter_content != NULL){
+        listEmpty(((monitorObject*)val)->filter_content);
+    }
+}
+
 void initServer(void) {
     int j;
 
@@ -2439,6 +2451,10 @@ void initServer(void) {
     server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     server.reply_buffer_resizing_enabled = 1;
     resetReplicationBuffer();
+
+    /* Implement listSetMatchMethod and listSetFreeMethod for monitor */
+    listSetMatchMethod(server.monitors,monitorListMatch);
+    listSetFreeMethod(server.monitors,freeMonitorNode);
 
     /* Make sure the locale is set on startup based on the config file. */
     if (setlocale(LC_COLLATE,server.locale_collate) == NULL) {
@@ -6097,6 +6113,10 @@ void infoCommand(client *c) {
     return;
 }
 
+
+/* monitorCommand can filter client objects according to specified condition
+ * The method is as follows:
+ * monitor [ADDR ip:port/ip] [USER username] [ID client-id] [COMMAND command_name] [KEY key] [MATCH pattern] */
 void monitorCommand(client *c) {
     if (c->flags & CLIENT_DENY_BLOCKING) {
         /**
@@ -6109,8 +6129,47 @@ void monitorCommand(client *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
+    monitorObject *m = zmalloc(sizeof(*m));
+    m->monitor = c;
+    m->filter_content = listCreate();
+    listSetFreeMethod(m->filter_content,freeMonitorFilterContent);
+    if (c->argc > 1){
+        int i = 1;
+        while(i < c->argc){
+            int moreargs = c->argc > i+1;
+            monitorFilterContent *mfc = zmalloc(sizeof(*mfc));
+            if(!strcasecmp(c->argv[i]->ptr,"addr") && moreargs){
+                mfc->type = MONITOR_ADDR;
+                mfc->content =  sdsnew(c->argv[i+1]->ptr);
+            }else if(!strcasecmp(c->argv[i]->ptr,"user") && moreargs){
+                mfc->type = MONITOR_USER;
+                mfc->content = sdsnew(c->argv[i+1]->ptr);
+            }else if(!strcasecmp(c->argv[i]->ptr,"id") && moreargs){
+                mfc->type = MONITOR_ID;
+                mfc->content = sdsnew(c->argv[i+1]->ptr);
+            }else if(!strcasecmp(c->argv[i]->ptr,"command") && moreargs){
+                mfc->type = MONITOR_COMMAND;
+                mfc->content = sdsnew(c->argv[i+1]->ptr);
+            }else if(!strcasecmp(c->argv[i]->ptr,"key") && moreargs){
+                mfc->type = MONITOR_KEY;
+                mfc->content = sdsnew(c->argv[i+1]->ptr);
+            }else if(!strcasecmp(c->argv[i]->ptr,"pattern") && moreargs){
+                mfc->type = MONITOR_PATTERN;
+                mfc->content = sdsnew(c->argv[i+1]->ptr);
+            }else{
+                zfree(mfc);
+                if (m->filter_content != NULL)
+                    listEmpty(m->filter_content);
+                zfree(m);
+                addReplyError(c,"monitor parameter error");
+                return;
+            }
+            listAddNodeTail(m->filter_content,mfc);
+            i+=2;
+        }
+    }
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
-    listAddNodeTail(server.monitors,c);
+    listAddNodeTail(server.monitors,m);
     addReply(c,shared.ok);
 }
 

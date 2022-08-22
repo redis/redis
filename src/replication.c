@@ -580,11 +580,87 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     }
     cmdrepr = sdscatlen(cmdrepr,"\r\n",2);
     cmdobj = createObject(OBJ_STRING,cmdrepr);
-
     listRewind(monitors,&li);
-    while((ln = listNext(&li))) {
-        client *monitor = ln->value;
-        addReply(monitor,cmdobj);
+    while ((ln = listNext(&li))) {
+        monitorObject *monitorObj = ln->value;
+        client *monitor = monitorObj->monitor;
+        /* If the filter content_list is not empty */
+        if (monitorObj->filter_content->len) {
+            bool isReplyToMonitor = true;
+            listNode *lpn;
+            listIter lpi;
+            listRewind(monitorObj->filter_content, &lpi);
+            while ((lpn = listNext(&lpi))) {
+                monitorFilterContent *mfc = lpn->value;
+                if (mfc->type == MONITOR_ADDR) {
+                    sds addr = mfc->content;
+                    char cip[NET_IP_STR_LEN];
+                    anetFdToString(c->conn->fd?c->conn->fd:-1,cip,sizeof(cip),NULL,FD_TO_PEER_NAME);
+                    if (sdscmp(getClientPeerId(c),addr) != 0 && strcasecmp(cip,addr) != 0) {
+                        isReplyToMonitor = false;
+                        /* Do not try other parameter options again */
+                        break;
+                    }
+                } else if (mfc->type == MONITOR_USER){
+                    if (sdscmp(c->user->name,mfc->content) != 0) {
+                        isReplyToMonitor = false;
+                        break;
+                    }
+                } else if (mfc->type == MONITOR_ID){
+                    if (sdscmp(sdscatprintf(sdsempty(),"%ld",c->id),mfc->content) != 0) {
+                        isReplyToMonitor = false;
+                        break;
+                    }
+                } else if (mfc->type == MONITOR_COMMAND) {
+                    char *command = mfc->content;
+                    if (strcasecmp(c->cmd->declared_name,command) != 0 ) {
+                        isReplyToMonitor = false;
+                        break;
+                    }
+                } else if (mfc->type == MONITOR_KEY) {
+                    struct redisCommand *ccmd;
+                    robj **cargv;
+                    int cargc, numkeys, k;
+                    char *mkey_val;
+                    keyReference *keyindex;
+                    bool hitKey = false;
+                    ccmd = c->cmd;
+                    cargc = c->argc;
+                    cargv = c->argv;
+                    getKeysResult result = GETKEYS_RESULT_INIT;
+                    numkeys = getKeysFromCommand(ccmd,cargv,cargc,&result);
+                    keyindex = result.keys;
+                    mkey_val = mfc->content;
+                    for (k = 0 ; k < numkeys ; k++ ) {
+                        robj *thiskey = cargv[keyindex[k].pos];
+                        /* As long as there is the key we monitor, exit the loop */
+                        if (!strcasecmp(thiskey->ptr,mkey_val)) {
+                            hitKey = true;
+                            break;
+                        }
+                    }
+                    /* All keys are not matched */
+                    if (!hitKey) {
+                        isReplyToMonitor = false;
+                        break;
+                    }
+                } else if (mfc->type == MONITOR_PATTERN){
+                    /*  pattern string */
+                    sds pattern = mfc->content;
+                    int plen = sdslen(pattern);
+                    bool allkeys = (pattern[0] == '*' && plen == 1);
+                    if(!allkeys && !stringmatchlen(pattern,plen,cmdrepr,sdslen(cmdrepr),0)){
+                        isReplyToMonitor = false;
+                        break;
+                    }
+                }
+            }
+            if (isReplyToMonitor) {
+                addReply(monitor,cmdobj);
+            }
+        } else {
+            addReply(monitor,cmdobj);
+        }
         updateClientMemUsage(c);
     }
     decrRefCount(cmdobj);
