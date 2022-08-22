@@ -164,13 +164,11 @@ typedef struct RedisModuleStreamID {
 #define REDISMODULE_CTX_FLAGS_ASYNC_LOADING (1<<23)
 /* Redis is starting. */
 #define REDISMODULE_CTX_FLAGS_SERVER_STARTUP (1<<24)
-/* The instance is running in sentinel mode */
-#define REDISMODULE_CTX_FLAGS_SENTINEL (1<<25)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
-#define _REDISMODULE_CTX_FLAGS_NEXT (1<<26)
+#define _REDISMODULE_CTX_FLAGS_NEXT (1<<25)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
