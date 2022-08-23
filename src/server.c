@@ -2390,13 +2390,19 @@ void makeThreadKillable(void) {
 int monitorListMatch(void *val , void *target) {
     return target == ((monitorObject*)val)->monitor;
 }
+
 void freeMonitorFilterContent(void *val) {
-    sdsfree(((monitorFilterContent*)val)->content);
+    monitorFilterContent *mfc = val;
+    sdsfree(mfc->content);
+    zfree(mfc);
 }
+
 void freeMonitorNode(void *val) {
-    if (((monitorObject*)val)->filter_content != NULL){
-        listEmpty(((monitorObject*)val)->filter_content);
+    monitorObject *m = val;
+    if (m->filter_content != NULL) {
+        listEmpty(m->filter_content);
     }
+    zfree(m);
 }
 
 void initServer(void) {
