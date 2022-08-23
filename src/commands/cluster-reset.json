@@ -17,7 +17,7 @@
         ],
         "arguments": [
             {
-                "name": "hard_soft",
+                "name": "reset-type",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [

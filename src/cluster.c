@@ -6929,8 +6929,8 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
             return 1;
         }
 
-        /* If the client is blocked on module, but ont on a specific key,
-         * don't unblock it (except for the CLSUTER_FAIL case above). */
+        /* If the client is blocked on module, but not on a specific key,
+         * don't unblock it (except for the CLUSTER_FAIL case above). */
         if (c->btype == BLOCKED_MODULE && !moduleClientIsBlockedOnKeys(c))
             return 0;
 

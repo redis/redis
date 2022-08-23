@@ -57,7 +57,7 @@
             },
             {
                 "token": "MINMATCHLEN",
-                "name": "len",
+                "name": "min-match-len",
                 "type": "integer",
                 "optional": true
             },

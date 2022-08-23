@@ -23,7 +23,7 @@
                 "type": "integer"
             },
             {
-                "name": "timeout_error",
+                "name": "unblock-type",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [

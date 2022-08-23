@@ -37,7 +37,7 @@
         "arguments": [
             {
                 "token": "TYPE",
-                "name": "normal_master_replica_pubsub",
+                "name": "client-type",
                 "type": "oneof",
                 "optional": true,
                 "since": "5.0.0",
@@ -65,18 +65,12 @@
                 ]
             },
             {
-                "name": "id",
+                "name": "client-id",
                 "token": "ID",
-                "type": "block",
+                "type": "integer",
                 "optional": true,
-                "since": "6.2.0",
-                "arguments": [
-                    {
-                        "name": "client-id",
-                        "type": "integer",
-                        "multiple": true
-                    }
-                ]
+                "multiple": true,
+                "since": "6.2.0"
             }
         ]
     }
