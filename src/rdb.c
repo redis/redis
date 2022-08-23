@@ -124,7 +124,7 @@ int rdbLoadType(rio *rdb) {
  * to check for loading errors the caller should call rioGetReadError() after
  * calling this function. */
 time_t rdbLoadTime(rio *rdb) {
-    int32_t t32;
+    int64_t t32;
     if (rioRead(rdb,&t32,4) == 0) return -1;
     return (time_t)t32;
 }
