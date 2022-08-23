@@ -2905,7 +2905,6 @@ int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void propagatePendingCommands();
-void redisOpArrayInit(redisOpArray *oa);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
