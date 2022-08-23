@@ -137,6 +137,7 @@ typedef struct RedisModulePoolAllocBlock {
  * but only the fields needed in a given context. */
 
 struct RedisModuleBlockedClient;
+struct RedisModuleUser;
 
 struct RedisModuleCtx {
     void *getapifuncptr;            /* NOTE: Must be the first field. */
@@ -161,6 +162,9 @@ struct RedisModuleCtx {
 
     struct RedisModulePoolAllocBlock *pa_head;
     long long next_yield_time;
+
+    const struct RedisModuleUser *user;  /* RedisModuleUser commands executed via
+                                            RM_Call should be executed as, if set */
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
@@ -565,7 +569,7 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * Helpers for modules API implementation
  * -------------------------------------------------------------------------- */
 
-client *moduleAllocTempClient(user *user) {
+client *moduleAllocTempClient(const RedisModuleUser *user) {
     client *c = NULL;
 
     if (moduleTempClientCount > 0) {
@@ -577,7 +581,7 @@ client *moduleAllocTempClient(user *user) {
         c->flags |= CLIENT_MODULE;
     }
 
-    c->user = user;
+    c->user = user ? user->user : NULL;
 
     return c;
 }
@@ -747,6 +751,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
         moduleReleaseTempClient(ctx->client);
     else if (ctx->flags & REDISMODULE_CTX_NEW_CLIENT)
         freeClient(ctx->client);
+
 }
 
 /* Create a module ctx and keep track of the nesting level.
@@ -5619,6 +5624,13 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
     }
 }
 
+/* Object to correspond to NULL/Root User, to distinguish from NULL (unset/reset) value */
+const RedisModuleUser NullUser = {0};
+
+void RM_SetContextModuleUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
+    ctx->user = user;
+}
+
 /* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
  * the RM_Call(), RM_Replicate() and other module APIs. Populates *argcp with the number of
  * items and *argvlenp with the length of the allocated argv.
@@ -5720,60 +5732,86 @@ fmterr:
     return NULL;
 }
 
-static int validateACLS(RedisModuleCtx *ctx, client *c, int flags, RedisModuleCallReply **reply)
-{
-    int acl_errpos;
-    int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
-    if (acl_retval != ACL_OK) {
-        addACLLogEntry(c,acl_retval,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,acl_errpos,NULL,NULL);
-        if (flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS) { /* return errors as RedisModuleCallReply object */
-            switch (acl_retval) {
-                case ACL_DENIED_CMD:
-                {
-                    sds msg = sdscatfmt(sdsempty(),
-                                        "-NOPERM this user has no permissions to run "
-                                        "the '%s' command", c->cmd->fullname);
-                    *reply = callReplyCreateError(msg, ctx);
-                    break;
-                }
-                case ACL_DENIED_KEY:
-                {
-                    sds msg = sdscatfmt(sdsempty(),
-                                        "-NOPERM this user has no permissions to access "
-                                        "one of the keys used as arguments");
-                    *reply = callReplyCreateError(msg, ctx);
-                    break;
-                }
-                case ACL_DENIED_CHANNEL:
-                {
-                    sds msg = sdscatfmt(sdsempty(),
-                                        "-NOPERM this user has no permissions to access "
-                                        "one of the channels used as arguments");
-                    *reply = callReplyCreateError(msg, ctx);
-                    break;
-                }
-                default:
-                {
-                    sds msg = sdscatfmt(sdsempty(), "-NOPERM no permission");
-                    *reply = callReplyCreateError(msg, ctx);
-                    break;
-                }
-            }
-        }
-    }
-
-    return acl_retval;
-}
-
-RedisModuleCallReply *CallWithUserInternal(RedisModuleCtx *ctx, user *user, robj **argv, int argc, int argv_len, int flags) {
+/* Exported API to call any Redis command from modules.
+ *
+ * * **cmdname**: The Redis command to call.
+ * * **fmt**: A format specifier string for the command's arguments. Each
+ *   of the arguments should be specified by a valid type specification. The
+ *   format specifier can also contain the modifiers `!`, `A`, `3` and `R` which
+ *   don't have a corresponding argument.
+ *
+ *     * `b` -- The argument is a buffer and is immediately followed by another
+ *              argument that is the buffer's length.
+ *     * `c` -- The argument is a pointer to a plain C string (null-terminated).
+ *     * `l` -- The argument is a `long long` integer.
+ *     * `s` -- The argument is a RedisModuleString.
+ *     * `v` -- The argument(s) is a vector of RedisModuleString.
+ *     * `!` -- Sends the Redis command and its arguments to replicas and AOF.
+ *     * `A` -- Suppress AOF propagation, send only to replicas (requires `!`).
+ *     * `R` -- Suppress replicas propagation, send only to AOF (requires `!`).
+ *     * `3` -- Return a RESP3 reply. This will change the command reply.
+ *              e.g., HGETALL returns a map instead of a flat array.
+ *     * `0` -- Return the reply in auto mode, i.e. the reply format will be the
+ *              same as the client attached to the given RedisModuleCtx. This will
+ *              probably used when you want to pass the reply directly to the client.
+ *     * `C` -- Check if command can be executed according to ACL rules.
+ *     * `S` -- Run the command in a script mode, this means that it will raise
+ *              an error if a command which are not allowed inside a script
+ *              (flagged with the `deny-script` flag) is invoked (like SHUTDOWN).
+ *              In addition, on script mode, write commands are not allowed if there are
+ *              not enough good replicas (as configured with `min-replicas-to-write`)
+ *              or when the server is unable to persist to the disk.
+ *     * `W` -- Do not allow to run any write command (flagged with the `write` flag).
+ *     * `M` -- Do not allow `deny-oom` flagged commands when over the memory limit.
+ *     * `E` -- Return error as RedisModuleCallReply. If there is an error before
+ *              invoking the command, the error is returned using errno mechanism.
+ *              This flag allows to get the error also as an error CallReply with
+ *              relevant error message.
+ * * **...**: The actual arguments to the Redis command.
+ *
+ * On success a RedisModuleCallReply object is returned, otherwise
+ * NULL is returned and errno is set to the following values:
+ *
+ * * EBADF: wrong format specifier.
+ * * EINVAL: wrong command arity.
+ * * ENOENT: command does not exist.
+ * * EPERM: operation in Cluster instance with key in non local slot.
+ * * EROFS: operation in Cluster instance when a write command is sent
+ *          in a readonly state.
+ * * ENETDOWN: operation in Cluster instance when cluster is down.
+ * * ENOTSUP: No ACL user for the specified module context
+ * * EACCES: Command cannot be executed, according to ACL rules
+ * * ENOSPC: Write or deny-oom command is not allowed
+ * * ESPIPE: Command not allowed on script mode
+ *
+ * Example code fragment:
+ *
+ *      reply = RedisModule_Call(ctx,"INCRBY","sc",argv[1],"10");
+ *      if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_INTEGER) {
+ *        long long myval = RedisModule_CallReplyInteger(reply);
+ *        // Do something with myval.
+ *      }
+ *
+ * This API is documented here: https://redis.io/topics/modules-intro
+ */
+RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
     struct redisCommand *cmd;
     client *c = NULL;
+    robj **argv = NULL;
+    int argc = 0, argv_len = 0, flags = 0;
+    va_list ap;
     RedisModuleCallReply *reply = NULL;
+    int replicate = 0; /* Replicate this command? */
+    int error_as_call_replies = 0; /* return errors as RedisModuleCallReply object */
 
-    int replicate = flags & REDISMODULE_ARGV_REPLICATE; /* Replicate this command? */
-    int error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS; /* return errors as RedisModuleCallReply object */
+    /* Handle arguments. */
+    va_start(ap, fmt);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&argv_len,&flags,ap);
+    replicate = flags & REDISMODULE_ARGV_REPLICATE;
+    error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
+    va_end(ap);
 
-    c = moduleAllocTempClient(user);
+    c = moduleAllocTempClient(ctx->user);
 
     /* We do not want to allow block, the module do not expect it */
     c->flags |= CLIENT_DENY_BLOCKING;
@@ -5869,14 +5907,6 @@ RedisModuleCallReply *CallWithUserInternal(RedisModuleCtx *ctx, user *user, robj
         }
     }
 
-    if (c->user) {
-        int acl_retval = validateACLS(ctx, c, flags,&reply);
-        if (acl_retval != ACL_OK) {
-            errno = EACCES;
-            goto cleanup;
-        }
-    }
-
     /* Script mode tests */
     if (flags & REDISMODULE_ARGV_SCRIPT_MODE) {
         if (cmd->flags & CMD_WRITE) {
@@ -5932,7 +5962,7 @@ RedisModuleCallReply *CallWithUserInternal(RedisModuleCtx *ctx, user *user, robj
         int acl_errpos;
         int acl_retval;
 
-        if (ctx->client->user == NULL) {
+        if (ctx->client->user == NULL && ctx->user == NULL) {
             errno = ENOTSUP;
             if (error_as_call_replies) {
                 sds msg = sdsnew("acl verification failed, context is not attached to a client.");
@@ -5940,7 +5970,9 @@ RedisModuleCallReply *CallWithUserInternal(RedisModuleCtx *ctx, user *user, robj
             }
             goto cleanup;
         }
-        acl_retval = ACLCheckAllUserCommandPerm(ctx->client->user,c->cmd,c->argv,c->argc,&acl_errpos);
+        /* above we validate that either ctx->client->user is set or ctx->user is, we prefer ctx->user */
+        user *user = ctx->user ? ctx->user->user : ctx->client->user;
+        acl_retval = ACLCheckAllUserCommandPerm(user,c->cmd,c->argv,c->argc,&acl_errpos);
         if (acl_retval != ACL_OK) {
             sds object = (acl_retval == ACL_DENIED_CMD) ? sdsdup(c->cmd->fullname) : sdsdup(c->argv[acl_errpos]->ptr);
             addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, ctx->client->user->name, object);
@@ -6005,7 +6037,6 @@ RedisModuleCallReply *CallWithUserInternal(RedisModuleCtx *ctx, user *user, robj
         if (!(flags & REDISMODULE_ARGV_NO_REPLICAS))
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
-
     call(c,call_flags);
     server.replication_allowed = prev_replication_allowed;
 
@@ -6028,103 +6059,6 @@ cleanup:
     if (ctx->module) ctx->module->in_call--;
     moduleReleaseTempClient(c);
     return reply;
-}
-
-/* Exported API to call any Redis command from modules
- *
- * * **rm_user**: a RedisModuleUser object the call should be performed as for ACL enforcement purposes
- * * **cmdname**: The Redis command to call.
- * * **fmt**: A format specifier string for the command's arguments. Each
- *   of the arguments should be specified by a valid type specification. The
- *   format specifier can also contain the modifiers `!`, `A`, `3` and `R` which
- *   don't have a corresponding argument.
- *
- *     * `b` -- The argument is a buffer and is immediately followed by another
- *              argument that is the buffer's length.
- *     * `c` -- The argument is a pointer to a plain C string (null-terminated).
- *     * `l` -- The argument is a `long long` integer.
- *     * `s` -- The argument is a RedisModuleString.
- *     * `v` -- The argument(s) is a vector of RedisModuleString.
- *     * `!` -- Sends the Redis command and its arguments to replicas and AOF.
- *     * `A` -- Suppress AOF propagation, send only to replicas (requires `!`).
- *     * `R` -- Suppress replicas propagation, send only to AOF (requires `!`).
- *     * `3` -- Return a RESP3 reply. This will change the command reply.
- *              e.g., HGETALL returns a map instead of a flat array.
- *     * `0` -- Return the reply in auto mode, i.e. the reply format will be the
- *              same as the client attached to the given RedisModuleCtx. This will
- *              probably used when you want to pass the reply directly to the client.
- *     * `C` -- Check if command can be executed according to ACL rules.
- *     * `S` -- Run the command in a script mode, this means that it will raise
- *              an error if a command which are not allowed inside a script
- *              (flagged with the `deny-script` flag) is invoked (like SHUTDOWN).
- *              In addition, on script mode, write commands are not allowed if there are
- *              not enough good replicas (as configured with `min-replicas-to-write`)
- *              or when the server is unable to persist to the disk.
- *     * `W` -- Do not allow to run any write command (flagged with the `write` flag).
- *     * `M` -- Do not allow `deny-oom` flagged commands when over the memory limit.
- *     * `E` -- Return error as RedisModuleCallReply. If there is an error before
- *              invoking the command, the error is returned using errno mechanism.
- *              This flag allows to get the error also as an error CallReply with
- *              relevant error message.
- * * **...**: The actual arguments to the Redis command.
- *
- * On success a RedisModuleCallReply object is returned, otherwise
- * NULL is returned and errno is set to the following values:
- *
- * * EBADF: wrong format specifier.
- * * EINVAL: wrong command arity.
- * * ENOENT: command does not exist.
- * * EPERM: operation in Cluster instance with key in non local slot.
- * * EROFS: operation in Cluster instance when a write command is sent
- *          in a readonly state.
- * * ENETDOWN: operation in Cluster instance when cluster is down.
- * * ENOTSUP: No ACL user for the specified module context
- * * EACCES: Command cannot be executed, according to ACL rules
- * * ENOSPC: Write or deny-oom command is not allowed
- * * ESPIPE: Command not allowed on script mode
- *
- * Example code fragment:
- *
- *      reply = RedisModule_CallWithUser(ctx, rm_user, "INCRBY","sc",argv[1],"10");
- *      if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_INTEGER) {
- *        long long myval = RedisModule_CallReplyInteger(reply);
- *        // Do something with myval.
- *      }
- *
- * This API is documented here: https://redis.io/topics/modules-intro
- */
-RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
-    robj **argv = NULL;
-    va_list ap;
-    int argc = 0, argv_len = 0, flags = 0;
-
-    /* Handle arguments. */
-    va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&argv_len,&flags, ap);
-    va_end(ap);
-
-    return CallWithUserInternal(ctx, NULL, argv, argc, argv_len, flags);
-}
-
-/* same as RM_Call, but executed as the provided user with ACL enforcement per that user
- * If called with a NULL user, returns an error and sets errno to EINVAL
- */
-RedisModuleCallReply *RM_CallWithUser(RedisModuleCtx *ctx, RedisModuleUser *rm_user, const char *cmdname, const char *fmt, ...) {
-    if (rm_user == NULL) {
-        errno = EINVAL;
-        return NULL;
-    }
-
-    robj **argv = NULL;
-    va_list ap;
-    int argc = 0, argv_len = 0, flags = 0;
-
-    /* Handle arguments. */
-    va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&argv_len,&flags, ap);
-    va_end(ap);
-
-    return CallWithUserInternal(ctx, rm_user->user, argv, argc, argv_len, flags);
 }
 
 /* Return a pointer, and a length, to the protocol returned by the command
@@ -8850,14 +8784,6 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     }
 
     return REDISMODULE_OK;
-}
-
-/* Same as RedisModule_ACLCheckCommandPermissions, but infers the current user from the RedisModuleCtx */
-int RM_ACLCheckCommandPermissionsCurrentUser(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    RedisModuleUser user;
-    user.user = ctx->client->user;
-
-    return RM_ACLCheckCommandPermissions(&user, argv, argc);
 }
 
 /* Check if the key can be accessed by the user according to the ACLs attached to the user
@@ -12606,7 +12532,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringToLongDouble);
     REGISTER_API(StringToStreamID);
     REGISTER_API(Call);
-    REGISTER_API(CallWithUser);
     REGISTER_API(CallReplyProto);
     REGISTER_API(FreeCallReply);
     REGISTER_API(CallReplyInteger);
@@ -12845,13 +12770,13 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Scan);
     REGISTER_API(ScanKey);
     REGISTER_API(CreateModuleUser);
+    REGISTER_API(SetContextModuleUser);
     REGISTER_API(SetModuleUserACL);
     REGISTER_API(SetModuleUserACLString);
     REGISTER_API(GetModuleUserACLString);
     REGISTER_API(GetCurrentUserName);
     REGISTER_API(GetModuleUserFromUserName);
     REGISTER_API(ACLCheckCommandPermissions);
-    REGISTER_API(ACLCheckCommandPermissionsCurrentUser);
     REGISTER_API(ACLCheckKeyPermissions);
     REGISTER_API(ACLCheckChannelPermissions);
     REGISTER_API(ACLAddLogEntry);

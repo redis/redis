@@ -32,7 +32,8 @@ int call_with_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
-    RedisModuleCallReply *reply = RedisModule_CallWithUser(ctx, user, cmd, "Ev", argv + 2, argc - 2);
+    RedisModule_SetContextModuleUser(ctx, user);
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, cmd, "CEv", argv + 2, argc - 2);
     if (reply == NULL) {
         RedisModule_ReplyWithError(ctx, "Failed to Execute");
         return REDISMODULE_OK;
@@ -41,7 +42,7 @@ int call_with_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int type = RedisModule_CallReplyType(reply);
 
     size_t str_len;
-    const char * str = RedisModule_CallReplyStringPtr(reply, &str_len);
+    const char *str = RedisModule_CallReplyStringPtr(reply, &str_len);
 
     if (type != REDISMODULE_REPLY_ERROR) {
         RedisModule_ReplyWithCallReply(ctx, reply);
@@ -65,7 +66,6 @@ int add_to_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (error) {
         size_t len;
         const char * e = RedisModule_StringPtrLen(error, &len);
-        printf("error = %p, e = %.*s\n", error, (int) len, e);
         RedisModule_ReplyWithError(ctx, e);
         return REDISMODULE_OK;
     }
