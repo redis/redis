@@ -50,5 +50,4 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/eventloop \
 --single unit/moduleapi/timer \
 --single unit/moduleapi/publish \
---single unit/moduleapi/dryrun \
 "${@}"

@@ -58,8 +58,7 @@ TEST_MODULES = \
     eventloop.so \
     moduleconfigs.so \
     moduleconfigstwo.so \
-    publish.so \
-    dryrun.so
+    publish.so
 
 .PHONY: all
 

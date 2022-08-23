@@ -366,6 +366,40 @@ start_server {tags {"modules"}} {
         # server is writable again
         r set x y
     } {OK}
+}
+
+start_server {tags {"modules"}} {
+    r module load $testmodule
+
+    test {test Dry Run - OK OOM/ACL} {
+        set x 5
+        r set x $x
+        catch {r test.rm_call_flags DMC set x 10} e
+        assert_match {*NULL reply returned*} $e
+        assert_equal [r get x] 5
+    }
+
+    test {test Dry Run - Fail OOM} {
+        set x 5
+        r set x $x
+        r config set maxmemory 1
+        catch {r test.rm_call_flags DM set x 10} e
+        assert_match {*OOM*} $e
+        assert_equal [r get x] $x
+        r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
+    test {test Dry Run - Fail ACL} {
+        set x 5
+        r set x $x
+        # deny all permissions besides the dryrun command
+        r acl setuser default +get -set +acl resetkeys ~x
+
+        catch {r test.rm_call_flags DC set x 10} e
+        assert_match {*ERR acl verification failed, can't run this command or subcommand*} $e
+        assert_equal [r get x] $x
+        r acl setuser default +@all ~*
+    }
 
     test "Unload the module - misc" {
         assert_equal {OK} [r module unload misc]
