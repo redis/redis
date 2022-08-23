@@ -17,18 +17,18 @@ commandHistory BITCOUNT_History[] = {
 /* BITCOUNT tips */
 #define BITCOUNT_tips NULL
 
-/* BITCOUNT index index_unit argument table */
-struct redisCommandArg BITCOUNT_index_index_unit_Subargs[] = {
+/* BITCOUNT range unit argument table */
+struct redisCommandArg BITCOUNT_range_unit_Subargs[] = {
 {"byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE},
 {"bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
-/* BITCOUNT index argument table */
-struct redisCommandArg BITCOUNT_index_Subargs[] = {
+/* BITCOUNT range argument table */
+struct redisCommandArg BITCOUNT_range_Subargs[] = {
 {"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=BITCOUNT_index_index_unit_Subargs},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=BITCOUNT_range_unit_Subargs},
 {0}
 };
 
@@ -47,31 +47,31 @@ struct redisCommandArg BITCOUNT_Args[] = {
 /* BITFIELD tips */
 #define BITFIELD_tips NULL
 
-/* BITFIELD operation encoding_offset argument table */
-struct redisCommandArg BITFIELD_operation_encoding_offset_Subargs[] = {
+/* BITFIELD operation get_block argument table */
+struct redisCommandArg BITFIELD_operation_get_block_Subargs[] = {
 {"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
-/* BITFIELD operation write wrap_sat_fail argument table */
-struct redisCommandArg BITFIELD_operation_write_wrap_sat_fail_Subargs[] = {
+/* BITFIELD operation write overflow_block argument table */
+struct redisCommandArg BITFIELD_operation_write_overflow_block_Subargs[] = {
 {"wrap",ARG_TYPE_PURE_TOKEN,-1,"WRAP",NULL,NULL,CMD_ARG_NONE},
 {"sat",ARG_TYPE_PURE_TOKEN,-1,"SAT",NULL,NULL,CMD_ARG_NONE},
 {"fail",ARG_TYPE_PURE_TOKEN,-1,"FAIL",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
-/* BITFIELD operation write write_operation encoding_offset_value argument table */
-struct redisCommandArg BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs[] = {
+/* BITFIELD operation write write_operation set_block argument table */
+struct redisCommandArg BITFIELD_operation_write_write_operation_set_block_Subargs[] = {
 {"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
-/* BITFIELD operation write write_operation encoding_offset_increment argument table */
-struct redisCommandArg BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs[] = {
+/* BITFIELD operation write write_operation incrby_block argument table */
+struct redisCommandArg BITFIELD_operation_write_write_operation_incrby_block_Subargs[] = {
 {"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
@@ -80,21 +80,21 @@ struct redisCommandArg BITFIELD_operation_write_write_operation_encoding_offset_
 
 /* BITFIELD operation write write_operation argument table */
 struct redisCommandArg BITFIELD_operation_write_write_operation_Subargs[] = {
-{"encoding_offset_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs},
-{"encoding_offset_increment",ARG_TYPE_BLOCK,-1,"INCRBY",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs},
+{"set-block",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_set_block_Subargs},
+{"incrby-block",ARG_TYPE_BLOCK,-1,"INCRBY",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_incrby_block_Subargs},
 {0}
 };
 
 /* BITFIELD operation write argument table */
 struct redisCommandArg BITFIELD_operation_write_Subargs[] = {
-{"wrap_sat_fail",ARG_TYPE_ONEOF,-1,"OVERFLOW",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITFIELD_operation_write_wrap_sat_fail_Subargs},
-{"write_operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_Subargs},
+{"overflow-block",ARG_TYPE_ONEOF,-1,"OVERFLOW",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITFIELD_operation_write_overflow_block_Subargs},
+{"write-operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_Subargs},
 {0}
 };
 
 /* BITFIELD operation argument table */
 struct redisCommandArg BITFIELD_operation_Subargs[] = {
-{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_encoding_offset_Subargs},
+{"get-block",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_get_block_Subargs},
 {"write",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_Subargs},
 {0}
 };
@@ -114,8 +114,8 @@ struct redisCommandArg BITFIELD_Args[] = {
 /* BITFIELD_RO tips */
 #define BITFIELD_RO_tips NULL
 
-/* BITFIELD_RO encoding_offset argument table */
-struct redisCommandArg BITFIELD_RO_encoding_offset_Subargs[] = {
+/* BITFIELD_RO get_block argument table */
+struct redisCommandArg BITFIELD_RO_get_block_Subargs[] = {
 {"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
@@ -124,7 +124,7 @@ struct redisCommandArg BITFIELD_RO_encoding_offset_Subargs[] = {
 /* BITFIELD_RO argument table */
 struct redisCommandArg BITFIELD_RO_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.subargs=BITFIELD_RO_encoding_offset_Subargs},
+{"get-block",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.subargs=BITFIELD_RO_get_block_Subargs},
 {0}
 };
 
@@ -155,24 +155,24 @@ commandHistory BITPOS_History[] = {
 /* BITPOS tips */
 #define BITPOS_tips NULL
 
-/* BITPOS index end_index index_unit argument table */
-struct redisCommandArg BITPOS_index_end_index_index_unit_Subargs[] = {
+/* BITPOS range end_unit_block unit argument table */
+struct redisCommandArg BITPOS_range_end_unit_block_unit_Subargs[] = {
 {"byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE},
 {"bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
-/* BITPOS index end_index argument table */
-struct redisCommandArg BITPOS_index_end_index_Subargs[] = {
+/* BITPOS range end_unit_block argument table */
+struct redisCommandArg BITPOS_range_end_unit_block_Subargs[] = {
 {"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=BITPOS_index_end_index_index_unit_Subargs},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=BITPOS_range_end_unit_block_unit_Subargs},
 {0}
 };
 
-/* BITPOS index argument table */
-struct redisCommandArg BITPOS_index_Subargs[] = {
+/* BITPOS range argument table */
+struct redisCommandArg BITPOS_range_Subargs[] = {
 {"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"end_index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITPOS_index_end_index_Subargs},
+{"end-unit-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITPOS_range_end_unit_block_Subargs},
 {0}
 };
 
@@ -180,7 +180,7 @@ struct redisCommandArg BITPOS_index_Subargs[] = {
 struct redisCommandArg BITPOS_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"bit",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITPOS_index_Subargs},
+{"range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITPOS_range_Subargs},
 {0}
 };
 
@@ -251,8 +251,8 @@ const char *CLUSTER_ADDSLOTSRANGE_tips[] = {
 NULL
 };
 
-/* CLUSTER ADDSLOTSRANGE start_slot_end_slot argument table */
-struct redisCommandArg CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs[] = {
+/* CLUSTER ADDSLOTSRANGE range argument table */
+struct redisCommandArg CLUSTER_ADDSLOTSRANGE_range_Subargs[] = {
 {"start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
@@ -260,7 +260,7 @@ struct redisCommandArg CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs[] = {
 
 /* CLUSTER ADDSLOTSRANGE argument table */
 struct redisCommandArg CLUSTER_ADDSLOTSRANGE_Args[] = {
-{"start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs},
+{"range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CLUSTER_ADDSLOTSRANGE_range_Subargs},
 {0}
 };
 
@@ -337,8 +337,8 @@ const char *CLUSTER_DELSLOTSRANGE_tips[] = {
 NULL
 };
 
-/* CLUSTER DELSLOTSRANGE start_slot_end_slot argument table */
-struct redisCommandArg CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs[] = {
+/* CLUSTER DELSLOTSRANGE range argument table */
+struct redisCommandArg CLUSTER_DELSLOTSRANGE_range_Subargs[] = {
 {"start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
@@ -346,7 +346,7 @@ struct redisCommandArg CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs[] = {
 
 /* CLUSTER DELSLOTSRANGE argument table */
 struct redisCommandArg CLUSTER_DELSLOTSRANGE_Args[] = {
-{"start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs},
+{"range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CLUSTER_DELSLOTSRANGE_range_Subargs},
 {0}
 };
 
@@ -485,7 +485,7 @@ NULL
 struct redisCommandArg CLUSTER_MEET_Args[] = {
 {"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"cluster_bus_port",ARG_TYPE_INTEGER,-1,NULL,NULL,"4.0.0",CMD_ARG_OPTIONAL},
+{"cluster-bus-port",ARG_TYPE_INTEGER,-1,NULL,NULL,"4.0.0",CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -556,8 +556,8 @@ const char *CLUSTER_RESET_tips[] = {
 NULL
 };
 
-/* CLUSTER RESET hard_soft argument table */
-struct redisCommandArg CLUSTER_RESET_hard_soft_Subargs[] = {
+/* CLUSTER RESET reset_type argument table */
+struct redisCommandArg CLUSTER_RESET_reset_type_Subargs[] = {
 {"hard",ARG_TYPE_PURE_TOKEN,-1,"HARD",NULL,NULL,CMD_ARG_NONE},
 {"soft",ARG_TYPE_PURE_TOKEN,-1,"SOFT",NULL,NULL,CMD_ARG_NONE},
 {0}
@@ -565,7 +565,7 @@ struct redisCommandArg CLUSTER_RESET_hard_soft_Subargs[] = {
 
 /* CLUSTER RESET argument table */
 struct redisCommandArg CLUSTER_RESET_Args[] = {
-{"hard_soft",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLUSTER_RESET_hard_soft_Subargs},
+{"reset-type",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLUSTER_RESET_reset_type_Subargs},
 {0}
 };
 
@@ -610,9 +610,9 @@ NULL
 
 /* CLUSTER SETSLOT subcommand argument table */
 struct redisCommandArg CLUSTER_SETSLOT_subcommand_Subargs[] = {
-{"node-id",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE},
-{"node-id",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE},
-{"node-id",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE},
+{"importing",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE,.display_text="node-id"},
+{"migrating",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE,.display_text="node-id"},
+{"node",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE,.display_text="node-id"},
 {"stable",ARG_TYPE_PURE_TOKEN,-1,"STABLE",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
@@ -834,8 +834,8 @@ commandHistory CLIENT_KILL_History[] = {
 /* CLIENT KILL tips */
 #define CLIENT_KILL_tips NULL
 
-/* CLIENT KILL filter new_format normal_master_slave_pubsub argument table */
-struct redisCommandArg CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Subargs[] = {
+/* CLIENT KILL filter new_format client_type argument table */
+struct redisCommandArg CLIENT_KILL_filter_new_format_client_type_Subargs[] = {
 {"normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE},
 {"master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,"3.2.0",CMD_ARG_NONE},
 {"slave",ARG_TYPE_PURE_TOKEN,-1,"SLAVE",NULL,NULL,CMD_ARG_NONE},
@@ -847,17 +847,17 @@ struct redisCommandArg CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_
 /* CLIENT KILL filter new_format argument table */
 struct redisCommandArg CLIENT_KILL_filter_new_format_Subargs[] = {
 {"client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",CMD_ARG_OPTIONAL},
-{"normal_master_slave_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,.subargs=CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Subargs},
+{"client-type",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,.subargs=CLIENT_KILL_filter_new_format_client_type_Subargs},
 {"username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,CMD_ARG_OPTIONAL},
-{"ip:port",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL},
-{"ip:port",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL},
-{"yes/no",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL},
+{"addr",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="ip:port"},
+{"laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,.display_text="ip:port"},
+{"skipme",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="yes/no"},
 {0}
 };
 
 /* CLIENT KILL filter argument table */
 struct redisCommandArg CLIENT_KILL_filter_Subargs[] = {
-{"ip:port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,.deprecated_since="2.8.12"},
+{"old-format",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,.deprecated_since="2.8.12",.display_text="ip:port"},
 {"new-format",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CLIENT_KILL_filter_new_format_Subargs},
 {0}
 };
@@ -884,8 +884,8 @@ const char *CLIENT_LIST_tips[] = {
 NULL
 };
 
-/* CLIENT LIST normal_master_replica_pubsub argument table */
-struct redisCommandArg CLIENT_LIST_normal_master_replica_pubsub_Subargs[] = {
+/* CLIENT LIST client_type argument table */
+struct redisCommandArg CLIENT_LIST_client_type_Subargs[] = {
 {"normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE},
 {"master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,NULL,CMD_ARG_NONE},
 {"replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,NULL,CMD_ARG_NONE},
@@ -893,16 +893,10 @@ struct redisCommandArg CLIENT_LIST_normal_master_replica_pubsub_Subargs[] = {
 {0}
 };
 
-/* CLIENT LIST id argument table */
-struct redisCommandArg CLIENT_LIST_id_Subargs[] = {
-{"client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{0}
-};
-
 /* CLIENT LIST argument table */
 struct redisCommandArg CLIENT_LIST_Args[] = {
-{"normal_master_replica_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"5.0.0",CMD_ARG_OPTIONAL,.subargs=CLIENT_LIST_normal_master_replica_pubsub_Subargs},
-{"id",ARG_TYPE_BLOCK,-1,"ID",NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=CLIENT_LIST_id_Subargs},
+{"client-type",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"5.0.0",CMD_ARG_OPTIONAL,.subargs=CLIENT_LIST_client_type_Subargs},
+{"client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"6.2.0",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -960,8 +954,8 @@ struct redisCommandArg CLIENT_PAUSE_Args[] = {
 /* CLIENT REPLY tips */
 #define CLIENT_REPLY_tips NULL
 
-/* CLIENT REPLY on_off_skip argument table */
-struct redisCommandArg CLIENT_REPLY_on_off_skip_Subargs[] = {
+/* CLIENT REPLY action argument table */
+struct redisCommandArg CLIENT_REPLY_action_Subargs[] = {
 {"on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE},
 {"off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE},
 {"skip",ARG_TYPE_PURE_TOKEN,-1,"SKIP",NULL,NULL,CMD_ARG_NONE},
@@ -970,7 +964,7 @@ struct redisCommandArg CLIENT_REPLY_on_off_skip_Subargs[] = {
 
 /* CLIENT REPLY argument table */
 struct redisCommandArg CLIENT_REPLY_Args[] = {
-{"on_off_skip",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_REPLY_on_off_skip_Subargs},
+{"action",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_REPLY_action_Subargs},
 {0}
 };
 
@@ -1045,8 +1039,8 @@ struct redisCommandArg CLIENT_TRACKING_Args[] = {
 /* CLIENT UNBLOCK tips */
 #define CLIENT_UNBLOCK_tips NULL
 
-/* CLIENT UNBLOCK timeout_error argument table */
-struct redisCommandArg CLIENT_UNBLOCK_timeout_error_Subargs[] = {
+/* CLIENT UNBLOCK unblock_type argument table */
+struct redisCommandArg CLIENT_UNBLOCK_unblock_type_Subargs[] = {
 {"timeout",ARG_TYPE_PURE_TOKEN,-1,"TIMEOUT",NULL,NULL,CMD_ARG_NONE},
 {"error",ARG_TYPE_PURE_TOKEN,-1,"ERROR",NULL,NULL,CMD_ARG_NONE},
 {0}
@@ -1055,7 +1049,7 @@ struct redisCommandArg CLIENT_UNBLOCK_timeout_error_Subargs[] = {
 /* CLIENT UNBLOCK argument table */
 struct redisCommandArg CLIENT_UNBLOCK_Args[] = {
 {"client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"timeout_error",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLIENT_UNBLOCK_timeout_error_Subargs},
+{"unblock-type",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLIENT_UNBLOCK_unblock_type_Subargs},
 {0}
 };
 
@@ -1123,8 +1117,8 @@ commandHistory HELLO_History[] = {
 /* HELLO tips */
 #define HELLO_tips NULL
 
-/* HELLO arguments username_password argument table */
-struct redisCommandArg HELLO_arguments_username_password_Subargs[] = {
+/* HELLO arguments auth argument table */
+struct redisCommandArg HELLO_arguments_auth_Subargs[] = {
 {"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
@@ -1133,7 +1127,7 @@ struct redisCommandArg HELLO_arguments_username_password_Subargs[] = {
 /* HELLO arguments argument table */
 struct redisCommandArg HELLO_arguments_Subargs[] = {
 {"protover",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"username_password",ARG_TYPE_BLOCK,-1,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HELLO_arguments_username_password_Subargs},
+{"auth",ARG_TYPE_BLOCK,-1,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HELLO_arguments_auth_Subargs},
 {"clientname",ARG_TYPE_STRING,-1,"SETNAME",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
@@ -1370,15 +1364,15 @@ const char *MIGRATE_tips[] = {
 NULL
 };
 
-/* MIGRATE key_or_empty_string argument table */
-struct redisCommandArg MIGRATE_key_or_empty_string_Subargs[] = {
+/* MIGRATE key_selector argument table */
+struct redisCommandArg MIGRATE_key_selector_Subargs[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"empty_string",ARG_TYPE_PURE_TOKEN,-1,"""",NULL,NULL,CMD_ARG_NONE},
+{"empty-string",ARG_TYPE_PURE_TOKEN,-1,"""",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
-/* MIGRATE authentication username_password argument table */
-struct redisCommandArg MIGRATE_authentication_username_password_Subargs[] = {
+/* MIGRATE authentication auth2 argument table */
+struct redisCommandArg MIGRATE_authentication_auth2_Subargs[] = {
 {"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
@@ -1386,8 +1380,8 @@ struct redisCommandArg MIGRATE_authentication_username_password_Subargs[] = {
 
 /* MIGRATE authentication argument table */
 struct redisCommandArg MIGRATE_authentication_Subargs[] = {
-{"password",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_OPTIONAL},
-{"username_password",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",CMD_ARG_OPTIONAL,.subargs=MIGRATE_authentication_username_password_Subargs},
+{"auth",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_NONE,.display_text="password"},
+{"auth2",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",CMD_ARG_NONE,.subargs=MIGRATE_authentication_auth2_Subargs},
 {0}
 };
 
@@ -1395,13 +1389,13 @@ struct redisCommandArg MIGRATE_authentication_Subargs[] = {
 struct redisCommandArg MIGRATE_Args[] = {
 {"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key_or_empty_string",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=MIGRATE_key_or_empty_string_Subargs},
+{"key-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=MIGRATE_key_selector_Subargs},
 {"destination-db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"copy",ARG_TYPE_PURE_TOKEN,-1,"COPY",NULL,"3.0.0",CMD_ARG_OPTIONAL},
 {"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL},
 {"authentication",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=MIGRATE_authentication_Subargs},
-{"key",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"keys",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.display_text="key"},
 {0}
 };
 
@@ -1720,8 +1714,8 @@ struct redisCommandArg SCAN_Args[] = {
 /* SORT tips */
 #define SORT_tips NULL
 
-/* SORT offset_count argument table */
-struct redisCommandArg SORT_offset_count_Subargs[] = {
+/* SORT limit argument table */
+struct redisCommandArg SORT_limit_Subargs[] = {
 {"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
@@ -1737,9 +1731,9 @@ struct redisCommandArg SORT_order_Subargs[] = {
 /* SORT argument table */
 struct redisCommandArg SORT_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL},
-{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_offset_count_Subargs},
-{"pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
+{"by-pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="pattern"},
+{"limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_limit_Subargs},
+{"get-pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.display_text="pattern"},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_order_Subargs},
 {"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
 {"destination",ARG_TYPE_KEY,2,"STORE",NULL,NULL,CMD_ARG_OPTIONAL},
@@ -1754,8 +1748,8 @@ struct redisCommandArg SORT_Args[] = {
 /* SORT_RO tips */
 #define SORT_RO_tips NULL
 
-/* SORT_RO offset_count argument table */
-struct redisCommandArg SORT_RO_offset_count_Subargs[] = {
+/* SORT_RO limit argument table */
+struct redisCommandArg SORT_RO_limit_Subargs[] = {
 {"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
@@ -1771,9 +1765,9 @@ struct redisCommandArg SORT_RO_order_Subargs[] = {
 /* SORT_RO argument table */
 struct redisCommandArg SORT_RO_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL},
-{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_offset_count_Subargs},
-{"pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
+{"by-pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="pattern"},
+{"limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_limit_Subargs},
+{"get-pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.display_text="pattern"},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_order_Subargs},
 {"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
@@ -1886,8 +1880,8 @@ struct redisCommandArg GEOADD_condition_Subargs[] = {
 {0}
 };
 
-/* GEOADD longitude_latitude_member argument table */
-struct redisCommandArg GEOADD_longitude_latitude_member_Subargs[] = {
+/* GEOADD data argument table */
+struct redisCommandArg GEOADD_data_Subargs[] = {
 {"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
@@ -1899,7 +1893,7 @@ struct redisCommandArg GEOADD_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=GEOADD_condition_Subargs},
 {"change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"6.2.0",CMD_ARG_OPTIONAL},
-{"longitude_latitude_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=GEOADD_longitude_latitude_member_Subargs},
+{"data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=GEOADD_data_Subargs},
 {0}
 };
 
@@ -1964,6 +1958,7 @@ struct redisCommandArg GEOPOS_Args[] = {
 /* GEORADIUS history */
 commandHistory GEORADIUS_History[] = {
 {"6.2.0","Added the `ANY` option for `COUNT`."},
+{"7.0.0","Added support for uppercase unit names."},
 {0}
 };
 
