@@ -840,13 +840,29 @@ void addReplyDouble(client *c, double d) {
                               d > 0 ? 6 : 7);
         }
     } else {
-        char dbuf[MAX_LONG_DOUBLE_CHARS+3],
-             sbuf[MAX_LONG_DOUBLE_CHARS+32];
-        int dlen, slen;
+        char dbuf[MAX_LONG_DOUBLE_CHARS+32];
+        int dlen = 0;
         if (c->resp == 2) {
-            dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
-            slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
-            addReplyProto(c,sbuf,slen);
+            /* In order to prepend the string length before the formatted number,
+             * but still avoid an extra memcpy of the whole number, we reserve space
+             * for maximum header `$0000\r\n`, print double, add the resp header in
+             * front of it, and then send the buffer with the right `start` offset. */
+            int dlen = snprintf(dbuf+7,sizeof(dbuf) - 7,"%.17g",d);
+            int digits = digits10(dlen);
+            int start = 4 - digits;
+            dbuf[start] = '$';
+
+            /* Convert `dlen` to string, putting it's digits after '$' and before the
+	     * formatted double string. */
+            for(int i = digits, val = dlen; val && i > 0 ; --i, val /= 10) {
+                dbuf[start + i] = "0123456789"[val % 10];
+            }
+
+            dbuf[5] = '\r';
+            dbuf[6] = '\n';
+            dbuf[dlen+7] = '\r';
+            dbuf[dlen+8] = '\n';
+            addReplyProto(c,dbuf+start,dlen+9-start);
         } else {
             dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
             addReplyProto(c,dbuf,dlen);
