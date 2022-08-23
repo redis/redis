@@ -744,8 +744,14 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
         /* Check if we can remove the whole node. */
         int remove_node;
-        streamID master_id = {0}; /* For MINID */
-        if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
+        streamID master_id = {0};
+        /* Read the master ID from the radix tree key. */
+        streamDecodeID(ri.key, &master_id);
+        /* Read last ID. */
+        streamID last_id;
+        lpGetEdgeStreamID(lp, 0, &master_id, &last_id);
+
+	if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
             remove_node = s->length - entries >= maxlen;
         } else {
             /* Read the master ID from the radix tree key. */
@@ -760,6 +766,9 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         }
 
         if (remove_node) {
+	   if (streamCompareID(&last_id,&s->max_deleted_entry_id) > 0) {
+              s->max_deleted_entry_id = last_id;
+            }
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
             raxSeek(&ri,">=",ri.key,ri.key_len);
@@ -785,6 +794,8 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             p = lpNext(lp,p); /* Skip all master fields. */
         p = lpNext(lp,p); /* Skip the zero master entry terminator. */
 
+
+	streamID delete_entry_id = {0};
         /* 'p' is now pointing to the first entry inside the listpack.
          * We have to run entry after entry, marking entries as deleted
          * if they are already not deleted. */
@@ -832,6 +843,11 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
             /* Mark the entry as deleted. */
             if (!(flags & STREAM_ITEM_FLAG_DELETED)) {
+	        delete_entry_id.ms = master_id.ms + ms_delta;
+	        delete_entry_id.seq = master_id.seq + seq_delta;
+		if (streamCompareID(&delete_entry_id,&s->max_deleted_entry_id) > 0) {
+                  s->max_deleted_entry_id = delete_entry_id;
+                }
                 intptr_t delta = p - lp;
                 flags |= STREAM_ITEM_FLAG_DELETED;
                 lp = lpReplaceInteger(lp, &pcopy, flags);
@@ -2023,6 +2039,8 @@ void xaddCommand(client *c) {
     stream *s;
     if ((o = streamTypeLookupWriteOrCreate(c,c->argv[1],parsed_args.no_mkstream)) == NULL) return;
     s = o->ptr;
+    serverLog(LL_WARNING,"last delete id ms is  %ld",s->max_deleted_entry_id.ms);
+    serverLog(LL_WARNING,"last delete id seq is  %ld",s->max_deleted_entry_id.seq);
 
     /* Return ASAP if the stream has reached the last possible ID */
     if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
@@ -2051,6 +2069,8 @@ void xaddCommand(client *c) {
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
     server.dirty++;
+    serverLog(LL_WARNING,"2 last delete id ms is  %ld",s->max_deleted_entry_id.ms);
+    serverLog(LL_WARNING,"2 last delete id seq is  %ld",s->max_deleted_entry_id.seq);
 
     /* Trim if needed. */
     if (parsed_args.trim_strategy != TRIM_STRATEGY_NONE) {
@@ -2068,6 +2088,8 @@ void xaddCommand(client *c) {
         }
     }
 
+    serverLog(LL_WARNING,"3 last delete id ms is  %ld",s->max_deleted_entry_id.ms);
+    serverLog(LL_WARNING,"3 last delete id seq is  %ld",s->max_deleted_entry_id.seq);
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
     if (!parsed_args.id_given || !parsed_args.seq_given) {
