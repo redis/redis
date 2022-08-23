@@ -412,7 +412,7 @@ void getexCommand(client *c) {
 void getdelCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     if (dbSyncDelete(c->db, c->argv[1])) {
-        /* Propagate as DEL/UNLINK command */
+        /* Propagate as DEL command */
         rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c, c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
