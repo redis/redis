@@ -844,15 +844,16 @@ void addReplyDouble(client *c, double d) {
         int dlen = 0;
         if (c->resp == 2) {
             /* In order to prepend the string length before the formatted number,
-	         * but still avoid an extra memcpy of the whole number, we reserve space
-	         * for maximum header `$0000\r\n`, print double, add the resp header in
-	         * front of it, and then send the buffer with the right `start` offset. */
+             * but still avoid an extra memcpy of the whole number, we reserve space
+             * for maximum header `$0000\r\n`, print double, add the resp header in
+             * front of it, and then send the buffer with the right `start` offset. */
             int dlen = snprintf(dbuf+7,sizeof(dbuf) - 7,"%.17g",d);
             int digits = digits10(dlen);
             int start = 4 - digits;
             dbuf[start] = '$';
 
-            /* copy `dlen` digits after '$' and before the Double */
+            /* Convert `dlen` to string, putting it's digits after '$' and before the
+	     * formatted double string. */
             for(int i = digits, val = dlen; val && i > 0 ; --i, val /= 10) {
                 dbuf[start + i] = "0123456789"[val % 10];
             }
