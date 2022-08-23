@@ -41,7 +41,7 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired);
+int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired, int avoid_delete_expired);
 int keyIsExpired(redisDb *db, robj *key);
 
 /* Update LFU when an object is accessed.
@@ -93,7 +93,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
          * perform additional writes. */
         int is_ro_replica = server.masterhost && server.repl_slave_ro;
         int force_delete_expired = flags & LOOKUP_WRITE && !is_ro_replica;
-        if (expireIfNeeded(db, key, force_delete_expired)) {
+        if (expireIfNeeded(db, key, force_delete_expired, !!(flags&LOOKUP_NOEXPIRE))) {
             /* The key is no longer valid. */
             val = NULL;
         }
@@ -296,7 +296,7 @@ robj *dbRandomKey(redisDb *db) {
                  * return a key name that may be already expired. */
                 return keyobj;
             }
-            if (expireIfNeeded(db,keyobj,0)) {
+            if (expireIfNeeded(db,keyobj,0,0)) {
                 decrRefCount(keyobj);
                 continue; /* search for another key. This expired. */
             }
@@ -662,7 +662,7 @@ void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
     for (j = 1; j < c->argc; j++) {
-        expireIfNeeded(c->db,c->argv[j],0);
+        expireIfNeeded(c->db,c->argv[j],0,0);
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
         if (deleted) {
@@ -960,7 +960,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         }
 
         /* Filter element if it is an expired key. */
-        if (!filter && o == NULL && expireIfNeeded(c->db, kobj, 0)) filter = 1;
+        if (!filter && o == NULL && expireIfNeeded(c->db, kobj, 0,0)) filter = 1;
 
         /* Remove the element and its associated value if needed. */
         if (filter) {
@@ -1663,7 +1663,7 @@ int keyIsExpired(redisDb *db, robj *key) {
  *
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
-int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
+int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired, int avoid_delete_expired) {
     if (!keyIsExpired(db,key)) return 0;
 
     /* If we are running in the context of a replica, instead of
@@ -1683,6 +1683,11 @@ int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
         if (server.current_client == server.master) return 0;
         if (!force_delete_expired) return 1;
     }
+
+    /* In some cases we're explicitly instructed to return an indication of a
+     * missing key without actually deleting it, even on masters. */
+    if (avoid_delete_expired)
+        return 1;
 
     /* If clients are paused, we keep the current dataset constant,
      * but return to the client what we believe is the right state. Typically,

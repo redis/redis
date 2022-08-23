@@ -95,6 +95,7 @@ set ::all_tests {
     unit/client-eviction
     unit/violations
     unit/replybufsize
+    unit/cluster/misc
     unit/cluster/cli
     unit/cluster/scripting
     unit/cluster/hostnames
