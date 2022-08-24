@@ -865,7 +865,7 @@ start_server {tags {"stream"}} {
         assert_equal [dict get $reply recorded-first-entry-id] "4-0"
     }
 
-    test {Maxmimum XDEL ID behaves correctly} {
+    test {Maximum XDEL ID behaves correctly} {
         r DEL x
         r XADD x 1-0 data a
         r XADD x 2-0 data b
