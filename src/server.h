@@ -81,6 +81,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "connection.h" /* Connection abstraction */
 
 #define REDISMODULE_CORE 1
+typedef struct redisObject robj;
 #include "redismodule.h"    /* Redis modules API defines. */
 
 /* Following includes allow test functions to be called from Redis main() */
@@ -679,9 +680,6 @@ struct RedisModuleIO;
 struct RedisModuleDigest;
 struct RedisModuleCtx;
 struct moduleLoadQueueEntry;
-struct redisObject;
-struct RedisModuleDefragCtx;
-struct RedisModuleInfoCtx;
 struct RedisModuleKeyOptCtx;
 struct RedisModuleCommand;
 
@@ -701,19 +699,11 @@ typedef size_t (*moduleTypeFreeEffortFunc)(struct redisObject *key, const void *
 typedef void (*moduleTypeUnlinkFunc)(struct redisObject *key, void *value);
 typedef void *(*moduleTypeCopyFunc)(struct redisObject *fromkey, struct redisObject *tokey, const void *value);
 typedef int (*moduleTypeDefragFunc)(struct RedisModuleDefragCtx *ctx, struct redisObject *key, void **value);
-typedef void (*RedisModuleInfoFunc)(struct RedisModuleInfoCtx *ctx, int for_crash_report);
-typedef void (*RedisModuleDefragFunc)(struct RedisModuleDefragCtx *ctx);
 typedef size_t (*moduleTypeMemUsageFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value, size_t sample_size);
 typedef void (*moduleTypeFreeFunc2)(struct RedisModuleKeyOptCtx *ctx, void *value);
 typedef size_t (*moduleTypeFreeEffortFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
 typedef void (*moduleTypeUnlinkFunc2)(struct RedisModuleKeyOptCtx *ctx, void *value);
 typedef void *(*moduleTypeCopyFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
-
-/* This callback type is called by moduleNotifyUserChanged() every time
- * a user authenticated via the module API is associated with a different
- * user or gets disconnected. This needs to be exposed since you can't cast
- * a function pointer to (void *). */
-typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
 
 
 /* The module type, which is referenced in each value of a given type, defines
@@ -786,7 +776,7 @@ typedef struct RedisModule RedisModule;
 /* This is a wrapper for the 'rio' streams used inside rdb.c in Redis, so that
  * the user does not have to take the total count of the written bytes nor
  * to care about error conditions. */
-typedef struct RedisModuleIO {
+struct RedisModuleIO {
     size_t bytes;       /* Bytes read / written so far. */
     rio *rio;           /* Rio stream. */
     moduleType *type;   /* Module type doing the operation. */
@@ -794,7 +784,7 @@ typedef struct RedisModuleIO {
     struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
     struct redisObject *key;    /* Optional name of key processed */
     int dbid;            /* The dbid of the key being processed, -1 when unknown. */
-} RedisModuleIO;       
+};
 
 /* Macro to initialize an IO context. Note that the 'ver' field is populated
  * inside rdb.c according to the version of the value to load. */
@@ -813,12 +803,12 @@ typedef struct RedisModuleIO {
  * a data structure, so that a digest can be created in a way that correctly
  * reflects the values. See the DEBUG DIGEST command implementation for more
  * background. */
-typedef struct RedisModuleDigest {
+struct RedisModuleDigest {
     unsigned char o[20];    /* Ordered elements. */
     unsigned char x[20];    /* Xored elements. */
     struct redisObject *key; /* Optional name of key processed */
     int dbid;                /* The dbid of the key being processed */
-} RedisModuleDigest;
+};
 
 /* Just start with a digest composed of all zero bytes. */
 #define moduleInitDigestContext(mdvar) do { \
@@ -849,7 +839,7 @@ typedef struct RedisModuleDigest {
 #define OBJ_SHARED_REFCOUNT INT_MAX     /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
-typedef struct redisObject {
+struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
@@ -857,7 +847,7 @@ typedef struct redisObject {
                             * and most significant 16 bits access time). */
     int refcount;
     void *ptr;
-} robj;
+};
 
 /* The a string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
@@ -1376,11 +1366,6 @@ struct malloc_stats {
     size_t allocator_resident;
 };
 
-typedef struct socketFds {
-    int fd[CONFIG_BINDADDR_MAX];
-    int count;
-} socketFds;
-
 /*-----------------------------------------------------------------------------
  * TLS Context Configuration
  *----------------------------------------------------------------------------*/
@@ -1514,11 +1499,9 @@ struct redisServer {
     char *bind_source_addr;     /* Source address to bind on for outgoing connections */
     char *unixsocket;           /* UNIX socket path */
     unsigned int unixsocketperm; /* UNIX socket permission (see mode_t) */
-    socketFds ipfd;             /* TCP socket file descriptors */
-    socketFds tlsfd;            /* TLS socket file descriptors */
-    int sofd;                   /* Unix socket file descriptor */
+    connListener listeners[CONN_TYPE_MAX]; /* TCP/Unix/TLS even more types */
     uint32_t socket_mark_id;    /* ID for listen socket marking */
-    socketFds cfd;              /* Cluster bus listening socket */
+    connListener clistener;     /* Cluster bus listener */
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
@@ -2460,9 +2443,7 @@ void setDeferredSetLen(client *c, void *node, long length);
 void setDeferredAttributeLen(client *c, void *node, long length);
 void setDeferredPushLen(client *c, void *node, long length);
 int processInputBuffer(client *c);
-void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
-void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask);
-void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+void acceptCommonHandler(connection *conn, int flags, char *ip);
 void readQueryFromClient(connection *conn);
 int prepareClientToWrite(client *c);
 void addReplyNull(client *c);
@@ -2527,7 +2508,7 @@ char *getClientTypeName(int class);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 void evictClients(void);
-int listenToPort(int port, socketFds *fds);
+int listenToPort(connListener *fds);
 void pauseClients(pause_purpose purpose, mstime_t end, pause_type type);
 void unpauseClients(pause_purpose purpose);
 int areClientsPaused(void);
@@ -2893,9 +2874,10 @@ int processCommand(client *c);
 int processPendingCommandAndInputBuffer(client *c);
 void setupSignalHandlers(void);
 void removeSignalHandlers(void);
-int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
-int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler);
-int changeBindAddr(void);
+int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler);
+connListener *listenerByType(const char *typename);
+int changeListener(connListener *listener);
+void closeListener(connListener *listener);
 struct redisCommand *lookupSubcommand(struct redisCommand *container, sds sub_name);
 struct redisCommand *lookupCommand(robj **argv, int argc);
 struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s);
@@ -3277,6 +3259,7 @@ void *dictSdsDup(dict *d, const void *key);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
 uint64_t redisBuildId(void);
+const char *redisBuildIdRaw(void);
 char *redisBuildIdString(void);
 
 /* Commands prototypes */
@@ -3578,12 +3561,6 @@ void swapMainDbWithTempDb(redisDb *tempDb);
         if (((level)&0xff) < server.verbosity) break;\
         _serverLog(level, __VA_ARGS__);\
     } while(0)
-
-/* TLS stuff */
-void tlsInit(void);
-void tlsCleanup(void);
-int tlsConfigure(redisTLSContextConfig *ctx_config);
-int isTlsConfigured(void);
 
 #define redisDebug(fmt, ...) \
     printf("DEBUG %s:%d > " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
