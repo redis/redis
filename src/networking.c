@@ -3881,16 +3881,9 @@ void unblockPostponedClients() {
     }
 }
 
-/* As pause-client feature refactored internally to become pause-actions,
- * this is a wrapper that keeps pause-client backward compatible logic:
+/* Set pause-client end-time and restricted action. If already paused, then:
  * 1. Keep higher end-time value between configured and the new one
- * 2. Keep most restrictive action between configured and the new one
- *
- * Note: this logic is problematic to follow when pause/unpause actions.
- * To the rest of action's purposes we take simplified approach (common
- * implementation of pause-action) such that for a given action-purpose,
- * new pause is the only one to count, irrelevant what was configured
- * before */
+ * 2. Keep most restrictive action between configured and the new one */
 static void pauseClientsByClient(mstime_t endTime, int isPauseClientAll) {
     uint32_t actions;
     pause_event *p = &server.client_pause_per_purpose[PAUSE_BY_CLIENT_COMMAND];
