@@ -66,7 +66,6 @@
 static pthread_t bio_threads[BIO_NUM_OPS];
 static pthread_mutex_t bio_mutex[BIO_NUM_OPS];
 static pthread_cond_t bio_newjob_cond[BIO_NUM_OPS];
-static pthread_cond_t bio_step_cond[BIO_NUM_OPS];
 static list *bio_jobs[BIO_NUM_OPS];
 
 /* This structure represents a background Job. It is only used locally to this
@@ -102,7 +101,6 @@ void bioInit(void) {
     for (j = 0; j < BIO_NUM_OPS; j++) {
         pthread_mutex_init(&bio_mutex[j],NULL);
         pthread_cond_init(&bio_newjob_cond[j],NULL);
-        pthread_cond_init(&bio_step_cond[j],NULL);
         bio_jobs[j] = listCreate();
     }
 
@@ -250,11 +248,6 @@ void *bioProcessBackgroundJobs(void *arg) {
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[type]);
         listDelNode(bio_jobs[type],ln);
-
-#ifndef MASK_UNUSED_API
-        /* Unblock threads blocked on bioWaitStepOfType() if any. */
-        pthread_cond_broadcast(&bio_step_cond[type]);
-#endif
     }
 }
 
@@ -267,30 +260,6 @@ unsigned long bioPendingJobsOfType(int type) {
     return val;
     return val;
 }
-
-#ifndef MASK_UNUSED_API
-/* If there are pending jobs for the specified type, the function blocks
- * and waits that the next job was processed. Otherwise the function
- * does not block and returns ASAP.
- *
- * The function returns the number of jobs still to process of the
- * requested type.
- *
- * This function is useful when from another thread, we want to wait
- * a bio.c thread to do more work in a blocking way.
- */
-unsigned long long bioWaitStepOfType(int type) {
-    unsigned long long val;
-    pthread_mutex_lock(&bio_mutex[type]);
-    val = listLength(bio_jobs[type]);
-    if (val != 0) {
-        pthread_cond_wait(&bio_step_cond[type],&bio_mutex[type]);
-        val = listLength(bio_jobs[type]);
-    }
-    pthread_mutex_unlock(&bio_mutex[type]);
-    return val;
-}
-#endif
 
 /* Kill the running bio threads in an unclean way. This function should be
  * used only when it's critical to stop the threads for some reason.
