@@ -1379,7 +1379,7 @@ start_server {tags {"repl external:skip"}} {
             $master pexpire s 1
             after 10
             $master sadd s foo
-            assert_equal 1 [$master wait 1 1]
+            assert_equal 1 [$master wait 1 0]
 
             assert_equal "set" [$master type s]
             assert_equal "set" [$slave type s]
