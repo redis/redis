@@ -1271,7 +1271,6 @@ extern clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUN
  * after the propagation of the executed command. */
 typedef struct redisOp {
     robj **argv;
-    /* target=0 means the operation should not be propagate (unused placeholder), for more info look at redisOpArray */
     int argc, dbid, target;
 } redisOp;
 
@@ -1283,14 +1282,9 @@ typedef struct redisOp {
  * redisOpArrayFree();
  */
 typedef struct redisOpArray {
-    redisOp *ops; /* The array of operation to replicated */
-    int numops;   /* The actual number of operations in the array */
-    int used;     /* Spots that is used in the ops array, we need to
-                     differenced between the actual number of operations
-                     and the used spots because there might be spots
-                     that was saved as a placeholder for future command
-                     but was never actually used */
-    int capacity; /* The ops array capacity */
+    redisOp *ops;
+    int numops;
+    int capacity;
 } redisOpArray;
 
 /* This structure is returned by the getMemoryOverheadData() function in
@@ -2892,7 +2886,6 @@ int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void propagatePendingCommands();
-void redisOpArrayReset(redisOpArray *oa);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
