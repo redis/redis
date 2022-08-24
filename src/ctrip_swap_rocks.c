@@ -87,7 +87,7 @@ int rocksInit() {
     }
 
     snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocksdb_epoch);
-    rocksdb_options_t *meta_cf_opts, *default_cf_opts, *score_cf_opts;
+    rocksdb_options_t *default_cf_opts, *meta_cf_opts, *score_cf_opts;
     rocksdb_block_based_options_create();
 
     default_cf_opts = rocksdb_options_create();
@@ -107,11 +107,11 @@ int rocksInit() {
     rocksdb_options_set_block_based_table_factory(score_cf_opts, score_block_opts);
 
     rocksdb_options_t *cf_opts[] = {default_cf_opts, meta_cf_opts, score_cf_opts};
-    rocks->db = rocksdb_open_column_families(rocks->db_opts, dir, 2,
+    rocks->db = rocksdb_open_column_families(rocks->db_opts, dir, 3,
             cf_names, (const rocksdb_options_t *const *)cf_opts,
             cf_handles, errs);
     if (errs[0] != NULL || errs[1] != NULL) {
-        serverLog(LL_WARNING, "[ROCKS] rocksdb open failed: %s, %s", errs[0], errs[1]);
+        serverLog(LL_WARNING, "[ROCKS] rocksdb open failed: default_cf=%s, meta_cf=%s, score_cf=%s", errs[0], errs[1], errs[2]);
         return -1;
     }
     rocks->default_cf = cf_handles[0];

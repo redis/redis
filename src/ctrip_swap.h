@@ -39,23 +39,21 @@
 #define REQUEST_LEVEL_KEY  2
 
 /* Delete key in rocksdb after right after swap in. */
-#define INTENTION_CMD_IN_DEL (1U<<0)
+#define SWAP_IN_DEL (1U<<0)
 /* No need to swap if this is a big object */
-#define INTENTION_CMD_IN_META (1U<<1)
+#define SWAP_IN_META (1U<<1)
 
 /* Delete rocksdb data key */
-#define INTENTION_EXEC_DEL_DATA (1U<<8)
-/* Delete rocksdb meta key */
-#define INTENTION_EXEC_DEL_META (1U<<9)
+#define SWAP_EXEC_IN_DEL (1U<<0)
 /* Put rocksdb meta key */
-#define INTENTION_EXEC_OUT_META (1U<<10)
+#define SWAP_EXEC_OUT_META (1U<<1)
 
 /* Don't delete key in keyspace when swap (Delete key in rocksdb) finish. */
-#define INTENTION_FIN_NO_DEL (1U<<16)
+#define SWAP_FIN_DEL_SKIP (1U<<8)
 /* Propagate expired when swap finish */
-#define INTENTION_FIN_PROP_EXPIRED (1U<<17)
+#define SWAP_FIN_PROP_EXPIRED (1U<<9)
 /* Set object dirty when swap finish */
-#define INTENTION_FIN_SET_DIRTY (1U<<18)
+#define SWAP_FIN_SET_DIRTY (1U<<10)
 
 
 
@@ -145,10 +143,13 @@ typedef struct swapData {
   robj *key;
   robj *value;
   long long expire;
-  unsigned long propagate_expire:1;
-  unsigned long set_dirty:1;
-  unsigned long reserved:62;
-  void *extends[4];
+  void *object_meta;
+  int object_type;
+  unsigned propagate_expire:1;
+  unsigned set_dirty:1;
+  unsigned swapin_meta:1;
+  unsigned reserved:29;
+  void *extends[3];
 } swapData;
 
 /* keyRequest: client request parse from command.
@@ -166,21 +167,23 @@ typedef struct swapDataType {
   robj *(*createOrMergeObject)(struct swapData *data, robj *decoded, void *datactx);
   int (*cleanObject)(struct swapData *data, void *datactx);
   void (*free)(struct swapData *data, void *datactx);
-  sds (*encodeMetaVal) (struct swapData *data);
-  int (*decodeMetaVal) (struct swapData *data, sds rawval, OUT int *object_type, OUT long long *expire, void **object_meta);
+  sds (*encodeObjectMeta) (struct swapData *data);
+  int (*decodeObjectMeta) (struct swapData *data, char* extend, size_t extend_len, void **object_meta);
 } swapDataType;
 
 swapData *createSwapData(redisDb *db, robj *key, robj *value);
-int swapDataSetupMeta(swapData *d, int object_type, long long expire, void *object_meta, OUT void **datactx);
+int swapDataSetupMeta(swapData *d, int object_type, long long expire, OUT void **datactx);
+void swapDataSetObjectMeta(swapData *d, void *object_meta);
 int swapDataAlreadySetup(swapData *d);
 int swapDataAna(swapData *d, struct keyRequest *key_request, int *intention, uint32_t *intention_flag, void *datactx);
 sds swapDataEncodeMetaKey(swapData *d);
 sds swapDataEncodeMetaVal(swapData *d);
 int swapDataEncodeKeys(swapData *d, int intention, void *datactx, int *action, int *num, int **cfs, sds **rawkeys);
 int swapDataEncodeData(swapData *d, int intention, void *datactx, int *action, int *num, int **cfs, sds **rawkeys, sds **rawvals);
-int swapDataDecodeMetaVal(swapData *d, sds rawval, OUT int *object_type, OUT long long *expire, void **object_meta);
+int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, OUT void **datactx);
 int swapDataDecodeData(swapData *d, int num, int *cfs, sds *rawkeys, sds *rawvals, robj **decoded);
 int swapDataSwapIn(swapData *d, robj *result, void *datactx);
+int swapDataSwapInMeta(swapData *d);
 int swapDataSwapOut(swapData *d, void *datactx);
 int swapDataSwapDel(swapData *d, void *datactx, int async);
 robj *swapDataCreateOrMergeObject(swapData *d, robj *decoded, void *datactx);
@@ -190,9 +193,6 @@ char swapDataGetObjectAbbrev(robj *value);
 void swapDataFree(swapData *data, void *datactx);
 int rdbLoadStringVerbatim(rio *rdb, sds *verbatim);
 int rdbLoadHashFieldsVerbatim(rio *rdb, unsigned long long len, sds *verbatim);
-
-sds rocksEncodeMetaKey(redisDb *db, sds key);
-sds rocksEncodeMetaVal(int object_type, long long expire, sds extend);
 
 /* Debug msgs */
 #ifdef SWAP_DEBUG
@@ -259,7 +259,7 @@ typedef struct wholeKeySwapData {
   swapData d;
 } wholeKeySwapData;
 
-int swapDataSetupWholeKey(swapData *d, void *object_meta, OUT void **datactx);
+int swapDataSetupWholeKey(swapData *d, OUT void **datactx);
 
 /* Object */
 extern dictType objectMetaDictType;
@@ -292,6 +292,8 @@ void freeObjectMeta(objectMeta *om);
 objectMeta *lookupMeta(redisDb *db, robj *key);
 void dbAddMeta(redisDb *db, robj *key, objectMeta *m);
 int dbDeleteMeta(redisDb *db, robj *key);
+
+objectMeta *createHashObjectMeta(ssize_t len);
 
 void dbSetDirty(redisDb *db, robj *key);
 int objectIsDirty(robj *o);
@@ -885,6 +887,11 @@ int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *
 int rocksDecodeSubkey(const char *raw, size_t rawlen, uint64_t *version, const char **key, size_t *klen, const char **sub, size_t *slen);
 robj *rocksDecodeValRdb(sds raw);
 sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey);
+
+sds rocksEncodeMetaKey(redisDb *db, sds key);
+sds rocksEncodeMetaVal(int object_type, long long expire, sds extend);
+int rocksDecodeMetaVal(sds rawval, int *object_type, long long *expire, char **extend, size_t *extend_len);
+
 robj *unshareStringValue(robj *value);
 size_t objectEstimateSize(robj *o);
 size_t keyEstimateSize(redisDb *db, robj *key);
@@ -911,9 +918,12 @@ int initTestRedisDb(void);
 int initTestRedisServer(void);
 int clearTestRedisDb(void);
 int clearTestRedisServer(void);
+swapData *createWholeKeySwapDataWithExpire(redisDb *db, robj *key, robj *value, long long expire, void **datactx);
+swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value, void **datactx);
 
 int swapDataWholeKeyTest(int argc, char **argv, int accurate);
 int swapDataBigHashTest(int argc, char **argv, int accurate);
+int swapDataTest(int argc, char *argv[], int accurate);
 int swapWaitTest(int argc, char **argv, int accurate);
 int swapWaitReentrantTest(int argc, char **argv, int accurate);
 int swapWaitAckTest(int argc, char **argv, int accurate);

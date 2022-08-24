@@ -219,11 +219,19 @@ sds rocksEncodeMetaKey(redisDb *db, sds key) {
 
 static inline char objectType2Abbrev(int object_type) {
     char abbrevs[] = {'K','L','H','S','Z','M','X'};
-    if (object_type > 0 && object_type < (int)sizeof(abbrevs)) {
+    if (object_type >= 0 && object_type < (int)sizeof(abbrevs)) {
         return abbrevs[object_type];
     } else {
         return '?';
     }
+}
+
+static inline char abbrev2ObjectType(char abbrev) {
+    char abbrevs[] = {'K','L','H','S','Z','M','X'};
+    for (size_t i = 0; i < sizeof(abbrev); i++) {
+        if (abbrevs[i] == abbrev) return i;
+    }
+    return -1;
 }
 
 sds rocksEncodeMetaVal(int object_type, long long expire, sds extend) {
@@ -233,6 +241,30 @@ sds rocksEncodeMetaVal(int object_type, long long expire, sds extend) {
     memcpy(raw+1,&expire,sizeof(expire)), ptr+=sizeof(expire);
     if (extend) memcpy(ptr,extend,sdslen(extend));
     return raw;
+}
+
+/* extend: pointer to rawkey, not allocated. */
+int rocksDecodeMetaVal(sds rawval, int *pobject_type, long long *pexpire,
+        char **pextend, size_t *pextend_len) {
+    char *ptr = rawval;
+    size_t len = sdslen(rawval);
+    long long expire;
+    int object_type;
+
+    if (sdslen(rawval) < 1 + sizeof(expire)) return -1;
+
+    if ((object_type = abbrev2ObjectType(ptr[0])) < 0) return -1;
+    ptr++, len--;
+    if (pobject_type) *pobject_type = object_type;
+
+    expire = *(long long*)ptr;
+    ptr += sizeof(long long), len -= sizeof(long long);
+    if (pexpire) *pexpire = expire;
+
+    if (pextend) *pextend = ptr;
+    if (pextend_len) *pextend_len = len;
+
+    return 0;
 }
 
 sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey) {

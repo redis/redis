@@ -34,44 +34,50 @@ int wholeKeySwapAna(swapData *data_, struct keyRequest *req,
     int cmd_intention = req->cmd_intention;
     uint32_t cmd_intention_flags = req->cmd_intention_flags;
 
-    UNUSED(req), UNUSED(datactx);
-
-    if (intention_flags) *intention_flags = cmd_intention_flags;
+    UNUSED(datactx);
 
     switch(cmd_intention) {
     case SWAP_NOP:
         *intention = SWAP_NOP;
+        *intention_flags = 0;
         break;
     case SWAP_IN:
         if (!data->d.value) {
             *intention = SWAP_IN;
+            if (cmd_intention_flags & SWAP_IN_DEL)
+                *intention_flags = SWAP_EXEC_IN_DEL;
         } else if (data->d.value) {
-            if (cmd_intention_flags & INTENTION_CMD_IN_DEL) {
+            if (cmd_intention_flags & SWAP_IN_DEL) {
                 *intention = SWAP_DEL;
-                *intention_flags = INTENTION_FIN_NO_DEL;
+                *intention_flags = SWAP_FIN_DEL_SKIP;
             } else {
                 *intention = SWAP_NOP;
+                *intention_flags = 0;
             }
         } else {
             *intention = SWAP_NOP;
+            *intention_flags = 0;
         }
         break;
     case SWAP_OUT:
         if (data->d.value) {
             if (data->d.value->dirty) {
                 *intention = SWAP_OUT;
+                *intention_flags = SWAP_EXEC_OUT_META;
             } else {
                 /* Not dirty: swapout right away without swap. */
                 swapDataSwapOut(data_, NULL);
                 *intention = SWAP_NOP;
+                *intention_flags = 0;
             }
         } else {
             *intention = SWAP_NOP;
+            *intention_flags = 0;
         }
         break;
     case SWAP_DEL:
         *intention = SWAP_DEL;
-        *intention_flags |= INTENTION_EXEC_DEL_META;
+        *intention_flags = 0;
         break;
     default:
         break;
@@ -222,8 +228,8 @@ swapDataType wholeKeySwapDataType = {
     .encodeKeys = wholeKeyEncodeKeys,
     .encodeData = wholeKeyEncodeData,
     .decodeData = wholeKeyDecodeData,
-    .encodeMetaVal = NULL,
-    .decodeMetaVal = NULL,
+    .encodeObjectMeta = NULL,
+    .decodeObjectMeta = NULL,
     .swapIn = wholeKeySwapIn,
     .swapOut = wholeKeySwapOut,
     .swapDel = wholeKeySwapDel,
@@ -232,10 +238,9 @@ swapDataType wholeKeySwapDataType = {
     .free = NULL,
 };
 
-int swapDataSetupWholeKey(swapData *d, void *object_meta, void **datactx) {
-    serverAssert(object_meta == NULL);
+int swapDataSetupWholeKey(swapData *d, void **datactx) {
     d->type = &wholeKeySwapDataType;
-    *datactx = NULL;
+    if (datactx) *datactx = NULL;
     return 0;
 }
 
@@ -335,371 +340,318 @@ err:
 }
 
 
-#ifdef REDIS_TEST0
+#ifdef REDIS_TEST
 #include <stdio.h>
 #include <limits.h>
 #include <assert.h>
+
+swapData *createWholeKeySwapDataWithExpire(redisDb *db, robj *key, robj *value,
+        long long expire, void **datactx) {
+    swapData *data = createSwapData(db,key,value);
+    swapDataSetupMeta(data,OBJ_STRING,expire,datactx);
+    return data;
+}
+
+swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value, void **datactx) {
+    return createWholeKeySwapDataWithExpire(db,key,value,-1,datactx);
+}
+
+int wholeKeySwapAna_(swapData *data_,
+        int cmd_intention, uint32_t cmd_intention_flags,
+        int *intention, uint32_t *intention_flags, void *datactx) {
+    int retval;
+    struct keyRequest req_, *req = &req_;
+    req->level = REQUEST_LEVEL_KEY;
+    req->num_subkeys = 0;
+    req->key = createStringObject("key1",4);
+    req->subkeys = NULL;
+    req->cmd_intention = cmd_intention;
+    req->cmd_intention_flags = cmd_intention_flags;
+    retval = wholeKeySwapAna(data_,req,intention,intention_flags,datactx);
+    decrRefCount(req->key);
+    return retval;
+}
+
 int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(accurate);
+
     initTestRedisServer();
     redisDb* db = server.db + 0;
     int error = 0;
 
     initSwapWholeKey();
 
-    TEST("wholeKey SwapAna value = NULL and evict = NULL") {
-        void* ctx = NULL;
-        swapData* data = createWholeKeySwapData(db, NULL, NULL, NULL, &ctx);
-        int intention;
-        uint32_t intention_flags;
-        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags, ctx);
-        test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags, ctx);
-        test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags, ctx);
-        test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags, ctx);
-        test_assert(intention == SWAP_NOP);
-        
-        freeWholeKeySwapData(data, ctx);
-    }
-
-    TEST("wholeKey SwapAna value != NULL and evict = NULL") {
+    TEST("wholeKey - SwapAna hot key") {
         void* ctx = NULL;
         robj* value  = createRawStringObject("value", 5);
-        swapData* data = createWholeKeySwapData(db, NULL, value, NULL, &ctx);
+        swapData* data = createWholeKeySwapData(db, NULL, value, &ctx);
         int intention;
         uint32_t intention_flags;
-        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags, ctx);
+        wholeKeySwapAna_(data, SWAP_NOP, 0, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags, ctx);
+        wholeKeySwapAna_(data, SWAP_IN, 0, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, INTENTION_IN_DEL, NULL, &intention, &intention_flags, ctx);
+        wholeKeySwapAna_(data, SWAP_IN, SWAP_IN_DEL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_DEL);
-        test_assert(intention_flags == INTENTION_DEL_ASYNC);
-        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags, ctx);
+        test_assert(intention_flags == SWAP_FIN_DEL_SKIP);
+        wholeKeySwapAna_(data, SWAP_OUT, 0, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_OUT);
-        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags, ctx);
+        test_assert(intention_flags == SWAP_EXEC_OUT_META);
+        wholeKeySwapAna_(data, SWAP_DEL, 0, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_DEL);
-        wholeKeySwapAna(data, SWAP_DEL, INTENTION_DEL_ASYNC, NULL, &intention, &intention_flags, ctx);
-        test_assert(intention == SWAP_DEL);
-        test_assert(intention_flags == INTENTION_DEL_ASYNC);
-        freeWholeKeySwapData(data, ctx);
+        swapDataFree(data, ctx);
     }
 
-    TEST("wholeKey SwapAna value = NULL and evict != NULL") {
+    TEST("wholeKey - SwapAna cold key") {
         void* ctx = NULL;
-        robj* evict  = createRawStringObject("value", 5);
-        swapData* data = createWholeKeySwapData(db, NULL, NULL, evict, &ctx);
+        swapData* data = createWholeKeySwapData(db, NULL, NULL, &ctx);
         int intention;
         uint32_t intention_flags;
-        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags, ctx);
+        wholeKeySwapAna_(data, SWAP_NOP, 0, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags, ctx);
+        wholeKeySwapAna_(data, SWAP_IN, 0, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_IN);
-        wholeKeySwapAna(data, SWAP_IN, INTENTION_IN_DEL, NULL, &intention, &intention_flags, ctx);
+        wholeKeySwapAna_(data, SWAP_IN, SWAP_IN_DEL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_IN);
-        test_assert(intention_flags == INTENTION_IN_DEL);
-        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags, ctx);
+        test_assert(intention_flags == SWAP_EXEC_IN_DEL);
+        wholeKeySwapAna_(data, SWAP_OUT, 0, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags, ctx);
+        wholeKeySwapAna_(data, SWAP_DEL, 0, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_DEL);
-        wholeKeySwapAna(data, SWAP_DEL, INTENTION_DEL_ASYNC, NULL, &intention, &intention_flags, ctx);
-        test_assert(intention == SWAP_DEL);
-        test_assert(intention_flags == INTENTION_DEL_ASYNC);
-        freeWholeKeySwapData(data, ctx);
+        swapDataFree(data, ctx);
     }
 
-    TEST("wholeKey EncodeKeys String") {
+    TEST("wholeKey - EncodeKeys (hot)") {
         void* ctx = NULL;
         robj* key = createRawStringObject("key", 3);
         robj* value  = createRawStringObject("value", 5);
-        robj* evict  = NULL;
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
+        swapData* data = createWholeKeySwapData(db, key, value, &ctx);
         int numkeys, action;
+        int *cfs;
         sds *rawkeys = NULL;
-        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &action, &numkeys, &rawkeys);
-        test_assert(numkeys == 1);
-        test_assert(strcmp(rawkeys[0], "Kkey")== 0);
-        test_assert(result == C_OK);
-        freeWholeKeySwapData(data, ctx);
-    }
-
-    TEST("wholeKey EncodeKeys String KEY + VALUE") {
-        void* ctx = NULL;
-        robj* key = createRawStringObject("key", 3);
-        robj* value  = createRawStringObject("value", 5);
-        robj* evict  = NULL;
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
-        int numkeys, action;
-        sds *rawkeys = NULL;
-        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &action, &numkeys, &rawkeys);
+        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_GET == action);
         test_assert(numkeys == 1);
-        test_assert(strcmp(rawkeys[0], "Kkey")== 0);
+        test_assert(cfs[0] == DATA_CF);
+#if (BYTE_ORDER == LITTLE_ENDIAN)
+        test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x03\x00\x00\x00key", 11));
+#else
+        test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x00\x00\x00\x03key", 11));
+#endif
         test_assert(result == C_OK);
-        result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &action, &numkeys, &rawkeys);
+        result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_DEL == action);
         test_assert(numkeys == 1);
-        test_assert(strcmp(rawkeys[0], "Kkey")== 0);
+        test_assert(cfs[0] == DATA_CF);
+#if (BYTE_ORDER == LITTLE_ENDIAN)
+        test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x03\x00\x00\x00key", 11));
+#else
+        test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x00\x00\x00\x03key", 11));
+#endif
         test_assert(result == C_OK);
-        // result = wholeKeyEncodeKeys(data, SWAP_OUT, ctx, &action, &numkeys, &rawkeys);
-        // serverAssert(numkeys == 0);
-        // serverAssert(result == C_ERR);
-        freeWholeKeySwapData(data, ctx);
+        swapDataFree(data, ctx);
     }
 
-    TEST("wholeKey EncodeKeys String KEY + EVICT") {
+    TEST("wholeKey - EncodeKeys (cold)") {
         void* ctx = NULL;
         robj* key = createRawStringObject("key", 3);
-        robj* evict  = createRawStringObject("value", 5);
-        robj* value  = NULL;
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
+        swapData* data = createWholeKeySwapData(db, key, NULL, &ctx);
         int numkeys, action;
         sds *rawkeys = NULL;
-        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &action, &numkeys, &rawkeys);
+        int *cfs;
+        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_GET == action);
         test_assert(numkeys == 1);
-        test_assert(strcmp(rawkeys[0], "Kkey")== 0);
+        test_assert(cfs[0] == DATA_CF);
+#if (BYTE_ORDER == LITTLE_ENDIAN)
+        test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x03\x00\x00\x00key", 11));
+#else
+        test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x00\x00\x00\x03key", 11));
+#endif
         test_assert(result == C_OK);
-        result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &action, &numkeys, &rawkeys);
+        result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_DEL == action);
         test_assert(numkeys == 1);
-        test_assert(strcmp(rawkeys[0], "Kkey")== 0);
+        test_assert(cfs[0] == DATA_CF);
+#if (BYTE_ORDER == LITTLE_ENDIAN)
+        test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x03\x00\x00\x00key", 11));
+#else
+        test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x00\x00\x00\x03key", 11));
+#endif
         test_assert(result == C_OK);
-        // result = wholeKeyEncodeKeys(data, SWAP_OUT, ctx, &action, &numkeys, &rawkeys);
-        // serverAssert(numkeys == 0);
-        // serverAssert(result == C_ERR);
-        freeWholeKeySwapData(data, ctx);
+        swapDataFree(data, ctx);
     }
 
-    TEST("wholeKey EncodeData + DecodeData") {
+    TEST("wholeKey - EncodeData + DecodeData") {
         void* ctx = NULL;
         robj* key = createRawStringObject("key", 3);
         robj* value  = createRawStringObject("value", 5);
-        robj* evict  = NULL;
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
+        swapData* data = createWholeKeySwapData(db, key, value, &ctx);
         int numkeys, action;
         sds *rawkeys = NULL, *rawvals = NULL;
-        int result = wholeKeyEncodeData(data, SWAP_OUT, ctx, &action, &numkeys, &rawkeys, &rawvals);
+        int *cfs;
+        int result = wholeKeyEncodeData(data, SWAP_OUT, ctx, &action, &numkeys, &cfs, &rawkeys, &rawvals);
         test_assert(result == C_OK);
         test_assert(ROCKS_PUT == action);
         test_assert(numkeys == 1);
-        test_assert(strcmp(rawkeys[0], "Kkey") == 0);
+        test_assert(cfs[0] == DATA_CF);
+#if (BYTE_ORDER == LITTLE_ENDIAN)
+        test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x03\x00\x00\x00key", 11));
+#else
+        test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x00\x00\x00\x03key", 11));
+#endif
+
         robj* decoded;
-        result = wholeKeyDecodeData(data, numkeys, rawkeys, rawvals, &decoded);
+        result = wholeKeyDecodeData(data, numkeys, cfs, rawkeys, rawvals, &decoded);
         test_assert(result == C_OK);
         test_assert(strcmp(decoded->ptr ,"value") == 0);
-        freeWholeKeySwapData(data, ctx);
+        swapDataFree(data, ctx);
     }
     
-    TEST("wholeKey swapIn (not exist expire)") {
+    TEST("wholeKey - swapIn cold non-volatie key") {
         robj *decoded;
         robj* key = createRawStringObject("key", 3);
-        robj* value  = NULL;
-        robj* evict  = createRawStringObject("value", 5);
-        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        swapData* data = createWholeKeySwapData(db, key, NULL, NULL);
         decoded = createRawStringObject("value", 5);
         test_assert(wholeKeySwapIn(data, decoded, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) != NULL);    
         decoded = NULL;
-        freeWholeKeySwapData(data, NULL);
+        swapDataFree(data, NULL);
         clearTestRedisDb();
-        
     }
 
-    TEST("WHoleKey swapIn (exist expire)") {
-        robj* key = createRawStringObject("key", 3);
-        robj* evict  = createRawStringObject("value", 5);
-        robj* value  = NULL, *decoded = NULL;
+    TEST("wholekey - swapIn cold volatile key") {
+        robj *key = createRawStringObject("key", 3);
+        robj *decoded = NULL;
         test_assert(dictFind(db->dict, key->ptr) == NULL);   
-        //mock 
-        dbAddEvict(db, key, evict);
-        setExpire(NULL,db, key, 1000000);
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        swapData* data = createWholeKeySwapDataWithExpire(db, key, NULL, 1000000, NULL);
         decoded = createRawStringObject("value", 5);
         test_assert(wholeKeySwapIn(data,decoded,NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) != NULL);    
         test_assert(getExpire(db, key) > 0);
         decoded = NULL;
-        freeWholeKeySwapData(data, NULL);
+        swapDataFree(data, NULL);
         clearTestRedisDb();
 
     }
 
-    TEST("wholeKey swapout (not exist expire)") {
+    TEST("wholeKey - swapout hot non-volatile key") {
         robj* key = createRawStringObject("key", 3);
         robj* value  = createRawStringObject("value", 5);
-        robj* evict  = NULL;
         test_assert(dictFind(db->dict, key->ptr) == NULL);  
-        test_assert(dictFind(db->evict, key->ptr) == NULL);  
-        //mock 
         dbAdd(db, key, value);
         test_assert(dictFind(db->dict, key->ptr) != NULL); 
-        test_assert(dictFind(db->evict, key->ptr) == NULL);   
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        swapData* data = createWholeKeySwapData(db, key, value, NULL);
         test_assert(wholeKeySwapOut(data, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
-        test_assert(dictFind(db->evict, key->ptr) != NULL);    
         test_assert(getExpire(db, key) < 0);
-        freeWholeKeySwapData(data, NULL);
+        swapDataFree(data, NULL);
         clearTestRedisDb();
     }
 
-    TEST("wholeKey swapout (exist expire)") {
+    TEST("wholeKey - swapout hot volatile key") {
         robj* key = createRawStringObject("key", 3);
         robj* value  = createRawStringObject("value", 5);
-        robj* evict  = NULL;
         test_assert(dictFind(db->dict, key->ptr) == NULL);  
-        test_assert(dictFind(db->evict, key->ptr) == NULL);  
-        //mock 
         dbAdd(db, key, value);
         setExpire(NULL, db, key, 1000000);
         test_assert(dictFind(db->dict, key->ptr) != NULL); 
-        test_assert(dictFind(db->evict, key->ptr) == NULL);   
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        swapData* data = createWholeKeySwapDataWithExpire(db, key, value, 1000000, NULL);
         test_assert(wholeKeySwapOut(data, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
-        test_assert(dictFind(db->evict, key->ptr) != NULL);    
-        test_assert(getExpire(db, key) > 0);
-        freeWholeKeySwapData(data, NULL);
+        test_assert(getExpire(db, key) < 0);
+        swapDataFree(data, NULL);
         clearTestRedisDb();
     }
     
-    TEST("wholeKey swapdelete (value and not exist expire)") {
+    TEST("wholeKey - swapdelete hot non-volatile key") {
         robj* key = createRawStringObject("key", 3);
         robj* value  = createRawStringObject("value", 5);
-        robj* evict  = NULL;
         test_assert(dictFind(db->dict, key->ptr) == NULL);  
-        test_assert(dictFind(db->evict, key->ptr) == NULL);  
-        //mock 
         dbAdd(db, key, value);
         test_assert(dictFind(db->dict, key->ptr) != NULL); 
-        test_assert(dictFind(db->evict, key->ptr) == NULL);   
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        swapData* data = createWholeKeySwapData(db, key, value, NULL);
         test_assert(wholeKeySwapDel(data, NULL, 0) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
-        test_assert(dictFind(db->evict, key->ptr) == NULL);    
         test_assert(getExpire(db, key) < 0);
-        freeWholeKeySwapData(data, NULL);
+        swapDataFree(data, NULL);
         clearTestRedisDb();
     }
 
-
-    TEST("wholeKey swapdelete (value and exist expire)") {
+    TEST("wholeKey - swapdelete hot volatile key") {
         robj* key = createRawStringObject("key", 3);
         robj* value  = createRawStringObject("value", 5);
-        robj* evict  = NULL;
         test_assert(dictFind(db->dict, key->ptr) == NULL);  
-        test_assert(dictFind(db->evict, key->ptr) == NULL);  
-        //mock 
         dbAdd(db, key, value);
         setExpire(NULL, db, key, 1000000);
         test_assert(dictFind(db->dict, key->ptr) != NULL); 
-        test_assert(dictFind(db->evict, key->ptr) == NULL);   
         test_assert(getExpire(db, key) > 0); 
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        swapData* data = createWholeKeySwapDataWithExpire(db, key, value, 1000000, NULL);
         test_assert(wholeKeySwapDel(data, NULL, 0) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
-        test_assert(dictFind(db->evict, key->ptr) == NULL);    
         test_assert(getExpire(db, key) < 0);
-        freeWholeKeySwapData(data, NULL);
+        swapDataFree(data, NULL);
         clearTestRedisDb();
     }
 
-    TEST("wholeKey swapdelete (evict and not exist expire)") {
+    TEST("wholeKey - swapdelete cold key") {
         robj* key = createRawStringObject("key", 3);
-        robj* evict  = createRawStringObject("value", 5);
-        robj* value  = NULL;
         test_assert(dictFind(db->dict, key->ptr) == NULL);  
-        test_assert(dictFind(db->evict, key->ptr) == NULL);  
-        //mock 
-        dbAddEvict(db, key, evict);
-        test_assert(dictFind(db->dict, key->ptr) == NULL); 
-        test_assert(dictFind(db->evict, key->ptr) != NULL);   
-
-        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        swapData* data = createWholeKeySwapData(db, key, NULL, NULL);
         test_assert(wholeKeySwapDel(data, NULL, 0) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
-        test_assert(dictFind(db->evict, key->ptr) == NULL);    
         test_assert(getExpire(db, key) < 0);
-        freeWholeKeySwapData(data, NULL);
+        swapDataFree(data, NULL);
         clearTestRedisDb();
     }
 
+    /* int rocksDecodeRaw(sds rawkey, unsigned char rdbtype, sds rdbraw, decodeResult *decoded); */
 
-    TEST("wholeKey swapdelete (evict and exist expire)") {
-        robj* key = createRawStringObject("key", 3);
-        robj* evict  = createRawStringObject("value", 5);
-        robj* value  = NULL;
-        test_assert(dictFind(db->dict, key->ptr) == NULL);  
-        test_assert(dictFind(db->evict, key->ptr) == NULL);  
-        //mock 
-        dbAddEvict(db, key, evict);
-        setExpire(NULL, db, key, 1000000);
-        test_assert(dictFind(db->dict, key->ptr) == NULL); 
-        test_assert(dictFind(db->evict, key->ptr) != NULL);   
-        test_assert(getExpire(db, key) > 0); 
+    /* TEST("wholeKey rdb save & load") { */
+        /* int err; */
+        /* rdbKeyData _keydata, *keydata = &_keydata; */
+        /* rio sdsrdb; */
+        /* robj *evict = createObject(OBJ_HASH,NULL); */
+        /* decodeResult _decoded, *decoded = &_decoded; */
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
-        test_assert(wholeKeySwapDel(data, NULL, 0) == 0);
-        test_assert(dictFind(db->dict, key->ptr) == NULL);    
-        test_assert(dictFind(db->evict, key->ptr) == NULL);    
-        test_assert(getExpire(db, key) < 0);
-        freeWholeKeySwapData(data, NULL);
-        clearTestRedisDb();
-    }
+		/* robj *myhash; */
+		/* sds myhash_key; */
+		/* myhash_key = sdsnew("myhash"); */
+        /* myhash = createHashObject(); */
 
-    TEST("wholeKey swapdelete (evict and exist expire)") {
-    }
+        /* hashTypeSet(myhash,sdsnew("f1"),sdsnew("v1"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE); */
+        /* hashTypeSet(myhash,sdsnew("f2"),sdsnew("v2"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE); */
+        /* hashTypeSet(myhash,sdsnew("f3"),sdsnew("v3"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE); */
 
-    int rocksDecodeRaw(sds rawkey, unsigned char rdbtype, sds rdbraw, decodeResult *decoded);
+        /* sds rawkey = rocksEncodeKey(ENC_TYPE_HASH,myhash_key); */
+        /* sds rawval = rocksEncodeValRdb(myhash); */
 
-    TEST("wholeKey rdb save & load") {
-        int err;
-        rdbKeyData _keydata, *keydata = &_keydata;
-        rio sdsrdb;
-        robj *evict = createObject(OBJ_HASH,NULL);
-        decodeResult _decoded, *decoded = &_decoded;
+        /* sds rdbraw = sdsnewlen(rawval+1,sdslen(rawval)-1); */
+        /* rocksDecodeRaw(sdsdup(rawkey),rawval[0],rdbraw,decoded); */
+        /* test_assert(decoded->enc_type == ENC_TYPE_HASH); */
+        /* test_assert(!sdscmp(decoded->key,myhash_key)); */
 
-		robj *myhash;
-		sds myhash_key;
-		myhash_key = sdsnew("myhash");
-        myhash = createHashObject();
+        /* rioInitWithBuffer(&sdsrdb, sdsempty()); */
+        /* rdbKeyDataInitSaveWholeKey(keydata,NULL,evict,-1); */
+        /* test_assert(wholekeySave(keydata,&sdsrdb,decoded) == 0); */
 
-        hashTypeSet(myhash,sdsnew("f1"),sdsnew("v1"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
-        hashTypeSet(myhash,sdsnew("f2"),sdsnew("v2"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
-        hashTypeSet(myhash,sdsnew("f3"),sdsnew("v3"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
-
-        sds rawkey = rocksEncodeKey(ENC_TYPE_HASH,myhash_key);
-        sds rawval = rocksEncodeValRdb(myhash);
-
-        sds rdbraw = sdsnewlen(rawval+1,sdslen(rawval)-1);
-        rocksDecodeRaw(sdsdup(rawkey),rawval[0],rdbraw,decoded);
-        test_assert(decoded->enc_type == ENC_TYPE_HASH);
-        test_assert(!sdscmp(decoded->key,myhash_key));
-
-        rioInitWithBuffer(&sdsrdb, sdsempty());
-        rdbKeyDataInitSaveWholeKey(keydata,NULL,evict,-1);
-        test_assert(wholekeySave(keydata,&sdsrdb,decoded) == 0);
-
-        sds rawkey2, rawval2;
-        rio sdsrdb2;
-        rioInitWithBuffer(&sdsrdb2, rdbraw);
-        rdbKeyDataInitLoadWholeKey(keydata,rawval[0],myhash_key);
-        wholekeyRdbLoad(keydata,&sdsrdb2,&rawkey2,&rawval2,&err);
-        test_assert(err == 0);
-        test_assert(sdscmp(rawkey2,rawkey) == 0);
-        test_assert(sdscmp(rawval2,rawval) == 0);
-        test_assert(keydata->loadctx.wholekey.evict->type == OBJ_HASH);
-    }
+        /* sds rawkey2, rawval2; */
+        /* rio sdsrdb2; */
+        /* rioInitWithBuffer(&sdsrdb2, rdbraw); */
+        /* rdbKeyDataInitLoadWholeKey(keydata,rawval[0],myhash_key); */
+        /* wholekeyRdbLoad(keydata,&sdsrdb2,&rawkey2,&rawval2,&err); */
+        /* test_assert(err == 0); */
+        /* test_assert(sdscmp(rawkey2,rawkey) == 0); */
+        /* test_assert(sdscmp(rawval2,rawval) == 0); */
+        /* test_assert(keydata->loadctx.wholekey.evict->type == OBJ_HASH); */
+    /* } */
 
     return error;
 }

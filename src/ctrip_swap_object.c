@@ -41,6 +41,13 @@ int objectIsDirty(robj *o) {
     return o->dirty;
 }
 
+objectMeta *createHashObjectMeta(ssize_t len) {
+	objectMeta *m = zmalloc(sizeof(objectMeta));
+    m->object_type = OBJ_HASH;
+	m->hash.len = len;
+	return m;
+}
+
 void freeObjectMeta(objectMeta *m) {
     zfree(m);
 }
@@ -80,7 +87,7 @@ int dbDeleteMeta(redisDb *db, robj *key) {
     return dictDelete(db->meta,key->ptr) == DICT_OK ? 1 : 0;
 }
 
-#ifdef REDIS_TEST0
+#ifdef REDIS_TEST
 int swapObjectTest(int argc, char *argv[], int accurate) {
     initTestRedisServer();
     redisDb* db = server.db + 0;
@@ -93,11 +100,11 @@ int swapObjectTest(int argc, char *argv[], int accurate) {
         robj *val1 = createStringObject(val1raw, strlen(val1raw)); 
 
         dbAdd(db,key1,val1);
-        dbAddMeta(db,key1,createObjectMeta(1));
+        dbAddMeta(db,key1,createHashObjectMeta(1));
         test_assert(lookupMeta(db,key1) != NULL);
         dbDeleteMeta(db,key1);
         test_assert(lookupMeta(db,key1) == NULL);
-        dbAddMeta(db,key1,createObjectMeta(1));
+        dbAddMeta(db,key1,createHashObjectMeta(1));
         test_assert(lookupMeta(db,key1) != NULL);
         dbDelete(db,key1);
         test_assert(lookupMeta(db,key1) == NULL);

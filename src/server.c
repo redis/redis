@@ -207,7 +207,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"getdel",getdelCommand,2,
      "write fast @string",
-     0,NULL,NULL,SWAP_IN,INTENTION_CMD_IN_DEL,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     /* Note that we can't flag set as fast, since it may perform an
      * implicit DEL of a large key. */
@@ -237,11 +237,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"del",delCommand,-2,
      "write @keyspace",
-     0,NULL,NULL,SWAP_IN,INTENTION_CMD_IN_DEL,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-1,1,0,0,0},
 
     {"unlink",unlinkCommand,-2,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,INTENTION_CMD_IN_DEL,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-1,1,0,0,0},
 
     {"exists",existsCommand,-2,
      "read-only fast @keyspace",
@@ -589,11 +589,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"hdel",hdelCommand,-3,
      "write fast @hash",
-     0,NULL,getKeyRequestsHdel,SWAP_IN,INTENTION_CMD_IN_DEL,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHdel,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"hlen",hlenCommand,2,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,INTENTION_CMD_IN_META,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"hstrlen",hstrlenCommand,3,
      "read-only fast @hash",

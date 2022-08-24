@@ -427,7 +427,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(!strcmp(result.key_requests[1].key->ptr, "HASH"));
         test_assert(result.key_requests[1].subkeys == NULL);
         test_assert(result.key_requests[1].cmd_intention == SWAP_IN);
-        test_assert(result.key_requests[1].cmd_intention_flags == INTENTION_CMD_IN_DEL);
+        test_assert(result.key_requests[1].cmd_intention_flags == SWAP_IN_DEL);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
@@ -481,7 +481,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(!strcmp(result.key_requests[2].subkeys[1]->ptr, "F2"));
         test_assert(!strcmp(result.key_requests[2].subkeys[2]->ptr, "F3"));
         test_assert(result.key_requests[2].cmd_intention == SWAP_IN);
-        test_assert(result.key_requests[2].cmd_intention_flags == INTENTION_CMD_IN_DEL);
+        test_assert(result.key_requests[2].cmd_intention_flags == SWAP_IN_DEL);
         test_assert(result.key_requests[2].dbid == 1);
         test_assert(result.key_requests[3].key == NULL);
         test_assert(result.key_requests[3].cmd_intention == SWAP_NOP);

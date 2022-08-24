@@ -28,8 +28,22 @@
 
 #include "ctrip_swap.h"
 
+swapData *createSwapData(redisDb *db, robj *key, robj *value) {
+    swapData *data = zcalloc(sizeof(swapData));
+    data->db = db;
+    if (key) incrRefCount(key);
+    data->key = key;
+    if (value) incrRefCount(value);
+    data->value = value;
+    return data;
+}
+
+int swapDataAlreadySetup(swapData *data) {
+    return data->type != NULL;
+}
+
 /* See keyIsExpired for more details */
-int swapDataExpired(swapData *d) {
+static int swapDataExpired(swapData *d) {
     mstime_t when = d->expire;
     mstime_t now;
 
@@ -43,20 +57,6 @@ int swapDataExpired(swapData *d) {
         now = mstime();
     }
     return now > when;
-}
-
-swapData *createSwapData(redisDb *db, robj *key, robj *value) {
-    swapData *data = zmalloc(sizeof(swapData));
-    data->db = db;
-    if (key) incrRefCount(key);
-    data->key = key;
-    if (value) incrRefCount(value);
-    data->value = value;
-    return data;
-}
-
-int swapDataAlreadySetup(swapData *data) {
-    return data->type != NULL;
 }
 
 static int swapDataExpiredAndShouldDelete(swapData *data) {
@@ -97,14 +97,20 @@ int swapDataAna(swapData *d, struct keyRequest *key_request,
                 intention_flags,datactx);
         
         //TODO confirm & opt
-        if ((*intention_flags & INTENTION_FIN_NO_DEL) ||
-                (*intention_flags & INTENTION_EXEC_DEL_DATA)) {
+        if ((*intention_flags & SWAP_FIN_DEL_SKIP) ||
+                (*intention_flags & SWAP_EXEC_IN_DEL)) {
             /* rocksdb and mem differs after rocksdb del. */
             d->set_dirty = 1;
         }
     }
 
     return retval;
+}
+
+int swapDataSwapInMeta(swapData *d) {
+    //TODO impl
+    UNUSED(d);
+    return 0;
 }
 
 /* Swap-thread: decide how to encode keys by data and intention. */
@@ -181,7 +187,7 @@ inline int swapDataCleanObject(swapData *d, void *datactx) {
 
 inline void swapDataFree(swapData *d, void *datactx) {
     /* free extend */
-    if (d->type->free) d->type->free(d,datactx);
+    if (d->type && d->type->free) d->type->free(d,datactx);
     /* free base */
     if (d->key) decrRefCount(d->key);
     if (d->value) decrRefCount(d->value);
@@ -189,33 +195,26 @@ inline void swapDataFree(swapData *d, void *datactx) {
 }
 
 sds swapDataEncodeMetaVal(swapData *d) {
-    if (d->type->encodeMetaVal)
-        return d->type->encodeMetaVal(d);
-    else
-        return NULL;
+    sds extend = NULL;
+    if (d->type->encodeObjectMeta)
+        extend = d->type->encodeObjectMeta(d);
+    return rocksEncodeMetaVal(d->object_type,d->expire,extend);
 }
 
 sds swapDataEncodeMetaKey(swapData *d) {
     return rocksEncodeMetaKey(d->db,(sds)d->key->ptr);
 }
 
-int swapDataDecodeMetaVal(swapData *d, sds rawval, int *object_type,
-        long long *expire, void **object_meta) {
-    if (d->type->decodeMetaVal)
-        return d->type->decodeMetaVal(d,rawval,object_type,expire,object_meta);
-    else 
-        return 0;
-}
-
 int swapDataSetupMeta(swapData *d, int object_type, long long expire,
-        void *object_meta, void **datactx) {
+        void **datactx) {
     serverAssert(d->type == NULL);
 
     d->expire = expire;
+    d->object_type = object_type;
 
-    switch (object_type) {
+    switch (d->object_type) {
     case OBJ_STRING:
-        swapDataSetupWholeKey(d,object_meta,datactx);
+        swapDataSetupWholeKey(d,datactx);
         break;
     default:
         break;
@@ -223,3 +222,96 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
     return 0;
 }
 
+void swapDataSetObjectMeta(swapData *d, void *object_meta) {
+    d->object_meta = object_meta;
+}
+
+int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
+    char *extend;
+    size_t extend_len;
+    int retval = 0, object_type;
+    long long expire;
+    void *object_meta = NULL;
+
+    retval = rocksDecodeMetaVal(rawval,&object_type,&expire,&extend,&extend_len);
+    if (retval) return retval;
+
+    retval = swapDataSetupMeta(d,object_type,expire,datactx);
+    if (retval) return retval;
+
+    if (d->type->decodeObjectMeta) {
+        retval = d->type->decodeObjectMeta(d,extend,extend_len,&object_meta);
+        if (retval) return retval;
+    }
+
+    swapDataSetObjectMeta(d, object_meta);
+
+    return retval;
+}
+
+
+#ifdef REDIS_TEST
+
+int swapDataTest(int argc, char *argv[], int accurate) {
+    int error = 0, intention;
+    uint32_t intention_flags;
+    swapData *data;
+    void *datactx;
+    redisDb *db;
+    robj *key1, *val1;
+
+    UNUSED(argc), UNUSED(argv), UNUSED(accurate);
+
+    TEST("swapdata - init") {
+        initTestRedisServer();
+        db = server.db + 0;
+        key1 = createRawStringObject("key1",4);
+        val1 = createRawStringObject("val1",4);
+    }
+
+    TEST("swapdata - propagate_expire") {
+        keyRequest key_request_, *key_request = &key_request_;
+        key_request->level = REQUEST_LEVEL_KEY;
+        incrRefCount(key1);
+        key_request->key = key1;
+        key_request->subkeys = NULL;
+        key_request->cmd_intention = SWAP_IN;
+        key_request->cmd_intention_flags = 0;
+        key_request->dbid = 0;
+
+        data = createSwapData(db,key1,NULL);
+        test_assert(!swapDataAlreadySetup(data));
+        swapDataSetupMeta(data,OBJ_STRING,0/*expired*/,&datactx);
+        test_assert(swapDataAlreadySetup(data));
+        swapDataAna(data,key_request,&intention,&intention_flags,datactx);
+        test_assert(intention == SWAP_DEL);
+        test_assert(intention_flags == 0);
+        test_assert(data->propagate_expire == 1);
+
+        swapDataFree(data,datactx);
+    }
+
+    TEST("swapdata - set_dirty") {
+        keyRequest key_request_, *key_request = &key_request_;
+        key_request->level = REQUEST_LEVEL_KEY;
+        incrRefCount(key1);
+        key_request->key = key1;
+        key_request->subkeys = NULL;
+        key_request->cmd_intention = SWAP_IN;
+        key_request->cmd_intention_flags = SWAP_IN_DEL;
+        key_request->dbid = 0;
+
+        data = createSwapData(db,key1,val1);
+        swapDataSetupMeta(data,OBJ_STRING,-1,&datactx);
+        swapDataAna(data,key_request,&intention,&intention_flags,datactx);
+        test_assert(intention == SWAP_DEL);
+        test_assert(intention_flags == SWAP_FIN_DEL_SKIP);
+        test_assert(data->set_dirty == 1);
+
+        swapDataFree(data,datactx);
+    }
+
+    return error;
+}
+
+#endif

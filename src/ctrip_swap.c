@@ -232,7 +232,8 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
     object_meta = lookupMeta(db,key);
     expire = getExpire(db,key);
 
-    swapDataSetupMeta(data,value->type,expire,object_meta,datactx);
+    swapDataSetupMeta(data,value->type,expire,datactx);
+    swapDataSetObjectMeta(data,object_meta);
 
     swapCtxSetSwapData(ctx,data,datactx);
 
@@ -419,15 +420,15 @@ int clearTestRedisServer() {
 }
 int swapTest(int argc, char **argv, int accurate) {
   int result = 0;
-  /* result += swapWaitTest(argc, argv, accurate); */
-  /* result += swapWaitReentrantTest(argc, argv, accurate); */
-  /* result += swapWaitAckTest(argc, argv, accurate); */
+  result += swapWaitTest(argc, argv, accurate);
+  result += swapWaitReentrantTest(argc, argv, accurate);
+  result += swapWaitAckTest(argc, argv, accurate);
   result += swapCmdTest(argc, argv, accurate);
-  /* result += swapExecTest(argc, argv, accurate); */
+  result += swapExecTest(argc, argv, accurate);
+  result += swapDataTest(argc, argv, accurate);
+  result += swapDataWholeKeyTest(argc, argv, accurate);
+  result += swapObjectTest(argc, argv, accurate);
   /* result += swapRdbTest(argc, argv, accurate); */
-  /* result += swapObjectTest(argc, argv, accurate); */
-  /* result += swapDataWholeKeyTest(argc, argv, accurate); */
-  /* result += swapDataBigHashTest(argc, argv, accurate); */
   return result;
 }
 #endif
