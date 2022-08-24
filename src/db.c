@@ -72,6 +72,8 @@ void updateLFU(robj *val) {
  *  LOOKUP_NOSTATS: Don't increment key hits/misses counters.
  *  LOOKUP_WRITE: Prepare the key for writing (delete expired keys even on
  *                replicas, use separate keyspace stats and events (TODO)).
+ *  LOOKUP_NOEXPIRE: Perform expiration check, but avoid deleting the key,
+ *                   so that we don't have to propagate the deletion.
  *
  * Note: this function also returns NULL if the key is logically expired but
  * still existing, in case this is a replica and the LOOKUP_WRITE is not set.
