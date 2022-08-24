@@ -42,7 +42,7 @@ start_server {tags {"pause network"}} {
         after 100
         set rd [redis_deferring_client]
         $rd SET FOO BAR
-        wait_for_blocked_clients_count 1 10 100
+        wait_for_blocked_clients_count 1 100 10
 
         r client unpause
         assert_match "OK" [$rd read]
