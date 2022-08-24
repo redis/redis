@@ -2469,17 +2469,17 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     }
 }
 
-sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, robj **argv, int idx) {
+sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, robj *errored_val) {
     switch (acl_res) {
     case ACL_DENIED_CMD:
-        return sdscatfmt(sdsempty(), "User %s has no permissions to run "
-                                     "the '%s' command or a subcommand", user->name, cmd->fullname);
+        return sdscatfmt(sdsempty(), "User %S has no permissions to run "
+                                     "the '%S' command or a subcommand", user->name, cmd->fullname);
     case ACL_DENIED_KEY:
-        return sdscatfmt(sdsempty(), "User %s has no permissions to access "
-                                     "the '%s' key", user->name, argv[idx]->ptr);
+        return sdscatfmt(sdsempty(), "User %S has no permissions to access "
+                                     "the '%S' key", user->name, errored_val->ptr);
     case ACL_DENIED_CHANNEL:
-        return sdscatfmt(sdsempty(), "User %s has no permissions to access "
-                                     "the '%s' channel", user->name, argv[idx]->ptr);
+        return sdscatfmt(sdsempty(), "User %S has no permissions to access "
+                                     "the '%S' channel", user->name, errored_val->ptr);
     default:
         return sdsnew("lacking the permissions for the command");
     }
@@ -2880,16 +2880,7 @@ setuser_cleanup:
         /* Notice that a variant of this code also exists on getAclErrorMessage so
          * it also need to be updated on changed. */
         if (result != ACL_OK) {
-            sds err;
-            switch (result) {
-                case ACL_DENIED_CMD:
-                case ACL_DENIED_KEY:
-                case ACL_DENIED_CHANNEL:
-                    err = getAclErrorMessage(result, u, cmd, c->argv + 3, idx);
-                    break;
-                default:
-                    serverPanic("Invalid permission result");
-            }
+            sds err = getAclErrorMessage(result, u, cmd, c->argv[idx+3]);
             addReplyBulkSds(c, err);
             return;
         }

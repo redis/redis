@@ -335,8 +335,8 @@ static int scriptVerifyACL(client *c, sds *err) {
     int acl_retval = ACLCheckAllPerm(c, &acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,ACL_LOG_CTX_LUA,acl_errpos,NULL,NULL);
-        sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv, acl_errpos);
-        *err = sdscatfmt(sdsempty(), "ACL Failure in Script: %s", msg);
+        sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]);
+        *err = sdscatfmt(sdsempty(), "ACL Failure in Script: %S", msg);
         sdsfree(msg);
         return C_ERR;
     }
