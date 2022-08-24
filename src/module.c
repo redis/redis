@@ -8694,26 +8694,30 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
     return ACLSetUser(user->user, acl, -1);
 }
 
-RedisModuleString * RM_SetModuleUserACLString(RedisModuleCtx * ctx, RedisModuleUser *user, const char* acl) {
+int RM_SetModuleUserACLString(RedisModuleCtx * ctx, RedisModuleUser *user, const char* acl, RedisModuleString **error) {
     serverAssert(user != NULL);
 
     sds sacl = sdsnew(acl);
     int argc;
     sds *argv = sdssplitargs(sacl, &argc);
 
-    sds error = ACLStringSetUser(user->user, NULL, argv, argc);
+    sds err = ACLStringSetUser(user->user, NULL, argv, argc);
 
     sdsfreesplitres(argv, argc);
     sdsfree(sacl);
 
-    if (error) {
-        RedisModuleString *s = createObject(OBJ_STRING, error);
-        if (ctx != NULL) autoMemoryAdd(ctx, REDISMODULE_AM_STRING, s);
+    if (err) {
+        if (error) {
+            *error = createObject(OBJ_STRING, err);
+            if (ctx != NULL) autoMemoryAdd(ctx, REDISMODULE_AM_STRING, *error);
+        } else {
+            sdsfree(err);
+        }
 
-        return s;
+        return REDISMODULE_ERR;
     }
 
-    return NULL;
+    return REDISMODULE_OK;
 }
 
 /* Get the ACL string for a given user
