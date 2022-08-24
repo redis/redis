@@ -3999,7 +3999,7 @@ void failoverCommand(client *c) {
     server.failover_state = FAILOVER_WAIT_FOR_SYNC;
     /* Cluster failover will unpause eventually */
     pauseActions(PAUSE_DURING_FAILOVER,
-                  LLONG_MAX,
+                 LLONG_MAX,
                  PAUSE_ACTIONS_CLIENT_WRITE_SET);
     addReply(c,shared.ok);
 }

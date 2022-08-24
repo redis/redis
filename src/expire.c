@@ -135,9 +135,9 @@ void activeExpireCycle(int type) {
     int dbs_per_call = CRON_DBS_PER_CALL;
     long long start = ustime(), timelimit, elapsed;
 
-    /* When clients are paused the dataset should be static not just from the
-     * POV of clients not being able to write, but also from the POV of
-     * expires and evictions of keys not being performed. */
+    /* If 'expire' action is paused, for whatever reason, then don't expire any key.
+     * Typically, at the end of the pause we will properly expire the key OR we
+     * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {

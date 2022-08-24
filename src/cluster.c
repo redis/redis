@@ -2597,7 +2597,7 @@ int clusterProcessPacket(clusterLink *link) {
         server.cluster->mf_end = now + CLUSTER_MF_TIMEOUT;
         server.cluster->mf_slave = sender;
         pauseActions(PAUSE_DURING_FAILOVER,
-                      now + (CLUSTER_MF_TIMEOUT * CLUSTER_MF_PAUSE_MULT),
+                     now + (CLUSTER_MF_TIMEOUT * CLUSTER_MF_PAUSE_MULT),
                      PAUSE_ACTIONS_CLIENT_WRITE_SET);
         serverLog(LL_WARNING,"Manual failover requested by replica %.40s.",
             sender->name);

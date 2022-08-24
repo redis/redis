@@ -1684,10 +1684,9 @@ int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
         if (!force_delete_expired) return 1;
     }
 
-    /* If expire-action is paused, for whatever reason, we keep the current
-     * dataset constant, but return to the client what we believe is the right
-     * state. Typically, at the end of the pause we will properly expire the key
-     * OR we will have failed over and the new primary will send us the expire. */
+    /* If 'expire' action is paused, for whatever reason, then don't expire any key.
+     * Typically, at the end of the pause we will properly expire the key OR we
+     * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return 1;
 
     /* Delete the key */
