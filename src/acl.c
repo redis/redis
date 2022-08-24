@@ -855,7 +855,6 @@ robj *ACLDescribeUser(user *u) {
         sdsfree(default_perm);
     }
 
-    if (u->acl_string) decrRefCount(u->acl_string);
     u->acl_string = createObject(OBJ_STRING, res);
     /* because we are returning it, have to increase count */
     incrRefCount(u->acl_string);

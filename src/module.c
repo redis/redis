@@ -751,7 +751,6 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
         moduleReleaseTempClient(ctx->client);
     else if (ctx->flags & REDISMODULE_CTX_NEW_CLIENT)
         freeClient(ctx->client);
-
 }
 
 /* Create a module ctx and keep track of the nesting level.
@@ -8694,7 +8693,7 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
     return ACLSetUser(user->user, acl, -1);
 }
 
-int RM_SetModuleUserACLString(RedisModuleCtx * ctx, RedisModuleUser *user, const char* acl, RedisModuleString **error) {
+int RM_SetModuleUserACLString(RedisModuleCtx *ctx, RedisModuleUser *user, const char *acl, RedisModuleString **error) {
     serverAssert(user != NULL);
 
     sds sacl = sdsnew(acl);
