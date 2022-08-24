@@ -393,12 +393,12 @@ start_server {tags {"modules"}} {
         set x 5
         r set x $x
         # deny all permissions besides the dryrun command
-        r acl setuser default +get -set +acl resetkeys ~x
+        r acl setuser default resetkeys
 
         catch {r test.rm_call_flags DC set x 10} e
-        assert_match {*ERR acl verification failed, can't run this command or subcommand*} $e
-        assert_equal [r get x] $x
+        assert_match {*ERR acl verification failed, can't access at least one of the keys*} $e
         r acl setuser default +@all ~*
+        assert_equal [r get x] $x
     }
 
     test "Unload the module - misc" {
