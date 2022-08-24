@@ -1366,7 +1366,7 @@ start_server {tags {"repl external:skip"}} {
         $slave debug SET-ACTIVE-EXPIRE 0
         $slave slaveof $master_host $master_port
 
-        test "Tes replication with lazy expire" {
+        test "Test replication with lazy expire" {
             # wait for replication to be in sync
             wait_for_condition 50 100 {
                 [lindex [$slave role] 0] eq {slave} &&
@@ -1376,8 +1376,8 @@ start_server {tags {"repl external:skip"}} {
             }
 
             $master sadd s foo
-            $master expire s 1
-            after 1000
+            $master pexpire s 1
+            after 10
             $master sadd s foo
             assert_equal 1 [$master wait 1 1]
 
