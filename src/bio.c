@@ -256,7 +256,6 @@ unsigned long bioPendingJobsOfType(int type) {
     val = listLength(bio_jobs[type]);
     pthread_mutex_unlock(&bio_mutex[type]);
     return val;
-    return val;
 }
 
 /* Kill the running bio threads in an unclean way. This function should be
