@@ -41,7 +41,11 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired);
+/* Flags for expireIfNeeded */
+#define EXPIRE_FORCE_DELETE_EXPIRED 1
+#define EXPIRE_AVOID_DELETE_EXPIRED 2
+
+int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 
 /* Update LFU when an object is accessed.
@@ -72,6 +76,8 @@ void updateLFU(robj *val) {
  *  LOOKUP_NOSTATS: Don't increment key hits/misses counters.
  *  LOOKUP_WRITE: Prepare the key for writing (delete expired keys even on
  *                replicas, use separate keyspace stats and events (TODO)).
+ *  LOOKUP_NOEXPIRE: Perform expiration check, but avoid deleting the key,
+ *                   so that we don't have to propagate the deletion.
  *
  * Note: this function also returns NULL if the key is logically expired but
  * still existing, in case this is a replica and the LOOKUP_WRITE is not set.
@@ -92,8 +98,12 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
          * command, since the command may trigger events that cause modules to
          * perform additional writes. */
         int is_ro_replica = server.masterhost && server.repl_slave_ro;
-        int force_delete_expired = flags & LOOKUP_WRITE && !is_ro_replica;
-        if (expireIfNeeded(db, key, force_delete_expired)) {
+        int expire_flags = 0;
+        if (flags & LOOKUP_WRITE && !is_ro_replica)
+            expire_flags |= EXPIRE_FORCE_DELETE_EXPIRED;
+        if (flags & LOOKUP_NOEXPIRE)
+            expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
+        if (expireIfNeeded(db, key, expire_flags)) {
             /* The key is no longer valid. */
             val = NULL;
         }
@@ -1657,13 +1667,17 @@ int keyIsExpired(redisDb *db, robj *key) {
  *
  * On replicas, this function does not delete expired keys by default, but
  * it still returns 1 if the key is logically expired. To force deletion
- * of logically expired keys even on replicas, set force_delete_expired to
- * a non-zero value. Note though that if the current client is executing
+ * of logically expired keys even on replicas, use the EXPIRE_FORCE_DELETE_EXPIRED
+ * flag. Note though that if the current client is executing
  * replicated commands from the master, keys are never considered expired.
+ *
+ * On the other hand, if you just want expiration check, but need to avoid
+ * the actual key deletion and propagation of the deletion, use the
+ * EXPIRE_AVOID_DELETE_EXPIRED flag.
  *
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
-int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
+int expireIfNeeded(redisDb *db, robj *key, int flags) {
     if (!keyIsExpired(db,key)) return 0;
 
     /* If we are running in the context of a replica, instead of
@@ -1681,8 +1695,13 @@ int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
      * expired. */
     if (server.masterhost != NULL) {
         if (server.current_client == server.master) return 0;
-        if (!force_delete_expired) return 1;
+        if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return 1;
     }
+
+    /* In some cases we're explicitly instructed to return an indication of a
+     * missing key without actually deleting it, even on masters. */
+    if (flags & EXPIRE_AVOID_DELETE_EXPIRED)
+        return 1;
 
     /* If clients are paused, we keep the current dataset constant,
      * but return to the client what we believe is the right state. Typically,
