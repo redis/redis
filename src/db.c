@@ -101,7 +101,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
         int expire_flags = 0;
         if (flags & LOOKUP_WRITE && !is_ro_replica)
             expire_flags |= EXPIRE_FORCE_DELETE_EXPIRED;
-        if (flags&LOOKUP_NOEXPIRE)
+        if (flags & LOOKUP_NOEXPIRE)
             expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
         if (expireIfNeeded(db, key, expire_flags)) {
             /* The key is no longer valid. */
@@ -1667,7 +1667,7 @@ int keyIsExpired(redisDb *db, robj *key) {
  *
  * On replicas, this function does not delete expired keys by default, but
  * it still returns 1 if the key is logically expired. To force deletion
- * of logically expired keys even on replicas, use the EXPIRE_FORCE_DELETE_EXPIRED.
+ * of logically expired keys even on replicas, use the EXPIRE_FORCE_DELETE_EXPIRED
  * flag. Note though that if the current client is executing
  * replicated commands from the master, keys are never considered expired.
  *
