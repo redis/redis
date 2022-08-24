@@ -921,7 +921,7 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
         r XDEL mystream 2-2
         r bgrewriteaof
         waitForBgrewriteaof r
-        r debug loadaof
+        #r debug loadaof
         assert {[dict get [r xinfo stream mystream] length] == 1}
         assert_equal [dict get [r xinfo stream mystream] last-generated-id] "2-2"
     }

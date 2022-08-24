@@ -2039,8 +2039,6 @@ void xaddCommand(client *c) {
     stream *s;
     if ((o = streamTypeLookupWriteOrCreate(c,c->argv[1],parsed_args.no_mkstream)) == NULL) return;
     s = o->ptr;
-    serverLog(LL_WARNING,"last delete id ms is  %ld",s->max_deleted_entry_id.ms);
-    serverLog(LL_WARNING,"last delete id seq is  %ld",s->max_deleted_entry_id.seq);
 
     /* Return ASAP if the stream has reached the last possible ID */
     if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
@@ -2076,6 +2074,8 @@ void xaddCommand(client *c) {
     if (parsed_args.trim_strategy != TRIM_STRATEGY_NONE) {
         if (streamTrim(s, &parsed_args)) {
             notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
+    serverLog(LL_WARNING,"3 last delete id ms is  %ld",s->max_deleted_entry_id.ms);
+    serverLog(LL_WARNING,"3 last delete id seq is  %ld",s->max_deleted_entry_id.seq);
         }
         if (parsed_args.approx_trim) {
             /* In case our trimming was limited (by LIMIT or by ~) we must
@@ -2085,11 +2085,13 @@ void xaddCommand(client *c) {
              * way LIMIT is given without the ~ option. */
             streamRewriteApproxSpecifier(c,parsed_args.trim_strategy_arg_idx-1);
             streamRewriteTrimArgument(c,s,parsed_args.trim_strategy,parsed_args.trim_strategy_arg_idx);
+    serverLog(LL_WARNING,"4 last delete id ms is  %ld",s->max_deleted_entry_id.ms);
+    serverLog(LL_WARNING,"4 last delete id seq is  %ld",s->max_deleted_entry_id.seq);
         }
     }
 
-    serverLog(LL_WARNING,"3 last delete id ms is  %ld",s->max_deleted_entry_id.ms);
-    serverLog(LL_WARNING,"3 last delete id seq is  %ld",s->max_deleted_entry_id.seq);
+    serverLog(LL_WARNING,"5 last delete id ms is  %ld",s->max_deleted_entry_id.ms);
+    serverLog(LL_WARNING,"5 last delete id seq is  %ld",s->max_deleted_entry_id.seq);
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
     if (!parsed_args.id_given || !parsed_args.seq_given) {
