@@ -313,7 +313,7 @@ static int tlsConfigure(void *priv, int reconfigure) {
     int protocols = parseProtocolsConfig(ctx_config->protocols);
     if (protocols == -1) goto error;
 
-    /* Create server side/generla context */
+    /* Create server side/general context */
     ctx = createSSLContext(ctx_config, protocols, 0);
     if (!ctx) goto error;
 
