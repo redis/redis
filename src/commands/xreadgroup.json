@@ -42,11 +42,11 @@
                 "type": "block",
                 "arguments": [
                     {
-                        "name": "group",
+                        "name": "groupname",
                         "type": "string"
                     },
                     {
-                        "name": "consumer",
+                        "name": "consumername",
                         "type": "string"
                     }
                 ]

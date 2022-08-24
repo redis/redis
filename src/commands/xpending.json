@@ -48,7 +48,7 @@
                 "key_spec_index": 0
             },
             {
-                "name": "group",
+                "name": "groupname",
                 "type": "string"
             },
             {
@@ -76,7 +76,7 @@
                         "type": "integer"
                     },
                     {
-                        "name": "consumer",
+                        "name": "consumername",
                         "type": "string",
                         "optional": true
                     }
