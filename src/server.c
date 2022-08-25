@@ -3697,7 +3697,8 @@ int processCommand(client *c) {
     int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,acl_errpos,NULL,NULL);
-        sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]);
+        sds errored_val = (acl_retval != ACL_DENIED_CMD) ? c->argv[acl_errpos]->ptr : NULL;
+        sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, errored_val);
         rejectCommandFormat(c, "-NOPERM %s", msg);
         sdsfree(msg);
         return C_OK;

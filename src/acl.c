@@ -2469,19 +2469,17 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     }
 }
 
-sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, robj *errored_val) {
+sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val) {
     switch (acl_res) {
     case ACL_DENIED_CMD:
         return sdscatfmt(sdsempty(), "User %S has no permissions to run "
-                                     "the '%S' command or a subcommand", user->name, cmd->fullname);
+                                     "the '%S' command", user->name, cmd->fullname);
     case ACL_DENIED_KEY:
         return sdscatfmt(sdsempty(), "User %S has no permissions to access "
-                                     "the '%S' key", user->name, errored_val->ptr);
+                                     "the '%S' key", user->name, errored_val);
     case ACL_DENIED_CHANNEL:
         return sdscatfmt(sdsempty(), "User %S has no permissions to access "
-                                     "the '%S' channel", user->name, errored_val->ptr);
-    default:
-        return sdsnew("lacking the permissions for the command");
+                                     "the '%S' channel", user->name, errored_val);
     }
     serverPanic("Reached deadcode on getAclErrorMessage");
 }
@@ -2877,10 +2875,9 @@ setuser_cleanup:
 
         int idx;
         int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
-        /* Notice that a variant of this code also exists on getAclErrorMessage so
-         * it also need to be updated on changed. */
         if (result != ACL_OK) {
-            sds err = getAclErrorMessage(result, u, cmd, c->argv[idx+3]);
+            sds errored_val = (result != ACL_DENIED_CMD) ? c->argv[idx+3]->ptr : NULL;
+            sds err = getAclErrorMessage(result, u, cmd, errored_val);
             addReplyBulkSds(c, err);
             return;
         }

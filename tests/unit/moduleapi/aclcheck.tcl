@@ -86,7 +86,7 @@ start_server {tags {"modules acl"}} {
         catch {r aclcheck.rm_call set x 5} e
         assert_match {*NOPERM*} $e
         catch {r aclcheck.rm_call_with_errors set x 5} e
-        assert_match {*NOPERM*has no permissions to run the 'set' command or a subcommand*} $e
+        assert_match {*NOPERM*has no permissions to run the 'set' command*} $e
 
         # verify that new log entry added
         set entry [lindex [r ACL LOG] 0]
