@@ -268,6 +268,7 @@ proc ::redis_cluster::get_keys_from_command {cmd argv} {
         mget {return $argv}
         eval {return [lrange $argv 2 1+[lindex $argv 1]]}
         evalsha {return [lrange $argv 2 1+[lindex $argv 1]]}
+        beval {return [lrange $argv 5 1+[lindex $argv 1]]}
         spublish {return [list [lindex $argv 1]]}
     }
 

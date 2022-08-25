@@ -1145,7 +1145,7 @@ void brpoplpushCommand(client *c) {
     if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)
         != C_OK) return;
     blmoveGenericCommand(c, LIST_TAIL, LIST_HEAD, timeout);
-}
+}//HERE
 
 /* LMPOP/BLMPOP
  *

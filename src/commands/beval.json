@@ -1,0 +1,120 @@
+{
+    "BEVAL": {
+        "summary": "Pop an element from a list, push it to another list and return it; or block until one is available. Then execute a Lua script server side",
+        "complexity": "Depends on the script that is executed.",
+        "group": "scripting",
+        "since": "7.2.0",
+        "arity": -3,
+        "function": "bevalCommand",
+        "get_keys_function": "bevalGetKeys",
+        "command_flags": [
+            "NOSCRIPT",
+            "WRITE",
+            "DENYOOM",
+            "SKIP_MONITOR",
+            "MAY_REPLICATE",
+            "NO_MANDATORY_KEYS",
+            "STALE",
+            "BLOCKING"
+        ],
+        "acl_categories": [
+            "SCRIPTING"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "RW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "notes": "We cannot tell how the keys will be used so we assume the worst, RW and UPDATE",
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 5
+                    }
+                },
+                "find_keys": {
+                    "keynum": {
+                        "keynumidx": 0,
+                        "firstkey": 1,
+                        "step": 1
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "source",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "destination",
+                "type": "key",
+                "key_spec_index": 1
+            },
+            {
+                "name": "timeout",
+                "type": "double"
+            },
+            {
+                "name": "script",
+                "type": "string"
+            },
+            {
+                "name": "numkeys",
+                "type": "integer"
+            },
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 2,
+                "optional": true,
+                "multiple": true
+            },
+            {
+                "name": "arg",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
+        ]
+    }
+}
