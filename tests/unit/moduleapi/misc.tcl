@@ -177,22 +177,20 @@ start_server {tags {"modules"}} {
         r config set maxmemory 1
         r config set maxmemory-policy volatile-lru
 
-        # add the M flag without flags
+        # use the M flag without allow-oom shebang flag
         assert_error {OOM *} {
             r test.rm_call_flags M eval {#!lua
-                                                   redis.call('set','x',1)
-                                                   return 1
-                                               } 1 x
-
+                redis.call('set','x',1)
+                return 1
+            } 1 x
         }
 
-        # add the M flag with allow-oom flags
+        # add the M flag with allow-oom shebang flag
         assert_equal {1} [
             r test.rm_call_flags M eval {#!lua flags=allow-oom
-                                                           redis.call('set','x',1)
-                                                           return 1
-                                                       } 1 x
-
+                redis.call('set','x',1)
+                return 1
+            } 1 x
         ]
 
         r config set maxmemory 0
