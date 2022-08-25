@@ -1142,6 +1142,23 @@ void cronUpdateMemoryStats() {
     }
 }
 
+/* Pause clients on write as long as OOM and pending lazy-free jobs in background.
+ * By doing so the server might avoid unnecessary eviction or rejection. */
+static void ClientWritePauseDuringOOM() {
+    
+    if (!server.client_pause_write_during_oom) return;
+
+    /* if OOM and available pending lazyfree jobs then pause client write */
+    if ((getMaxmemoryState(NULL,NULL,NULL,NULL)) &&
+        (!!bioPendingJobsOfType(BIO_LAZY_FREE))) {
+        pauseClients(PAUSE_THROTTLE_CLIENT_WRITE, LLONG_MAX, CLIENT_PAUSE_WRITE);
+    } else {
+        /* If not OOM && lazy-free, then unpause clients. Note: if clients are not in
+         * PAUSE_THROTTLE_CLIENT_WRITE state, then the function makes trivial return */
+        unpauseClients(PAUSE_THROTTLE_CLIENT_WRITE);
+    }
+}
+
 /* This is our timer interrupt, called server.hz times per second.
  * Here is where we do a number of things that need to be done asynchronously.
  * For instance:
@@ -1355,6 +1372,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 flushAppendOnlyFile(0);
             }
     }
+
+    /* Pause clients on write as long as OOM and pending lazy-free jobs in background */
+    ClientWritePauseDuringOOM();
 
     /* Clear the paused clients state if needed. */
     checkClientPauseTimeoutAndReturnIfPaused();
@@ -3763,6 +3783,10 @@ int processCommand(client *c) {
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
     if (server.maxmemory && !isInsideYieldingLongCommand()) {
+
+        /* Pause clients on write as long as OOM and pending lazy-free jobs in background */
+        ClientWritePauseDuringOOM();
+
         int out_of_memory = (performEvictions() == EVICT_FAIL);
 
         /* performEvictions may evict keys, so we need flush pending tracking

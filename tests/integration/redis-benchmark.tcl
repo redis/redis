@@ -5,17 +5,6 @@ proc cmdstat {cmd} {
     return [cmdrstat $cmd r]
 }
 
-# common code to reset stats, flush the db and run redis-benchmark
-proc common_bench_setup {cmd} {
-    r config resetstat
-    r flushall
-    if {[catch { exec {*}$cmd } error]} {
-        set first_line [lindex [split $error "\n"] 0]
-        puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
-        fail "redis-benchmark non zero code. first line: $first_line"
-    }
-}
-
 # we use this extra asserts on a simple set,get test for features like uri parsing
 # and other simple flag related tests
 proc default_set_get_checks {} {
