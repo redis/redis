@@ -421,11 +421,6 @@ void dumpRIO(RIO *rio) {
     sdsfree(repr);
 }
 
-static inline int rioResultIsNotFound(RIO *rio) {
-    //TODO impl
-    return 0;
-}
-
 int doRIO(RIO *rio) {
     int ret;
     if (server.debug_rio_latency) usleep(server.debug_rio_latency*1000);
@@ -786,6 +781,11 @@ end:
     return retval;
 }
 
+static inline int RIOGetNotFound(RIO *rio) {
+    serverAssert(rio->action == ROCKS_GET);
+    return rio->get.rawval == NULL && rio->err == NULL;
+}
+
 static int swapRequestSwapInMeta(swapRequest *req) {
     int retval = EXEC_OK;
     RIO _rio = {0}, *rio = &_rio;
@@ -804,7 +804,7 @@ static int swapRequestSwapInMeta(swapRequest *req) {
         goto end;
     }
 
-    if (rioResultIsNotFound(rio)) {
+    if (RIOGetNotFound(rio)) {
         retval = EXEC_OK;
         goto end;
     }
@@ -858,8 +858,10 @@ int processSwapRequest(swapRequest *req) {
         return retval;
 
     /* key confirmed not exists, no need to execute swap request. */
-    if (!swapDataAlreadySetup(req->data))
+    if (!swapDataAlreadySetup(req->data)) {
+        doNotify(req);
         return EXEC_OK;
+    }
 
     if ((retval = swapDataAna(data,req->key_request,
                     &intention,&intention_flags,datactx))) {

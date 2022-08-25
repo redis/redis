@@ -157,10 +157,12 @@ int keyRequestSwapFinished(swapData *data, void *pd) {
     UNUSED(data);
     swapCtx *ctx = pd;
 
-    swapDataKeyRequestFinished(data);
-    DEBUG_MSGS_APPEND(&ctx->msgs,"swap-finished",
-            "key=%s,propagate_expire=%d,set_dirty=%d",
-            (sds)data->key->ptr,data->propagate_expire,data->set_dirty);
+    if (data) {
+        swapDataKeyRequestFinished(data);
+        DEBUG_MSGS_APPEND(&ctx->msgs,"swap-finished",
+                "key=%s,propagate_expire=%d,set_dirty=%d",
+                (sds)data->key->ptr,data->propagate_expire,data->set_dirty);
+    }
 
     /* release io will trigger either another swap within the same tx or
      * command call, but never both. so swap and main thread will not
@@ -223,7 +225,7 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
         goto noswap;
     }
 
-    if (value != NULL) {
+    if (value == NULL) {
         submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
                 data,datactx,keyRequestSwapFinished,ctx,msgs);
         return C_OK;

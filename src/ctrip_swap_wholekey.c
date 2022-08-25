@@ -46,6 +46,8 @@ int wholeKeySwapAna(swapData *data_, struct keyRequest *req,
             *intention = SWAP_IN;
             if (cmd_intention_flags & SWAP_IN_DEL)
                 *intention_flags = SWAP_EXEC_IN_DEL;
+            else
+                *intention_flags = 0;
         } else if (data->d.value) {
             if (cmd_intention_flags & SWAP_IN_DEL) {
                 *intention = SWAP_DEL;
@@ -345,6 +347,11 @@ err:
 #include <limits.h>
 #include <assert.h>
 
+#define FREE_SDSARRAY(sdss,n) do {    \
+    for (int i = 0; i < n; i++) sdsfree(sdss[i]);    \
+    zfree(sdss), sdss = NULL; \
+} while (0)
+
 swapData *createWholeKeySwapDataWithExpire(redisDb *db, robj *key, robj *value,
         long long expire, void **datactx) {
     swapData *data = createSwapData(db,key,value);
@@ -441,6 +448,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x00\x00\x00\x03key", 11));
 #endif
         test_assert(result == C_OK);
+        FREE_SDSARRAY(rawkeys,1);
         result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_DEL == action);
         test_assert(numkeys == 1);
@@ -451,6 +459,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x00\x00\x00\x03key", 11));
 #endif
         test_assert(result == C_OK);
+        FREE_SDSARRAY(rawkeys,1);
         swapDataFree(data, ctx);
     }
 
@@ -471,6 +480,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x00\x00\x00\x03key", 11));
 #endif
         test_assert(result == C_OK);
+        FREE_SDSARRAY(rawkeys,1);
         result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_DEL == action);
         test_assert(numkeys == 1);
@@ -481,6 +491,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x00\x00\x00\x03key", 11));
 #endif
         test_assert(result == C_OK);
+        FREE_SDSARRAY(rawkeys,1);
         swapDataFree(data, ctx);
     }
 
