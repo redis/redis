@@ -690,9 +690,9 @@ int performEvictions(void) {
             mem_freed += delta;
             server.stat_evictedkeys++;
             signalModifiedKey(NULL,db,keyobj);
+            notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
+                keyobj, db->id);
             propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
-            notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",keyobj,db->id);
-            /* Propagate notification commandds and the del. */
             propagatePendingCommands();
             decrRefCount(keyobj);
             keys_freed++;

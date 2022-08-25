@@ -19,6 +19,7 @@ source ../support/test.tcl
 set ::verbose 0
 set ::valgrind 0
 set ::tls 0
+set ::tls_module 0
 set ::pause_on_error 0
 set ::dont_clean 0
 set ::simulate_error 0
@@ -85,6 +86,10 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
         }
 
         if {$::tls} {
+            if {$::tls_module} {
+                puts $cfg [format "loadmodule %s/../../../src/redis-tls.so" [pwd]]
+            }
+
             puts $cfg "tls-port $port"
             puts $cfg "tls-replication yes"
             puts $cfg "tls-cluster yes"
@@ -271,13 +276,16 @@ proc parse_options {} {
         } elseif {$opt eq {--host}} {
             incr j
             set ::host ${val}
-        } elseif {$opt eq {--tls}} {
+        } elseif {$opt eq {--tls} || $opt eq {--tls-module}} {
             package require tls 1.6
             ::tls::init \
                 -cafile "$::tlsdir/ca.crt" \
                 -certfile "$::tlsdir/client.crt" \
                 -keyfile "$::tlsdir/client.key"
             set ::tls 1
+            if {$opt eq {--tls-module}} {
+                set ::tls_module 1
+            }
         } elseif {$opt eq {--config}} {
             set val2 [lindex $::argv [expr $j+2]]
             dict set ::global_config $val $val2
@@ -293,6 +301,7 @@ proc parse_options {} {
             puts "--fail                  Simulate a test failure."
             puts "--valgrind              Run with valgrind."
             puts "--tls                   Run tests in TLS mode."
+            puts "--tls-module            Run tests in TLS mode with Redis module."
             puts "--host <host>           Use hostname instead of 127.0.0.1."
             puts "--config <k> <v>        Extra config argument(s)."
             puts "--stop                  Blocks once the first test fails."

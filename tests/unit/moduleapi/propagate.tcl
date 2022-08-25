@@ -47,8 +47,8 @@ tags "modules" {
                     assert_replication_stream $repl {
                         {multi}
                         {select *}
-                        {set x y}
                         {incr notifications}
+                        {set x y}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -65,10 +65,10 @@ tags "modules" {
                     assert_replication_stream $repl {
                         {multi}
                         {select *}
+                        {incr notifications}
                         {set x1 y1}
                         {incr notifications}
                         {set x2 y2}
-                        {incr notifications}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -93,37 +93,37 @@ tags "modules" {
                     assert_replication_stream $repl {
                         {multi}
                         {select *}
+                        {incr notifications}
+                        {incr notifications}
                         {set asdf1 1 PXAT *}
-                        {incr notifications}
-                        {incr notifications}
                         {exec}
                         {multi}
+                        {incr notifications}
+                        {incr notifications}
                         {set asdf2 2 PXAT *}
-                        {incr notifications}
-                        {incr notifications}
                         {exec}
                         {multi}
+                        {incr notifications}
+                        {incr notifications}
                         {set asdf3 3 PXAT *}
-                        {incr notifications}
-                        {incr notifications}
                         {exec}
                         {multi}
-                        {del asdf*}
+                        {incr notifications}
                         {incr notifications}
                         {incr testkeyspace:expired}
-                        {incr notifications}
+                        {del asdf*}
                         {exec}
                         {multi}
-                        {del asdf*}
+                        {incr notifications}
                         {incr notifications}
                         {incr testkeyspace:expired}
-                        {incr notifications}
+                        {del asdf*}
                         {exec}
                         {multi}
-                        {del asdf*}
+                        {incr notifications}
                         {incr notifications}
                         {incr testkeyspace:expired}
-                        {incr notifications}
+                        {del asdf*}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -194,35 +194,35 @@ tags "modules" {
                     assert_replication_stream $repl {
                         {multi}
                         {select *}
+                        {incr notifications}
+                        {incr notifications}
                         {set asdf1 1 PXAT *}
-                        {incr notifications}
-                        {incr notifications}
                         {exec}
                         {multi}
+                        {incr notifications}
+                        {incr notifications}
                         {set asdf2 2 PXAT *}
-                        {incr notifications}
-                        {incr notifications}
                         {exec}
                         {multi}
+                        {incr notifications}
+                        {incr notifications}
                         {set asdf3 3 PXAT *}
-                        {incr notifications}
-                        {incr notifications}
                         {exec}
                         {multi}
+                        {incr notifications}
                         {del asdf*}
-                        {incr notifications}
                         {exec}
                         {multi}
+                        {incr notifications}
                         {del asdf*}
-                        {incr notifications}
                         {exec}
                         {multi}
+                        {incr notifications}
                         {del asdf*}
-                        {incr notifications}
                         {exec}
                         {multi}
+                        {incr notifications}
                         {set asdf4 4}
-                        {incr notifications}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -246,21 +246,21 @@ tags "modules" {
                     assert_replication_stream $repl {
                         {multi}
                         {select *}
+                        {incr notifications}
+                        {incr notifications}
                         {set timer-maxmemory-volatile-start 1 PXAT *}
-                        {incr notifications}
-                        {incr notifications}
                         {incr timer-maxmemory-middle}
+                        {incr notifications}
+                        {incr notifications}
                         {set timer-maxmemory-volatile-end 1 PXAT *}
-                        {incr notifications}
-                        {incr notifications}
                         {exec}
                         {multi}
-                        {del timer-maxmemory-volatile-*}
                         {incr notifications}
+                        {del timer-maxmemory-volatile-*}
                         {exec}
                         {multi}
-                        {del timer-maxmemory-volatile-*}
                         {incr notifications}
+                        {del timer-maxmemory-volatile-*}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -277,13 +277,13 @@ tags "modules" {
                     assert_replication_stream $repl {
                         {multi}
                         {select *}
+                        {incr notifications}
                         {incrby timer-eval-start 1}
                         {incr notifications}
                         {set foo bar}
-                        {incr notifications}
                         {incr timer-eval-middle}
-                        {incrby timer-eval-end 1}
                         {incr notifications}
+                        {incrby timer-eval-end 1}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -329,12 +329,13 @@ tags "modules" {
                         {multi}
                         {select *}
                         {incrby timer-nested-start 1}
-                        {incr using-call}
                         {incr notifications}
+                        {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
                         {incr counter-3}
                         {incr counter-4}
+                        {incr notifications}
                         {incr after-call}
                         {incr notifications}
                         {incr before-call-2}
@@ -346,7 +347,6 @@ tags "modules" {
                         {incr after-call-2}
                         {incr notifications}
                         {incr timer-nested-middle}
-                        {incr notifications}
                         {incrby timer-nested-end 1}
                         {exec}
                     }
@@ -372,20 +372,20 @@ tags "modules" {
                         {multi}
                         {select *}
                         {incr a-from-thread}
-                        {incr thread-call}
                         {incr notifications}
+                        {incr thread-call}
                         {incr b-from-thread}
                         {exec}
                         {multi}
                         {incr a-from-thread}
-                        {incr thread-call}
                         {incr notifications}
+                        {incr thread-call}
                         {incr b-from-thread}
                         {exec}
                         {multi}
                         {incr a-from-thread}
-                        {incr thread-call}
                         {incr notifications}
+                        {incr thread-call}
                         {incr b-from-thread}
                         {exec}
                     }
@@ -407,10 +407,10 @@ tags "modules" {
                         {multi}
                         {select *}
                         {incr thread-detached-before}
+                        {incr notifications}
                         {incr thread-detached-1}
                         {incr notifications}
                         {incr thread-detached-2}
-                        {incr notifications}
                         {incr thread-detached-after}
                         {exec}
                     }
@@ -430,12 +430,12 @@ tags "modules" {
                         {incr counter-2}
                         {exec}
                         {multi}
-                        {incr using-call}
                         {incr notifications}
+                        {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
-                        {incr after-call}
                         {incr notifications}
+                        {incr after-call}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -454,14 +454,14 @@ tags "modules" {
                         {select *}
                         {incr counter-1}
                         {incr counter-2}
+                        {incr notifications}
                         {set x y}
                         {incr notifications}
                         {incr using-call}
-                        {incr notifications}
                         {incr counter-1}
                         {incr counter-2}
-                        {incr after-call}
                         {incr notifications}
+                        {incr after-call}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -481,12 +481,12 @@ tags "modules" {
                         {incr counter-2}
                         {exec}
                         {multi}
-                        {incr using-call}
                         {incr notifications}
+                        {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
-                        {incr after-call}
                         {incr notifications}
+                        {incr after-call}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -507,12 +507,12 @@ tags "modules" {
                         {incr counter-2}
                         {exec}
                         {multi}
-                        {incr using-call}
                         {incr notifications}
+                        {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
-                        {incr after-call}
                         {incr notifications}
+                        {incr after-call}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -538,21 +538,22 @@ tags "modules" {
                         {select *}
                         {incr counter-1}
                         {incr counter-2}
-                        {incr using-call}
                         {incr notifications}
+                        {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
-                        {incr after-call}
                         {incr notifications}
+                        {incr after-call}
                         {exec}
                         {multi}
                         {incrby timer-nested-start 1}
-                        {incr using-call}
                         {incr notifications}
+                        {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
                         {incr counter-3}
                         {incr counter-4}
+                        {incr notifications}
                         {incr after-call}
                         {incr notifications}
                         {incr before-call-2}
@@ -564,7 +565,6 @@ tags "modules" {
                         {incr after-call-2}
                         {incr notifications}
                         {incr timer-nested-middle}
-                        {incr notifications}
                         {incrby timer-nested-end 1}
                         {exec}
                     }
@@ -624,13 +624,13 @@ tags "modules" {
                     assert_replication_stream $repl {
                         {multi}
                         {select *}
-                        {sadd s foo}
                         {incr notifications}
+                        {sadd s foo}
                         {exec}
                         {multi}
                         {incr notifications}
-                        {del s}
                         {incr notifications}
+                        {del s}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -655,8 +655,8 @@ tags "modules" {
                         {select *}
                         {flushall}
                         {multi}
-                        {incr missed}
                         {incr notifications}
+                        {incr missed}
                         {get unexisting_key}
                         {exec}
                     }

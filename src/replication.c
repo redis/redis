@@ -33,6 +33,7 @@
 #include "cluster.h"
 #include "bio.h"
 #include "functions.h"
+#include "connection.h"
 
 #include <memory.h>
 #include <sys/time.h>
@@ -54,6 +55,13 @@ int cancelReplicationHandshake(int reconnect);
 int RDBGeneratedByReplication = 0;
 
 /* --------------------------- Utility functions ---------------------------- */
+static ConnectionType *connTypeOfReplication() {
+    if (server.tls_replication) {
+        return connectionTypeTls();
+    }
+
+    return connectionTypeTcp();
+}
 
 /* Return the pointer to a string representing the slave ip:listening_port
  * pair. Mostly useful for logging, since we want to log a slave using its
@@ -66,11 +74,11 @@ char *replicationGetSlaveName(client *c) {
     ip[0] = '\0';
     buf[0] = '\0';
     if (c->slave_addr ||
-        connPeerToString(c->conn,ip,sizeof(ip),NULL) != -1)
+        connAddrPeerName(c->conn,ip,sizeof(ip),NULL) != -1)
     {
         char *addr = c->slave_addr ? c->slave_addr : ip;
         if (c->slave_listening_port)
-            anetFormatAddr(buf,sizeof(buf),addr,c->slave_listening_port);
+            formatAddr(buf,sizeof(buf),addr,c->slave_listening_port);
         else
             snprintf(buf,sizeof(buf),"%s:<unknown-replica-port>",addr);
     } else {
@@ -2863,7 +2871,7 @@ write_error: /* Handle sendCommand() errors. */
 }
 
 int connectWithMaster(void) {
-    server.repl_transfer_s = server.tls_replication ? connCreateTLS() : connCreateSocket();
+    server.repl_transfer_s = connCreate(connTypeOfReplication());
     if (connConnect(server.repl_transfer_s, server.masterhost, server.masterport,
                 server.bind_source_addr, syncWithMaster) == C_ERR) {
         serverLog(LL_WARNING,"Unable to connect to MASTER: %s",
@@ -3156,7 +3164,7 @@ void roleCommand(client *c) {
             char ip[NET_IP_STR_LEN], *slaveaddr = slave->slave_addr;
 
             if (!slaveaddr) {
-                if (connPeerToString(slave->conn,ip,sizeof(ip),NULL) == -1)
+                if (connAddrPeerName(slave->conn,ip,sizeof(ip),NULL) == -1)
                     continue;
                 slaveaddr = ip;
             }
@@ -3817,7 +3825,7 @@ static client *findReplica(char *host, int port) {
         char ip[NET_IP_STR_LEN], *replicaip = replica->slave_addr;
 
         if (!replicaip) {
-            if (connPeerToString(replica->conn, ip, sizeof(ip), NULL) == -1)
+            if (connAddrPeerName(replica->conn, ip, sizeof(ip), NULL) == -1)
                 continue;
             replicaip = ip;
         }
@@ -4048,7 +4056,7 @@ void updateFailoverStatus(void) {
                 char ip[NET_IP_STR_LEN], *replicaaddr = replica->slave_addr;
 
                 if (!replicaaddr) {
-                    if (connPeerToString(replica->conn,ip,sizeof(ip),NULL) == -1)
+                    if (connAddrPeerName(replica->conn,ip,sizeof(ip),NULL) == -1)
                         continue;
                     replicaaddr = ip;
                 }
