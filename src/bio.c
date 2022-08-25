@@ -286,11 +286,12 @@ unsigned long long bioPendingJobsOfType(int type) {
 unsigned long long bioWaitStepOfType(int type) {
     unsigned long long val;
     pthread_mutex_lock(&bio_mutex[type]);
-    val = bio_pending[type];
-    if (val != 0) {
+
+    while ((val = bio_pending[type]) != 0) {
         pthread_cond_wait(&bio_step_cond[type],&bio_mutex[type]);
         val = bio_pending[type];
     }
+    
     pthread_mutex_unlock(&bio_mutex[type]);
     return val;
 }
