@@ -95,10 +95,37 @@ static void rocksIterNotifyVacant(rocksIter* it) {
     pthread_mutex_unlock(&cq->buffer_lock);
 }
 
+
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+
+#define SELECT_META do {    \
+    cf = META_CF;           \
+    rdbtype = 0;            \
+    rawkey = meta_rawkey;   \
+    rklen = meta_rvlen;     \
+    rawval = meta_rawval;   \
+    rvlen = meta_rvlen;     \
+    meta_itered++;          \
+    rocksdb_iter_next(it->meta_iter);   \
+} while (0)
+
+#define SELECT_DATA do {    \
+    cf = DATA_CF;           \
+    rdbtype = rawval[0];    \
+    rawkey = data_rawkey;   \
+    rklen = data_rvlen;     \
+    rawval = data_rawval;   \
+    rvlen = data_rvlen;     \
+    rawval++;               \
+    rvlen--;                \
+    data_itered++;          \
+    rocksdb_iter_next(it->data_iter);   \
+} while (0)
+
 #define ITER_RATE_LIMIT_INTERVAL_MS 100
 void *rocksIterIOThreadMain(void *arg) {
     rocksIter *it = arg;
-    size_t itered = 0, accumulated_memory = 0;
+    size_t meta_itered = 0, data_itered = 0, accumulated_memory = 0;
     mstime_t last_ratelimit_time = mstime();
     int signal;
     bufferedIterCompleteQueue *cq = it->buffered_cq;
@@ -108,33 +135,59 @@ void *rocksIterIOThreadMain(void *arg) {
     while (!cq->iter_finished) {
         int64_t slots = rocksIterWaitVacant(it);
 
-        /* there only one producer, slots will decrease only by current
+        /* there are only one producer, slots will decrease only by current
          * thread, we can produce multiple iterResult in one loop. */
         while (slots--) {
             iterResult *cur;
-            int curidx;
-            const char *rawkey, *rawval;
+            int curidx, meta_valid, data_valid, cf;
+            unsigned char rdbtype;
+            const char *meta_rawkey, *meta_rawval, *data_rawkey, *data_rawval;
+            size_t meta_rklen, meta_rvlen, data_rklen, data_rvlen;
+            const char  *rawkey, *rawval;
             size_t rklen, rvlen;
 
-            if (!rocksdb_iter_valid(it->rocksdb_iter)) {
+            meta_valid = rocksdb_iter_valid(it->meta_iter);
+            data_valid = rocksdb_iter_valid(it->data_iter);
+            if (!meta_valid && !data_valid) {
                 rocksIterNotifyFinshed(it);
-                serverLog(LL_WARNING, "Rocks iter thread iterated %ld rawkey.", itered);
+                serverLog(LL_WARNING,
+                        "Rocks iter thread iterated meta=%ld data=%ld.",
+                        meta_itered, data_itered);
                 break;
             }
 
             curidx = cq->buffered_count % cq->buffer_capacity;
             cur = cq->buffered + curidx;
 
-            rawkey = rocksdb_iter_key(it->rocksdb_iter,&rklen);
-            rawval = rocksdb_iter_value(it->rocksdb_iter,&rvlen);
-            if (rvlen < ROCKS_VAL_TYPE_LEN) {
-                continue;
-            } else {
-                cur->type = rawval[0];
-                rawval++;
-                rvlen--;
+            if (meta_valid) {
+                meta_rawkey = rocksdb_iter_key(it->meta_iter,&meta_rklen);
+                meta_rawval = rocksdb_iter_value(it->meta_iter,&meta_rvlen);
             }
-            itered++;
+
+            if (data_valid) {
+                data_rawkey = rocksdb_iter_key(it->data_iter,&data_rklen);
+                data_rawval = rocksdb_iter_value(it->data_iter,&data_rvlen);
+            }
+
+            if (meta_valid && !data_valid) {
+                SELECT_META;
+            } else if (!meta_valid && data_valid) {
+                SELECT_DATA;
+            } else {
+                int ret = memcmp(meta_rawkey,data_rawkey,MIN(meta_rklen,data_rklen));
+                if (ret < 0) {
+                    SELECT_META;
+                } else if (ret > 0) {
+                    SELECT_DATA;
+                } else {
+                    if (meta_rklen <= data_rklen) {
+                        SELECT_META;
+                    } else {
+                        SELECT_DATA;
+                    }
+                }
+            }
+
             accumulated_memory += rklen+rvlen;
 
 #ifdef SWAP_DEBUG
@@ -144,9 +197,11 @@ void *rocksIterIOThreadMain(void *arg) {
             sdsfree(rawkeyrepr);
             sdsfree(rawvalrepr);
 #endif
+            cur->cf = cf;
+            cur->type = rdbtype;
             cur->rawkey = sdsnewlen(rawkey, rklen);
             cur->rawval = sdsnewlen(rawval, rvlen);
-            signal = (itered & (ITER_NOTIFY_BATCH-1)) ? 0 : 1;
+            signal = ((data_itered + meta_itered) & (ITER_NOTIFY_BATCH-1)) ? 0 : 1;
             rocksIterNotifyReady(it, signal);
 
             if (server.swap_max_iter_rate && signal &&
@@ -165,8 +220,6 @@ void *rocksIterIOThreadMain(void *arg) {
                 last_ratelimit_time = mstime();
                 accumulated_memory = 0;
             }
-
-            rocksdb_iter_next(it->rocksdb_iter);
         }
     }
 
@@ -223,40 +276,60 @@ void bufferedIterCompleteQueueFree(bufferedIterCompleteQueue *buffered_cq) {
 }
 
 rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
-    int err;
-    rocksdb_iterator_t *rocksdb_iter = NULL;
+    int error;
+    const char *default_cf_name = "default";
+    const char *meta_cf_name = "meta";
+    const char * cf_names[] = {default_cf_name, meta_cf_name};
+    rocksdb_iterator_t *data_iter = NULL, *meta_iter = NULL;
     rocksIter *it = zcalloc(sizeof(rocksIter));
+    rocksdb_column_family_handle_t *cf_handles[2];
+    sds meta_start_key = NULL, data_start_key = NULL;
 
     it->rocks = rocks;
     it->db = db;
     it->checkpoint_db = NULL;
+
     if (rocks->checkpoint != NULL) {
-        char* error = NULL;
-        rocksdb_t* db = rocksdb_open(rocks->db_opts, rocks->checkpoint_dir, &error);
-        if (error != NULL) {
-            serverLog(LL_WARNING, "[rocks]rocksdb open db fail, dir:%s, err:%s", rocks->checkpoint_dir, error);
+        char *errs[2] = {NULL};
+        rocksdb_options_t *cf_opts[] = {rocks->data_cf_opts, rocks->meta_cf_opts};
+        rocksdb_t* db = rocksdb_open_column_families(rocks->db_opts,
+                rocks->checkpoint_dir, 2, cf_names,
+                (const rocksdb_options_t *const *)cf_opts,cf_handles,errs);
+        if (errs[0] != NULL || errs[1] != NULL) {
+            serverLog(LL_WARNING,
+                    "[rocks]rocksdb open db fail, dir:%s, default_cf=%s, score_cf=%s",
+                    rocks->checkpoint_dir, errs[0], errs[1]);
             goto err;
         }
-        rocksdb_iter = rocksdb_create_iterator(db, rocks->ropts);
+        it->data_cf = cf_handles[0];
+        it->meta_cf = cf_handles[1];
         it->checkpoint_db = db;
-    } else {
-        rocksdb_iter = rocksdb_create_iterator(rocks->db, rocks->ropts);
     }
-    
-    if (rocksdb_iter == NULL) {
+
+    data_iter = rocksdb_create_iterator_cf(it->checkpoint_db, rocks->ropts, it->data_cf);
+    meta_iter = rocksdb_create_iterator_cf(it->checkpoint_db, rocks->ropts, it->meta_cf);
+    if (data_iter == NULL || meta_iter == NULL) {
         serverLog(LL_WARNING, "Create rocksdb iterator failed.");
         goto err;
     }
-    rocksdb_iter_seek_to_first(rocksdb_iter);
-    it->rocksdb_iter = rocksdb_iter;
+
+    data_start_key = rocksEncodeDataKey(db,NULL,NULL);
+    meta_start_key = rocksEncodeMetaKey(db,NULL);
+    rocksdb_iter_seek(data_iter,data_start_key,sdslen(data_start_key));
+    rocksdb_iter_seek(meta_iter,meta_start_key,sdslen(meta_start_key));
+    sdsfree(data_start_key);
+    sdsfree(meta_start_key);
+
+    it->data_iter = data_iter;
+    it->meta_iter = meta_iter;
 
     it->buffered_cq = bufferedIterCompleteQueueNew(ITER_BUFFER_CAPACITY_DEFAULT);
 
     pthread_mutex_init(&it->io_thread_exit_mutex, NULL);
     it->io_thread_exited = 0;
-    if ((err = pthread_create(&it->io_thread, NULL, rocksIterIOThreadMain, it))) {
+    if ((error = pthread_create(&it->io_thread, NULL, rocksIterIOThreadMain, it))) {
         it->io_thread_exited = 1;
-        serverLog(LL_WARNING, "Create rocksdb iterator thread failed: %s.", strerror(err));
+        serverLog(LL_WARNING, "Create rocksdb iterator thread failed: %s.", strerror(error));
         goto err;
     }
 
@@ -272,13 +345,13 @@ int rocksIterSeekToFirst(rocksIter *it) {
 }
 
 /* rocks iter rawkey, rawval moved. */
-void rocksIterKeyTypeValue(rocksIter *it, int *cf, sds *rawkey, unsigned char *type, sds *rawval) {
+void rocksIterCfKeyTypeValue(rocksIter *it, int *cf, sds *rawkey, unsigned char *type, sds *rawval) {
     int idx;
     iterResult *cur;
     bufferedIterCompleteQueue *cq = it->buffered_cq;
-    UNUSED(cf);
     idx = cq->processed_count % cq->buffer_capacity;
     cur = it->buffered_cq->buffered+idx;
+    if (cf) *cf = cur->cf;
     if (type) *type = cur->type;
     if (rawkey) {
         *rawkey = cur->rawkey;
@@ -298,7 +371,7 @@ int rocksIterNext(rocksIter *it) {
     bufferedIterCompleteQueue *cq = it->buffered_cq;
     idx = cq->processed_count % cq->buffer_capacity;
     cur = it->buffered_cq->buffered+idx;
-    /* clear previos state */
+    /* clear previous state */
     if (cur->rawkey) {
         sdsfree(cur->rawkey);
         cur->rawkey = NULL;
@@ -341,9 +414,14 @@ void rocksReleaseIter(rocksIter *it) {
         it->buffered_cq = NULL;
     }
 
-    if (it->rocksdb_iter) {
-        rocksdb_iter_destroy(it->rocksdb_iter);
-        it->rocksdb_iter = NULL;
+    if (it->data_iter) {
+        rocksdb_iter_destroy(it->data_iter);
+        it->data_iter = NULL;
+    }
+
+    if (it->meta_iter) {
+        rocksdb_iter_destroy(it->meta_iter);
+        it->meta_iter = NULL;
     }
 
     if (it->checkpoint_db != NULL) {
@@ -353,7 +431,10 @@ void rocksReleaseIter(rocksIter *it) {
     zfree(it);
 }
 
-void rocksIterGetError(rocksIter *it, char **error) {
-    rocksdb_iter_get_error(it->rocksdb_iter, error);
+void rocksIterGetError(rocksIter *it, char **perror) {
+    char *error;
+    rocksdb_iter_get_error(it->data_iter, &error);
+    if (error == NULL) rocksdb_iter_get_error(it->meta_iter, &error);
+    if (perror) *perror = error;
 }
 

@@ -41,7 +41,7 @@
 
 int rmdirRecursive(const char *path);
 int rocksInit() {
-    rocks *rocks = zmalloc(sizeof(struct rocks));
+    rocks *rocks = zcalloc(sizeof(struct rocks));
     char *errs[3] = {NULL}, dir[ROCKS_DIR_MAX_LEN];
     const char *default_cf_name = "default";
     const char *meta_cf_name = "meta";
@@ -114,6 +114,9 @@ int rocksInit() {
         serverLog(LL_WARNING, "[ROCKS] rocksdb open failed: default_cf=%s, meta_cf=%s, score_cf=%s", errs[0], errs[1], errs[2]);
         return -1;
     }
+    rocks->data_cf_opts = default_cf_opts;
+    rocks->meta_cf_opts = meta_cf_opts;
+    rocks->score_cf_opts = score_cf_opts;
     rocks->default_cf = cf_handles[0];
     rocks->meta_cf = cf_handles[1];
     rocks->score_cf = cf_handles[2];

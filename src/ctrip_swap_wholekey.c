@@ -27,6 +27,7 @@
  */
 
 #include "ctrip_swap.h"
+#include "server.h"
 
 int wholeKeySwapAna(swapData *data_, struct keyRequest *req,
         int *intention, uint32_t *intention_flags, void *datactx) {
@@ -224,14 +225,18 @@ robj *wholeKeyCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) 
     return decoded;
 }
 
+int swapDataSetupWholeKey(swapData *d, void **datactx) {
+    d->type = &wholeKeySwapDataType;
+    if (datactx) *datactx = NULL;
+    return 0;
+}
+
 swapDataType wholeKeySwapDataType = {
     .name = "wholekey",
     .swapAna = wholeKeySwapAna,
     .encodeKeys = wholeKeyEncodeKeys,
     .encodeData = wholeKeyEncodeData,
     .decodeData = wholeKeyDecodeData,
-    .encodeObjectMeta = NULL,
-    .decodeObjectMeta = NULL,
     .swapIn = wholeKeySwapIn,
     .swapOut = wholeKeySwapOut,
     .swapDel = wholeKeySwapDel,
@@ -240,92 +245,84 @@ swapDataType wholeKeySwapDataType = {
     .free = NULL,
 };
 
-int swapDataSetupWholeKey(swapData *d, void **datactx) {
-    d->type = &wholeKeySwapDataType;
-    if (datactx) *datactx = NULL;
-    return 0;
+/* ------------------- whole key object meta ----------------------------- */
+int wholeKeyIsHot(objectMeta *om, robj *value) {
+    UNUSED(om);
+    return value != NULL;
 }
 
-/* ------------------- whole key rdb swap -------------------------------- */
-rdbKeyType wholekeyRdbType = {
+objectMetaType wholekeyObjectMetaType = {
+    .encodeObjectMeta = NULL,
+    .decodeObjectMeta = NULL,
+    .objectIsHot = wholeKeyIsHot,
+};
+
+/* ------------------- whole key rdb save -------------------------------- */
+rdbKeySaveType wholekeyRdbSaveType = {
     .save_start = NULL,
     .save = wholekeySave,
     .save_end = NULL,
     .save_deinit = NULL,
-    .load_start = wholekeyRdbLoadStart,
-    .load = wholekeyRdbLoad,
+};
+
+int wholeKeySaveInit(rdbKeySaveData *keydata) {
+    keydata->type = &wholekeyRdbSaveType;
+    keydata->omtype = &wholekeyObjectMetaType;
+    return 0;
+}
+
+int wholekeySave(rdbKeySaveData *keydata, rio *rdb, decodedData *decoded) {
+    robj keyobj = {0};
+
+    serverAssert(decoded->cf == DATA_CF); 
+    initStaticStringObject(keyobj,decoded->key);
+
+    if (rdbSaveKeyHeader(rdb,&keyobj,&keyobj,
+                decoded->rdbtype,
+                keydata->expire) == -1) {
+        return -1;
+    }
+
+    if (rdbWriteRaw(rdb,decoded->rdbraw,
+                sdslen(decoded->rdbraw)) == -1) {
+        return -1;
+    }
+
+    return 0;
+}
+
+/* ------------------- whole key rdb load -------------------------------- */
+rdbKeyLoadType wholekeyLoadType = {
+    .load_start = wholekeyLoadStart,
+    .load = wholekeyLoad,
     .load_end = NULL,
     .load_dbadd = NULL,
     .load_expired = NULL, /* TODO opt: delete saved key in datacf. */
     .load_deinit = NULL,
 };
 
-void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value,
-        long long expire) {
-    rdbKeyDataInitSaveKey(keydata,value,expire);
-    keydata->type = &wholekeyRdbType;
-    keydata->savectx.type = RDB_KEY_TYPE_WHOLEKEY;
-    serverAssert(value == NULL);
+void wholeKeyLoadInit(rdbKeyLoadData *keydata) {
+    keydata->type = &wholekeyLoadType;
+    keydata->omtype = &wholekeyObjectMetaType;
+    keydata->object_type = OBJ_STRING;
 }
 
-int wholekeySave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded) {
-    robj keyobj;
-
-    serverAssert(decoded->cfid == DATA_CF); 
-    initStaticStringObject(keyobj,decoded->key);
-
-    //TODO opt: save key LFU in metaCF
-    if (rdbSaveKeyHeader(rdb,&keyobj,&keyobj,
-                decoded->cf.data.rdbtype,
-                keydata->savectx.expire) == -1) {
-        return -1;
-    }
-
-    if (rdbWriteRaw(rdb,decoded->cf.data.rdbraw,
-                sdslen(decoded->cf.data.rdbraw)) == -1) {
-        return -1;
-    }
-
-    return 0;
-}
-
-void rdbKeyDataInitLoadWholeKey(rdbKeyData *keydata, int rdbtype, redisDb *db,
-        sds key, long long expire, long long now) {
-    rdbKeyDataInitLoadKey(keydata,rdbtype,db,key,expire,now);
-    keydata->type = &wholekeyRdbType;
-    keydata->loadctx.type = RDB_KEY_TYPE_WHOLEKEY;
-}
-
-sds empty_hash_ziplist_verbatim;
-
-void initSwapWholeKey() {
-    robj *emptyhash = createHashObject();
-    empty_hash_ziplist_verbatim = rocksEncodeValRdb(emptyhash);
-    decrRefCount(emptyhash);
-}
-
-static inline int hashZiplistVerbatimIsEmpty(sds verbatim) {
-    return !sdscmp(empty_hash_ziplist_verbatim, verbatim);
-}
-
-int wholekeyRdbLoadStart(struct rdbKeyData *keydata, rio *rdb, int *cf,
+int wholekeyLoadStart(struct rdbKeyLoadData *keydata, rio *rdb, int *cf,
         sds *rawkey, sds *rawval, int *error) {
     UNUSED(rdb);
     *cf = META_CF;
-    *rawkey = rocksEncodeMetaKey(keydata->loadctx.db,keydata->loadctx.key);
-    *rawval = rocksEncodeMetaVal(keydata->loadctx.type,keydata->loadctx.expire,NULL);
+    *rawkey = rocksEncodeMetaKey(keydata->db,keydata->key);
+    *rawval = rocksEncodeMetaVal(keydata->object_type,keydata->expire,NULL);
     *error = 0;
     return 0;
 }
 
-int wholekeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, int *cf,
+int wholekeyLoad(struct rdbKeyLoadData *keydata, rio *rdb, int *cf,
         sds *rawkey, sds *rawval, int *error) {
     *error = RDB_LOAD_ERR_OTHER;
-    int rdbtype = keydata->loadctx.rdbtype;
-    sds verbatim = NULL, key = keydata->loadctx.key;
-    redisDb *db = keydata->loadctx.db;
-
-    serverAssert(rdbtype == RDB_TYPE_STRING);
+    int rdbtype = keydata->rdbtype;
+    sds verbatim = NULL, key = keydata->key;
+    redisDb *db = keydata->db;
 
     verbatim = rdbVerbatimNew((unsigned char)rdbtype);
     if (rdbLoadStringVerbatim(rdb,&verbatim)) goto err;
@@ -388,7 +385,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
     redisDb* db = server.db + 0;
     int error = 0;
 
-    initSwapWholeKey();
+    //initSwapWholeKey();
 
     TEST("wholeKey - SwapAna hot key") {
         void* ctx = NULL;

@@ -209,14 +209,6 @@ const char *strObjectType(int type) {
     }
 }
 
-sds rocksEncodeMetaKey(redisDb *db, sds key) {
-    int dbid = db->id;
-    sds rawkey = sdsnewlen(SDS_NOINIT,sizeof(dbid)+sdslen(key));
-    memcpy(rawkey,&dbid,sizeof(dbid));
-    memcpy(rawkey+sizeof(dbid),key,sdslen(key));
-    return rawkey;
-}
-
 static inline char objectType2Abbrev(int object_type) {
     char abbrevs[] = {'K','L','H','S','Z','M','X'};
     if (object_type >= 0 && object_type < (int)sizeof(abbrevs)) {
@@ -244,14 +236,14 @@ sds rocksEncodeMetaVal(int object_type, long long expire, sds extend) {
 }
 
 /* extend: pointer to rawkey, not allocated. */
-int rocksDecodeMetaVal(sds rawval, int *pobject_type, long long *pexpire,
-        char **pextend, size_t *pextend_len) {
-    char *ptr = rawval;
-    size_t len = sdslen(rawval);
+int rocksDecodeMetaVal(const char *raw, size_t rawlen, int *pobject_type,
+        long long *pexpire, const char **pextend, size_t *pextend_len) {
+    const char *ptr = raw;
+    size_t len = rawlen;
     long long expire;
     int object_type;
 
-    if (sdslen(rawval) < 1 + sizeof(expire)) return -1;
+    if (rawlen < 1 + sizeof(expire)) return -1;
 
     if ((object_type = abbrev2ObjectType(ptr[0])) < 0) return -1;
     ptr++, len--;
@@ -280,6 +272,24 @@ sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey) {
     return rawkey;
 }
 
+int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid,
+        const char **key, size_t *keylen,
+        const char **subkey, size_t *subkeylen) {
+    keylen_t keylen_;
+    if (raw == NULL || rawlen < sizeof(int)+sizeof(keylen_t)) return -1;
+    if (dbid) *dbid = *(int*)raw;
+    raw += sizeof(int), rawlen -= sizeof(int);
+    keylen_ = *(keylen_t*)raw;
+    if (keylen) *keylen = keylen_;
+    raw += sizeof(keylen_t), rawlen -= sizeof(keylen_t);
+    if (key) *key = raw;
+    if (rawlen < keylen_) return -1;
+    raw += keylen_, rawlen -= keylen_;
+    if (subkey) *subkey = raw;
+    if (subkeylen) *subkeylen = rawlen;
+    return 0;
+}
+
 sds rocksEncodeValRdb(robj *value) {
     rio sdsrdb;
     rioInitWithBuffer(&sdsrdb,sdsempty());
@@ -298,7 +308,7 @@ robj *rocksDecodeValRdb(sds raw) {
     return value;
 }
 
-int keyIsHot(robj *value, objectMeta *om) {
+int keyIsHot(objectMeta *om, robj *value) {
     if (value == NULL) return 0;
     if (om == NULL) return 1;
     serverAssert(om->object_type == value->type);

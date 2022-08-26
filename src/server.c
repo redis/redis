@@ -3461,7 +3461,7 @@ void InitServerLast() {
     parallelSyncInit(server.ps_parallism_rdb);
     swapThreadsInit();
     swapInit();
-    initSwapWholeKey();
+    // initSwapWholeKey(); //TODO remove
     initThreadedIO();
     set_jemalloc_max_bg_threads(server.jemalloc_max_bg_threads);
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);

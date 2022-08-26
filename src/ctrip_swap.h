@@ -28,15 +28,14 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+
 #include "server.h"
 #include <rocksdb/c.h>
 #include "atomicvar.h"
 
-
-/* --- Cmd --- */
-#define REQUEST_LEVEL_SVR  0
-#define REQUEST_LEVEL_DB   1
-#define REQUEST_LEVEL_KEY  2
+#define META_CF 0
+#define DATA_CF 1
+#define SCORE_CF 2
 
 /* Delete key in rocksdb after right after swap in. */
 #define SWAP_IN_DEL (1U<<0)
@@ -56,6 +55,10 @@
 #define SWAP_FIN_SET_DIRTY (1U<<10)
 
 
+/* --- Cmd --- */
+#define REQUEST_LEVEL_SVR  0
+#define REQUEST_LEVEL_DB   1
+#define REQUEST_LEVEL_KEY  2
 
 typedef void (*freefunc)(void *);
 
@@ -135,10 +138,19 @@ static inline const char *swapIntentionName(int intention) {
   return name;
 }
 
+struct objectMeta;
+
+typedef struct objectMetaType {
+  sds (*encodeObjectMeta) (struct objectMeta *object_meta);
+  int (*decodeObjectMeta) (const char* extend, size_t extend_len, struct objectMeta **object_meta);
+  int (*objectIsHot)(struct objectMeta *object_meta, robj *value);
+} objectMetaType;
+
 /* SwapData represents key state when swap start. It is stable during
  * key swapping, misc dynamic data are save in dataCtx. */
 typedef struct swapData {
   struct swapDataType *type;
+  struct objectMetaType *omtype;
   redisDb *db;
   robj *key;
   robj *value;
@@ -167,13 +179,11 @@ typedef struct swapDataType {
   robj *(*createOrMergeObject)(struct swapData *data, robj *decoded, void *datactx);
   int (*cleanObject)(struct swapData *data, void *datactx);
   void (*free)(struct swapData *data, void *datactx);
-  sds (*encodeObjectMeta) (struct swapData *data);
-  int (*decodeObjectMeta) (struct swapData *data, char* extend, size_t extend_len, void **object_meta);
 } swapDataType;
 
 swapData *createSwapData(redisDb *db, robj *key, robj *value);
 int swapDataSetupMeta(swapData *d, int object_type, long long expire, OUT void **datactx);
-void swapDataSetObjectMeta(swapData *d, void *object_meta);
+void swapDataSetObjectMeta(swapData *d, struct objectMeta *object_meta);
 int swapDataAlreadySetup(swapData *d);
 int swapDataAna(swapData *d, struct keyRequest *key_request, int *intention, uint32_t *intention_flag, void *datactx);
 sds swapDataEncodeMetaKey(swapData *d);
@@ -571,6 +581,9 @@ int submitExpireClientRequest(client *c, robj *key);
 /* Rocksdb engine */
 typedef struct rocks {
     rocksdb_t *db;
+    rocksdb_options_t *meta_cf_opts;
+    rocksdb_options_t *data_cf_opts;
+    rocksdb_options_t *score_cf_opts;
     rocksdb_column_family_handle_t *default_cf;
     rocksdb_column_family_handle_t *meta_cf;
     rocksdb_column_family_handle_t *score_cf;
@@ -666,6 +679,7 @@ int swapRateLimited(client *c);
 #define ITER_NOTIFY_BATCH 32
 
 typedef struct iterResult {
+    int cf;
     sds rawkey;
     unsigned char type;
     sds rawval;
@@ -689,7 +703,8 @@ typedef struct rocksIter{
     int io_thread_exited;
     pthread_mutex_t io_thread_exit_mutex;
     bufferedIterCompleteQueue *buffered_cq;
-    rocksdb_iterator_t *rocksdb_iter; //TODO remove
+    rocksdb_column_family_handle_t *meta_cf;
+    rocksdb_column_family_handle_t *data_cf;
     rocksdb_iterator_t *data_iter;
     rocksdb_iterator_t *meta_iter;
     rocksdb_t* checkpoint_db;
@@ -698,11 +713,72 @@ typedef struct rocksIter{
 rocksIter *rocksCreateIter(struct rocks *rocks, redisDb *db);
 int rocksIterSeekToFirst(rocksIter *it);
 int rocksIterNext(rocksIter *it);
-void rocksIterKeyTypeValue(rocksIter *it, int *cf, sds *rawkey, unsigned char *type, sds *rawval);
+void rocksIterCfKeyTypeValue(rocksIter *it, int *cf, sds *rawkey, unsigned char *type, sds *rawval);
 void rocksReleaseIter(rocksIter *it);
 void rocksIterGetError(rocksIter *it, char **error);
 
-/* ctrip rdb load swap data */
+/* rdb save. */ 
+#define DEFAULT_HASH_FIELD_SIZE 256
+
+typedef struct decodedResult {
+  int cf;
+  int dbid;
+  sds key;
+  void *reserved[6];
+} decodedResult;
+
+typedef struct decodedMeta {
+  int cf;
+  int dbid;
+  sds key;
+  int object_type;
+  long long expire;
+  sds extend;
+} decodedMeta;
+
+typedef struct decodedData {
+  int cf;
+  int dbid;
+  sds key;
+  sds subkey;
+  int rdbtype;
+  sds rdbraw;
+} decodedData;
+
+//void decodeResultDeinit(decodeResult *decoded);
+
+struct rdbKeySaveData;
+
+typedef struct rdbKeySaveType {
+  int (*save_setup)(struct rdbKeySaveData *keydata, rio *rdb);
+  int (*save_start)(struct rdbKeySaveData *keydata, rio *rdb);
+  int (*save)(struct rdbKeySaveData *keydata, rio *rdb, decodedData *decoded);
+  int (*save_end)(struct rdbKeySaveData *keydata, int save_result);
+  void (*save_deinit)(struct rdbKeySaveData *keydata);
+} rdbKeySaveType;
+
+typedef struct rdbKeySaveData {
+  rdbKeySaveType *type;
+  objectMetaType *omtype;
+  robj *key; /* own */
+  robj *value; /* ref: incrRefcount will cause cow */
+  objectMeta *object_meta; /* ref */
+  long long expire;
+  int saved;
+} rdbKeySaveData;
+
+/* rdb save */
+int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags);
+int rdbSaveKeyHeader(rio *rdb, robj *key, robj *evict, unsigned char rdbtype, long long expiretime);
+int rdbKeySaveDataInit(rdbKeySaveData *keydata, redisDb *db, decodedMeta *dm);
+void rdbKeySaveDataDeinit(rdbKeySaveData *keydata);
+int rdbKeySaveStart(struct rdbKeySaveData *keydata, rio *rdb);
+int rdbKeySave(struct rdbKeySaveData *keydata, rio *rdb, decodedData *d);
+int rdbKeySaveEnd(struct rdbKeySaveData *keydata, int save_result);
+int wholeKeySaveInit(rdbKeySaveData *keydata);
+int wholekeySave(rdbKeySaveData *keydata,  rio *rdb, decodedData *d);
+
+/* rdb load */
 #define RDB_LOAD_BATCH_COUNT 50
 #define RDB_LOAD_BATCH_CAPACITY  (4*1024*1024)
 
@@ -723,137 +799,51 @@ typedef struct ctripRdbLoadCtx {
 void evictStartLoading(void);
 void evictStopLoading(int success);
 
-#define META_CF 0
-#define DATA_CF 1
-#define SCORE_CF 2
+struct rdbKeyLoadData;
 
-/* rdb key type. */ 
-#define DEFAULT_HASH_FIELD_SIZE 256
+typedef struct rdbKeyLoadType {
+  int (*load_start)(struct rdbKeyLoadData *keydata, rio *rdb, OUT int *cf, OUT sds *rawkey, OUT sds *rawval, OUT int *error);
+  int (*load)(struct rdbKeyLoadData *keydata, rio *rdb, OUT int *cf, OUT sds *rawkey, OUT sds *rawval, OUT int *error);
+  int (*load_end)(struct rdbKeyLoadData *keydata,rio *rdb);
+  int (*load_dbadd)(struct rdbKeyLoadData *keydata, redisDb *db);
+  void (*load_expired)(struct rdbKeyLoadData *keydata);
+  int (*load_deinit)(struct rdbKeyLoadData *keydata);
+} rdbKeyLoadType;
 
-#define RDB_KEY_TYPE_WHOLEKEY 0
-#define RDB_KEY_TYPE_BIGHASH 1
-
-typedef struct decodeResult {
-  int cfid;
-  int dbid;
-  sds key;
-  sds subkey;
-  union {
-    struct {
-      int object_type;
-      long long expire;
-      sds extend;
-    } meta;
-    struct {
-      int rdbtype;
-      sds rdbraw;
-    } data;
-  } cf;
-} decodeResult;
-
-void decodeResultDeinit(decodeResult *decoded);
-
-struct rdbKeyData;
-typedef struct rdbKeyType {
-    int (*save_start)(struct rdbKeyData *keydata, rio *rdb);
-    int (*save)(struct rdbKeyData *keydata, rio *rdb, decodeResult *decoded);
-    int (*save_end)(struct rdbKeyData *keydata, int save_result);
-    void (*save_deinit)(struct rdbKeyData *keydata);
-    int (*load_start)(struct rdbKeyData *keydata, rio *rdb, OUT int *cf, OUT sds *rawkey, OUT sds *rawval, OUT int *error);
-    int (*load)(struct rdbKeyData *keydata, rio *rdb, OUT int *cf, OUT sds *rawkey, OUT sds *rawval, OUT int *error);
-    int (*load_end)(struct rdbKeyData *keydata,rio *rdb);
-    int (*load_dbadd)(struct rdbKeyData *keydata, redisDb *db);
-    void (*load_expired)(struct rdbKeyData *keydata);
-    int (*load_deinit)(struct rdbKeyData *keydata);
-} rdbKeyType;
-
-typedef struct rdbKeyData {
-    rdbKeyType *type;
-    struct {
-        int type;
-        robj *value; /* ref: incrRefcount will cause cow */
-        long long expire;
-        // long long now;
-        union {
-          struct {
-            int nop;
-          } wholekey;
-          struct {
-            objectMeta *meta; /* ref */
-            robj *key; /* own */
-            int saved;
-          } bighash;
-        };
-    } savectx;
-    struct {
-        redisDb *db;
-        long long expire;
-        long long now;
-        int type;
-        int rdbtype;
-        sds key; /* ref */
-        int nfeeds;
-        union {
-          struct {
-            int nop;
-          } wholekey;
-          struct {
-            int hash_nfields;
-            int scanned_fields;
-            objectMeta *meta; /* moved (to db.meta) */
-          } bighash;
-        };
-    } loadctx;
-} rdbKeyData;
-
-/* rdb save */
-int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags);
-void initSwapWholeKey();
-
-int rdbSaveKeyHeader(rio *rdb, robj *key, robj *evict, unsigned char rdbtype, long long expiretime);
-void rdbKeyDataInitSaveKey(rdbKeyData *keydata, robj *value, long long expire);
-int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, decodeResult *decoded);
-void rdbKeyDataDeinitSave(rdbKeyData *keydata);
-
-int rdbKeySaveStart(struct rdbKeyData *keydata, rio *rdb);
-int rdbKeySave(struct rdbKeyData *keydata, rio *rdb, decodeResult *d);
-int rdbKeySaveEnd(struct rdbKeyData *keydata, int save_result);
-/* whole key */
-void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value, long long expire);
-int wholekeySaveStart(rdbKeyData *keydata, rio *rdb);
-int wholekeySave(rdbKeyData *keydata,  rio *rdb, decodeResult *d);
-int wholekeySaveEnd(rdbKeyData *keydata, int save_result); 
-/* big hash */
-void rdbKeyDataInitSaveBigHash(rdbKeyData *keydata, robj *value, robj *evict, objectMeta *meta, long long expire, sds keystr);
-int bighashSaveStart(rdbKeyData *keydata, rio *rdb);
-int bighashSave(rdbKeyData *keydata,  rio *rdb, decodeResult *d);
-int bighashSaveEnd(rdbKeyData *keydata, int save_result); 
-void bighashSaveDeinit(rdbKeyData *keydata);
+typedef struct rdbKeyLoadData {
+    rdbKeyLoadType *type;
+    objectMetaType *omtype;
+    redisDb *db;
+    sds key; /* ref */
+    long long expire;
+    long long now;
+    int rdbtype;
+    int object_type;
+    int nfeeds;
+    int total_fields;
+    int scanned_fields;
+} rdbKeyLoadData;
 
 static inline sds rdbVerbatimNew(unsigned char rdbtype) {
     return sdsnewlen(&rdbtype,1);
 }
-int ctripRdbLoadObject(int rdbtype, rio *rdb, redisDb *db, sds key, long long expire, long long now, rdbKeyData *keydata);
-robj *rdbKeyLoadGetObject(rdbKeyData *keydata);
-int rdbKeyDataInitLoad(rdbKeyData *keydata, rio *rdb, int rdbtype, redisDb *db, sds key, long long expire, long long now);
-void rdbKeyDataDeinitLoad(rdbKeyData *keydata);
-void rdbKeyDataInitLoadKey(rdbKeyData *keydata, int rdbtype, redisDb *db, sds key, long long expire, long long now);
-int rdbKeyLoadStart(struct rdbKeyData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
-int rdbKeyLoad(struct rdbKeyData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
-int rdbKeyLoadEnd(struct rdbKeyData *keydata, rio *rdb);
-int rdbKeyLoadDbAdd(struct rdbKeyData *keydata, redisDb *db);
-void rdbKeyLoadExpired(struct rdbKeyData *keydata);
-/* mem key */
-void rdbKeyDataInitLoadMemkey(rdbKeyData *keydata, int rdbtype, sds key);
-int memkeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey, sds *rawval, int *error);
-int memkeyRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db);
-void memkeyRdbLoadExpired(struct rdbKeyData *keydata);
-/* whole key */
-void rdbKeyDataInitLoadWholeKey(rdbKeyData *keydata, int rdbtype, redisDb *db, sds key,long long expire, long long now);
-int wholekeyRdbLoadStart(struct rdbKeyData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
-int wholekeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
-int wholekeyRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db);
-void wholekeyRdbLoadExpired(struct rdbKeyData *keydata);
+
+int ctripRdbLoadObject(int rdbtype, rio *rdb, redisDb *db, sds key, long long expire, long long now, rdbKeyLoadData *keydata);
+robj *rdbKeyLoadGetObject(rdbKeyLoadData *keydata);
+int rdbKeyLoadDataInit(rdbKeyLoadData *keydata, int rdbtype, redisDb *db, sds key, long long expire, long long now);
+void rdbKeyLoadDataDeinit(rdbKeyLoadData *keydata);
+void rdbKeyLoadDataSetup(rdbKeyLoadData *keydata, int rdbtype, redisDb *db, sds key, long long expire, long long now);
+int rdbKeyLoadStart(struct rdbKeyLoadData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
+int rdbKeyLoad(struct rdbKeyLoadData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
+int rdbKeyLoadEnd(struct rdbKeyLoadData *keydata, rio *rdb);
+int rdbKeyLoadDbAdd(struct rdbKeyLoadData *keydata, redisDb *db);
+void rdbKeyLoadExpired(struct rdbKeyLoadData *keydata);
+
+void wholeKeyLoadInit(rdbKeyLoadData *keydata);
+int wholekeyLoadStart(struct rdbKeyLoadData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
+int wholekeyLoad(struct rdbKeyLoadData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
+int wholekeyLoadDbAdd(struct rdbKeyLoadData *keydata, redisDb *db);
+void wholekeyLoadExpired(struct rdbKeyLoadData *keydata);
 
 /* --- Util --- */
 #define ROCKS_VAL_TYPE_LEN 1
@@ -886,11 +876,13 @@ sds rocksEncodeValRdb(robj *value);
 int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *klen);
 int rocksDecodeSubkey(const char *raw, size_t rawlen, uint64_t *version, const char **key, size_t *klen, const char **sub, size_t *slen);
 robj *rocksDecodeValRdb(sds raw);
-sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey);
 
-sds rocksEncodeMetaKey(redisDb *db, sds key);
+#define rocksEncodeMetaKey(db,key)  rocksEncodeDataKey(db,key,NULL)
+#define rocksDecodeMetaKey(raw,rawlen,dbid,key,keylen)  rocksDecodeDataKey(raw,rawlen,dbid,key,keylen,NULL,NULL)
+sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey);
+int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid, const char **key, size_t *keylen, const char **subkey, size_t *subkeylen);
 sds rocksEncodeMetaVal(int object_type, long long expire, sds extend);
-int rocksDecodeMetaVal(sds rawval, int *object_type, long long *expire, char **extend, size_t *extend_len);
+int rocksDecodeMetaVal(const char* raw, size_t rawlen, int *object_type, long long *expire, const char **extend, size_t *extend_len);
 
 robj *unshareStringValue(robj *value);
 size_t objectEstimateSize(robj *o);
@@ -898,7 +890,7 @@ size_t keyEstimateSize(redisDb *db, robj *key);
 void swapCommand(client *c);
 void expiredCommand(client *c);
 const char *strObjectType(int type);
-int keyIsHot(robj *value, objectMeta *om);
+int keyIsHot(objectMeta *om, robj *value);
 
 
 #ifdef REDIS_TEST

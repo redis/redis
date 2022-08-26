@@ -1297,7 +1297,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
             initStaticStringObject(key,keystr);
             /* cold or warm bighash will be saved later in rdbSaveRocks. */
-            if (!keyIsHot(o,om)) continue;
+            if (!keyIsHot(om,o)) continue;
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
             rdbSaveProgress(rdb,rdbflags);
@@ -2673,7 +2673,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             goto eoferr;
 
         /* Read value */
-        rdbKeyData _keydata, *keydata = &_keydata;
+        rdbKeyLoadData _keydata, *keydata = &_keydata;
         if (server.swap_mode == SWAP_MODE_MEMORY) {
             val = rdbLoadObject(type,rdb,key,&error);
         } else {
@@ -2708,7 +2708,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
              * b) expire/lfu/object meta already persisted to metaCF. */
             initStaticStringObject(keyobj,key);
             moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
-            rdbKeyDataDeinitLoad(keydata);
+            rdbKeyLoadDataDeinit(keydata);
         } else if (iAmMaster() &&
             !(rdbflags&RDBFLAGS_AOF_PREAMBLE) &&
             expiretime != -1 && expiretime < now)

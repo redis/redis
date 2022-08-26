@@ -196,8 +196,8 @@ inline void swapDataFree(swapData *d, void *datactx) {
 
 sds swapDataEncodeMetaVal(swapData *d) {
     sds extend = NULL;
-    if (d->type->encodeObjectMeta)
-        extend = d->type->encodeObjectMeta(d);
+    if (d->omtype->encodeObjectMeta)
+        extend = d->omtype->encodeObjectMeta(d->object_meta);
     return rocksEncodeMetaVal(d->object_type,d->expire,extend);
 }
 
@@ -222,25 +222,25 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
     return 0;
 }
 
-void swapDataSetObjectMeta(swapData *d, void *object_meta) {
+void swapDataSetObjectMeta(swapData *d, objectMeta *object_meta) {
     d->object_meta = object_meta;
 }
 
 int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
-    char *extend;
+    const char *extend;
     size_t extend_len;
     int retval = 0, object_type;
     long long expire;
-    void *object_meta = NULL;
+    objectMeta *object_meta = NULL;
 
-    retval = rocksDecodeMetaVal(rawval,&object_type,&expire,&extend,&extend_len);
+    retval = rocksDecodeMetaVal(rawval,sdslen(rawval),&object_type,&expire,&extend,&extend_len);
     if (retval) return retval;
 
     retval = swapDataSetupMeta(d,object_type,expire,datactx);
     if (retval) return retval;
 
-    if (d->type->decodeObjectMeta) {
-        retval = d->type->decodeObjectMeta(d,extend,extend_len,&object_meta);
+    if (d->omtype->decodeObjectMeta) {
+        retval = d->omtype->decodeObjectMeta(extend,extend_len,&object_meta);
         if (retval) return retval;
     }
 
