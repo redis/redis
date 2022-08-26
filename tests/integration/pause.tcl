@@ -21,13 +21,13 @@ start_server {} {
     set cmd2 [redisbenchmark $master_host $master_port " -t set -n 2200 -r 100000000 -d 20000 -P 20"]
 
     foreach configVal [list $FEATURE_DISABLED $FEATURE_ENABLED] {
-        # Restart && and fill up DB, with many small items up-to used_mem of 77MB
-        common_bench_setup $cmd1
-
         # Configure maxmemory to be tightly upper-bound to DB size, (~80.4MB)
         r config set maxmemory 84000000
         r config set client-pause-write-during-oom $configVal
         r config set maxmemory-policy allkeys-random
+
+        # Restart && and fill up DB, with many small items up-to used_mem of 77MB
+        common_bench_setup $cmd1
 
         # FLUSHALL expected to run slow in background due to small items.
         r flushall async
@@ -36,7 +36,6 @@ start_server {} {
         exec {*}$cmd2
 
         set evicted($configVal) [s evicted_keys]
-        
     }
 
     # In an attempt to avoid from flaky test, we shall apply the following logic:
