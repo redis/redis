@@ -5600,7 +5600,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "aof_base_size:%lld\r\n"
                 "aof_pending_rewrite:%d\r\n"
                 "aof_buffer_length:%zu\r\n"
-                "aof_pending_bio_fsync:%llu\r\n"
+                "aof_pending_bio_fsync:%lu\r\n"
                 "aof_delayed_fsync:%lu\r\n",
                 (long long) server.aof_current_size,
                 (long long) server.aof_rewrite_base_size,
