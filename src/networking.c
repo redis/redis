@@ -3896,11 +3896,7 @@ static void pauseClientsByClient(mstime_t endTime, int isPauseClientAll) {
         if (p->paused_actions & PAUSE_ACTION_CLIENT_ALL)
             actions = PAUSE_ACTIONS_CLIENT_ALL_SET;
     }
-
-    /* If currently configured end time bigger than new one, then keep it */
-    if (p->end > endTime)
-        endTime = p->end;
-
+    
     pauseActions(PAUSE_BY_CLIENT_COMMAND, endTime, actions);
 }
 
@@ -3915,11 +3911,15 @@ static void pauseClientsByClient(mstime_t endTime, int isPauseClientAll) {
  * failover procedure implemented by CLUSTER FAILOVER.
  *
  * The function always succeed, even if there is already a pause in progress.
- * The new values of a given 'purpose' will override the old ones */
+ * The new paused_actions of a given 'purpose' will override the old ones and
+ * end time will be updated if new end time is bigger than currently configured */
 void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions) {
     /* Manage pause type and end time per pause purpose. */
     server.client_pause_per_purpose[purpose].paused_actions = actions;
-    server.client_pause_per_purpose[purpose].end = end;
+
+    /* If currently configured end time bigger than new one, then keep it */
+    if (server.client_pause_per_purpose[purpose].end < end)
+        server.client_pause_per_purpose[purpose].end = end;
 
     updatePausedActions();
 
@@ -3946,7 +3946,7 @@ uint32_t isPausedActions(uint32_t actions_bitmask) {
 
 /* Returns bitmask of paused actions */
 uint32_t isPausedActionsWithUpdate(uint32_t actions_bitmask) {
-    if (!(server.paused_actions & actions_bitmask)) return 0;  // common-flow
+    if (!(server.paused_actions & actions_bitmask)) return 0;
     updatePausedActions();
     return (server.paused_actions & actions_bitmask);
 }
