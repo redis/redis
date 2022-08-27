@@ -292,10 +292,7 @@ struct redisCommandArg CLUSTER_COUNT_FAILURE_REPORTS_Args[] = {
 #define CLUSTER_COUNTKEYSINSLOT_History NULL
 
 /* CLUSTER COUNTKEYSINSLOT tips */
-const char *CLUSTER_COUNTKEYSINSLOT_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_COUNTKEYSINSLOT_tips NULL
 
 /* CLUSTER COUNTKEYSINSLOT argument table */
 struct redisCommandArg CLUSTER_COUNTKEYSINSLOT_Args[] = {
