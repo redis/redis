@@ -70,14 +70,18 @@ static inline int connHasRefs(connection *conn) {
 }
 
 /* Helper for connection implementations to call handlers:
- * 1. Increment refs to protect the connection.
- * 2. Execute the handler (if set).
- * 3. Decrement refs and perform deferred close, if refs==0.
+ * 1. Protect the connection and execute the handler (if set).
+ *    1a. Increment refs to protect the connection.
+ *    1b. Execute the handler.
+ *    1c. Decrement refs.
+ * 2. Perform deferred close, if refs==0.
  */
 static inline int callHandler(connection *conn, ConnectionCallbackFunc handler) {
-    connIncrRefs(conn);
-    if (handler) handler(conn);
-    connDecrRefs(conn);
+    if (handler) {
+        connIncrRefs(conn);
+        handler(conn);
+        connDecrRefs(conn);
+    }
     if (conn->flags & CONN_FLAG_CLOSE_SCHEDULED) {
         if (!connHasRefs(conn)) connClose(conn);
         return 0;
