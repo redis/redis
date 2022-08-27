@@ -1,17 +1,21 @@
 source tests/support/benchmark.tcl
 
-start_server {} {
+start_server {tags {"external:skip"}} {
   set master_host [srv 0 host]
   set master_port [srv 0 port]
 
   test {Test client-pause-write-during-oom} {
     # Scenario:
-    # This test fills up DB with many small items, configures tight maxmemory,
-    # and simulates FLUSHALL ASYNC that run slowly in the background due to small
-    # items. Whereas the next commands to follow, reconstruct DB quickly with many
-    # big items to store. It is expected that when client-pause-write-during-oom is 
-    # is configured won't be eviction or only few, unlike when when feature is 
-    # disabled 
+    # When client-pause-write-during-oom is configured, if OOM and available pending 
+    # lazy-free jobs in background, then (clients are paused and) eviction is 
+    # suspended. The test will:
+    # - Fill up DB with many small items and configures tight maxmemory
+    # - FLUSHALL ASYNC  (slow background operation by lazyfree thread)    
+    # - Fill up DB with many big items (quick operation by main thread)
+    #  
+    # It is expected that filling up DB for the second time will be quicker than the
+    # FLUSHALL ASYNC release and will cause to OOM, and if client-pause-write-during-oom
+    # is configured then there won't be any eviction or only few 
 
     set FEATURE_DISABLED no
     set FEATURE_ENABLED yes
@@ -29,6 +33,9 @@ start_server {} {
         # Restart && and fill up DB, with many small items up-to used_mem of 77MB
         common_bench_setup $cmd1
 
+        # reset evicted_keys counter
+        r config resetstat
+        
         # FLUSHALL expected to run slow in background due to small items.
         r flushall async
 
@@ -47,6 +54,11 @@ start_server {} {
     } else {    
         assert_lessthan [expr 4 * $evicted($FEATURE_ENABLED)] $evicted($FEATURE_DISABLED)
     }
+    
+    # Verify that when feature is disabled the test counted evictions
+    # If test will become flaky, as some machine\executions might run FLUSHALL releases
+    # faster than DB reconstructions, then consider comment this line
+    assert_morethan $evicted($FEATURE_DISABLED) 0 
     
   }
 }
