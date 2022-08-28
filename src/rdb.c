@@ -1268,7 +1268,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         //FIXME handle cold
-        if (dictSize(db->dict) == 0) continue;
+        // if (dictSize(db->dict) == 0) continue;
 
         /* Write the SELECT DB opcode */
         if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
@@ -2549,7 +2549,8 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            // FIXME handle cold
+            if (server.swap_mode == SWAP_MODE_MEMORY)
+                dictExpand(db->dict,db_size);
             dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
@@ -2673,12 +2674,15 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             goto eoferr;
 
         /* Read value */
-        rdbKeyLoadData _keydata, *keydata = &_keydata;
-        if (server.swap_mode == SWAP_MODE_MEMORY) {
-            val = rdbLoadObject(type,rdb,key,&error);
-        } else {
-            /*could be evict or value */
+        if (server.swap_mode != SWAP_MODE_MEMORY) {
+            rdbKeyLoadData _keydata, *keydata = &_keydata;
             error = ctripRdbLoadObject(type,rdb,db,key,expiretime,now,keydata);
+            rdbKeyLoadDataDeinit(keydata);
+        }
+
+        if (server.swap_mode == SWAP_MODE_MEMORY ||
+                error == RDB_LOAD_ERR_SWAP_UNSUPPORTED) {
+            val = rdbLoadObject(type,rdb,key,&error);
         }
 
         /* Check if the key already expired. This function is used when loading
@@ -2702,13 +2706,14 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 sdsfree(key);
                 goto eoferr;
             }
-        } else if (server.swap_mode != SWAP_MODE_MEMORY) {
+        } else if (server.swap_mode != SWAP_MODE_MEMORY &&
+                error != RDB_LOAD_ERR_SWAP_UNSUPPORTED) {
             robj keyobj;
-            /* a) Expired keys handled later
-             * b) expire/lfu/object meta already persisted to metaCF. */
+            /* swap_mode does not:
+             * a) handle expired keys, because expired keys handled later.
+             * b) add key to db.dict, because keys are loaded as cold. */
             initStaticStringObject(keyobj,key);
             moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
-            rdbKeyLoadDataDeinit(keydata);
         } else if (iAmMaster() &&
             !(rdbflags&RDBFLAGS_AOF_PREAMBLE) &&
             expiretime != -1 && expiretime < now)

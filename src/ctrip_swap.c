@@ -28,6 +28,7 @@
 
 #include "ctrip_swap.h"
 
+
 list *clientRenewRequestLocks(client *c) {
     list *old = c->swap_locks;
     c->swap_locks = listCreate();
@@ -219,11 +220,6 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
 
     data = createSwapData(db,key,value);
-    if (data == NULL) {
-        reason = "data not support swap";
-        reason_num = NOSWAP_REASON_KEYNOTSUPPORT;
-        goto noswap;
-    }
 
     if (value == NULL) {
         submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
@@ -231,10 +227,16 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
         return C_OK;
     }
 
-    object_meta = lookupMeta(db,key);
     expire = getExpire(db,key);
 
-    swapDataSetupMeta(data,value->type,expire,datactx);
+    retval = swapDataSetupMeta(data,value->type,expire,datactx);
+    if (retval == SWAP_DATA_UNSUPPORTED) {
+        reason = "data not support swap";
+        reason_num = NOSWAP_REASON_KEYNOTSUPPORT;
+        goto noswap;
+    }
+
+    object_meta = lookupMeta(db,key);
     swapDataSetObjectMeta(data,object_meta);
 
     swapCtxSetSwapData(ctx,data,datactx);
@@ -430,7 +432,8 @@ int swapTest(int argc, char **argv, int accurate) {
   result += swapDataTest(argc, argv, accurate);
   result += swapDataWholeKeyTest(argc, argv, accurate);
   result += swapObjectTest(argc, argv, accurate);
-  /* result += swapRdbTest(argc, argv, accurate); */
+  result += swapRdbTest(argc, argv, accurate);
+  result += swapIterTest(argc, argv, accurate);
   return result;
 }
 #endif

@@ -99,11 +99,12 @@ NULL
             addReplyError(c,"Key type invalid");
             return;
         } else if (type >= 'A' && type <= 'Z' && c->argc == 4) {
-            rawkey = rocksEncodeKey(type, c->argv[3]->ptr);
+            //TODO FIXME
+            /* rawkey = rocksEncodeKey(type, c->argv[3]->ptr); */
         } else if (type >= 'a' && type <= 'z' && c->argc == 6 &&
                 isSdsRepresentableAsLongLong(c->argv[3]->ptr,&version) == C_OK) {
-            rawkey = rocksEncodeSubkey(type, (uint64_t)version,
-                    (sds)c->argv[4]->ptr, (sds)c->argv[5]->ptr);
+            //TODO FIXME
+            //rawkey = rocksEncodeSubkey(type, (uint64_t)version, (sds)c->argv[4]->ptr, (sds)c->argv[5]->ptr);
         } else {
             addReply(c, shared.syntaxerr);
             return;
@@ -119,16 +120,16 @@ NULL
             addReplyError(c, "Invalid raw key.");
             return;
         } else if (raw[0] >= 'A' && raw[0] <= 'Z') {
-            if ((type = rocksDecodeKey(raw,sdslen(raw),&key,&klen)) < 0) {
-                addReplyError(c, "Invalid raw key.");
-                return;
-            }
+            /* if ((type = rocksDecodeKey(raw,sdslen(raw),&key,&klen)) < 0) { */
+                /* addReplyError(c, "Invalid raw key."); */
+                /* return; */
+            /* } */
         } else if (raw[0] >= 'a' && raw[0] <= 'z') {
-            if ((type = rocksDecodeSubkey(raw,sdslen(raw),&version,
-                            &key,&klen,&sub,&slen)) < 0) {
-                addReplyError(c, "Invalid raw key.");
-                return;
-            }
+            /* if ((type = rocksDecodeSubkey(raw,sdslen(raw),&version, */
+                            /* &key,&klen,&sub,&slen)) < 0) { */
+                /* addReplyError(c, "Invalid raw key."); */
+                /* return; */
+            /* } */
         } else {
             addReplyError(c, "Invalid raw key.");
             return;

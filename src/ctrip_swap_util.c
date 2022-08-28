@@ -30,118 +30,6 @@
 
 typedef unsigned int keylen_t;
 
-int rocksGetObjectType(unsigned char enc_type) {
-    switch (enc_type) {
-    case ENC_TYPE_STRING: return OBJ_STRING;
-    case ENC_TYPE_LIST: return OBJ_LIST;
-    case ENC_TYPE_SET: return OBJ_SET;
-    case ENC_TYPE_ZSET: return OBJ_ZSET;
-    case ENC_TYPE_HASH: return OBJ_HASH;
-    case ENC_TYPE_HASH_SUB: return OBJ_HASH;
-    case ENC_TYPE_MODULE: return OBJ_MODULE;
-    case ENC_TYPE_STREAM: return OBJ_STREAM;
-    default: return -1;
-    }
-}
-
-static inline char rocksGetKeyEncType(int obj_type) {
-    switch (obj_type) {
-    case OBJ_STRING : return ENC_TYPE_STRING  ;
-    case OBJ_LIST   : return ENC_TYPE_LIST    ;
-    case OBJ_SET    : return ENC_TYPE_SET     ;
-    case OBJ_ZSET   : return ENC_TYPE_ZSET    ;
-    case OBJ_HASH   : return ENC_TYPE_HASH    ;
-    case OBJ_MODULE : return ENC_TYPE_MODULE  ;
-    case OBJ_STREAM : return ENC_TYPE_STREAM  ;
-    default         : return ENC_TYPE_UNKNOWN ;
-    }
-}
-
-static inline char rocksGetSubkeyEncType(int obj_type) {
-    switch (obj_type) {
-    case OBJ_LIST   : return ENC_TYPE_LIST_SUB  ; 
-    case OBJ_SET    : return ENC_TYPE_SET_SUB   ; 
-    case OBJ_ZSET   : return ENC_TYPE_ZSET_SUB  ; 
-    case OBJ_HASH   : return ENC_TYPE_HASH_SUB  ; 
-    case OBJ_MODULE : return ENC_TYPE_MODULE_SUB; 
-    case OBJ_STREAM : return ENC_TYPE_STREAM_SUB; 
-    default         : return ENC_TYPE_UNKNOWN_SUB;
-    }
-}
-
-unsigned char rocksGetEncType(int obj_type, int big) {
-    return big ? rocksGetSubkeyEncType(obj_type) : rocksGetKeyEncType(obj_type);
-}
-
-unsigned char rocksGetObjectEncType(robj *o) {
-    return rocksGetEncType(o->type,o->big);
-}
-
-sds rocksEncodeKey(unsigned char enc_type, sds key) {
-    sds rawkey = sdsnewlen(SDS_NOINIT,1+sdslen(key));
-    rawkey[0] = enc_type;
-    memcpy(rawkey+1, key, sdslen(key));
-    return rawkey;
-}
-
-sds rocksEncodeSubkey(unsigned char enc_type, uint64_t version, sds key, sds subkey) {
-    size_t subkeylen = subkey ? sdslen(subkey) : 0;
-    size_t rawkeylen = 1+sizeof(version)+sizeof(keylen_t)+sdslen(key)+subkeylen;
-    sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen);
-            
-    char *ptr = rawkey;
-    keylen_t keylen = (keylen_t)sdslen(key);
-    ptr[0] = enc_type, ptr++;
-    memcpy(ptr, &version, sizeof(version)), ptr += sizeof(version);
-    memcpy(ptr, &keylen, sizeof(keylen_t)), ptr += sizeof(keylen_t);
-    memcpy(ptr, key, sdslen(key)), ptr += sdslen(key);
-    if (subkey) {
-        memcpy(ptr, subkey, sdslen(subkey)), ptr += sdslen(subkey);
-    }
-    return rawkey;
-}
-
-int rocksDecodeKey(const char *raw, size_t rawlen, const char **key,
-        size_t *klen) {
-    int obj_type;
-    if (rawlen < 2) return -1;
-    if ((obj_type = rocksGetObjectType(raw[0])) < 0) return -1;
-    raw++, rawlen--;
-    if (key) *key = raw;
-    if (klen) *klen = rawlen;
-    return obj_type;
-}
-
-int rocksDecodeSubkey(const char *raw, size_t rawlen, uint64_t *version,
-        const char **key, size_t *klen, const char **sub, size_t *slen) {
-    int obj_type;
-    keylen_t _klen;
-    uint64_t _version;
-    if (rawlen <= 1+sizeof(uint64_t)+sizeof(keylen_t)) return -1;
-
-    if ((obj_type = rocksGetObjectType(raw[0])) < 0) return -1;
-    raw++, rawlen--;
-
-    _version = *(uint64_t*)raw;
-    if (version) *version = _version;
-    raw += sizeof(uint64_t);
-    rawlen -= sizeof(uint64_t);
-
-    _klen = *(keylen_t*)raw;
-    if (klen) *klen = (size_t)_klen;
-    raw += sizeof(keylen_t);
-    rawlen -= sizeof(keylen_t);
-
-    if (key) *key = raw;
-    raw += _klen;
-    rawlen-= _klen;
-
-    if (rawlen <= 0) return -1;
-    if (sub) *sub = raw;
-    if (slen) *slen = rawlen;
-    return obj_type;
-}
-
 sds objectDump(robj *o) {
     sds repr = sdsempty();
 
@@ -210,7 +98,7 @@ const char *strObjectType(int type) {
 }
 
 static inline char objectType2Abbrev(int object_type) {
-    char abbrevs[] = {'K','L','H','S','Z','M','X'};
+    char abbrevs[] = {'K','L','S','Z','H','M','X'};
     if (object_type >= 0 && object_type < (int)sizeof(abbrevs)) {
         return abbrevs[object_type];
     } else {
@@ -219,8 +107,8 @@ static inline char objectType2Abbrev(int object_type) {
 }
 
 static inline char abbrev2ObjectType(char abbrev) {
-    char abbrevs[] = {'K','L','H','S','Z','M','X'};
-    for (size_t i = 0; i < sizeof(abbrev); i++) {
+    char abbrevs[] = {'K','L','S','Z','H','M','X'};
+    for (size_t i = 0; i < sizeof(abbrevs); i++) {
         if (abbrevs[i] == abbrev) return i;
     }
     return -1;

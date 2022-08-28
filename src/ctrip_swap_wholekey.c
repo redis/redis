@@ -227,6 +227,7 @@ robj *wholeKeyCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) 
 
 int swapDataSetupWholeKey(swapData *d, void **datactx) {
     d->type = &wholeKeySwapDataType;
+    d->omtype = &wholekeyObjectMetaType;
     if (datactx) *datactx = NULL;
     return 0;
 }
@@ -296,8 +297,6 @@ rdbKeyLoadType wholekeyLoadType = {
     .load_start = wholekeyLoadStart,
     .load = wholekeyLoad,
     .load_end = NULL,
-    .load_dbadd = NULL,
-    .load_expired = NULL, /* TODO opt: delete saved key in datacf. */
     .load_deinit = NULL,
 };
 

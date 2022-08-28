@@ -149,16 +149,8 @@ void RIODeinit(RIO *rio) {
 }
 
 static inline rocksdb_column_family_handle_t *rioGetCF(int cf) {
-    switch (cf) {
-    case META_CF:
-        return server.rocks->meta_cf;
-    case DATA_CF:
-        return server.rocks->default_cf;
-    case SCORE_CF:
-        return server.rocks->score_cf;
-    default:
-        return NULL;
-    }
+    serverAssert(cf < CF_COUNT);
+    return server.rocks->cf_handles[cf];
 }
 
 static int doRIOGet(RIO *rio) {
@@ -339,7 +331,7 @@ static int doRIOScan(RIO *rio) {
 static int doRIODeleteRange(RIO *rio) {
     char *err = NULL;
     rocksdb_delete_range_cf(server.rocks->db, server.rocks->wopts,
-            server.rocks->default_cf,
+            server.rocks->cf_handles[DATA_CF],
             rio->delete_range.start_key, sdslen(rio->delete_range.start_key),
             rio->delete_range.end_key, sdslen(rio->delete_range.end_key), &err);
     if (err != NULL) {
@@ -970,11 +962,12 @@ int wholeKeyRocksMetaExists(redisDb *db, robj *key) {
 }
 
 int doRocksdbFlush() {
+    int i;
     char *err = NULL;
     rocksdb_flushoptions_t *flushopts = rocksdb_flushoptions_create();
-    rocksdb_flush_cf(server.rocks->db, flushopts, server.rocks->meta_cf, &err);
-    rocksdb_flush_cf(server.rocks->db, flushopts, server.rocks->default_cf, &err);
-    rocksdb_flush_cf(server.rocks->db, flushopts, server.rocks->score_cf, &err);
+    for (i = 0; i < CF_COUNT; i++) {
+        rocksdb_flush_cf(server.rocks->db, flushopts, server.rocks->cf_handles[i], &err);
+    }
     serverAssert(err == NULL);
     rocksdb_flushoptions_destroy(flushopts);
     return 0;
@@ -1010,7 +1003,8 @@ int swapExecTest(int argc, char *argv[], int accurate) {
         incrRefCount(val1);
         dbAdd(db,key1,val1);
         setExpire(NULL,db,key1,EXPIRE);
-        rocksInit();
+        if (!server.rocks) rocksInit();
+        else rocksReinit();
         initStatsSwap();
     }
 

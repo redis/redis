@@ -33,9 +33,15 @@
 #include <rocksdb/c.h>
 #include "atomicvar.h"
 
-#define META_CF 0
-#define DATA_CF 1
+#define DATA_CF 0
+#define META_CF 1
 #define SCORE_CF 2
+#define CF_COUNT 3
+
+#define data_cf_name "default"
+#define meta_cf_name "meta"
+#define score_cf_name "score"
+extern const char *swap_cf_names[3];
 
 /* Delete key in rocksdb after right after swap in. */
 #define SWAP_IN_DEL (1U<<0)
@@ -129,6 +135,9 @@ void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 #define RDB_KEY_SAVE_NEXT 1
 #define RDB_KEY_SAVE_END 0
 #define RDB_KEY_SAVE_SKIP -1
+
+#define SWAP_DATA_UNSUPPORTED  -1
+#define SWAP_DATA_ERR  -1
 
 static inline const char *swapIntentionName(int intention) {
   const char *name = "?";
@@ -262,6 +271,7 @@ void swapCtxSetData(swapCtx *ctx, MOVE swapData *data, MOVE void *datactx);
 void swapCtxFree(swapCtx *ctx);
 
 extern swapDataType wholeKeySwapDataType;
+extern objectMetaType wholekeyObjectMetaType;
 
 struct objectMeta;
 
@@ -581,14 +591,9 @@ int submitExpireClientRequest(client *c, robj *key);
 /* Rocksdb engine */
 typedef struct rocks {
     rocksdb_t *db;
-    rocksdb_options_t *meta_cf_opts;
-    rocksdb_options_t *data_cf_opts;
-    rocksdb_options_t *score_cf_opts;
-    rocksdb_column_family_handle_t *default_cf;
-    rocksdb_column_family_handle_t *meta_cf;
-    rocksdb_column_family_handle_t *score_cf;
-    rocksdb_cache_t *block_cache;
-    rocksdb_block_based_table_options_t *block_opts;
+    rocksdb_options_t *cf_opts[CF_COUNT];
+    rocksdb_block_based_table_options_t *block_opts[CF_COUNT];
+    rocksdb_column_family_handle_t *cf_handles[CF_COUNT];
     rocksdb_options_t *db_opts;
     rocksdb_readoptions_t *ropts;
     rocksdb_writeoptions_t *wopts;
@@ -681,7 +686,7 @@ int swapRateLimited(client *c);
 typedef struct iterResult {
     int cf;
     sds rawkey;
-    unsigned char type;
+    unsigned char rdbtype;
     sds rawval;
 } iterResult;
 
@@ -703,8 +708,7 @@ typedef struct rocksIter{
     int io_thread_exited;
     pthread_mutex_t io_thread_exit_mutex;
     bufferedIterCompleteQueue *buffered_cq;
-    rocksdb_column_family_handle_t *meta_cf;
-    rocksdb_column_family_handle_t *data_cf;
+    rocksdb_column_family_handle_t *cf_handles[CF_COUNT];
     rocksdb_iterator_t *data_iter;
     rocksdb_iterator_t *meta_iter;
     rocksdb_t* checkpoint_db;
@@ -720,6 +724,7 @@ void rocksIterGetError(rocksIter *it, char **error);
 /* rdb save. */ 
 #define DEFAULT_HASH_FIELD_SIZE 256
 
+/* result that decoded from current rocksIter value */
 typedef struct decodedResult {
   int cf;
   int dbid;
@@ -745,7 +750,8 @@ typedef struct decodedData {
   sds rdbraw;
 } decodedData;
 
-//void decodeResultDeinit(decodeResult *decoded);
+void decodedResultInit(decodedResult *decoded);
+void decodedResultDeinit(decodedResult *decoded);
 
 struct rdbKeySaveData;
 
@@ -766,6 +772,15 @@ typedef struct rdbKeySaveData {
   long long expire;
   int saved;
 } rdbKeySaveData;
+
+typedef struct rdbSaveRocksStats {
+    long long iter_decode_ok;
+    long long iter_decode_err;
+    long long init_save_ok;
+    long long init_save_skip;
+    long long init_save_err;
+    long long save_ok;
+} rdbSaveRocksStats;
 
 /* rdb save */
 int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags);
@@ -805,8 +820,6 @@ typedef struct rdbKeyLoadType {
   int (*load_start)(struct rdbKeyLoadData *keydata, rio *rdb, OUT int *cf, OUT sds *rawkey, OUT sds *rawval, OUT int *error);
   int (*load)(struct rdbKeyLoadData *keydata, rio *rdb, OUT int *cf, OUT sds *rawkey, OUT sds *rawval, OUT int *error);
   int (*load_end)(struct rdbKeyLoadData *keydata,rio *rdb);
-  int (*load_dbadd)(struct rdbKeyLoadData *keydata, redisDb *db);
-  void (*load_expired)(struct rdbKeyLoadData *keydata);
   int (*load_deinit)(struct rdbKeyLoadData *keydata);
 } rdbKeyLoadType;
 
@@ -842,8 +855,9 @@ void rdbKeyLoadExpired(struct rdbKeyLoadData *keydata);
 void wholeKeyLoadInit(rdbKeyLoadData *keydata);
 int wholekeyLoadStart(struct rdbKeyLoadData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
 int wholekeyLoad(struct rdbKeyLoadData *keydata, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
-int wholekeyLoadDbAdd(struct rdbKeyLoadData *keydata, redisDb *db);
-void wholekeyLoadExpired(struct rdbKeyLoadData *keydata);
+
+void rdbKeyDataInitLoadMemkey(rdbKeyLoadData *keydata, int rdbtype, sds key);
+int memkeyRdbLoad(struct rdbKeyLoadData *keydata, rio *rdb, sds *rawkey, sds *rawval, int *error);
 
 /* --- Util --- */
 #define ROCKS_VAL_TYPE_LEN 1
@@ -923,6 +937,7 @@ int swapCmdTest(int argc, char **argv, int accurate);
 int swapExecTest(int argc, char **argv, int accurate);
 int swapRdbTest(int argc, char **argv, int accurate);
 int swapObjectTest(int argc, char *argv[], int accurate);
+int swapIterTest(int argc, char *argv[], int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 

@@ -39,15 +39,12 @@
 #define KB 1024
 #define MB (1024*1024)
 
+const char *swap_cf_names[3] = {data_cf_name, meta_cf_name, score_cf_name};
+
 int rmdirRecursive(const char *path);
 int rocksInit() {
     rocks *rocks = zcalloc(sizeof(struct rocks));
     char *errs[3] = {NULL}, dir[ROCKS_DIR_MAX_LEN];
-    const char *default_cf_name = "default";
-    const char *meta_cf_name = "meta";
-    const char *score_cf_name = "score";
-    const char * cf_names[] = {default_cf_name, meta_cf_name, score_cf_name};
-    rocksdb_column_family_handle_t *cf_handles[3];
 
     rocks->snapshot = NULL;
     rocks->checkpoint = NULL;
@@ -87,39 +84,30 @@ int rocksInit() {
     }
 
     snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocksdb_epoch);
-    rocksdb_options_t *default_cf_opts, *meta_cf_opts, *score_cf_opts;
-    rocksdb_block_based_options_create();
 
-    default_cf_opts = rocksdb_options_create();
-    rocksdb_block_based_table_options_t *default_block_opts = rocksdb_block_based_options_create();
-    rocksdb_block_based_options_set_block_size(default_block_opts, 8*KB);
-    rocksdb_options_set_block_based_table_factory(default_cf_opts, default_block_opts);
+    rocks->cf_opts[DATA_CF] = rocksdb_options_create();
+    rocks->block_opts[DATA_CF] = rocksdb_block_based_options_create();
+    rocksdb_block_based_options_set_block_size(rocks->block_opts[DATA_CF], 8*KB);
+    rocksdb_options_set_block_based_table_factory(rocks->cf_opts[DATA_CF], rocks->block_opts[DATA_CF]);
 
-    meta_cf_opts = rocksdb_options_create();
-    rocksdb_block_based_table_options_t *meta_block_opts = rocksdb_block_based_options_create();
-    rocksdb_block_based_options_set_block_size(meta_block_opts, 8*KB);
-    rocksdb_block_based_options_set_block_cache_compressed(meta_block_opts, rocksdb_cache_create_lru(512*MB));
-    rocksdb_options_set_block_based_table_factory(meta_cf_opts, meta_block_opts);
+    rocks->cf_opts[META_CF] = rocksdb_options_create();
+    rocks->block_opts[META_CF] = rocksdb_block_based_options_create();
+    rocksdb_block_based_options_set_block_size(rocks->block_opts[META_CF], 8*KB);
+    rocksdb_block_based_options_set_block_cache_compressed(rocks->block_opts[META_CF], rocksdb_cache_create_lru(512*MB));
+    rocksdb_options_set_block_based_table_factory(rocks->cf_opts[META_CF], rocks->block_opts[META_CF]);
 
-    score_cf_opts = rocksdb_options_create();
-    rocksdb_block_based_table_options_t *score_block_opts = rocksdb_block_based_options_create();
-    rocksdb_block_based_options_set_block_size(score_block_opts, 8*KB);
-    rocksdb_options_set_block_based_table_factory(score_cf_opts, score_block_opts);
+    rocks->cf_opts[SCORE_CF] = rocksdb_options_create();
+    rocks->block_opts[SCORE_CF] = rocksdb_block_based_options_create();
+    rocksdb_block_based_options_set_block_size(rocks->block_opts[SCORE_CF], 8*KB);
+    rocksdb_options_set_block_based_table_factory(rocks->cf_opts[SCORE_CF], rocks->block_opts[SCORE_CF]);
 
-    rocksdb_options_t *cf_opts[] = {default_cf_opts, meta_cf_opts, score_cf_opts};
-    rocks->db = rocksdb_open_column_families(rocks->db_opts, dir, 3,
-            cf_names, (const rocksdb_options_t *const *)cf_opts,
-            cf_handles, errs);
+    rocks->db = rocksdb_open_column_families(rocks->db_opts, dir, CF_COUNT,
+            swap_cf_names, (const rocksdb_options_t *const *)rocks->cf_opts,
+            rocks->cf_handles, errs);
     if (errs[0] != NULL || errs[1] != NULL) {
         serverLog(LL_WARNING, "[ROCKS] rocksdb open failed: default_cf=%s, meta_cf=%s, score_cf=%s", errs[0], errs[1], errs[2]);
         return -1;
     }
-    rocks->data_cf_opts = default_cf_opts;
-    rocks->meta_cf_opts = meta_cf_opts;
-    rocks->score_cf_opts = score_cf_opts;
-    rocks->default_cf = cf_handles[0];
-    rocks->meta_cf = cf_handles[1];
-    rocks->score_cf = cf_handles[2];
 
     serverLog(LL_NOTICE, "[ROCKS] opened rocks data in (%s).", dir);
     server.rocks = rocks;
@@ -127,12 +115,18 @@ int rocksInit() {
 }
 
 void rocksRelease() {
+    int i;
     char dir[ROCKS_DIR_MAX_LEN];
+
     snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocksdb_epoch);
     rocks *rocks = server.rocks;
     serverLog(LL_NOTICE, "[ROCKS] releasing rocksdb in (%s).",dir);
-    rocksdb_cache_destroy(rocks->block_cache);
-    rocksdb_block_based_options_destroy(rocks->block_opts);
+    for (i = 0; i < CF_COUNT; i++)
+        rocksdb_block_based_options_destroy(rocks->block_opts[i]);
+    for (i = 0; i < CF_COUNT; i++)
+        rocksdb_options_destroy(rocks->cf_opts[i]);
+    for (i = 0; i < CF_COUNT; i++)
+        rocksdb_column_family_handle_destroy(rocks->cf_handles[i]);
     rocksdb_options_destroy(rocks->db_opts);
     rocksdb_writeoptions_destroy(rocks->wopts);
     rocksdb_readoptions_destroy(rocks->ropts);

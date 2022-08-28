@@ -207,6 +207,7 @@ sds swapDataEncodeMetaKey(swapData *d) {
 
 int swapDataSetupMeta(swapData *d, int object_type, long long expire,
         void **datactx) {
+    int retval;
     serverAssert(d->type == NULL);
 
     d->expire = expire;
@@ -214,12 +215,19 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
 
     switch (d->object_type) {
     case OBJ_STRING:
-        swapDataSetupWholeKey(d,datactx);
+        retval = swapDataSetupWholeKey(d,datactx);
+        break;
+    case OBJ_HASH:
+    case OBJ_LIST:
+    case OBJ_SET:
+    case OBJ_ZSET:
+        retval = SWAP_DATA_UNSUPPORTED;
         break;
     default:
+        retval = SWAP_DATA_ERR;
         break;
     }
-    return 0;
+    return retval;
 }
 
 void swapDataSetObjectMeta(swapData *d, objectMeta *object_meta) {
