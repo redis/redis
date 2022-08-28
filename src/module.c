@@ -5623,9 +5623,17 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
     }
 }
 
-/* Object to correspond to NULL/Root User, to distinguish from NULL (unset/reset) value */
+/* Object to correspond to Redis' Unrestricted User, to distinguish from NULL (unset/reset) value */
 const RedisModuleUser NullUser = {0};
 
+/* By default, RM_Call executes commands as unrestricted user.  Even, when one uses the "C"
+ * ACL check flag,  it only enforces the check on the provided command itself.  ACL checks
+ * performed by the command itself during execution, such as with scripts, would by default,
+ * still run as the unrestricted user.
+ *
+ * This API changes which user the ACL check is performed against, as well as causes Redis
+ * toexecute the command as the same user thereby enabling ACL checks performed by the command
+ * itself to execute with the correct set of restrictions. */
 void RM_SetContextModuleUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     ctx->user = user;
 }
@@ -5956,7 +5964,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     }
 
     /* Check if the user can run this command according to the current
-     * ACLs. */
+     * ACLs.
+     *
+     * If RedisModule_SetContextModuleUser has set a user, uses that user, otherwise
+     * uses the attached client's user.  If there is no attached client user and no manually
+     * set user, an error will be returned */
     if (flags & REDISMODULE_ARGV_CHECK_ACL) {
         int acl_errpos;
         int acl_retval;
@@ -8693,17 +8705,22 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
     return ACLSetUser(user->user, acl, -1);
 }
 
+/* Sets the permission of a user with a complete ACL string, such as one
+ * would use on the redis ACL SETUSER command line api.  This differs from
+ * RM_SetModuleUserACL, which only takes single ACL operations at a time.
+ *
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on failure
+ * if a RedisModuleString is provided inerror, a string describing the error
+ * will be returned */
 int RM_SetModuleUserACLString(RedisModuleCtx *ctx, RedisModuleUser *user, const char *acl, RedisModuleString **error) {
     serverAssert(user != NULL);
 
-    sds sacl = sdsnew(acl);
     int argc;
-    sds *argv = sdssplitargs(sacl, &argc);
+    sds *argv = sdssplitargs(acl, &argc);
 
     sds err = ACLStringSetUser(user->user, NULL, argv, argc);
 
     sdsfreesplitres(argv, argc);
-    sdsfree(sacl);
 
     if (err) {
         if (error) {
@@ -8722,7 +8739,6 @@ int RM_SetModuleUserACLString(RedisModuleCtx *ctx, RedisModuleUser *user, const 
 /* Get the ACL string for a given user
  * Returns a RedisModuleString
  */
-
 RedisModuleString *RM_GetModuleUserACLString(RedisModuleUser *user) {
     serverAssert(user != NULL);
 
