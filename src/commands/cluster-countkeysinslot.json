@@ -10,9 +10,6 @@
         "command_flags": [
             "STALE"
         ],
-        "command_tips": [
-            "NONDETERMINISTIC_OUTPUT"
-        ],
         "arguments": [
             {
                 "name": "slot",
