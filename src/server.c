@@ -3197,6 +3197,7 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
 void propagatePendingCommands() {
+    firePostKeySpaceJobs();
     if (server.also_propagate.numops == 0)
         return;
 

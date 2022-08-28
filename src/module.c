@@ -289,6 +289,9 @@ static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 /* Function pointer type for keyspace event notification subscriptions from modules. */
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 
+/* Function pointer type for post keyspace jobs */
+typedef void (*RedisModulePostNotificationFunc) (RedisModuleCtx *ctx, void *pd);
+
 /* Keyspace notification subscriber information.
  * See RM_SubscribeToKeyspaceEvents() for more information. */
 typedef struct RedisModuleKeyspaceSubscriber {
@@ -303,8 +306,20 @@ typedef struct RedisModuleKeyspaceSubscriber {
     int active;
 } RedisModuleKeyspaceSubscriber;
 
+typedef struct RedisModulePostKeyspaceJob {
+    /* The module subscribed to the event */
+    RedisModule *module;
+    RedisModulePostNotificationFunc callback;
+    void *pd;
+    void (*free_pd)(void*);
+    int dbid;
+} RedisModulePostKeyspaceJob;
+
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
+
+/* The module post keyspace jobs list */
+static list *modulePostKeyspaceJobs;
 
 /* Data structures related to the exported dictionary data structure. */
 typedef struct RedisModuleDict {
@@ -7839,6 +7854,12 @@ void moduleReleaseGIL(void) {
  * so notification callbacks must to be fast, or they would slow Redis down.
  * If you need to take long actions, use threads to offload them.
  *
+ * Moreover, the fact that the notification is executed synchronously means
+ * that the notification code will be executed in the middle on Redis logic
+ * (commands logic, eviction, expire). Changing the key space while the logic
+ * runs is dangerous and discourage. In order to react to key space events with
+ * write actions, please refer to 'RM_AddPostNotificationJob'.
+ *
  * See https://redis.io/topics/notifications for more information.
  */
 int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc callback) {
@@ -7849,6 +7870,65 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     sub->active = 0;
 
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
+    return REDISMODULE_OK;
+}
+
+void firePostKeySpaceJobs() {
+    server.in_nested_call++;
+    unsigned long long i = 0;
+    while (listLength(modulePostKeyspaceJobs) > 0) {
+        listNode *ln = listFirst(modulePostKeyspaceJobs);
+        RedisModulePostKeyspaceJob *job = listNodeValue(ln);
+        listDelNode(modulePostKeyspaceJobs, ln);
+
+        RedisModuleCtx ctx;
+        moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
+        selectDb(ctx.client, job->dbid);
+
+        if (i < server.max_post_notifications_jobs) {
+            job->callback(&ctx, job->pd);
+        } else if (i == server.max_post_notifications_jobs) {
+            serverLog(LL_WARNING,"Exceed max_post_notifications_jobs, will stop triggering any more post notifications jobs.");
+        }
+        ++i;
+        job->free_pd(job->pd);
+
+        moduleFreeContext(&ctx);
+        zfree(job);
+    }
+    server.in_nested_call--;
+}
+
+/* This API should only be executed within a key space notification callback and allow to
+ * react to the notification with some write operations.
+ *
+ * In general it is dangerous and highly discourage to write inside key space notification callback.
+ * This is because the callback is executed synchronously in the middle of Redis logic
+ * (commands logic, eviction, expire). This means that writing inside a notification can cause
+ * data that held by Redis to be freed and cause Redis to crash when continue running his logic after.
+ *
+ * In order to still performing write actions as a reaction to key space notification, Redis gives
+ * `RM_AddPostNotificationJob` API. The api allows to register a job. When Redis will call this job
+ * the following condition are promised to be fulfilled:
+ * 1. It is safe to perform any write operation.
+ * 2. The job will be called atomically along side the notification (the notification effect and the
+ *    job effect will be replicated to the replication and the aof wrapped with multi exec).
+ *
+ * Notice, one post notification job might trigger more key space notification and cause more jobs
+ * to be registered, in order to avoid infinite loop we limit the number of jobs that can be registered in
+ * a single logic unit (command, eviction, active expire). This limitation is configurable using `maxpostnotificationsjobs`
+ * configuration value.
+ *
+ *  */
+int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationFunc callback, void *pd, void (*free_pd)(void*)) {
+    RedisModulePostKeyspaceJob *job = zmalloc(sizeof(*job));
+    job->module = ctx->module;
+    job->callback = callback;
+    job->pd = pd;
+    job->free_pd = free_pd;
+    job->dbid = ctx->client->db->id;
+
+    listAddNodeTail(modulePostKeyspaceJobs, job);
     return REDISMODULE_OK;
 }
 
@@ -10921,6 +11001,8 @@ void moduleInitModulesSystem(void) {
     /* Set up the keyspace notification subscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
 
+    modulePostKeyspaceJobs = listCreate();
+
     /* Set up filter list */
     moduleCommandFilters = listCreate();
 
@@ -12631,6 +12713,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(NotifyKeyspaceEvent);
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
+    REGISTER_API(AddPostNotificationJob);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
     REGISTER_API(GetClusterNodeInfo);

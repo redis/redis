@@ -1923,6 +1923,8 @@ struct redisServer {
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
     /* Local environment */
     char *locale_collate;
+
+    unsigned long long max_post_notifications_jobs; /* The maximum amount of post notifications jobs that will be executed */
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -2379,6 +2381,7 @@ void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
+void firePostKeySpaceJobs();
 void moduleCallCommandFilters(client *c);
 void ModuleForkDoneHandler(int exitcode, int bysignal);
 int TerminateModuleForkChild(int child_pid, int wait);
