@@ -540,4 +540,9 @@ start_server {tags {"hash"}} {
             assert {[r hincrbyfloat myhash float -0.1] eq {1.9}}
         }
     }
+
+    test {HINCRBYFLOAT does not allow NaN or Infinity} {
+        assert_error "*value is NaN or Infinity*" {r hincrbyfloat hfoo field +inf}
+        assert_equal 0 [r exists hfoo]
+    }
 }
