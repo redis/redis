@@ -5651,6 +5651,8 @@ void RM_SetContextModuleUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
  *     "3" -> REDISMODULE_ARGV_RESP_3
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
  *     "C" -> REDISMODULE_ARGV_CHECK_ACL
+ *          The ACL validation works either on the context's client's user (if its defined)
+ *          or the user the module sets on the context with RM_SetContextModuleUser
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
