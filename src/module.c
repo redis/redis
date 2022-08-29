@@ -569,7 +569,7 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * Helpers for modules API implementation
  * -------------------------------------------------------------------------- */
 
-client *moduleAllocTempClient(const RedisModuleUser *user) {
+client *moduleAllocTempClient(user *user) {
     client *c = NULL;
 
     if (moduleTempClientCount > 0) {
@@ -581,7 +581,7 @@ client *moduleAllocTempClient(const RedisModuleUser *user) {
         c->flags |= CLIENT_MODULE;
     }
 
-    c->user = user ? user->user : NULL;
+    c->user = user;
 
     return c;
 }
@@ -5623,17 +5623,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
     }
 }
 
-/* Object to correspond to Redis' Unrestricted User, to distinguish from NULL (unset/reset) value */
-const RedisModuleUser NullUser = {0};
-
-/* By default, RM_Call executes commands as unrestricted user.  Even, when one uses the "C"
- * ACL check flag,  it only enforces the check on the provided command itself.  ACL checks
- * performed by the command itself during execution, such as with scripts, would by default,
- * still run as the unrestricted user.
- *
- * This API changes which user the ACL check is performed against, as well as causes Redis
- * toexecute the command as the same user thereby enabling ACL checks performed by the command
- * itself to execute with the correct set of restrictions. */
+/* Modifies the user that RM_Call will ACL check commands as */
 void RM_SetContextModuleUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     ctx->user = user;
 }
@@ -5764,6 +5754,11 @@ fmterr:
  *              same as the client attached to the given RedisModuleCtx. This will
  *              probably used when you want to pass the reply directly to the client.
  *     * `C` -- Check if command can be executed according to ACL rules.
+ *              Uses the user specified by RM_SetContextModuleUser, if set, otherwise
+ *              if the context has an attached client, will use the user associated
+ *              with the client.  If neither are available, will returnan error.
+ *              In addition, when defined, will enforce ACL checking within scripts
+ *              as well.
  *     * `S` -- Run the command in a script mode, this means that it will raise
  *              an error if a command which are not allowed inside a script
  *              (flagged with the `deny-script` flag) is invoked (like SHUTDOWN).
@@ -5820,7 +5815,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
 
-    c = moduleAllocTempClient(ctx->user);
+    user *user = NULL;
+    if (flags & REDISMODULE_ARGV_CHECK_ACL) {
+        user = ctx->user ? ctx->user->user : ctx->client->user;
+    }
+    c = moduleAllocTempClient(user);
 
     /* We do not want to allow block, the module do not expect it */
     c->flags |= CLIENT_DENY_BLOCKING;
@@ -5975,7 +5974,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         int acl_errpos;
         int acl_retval;
 
-        if (ctx->client->user == NULL && ctx->user == NULL) {
+        if (!user) {
             errno = ENOTSUP;
             if (error_as_call_replies) {
                 sds msg = sdsnew("acl verification failed, context is not attached to a client.");
@@ -5983,8 +5982,6 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             }
             goto cleanup;
         }
-        /* above we validate that either ctx->client->user is set or ctx->user is, we prefer ctx->user */
-        user *user = ctx->user ? ctx->user->user : ctx->client->user;
         acl_retval = ACLCheckAllUserCommandPerm(user,c->cmd,c->argv,c->argc,&acl_errpos);
         if (acl_retval != ACL_OK) {
             sds object = (acl_retval == ACL_DENIED_CMD) ? sdsdup(c->cmd->fullname) : sdsdup(c->argv[acl_errpos]->ptr);
@@ -8708,7 +8705,7 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
 }
 
 /* Sets the permission of a user with a complete ACL string, such as one
- * would use on the redis ACL SETUSER command line api.  This differs from
+ * would use on the redis ACL SETUSER command line API.  This differs from
  * RM_SetModuleUserACL, which only takes single ACL operations at a time.
  *
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR on failure
