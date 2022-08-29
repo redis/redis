@@ -165,6 +165,17 @@ start_server {tags {"hll"}} {
         r pfcount hll{t}
     } {5}
 
+    test {PFMERGE with illegal argument} {
+        r del destkey{t} sourcekey{t} sourcekey2{t}
+
+        assert_error {*wrong number of arguments for 'pfmerge' command} {r pfmerge destkey{t}}
+
+        assert_error {*at least 1 existing source key is needed} {r pfmerge destkey{t} sourcekey{t}}
+        assert_error {*at least 1 existing source key is needed} {r pfmerge destkey{t} sourcekey{t} sourcekey2{t}}
+
+        assert_equal 0 [r exists destkey{t}]
+    }
+
     test {PFCOUNT multiple-keys merge returns cardinality of union #1} {
         r del hll1{t} hll2{t} hll3{t}
         for {set x 1} {$x < 10000} {incr x} {

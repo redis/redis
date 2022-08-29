@@ -1319,6 +1319,7 @@ void pfmergeCommand(client *c) {
     struct hllhdr *hdr;
     int j;
     int use_dense = 0; /* Use dense representation as target? */
+    int source_key_num = 0; /* Number of source keys that exist. */
 
     /* Compute an HLL with M[i] = MAX(M[i]_j).
      * We store the maximum into the max array of registers. We'll write
@@ -1329,6 +1330,11 @@ void pfmergeCommand(client *c) {
         robj *o = lookupKeyRead(c->db,c->argv[j]);
         if (o == NULL) continue; /* Assume empty HLL for non existing var. */
         if (isHLLObjectOrReply(c,o) != C_OK) return;
+
+        if (j > 1) {
+            /* Skip the command and the destkey. */
+            source_key_num++;
+        }
 
         /* If at least one involved HLL is dense, use the dense representation
          * as target ASAP to save time and avoid the conversion step. */
@@ -1341,6 +1347,11 @@ void pfmergeCommand(client *c) {
             addReplyError(c,invalid_hll_err);
             return;
         }
+    }
+
+    if (source_key_num == 0) {
+        addReplyError(c, "at least 1 existing source key is needed");
+        return;
     }
 
     /* Create / unshare the destination key's value if needed. */
