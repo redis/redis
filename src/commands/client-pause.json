@@ -3,7 +3,7 @@
         "summary": "Stop processing commands from clients for some time",
         "complexity": "O(1)",
         "group": "connection",
-        "since": "2.9.50",
+        "since": "3.0.0",
         "arity": -3,
         "container": "CLIENT",
         "function": "clientCommand",
