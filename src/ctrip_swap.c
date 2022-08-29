@@ -220,6 +220,7 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
 
     data = createSwapData(db,key,value);
+    swapCtxSetSwapData(ctx,data,datactx);
 
     if (value == NULL) {
         submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
@@ -229,7 +230,8 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
 
     expire = getExpire(db,key);
 
-    retval = swapDataSetupMeta(data,value->type,expire,datactx);
+    retval = swapDataSetupMeta(data,value->type,expire,&datactx);
+    swapCtxSetSwapData(ctx,data,datactx);
     if (retval == SWAP_DATA_UNSUPPORTED) {
         reason = "data not support swap";
         reason_num = NOSWAP_REASON_KEYNOTSUPPORT;
@@ -237,9 +239,8 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
     }
 
     object_meta = lookupMeta(db,key);
+    /* TODO incrRef object_meta */
     swapDataSetObjectMeta(data,object_meta);
-
-    swapCtxSetSwapData(ctx,data,datactx);
 
     if (swapDataAna(data,ctx->key_request,&swap_intention,
                 &swap_intention_flags,datactx)) {

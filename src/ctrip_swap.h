@@ -41,7 +41,7 @@
 #define data_cf_name "default"
 #define meta_cf_name "meta"
 #define score_cf_name "score"
-extern const char *swap_cf_names[3];
+extern const char *swap_cf_names[CF_COUNT];
 
 /* Delete key in rocksdb after right after swap in. */
 #define SWAP_IN_DEL (1U<<0)

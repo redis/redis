@@ -188,6 +188,8 @@ inline int swapDataCleanObject(swapData *d, void *datactx) {
 inline void swapDataFree(swapData *d, void *datactx) {
     /* free extend */
     if (d->type && d->type->free) d->type->free(d,datactx);
+    /* TODO unref object_meta */
+    // if (d->omtype && d->omtype->free) d->omtype->free(d->object_meta);
     /* free base */
     if (d->key) decrRefCount(d->key);
     if (d->value) decrRefCount(d->value);
@@ -241,7 +243,8 @@ int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
     long long expire;
     objectMeta *object_meta = NULL;
 
-    retval = rocksDecodeMetaVal(rawval,sdslen(rawval),&object_type,&expire,&extend,&extend_len);
+    retval = rocksDecodeMetaVal(rawval,sdslen(rawval),&object_type,&expire,
+            &extend,&extend_len);
     if (retval) return retval;
 
     retval = swapDataSetupMeta(d,object_type,expire,datactx);
@@ -252,7 +255,7 @@ int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
         if (retval) return retval;
     }
 
-    swapDataSetObjectMeta(d, object_meta);
+    swapDataSetObjectMeta(d,object_meta);
 
     return retval;
 }

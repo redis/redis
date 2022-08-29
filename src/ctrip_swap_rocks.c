@@ -39,7 +39,7 @@
 #define KB 1024
 #define MB (1024*1024)
 
-const char *swap_cf_names[3] = {data_cf_name, meta_cf_name, score_cf_name};
+const char *swap_cf_names[CF_COUNT] = {data_cf_name, meta_cf_name, score_cf_name};
 
 int rmdirRecursive(const char *path);
 int rocksInit() {

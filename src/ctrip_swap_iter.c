@@ -279,15 +279,15 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
     it->checkpoint_db = NULL;
 
     if (rocks->checkpoint != NULL) {
-        char *errs[3] = {NULL};
+        char *errs[CF_COUNT] = {NULL};
         rocksdb_t* checkpoint_db = rocksdb_open_column_families(rocks->db_opts,
-                rocks->checkpoint_dir, 3, swap_cf_names,
+                rocks->checkpoint_dir, CF_COUNT, swap_cf_names,
                 (const rocksdb_options_t *const *)server.rocks->cf_opts,
                 it->cf_handles, errs);
-        if (errs[0] != NULL || errs[1] != NULL) {
+        if (errs[0] || errs[1] || errs[2]) {
             serverLog(LL_WARNING,
-                    "[rocks]rocksdb open db fail, dir:%s, default_cf=%s, score_cf=%s",
-                    rocks->checkpoint_dir, errs[0], errs[1]);
+                    "[rocks] rocksdb open db fail, dir:%s, default_cf=%s, meta_cf=%s, score_cf=%s",
+                    rocks->checkpoint_dir, errs[0], errs[1], errs[2]);
             goto err;
         }
         it->checkpoint_db = checkpoint_db;

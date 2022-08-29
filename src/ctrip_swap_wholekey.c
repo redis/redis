@@ -279,7 +279,7 @@ int wholekeySave(rdbKeySaveData *keydata, rio *rdb, decodedData *decoded) {
     initStaticStringObject(keyobj,decoded->key);
 
     if (rdbSaveKeyHeader(rdb,&keyobj,&keyobj,
-                decoded->rdbtype,
+                RDB_TYPE_STRING,
                 keydata->expire) == -1) {
         return -1;
     }
@@ -619,46 +619,65 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         clearTestRedisDb();
     }
 
-    /* int rocksDecodeRaw(sds rawkey, unsigned char rdbtype, sds rdbraw, decodeResult *decoded); */
+    int rocksDecodeMetaCF(sds rawkey, sds rawval, decodedMeta *decoded);
+    int rocksDecodeDataCF(sds rawkey, unsigned char rdbtype, sds rdbraw, decodedData *decoded);
 
-    /* TEST("wholeKey rdb save & load") { */
-        /* int err; */
-        /* rdbKeyData _keydata, *keydata = &_keydata; */
-        /* rio sdsrdb; */
-        /* robj *evict = createObject(OBJ_HASH,NULL); */
-        /* decodeResult _decoded, *decoded = &_decoded; */
+    TEST("wholeKey rdb save & load") {
+        int err, feed_cf;
+        rio sdsrdb;
+        rdbKeySaveData _savedata, *savedata = &_savedata;
+        rdbKeyLoadData _loaddata, *loaddata = &_loaddata;
+        decodedMeta _dm, *dm = &_dm;
+        decodedData _dd, *dd = &_dd;
+        sds feed_rawkey, feed_rawval, rdb_key, rdbraw;
 
-		/* robj *myhash; */
-		/* sds myhash_key; */
-		/* myhash_key = sdsnew("myhash"); */
-        /* myhash = createHashObject(); */
+        sds key = sdsnew("key");
+        robj *val = createStringObject("val",3);
+        sds meta_rawkey = rocksEncodeMetaKey(db,key);
+        sds meta_rawval = rocksEncodeMetaVal(OBJ_STRING,-1,NULL);
+        sds data_rawkey = rocksEncodeDataKey(db,key,NULL);
+        sds data_rawval = rocksEncodeValRdb(val);
 
-        /* hashTypeSet(myhash,sdsnew("f1"),sdsnew("v1"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE); */
-        /* hashTypeSet(myhash,sdsnew("f2"),sdsnew("v2"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE); */
-        /* hashTypeSet(myhash,sdsnew("f3"),sdsnew("v3"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE); */
+        test_assert(!rocksDecodeMetaCF(sdsdup(meta_rawkey),sdsdup(meta_rawval),dm));
+        test_assert(dm->expire == -1);
+        test_assert(dm->extend == NULL);
+        test_assert(!sdscmp(dm->key,key));
 
-        /* sds rawkey = rocksEncodeKey(ENC_TYPE_HASH,myhash_key); */
-        /* sds rawval = rocksEncodeValRdb(myhash); */
+        rdbraw = sdsnewlen(data_rawval+1,sdslen(data_rawval)-1);
+        test_assert(!rocksDecodeDataCF(sdsdup(data_rawkey),data_rawval[0],rdbraw,dd));
+        test_assert(!sdscmp(dd->key,key));
+        test_assert(dd->subkey == NULL);
+        test_assert(!memcmp(dd->rdbraw,data_rawval+1,sdslen(dd->rdbraw)));
 
-        /* sds rdbraw = sdsnewlen(rawval+1,sdslen(rawval)-1); */
-        /* rocksDecodeRaw(sdsdup(rawkey),rawval[0],rdbraw,decoded); */
-        /* test_assert(decoded->enc_type == ENC_TYPE_HASH); */
-        /* test_assert(!sdscmp(decoded->key,myhash_key)); */
+        rioInitWithBuffer(&sdsrdb, sdsempty());
+        test_assert(!rdbKeySaveDataInit(savedata,db,dm));
+        test_assert(!wholekeySave(savedata,&sdsrdb,dd));
 
-        /* rioInitWithBuffer(&sdsrdb, sdsempty()); */
-        /* rdbKeyDataInitSaveWholeKey(keydata,NULL,evict,-1); */
-        /* test_assert(wholekeySave(keydata,&sdsrdb,decoded) == 0); */
+        rioInitWithBuffer(&sdsrdb,sdsrdb.io.buffer.ptr);
+        /* LFU */
+        uint8_t byte;
+        test_assert(rdbLoadType(&sdsrdb) == RDB_OPCODE_FREQ);
+        test_assert(rioRead(&sdsrdb,&byte,1));
+        /* rdbtype */
+        test_assert(rdbLoadType(&sdsrdb) == RDB_TYPE_STRING);
+        /* key */
+        rdb_key = rdbGenericLoadStringObject(&sdsrdb,RDB_LOAD_SDS,NULL);
+        test_assert(!sdscmp(rdb_key, key));
 
-        /* sds rawkey2, rawval2; */
-        /* rio sdsrdb2; */
-        /* rioInitWithBuffer(&sdsrdb2, rdbraw); */
-        /* rdbKeyDataInitLoadWholeKey(keydata,rawval[0],myhash_key); */
-        /* wholekeyRdbLoad(keydata,&sdsrdb2,&rawkey2,&rawval2,&err); */
-        /* test_assert(err == 0); */
-        /* test_assert(sdscmp(rawkey2,rawkey) == 0); */
-        /* test_assert(sdscmp(rawval2,rawval) == 0); */
-        /* test_assert(keydata->loadctx.wholekey.evict->type == OBJ_HASH); */
-    /* } */
+        rdbKeyLoadDataInit(loaddata,RDB_TYPE_STRING,db,rdb_key,-1,1600000000);
+
+        wholekeyLoadStart(loaddata,&sdsrdb,&feed_cf,&feed_rawkey,&feed_rawval,&err);
+        test_assert(err == 0);
+        test_assert(feed_cf == META_CF);
+        test_assert(!sdscmp(feed_rawkey,meta_rawkey));
+        test_assert(!sdscmp(feed_rawval,meta_rawval));
+
+        wholekeyLoad(loaddata,&sdsrdb,&feed_cf,&feed_rawkey,&feed_rawval,&err);
+        test_assert(err == 0);
+        test_assert(feed_cf == DATA_CF);
+        test_assert(!sdscmp(feed_rawkey,data_rawkey));
+        test_assert(!sdscmp(feed_rawval,data_rawval));
+    }
 
     return error;
 }

@@ -141,8 +141,10 @@ int rocksDecodeMetaVal(const char *raw, size_t rawlen, int *pobject_type,
     ptr += sizeof(long long), len -= sizeof(long long);
     if (pexpire) *pexpire = expire;
 
-    if (pextend) *pextend = ptr;
     if (pextend_len) *pextend_len = len;
+    if (pextend) {
+        *pextend = len > 0 ? ptr : NULL;
+    }
 
     return 0;
 }
@@ -173,8 +175,10 @@ int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid,
     if (key) *key = raw;
     if (rawlen < keylen_) return -1;
     raw += keylen_, rawlen -= keylen_;
-    if (subkey) *subkey = raw;
     if (subkeylen) *subkeylen = rawlen;
+    if (subkey) {
+        *subkey = rawlen > 0 ? raw : NULL;
+    }
     return 0;
 }
 

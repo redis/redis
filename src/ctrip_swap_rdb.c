@@ -34,7 +34,9 @@ void decodedResultInit(decodedResult *decoded) {
 }
 
 void decodedResultDeinit(decodedResult *decoded) {
-    if (decoded->key) sdsfree(decoded->key);
+    if (decoded->key) {
+        sdsfree(decoded->key);
+    }
     if (decoded->cf == META_CF) {
         decodedMeta *dm = (decodedMeta*)decoded;
         if (dm->extend) sdsfree(dm->extend);
@@ -116,8 +118,14 @@ int rdbKeySaveEnd(struct rdbKeySaveData *keydata, int save_result) {
         return C_OK;
 }
 
-void rdbKeyDataDeinitSave(rdbKeySaveData *keydata) {
-    if (keydata->type->save_deinit) keydata->type->save_deinit(keydata);
+void rdbKeySaveDataDeinit(rdbKeySaveData *keydata) {
+    if (keydata->key) {
+        decrRefCount(keydata->key);
+        keydata->key = NULL;
+    }
+
+    if (keydata->type->save_deinit)
+        keydata->type->save_deinit(keydata);
 }
 
 sds rdbSaveRocksStatsDump(rdbSaveRocksStats *stats) {
@@ -141,7 +149,7 @@ sds rdbSaveRocksStatsDump(rdbSaveRocksStats *stats) {
 #define INIT_SAVE_SKIP -2
 
 static void rdbKeySaveDataInitCommon(rdbKeySaveData *keydata,
-        robj *key, robj *value, long long expire, objectMeta *om) {
+        MOVE robj *key, robj *value, long long expire, objectMeta *om) {
     keydata->key = key;
     keydata->value = value;
     keydata->expire = expire;
@@ -209,7 +217,7 @@ int rocksDecodeDataCF(sds rawkey, unsigned char rdbtype, sds rdbraw,
     decoded->cf = DATA_CF;
     decoded->dbid = dbid;
     decoded->key = sdsnewlen(key,keylen);
-    decoded->subkey = sdsnewlen(subkey,subkeylen);
+    decoded->subkey = subkeylen > 0 ? sdsnewlen(subkey,subkeylen) : NULL;
     decoded->rdbtype = rdbtype;
     decoded->rdbraw = rdbraw;
 
@@ -233,6 +241,10 @@ int rocksDecodeMetaCF(sds rawkey, sds rawval, decodedMeta *decoded) {
     decoded->cf = META_CF;
     decoded->dbid = dbid;
     decoded->key = sdsnewlen(key,keylen);
+    decoded->object_type = object_type;
+    decoded->expire = expire;
+    decoded->extend = extlen > 0 ? sdsnewlen(extend,extlen) : NULL;
+
     sdsfree(rawkey);
     sdsfree(rawval);
     return 0;
@@ -268,6 +280,21 @@ int rdbSaveRocksIterDecode(rocksIter *it, decodedResult *decoded,
         sdsfree(rawkey);
         sdsfree(rawval);
     } else {
+#ifdef SWAP_DEBUG
+        if (decoded->cf == META_CF) {
+            decodedMeta *meta = (decodedMeta*)decoded;
+            serverLog(LL_NOTICE,
+                    "[rdb] decoded meta: key=%s, type=%d, expire=%lld, extend=%s",
+                    meta->key, meta->object_type, meta->expire, meta->extend);
+        } else {
+            decodedData *data = (decodedData*)decoded;
+            sds repr = sdscatrepr(sdsempty(),data->rdbraw,sdslen(data->rdbraw));
+            serverLog(LL_NOTICE,
+                    "[rdb] decoded data: key=%s, subkey=%s, rdbtype=%d, rdbraw==%s",
+                    data->key, data->subkey, data->rdbtype, repr);
+            sdsfree(repr);
+        }
+#endif
         stats->iter_decode_ok++;
     }
     return retval;
@@ -285,6 +312,9 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
     decodedResultInit(cur);
     decodedResultInit(next);
     int iter_valid; /* true if current iter value is valid. */
+
+    //TODO rocksCreateIter Fail if open multiple time.
+    if (db->id != 0) return C_OK;
 
     if (!(it = rocksCreateIter(server.rocks,db))) {
         serverLog(LL_WARNING, "Create rocks iterator failed.");
@@ -335,7 +365,7 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
         if (rdbKeySaveStart(keydata,rdb) == -1) {
             errstr = sdscatfmt(sdsempty(),"Save key(%S) start failed: %s",
                     cur->key, strerror(errno));
-            rdbKeyDataDeinitSave(keydata);
+            rdbKeySaveDataDeinit(keydata);
             decodedResultDeinit(cur);
             goto err; /* IO error, can't recover. */
         }
@@ -370,7 +400,7 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
 
             decodedResultDeinit(cur);
             _cur = _next;
-            decodedResultDeinit(next);
+            decodedResultInit(next);
 
             /* key switched, finish current & start another. */
             if (key_switch) break;
@@ -392,11 +422,11 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
                 errstr = sdscatfmt(sdsempty(),"Save key end failed: %s",
                         strerror(errno));
             }
-            rdbKeyDataDeinitSave(keydata);
+            rdbKeySaveDataDeinit(keydata);
             goto err;
         }
 
-        rdbKeyDataDeinitSave(keydata);
+        rdbKeySaveDataDeinit(keydata);
         stats->save_ok++;
         rdbSaveProgress(rdb,rdbflags);
     };
@@ -489,7 +519,7 @@ swapData *createRdbLoadSwapData(size_t idx, int num, int *cfs, sds *rawkeys, sds
     data->idx = idx;
     data->num = num;
     data->cfs = zmalloc(sizeof(int)*data->num);
-    memcpy(data->cfs,cfs,sizeof(sds)*data->num);
+    memcpy(data->cfs,cfs,sizeof(int)*data->num);
     data->rawkeys = zmalloc(sizeof(sds)*data->num);
     memcpy(data->rawkeys,rawkeys,sizeof(sds)*data->num);
     data->rawvals = zmalloc(sizeof(sds)*data->num);

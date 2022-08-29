@@ -1269,6 +1269,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         redisDb *db = server.db+j;
         //FIXME handle cold
         // if (dictSize(db->dict) == 0) continue;
+        // TODO remove
+        if (j > 0) break;
 
         /* Write the SELECT DB opcode */
         if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
@@ -2367,8 +2369,10 @@ void startLoading(size_t size, int rdbflags) {
      * be sumitted and processed. if there are async RIO in-flight(e.g.
      * fullresync happend if we are slave and there are clients swapping-in
      * evictted keys), server might crash. */
-    asyncCompleteQueueDrain(-1);
-    evictStartLoading();
+    if (server.swap_mode != SWAP_MODE_MEMORY) {
+        asyncCompleteQueueDrain(-1);
+        evictStartLoading();
+    }
 
     /* Fire the loading modules start event. */
     int subevent;
@@ -2405,7 +2409,8 @@ void stopLoading(int success) {
     blockingOperationEnds();
     rdbFileBeingLoaded = NULL;
 
-    evictStopLoading(success);
+    if (server.swap_mode != SWAP_MODE_MEMORY)
+        evictStopLoading(success);
 
     /* Fire the loading modules end event. */
     moduleFireServerEvent(REDISMODULE_EVENT_LOADING,
@@ -2714,6 +2719,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
              * b) add key to db.dict, because keys are loaded as cold. */
             initStaticStringObject(keyobj,key);
             moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
+            sdsfree(key);
         } else if (iAmMaster() &&
             !(rdbflags&RDBFLAGS_AOF_PREAMBLE) &&
             expiretime != -1 && expiretime < now)

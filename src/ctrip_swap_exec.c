@@ -639,7 +639,6 @@ static int doSwapIntentionDel(swapRequest *req, int numkeys, int *cfs, sds *rawk
 
     DEBUG_MSGS_APPEND(req->msgs,"execswap-in.del","numkeys=%d,retval=%d",
             numkeys, retval);
-    RIODeinit(rio);
     return retval;
 }
 
@@ -812,7 +811,7 @@ static int swapRequestSwapInMeta(swapRequest *req) {
     }
 
 end:
-    if (rawkey) sdsfree(rawkey);
+    RIODeinit(rio);
     return retval;
 }
 
@@ -821,6 +820,7 @@ static inline int swapRequestIsMetaType(swapRequest *req) {
 }
 
 static int executeSwapRequest(swapRequest *req) {
+    updateStatsSwapStart(req);
     /* do execute swap */ 
     switch (req->intention) {
     case SWAP_IN: return executeSwapInRequest(req);
@@ -888,7 +888,6 @@ int finishSwapRequest(swapRequest *req) {
 }
 
 static inline void submitSwapRequest(int mode,swapRequest *req) {
-    updateStatsSwapStart(req);
     if (mode == SWAP_MODE_ASYNC) {
         asyncSwapRequestSubmit(req);
     } else {
