@@ -1734,7 +1734,11 @@ int ACLUserCheckChannelPerm(user *u, sds channel, int is_pattern) {
     return ACL_DENIED_CHANNEL;
 }
 
-/* Lower level API that checks if a specified user is able to execute a given command. */
+/* Lower level API that checks if a specified user is able to execute a given command.
+ *
+ * If the command fails an ACL check, idxptr will be to set to the first argv entry that
+ * causes the failure, either 0 if the command itself fails or the idx of the key/channel
+ * that causes the failure */
 int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr) {
     listIter li;
     listNode *ln;
@@ -2876,8 +2880,7 @@ setuser_cleanup:
         int idx;
         int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
         if (result != ACL_OK) {
-            sds errored_val = (result != ACL_DENIED_CMD) ? c->argv[idx+3]->ptr : NULL;
-            sds err = getAclErrorMessage(result, u, cmd, errored_val);
+            sds err = getAclErrorMessage(result, u, cmd,  c->argv[idx+3]->ptr);
             addReplyBulkSds(c, err);
             return;
         }
