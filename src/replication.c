@@ -584,7 +584,13 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     listRewind(monitors,&li);
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
-        addReply(monitor,cmdobj);
+        if(monitor->resp > 2) {
+            addReplyPushLen(monitor,2);
+            addReply(monitor,shared.monitorbulk);
+            addReply(monitor,cmdobj);
+        } else {
+            addReply(monitor,cmdobj);
+        }
         updateClientMemUsage(c);
     }
     decrRefCount(cmdobj);

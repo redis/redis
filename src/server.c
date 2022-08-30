@@ -1768,6 +1768,7 @@ void createSharedObjects(void) {
     shared.ssubscribebulk = createStringObject("$10\r\nssubscribe\r\n", 17);
     shared.sunsubscribebulk = createStringObject("$12\r\nsunsubscribe\r\n", 19);
     shared.smessagebulk = createStringObject("$8\r\nsmessage\r\n", 14);
+    shared.monitorbulk = createStringObject("$7\r\nmonitor\r\n", 13);
     shared.psubscribebulk = createStringObject("$10\r\npsubscribe\r\n",17);
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
 
