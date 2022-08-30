@@ -1,6 +1,4 @@
 #include "redismodule.h"
-#include <stdio.h>
-#include <strings.h>
 
 RedisModuleUser *user = NULL;
 
@@ -11,8 +9,6 @@ int call_without_user(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     size_t cmd_len;
     const char * cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
-
-    printf("cmd = %.*s\n", (int) cmd_len, cmd);
 
     RedisModuleCallReply *reply = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
     if (reply == NULL) {
