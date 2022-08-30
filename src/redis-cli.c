@@ -2290,7 +2290,7 @@ static void usage(int err) {
 "redis-cli %s\n"
 "\n"
 "Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
-"  -h <hostname>      Server hostname (default: 127.0.0.1).\n"
+"  -h <hostname>      Server hostname (default: localhost).\n"
 "  -p <port>          Server port (default: 6379).\n"
 "  -s <socket>        Server socket (overrides hostname and port).\n"
 "  -a <password>      Password to use when connecting to the server.\n"
@@ -8886,7 +8886,7 @@ int main(int argc, char **argv) {
     struct timeval tv;
 
     memset(&config.sslconfig, 0, sizeof(config.sslconfig));
-    config.conn_info.hostip = sdsnew("127.0.0.1");
+    config.conn_info.hostip = sdsnew("localhost");
     config.conn_info.hostport = 6379;
     config.hostsocket = NULL;
     config.repeat = 1;
