@@ -5296,6 +5296,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         static struct utsname name;
         char *mode;
         char *supervised;
+	sds logfileDir = getAbsolutePath(server.logfile);
 
         if (server.cluster_enabled) mode = "cluster";
         else if (server.sentinel_mode) mode = "sentinel";
@@ -5375,7 +5376,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "",
             getLogLevel(),
-            getAbsolutePath(server.logfile),
+            logfileDir,
             server.io_threads_active);
 
         /* Conditional properties */
@@ -5387,6 +5388,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
 
         /* get all the listeners information */
         info = getListensInfoString(info);
+	sdsfree(logfileDir);
     }
 
     /* Clients */
