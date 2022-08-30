@@ -1331,10 +1331,8 @@ void pfmergeCommand(client *c) {
         if (o == NULL) continue; /* Assume empty HLL for non existing var. */
         if (isHLLObjectOrReply(c,o) != C_OK) return;
 
-        if (j > 1) {
-            /* Skip the command and the destkey. */
-            source_key_num++;
-        }
+        /* Skip the command and the destkey. */
+        if (j > 1) source_key_num++;
 
         /* If at least one involved HLL is dense, use the dense representation
          * as target ASAP to save time and avoid the conversion step. */
@@ -1349,8 +1347,9 @@ void pfmergeCommand(client *c) {
         }
     }
 
+    /* No source key exists, return ASAP. */
     if (source_key_num == 0) {
-        addReplyError(c, "at least 1 existing source key is needed");
+        addReply(c, shared.ok);
         return;
     }
 

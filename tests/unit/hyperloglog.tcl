@@ -165,14 +165,15 @@ start_server {tags {"hll"}} {
         r pfcount hll{t}
     } {5}
 
-    test {PFMERGE with illegal argument} {
+    test {PFMERGE dose not create empty destkey when source key dose not exist} {
         r del destkey{t} sourcekey{t} sourcekey2{t}
 
         assert_error {*wrong number of arguments for 'pfmerge' command} {r pfmerge destkey{t}}
+        assert_equal 0 [r exists destkey{t}]
 
-        assert_error {*at least 1 existing source key is needed} {r pfmerge destkey{t} sourcekey{t}}
-        assert_error {*at least 1 existing source key is needed} {r pfmerge destkey{t} sourcekey{t} sourcekey2{t}}
-
+        assert_equal {OK} [r pfmerge destkey{t} sourcekey{t}]
+        assert_equal 0 [r exists destkey{t}]
+        assert_equal {OK} [r pfmerge destkey{t} sourcekey{t} sourcekey2{t}]
         assert_equal 0 [r exists destkey{t}]
     }
 
