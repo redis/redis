@@ -1983,7 +1983,7 @@ sds ACLStringSetUser(user *u, sds username, sds *argv, int argc) {
         sds err = sdscatfmt(sdsempty(),
                          "Unmatched parenthesis in acl selector starting "
                          "at '%s'.", (char *) argv[invalid_idx]);
-        err = sdsmapchars(err, "\r\n", "  ",  2);
+        return sdsmapchars(err, "\r\n", "  ",  2);
     }
 
     /* Create a temporary user to validate and stage all changes against
