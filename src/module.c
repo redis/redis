@@ -5756,7 +5756,7 @@ fmterr:
  *     * `C` -- Check if command can be executed according to ACL rules.
  *              Uses the user specified by RM_SetContextModuleUser, if set, otherwise
  *              if the context has an attached client, will use the user associated
- *              with the client.  If neither are available, will returnan error.
+ *              with the client. If neither are available, will return an error.
  *              In addition, when defined, will enforce ACL checking within scripts
  *              as well.
  *     * `S` -- Run the command in a script mode, this means that it will raise
@@ -8709,7 +8709,7 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
  * RM_SetModuleUserACL, which only takes single ACL operations at a time.
  *
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR on failure
- * if a RedisModuleString is provided inerror, a string describing the error
+ * if a RedisModuleString is provided in error, a string describing the error
  * will be returned */
 int RM_SetModuleUserACLString(RedisModuleCtx *ctx, RedisModuleUser *user, const char *acl, RedisModuleString **error) {
     serverAssert(user != NULL);
