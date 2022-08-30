@@ -67,6 +67,20 @@ start_server {tags {"introspection"}} {
         set _ $res
     } {*"set" "foo"*"get" "foo"*}
 
+    test {MONITOR should support RESP3 protocol} {
+        set rd [redis_deferring_client]
+        $rd HELLO 3
+        $rd read ; # Consume the HELLO reply
+
+        $rd monitor
+        $rd read ; # Consume the MONITOR reply
+
+        r set foo bar
+
+        assert_match {monitor*"set"*"foo"*"bar"*} [$rd read]
+        $rd close
+    }
+
     test {MONITOR can log commands issued by the scripting engine} {
         set rd [redis_deferring_client]
         $rd monitor
