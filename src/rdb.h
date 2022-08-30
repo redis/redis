@@ -130,8 +130,7 @@
 /* When rdbLoadObject() returns NULL, the err flag is
  * set to hold the type of error that occurred */
 #define RDB_LOAD_ERR_EMPTY_KEY  1   /* Error of empty key */
-#define RDB_LOAD_ERR_SWAP_UNSUPPORTED  2   /* not supported for now */
-#define RDB_LOAD_ERR_OTHER      3   /* Any other errors */
+#define RDB_LOAD_ERR_OTHER      2   /* Any other errors */
 
 int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);

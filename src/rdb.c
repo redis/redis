@@ -2679,14 +2679,23 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             goto eoferr;
 
         /* Read value */
+        int swap_unsupported = 0;
         if (server.swap_mode != SWAP_MODE_MEMORY) {
             rdbKeyLoadData _keydata, *keydata = &_keydata;
-            error = ctripRdbLoadObject(type,rdb,db,key,expiretime,now,keydata);
+            int swap_load_error = ctripRdbLoadObject(type,rdb,db,key,
+                    expiretime,now,keydata);
+            if (swap_load_error == 0) {
+                error = 0;
+            } else if (swap_load_error == SWAP_RDB_LOAD_ERR_UNSUPPORTED) {
+                error = 0;
+                swap_unsupported = 1;
+            } else {
+                error = RDB_LOAD_ERR_OTHER;
+            }
             rdbKeyLoadDataDeinit(keydata);
         }
 
-        if (server.swap_mode == SWAP_MODE_MEMORY ||
-                error == RDB_LOAD_ERR_SWAP_UNSUPPORTED) {
+        if (server.swap_mode == SWAP_MODE_MEMORY || swap_unsupported) {
             val = rdbLoadObject(type,rdb,key,&error);
         }
 
@@ -2711,8 +2720,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 sdsfree(key);
                 goto eoferr;
             }
-        } else if (server.swap_mode != SWAP_MODE_MEMORY &&
-                error != RDB_LOAD_ERR_SWAP_UNSUPPORTED) {
+        } else if (server.swap_mode != SWAP_MODE_MEMORY && !swap_unsupported) {
             robj keyobj;
             /* swap_mode does not:
              * a) handle expired keys, because expired keys handled later.

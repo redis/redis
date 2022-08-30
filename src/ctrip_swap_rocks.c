@@ -93,7 +93,9 @@ int rocksInit() {
     rocks->cf_opts[META_CF] = rocksdb_options_create();
     rocks->block_opts[META_CF] = rocksdb_block_based_options_create();
     rocksdb_block_based_options_set_block_size(rocks->block_opts[META_CF], 8*KB);
-    rocksdb_block_based_options_set_block_cache_compressed(rocks->block_opts[META_CF], rocksdb_cache_create_lru(512*MB));
+    rocksdb_cache_t *cache = rocksdb_cache_create_lru(512*MB);
+    rocksdb_block_based_options_set_block_cache_compressed(rocks->block_opts[META_CF], cache);
+    rocksdb_cache_destroy(cache);
     rocksdb_options_set_block_based_table_factory(rocks->cf_opts[META_CF], rocks->block_opts[META_CF]);
 
     rocks->cf_opts[SCORE_CF] = rocksdb_options_create();

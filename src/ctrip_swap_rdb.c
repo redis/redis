@@ -195,13 +195,21 @@ static int rdbKeySaveDataInitCold(rdbKeySaveData *keydata, redisDb *db,
 
 int rdbKeySaveDataInit(rdbKeySaveData *keydata, redisDb *db, decodedMeta *dm) {
     robj *value, *key;
+    objectMeta *object_meta;
+
     serverAssert(db->id == dm->dbid);
+
     key = createStringObject(dm->key, sdslen(dm->key));
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
-    if (value)
+    object_meta = lookupMeta(db,key);
+
+    if (keyIsHot(object_meta, value)) {
+        return INIT_SAVE_SKIP;
+    } else if (value) {
         return rdbKeySaveDataInitWarm(keydata,db,key,value);
-    else 
+    } else  {
         return rdbKeySaveDataInitCold(keydata,db,key,dm);
+    }
 }
 
 int rocksDecodeDataCF(sds rawkey, unsigned char rdbtype, sds rdbraw,
@@ -780,7 +788,7 @@ int rdbKeyLoadDataInit(rdbKeyLoadData *keydata, int rdbtype,
         wholeKeyLoadInit(keydata);
         break;
     default:
-        retval = RDB_LOAD_ERR_SWAP_UNSUPPORTED;
+        retval = SWAP_RDB_LOAD_ERR_UNSUPPORTED;
         break;
     }
     return retval;

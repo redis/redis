@@ -794,6 +794,8 @@ int wholeKeySaveInit(rdbKeySaveData *keydata);
 int wholekeySave(rdbKeySaveData *keydata,  rio *rdb, decodedData *d);
 
 /* rdb load */
+#define SWAP_RDB_LOAD_ERR_UNSUPPORTED 1
+
 #define RDB_LOAD_BATCH_COUNT 50
 #define RDB_LOAD_BATCH_CAPACITY  (4*1024*1024)
 
