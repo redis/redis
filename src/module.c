@@ -357,6 +357,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_NO_WRITES (1<<7)
 #define REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS (1<<8)
 #define REDISMODULE_ARGV_RESPECT_DENY_OOM (1<<9)
+#define REDISMODULE_ARGV_SCRIPTS_INCOMPAT_MODE (1<<12)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -5631,6 +5632,8 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  *     "3" -> REDISMODULE_ARGV_RESP_3
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
  *     "C" -> REDISMODULE_ARGV_CHECK_ACL
+ *     "I" -> REDISMODULE_ARGV_SCRIPTS_INCOMPAT_MODE
+ *          Treats non shbang lua scripts in eval as if they have an empty shbang instead of COMPAT mode
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -5703,6 +5706,8 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= REDISMODULE_ARGV_RESPECT_DENY_OOM;
         } else if (*p == 'E') {
             if (flags) (*flags) |= REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
+        } else if (*p == 'I') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_SCRIPTS_INCOMPAT_MODE;
         } else {
             goto fmterr;
         }
@@ -5754,6 +5759,8 @@ fmterr:
  *              invoking the command, the error is returned using errno mechanism.
  *              This flag allows to get the error also as an error CallReply with
  *              relevant error message.
+ *     * 'I' -- Treat backwards compatible lua scripts as non backwards compatible, i.e.
+ *              as if no shbang flags.  ex: will be treated as DENY_OOM
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
@@ -5847,7 +5854,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         goto cleanup;
     }
 
-    cmd_flags = getCommandFlags(c);
+    cmd_flags = getCommandFlags(c, flags & REDISMODULE_ARGV_SCRIPTS_INCOMPAT_MODE);
 
     if (flags & REDISMODULE_ARGV_SCRIPT_MODE) {
         /* Basically on script mode we want to only allow commands that can

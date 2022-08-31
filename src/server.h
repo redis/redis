@@ -2864,7 +2864,7 @@ int zslLexValueLteMax(sds value, zlexrangespec *spec);
 int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *level);
 size_t freeMemoryGetNotCountedMemory();
 int overMaxmemoryAfterAlloc(size_t moremem);
-uint64_t getCommandFlags(client *c);
+uint64_t getCommandFlags(client *c, int incompat);
 int processCommand(client *c);
 int processPendingCommandAndInputBuffer(client *c);
 void setupSignalHandlers(void);
@@ -3194,7 +3194,7 @@ void sha1hex(char *digest, char *script, size_t len);
 unsigned long evalMemory();
 dict* evalScriptsDict();
 unsigned long evalScriptsMemory();
-uint64_t evalGetCommandFlags(client *c, uint64_t orig_flags);
+uint64_t evalGetCommandFlags(client *c, uint64_t orig_flags, bool incompat);
 uint64_t fcallGetCommandFlags(client *c, uint64_t orig_flags);
 int isInsideYieldingLongCommand();
 

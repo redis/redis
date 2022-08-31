@@ -3607,7 +3607,7 @@ int commandCheckArity(client *c, sds *err) {
 /* If we're executing a script, try to extract a set of command flags from
  * it, in case it declared them. Note this is just an attempt, we don't yet
  * know the script command is well formed.*/
-uint64_t getCommandFlags(client *c) {
+uint64_t getCommandFlags(client *c, int incompat) {
     uint64_t cmd_flags = c->cmd->flags;
 
     if (c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand) {
@@ -3615,7 +3615,7 @@ uint64_t getCommandFlags(client *c) {
     } else if (c->cmd->proc == evalCommand || c->cmd->proc == evalRoCommand ||
                c->cmd->proc == evalShaCommand || c->cmd->proc == evalShaRoCommand)
     {
-        cmd_flags = evalGetCommandFlags(c, cmd_flags);
+        cmd_flags = evalGetCommandFlags(c, cmd_flags, incompat);
     }
 
     return cmd_flags;
@@ -3685,7 +3685,7 @@ int processCommand(client *c) {
         }
     }
 
-    uint64_t cmd_flags = getCommandFlags(c);
+    uint64_t cmd_flags = getCommandFlags(c, false);
 
     int is_read_command = (cmd_flags & CMD_READONLY) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));

@@ -380,7 +380,7 @@ int evalExtractShebangFlags(sds body, uint64_t *out_flags, ssize_t *out_shebang_
 
 /* Try to extract command flags if we can, returns the modified flags.
  * Note that it does not guarantee the command arguments are right. */
-uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
+uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags, bool incompat) {
     char funcname[43];
     int evalsha = c->cmd->proc == evalShaCommand || c->cmd->proc == evalShaRoCommand;
     if (evalsha && sdslen(c->argv[1]->ptr) != 40)
@@ -398,7 +398,7 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
         luaScript *l = dictGetVal(de);
         script_flags = l->flags;
     }
-    if (script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)
+    if (!incompat && script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)
         return cmd_flags;
     return scriptFlagsToCmdFlags(cmd_flags, script_flags);
 }
