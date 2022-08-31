@@ -1535,7 +1535,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (ProcessingEventsWhileBlocked) {
         uint64_t processed = 0;
         processed += handleClientsWithPendingReadsUsingThreads();
-        processed += tlsProcessPendingData();
+        processed += connTypeProcessPendingData();
         if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
             flushAppendOnlyFile(0);
         processed += handleClientsWithPendingWrites();
@@ -1550,11 +1550,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* We should handle pending reads clients ASAP after event loop. */
     handleClientsWithPendingReadsUsingThreads();
 
-    /* Handle TLS pending data. (must be done before flushAppendOnlyFile) */
-    tlsProcessPendingData();
+    /* Handle pending data(typical TLS). (must be done before flushAppendOnlyFile) */
+    connTypeProcessPendingData();
 
-    /* If tls still has pending unread data don't sleep at all. */
-    aeSetDontWait(server.el, tlsHasPendingData());
+    /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
+    aeSetDontWait(server.el, connTypeHasPendingData());
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
@@ -1862,9 +1862,7 @@ void initServerConfig(void) {
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
-    server.ipfd.count = 0;
-    server.tlsfd.count = 0;
-    server.sofd = -1;
+    memset(server.listeners, 0x00, sizeof(server.listeners));
     server.active_expire_enabled = 1;
     server.skip_checksum_validation = 0;
     server.loading = 0;
@@ -2232,7 +2230,7 @@ void checkTcpBacklogSettings(void) {
 #endif
 }
 
-void closeSocketListeners(socketFds *sfd) {
+void closeListener(connListener *sfd) {
     int j;
 
     for (j = 0; j < sfd->count; j++) {
@@ -2247,11 +2245,11 @@ void closeSocketListeners(socketFds *sfd) {
 
 /* Create an event handler for accepting new connections in TCP or TLS domain sockets.
  * This works atomically for all socket fds */
-int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
+int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler) {
     int j;
 
     for (j = 0; j < sfd->count; j++) {
-        if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler,NULL) == AE_ERR) {
+        if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler,sfd) == AE_ERR) {
             /* Rollback */
             for (j = j-1; j >= 0; j--) aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);
             return C_ERR;
@@ -2264,7 +2262,8 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
  * binding the addresses specified in the Redis server configuration.
  *
  * The listening file descriptors are stored in the integer array 'fds'
- * and their number is set in '*count'.
+ * and their number is set in '*count'. Actually @sfd should be 'listener',
+ * for the historical reasons, let's keep 'sfd' here.
  *
  * The addresses to bind are specified in the global server.bindaddr array
  * and their number is server.bindaddr_count. If the server configuration
@@ -2278,14 +2277,15 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
  * impossible to bind, or no bind addresses were specified in the server
  * configuration but the function is not able to bind * for at least
  * one of the IPv4 or IPv6 protocols. */
-int listenToPort(int port, socketFds *sfd) {
+int listenToPort(connListener *sfd) {
     int j;
-    char **bindaddr = server.bindaddr;
+    int port = sfd->port;
+    char **bindaddr = sfd->bindaddr;
 
     /* If we have no bind address, we don't listen on a TCP socket */
-    if (server.bindaddr_count == 0) return C_OK;
+    if (sfd->bindaddr_count == 0) return C_OK;
 
-    for (j = 0; j < server.bindaddr_count; j++) {
+    for (j = 0; j < sfd->bindaddr_count; j++) {
         char* addr = bindaddr[j];
         int optional = *addr == '-';
         if (optional) addr++;
@@ -2309,7 +2309,7 @@ int listenToPort(int port, socketFds *sfd) {
                 continue;
 
             /* Rollback successful listens before exiting */
-            closeSocketListeners(sfd);
+            closeListener(sfd);
             return C_ERR;
         }
         if (server.socket_mark_id > 0) anetSetSockMarkId(NULL, sfd->fd[sfd->count], server.socket_mark_id);
@@ -2446,12 +2446,6 @@ void initServer(void) {
         exit(1);
     }
 
-    if ((server.tls_port || server.tls_replication || server.tls_cluster)
-                && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
-        serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
-        exit(1);
-    }
-
     for (j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
         server.client_mem_usage_buckets[j].mem_usage_sum = 0;
         server.client_mem_usage_buckets[j].clients = listCreate();
@@ -2469,39 +2463,6 @@ void initServer(void) {
         exit(1);
     }
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
-
-    /* Open the TCP listening socket for the user commands. */
-    if (server.port != 0 &&
-        listenToPort(server.port,&server.ipfd) == C_ERR) {
-        /* Note: the following log text is matched by the test suite. */
-        serverLog(LL_WARNING, "Failed listening on port %u (TCP), aborting.", server.port);
-        exit(1);
-    }
-    if (server.tls_port != 0 &&
-        listenToPort(server.tls_port,&server.tlsfd) == C_ERR) {
-        /* Note: the following log text is matched by the test suite. */
-        serverLog(LL_WARNING, "Failed listening on port %u (TLS), aborting.", server.tls_port);
-        exit(1);
-    }
-
-    /* Open the listening Unix domain socket. */
-    if (server.unixsocket != NULL) {
-        unlink(server.unixsocket); /* don't care if this fails */
-        server.sofd = anetUnixServer(server.neterr,server.unixsocket,
-            (mode_t)server.unixsocketperm, server.tcp_backlog);
-        if (server.sofd == ANET_ERR) {
-            serverLog(LL_WARNING, "Failed opening Unix socket: %s", server.neterr);
-            exit(1);
-        }
-        anetNonBlock(NULL,server.sofd);
-        anetCloexec(server.sofd);
-    }
-
-    /* Abort if there are no listening sockets at all. */
-    if (server.ipfd.count == 0 && server.tlsfd.count == 0 && server.sofd < 0) {
-        serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
-        exit(1);
-    }
 
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
@@ -2583,18 +2544,6 @@ void initServer(void) {
         exit(1);
     }
 
-    /* Create an event handler for accepting new connections in TCP and Unix
-     * domain sockets. */
-    if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
-        serverPanic("Unrecoverable error creating TCP socket accept handler.");
-    }
-    if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
-        serverPanic("Unrecoverable error creating TLS socket accept handler.");
-    }
-    if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
-        acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
-
-
     /* Register a readable event for the pipe used to awake the event loop
      * from module threads. */
     if (aeCreateFileEvent(server.el, server.module_pipe[0], AE_READABLE,
@@ -2618,7 +2567,6 @@ void initServer(void) {
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
-    if (server.cluster_enabled) clusterInit();
     scriptingInit(1);
     functionsInit();
     slowlogInit();
@@ -2628,6 +2576,78 @@ void initServer(void) {
     ACLUpdateDefaultUserPassword(server.requirepass);
 
     applyWatchdogPeriod();
+}
+
+void initListeners() {
+    /* Setup listeners from server config for TCP/TLS/Unix */
+    int conn_index;
+    connListener *listener;
+    if (server.port != 0) {
+        conn_index = connectionIndexByType(CONN_TYPE_SOCKET);
+        if (conn_index < 0)
+            serverPanic("Failed finding connection listener of %s", CONN_TYPE_SOCKET);
+        listener = &server.listeners[conn_index];
+        listener->bindaddr = server.bindaddr;
+        listener->bindaddr_count = server.bindaddr_count;
+        listener->port = server.port;
+        listener->ct = connectionByType(CONN_TYPE_SOCKET);
+    }
+
+    if (server.tls_port || server.tls_replication || server.tls_cluster) {
+        ConnectionType *ct_tls = connectionTypeTls();
+        if (!ct_tls) {
+            serverLog(LL_WARNING, "Failed finding TLS support.");
+            exit(1);
+        }
+        if (connTypeConfigure(ct_tls, &server.tls_ctx_config, 1) == C_ERR) {
+            serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
+            exit(1);
+        }
+    }
+
+    if (server.tls_port != 0) {
+        conn_index = connectionIndexByType(CONN_TYPE_TLS);
+        if (conn_index < 0)
+            serverPanic("Failed finding connection listener of %s", CONN_TYPE_TLS);
+        listener = &server.listeners[conn_index];
+        listener->bindaddr = server.bindaddr;
+        listener->bindaddr_count = server.bindaddr_count;
+        listener->port = server.tls_port;
+        listener->ct = connectionByType(CONN_TYPE_TLS);
+    }
+    if (server.unixsocket != NULL) {
+        conn_index = connectionIndexByType(CONN_TYPE_UNIX);
+        if (conn_index < 0)
+            serverPanic("Failed finding connection listener of %s", CONN_TYPE_UNIX);
+        listener = &server.listeners[conn_index];
+        listener->bindaddr = &server.unixsocket;
+        listener->bindaddr_count = 1;
+        listener->ct = connectionByType(CONN_TYPE_UNIX);
+        listener->priv = &server.unixsocketperm; /* Unix socket specified */
+    }
+
+    /* create all the configured listener, and add handler to start to accept */
+    int listen_fds = 0;
+    for (int j = 0; j < CONN_TYPE_MAX; j++) {
+        listener = &server.listeners[j];
+        if (listener->ct == NULL)
+            continue;
+
+        if (connListen(listener) == C_ERR) {
+            serverLog(LL_WARNING, "Failed listening on port %u (%s), aborting.", listener->port, listener->ct->get_type(NULL));
+            exit(1);
+        }
+
+        if (createSocketAcceptHandler(listener, connAcceptHandler(listener->ct)) != C_OK)
+            serverPanic("Unrecoverable error creating %s listener accept handler.", listener->ct->get_type(NULL));
+
+       listen_fds += listener->count;
+    }
+
+    if (listen_fds == 0) {
+        serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
+        exit(1);
+    }
 }
 
 /* Some steps in server initialization need to be done last (after modules
@@ -2915,89 +2935,40 @@ void resetErrorTableStats(void) {
 
 /* ========================== Redis OP Array API ============================ */
 
-/* Used to update a placeholder previously created using `redisOpArrayAppendPlaceholder`.
- * We assume the updated placeholder has no target set yet (otherwise its not a placeholder). */
-void redisOpArraySet(redisOpArray *oa, int dbid, robj **argv, int argc, int target, int index) {
-    redisOp *op = oa->ops+index;
-    serverAssert(!op->target);
-    op->dbid = dbid;
-    op->argv = argv;
-    op->argc = argc;
-    op->target = target;
-    oa->numops++;
-}
-
-/* Append an operation to the given redisOpArray.
- * dbid - the id of the database to apply the operation on
- * argv - operations arguments (including the command)
- * argc - size of argv
- * target - indicating how to propagate the operation (PROPAGATE_AOF,PROPAGATE_REPL)
- *
- * Special case is when used with target 0, in this case the operation is a placeholder
- * that is expected to be filled later on using redisOpArraySet. */
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target) {
     redisOp *op;
     int prev_capacity = oa->capacity;
 
-    if (oa->used == 0) {
+    if (oa->numops == 0) {
         oa->capacity = 16;
-    } else if (oa->used >= oa->capacity) {
+    } else if (oa->numops >= oa->capacity) {
         oa->capacity *= 2;
     }
 
     if (prev_capacity != oa->capacity)
         oa->ops = zrealloc(oa->ops,sizeof(redisOp)*oa->capacity);
-    int idx = oa->used;
-    op = oa->ops+idx;
+    op = oa->ops+oa->numops;
     op->dbid = dbid;
     op->argv = argv;
     op->argc = argc;
     op->target = target;
-    oa->used++;
-    if (op->target) {
-        /* if `target` is 0, the operation was added as a placeholder and is not yet counted as
-         * a command that need to be propagated, this is why we only increase `numops` if `target` is not 0. */
-        oa->numops++;
-    }
-    return idx; /* return the index of the appended operation */
-}
-
-void redisOpArrayTrim(redisOpArray *oa) {
-    if (!oa->used) {
-        /* nothing to trim */
-        return;
-    }
-    redisOp *last_op = oa->ops + (oa->used - 1);
-    if (!last_op->target) {
-        /* last op is an unused placeholder, we can remove it */
-        --oa->used;
-    }
-}
-
-int redisOpArrayAppendPlaceholder(redisOpArray *oa) {
-    return redisOpArrayAppend(oa, 0, NULL, 0, 0);
+    oa->numops++;
+    return oa->numops;
 }
 
 void redisOpArrayFree(redisOpArray *oa) {
-    while(oa->used) {
+    while(oa->numops) {
         int j;
         redisOp *op;
 
-        oa->used--;
-        op = oa->ops+oa->used;
-        if (!op->target) {
-            continue;
-        }
         oa->numops--;
-        for (j = 0; j < op->argc; j++) {
+        op = oa->ops+oa->numops;
+        for (j = 0; j < op->argc; j++)
             decrRefCount(op->argv[j]);
-        }
         zfree(op->argv);
     }
-
     /* no need to free the actual op array, we reuse the memory for future commands */
     serverAssert(!oa->numops);
-    serverAssert(!oa->used);
 }
 
 /* ====================== Commands lookup and execution ===================== */
@@ -3144,29 +3115,6 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
 
-/* Append or set the given operation to the replication buffer.
- * If index is -1, the operation will be appended to the end of the buffer.
- * Otherwise the operation will be set at the given index. */
-void alsoPropagateRaw(int dbid, robj **argv, int argc, int target, int index) {
-    robj **argvcopy;
-    int j;
-
-    if (!shouldPropagate(target))
-        return;
-
-    argvcopy = zmalloc(sizeof(robj*)*argc);
-    for (j = 0; j < argc; j++) {
-        argvcopy[j] = argv[j];
-        incrRefCount(argv[j]);
-    }
-    if (index == -1) {
-        /* -1 means append to the end */
-        redisOpArrayAppend(&server.also_propagate,dbid,argvcopy,argc,target);
-    } else {
-        redisOpArraySet(&server.also_propagate,dbid,argvcopy,argc,target,index);
-    }
-}
-
 /* Used inside commands to schedule the propagation of additional commands
  * after the current command is propagated to AOF / Replication.
  *
@@ -3179,7 +3127,18 @@ void alsoPropagateRaw(int dbid, robj **argv, int argc, int target, int index) {
  * stack allocated).  The function automatically increments ref count of
  * passed objects, so the caller does not need to. */
 void alsoPropagate(int dbid, robj **argv, int argc, int target) {
-    alsoPropagateRaw(dbid, argv, argc, target, -1);
+    robj **argvcopy;
+    int j;
+
+    if (!shouldPropagate(target))
+        return;
+
+    argvcopy = zmalloc(sizeof(robj*)*argc);
+    for (j = 0; j < argc; j++) {
+        argvcopy[j] = argv[j];
+        incrRefCount(argv[j]);
+    }
+    redisOpArrayAppend(&server.also_propagate,dbid,argvcopy,argc,target);
 }
 
 /* It is possible to call the function forceCommandPropagation() inside a
@@ -3238,10 +3197,8 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
 void propagatePendingCommands() {
-    if (server.also_propagate.numops == 0) {
-        redisOpArrayFree(&server.also_propagate);
+    if (server.also_propagate.numops == 0)
         return;
-    }
 
     int j;
     redisOp *rop;
@@ -3261,11 +3218,9 @@ void propagatePendingCommands() {
     }
 
 
-    for (j = 0; j < server.also_propagate.used; j++) {
+    for (j = 0; j < server.also_propagate.numops; j++) {
         rop = &server.also_propagate.ops[j];
-        if (!rop->target) {
-            continue;
-        }
+        serverAssert(rop->target);
         propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
     }
 
@@ -3379,24 +3334,6 @@ void call(client *c, int flags) {
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
-
-    int cmd_prop_index = -1;
-    if (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) {
-        /* Save placeholder for replication.
-         * If the command will be replicated, this is the location where it should be placed in the replication stream.
-         * If we just push the command to the replication buffer (without the placeholder), the replica might get the commands
-         * in a wrong order and we will end up with master-replica inconsistency. To demonstrate, take the following example:
-         *
-         * 1. A module register a key space notification callback and inside the notification the module performed an incr command on the given key
-         * 2. User performs 'set x 1'
-         * 3. The module get the notification and perform 'incr x'
-         * 4. The command 'incr x' enters the replication buffer before the 'set x 1' command and the replica sees the command in the wrong order
-         *
-         * The final result is that the replica will have the value x=1 while the master will have x=2
-         *
-         * Notice that we only do this if the command might cause replication (either it's a WRITE command or MAY_REPLICATE) */
-        cmd_prop_index = redisOpArrayAppendPlaceholder(&server.also_propagate);
-    }
 
     server.in_nested_call++;
     c->cmd->proc(c);
@@ -3519,17 +3456,8 @@ void call(client *c, int flags) {
         /* Call alsoPropagate() only if at least one of AOF / replication
          * propagation is needed. */
         if (propagate_flags != PROPAGATE_NONE)
-            /* If we got here with cmd_prop_index == -1, the command will be added to the end
-             * of the replication buffer, this can only happened on a read that causes a key
-             * miss event which causes the module to perform a write command using RM_Call.
-             * In such case we will propagate a read command (or a write command that has no effect
-             * and should not have been propagated). This behavior is wrong and module writer is advised
-             * not to perform any write commands on key miss event. */
-            alsoPropagateRaw(c->db->id,c->argv,c->argc,propagate_flags,cmd_prop_index);
+            alsoPropagate(c->db->id,c->argv,c->argc,propagate_flags);
     }
-
-    /* Try to trim the last element if it is not used (if it's still a placeholder). */
-    redisOpArrayTrim(&server.also_propagate);
 
     /* Restore the old replication flags, since call() can be executed
      * recursively. */
@@ -3676,6 +3604,23 @@ int commandCheckArity(client *c, sds *err) {
     return 1;
 }
 
+/* If we're executing a script, try to extract a set of command flags from
+ * it, in case it declared them. Note this is just an attempt, we don't yet
+ * know the script command is well formed.*/
+uint64_t getCommandFlags(client *c) {
+    uint64_t cmd_flags = c->cmd->flags;
+
+    if (c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand) {
+        cmd_flags = fcallGetCommandFlags(c, cmd_flags);
+    } else if (c->cmd->proc == evalCommand || c->cmd->proc == evalRoCommand ||
+               c->cmd->proc == evalShaCommand || c->cmd->proc == evalShaRoCommand)
+    {
+        cmd_flags = evalGetCommandFlags(c, cmd_flags);
+    }
+
+    return cmd_flags;
+}
+
 /* If this function gets called we already read a whole
  * command, arguments are in the client argv/argc fields.
  * processCommand() execute the command or prepare the
@@ -3740,19 +3685,7 @@ int processCommand(client *c) {
         }
     }
 
-    /* If we're executing a script, try to extract a set of command flags from
-     * it, in case it declared them. Note this is just an attempt, we don't yet
-     * know the script command is well formed.*/
-    uint64_t cmd_flags = c->cmd->flags;
-    if (c->cmd->proc == evalCommand || c->cmd->proc == evalShaCommand ||
-        c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand ||
-        c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand)
-    {
-        if (c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand)
-            cmd_flags = fcallGetCommandFlags(c, cmd_flags);
-        else
-            cmd_flags = evalGetCommandFlags(c, cmd_flags);
-    }
+    uint64_t cmd_flags = getCommandFlags(c);
 
     int is_read_command = (cmd_flags & CMD_READONLY) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
@@ -4065,11 +3998,16 @@ void incrementErrorCount(const char *fullerr, size_t namelen) {
 void closeListeningSockets(int unlink_unix_socket) {
     int j;
 
-    for (j = 0; j < server.ipfd.count; j++) close(server.ipfd.fd[j]);
-    for (j = 0; j < server.tlsfd.count; j++) close(server.tlsfd.fd[j]);
-    if (server.sofd != -1) close(server.sofd);
+    for (int i = 0; i < CONN_TYPE_MAX; i++) {
+        connListener *listener = &server.listeners[i];
+        if (listener->ct == NULL)
+            continue;
+
+        for (j = 0; j < listener->count; j++) close(listener->fd[j]);
+    }
+
     if (server.cluster_enabled)
-        for (j = 0; j < server.cfd.count; j++) close(server.cfd.fd[j]);
+        for (j = 0; j < server.clistener.count; j++) close(server.clistener.fd[j]);
     if (unlink_unix_socket && server.unixsocket) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
         if (unlink(server.unixsocket) != 0)
@@ -5409,6 +5347,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "shutdown_in_milliseconds:%I\r\n",
                 (int64_t)(server.shutdown_mstime - server.mstime));
         }
+
+        /* get all the listeners information */
+        info = getListensInfoString(info);
     }
 
     /* Clients */
@@ -5664,7 +5605,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "aof_base_size:%lld\r\n"
                 "aof_pending_rewrite:%d\r\n"
                 "aof_buffer_length:%zu\r\n"
-                "aof_pending_bio_fsync:%llu\r\n"
+                "aof_pending_bio_fsync:%lu\r\n"
                 "aof_delayed_fsync:%lu\r\n",
                 (long long) server.aof_current_size,
                 (long long) server.aof_rewrite_base_size,
@@ -5934,7 +5875,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 long lag = 0;
 
                 if (!slaveip) {
-                    if (connPeerToString(slave->conn,ip,sizeof(ip),&port) == -1)
+                    if (connAddrPeerName(slave->conn,ip,sizeof(ip),&port) == -1)
                         continue;
                     slaveip = ip;
                 }
@@ -6264,60 +6205,37 @@ void redisAsciiArt(void) {
     zfree(buf);
 }
 
-int changeBindAddr(void) {
-    /* Close old TCP and TLS servers */
-    closeSocketListeners(&server.ipfd);
-    closeSocketListeners(&server.tlsfd);
+/* Get the server listener by type name */
+connListener *listenerByType(const char *typename) {
+    int conn_index;
 
-    /* Bind to the new port */
-    if ((server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) ||
-        (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK)) {
-        serverLog(LL_WARNING, "Failed to bind");
+    conn_index = connectionIndexByType(typename);
+    if (conn_index < 0)
+        return NULL;
 
-        closeSocketListeners(&server.ipfd);
-        closeSocketListeners(&server.tlsfd);
-        return C_ERR;
-    }
-
-    /* Create TCP and TLS event handlers */
-    if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
-        serverPanic("Unrecoverable error creating TCP socket accept handler.");
-    }
-    if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
-        serverPanic("Unrecoverable error creating TLS socket accept handler.");
-    }
-
-    if (server.set_proc_title) redisSetProcTitle(NULL);
-
-    return C_OK;
+    return &server.listeners[conn_index];
 }
 
-int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
-    socketFds new_sfd = {{0}};
-
+/* Close original listener, re-create a new listener from the updated bind address & port */
+int changeListener(connListener *listener) {
     /* Close old servers */
-    closeSocketListeners(sfd);
+    closeListener(listener);
 
     /* Just close the server if port disabled */
-    if (port == 0) {
+    if (listener->port == 0) {
         if (server.set_proc_title) redisSetProcTitle(NULL);
         return C_OK;
     }
 
-    /* Bind to the new port */
-    if (listenToPort(port, &new_sfd) != C_OK) {
+    /* Re-create listener */
+    if (connListen(listener) != C_OK) {
         return C_ERR;
     }
 
     /* Create event handlers */
-    if (createSocketAcceptHandler(&new_sfd, accept_handler) != C_OK) {
-        closeSocketListeners(&new_sfd);
-        return C_ERR;
+    if (createSocketAcceptHandler(listener, listener->ct->accept_handler) != C_OK) {
+        serverPanic("Unrecoverable error creating %s accept handler.", listener->ct->get_type(NULL));
     }
-
-    /* Copy new descriptors */
-    sfd->count = new_sfd.count;
-    memcpy(sfd->fd, new_sfd.fd, sizeof(new_sfd.fd));
 
     if (server.set_proc_title) redisSetProcTitle(NULL);
 
@@ -6944,7 +6862,7 @@ int main(int argc, char **argv) {
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
-    tlsInit();
+    connTypeInitialize();
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
@@ -7089,6 +7007,16 @@ int main(int argc, char **argv) {
     if (server.set_proc_title) redisSetProcTitle(NULL);
     redisAsciiArt();
     checkTcpBacklogSettings();
+    if (!server.sentinel_mode) {
+        moduleInitModulesSystemLast();
+        moduleLoadFromQueue();
+    }
+    ACLLoadUsersAtStartup();
+    initListeners();
+    if (server.cluster_enabled) {
+        clusterInit();
+    }
+    InitServerLast();
 
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
@@ -7117,10 +7045,6 @@ int main(int argc, char **argv) {
         }
     #endif /* __arm64__ */
     #endif /* __linux__ */
-        moduleInitModulesSystemLast();
-        moduleLoadFromQueue();
-        ACLLoadUsersAtStartup();
-        InitServerLast();
         aofLoadManifestFromDisk();
         loadDataFromDisk();
         aofOpenIfNeededOnServerStart();
@@ -7133,10 +7057,15 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         }
-        if (server.ipfd.count > 0 || server.tlsfd.count > 0)
-            serverLog(LL_NOTICE,"Ready to accept connections");
-        if (server.sofd > 0)
-            serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
+
+        for (j = 0; j < CONN_TYPE_MAX; j++) {
+            connListener *listener = &server.listeners[j];
+            if (listener->ct == NULL)
+                continue;
+
+            serverLog(LL_NOTICE,"Ready to accept connections %s", listener->ct->get_type(NULL));
+        }
+
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             if (!server.masterhost) {
                 redisCommunicateSystemd("STATUS=Ready to accept connections\n");
@@ -7146,8 +7075,6 @@ int main(int argc, char **argv) {
             redisCommunicateSystemd("READY=1\n");
         }
     } else {
-        ACLLoadUsersAtStartup();
-        InitServerLast();
         sentinelIsRunning();
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             redisCommunicateSystemd("STATUS=Ready to accept connections\n");

@@ -490,20 +490,13 @@ void spopWithCountCommand(client *c) {
 
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
-
-        /* todo: Move the spop notification to be executed after the command logic.
-         * We can then decide if we want to keep the `alsoPropagate` or move to `rewriteClientCommandVector`. */
-
-        /* Propagate del command */
-        robj *propagate[2];
-        propagate[0] = shared.del;
-        propagate[1] = c->argv[1];
-        alsoPropagate(c->db->id,propagate,2,PROPAGATE_AOF|PROPAGATE_REPL);
-
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 
+        /* todo: Move the spop notification to be executed after the command logic. */
+
+        /* Propagate this command as a DEL operation */
+        rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c,c->db,c->argv[1]);
-        preventCommandPropagation(c);
         return;
     }
 

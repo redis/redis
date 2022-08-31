@@ -468,7 +468,7 @@ start_server {
         assert {[llength [lindex $reply 0 1 0 1]] == 2}
         assert {[lindex $reply 0 1 0 1] eq {a 1}}
 
-        # make sure the entry is present in both the gorup, and the right consumer
+        # make sure the entry is present in both the group, and the right consumer
         assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
         assert {[llength [r XPENDING mystream mygroup - + 10 consumer1]] == 1}
         assert {[llength [r XPENDING mystream mygroup - + 10 consumer2]] == 0}
@@ -480,7 +480,7 @@ start_server {
         assert {[llength [lindex $reply 0 1]] == 2}
         assert {[lindex $reply 0 1] eq {a 1}}
 
-        # make sure the entry is present in both the gorup, and the right consumer
+        # make sure the entry is present in both the group, and the right consumer
         assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
         assert {[llength [r XPENDING mystream mygroup - + 10 consumer1]] == 0}
         assert {[llength [r XPENDING mystream mygroup - + 10 consumer2]] == 1}
