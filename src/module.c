@@ -5623,7 +5623,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
     }
 }
 
-/* Modifies the user that RM_Call will ACL check commands as */
+/* Modifies the user that RM_Call will use (e.g. for ACL checks) */
 void RM_SetContextModuleUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     ctx->user = user;
 }
