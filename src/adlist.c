@@ -99,7 +99,7 @@ list *listAddNodeHead(list *list, void *value)
 
 /*
  * Add a node that has already been allocated to the head of list
-*/
+ */
 void listLinkNodeHead(list* list, listNode *node) {
     if (list->len == 0) {
         list->head = list->tail = node;
@@ -180,7 +180,7 @@ void listDelNode(list *list, listNode *node)
 }
 
 /*
- * Remove the specified node from list without freeing it.
+ * Remove the specified node from the list without freeing it.
  */
 void listUnlinkNode(list *list, listNode *node) {
     if (node->prev)
