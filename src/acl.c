@@ -1980,10 +1980,9 @@ sds ACLStringSetUser(user *u, sds username, sds *argv, int argc) {
     sds *acl_args = ACLMergeSelectorArguments(argv, argc, &merged_argc, &invalid_idx);
 
     if (!acl_args) {
-        sds err = sdscatfmt(sdsempty(),
+        return sdscatfmt(sdsempty(),
                          "Unmatched parenthesis in acl selector starting "
                          "at '%s'.", (char *) argv[invalid_idx]);
-        return sdsmapchars(err, "\r\n", "  ",  2);
     }
 
     /* Create a temporary user to validate and stage all changes against
@@ -2001,7 +2000,6 @@ sds ACLStringSetUser(user *u, sds username, sds *argv, int argc) {
             error = sdscatfmt(sdsempty(),
                               "Error in ACL SETUSER modifier '%s': %s",
                               (char*)acl_args[j], errmsg);
-            error = sdsmapchars(error, "\r\n", "  ",  2);
             goto cleanup;
         }
     }
@@ -2690,7 +2688,7 @@ void aclCommand(client *c) {
         if (error == NULL) {
             addReply(c,shared.ok);
         } else {
-            addReplyErrorSds(c, error);
+            addReplyErrorSdsSafe(c, error);
         }
         return;
     } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
