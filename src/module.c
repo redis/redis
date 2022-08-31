@@ -5623,7 +5623,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
     }
 }
 
-/* Modifies the user that RM_Call will ACL check commands as */
+/* Modifies the user that RM_Call will use (e.g. for ACL checks) */
 void RM_SetContextModuleUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     ctx->user = user;
 }
@@ -5641,7 +5641,7 @@ void RM_SetContextModuleUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
  *     "3" -> REDISMODULE_ARGV_RESP_3
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
  *     "C" -> REDISMODULE_ARGV_CHECK_ACL
- *          The ACL validation works either on the context's client's user (if its defined)
+ *          The ACL validation works either on the context's client's user (if it's defined)
  *          or the user the module sets on the context with RM_SetContextModuleUser
  *
  * On error (format specifier error) NULL is returned and nothing is
