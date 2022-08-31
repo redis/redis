@@ -5633,7 +5633,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
  *     "C" -> REDISMODULE_ARGV_CHECK_ACL
  *     "I" -> REDISMODULE_ARGV_SCRIPTS_INCOMPAT_MODE
- *          Treats non shbang lua scripts in eval as if they have an empty shbang instead of COMPAT mode
+ *          Treats non shebang lua scripts in eval as if they have an empty shebang instead of COMPAT mode
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -5760,7 +5760,7 @@ fmterr:
  *              This flag allows to get the error also as an error CallReply with
  *              relevant error message.
  *     * 'I' -- Treat backwards compatible lua scripts as non backwards compatible, i.e.
- *              as if no shbang flags.  ex: will be treated as DENY_OOM
+ *              as if no shebang flags.  ex: will be treated as DENY_OOM
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
