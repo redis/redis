@@ -50,7 +50,7 @@
                 "arguments": [
                     {
                         "token": "GET",
-                        "name": "encoding_offset",
+                        "name": "get-block",
                         "type": "block",
                         "arguments": [
                             {
@@ -69,7 +69,7 @@
                         "arguments": [
                             {
                                 "token": "OVERFLOW",
-                                "name": "wrap_sat_fail",
+                                "name": "overflow-block",
                                 "type": "oneof",
                                 "optional": true,
                                 "arguments": [
@@ -91,12 +91,12 @@
                                 ]
                             },
                             {
-                                "name": "write_operation",
+                                "name": "write-operation",
                                 "type": "oneof",
                                 "arguments": [
                                     {
                                         "token": "SET",
-                                        "name": "encoding_offset_value",
+                                        "name": "set-block",
                                         "type": "block",
                                         "arguments": [
                                             {
@@ -115,7 +115,7 @@
                                     },
                                     {
                                         "token": "INCRBY",
-                                        "name": "encoding_offset_increment",
+                                        "name": "incrby-block",
                                         "type": "block",
                                         "arguments": [
                                             {

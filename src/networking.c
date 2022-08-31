@@ -840,13 +840,29 @@ void addReplyDouble(client *c, double d) {
                               d > 0 ? 6 : 7);
         }
     } else {
-        char dbuf[MAX_LONG_DOUBLE_CHARS+3],
-             sbuf[MAX_LONG_DOUBLE_CHARS+32];
-        int dlen, slen;
+        char dbuf[MAX_LONG_DOUBLE_CHARS+32];
+        int dlen = 0;
         if (c->resp == 2) {
-            dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
-            slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
-            addReplyProto(c,sbuf,slen);
+            /* In order to prepend the string length before the formatted number,
+             * but still avoid an extra memcpy of the whole number, we reserve space
+             * for maximum header `$0000\r\n`, print double, add the resp header in
+             * front of it, and then send the buffer with the right `start` offset. */
+            int dlen = snprintf(dbuf+7,sizeof(dbuf) - 7,"%.17g",d);
+            int digits = digits10(dlen);
+            int start = 4 - digits;
+            dbuf[start] = '$';
+
+            /* Convert `dlen` to string, putting it's digits after '$' and before the
+	     * formatted double string. */
+            for(int i = digits, val = dlen; val && i > 0 ; --i, val /= 10) {
+                dbuf[start + i] = "0123456789"[val % 10];
+            }
+
+            dbuf[5] = '\r';
+            dbuf[6] = '\n';
+            dbuf[dlen+7] = '\r';
+            dbuf[dlen+8] = '\n';
+            addReplyProto(c,dbuf+start,dlen+9-start);
         } else {
             dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
             addReplyProto(c,dbuf,dlen);
@@ -1196,7 +1212,7 @@ int islocalClient(client *c) {
 
     /* tcp */
     char cip[NET_IP_STR_LEN+1] = { 0 };
-    connPeerToString(c->conn, cip, sizeof(cip)-1, NULL);
+    connAddrPeerName(c->conn, cip, sizeof(cip)-1, NULL);
 
     return !strcmp(cip,"127.0.0.1") || !strcmp(cip,"::1");
 }
@@ -1237,7 +1253,7 @@ void clientAcceptHandler(connection *conn) {
                 "mode option to 'no', and then restarting the server. "
                 "3) If you started the server manually just for testing, restart "
                 "it with the '--protected-mode no' option. "
-                "4) Setup a an authentication password for the default user. "
+                "4) Set up an authentication password for the default user. "
                 "NOTE: You only need to do one of the above things in order for "
                 "the server to start accepting connections from the outside.\r\n";
             if (connWrite(c->conn,err,strlen(err)) == -1) {
@@ -1255,8 +1271,7 @@ void clientAcceptHandler(connection *conn) {
                           c);
 }
 
-#define MAX_ACCEPTS_PER_CALL 1000
-static void acceptCommonHandler(connection *conn, int flags, char *ip) {
+void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
     char conninfo[100];
     UNUSED(ip);
@@ -1325,65 +1340,6 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
                     connGetLastError(conn), connGetInfo(conn, conninfo, sizeof(conninfo)));
         freeClient(connGetPrivateData(conn));
         return;
-    }
-}
-
-void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
-    char cip[NET_IP_STR_LEN];
-    UNUSED(el);
-    UNUSED(mask);
-    UNUSED(privdata);
-
-    while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
-            return;
-        }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAcceptedSocket(cfd),0,cip);
-    }
-}
-
-void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
-    char cip[NET_IP_STR_LEN];
-    UNUSED(el);
-    UNUSED(mask);
-    UNUSED(privdata);
-
-    while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
-            return;
-        }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAcceptedTLS(cfd, server.tls_auth_clients),0,cip);
-    }
-}
-
-void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cfd, max = MAX_ACCEPTS_PER_CALL;
-    UNUSED(el);
-    UNUSED(mask);
-    UNUSED(privdata);
-
-    while(max--) {
-        cfd = anetUnixAccept(server.neterr, fd);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
-            return;
-        }
-        serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
-        acceptCommonHandler(connCreateAcceptedSocket(cfd),CLIENT_UNIX_SOCKET,NULL);
     }
 }
 
@@ -2700,13 +2656,13 @@ done:
  * you want to relax error checking or need to display something anyway (see
  * anetFdToString implementation for more info). */
 void genClientAddrString(client *client, char *addr,
-                         size_t addr_len, int fd_to_str_type) {
+                         size_t addr_len, int remote) {
     if (client->flags & CLIENT_UNIX_SOCKET) {
         /* Unix socket client. */
         snprintf(addr,addr_len,"%s:0",server.unixsocket);
     } else {
         /* TCP client. */
-        connFormatFdAddr(client->conn,addr,addr_len,fd_to_str_type);
+        connFormatAddr(client->conn,addr,addr_len,remote);
     }
 }
 
@@ -2715,10 +2671,10 @@ void genClientAddrString(client *client, char *addr,
  * The Peer ID never changes during the life of the client, however it
  * is expensive to compute. */
 char *getClientPeerId(client *c) {
-    char peerid[NET_ADDR_STR_LEN];
+    char peerid[NET_ADDR_STR_LEN] = {0};
 
     if (c->peerid == NULL) {
-        genClientAddrString(c,peerid,sizeof(peerid),FD_TO_PEER_NAME);
+        genClientAddrString(c,peerid,sizeof(peerid),1);
         c->peerid = sdsnew(peerid);
     }
     return c->peerid;
@@ -2729,10 +2685,10 @@ char *getClientPeerId(client *c) {
  * The Socket Name never changes during the life of the client, however it
  * is expensive to compute. */
 char *getClientSockname(client *c) {
-    char sockname[NET_ADDR_STR_LEN];
+    char sockname[NET_ADDR_STR_LEN] = {0};
 
     if (c->sockname == NULL) {
-        genClientAddrString(c,sockname,sizeof(sockname),FD_TO_SOCK_NAME);
+        genClientAddrString(c,sockname,sizeof(sockname),0);
         c->sockname = sdsnew(sockname);
     }
     return c->sockname;
