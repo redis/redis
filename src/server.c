@@ -1146,8 +1146,6 @@ void cronUpdateMemoryStats() {
  * By doing so the server might avoid unnecessary eviction or rejection. */
 static void ClientWritePauseDuringOOM() {
     
-    if (!server.client_pause_write_during_oom) return;
-
     /* if OOM and available pending lazyfree jobs then pause client write */
     if ((getMaxmemoryState(NULL,NULL,NULL,NULL)) &&
         (!!bioPendingJobsOfType(BIO_LAZY_FREE))) {
@@ -1563,6 +1561,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         server.events_processed_while_blocked += processed;
         return;
     }
+
+    /* Pause clients on write as long as OOM and pending lazy-free jobs in background */
+    ClientWritePauseDuringOOM();
 
     /* Handle precise timeouts of blocked clients. */
     handleBlockedClientsTimeout();
