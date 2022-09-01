@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the number of arguments to the command",
         "group": "server",
         "since": "7.0.0",
-        "arity": -4,
+        "arity": -3,
         "container": "COMMAND",
         "function": "commandGetKeysAndFlagsCommand",
         "command_flags": [
@@ -23,8 +23,8 @@
             {
                 "name": "arg",
                 "type": "string",
-                "multiple": true,
-                "optional": true
+                "optional": true,
+                "multiple": true
             }
         ]
     }
