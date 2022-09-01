@@ -47,6 +47,6 @@ start_server {tags {"external:skip"}} {
     assert_equal [s evicted_keys] 0
     
     # Expected OOM recorded. In comment to avoid flakiness (left for manual testing)
-    assert_morethan [s used_memory_peak]  [s maxmemory]
+    # assert_morethan [s used_memory_peak]  [s maxmemory]
   }
 }
