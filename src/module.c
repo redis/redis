@@ -5755,7 +5755,7 @@ fmterr:
  *              User is either attached automatically via the client that directly
  *              issued the command and created the context or via RM_SetContextModuleUser.
  *              If the context is not directly created by an issued command (such as a
- *              backround context and no user was set on it via RM_SetContextModuleUser,
+ *              background context and no user was set on it via RM_SetContextModuleUser,
  *              RM_Call will fail.
  *              Checks if the command can be executed according to ACL rules and causes
  *              the command to run as the determined user, so that any future user
