@@ -23,7 +23,8 @@
             {
                 "name": "arg",
                 "type": "string",
-                "multiple": true
+                "multiple": true,
+                "optional": true
             }
         ]
     }
