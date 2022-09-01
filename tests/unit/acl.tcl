@@ -511,6 +511,37 @@ start_server {tags {"acl external:skip"}} {
         }
     }
 
+    # Test that only self-consistent ACL compactions occur.
+    test {ACL GETUSER provides correct results} {
+        r ACL SETUSER adv-test
+        r ACL SETUSER adv-test +@all -@hash -@slow +hget
+        assert_equal "+@all -@hash -@slow +hget" [dict get [r ACL getuser adv-test] commands]
+
+        # Categories are re-ordered if re-added and reset command bits
+        r ACL SETUSER adv-test -@hash
+        assert_equal "+@all -@slow -@hash" [dict get [r ACL getuser adv-test] commands]
+
+        # Inverting categories removes existing categories
+        r ACL SETUSER adv-test +@hash
+        assert_equal "+@all -@slow +@hash" [dict get [r ACL getuser adv-test] commands]
+
+        # Inverting the all category compacts everything
+        r ACL SETUSER adv-test -@all
+        assert_equal "-@all" [dict get [r ACL getuser adv-test] commands]
+
+        # Make sure categories are case insensitive
+        r ACL SETUSER adv-test -@all +@HASH
+        assert_equal "-@all +@hash" [dict get [r ACL getuser adv-test] commands]
+
+        # Arbitrary category additions and removals are handled
+        r ACL SETUSER adv-test -@all +@hash +@slow +@set +@set +@slow +@hash
+        assert_equal "-@all +@set +@slow +@hash" [dict get [r ACL getuser adv-test] commands]
+
+        # Unecesary categories are retained for potentional future compatibility
+        r ACL SETUSER adv-test -@all -@dangerous
+        assert_equal "-@all -@dangerous" [dict get [r ACL getuser adv-test] commands]
+    }
+
     test "ACL CAT with illegal arguments" {
         assert_error {*Unknown category 'NON_EXISTS'} {r ACL CAT NON_EXISTS}
         assert_error {*unknown subcommand or wrong number of arguments for 'CAT'*} {r ACL CAT NON_EXISTS NON_EXISTS2}
