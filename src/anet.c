@@ -253,13 +253,12 @@ int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
     memset(&hints,0,sizeof(hints));
     if (flags & ANET_IP_ONLY) hints.ai_flags = AI_NUMERICHOST;
     hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;  /* specify socktype to avoid dups */
-
-    if (flags & ANET_PREFER_IPV4) {
+    if (flags & ANET_PREFER_IPV4 && !(flags & ANET_PREFER_IPV6)) {
         hints.ai_family = AF_INET;
-    } else if (flags & ANET_PREFER_IPV6) {
+    } else if (flags & ANET_PREFER_IPV6 && !(flags & ANET_PREFER_IPV4)) {
         hints.ai_family = AF_INET6;
     }
+    hints.ai_socktype = SOCK_STREAM;  /* specify socktype to avoid dups */
 
     rv = getaddrinfo(host, NULL, &hints, &info);
     if (rv != 0 && hints.ai_family != AF_UNSPEC) {
