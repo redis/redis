@@ -943,7 +943,7 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
 static char *hintsCallback(const char *buf, int *color, int *bold) {
     if (!pref.hints) return NULL;
 
-    int i, rawargc, argc, buflen = strlen(buf), matchlen = 0;
+    int i, rawargc, argc, buflen = strlen(buf), matchlen = 0, shift = 0;
     sds *rawargv, *argv = sdssplitargs(buf,&argc);
     int endspace = buflen && isspace(buf[buflen-1]);
     helpEntry *entry = NULL;
@@ -953,6 +953,16 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
         sdsfreesplitres(argv,argc);
         return NULL;
     }
+
+    if (argc > 3 && (!strcasecmp(argv[0], "acl") && !strcasecmp(argv[1], "dryrun"))) {
+        shift = 3;
+    } else if (argc > 2 && (!strcasecmp(argv[0], "command") &&
+        (!strcasecmp(argv[1], "getkeys") || !strcasecmp(argv[1], "getkeysandflags"))))
+    {
+        shift = 2;
+    }
+    argc -= shift;
+    argv += shift;
 
     /* Search longest matching prefix command */
     for (i = 0; i < helpEntriesLen; i++) {
@@ -973,7 +983,7 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
         }
         sdsfreesplitres(rawargv,rawargc);
     }
-    sdsfreesplitres(argv,argc);
+    sdsfreesplitres(argv - shift,argc + shift);
 
     if (entry) {
         *color = 90;
