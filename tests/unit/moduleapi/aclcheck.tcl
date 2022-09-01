@@ -64,15 +64,15 @@ start_server {tags {"modules acl"}} {
         assert_equal [r aclcheck.rm_call set y 5] OK
         assert_error {*NOPERM*} {r aclcheck.rm_call set y 5 get}
         catch {r aclcheck.rm_call_with_errors set y 5 get} e
-        assert_match {*NOPERM*has no permissions to access the 'y' key*} $e
+        assert_match {*NOPERM*No permissions to access a key*} $e
 
         # rm call check for key permission (z: only READ)
         assert_error {*NOPERM*} {r aclcheck.rm_call set z 5}
         catch {r aclcheck.rm_call_with_errors set z 5} e
-        assert_match {*NOPERM*has no permissions to access the 'z' key*} $e
+        assert_match {*NOPERM*No permissions to access a key*} $e
         assert_error {*NOPERM*} {r aclcheck.rm_call set z 6 get}
         catch {r aclcheck.rm_call_with_errors set z 6 get} e
-        assert_match {*NOPERM*has no permissions to access the 'z' key*} $e
+        assert_match {*NOPERM*No permissions to access a key*} $e
 
         # verify that new log entry added
         set entry [lindex [r ACL LOG] 0]
