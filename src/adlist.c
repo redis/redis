@@ -169,7 +169,7 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
 }
 
 /* Remove the specified node from the specified list.
- * The node is freed but it's up to the caller to free the private value of the node.
+ * The node is freed. If free callback is provided the value is freed as well.
  *
  * This function can't fail. */
 void listDelNode(list *list, listNode *node)
@@ -398,4 +398,13 @@ void listJoin(list *l, list *o) {
     /* Setup other as an empty list. */
     o->head = o->tail = NULL;
     o->len = 0;
+}
+
+/* Initializes the node's value and sets its pointers
+ * so that it is initially not a member of any list.
+ */
+void listInitNode(listNode *node, void *value) {
+    node->prev = NULL;
+    node->next = NULL;
+    node->value = value;
 }

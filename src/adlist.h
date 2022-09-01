@@ -88,11 +88,7 @@ void listRewindTail(list *list, listIter *li);
 void listRotateTailToHead(list *list);
 void listRotateHeadToTail(list *list);
 void listJoin(list *l, list *o);
-static inline void listInitNode(listNode *node, void *value) {
-    node->prev = (void * )0;
-    node->next = (void * )0;
-    node->value = value;
-}
+void listInitNode(listNode *node, void *value);
 void listLinkNodeHead(list *list, listNode *node);
 void listUnlinkNode(list *list, listNode *node);
 
