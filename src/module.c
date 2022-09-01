@@ -356,7 +356,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_NO_REPLICAS (1<<2)
 #define REDISMODULE_ARGV_RESP_3 (1<<3)
 #define REDISMODULE_ARGV_RESP_AUTO (1<<4)
-#define REDISMODULE_ARGV_CHECK_ACL (1<<5)
+#define REDISMODULE_ARGV_RUN_AS_USER (1<<5)
 #define REDISMODULE_ARGV_SCRIPT_MODE (1<<6)
 #define REDISMODULE_ARGV_NO_WRITES (1<<7)
 #define REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS (1<<8)
@@ -5640,9 +5640,7 @@ void RM_SetContextModuleUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
  *     "R" -> REDISMODULE_ARGV_NO_REPLICAS
  *     "3" -> REDISMODULE_ARGV_RESP_3
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
- *     "C" -> REDISMODULE_ARGV_CHECK_ACL
- *          The ACL validation works either on the context's client's user (if it's defined)
- *          or the user the module sets on the context with RM_SetContextModuleUser
+ *     "C" -> REDISMODULE_ARGV_RUN_AS_USER
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -5706,7 +5704,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
         } else if (*p == '0') {
             if (flags) (*flags) |= REDISMODULE_ARGV_RESP_AUTO;
         } else if (*p == 'C') {
-            if (flags) (*flags) |= REDISMODULE_ARGV_CHECK_ACL;
+            if (flags) (*flags) |= REDISMODULE_ARGV_RUN_AS_USER;
         } else if (*p == 'S') {
             if (flags) (*flags) |= REDISMODULE_ARGV_SCRIPT_MODE;
         } else if (*p == 'W') {
@@ -5753,12 +5751,17 @@ fmterr:
  *     * `0` -- Return the reply in auto mode, i.e. the reply format will be the
  *              same as the client attached to the given RedisModuleCtx. This will
  *              probably used when you want to pass the reply directly to the client.
- *     * `C` -- Check if command can be executed according to ACL rules.
- *              Uses the user specified by RM_SetContextModuleUser, if set, otherwise
- *              if the context has an attached client, will use the user associated
- *              with the client. If neither are available, will return an error.
- *              In addition, when defined, will enforce ACL checking within scripts
- *              as well.
+ *     * `C` -- Run a command as the user attached to the context.
+ *              User is either attached automatically via the client that directly
+ *              issued the command and created the context or via RM_SetContextModuleUser.
+ *              If the context is not directly created by an issued command (such as a
+ *              backround context and no user was set on it via RM_SetContextModuleUser,
+ *              RM_Call will fail.
+ *              Checks if the command can be executed according to ACL rules and causes
+ *              the command to run as the determined user, so that any future user
+ *              dependent activity, such as ACL checks within scripts will proceed as
+ *              expected.
+ *              Otherwise, the command will run as the Redis unrestricted user.
  *     * `S` -- Run the command in a script mode, this means that it will raise
  *              an error if a command which are not allowed inside a script
  *              (flagged with the `deny-script` flag) is invoked (like SHUTDOWN).
@@ -5816,9 +5819,18 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     va_end(ap);
 
     user *user = NULL;
-    if (flags & REDISMODULE_ARGV_CHECK_ACL) {
+    if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
         user = ctx->user ? ctx->user->user : ctx->client->user;
+        if (!user) {
+            errno = ENOTSUP;
+            if (error_as_call_replies) {
+                sds msg = sdsnew("cannot run as user, no user directly attached to context or context's client");
+                reply = callReplyCreateError(msg, ctx);
+            }
+            return reply;
+        }
     }
+
     c = moduleAllocTempClient(user);
 
     /* We do not want to allow block, the module do not expect it */
@@ -5970,18 +5982,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      * If RedisModule_SetContextModuleUser has set a user, uses that user, otherwise
      * uses the attached client's user.  If there is no attached client user and no manually
      * set user, an error will be returned */
-    if (flags & REDISMODULE_ARGV_CHECK_ACL) {
+    if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
         int acl_errpos;
         int acl_retval;
 
-        if (!user) {
-            errno = ENOTSUP;
-            if (error_as_call_replies) {
-                sds msg = sdsnew("acl verification failed, context is not attached to a client.");
-                reply = callReplyCreateError(msg, ctx);
-            }
-            goto cleanup;
-        }
+        /* already validated user above */
         acl_retval = ACLCheckAllUserCommandPerm(user,c->cmd,c->argv,c->argc,&acl_errpos);
         if (acl_retval != ACL_OK) {
             sds object = (acl_retval == ACL_DENIED_CMD) ? sdsdup(c->cmd->fullname) : sdsdup(c->argv[acl_errpos]->ptr);

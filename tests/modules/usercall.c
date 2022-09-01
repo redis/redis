@@ -3,78 +3,61 @@
 RedisModuleUser *user = NULL;
 
 int call_without_user(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc < 3) {
+    if (argc < 2) {
         return RedisModule_WrongArity(ctx);
     }
 
-    size_t cmd_len;
-    const char * cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
+    const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleCallReply *reply = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
-    if (reply == NULL) {
-        RedisModule_ReplyWithError(ctx, "Failed to Execute");
-        return REDISMODULE_OK;
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
+    if (!rep) {
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    } else {
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
     }
-
-    RedisModule_ReplyWithCallReply(ctx, reply);
-    RedisModule_FreeCallReply(reply);
     return REDISMODULE_OK;
 }
 
 int call_with_user(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc < 3) {
+    if (argc < 2) {
         return RedisModule_WrongArity(ctx);
     }
 
-    size_t cmd_len;
-    const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
-    RedisModule_SetContextModuleUser(ctx, user);
-    RedisModuleCallReply *reply = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
-    if (reply == NULL) {
-        RedisModule_ReplyWithError(ctx, "Failed to Execute");
-        return REDISMODULE_OK;
-    }
+    const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    int type = RedisModule_CallReplyType(reply);
-
-    size_t str_len;
-    const char *str = RedisModule_CallReplyStringPtr(reply, &str_len);
-
-    if (type != REDISMODULE_REPLY_ERROR) {
-        RedisModule_ReplyWithCallReply(ctx, reply);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
+    if (!rep) {
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
     } else {
-        RedisModule_ReplyWithError(ctx, str);
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
     }
-    RedisModule_FreeCallReply(reply);
-
     return REDISMODULE_OK;
 }
 
-int call_with_user_and_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int call_with_user_flag(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3) {
         return RedisModule_WrongArity(ctx);
     }
 
-    size_t cmd_len;
-    const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
     RedisModule_SetContextModuleUser(ctx, user);
-    RedisModuleCallReply *reply = RedisModule_Call(ctx, cmd, "CEv", argv + 2, argc - 2);
-    if (reply == NULL) {
-        RedisModule_ReplyWithError(ctx, "Failed to Execute");
-        return REDISMODULE_OK;
-    }
 
-    int type = RedisModule_CallReplyType(reply);
+    /* Append Ev to the provided flags. */
+    RedisModuleString *flags = RedisModule_CreateStringFromString(ctx, argv[1]);
+    RedisModule_StringAppendBuffer(ctx, flags, "Ev", 2);
 
-    size_t str_len;
-    const char *str = RedisModule_CallReplyStringPtr(reply, &str_len);
+    const char* flg = RedisModule_StringPtrLen(flags, NULL);
+    const char* cmd = RedisModule_StringPtrLen(argv[2], NULL);
 
-    if (type != REDISMODULE_REPLY_ERROR) {
-        RedisModule_ReplyWithCallReply(ctx, reply);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, flg, argv + 3, argc - 3);
+    if (!rep) {
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
     } else {
-        RedisModule_ReplyWithError(ctx, str);
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
     }
-    RedisModule_FreeCallReply(reply);
+    RedisModule_FreeString(ctx, flags);
 
     return REDISMODULE_OK;
 }
@@ -150,7 +133,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"usercall.call_with_user", call_with_user,"write",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"usercall.call_with_user_and_acl", call_with_user_and_acl,"write",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"usercall.call_with_user_flag", call_with_user_flag,"write",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "usercall.add_to_acl", add_to_acl, "write",0,0,0) == REDISMODULE_ERR)

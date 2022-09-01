@@ -45,10 +45,10 @@ start_server {tags {"modules usercall"}} {
         assert_equal [r usercall.get_acl] "off ~* &* +@all -set"
 
         # fails here as testing acl in rm call
-        catch {r usercall.call_with_user_and_acl set x 10} e
+        catch {r usercall.call_with_user_flag C set x 10} e
         assert_match {*ERR acl verification failed*} $e
 
-        assert_equal [r usercall.call_with_user_and_acl get x] 5
+        assert_equal [r usercall.call_with_user_flag C get x] 5
 
         assert_equal [r usercall.reset_user] OK
     }
@@ -87,9 +87,9 @@ start_server {tags {"modules usercall"}} {
         assert_equal [r usercall.add_to_acl "~* &* +@all -set"] OK
 
         # fails here in script, as rm_call will permit the eval call
-        catch {r usercall.call_with_user_and_acl evalsha $sha_set 0} e
+        catch {r usercall.call_with_user_flag C evalsha $sha_set 0} e
         assert_match {*ERR The user executing the script can't run this command or subcommand script*} $e
 
-        assert_equal [r usercall.call_with_user_and_acl evalsha $sha_get 0] 1
+        assert_equal [r usercall.call_with_user_flag C evalsha $sha_get 0] 1
     }
 }
