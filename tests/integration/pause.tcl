@@ -45,20 +45,10 @@ start_server {tags {"external:skip"}} {
         set evicted($configVal) [s evicted_keys]
     }
 
-    # In an attempt to avoid from flaky test, we shall apply the following logic:
-    # If: there are only few evictions when feature is disabled 
-    # then: expected to see no eviction at all when feature is enabled
-    # else: expected at least four times more evictions when feature is disabled  
-    if { $evicted($FEATURE_DISABLED) < 12 } {
-        assert_equal $evicted($FEATURE_ENABLED) 0
-    } else {    
-        assert_lessthan [expr 4 * $evicted($FEATURE_ENABLED)] $evicted($FEATURE_DISABLED)
-    }
-    
-    # Verify that when feature is disabled the test counted evictions
-    # If test will become flaky, as some machine\executions might run FLUSHALL releases
-    # faster than DB reconstructions, then consider comment this line
-    assert_morethan $evicted($FEATURE_DISABLED) 0 
-    
+    # Expected that when feature is enabled we won't have any evictions. In an
+    # attempt to avoid from flaky test, we will assert that there are at least 
+    # four times more evictions when feature is disabled  
+    assert_lessthan_equal [expr 4 * $evicted($FEATURE_ENABLED)] $evicted($FEATURE_DISABLED)
+        
   }
 }

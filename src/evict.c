@@ -478,7 +478,7 @@ void startEvictionTimeProc(void) {
  *   Returns 1 if evictions can be performed
  *   Returns 0 if eviction processing should be skipped
  */
-static int isSafeToPerformEvictions(void) {
+static int isPerformEvictions(void) {
     /* - There must be no script in timeout condition.
      * - Nor we are loading data right now.  */
     if (isInsideYieldingLongCommand() || server.loading) return 0;
@@ -540,7 +540,7 @@ static unsigned long evictionTimeLimitUs() {
 int performEvictions(void) {
     /* Note, we don't goto update_metrics here because this check skips eviction
      * as if it wasn't triggered. it's a fake EVICT_OK. */
-    if (!isSafeToPerformEvictions()) return EVICT_OK;
+    if (!isPerformEvictions()) return EVICT_OK;
 
     int keys_freed = 0;
     size_t mem_reported, mem_tofree;
