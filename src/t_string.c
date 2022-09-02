@@ -100,6 +100,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 
     setkey_flags |= (flags & OBJ_KEEPTTL) ? SETKEY_KEEPTTL : 0;
+    setkey_flags |= expire ? SETKEY_KEEPTTL : 0; /* No need to remove TTL in setKey(). setExpire() will overwrite the TTL later. */
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
 
     setKey(c,c->db,key,val,setkey_flags);
