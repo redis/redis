@@ -119,7 +119,6 @@ int geohashBoundingBox(GeoShape *shape, double *bounds) {
  * for the specified position and shape (see geohash.h GeoShape).
  * the bounding box saved in shaple.bounds */
 GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
-    GeoHashRange long_range, lat_range;
     GeoHashRadius radius;
     GeoHashBits hash;
     GeoHashNeighbors neighbors;
@@ -145,10 +144,9 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
 
     steps = geohashEstimateStepsByRadius(radius_meters,latitude);
 
-    geohashGetCoordRange(&long_range,&lat_range);
-    geohashEncode(&long_range,&lat_range,longitude,latitude,steps,&hash);
+    geohashEncode(&geoLongLimit,&geoLatLimit,longitude,latitude,steps,&hash);
     geohashNeighbors(&hash,&neighbors);
-    geohashDecode(long_range,lat_range,hash,&area);
+    geohashDecode(geoLongLimit,geoLatLimit,hash,&area);
 
     /* Check if the step is enough at the limits of the covered area.
      * Sometimes when the search area is near an edge of the
@@ -159,10 +157,10 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
     {
         GeoHashArea north, south, east, west;
 
-        geohashDecode(long_range, lat_range, neighbors.north, &north);
-        geohashDecode(long_range, lat_range, neighbors.south, &south);
-        geohashDecode(long_range, lat_range, neighbors.east, &east);
-        geohashDecode(long_range, lat_range, neighbors.west, &west);
+        geohashDecode(geoLongLimit, geoLatLimit, neighbors.north, &north);
+        geohashDecode(geoLongLimit, geoLatLimit, neighbors.south, &south);
+        geohashDecode(geoLongLimit, geoLatLimit, neighbors.east, &east);
+        geohashDecode(geoLongLimit, geoLatLimit, neighbors.west, &west);
 
         if (north.latitude.max < max_lat) 
             decrease_step = 1;
@@ -176,9 +174,9 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
 
     if (steps > 1 && decrease_step) {
         steps--;
-        geohashEncode(&long_range,&lat_range,longitude,latitude,steps,&hash);
+        geohashEncode(&geoLongLimit,&geoLatLimit,longitude,latitude,steps,&hash);
         geohashNeighbors(&hash,&neighbors);
-        geohashDecode(long_range,lat_range,hash,&area);
+        geohashDecode(geoLongLimit,geoLatLimit,hash,&area);
     }
 
     /* Exclude the search areas that are useless. */

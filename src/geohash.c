@@ -49,6 +49,10 @@
  * x and y must initially be less than 2**32 (4294967296).
  * From:  https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN
  */
+
+GeoHashRange geoLatLimit = {.min = GEO_LAT_MIN, .max = GEO_LAT_MAX};
+GeoHashRange geoLongLimit = {.min = GEO_LONG_MIN, .max = GEO_LONG_MAX};
+
 static inline uint64_t interleave64(uint32_t xlo, uint32_t ylo) {
     static const uint64_t B[] = {0x5555555555555555ULL, 0x3333333333333333ULL,
                                  0x0F0F0F0F0F0F0F0FULL, 0x00FF00FF00FF00FFULL,
@@ -109,15 +113,6 @@ static inline uint64_t deinterleave64(uint64_t interleaved) {
     return x | (y << 32);
 }
 
-void geohashGetCoordRange(GeoHashRange *long_range, GeoHashRange *lat_range) {
-    /* These are constraints from EPSG:900913 / EPSG:3785 / OSGEO:41001 */
-    /* We can't geocode at the north/south pole. */
-    long_range->max = GEO_LONG_MAX;
-    long_range->min = GEO_LONG_MIN;
-    lat_range->max = GEO_LAT_MAX;
-    lat_range->min = GEO_LAT_MIN;
-}
-
 int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
                   double longitude, double latitude, uint8_t step,
                   GeoHashBits *hash) {
@@ -151,9 +146,7 @@ int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
 }
 
 int geohashEncodeType(double longitude, double latitude, uint8_t step, GeoHashBits *hash) {
-    GeoHashRange r[2] = {{0}};
-    geohashGetCoordRange(&r[0], &r[1]);
-    return geohashEncode(&r[0], &r[1], longitude, latitude, step, hash);
+    return geohashEncode(&geoLongLimit, &geoLatLimit, longitude, latitude, step, hash);
 }
 
 int geohashEncodeWGS84(double longitude, double latitude, uint8_t step,
@@ -194,9 +187,7 @@ int geohashDecode(const GeoHashRange long_range, const GeoHashRange lat_range,
 }
 
 int geohashDecodeType(const GeoHashBits hash, GeoHashArea *area) {
-    GeoHashRange r[2] = {{0}};
-    geohashGetCoordRange(&r[0], &r[1]);
-    return geohashDecode(r[0], r[1], hash, area);
+    return geohashDecode(geoLongLimit, geoLatLimit, hash, area);
 }
 
 int geohashDecodeWGS84(const GeoHashBits hash, GeoHashArea *area) {

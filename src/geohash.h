@@ -72,6 +72,9 @@ typedef struct {
     double max;
 } GeoHashRange;
 
+extern GeoHashRange geoLatLimit;
+extern GeoHashRange geoLongLimit;
+
 typedef struct {
     GeoHashBits hash;
     GeoHashRange longitude;

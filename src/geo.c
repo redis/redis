@@ -379,10 +379,8 @@ int membersOfAllNeighbors(robj *zobj, const GeoHashRadius *n, GeoShape *shape, g
 
         /* Debugging info. */
         if (debugmsg) {
-            GeoHashRange long_range, lat_range;
-            geohashGetCoordRange(&long_range,&lat_range);
             GeoHashArea myarea = {{0}};
-            geohashDecode(long_range, lat_range, neighbors[i], &myarea);
+            geohashDecode(geoLongLimit, geoLatLimit, neighbors[i], &myarea);
 
             /* Dump center square. */
             D("neighbors[%d]:\n",i);
