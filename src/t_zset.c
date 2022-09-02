@@ -1511,7 +1511,7 @@ int zsetDel(robj *zobj, sds ele) {
  * the one with the lowest score. Otherwise if 'reverse' is non-zero
  * the rank is computed considering as element with rank 0 the one with
  * the highest score. */
-long zsetRank(robj *zobj, sds ele, int reverse) {
+long zsetRank(robj *zobj, sds ele, int reverse, double *output_score) {
     unsigned long llen;
     unsigned long rank;
 
@@ -1535,6 +1535,9 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
         }
 
         if (eptr != NULL) {
+            if (output_score) {
+                *output_score = zzlGetScore(sptr);
+            }
             if (reverse)
                 return llen-rank;
             else
@@ -1554,6 +1557,9 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
             rank = zslGetRank(zsl,score,ele);
             /* Existing elements always have a rank. */
             serverAssert(rank != 0);
+            if (output_score) {
+                *output_score = score;
+            }
             if (reverse)
                 return llen-rank;
             else
@@ -3764,16 +3770,31 @@ void zrankGenericCommand(client *c, int reverse) {
     robj *ele = c->argv[2];
     robj *zobj;
     long rank;
+    int opt_withscores = 0;
+    double score;
 
     if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
     serverAssertWithInfo(c,ele,sdsEncodedObject(ele));
-    rank = zsetRank(zobj,ele->ptr,reverse);
+    if (c->argc > 3 && !strcasecmp(c->argv[3]->ptr, "withscores")) {
+        opt_withscores = 1;
+    }
+    rank = zsetRank(zobj,ele->ptr,reverse,opt_withscores ? &score : NULL);
     if (rank >= 0) {
+        if (opt_withscores) {
+            addReplyArrayLen(c,2);
+        }
         addReplyLongLong(c,rank);
+        if (opt_withscores) {
+            addReplyDouble(c,score);
+        }
     } else {
-        addReplyNull(c);
+        if (opt_withscores) {
+            addReplyNullArray(c);
+        } else {
+            addReplyNull(c);
+        }      
     }
 }
 

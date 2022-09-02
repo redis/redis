@@ -4,7 +4,7 @@
         "complexity": "O(log(N))",
         "group": "sorted_set",
         "since": "2.0.0",
-        "arity": 3,
+        "arity": -3,
         "function": "zrevrankCommand",
         "command_flags": [
             "READONLY",
@@ -42,6 +42,12 @@
             {
                 "name": "member",
                 "type": "string"
+            },
+            {
+                "name": "withscores",
+                "token": "WITHSCORES",
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }
