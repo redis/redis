@@ -57,19 +57,17 @@ endif
 
 # Default allocator defaults to Jemalloc if it's not an ARM
 MALLOC=libc
-ifneq ($(uname_M),armv6l)
-ifneq ($(uname_M),armv7l)
+ifeq (,$(filter armv%,$(uname_M)))
 ifeq ($(uname_S),Linux)
 	MALLOC=jemalloc
 endif
 endif
-endif
 
 # To get ARM stack traces if Redis crashes we need a special C flag.
-ifneq (,$(filter aarch64 armv,$(uname_M)))
+ifneq (,$(filter aarch64 armv%,$(uname_M)))
         CFLAGS+=-funwind-tables
 else
-ifneq (,$(findstring armv,$(uname_M)))
+ifneq (,$(filter armv%,$(uname_M)))
         CFLAGS+=-funwind-tables
 endif
 endif
@@ -121,7 +119,7 @@ FINAL_LIBS=-lm
 DEBUG=-g -ggdb
 
 # Linux ARM32 needs -latomic at linking time
-ifneq (,$(findstring armv,$(uname_M)))
+ifneq (,$(filter armv%,$(uname_M)))
         FINAL_LIBS+=-latomic
 endif
 
