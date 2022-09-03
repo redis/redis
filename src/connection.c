@@ -82,8 +82,6 @@ ConnectionType *connectionByType(const char *typename) {
             return ct;
     }
 
-    serverLog(LL_WARNING, "Missing implement of connection type %s", typename);
-
     return NULL;
 }
 
