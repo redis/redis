@@ -29,6 +29,11 @@ start_server {tags {"modules"}} {
         set ld [r test.ld_conversion]
         assert {[string match $ld "0.00000000000000001"]}
     }
+    
+    test {test unsigned long long conversions} {
+        set ret [r test.ull_conversion]
+        assert {[string match $ret "ok"]}
+    }
 
     test {test module db commands} {
         r set x foo
@@ -103,6 +108,18 @@ start_server {tags {"modules"}} {
         assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
     }
 
+    test {test module get/set client name by id api} {
+        catch { r test.getname } e
+        assert_equal "-ERR No name" $e
+        r client setname nobody
+        catch { r test.setname "name with spaces" } e
+        assert_match "*Invalid argument*" $e
+        assert_equal nobody [r client getname]
+        assert_equal nobody [r test.getname]
+        r test.setname somebody
+        assert_equal somebody [r client getname]
+    }
+
     test {test module getclientcert api} {
         set cert [r test.getclientcert]
 
@@ -151,6 +168,29 @@ start_server {tags {"modules"}} {
         # test a non deny-oom command
         assert_equal {1} [
             r test.rm_call_flags M get x
+        ]
+
+        r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
+    test {rm_call OOM Eval} {
+        r config set maxmemory 1
+        r config set maxmemory-policy volatile-lru
+
+        # use the M flag without allow-oom shebang flag
+        assert_error {OOM *} {
+            r test.rm_call_flags M eval {#!lua
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+        }
+
+        # add the M flag with allow-oom shebang flag
+        assert_equal {1} [
+            r test.rm_call_flags M eval {#!lua flags=allow-oom
+                redis.call('set','x',1)
+                return 1
+            } 1 x
         ]
 
         r config set maxmemory 0

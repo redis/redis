@@ -184,7 +184,7 @@ const char *redisSSLContextGetError(redisSSLContextError error)
         case REDIS_SSL_CTX_PRIVATE_KEY_LOAD_FAILED:
             return "Failed to load private key";
         case REDIS_SSL_CTX_OS_CERTSTORE_OPEN_FAILED:
-            return "Failed to open system certifcate store";
+            return "Failed to open system certificate store";
         case REDIS_SSL_CTX_OS_CERT_ADD_FAILED:
             return "Failed to add CA certificates obtained from system to the SSL context";
         default:

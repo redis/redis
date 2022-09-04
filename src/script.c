@@ -181,11 +181,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
             /* Don't accept write commands if there are not enough good slaves and
              * user configured the min-slaves-to-write option. */
-            if (server.masterhost == NULL &&
-                server.repl_min_slaves_max_lag &&
-                server.repl_min_slaves_to_write &&
-                server.repl_good_slaves_count < server.repl_min_slaves_to_write)
-            {
+            if (!checkGoodReplicasStatus()) {
                 addReplyErrorObject(caller, shared.noreplicaserr);
                 return C_ERR;
             }
@@ -361,6 +357,11 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
     /* The other checks below are on the server state and are only relevant for
      *  write commands, return if this is not a write command. */
     if (!(run_ctx->c->cmd->flags & CMD_WRITE))
+        return C_OK;
+
+    /* If the script already made a modification to the dataset, we can't
+     * fail it on unpredictable error state. */
+    if ((run_ctx->flags & SCRIPT_WRITE_DIRTY))
         return C_OK;
 
     /* Write commands are forbidden against read-only slaves, or if a

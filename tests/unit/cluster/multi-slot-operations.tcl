@@ -1,7 +1,4 @@
-# Check the multiple slot add and remove commands
-
-source "../tests/includes/init-tests.tcl"
-
+# This test uses a custom slot allocation for testing
 proc cluster_allocate_with_continuous_slots_local {n} {
     R 0 cluster ADDSLOTSRANGE 0 3276
     R 1 cluster ADDSLOTSRANGE 3277 6552
@@ -10,28 +7,13 @@ proc cluster_allocate_with_continuous_slots_local {n} {
     R 4 cluster ADDSLOTSRANGE 13105 16383
 }
 
-proc cluster_create_with_continuous_slots_local {masters slaves} {
-    cluster_allocate_with_continuous_slots_local $masters
-    if {$slaves} {
-        cluster_allocate_slaves $masters $slaves
-    }
-    assert_cluster_state ok
-}
+start_cluster 5 0 {tags {external:skip cluster}} {
 
-
-test "Create a 5 nodes cluster" {
-    cluster_create_with_continuous_slots_local 5 5
-}
-
-test "Cluster should start ok" {
-    assert_cluster_state ok
-}
-
-set master1 [Rn 0]
-set master2 [Rn 1]
-set master3 [Rn 2]
-set master4 [Rn 3]
-set master5 [Rn 4]
+set master1 [srv 0 "client"]
+set master2 [srv -1 "client"]
+set master3 [srv -2 "client"]
+set master4 [srv -3 "client"]
+set master5 [srv -4 "client"]
 
 test "Continuous slots distribution" {
     assert_match "* 0-3276*" [$master1 CLUSTER NODES]
@@ -113,3 +95,4 @@ test "DELSLOTSRANGE command with several boundary conditions test suite" {
     assert_match "* 9829-11000 12001-12100 12201-13104*" [$master4 CLUSTER NODES]
     assert_match "*9829 11000*12001 12100*12201 13104*" [$master4 CLUSTER SLOTS]
 }
+} cluster_allocate_with_continuous_slots_local

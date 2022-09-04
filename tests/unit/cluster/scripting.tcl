@@ -1,14 +1,4 @@
-# make sure the test infra won't use SELECT
-set old_singledb $::singledb
-set ::singledb 1
-
-start_server {overrides {cluster-enabled yes} tags {external:skip cluster}} {
-    r 0 cluster addslotsrange 0 16383
-    wait_for_condition 50 100 {
-        [csi 0 cluster_state] eq "ok"
-    } else {
-        fail "Cluster never became 'ok'"
-    }
+start_cluster 1 0 {tags {external:skip cluster}} {
 
     test {Eval scripts with shebangs and functions default to no cross slots} {
         # Test that scripts with shebang block cross slot operations
@@ -59,6 +49,22 @@ start_server {overrides {cluster-enabled yes} tags {external:skip cluster}} {
                 return 'OK'
             } 1 bar}
     }
-}
 
-set ::singledb $old_singledb
+    test "Function no-cluster flag" {
+        R 0 function load {#!lua name=test
+            redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-cluster'}}
+        }
+        catch {R 0 fcall f1 0} e
+        assert_match {*Can not run script on cluster, 'no-cluster' flag is set*} $e
+    }
+
+    test "Script no-cluster flag" {
+        catch {
+            R 0 eval {#!lua flags=no-cluster
+                return 1
+            } 0
+        } e
+        
+        assert_match {*Can not run script on cluster, 'no-cluster' flag is set*} $e
+    }
+}

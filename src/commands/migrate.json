@@ -87,7 +87,7 @@
                 "type": "integer"
             },
             {
-                "name": "key_or_empty_string",
+                "name": "key-selector",
                 "type": "oneof",
                 "arguments": [
                     {
@@ -96,7 +96,7 @@
                         "key_spec_index": 0
                     },
                     {
-                        "name": "empty_string",
+                        "name": "empty-string",
                         "type": "pure-token",
                         "token": "\"\""
                     }
@@ -131,16 +131,15 @@
                 "arguments": [
                     {
                         "token": "AUTH",
-                        "name": "password",
+                        "name": "auth",
+                        "display": "password",
                         "type": "string",
-                        "optional": true,
                         "since": "4.0.7"
                     },
                     {
                         "token": "AUTH2",
-                        "name": "username_password",
+                        "name": "auth2",
                         "type": "block",
-                        "optional": true,
                         "since": "6.0.0",
                         "arguments": [
                             {
@@ -157,7 +156,8 @@
             },
             {
                 "token": "KEYS",
-                "name": "key",
+                "name": "keys",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 1,
                 "optional": true,
