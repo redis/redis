@@ -5373,7 +5373,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (isShutdownInitiated()) {
             info = sdscatfmt(info,
                 "shutdown_in_milliseconds:%I\r\n",
-                (int64_t)(server.shutdown_mstime - server.mstime));
+                (int64_t)(server.shutdown_mstime - commandTimeSnapshot()));
         }
 
         /* get all the listeners information */

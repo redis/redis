@@ -6388,7 +6388,7 @@ try_again:
         long long expireat = getExpire(c->db,kv[j]);
 
         if (expireat != -1) {
-            ttl = expireat-mstime();
+            ttl = expireat-commandTimeSnapshot();
             if (ttl < 0) {
                 continue;
             }
