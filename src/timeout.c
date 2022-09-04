@@ -182,7 +182,7 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
     }
 
     if (tval > 0) {
-        tval += mstime();
+        tval += commandTimeSnapshot();
     }
     *timeout = tval;
 
