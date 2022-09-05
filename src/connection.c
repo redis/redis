@@ -82,6 +82,8 @@ ConnectionType *connectionByType(const char *typename) {
             return ct;
     }
 
+    serverLog(LL_WARNING, "Missing implement of connection type %s", typename);
+
     return NULL;
 }
 
@@ -101,11 +103,13 @@ ConnectionType *connectionTypeTcp() {
 /* Cache TLS connection type, query it by string once */
 ConnectionType *connectionTypeTls() {
     static ConnectionType *ct_tls = NULL;
+    static int cached = 0;
 
-    if (ct_tls != NULL)
-        return ct_tls;
+    if (!cached) {
+        cached = 1;
+        ct_tls = connectionByType(CONN_TYPE_TLS);
+    }
 
-    ct_tls = connectionByType(CONN_TYPE_TLS);
     return ct_tls;
 }
 
