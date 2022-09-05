@@ -5749,8 +5749,8 @@ fmterr:
  *              invoking the command, the error is returned using errno mechanism.
  *              This flag allows to get the error also as an error CallReply with
  *              relevant error message.
- *     * 'D' -- A "Dry Run" mode.  Return before executing the underlying call().
- *              if everything succeeded, it will return with a NULL, otherwise it will
+ *     * 'D' -- A "Dry Run" mode. Return before executing the underlying call().
+ *              If everything succeeded, it will return with a NULL, otherwise it will
  *              return with a CallReply object denoting the error, as if it was called with
  *              the 'E' code.
  * * **...**: The actual arguments to the Redis command.
