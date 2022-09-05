@@ -202,15 +202,9 @@ mstime_t mstime(void) {
 }
 
 /* Return the command time snapshot in milliseconds.
- *
- * It is mainly divided into three parts:
- *
- * 1. If we are in the context of a script, it will return the time
- *    when the script invocation started.
- * 2. If we are in the middle of a command execution, it will return
- *    the time (server.mstime) that sampled in `call`.
- * 3. For the other cases, return mstime().
- *
+ * The time the command started is the logical time it runs,
+ * and all the time readings during the execution time should
+ * reflect the same time.
  * More details can be found in the comments below. */
 mstime_t commandTimeSnapshot(void) {
     mstime_t now;
