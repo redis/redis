@@ -44,8 +44,8 @@
                 "type": "string"
             },
             {
-                "name": "withscores",
-                "token": "WITHSCORES",
+                "name": "withscore",
+                "token": "WITHSCORE",
                 "type": "pure-token",
                 "optional": true
             }

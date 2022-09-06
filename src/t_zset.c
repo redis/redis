@@ -3769,32 +3769,43 @@ void zrankGenericCommand(client *c, int reverse) {
     robj *key = c->argv[1];
     robj *ele = c->argv[2];
     robj *zobj;
+    robj* reply;
     long rank;
-    int opt_withscores = 0;
+    int opt_withscore = 0;
     double score;
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
-
-    serverAssertWithInfo(c,ele,sdsEncodedObject(ele));
-    if (c->argc > 3 && !strcasecmp(c->argv[3]->ptr, "withscores")) {
-        opt_withscores = 1;
+    if (c->argc > 4) {
+        addReplyErrorArity(c);
+        return;
     }
-    rank = zsetRank(zobj,ele->ptr,reverse,opt_withscores ? &score : NULL);
-    if (rank >= 0) {
-        if (opt_withscores) {
-            addReplyArrayLen(c,2);
+    if (c->argc > 3) {
+        if (!strcasecmp(c->argv[3]->ptr, "withscore")) {
+            opt_withscore = 1;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
         }
-        addReplyLongLong(c,rank);
-        if (opt_withscores) {
-            addReplyDouble(c,score);
+    }
+    reply = opt_withscore ? shared.nullarray[c->resp] : shared.null[c->resp];
+    if ((zobj = lookupKeyReadOrReply(c, key, reply)) == NULL || checkType(c, zobj, OBJ_ZSET)) {
+        return;
+    }
+    serverAssertWithInfo(c, ele, sdsEncodedObject(ele));
+    rank = zsetRank(zobj, ele->ptr, reverse, opt_withscore ? &score : NULL);
+    if (rank >= 0) {
+        if (opt_withscore) {
+            addReplyArrayLen(c, 2);
+        }
+        addReplyLongLong(c, rank);
+        if (opt_withscore) {
+            addReplyDouble(c, score);
         }
     } else {
-        if (opt_withscores) {
+        if (opt_withscore) {
             addReplyNullArray(c);
         } else {
             addReplyNull(c);
-        }      
+        }
     }
 }
 

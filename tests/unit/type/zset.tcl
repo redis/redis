@@ -445,22 +445,22 @@ start_server {tags {"zset"}} {
             assert_equal "" [r zrevrank zranktmp foo]
 
             # withscores
-            assert_equal {0 10} [r zrank zranktmp x withscores]
-            assert_equal {1 20} [r zrank zranktmp y withscores]
-            assert_equal {2 30} [r zrank zranktmp z withscores]
-            assert_equal "" [r zrank zranktmp foo withscores]
-            assert_equal {2 10} [r zrevrank zranktmp x withscores]
-            assert_equal {1 20} [r zrevrank zranktmp y withscores]
-            assert_equal {0 30} [r zrevrank zranktmp z withscores]
-            assert_equal "" [r zrevrank zranktmp foo withscores]
+            assert_equal {0 10} [r zrank zranktmp x withscore]
+            assert_equal {1 20} [r zrank zranktmp y withscore]
+            assert_equal {2 30} [r zrank zranktmp z withscore]
+            assert_equal "" [r zrank zranktmp foo withscore]
+            assert_equal {2 10} [r zrevrank zranktmp x withscore]
+            assert_equal {1 20} [r zrevrank zranktmp y withscore]
+            assert_equal {0 30} [r zrevrank zranktmp z withscore]
+            assert_equal "" [r zrevrank zranktmp foo withscore]
         }
 
         test "ZRANK - after deletion - $encoding" {
             r zrem zranktmp y
             assert_equal 0 [r zrank zranktmp x]
             assert_equal 1 [r zrank zranktmp z]
-            assert_equal {0 10} [r zrank zranktmp x withscores]
-            assert_equal {1 30} [r zrank zranktmp z withscores]
+            assert_equal {0 10} [r zrank zranktmp x withscore]
+            assert_equal {1 30} [r zrank zranktmp z withscore]
         }
 
         test "ZINCRBY - can create a new sorted set - $encoding" {
