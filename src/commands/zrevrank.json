@@ -6,6 +6,12 @@
         "since": "2.0.0",
         "arity": -3,
         "function": "zrevrankCommand",
+        "history": [
+            [
+                "7.2.0",
+                "Added the optional `WITHSCORE` argument."
+            ]
+        ],
         "command_flags": [
             "READONLY",
             "FAST"

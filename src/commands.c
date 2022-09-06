@@ -5860,7 +5860,10 @@ struct redisCommandArg ZRANGESTORE_Args[] = {
 /********** ZRANK ********************/
 
 /* ZRANK history */
-#define ZRANK_History NULL
+commandHistory ZRANK_History[] = {
+{"7.2.0","Added the optional `WITHSCORE` argument."},
+{0}
+};
 
 /* ZRANK tips */
 #define ZRANK_tips NULL
@@ -6011,7 +6014,10 @@ struct redisCommandArg ZREVRANGEBYSCORE_Args[] = {
 /********** ZREVRANK ********************/
 
 /* ZREVRANK history */
-#define ZREVRANK_History NULL
+commandHistory ZREVRANK_History[] = {
+{"7.2.0","Added the optional `WITHSCORE` argument."},
+{0}
+};
 
 /* ZREVRANK tips */
 #define ZREVRANK_tips NULL
