@@ -66,7 +66,8 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop list4] [string repeat c 500]
         assert_equal [r lpop list4] [string repeat b 500]
         assert_equal [r lpop list4] [string repeat a 500]
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     test {plain node check compression with ltrim} {
         r debug quicklist-packed-threshold 1b
@@ -75,8 +76,9 @@ start_server [list overrides [list save ""] ] {
         r rpush list5 [string repeat c 500]
         assert_equal [string repeat b 500] [r lindex list5 1]
         r LTRIM list5 1 -1
-        r llen list5
-    } {2} {needs:debug}
+        assert_equal [r llen list5] 2
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     test {plain node check compression using lset} {
         r debug quicklist-packed-threshold 1b
@@ -86,7 +88,8 @@ start_server [list overrides [list save ""] ] {
         r lpush list6 [string repeat c 500]
         r LSET list6 0 [string repeat d 500]
         assert_equal [string repeat d 500] [r lindex list6 0]
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # revert config for external mode tests.
     r config set list-compress-depth 0
@@ -115,7 +118,8 @@ start_server [list overrides [list save ""] ] {
         r lpush lst bb
         r debug reload
         assert_equal [r rpop lst] "xxxxxxxxxx"
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # basic command check for plain nodes - "LINDEX & LINSERT"
     test {Test LINDEX and LINSERT on plain nodes} {
@@ -129,7 +133,8 @@ start_server [list overrides [list save ""] ] {
         r linsert lst BEFORE "9" "7"
         r linsert lst BEFORE "9" "xxxxxxxxxxx"
         assert {[r lindex lst 3] eq "xxxxxxxxxxx"}
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # basic command check for plain nodes - "LTRIM"
     test {Test LTRIM on plain nodes} {
@@ -140,7 +145,8 @@ start_server [list overrides [list save ""] ] {
         r lpush lst1 9
         r LTRIM lst1 1 -1
         assert_equal [r llen lst1] 2
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # basic command check for plain nodes - "LREM"
     test {Test LREM on plain nodes} {
@@ -153,7 +159,8 @@ start_server [list overrides [list save ""] ] {
         r lpush lst 9
         r LREM lst -2 "one"
         assert_equal [r llen lst] 2
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # basic command check for plain nodes - "LPOS"
     test {Test LPOS on plain nodes} {
@@ -164,7 +171,8 @@ start_server [list overrides [list save ""] ] {
         r RPUSH lst "cc"
         r LSET lst 0 "xxxxxxxxxxx"
         assert_equal [r LPOS lst "xxxxxxxxxxx"] 0
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # basic command check for plain nodes - "LMOVE"
     test {Test LMOVE on plain nodes} {
@@ -183,7 +191,8 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop lst2{t}] "cc"
         assert_equal [r lpop lst{t}] "dd"
         assert_equal [r lpop lst{t}] "xxxxxxxxxxx"
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # testing LSET with combinations of node types
     # plain->packed , packed->plain, plain->plain, packed->packed
@@ -206,7 +215,8 @@ start_server [list overrides [list save ""] ] {
         r lset lst 0 "cc"
         set s1 [r lpop lst]
         assert_equal $s1 "cc"
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # checking LSET in case ziplist needs to be split
     test {Test LSET with packed is split in the middle} {
@@ -223,7 +233,8 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop lst] [string repeat e 10]
         assert_equal [r lpop lst] "dd"
         assert_equal [r lpop lst] "ee"
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
 
     # repeating "plain check LSET with combinations"
@@ -249,7 +260,8 @@ start_server [list overrides [list save ""] ] {
         r lset lst 0 "cc"
         set s1 [r lpop lst]
         assert_equal $s1 "cc"
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     test {Crash due to delete entry from a compress quicklist node} {
         r flushdb
@@ -266,8 +278,9 @@ start_server [list overrides [list save ""] ] {
         # When setting the position of -1 to a large element, we first insert
         # a large element at the end and then delete its previous element.
         r LSET lst -1 [string repeat x 100]
-        r PING
-    } {PONG} {needs:debug}
+        assert_equal "PONG" [r PING]
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     test {Crash due to split quicklist node wrongly} {
         r flushdb
@@ -276,8 +289,9 @@ start_server [list overrides [list save ""] ] {
         r lpush key "bb"
         r lset key -2 [string repeat x 10]
         r rpop key
-        r PING
-    } {PONG} {needs:debug}
+        assert_equal "PONG" [r PING]
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 }
 
 run_solo {list-large-memory} {
