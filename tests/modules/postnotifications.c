@@ -30,6 +30,21 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/* This module allow to verify 'RedisModule_AddPostNotificationJob' by registering to 3
+ * key space event:
+ * * STRINGS - the module register to all strings notifications and set post notification job
+ *             that increase a counter indicating how many times the string key was changed.
+ *             In addition, it increase another counter that counts the total changes that
+ *             was made on all strings keys.
+ * * EXPIRED - the module register to expired event and set post notification job that that
+ *             counts the total number of expired events.
+ * * EVICTED - the module register to evicted event and set post notification job that that
+ *             counts the total number of evicted events.
+ *
+ * In addition, the module register a new command, 'postnotification.async_set', that performs a set
+ * command from a background thread. This allows to check the 'RedisModule_AddPostNotificationJob' on
+ * notifications that was triggered on a background thread. */
+
 #define _BSD_SOURCE
 #define _DEFAULT_SOURCE /* For usleep */
 

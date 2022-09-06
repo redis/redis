@@ -7891,7 +7891,7 @@ void firePostKeySpaceJobs() {
             serverLog(LL_WARNING,"Exceed max_post_notifications_jobs, will stop triggering any more post notifications jobs.");
         }
         ++i;
-        job->free_pd(job->pd);
+        if (job->free_pd) job->free_pd(job->pd);
 
         moduleFreeContext(&ctx);
         zfree(job);
@@ -7918,6 +7918,8 @@ void firePostKeySpaceJobs() {
  * to be registered, in order to avoid infinite loop we limit the number of jobs that can be registered in
  * a single logic unit (command, eviction, active expire). This limitation is configurable using `maxpostnotificationsjobs`
  * configuration value.
+ *
+ * 'free_pd' can be NULL and in such case will not be used.
  *
  *  */
 int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationFunc callback, void *pd, void (*free_pd)(void*)) {
