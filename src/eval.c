@@ -510,21 +510,21 @@ void evalGenericCommand(client *c, int evalsha) {
     /* Try to lookup the Lua function */
     lua_getfield(lua, LUA_REGISTRYINDEX, funcname);
     if (lua_isnil(lua,-1)) {
-        lua_pop(lua,1); /* remove the nil from the stack */
         /* Function not defined... let's define it if we have the
          * body of the function. If this is an EVALSHA call we can just
          * return an error. */
         if (evalsha) {
-            lua_pop(lua,1); /* remove the error handler from the stack. */
+            lua_pop(lua,2); /* remove the nil and the error handler from the stack. */
             addReplyErrorObject(c, shared.noscripterr);
             return;
         }
         if (luaCreateFunction(c,c->argv[1]) == NULL) {
-            lua_pop(lua,1); /* remove the error handler from the stack. */
+            lua_pop(lua,2); /* remove the nil and the error handler from the stack. */
             /* The error is sent to the client by luaCreateFunction()
              * itself when it returns NULL. */
             return;
         }
+        lua_pop(lua,1); /* remove the nil from the stack */
         /* Now the following is guaranteed to return non nil */
         lua_getfield(lua, LUA_REGISTRYINDEX, funcname);
         serverAssert(!lua_isnil(lua,-1));
