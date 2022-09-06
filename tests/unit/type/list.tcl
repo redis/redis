@@ -256,10 +256,16 @@ start_server [list overrides [list save ""] ] {
         r debug quicklist-packed-threshold 100b
         r config set list-compress-depth 1
 
-        r LPUSH lst [string repeat x 100] ;# large element
+        # Push a large element
+        r LPUSH lst [string repeat x 100]
+
+        # Insert two elements and keep them in the same node
         r RPUSH lst [string repeat x 32]
         r RPUSH lst [string repeat x 32]
-        r LSET lst -1 [string repeat x 100] ;# large element
+
+        # When setting the position of -1 to a large element, we first insert
+        # a large element at the end and then delete its previous element.
+        r LSET lst -1 [string repeat x 100]
         r PING
     } {PONG} {needs:debug}
 
