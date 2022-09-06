@@ -86,7 +86,6 @@ int quicklistisSetPackedThreshold(size_t sz) {
 #define MIN_COMPRESS_IMPROVE 8
 
 /* If not verbose testing, remove all debug printing. */
-// #define REDIS_TEST_VERBOSE
 #ifndef REDIS_TEST_VERBOSE
 #define D(...)
 #else
@@ -910,8 +909,10 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
     /* Copy original listpack so we can split it */
     memcpy(new_node->entry, node->entry, zl_sz);
 
-    /* Ranges to be trimmed: -1 here means "continue deleting until the list ends" */
+    /* Need positive offset for calculating extent below. */
     if (offset < 0) offset = node->count + offset;
+
+    /* Ranges to be trimmed: -1 here means "continue deleting until the list ends" */
     int orig_start = after ? offset + 1 : 0;
     int orig_extent = after ? -1 : offset;
     int new_start = after ? 0 : offset;

@@ -262,6 +262,16 @@ start_server [list overrides [list save ""] ] {
         r LSET lst -1 [string repeat x 100] ;# large element
         r PING
     } {PONG} {needs:debug}
+
+    test {Crash due to split quicklist node wrongly} {
+        r flushdb
+        r debug quicklist-packed-threshold 10b
+        r lpush key "aa"
+        r lpush key "bb"
+        r lset key -2 [string repeat x 10]
+        r rpop key
+        r PING
+    } {PONG} {needs:debug}
 }
 
 run_solo {list-large-memory} {
