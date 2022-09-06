@@ -1279,18 +1279,17 @@ void clientAcceptHandler(connection *conn) {
                           c);
 }
 
-void acceptCommonHandler(connection *conn, int flags, char *ip) {
-    client *c;
+int acceptConnOK(connection *conn, int is_cluster) {
     char conninfo[100];
-    UNUSED(ip);
 
     if (connGetState(conn) != CONN_STATE_ACCEPTING) {
         serverLog(LL_VERBOSE,
-            "Accepted client connection in error state: %s (conn: %s)",
+            "Error creating an accepting connection for %s: %s (conn: %s)",
+            is_cluster ? "cluster node" : "client",
             connGetLastError(conn),
             connGetInfo(conn, conninfo, sizeof(conninfo)));
         connClose(conn);
-        return;
+        return C_ERR;
     }
 
     /* Limit the number of connections we take at the same time.
@@ -1316,8 +1315,19 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
         }
         server.stat_rejected_conn++;
         connClose(conn);
-        return;
+        return C_ERR;
     }
+
+    return C_OK;
+}
+
+void acceptCommonHandler(connection *conn, int flags, char *ip) {
+    client *c;
+    char conninfo[100];
+    UNUSED(ip);
+
+    if (acceptConnOK(conn, 0) != C_OK)
+        return;
 
     /* Create connection and client */
     if ((c = createClient(conn)) == NULL) {
