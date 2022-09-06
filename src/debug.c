@@ -466,7 +466,7 @@ void debugCommand(client *c) {
 "    default.",
 "QUICKLIST-PACKED-THRESHOLD <size>",
 "    Sets the threshold for elements to be inserted as plain vs packed nodes",
-"    Default value is 1GB, allows values up to 4GB",
+"    Default value is 1GB, allows values up to 4GB. Setting to 0 restores to default.",
 "SET-SKIP-CHECKSUM-VALIDATION <0|1>",
 "    Enables or disables checksum checks for RDB files and RESTORE's payload.",
 "SLEEP <seconds>",

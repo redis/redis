@@ -250,6 +250,18 @@ start_server [list overrides [list save ""] ] {
         set s1 [r lpop lst]
         assert_equal $s1 "cc"
     } {} {needs:debug}
+
+    test {Crash due to delete entry from a compress quicklist node} {
+        r flushdb
+        r debug quicklist-packed-threshold 100b
+        r config set list-compress-depth 1
+
+        r LPUSH lst [string repeat x 100] ;# large element
+        r RPUSH lst [string repeat x 32]
+        r RPUSH lst [string repeat x 32]
+        r LSET lst -1 [string repeat x 100] ;# large element
+        r PING
+    } {PONG} {needs:debug}
 }
 
 run_solo {list-large-memory} {

@@ -57,6 +57,8 @@ int quicklistisSetPackedThreshold(size_t sz) {
     /* Don't allow threshold to be set above or even slightly below 4GB */
     if (sz > (1ull<<32) - (1<<20)) {
         return 0;
+    } else if (sz == 0) { /* 0 means restore threshold */
+        sz = (1 << 30);
     }
     packed_threshold = sz;
     return 1;
@@ -84,6 +86,7 @@ int quicklistisSetPackedThreshold(size_t sz) {
 #define MIN_COMPRESS_IMPROVE 8
 
 /* If not verbose testing, remove all debug printing. */
+// #define REDIS_TEST_VERBOSE
 #ifndef REDIS_TEST_VERBOSE
 #define D(...)
 #else
@@ -752,8 +755,10 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
         if (entry->node->count == 1) {
             __quicklistDelNode(quicklist, entry->node);
         } else {
+            quicklistDecompressNodeForUse(entry->node);
             unsigned char *p = lpSeek(entry->node->entry, -1);
             quicklistDelIndex(quicklist, entry->node, &p);
+            quicklistRecompressOnly(entry->node);
             quicklistCompress(quicklist, entry->node->next);
         }
     }
@@ -906,6 +911,7 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
     memcpy(new_node->entry, node->entry, zl_sz);
 
     /* Ranges to be trimmed: -1 here means "continue deleting until the list ends" */
+    if (offset < 0) offset = node->count + offset;
     int orig_start = after ? offset + 1 : 0;
     int orig_extent = after ? -1 : offset;
     int new_start = after ? 0 : offset;
@@ -1608,10 +1614,11 @@ void quicklistRepr(unsigned char *ql, int full) {
 
     while(node != NULL) {
         printf("{quicklist node(%d)\n", i++);
-        printf("{container : %s, encoding: %s, size: %zu, recompress: %d, attempted_compress: %d}\n",
+        printf("{container : %s, encoding: %s, size: %zu, count: %d, recompress: %d, attempted_compress: %d}\n",
                QL_NODE_IS_PLAIN(node) ? "PLAIN": "PACKED",
                (node->encoding == QUICKLIST_NODE_ENCODING_RAW) ? "RAW": "LZF",
                node->sz,
+               node->count,
                node->recompress,
                node->attempted_compress);
 
