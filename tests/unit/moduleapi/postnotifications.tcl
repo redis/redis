@@ -96,7 +96,7 @@ tags "modules" {
             }
             close_replication_stream $repl
             r DEBUG SET-ACTIVE-EXPIRE 1
-        }
+        } {OK} {needs:debug}
 
         test {Test eviction} {
             r flushall
@@ -116,6 +116,6 @@ tags "modules" {
                 {exec}
             }
             close_replication_stream $repl
-        }
+        } {} {needs:config-maxmemory}
     }
 }

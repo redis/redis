@@ -7857,7 +7857,7 @@ void moduleReleaseGIL(void) {
  * Moreover, the fact that the notification is executed synchronously means
  * that the notification code will be executed in the middle on Redis logic
  * (commands logic, eviction, expire). Changing the key space while the logic
- * runs is dangerous and discourage. In order to react to key space events with
+ * runs is dangerous and discouraged. In order to react to key space events with
  * write actions, please refer to 'RM_AddPostNotificationJob'.
  *
  * See https://redis.io/topics/notifications for more information.
@@ -7902,7 +7902,7 @@ void firePostKeySpaceJobs() {
 /* This API should only be executed within a key space notification callback and allow to
  * react to the notification with some write operations.
  *
- * In general it is dangerous and highly discourage to write inside key space notification callback.
+ * In general it is dangerous and highly discouraged to write inside key space notification callback.
  * This is because the callback is executed synchronously in the middle of Redis logic
  * (commands logic, eviction, expire). This means that writing inside a notification can cause
  * data that held by Redis to be freed and cause Redis to crash when continue running his logic after.
