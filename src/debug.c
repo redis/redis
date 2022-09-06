@@ -489,7 +489,7 @@ void debugCommand(client *c) {
 "    In case NEVER is provided the last observed peak will never be reset",
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
-"    Enable or disable the replay buffer resize cron job",
+"    Enable or disable the reply buffer resize cron job",
 NULL
         };
         addReplyHelp(c, help);
