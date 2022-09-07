@@ -859,8 +859,10 @@ int startBgsaveForReplication(int mincapa, int req) {
     if (rsiptr) {
         if (socket_target)
             retval = rdbSaveToSlavesSockets(req,rsiptr);
-        else
+        else {
+            rsiptr->keep_cache = 1; /* Keep the page cache since it'll get used soon */
             retval = rdbSaveBackground(req,server.rdb_filename,rsiptr);
+        }
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
         retval = C_ERR;
@@ -1351,6 +1353,31 @@ void removeRDBUsedToSyncReplicas(void) {
     }
 }
 
+void sendBulkDone(client *myself) {
+    listNode *ln;
+    listIter li;
+    int shouldInvalidateCache = 1;
+    /* If I'm the last one refer the RDB file, invalidate the cache backed by RDB */
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+        if (slave != myself && slave->replstate == SLAVE_STATE_SEND_BULK) {
+            shouldInvalidateCache = 0;
+            break;
+        }
+    }
+
+    if (shouldInvalidateCache) {
+        if (invalidatePageCache(myself->repldbfd, 0, 0) == -1) {
+            serverLog(LL_NOTICE,"Unable to invalidate cache after sending RDB: %s", strerror(errno));
+        }
+    }
+
+    close(myself->repldbfd);
+    myself->repldbfd = -1;
+
+}
+
 void sendBulkToSlave(connection *conn) {
     client *slave = connGetPrivateData(conn);
     char buf[PROTO_IOBUF_LEN];
@@ -1399,8 +1426,7 @@ void sendBulkToSlave(connection *conn) {
     slave->repldboff += nwritten;
     atomicIncr(server.stat_net_repl_output_bytes, nwritten);
     if (slave->repldboff == slave->repldbsize) {
-        close(slave->repldbfd);
-        slave->repldbfd = -1;
+        sendBulkDone(slave);
         connSetWriteHandler(slave->conn,NULL);
         if (!replicaPutOnline(slave)) {
             freeClient(slave);
@@ -2199,6 +2225,10 @@ void readSyncBulkPayload(connection *conn) {
                                 "the master. This replica has persistence "
                                 "disabled");
             bg_unlink(server.rdb_filename);
+        }
+
+        if (invalidatePageCache(server.repl_transfer_fd, 0, 0) == -1) {
+            serverLog(LL_NOTICE,"Unable to invalidate cache after receiving RDB: %s", strerror(errno));
         }
 
         zfree(server.repl_transfer_tmpfile);

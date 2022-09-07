@@ -50,6 +50,8 @@
 #include "sha256.h"
 #include "config.h"
 
+#define UNUSED(x) ((void)(x))
+
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
         const char *string, int stringLen, int nocase)
@@ -1110,6 +1112,20 @@ int fsyncFileDir(const char *filename) {
     
     close(dir_fd);
     return 0;
+}
+
+ /* free OS pages backed by file */
+int invalidatePageCache(int fd, size_t offset, size_t length) {
+#ifdef __linux__
+  int ret = posix_fadvise(fd, offset, length, POSIX_FADV_DONTNEED);
+  if (ret) return -1;
+  return 0;
+#else
+  UNUSED(fd);
+  UNUSED(offset);
+  UNUSED(length);
+  return 0;
+#endif
 }
 
 #ifdef REDIS_TEST
