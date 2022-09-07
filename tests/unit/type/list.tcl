@@ -268,28 +268,35 @@ start_server [list overrides [list save ""] ] {
         r debug quicklist-packed-threshold 100b
         r config set list-compress-depth 1
 
+        set small_ele [string repeat x 32]
+        set large_ele [string repeat x 100]
+
         # Push a large element
-        r LPUSH lst [string repeat x 100]
+        r RPUSH lst $large_ele
 
         # Insert two elements and keep them in the same node
-        r RPUSH lst [string repeat x 32]
-        r RPUSH lst [string repeat x 32]
+        r RPUSH lst $small_ele
+        r RPUSH lst $small_ele
 
         # When setting the position of -1 to a large element, we first insert
         # a large element at the end and then delete its previous element.
-        r LSET lst -1 [string repeat x 100]
-        assert_equal "PONG" [r PING]
+        r LSET lst -1 $large_ele
+        assert_equal "$large_ele $small_ele $large_ele" [r LRANGE lst 0 -1]
+
         r debug quicklist-packed-threshold 0
+        r config set list-compress-depth 0
     } {OK} {needs:debug}
 
     test {Crash due to split quicklist node wrongly} {
         r flushdb
         r debug quicklist-packed-threshold 10b
-        r lpush key "aa"
-        r lpush key "bb"
-        r lset key -2 [string repeat x 10]
-        r rpop key
-        assert_equal "PONG" [r PING]
+
+        r LPUSH lst "aa"
+        r LPUSH lst "bb"
+        r LSET lst -2 [string repeat x 10]
+        r RPOP lst
+        assert_equal [string repeat x 10] [r LRANGE lst 0 -1]
+
         r debug quicklist-packed-threshold 0
     } {OK} {needs:debug}
 }
