@@ -1172,6 +1172,18 @@ void deferredAfterErrorReply(client *c, list *errors) {
     }
 }
 
+/* Reset the reply buffer and/or list of reply links.
+ * of the client to an empty state. */
+void resetReply(client *c) {
+    c->bufpos = 0;
+    c->reply_bytes = 0;
+    listEmpty(c->reply);
+    if (c->deferred_reply_errors) {
+        listRelease(c->deferred_reply_errors);
+        c->deferred_reply_errors = NULL;
+    }
+}
+
 /* Logically copy 'src' replica client buffers info to 'dst' replica.
  * Basically increase referenced buffer block node reference count. */
 void copyReplicaOutputBuffer(client *dst, client *src) {

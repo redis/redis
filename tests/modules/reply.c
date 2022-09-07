@@ -154,6 +154,15 @@ int rw_verbatim(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithVerbatimString(ctx, verbatim_str, verbatim_len);
 }
 
+int rw_reset(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+
+    RedisModule_ReplyWithSimpleString(ctx, "foo");
+    RedisModule_ResetReply(ctx);
+    return RedisModule_ReplyWithSimpleString(ctx, "bar");
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -187,6 +196,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"rw.error",rw_error,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.verbatim",rw_verbatim,"",0,0,0) != REDISMODULE_OK)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"rw.reset",rw_reset,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

@@ -93,6 +93,10 @@ start_server {tags {"modules"}} {
             catch {r rw.error} e
             assert_match "An error" $e
         }
+
+        test "RESP$proto: RM_ResetReply: reset the reply" {
+            assert_equal {bar} [r rw.reset]
+        }
     }
 
     test "Unload the module - replywith" {
