@@ -50,6 +50,7 @@
 #define REGISTRY_ERROR_HANDLER_NAME "__ERROR_HANDLER__"
 #define REGISTRY_LOAD_CTX_NAME "__LIBRARY_CTX__"
 #define LIBRARY_API_NAME "__LIBRARY_API__"
+#define GLOBALS_API_NAME "__GLOBALS_API__"
 #define LOAD_TIMEOUT_MS 500
 
 /* Lua engine ctx */
@@ -82,6 +83,7 @@ typedef struct registerFunctionArgs {
 static void luaEngineLoadHook(lua_State *lua, lua_Debug *ar) {
     UNUSED(ar);
     loadCtx *load_ctx = luaGetFromRegistry(lua, REGISTRY_LOAD_CTX_NAME);
+    serverAssert(load_ctx); /* Only supported inside script invocation */
     uint64_t duration = elapsedMs(load_ctx->start_time);
     if (duration > LOAD_TIMEOUT_MS) {
         lua_sethook(lua, luaEngineLoadHook, LUA_MASKLINE, 0);
@@ -99,42 +101,23 @@ static void luaEngineLoadHook(lua_State *lua, lua_Debug *ar) {
  * Return NULL on compilation error and set the error to the err variable
  */
 static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds *err) {
+    int ret = C_ERR;
     luaEngineCtx *lua_engine_ctx = engine_ctx;
     lua_State *lua = lua_engine_ctx->lua;
 
-    /* Each library will have its own global distinct table.
-     * We will create a new fresh Lua table and use
-     * lua_setfenv to set the table as the library globals
-     * (https://www.lua.org/manual/5.1/manual.html#lua_setfenv)
-     *
-     * At first, populate this new table with only the 'library' API
-     * to make sure only 'library' API is available at start. After the
-     * initial run is finished and all functions are registered, add
-     * all the default globals to the library global table and delete
-     * the library API.
-     *
-     * There are 2 ways to achieve the last part (add default
-     * globals to the new table):
-     *
-     * 1. Initialize the new table with all the default globals
-     * 2. Inheritance using metatable (https://www.lua.org/pil/14.3.html)
-     *
-     * For now we are choosing the second, we can change it in the future to
-     * achieve a better isolation between functions. */
-    lua_newtable(lua); /* Global table for the library */
-    lua_pushstring(lua, REDIS_API_NAME);
-    lua_pushstring(lua, LIBRARY_API_NAME);
-    lua_gettable(lua, LUA_REGISTRYINDEX); /* get library function from registry */
-    lua_settable(lua, -3); /* push the library table to the new global table */
-
-    /* Set global protection on the new global table */
-    luaSetGlobalProtection(lua_engine_ctx->lua);
+    /* set load library globals */
+    lua_getmetatable(lua, LUA_GLOBALSINDEX);
+    lua_enablereadonlytable(lua, -1, 0); /* disable global protection */
+    lua_getfield(lua, LUA_REGISTRYINDEX, LIBRARY_API_NAME);
+    lua_setfield(lua, -2, "__index");
+    lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 1); /* enable global protection */
+    lua_pop(lua, 1); /* pop the metatable */
 
     /* compile the code */
     if (luaL_loadbuffer(lua, blob, sdslen(blob), "@user_function")) {
         *err = sdscatprintf(sdsempty(), "Error compiling function: %s", lua_tostring(lua, -1));
-        lua_pop(lua, 2); /* pops the error and globals table */
-        return C_ERR;
+        lua_pop(lua, 1); /* pops the error */
+        goto done;
     }
     serverAssert(lua_isfunction(lua, -1));
 
@@ -144,45 +127,31 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds 
     };
     luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, &load_ctx);
 
-    /* set the function environment so only 'library' API can be accessed. */
-    lua_pushvalue(lua, -2); /* push global table to the front */
-    lua_setfenv(lua, -2);
-
     lua_sethook(lua,luaEngineLoadHook,LUA_MASKCOUNT,100000);
     /* Run the compiled code to allow it to register functions */
     if (lua_pcall(lua,0,0,0)) {
         errorInfo err_info = {0};
         luaExtractErrorInformation(lua, &err_info);
         *err = sdscatprintf(sdsempty(), "Error registering functions: %s", err_info.msg);
-        lua_pop(lua, 2); /* pops the error and globals table */
-        lua_sethook(lua,NULL,0,0); /* Disable hook */
-        luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, NULL);
+        lua_pop(lua, 1); /* pops the error */
         luaErrorInformationDiscard(&err_info);
-        return C_ERR;
+        goto done;
     }
+
+    ret = C_OK;
+
+done:
+    /* restore original globals */
+    lua_getmetatable(lua, LUA_GLOBALSINDEX);
+    lua_enablereadonlytable(lua, -1, 0); /* disable global protection */
+    lua_getfield(lua, LUA_REGISTRYINDEX, GLOBALS_API_NAME);
+    lua_setfield(lua, -2, "__index");
+    lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 1); /* enable global protection */
+    lua_pop(lua, 1); /* pop the metatable */
+
     lua_sethook(lua,NULL,0,0); /* Disable hook */
     luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, NULL);
-
-    /* stack contains the global table, lets rearrange it to contains the entire API. */
-    /* delete 'redis' API */
-    lua_pushstring(lua, REDIS_API_NAME);
-    lua_pushnil(lua);
-    lua_settable(lua, -3);
-
-    /* create metatable */
-    lua_newtable(lua);
-    lua_pushstring(lua, "__index");
-    lua_pushvalue(lua, LUA_GLOBALSINDEX); /* push original globals */
-    lua_settable(lua, -3);
-    lua_pushstring(lua, "__newindex");
-    lua_pushvalue(lua, LUA_GLOBALSINDEX); /* push original globals */
-    lua_settable(lua, -3);
-
-    lua_setmetatable(lua, -2);
-
-    lua_pop(lua, 1); /* pops the global table */
-
-    return C_OK;
+    return ret;
 }
 
 /*
@@ -458,8 +427,8 @@ int luaEngineInitEngine() {
     luaRegisterRedisAPI(lua_engine_ctx->lua);
 
     /* Register the library commands table and fields and store it to registry */
-    lua_pushstring(lua_engine_ctx->lua, LIBRARY_API_NAME);
-    lua_newtable(lua_engine_ctx->lua);
+    lua_newtable(lua_engine_ctx->lua); /* load library globals */
+    lua_newtable(lua_engine_ctx->lua); /* load library `redis` table */
 
     lua_pushstring(lua_engine_ctx->lua, "register_function");
     lua_pushcfunction(lua_engine_ctx->lua, luaRegisterFunction);
@@ -468,18 +437,24 @@ int luaEngineInitEngine() {
     luaRegisterLogFunction(lua_engine_ctx->lua);
     luaRegisterVersion(lua_engine_ctx->lua);
 
-    lua_settable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
+    luaSetErrorMetatable(lua_engine_ctx->lua);
+    lua_setfield(lua_engine_ctx->lua, -2, REDIS_API_NAME);
+
+    luaSetErrorMetatable(lua_engine_ctx->lua);
+    luaSetTableProtectionRecursively(lua_engine_ctx->lua); /* protect load library globals */
+    lua_setfield(lua_engine_ctx->lua, LUA_REGISTRYINDEX, LIBRARY_API_NAME);
 
     /* Save error handler to registry */
     lua_pushstring(lua_engine_ctx->lua, REGISTRY_ERROR_HANDLER_NAME);
     char *errh_func =       "local dbg = debug\n"
+                            "debug = nil\n"
                             "local error_handler = function (err)\n"
                             "  local i = dbg.getinfo(2,'nSl')\n"
                             "  if i and i.what == 'C' then\n"
                             "    i = dbg.getinfo(3,'nSl')\n"
                             "  end\n"
                             "  if type(err) ~= 'table' then\n"
-                            "    err = {err='ERR' .. tostring(err)}"
+                            "    err = {err='ERR ' .. tostring(err)}"
                             "  end"
                             "  if i then\n"
                             "    err['source'] = i.source\n"
@@ -492,16 +467,29 @@ int luaEngineInitEngine() {
     lua_pcall(lua_engine_ctx->lua,0,1,0);
     lua_settable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
 
-    /* Save global protection to registry */
-    luaRegisterGlobalProtectionFunction(lua_engine_ctx->lua);
-
-    /* Set global protection on globals */
     lua_pushvalue(lua_engine_ctx->lua, LUA_GLOBALSINDEX);
-    luaSetGlobalProtection(lua_engine_ctx->lua);
+    luaSetErrorMetatable(lua_engine_ctx->lua);
+    luaSetTableProtectionRecursively(lua_engine_ctx->lua); /* protect globals */
     lua_pop(lua_engine_ctx->lua, 1);
+
+    /* Save default globals to registry */
+    lua_pushvalue(lua_engine_ctx->lua, LUA_GLOBALSINDEX);
+    lua_setfield(lua_engine_ctx->lua, LUA_REGISTRYINDEX, GLOBALS_API_NAME);
 
     /* save the engine_ctx on the registry so we can get it from the Lua interpreter */
     luaSaveOnRegistry(lua_engine_ctx->lua, REGISTRY_ENGINE_CTX_NAME, lua_engine_ctx);
+
+    /* Create new empty table to be the new globals, we will be able to control the real globals
+     * using metatable */
+    lua_newtable(lua_engine_ctx->lua); /* new globals */
+    lua_newtable(lua_engine_ctx->lua); /* new globals metatable */
+    lua_pushvalue(lua_engine_ctx->lua, LUA_GLOBALSINDEX);
+    lua_setfield(lua_engine_ctx->lua, -2, "__index");
+    lua_enablereadonlytable(lua_engine_ctx->lua, -1, 1); /* protect the metatable */
+    lua_setmetatable(lua_engine_ctx->lua, -2);
+    lua_enablereadonlytable(lua_engine_ctx->lua, -1, 1); /* protect the new global table */
+    lua_replace(lua_engine_ctx->lua, LUA_GLOBALSINDEX); /* set new global table as the new globals */
+
 
     engine *lua_engine = zmalloc(sizeof(*lua_engine));
     *lua_engine = (engine) {

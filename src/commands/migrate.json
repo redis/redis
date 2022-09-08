@@ -84,10 +84,10 @@
             },
             {
                 "name": "port",
-                "type": "string"
+                "type": "integer"
             },
             {
-                "name": "key_or_empty_string",
+                "name": "key-selector",
                 "type": "oneof",
                 "arguments": [
                     {
@@ -96,7 +96,7 @@
                         "key_spec_index": 0
                     },
                     {
-                        "name": "empty_string",
+                        "name": "empty-string",
                         "type": "pure-token",
                         "token": "\"\""
                     }
@@ -125,33 +125,39 @@
                 "since": "3.0.0"
             },
             {
-                "token": "AUTH",
-                "name": "password",
-                "type": "string",
+                "name": "authentication",
+                "type": "oneof",
                 "optional": true,
-                "since": "4.0.7"
-
-            },
-            {
-                "token": "AUTH2",
-                "name": "username_password",
-                "type": "block",
-                "optional": true,
-                "since": "6.0.0",
                 "arguments": [
                     {
-                        "name": "username",
-                        "type": "string"
+                        "token": "AUTH",
+                        "name": "auth",
+                        "display": "password",
+                        "type": "string",
+                        "since": "4.0.7"
                     },
                     {
-                        "name": "password",
-                        "type": "string"
+                        "token": "AUTH2",
+                        "name": "auth2",
+                        "type": "block",
+                        "since": "6.0.0",
+                        "arguments": [
+                            {
+                                "name": "username",
+                                "type": "string"
+                            },
+                            {
+                                "name": "password",
+                                "type": "string"
+                            }
+                        ]
                     }
                 ]
             },
             {
                 "token": "KEYS",
-                "name": "key",
+                "name": "keys",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 1,
                 "optional": true,

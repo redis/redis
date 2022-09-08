@@ -15,17 +15,25 @@ if {$is_eval == 1} {
     }
 } else {
     proc run_script {args} {
-        r function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
+        r function load replace [format "#!lua name=test\nredis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
+        if {[r readingraw] eq 1} {
+            # read name
+            assert_equal {test} [r read]
+        }
         r fcall test {*}[lrange $args 1 end]
     }
     proc run_script_ro {args} {
-        r function load LUA test replace [format "redis.register_function{function_name='test', callback=function(KEYS, ARGV)\n %s \nend, flags={'no-writes'}}" [lindex $args 0]]
+        r function load replace [format "#!lua name=test\nredis.register_function{function_name='test', callback=function(KEYS, ARGV)\n %s \nend, flags={'no-writes'}}" [lindex $args 0]]
+        if {[r readingraw] eq 1} {
+            # read name
+            assert_equal {test} [r read]
+        }
         r fcall_ro test {*}[lrange $args 1 end]
     }
     proc run_script_on_connection {args} {
         set rd [lindex $args 0]
-        $rd function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 1]]
-        # read the ok reply of function create
+        $rd function load replace [format "#!lua name=test\nredis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 1]]
+        # read name
         $rd read
         $rd fcall test {*}[lrange $args 2 end]
     }
@@ -44,12 +52,26 @@ start_server {tags {"scripting"}} {
         assert_match {*command not allowed when used memory*} $e
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
     } ;# is_eval
 
     test {EVAL - Does Lua interpreter replies to our requests?} {
         run_script {return 'hello'} 0
     } {hello}
+
+    test {EVAL - Return _G} {
+        run_script {return _G} 0
+    } {}
+
+    test {EVAL - Return table with a metatable that raise error} {
+        run_script {local a = {}; setmetatable(a,{__index=function() foo() end}) return a} 0
+    } {}
+
+    test {EVAL - Return table with a metatable that call redis} {
+        run_script {local a = {}; setmetatable(a,{__index=function() redis.call('set', 'x', '1') end}) return a} 1 x
+        # make sure x was not set
+        r get x
+    } {}
 
     test {EVAL - Lua integer -> Redis protocol type conversion} {
         run_script {return 100.5} 0
@@ -193,37 +215,37 @@ start_server {tags {"scripting"}} {
 
     test {EVAL - Scripts can't run blpop command} {
         set e {}
-        catch {run_script {return redis.pcall('blpop','x',0)} 0} e
+        catch {run_script {return redis.pcall('blpop','x',0)} 1 x} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run brpop command} {
         set e {}
-        catch {run_script {return redis.pcall('brpop','empty_list',0)} 0} e
+        catch {run_script {return redis.pcall('brpop','empty_list',0)} 1 empty_list} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run brpoplpush command} {
         set e {}
-        catch {run_script {return redis.pcall('brpoplpush','empty_list1', 'empty_list2',0)} 0} e
+        catch {run_script {return redis.pcall('brpoplpush','empty_list1{t}', 'empty_list2{t}',0)} 2 empty_list1{t} empty_list2{t}} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run blmove command} {
         set e {}
-        catch {run_script {return redis.pcall('blmove','empty_list1', 'empty_list2', 'LEFT', 'LEFT', 0)} 0} e
+        catch {run_script {return redis.pcall('blmove','empty_list1{t}', 'empty_list2{t}', 'LEFT', 'LEFT', 0)} 2 empty_list1{t} empty_list2{t}} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run bzpopmin command} {
         set e {}
-        catch {run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 0} e
+        catch {run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 1 empty_zset} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run bzpopmax command} {
         set e {}
-        catch {run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 0} e
+        catch {run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 1 empty_zset} e
         set e
     } {*not allowed*}
 
@@ -241,7 +263,7 @@ start_server {tags {"scripting"}} {
     test {EVAL - Scripts can run non-deterministic commands} {
         set e {}
         catch {
-            run_script "redis.pcall('randomkey'); return redis.pcall('set','x','ciao')" 0
+            run_script {redis.pcall('randomkey'); return redis.pcall('set','x','ciao')} 1 x
         } e
         set e
     } {*OK*}
@@ -439,12 +461,12 @@ start_server {tags {"scripting"}} {
     test {Globals protection reading an undeclared global variable} {
         catch {run_script {return a} 0} e
         set e
-    } {ERR*attempted to access * global*}
+    } {ERR *attempted to access * global*}
 
     test {Globals protection setting an undeclared global*} {
         catch {run_script {a=10} 0} e
         set e
-    } {ERR*attempted to create global*}
+    } {ERR *Attempt to modify a readonly table*}
 
     test {Test an example script DECR_IF_GT} {
         set decr_if_gt {
@@ -655,7 +677,7 @@ start_server {tags {"scripting"}} {
         assert_equal $res $expected_list
         set res [run_script {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
         assert_equal $res $expected_list
-    }
+    } {} {resp3}
 
     test {Script return recursive object} {
         r readraw 1
@@ -680,7 +702,7 @@ start_server {tags {"scripting"}} {
                 a[i] = 1
             end
             return redis.call("lpush", "l", unpack(a))
-        } 0
+        } 1 l
     } {7999}
 
     test "Script read key with expiration set" {
@@ -691,7 +713,7 @@ start_server {tags {"scripting"}} {
              else
                  return redis.call("EXISTS", "key")
              end
-        } 0] "value"
+        } 1 key] "value"
     }
 
     test "Script del key with expiration set" {
@@ -699,7 +721,7 @@ start_server {tags {"scripting"}} {
         assert_equal [run_script {
              redis.call("DEL", "key")
              return redis.call("EXISTS", "key")
-        } 0] 0
+        } 1 key] 0
     }
     
     test "Script ACL check" {
@@ -727,6 +749,112 @@ start_server {tags {"scripting"}} {
             return redis.acl_check_cmd('invalid-cmd','arg')
         } 0}
     }
+
+    test "Binary code loading failed" {
+        assert_error {ERR *attempt to call a nil value*} {run_script {
+            return loadstring(string.dump(function() return 1 end))()
+        } 0}
+    }
+
+    test "Try trick global protection 1" {
+        catch {
+            run_script {
+                setmetatable(_G, {})
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 2" {
+        catch {
+            run_script {
+                local g = getmetatable(_G)
+                g.__index = {}
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 3" {
+        catch {
+            run_script {
+                redis = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 4" {
+        catch {
+            run_script {
+                _G = {}
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on redis table" {
+        catch {
+            run_script {
+                redis.call = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on json table" {
+        catch {
+            run_script {
+                cjson.encode = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on cmsgpack table" {
+        catch {
+            run_script {
+                cmsgpack.pack = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on bit table" {
+        catch {
+            run_script {
+                bit.lshift = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Test loadfile are not available" {
+        catch {
+            run_script {
+                loadfile('some file')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'loadfile'*}
+
+    test "Test dofile are not available" {
+        catch {
+            run_script {
+                dofile('some file')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'dofile'*}
+
+    test "Test print are not available" {
+        catch {
+            run_script {
+                print('some data')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'print'*}
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -784,7 +912,7 @@ start_server {tags {"scripting"}} {
             set buf "*3\r\n\$4\r\neval\r\n\$33\r\nwhile 1 do redis.call('ping') end\r\n\$1\r\n0\r\n"
             append buf "*1\r\n\$4\r\nping\r\n"
         } else {
-            set buf "*6\r\n\$8\r\nfunction\r\n\$4\r\nload\r\n\$3\r\nlua\r\n\$4\r\ntest\r\n\$7\r\nreplace\r\n\$81\r\nredis.register_function('test', function() while 1 do redis.call('ping') end end)\r\n"
+            set buf "*4\r\n\$8\r\nfunction\r\n\$4\r\nload\r\n\$7\r\nreplace\r\n\$97\r\n#!lua name=test\nredis.register_function('test', function() while 1 do redis.call('ping') end end)\r\n"
             append buf "*3\r\n\$5\r\nfcall\r\n\$4\r\ntest\r\n\$1\r\n0\r\n"
             append buf "*1\r\n\$4\r\nping\r\n"
         }
@@ -808,8 +936,8 @@ start_server {tags {"scripting"}} {
         assert_equal [r ping] "PONG"
 
         if {$is_eval == 0} {
-            # read the ok reply of function create
-            assert_match {OK} [$rd read]
+            # read the function name
+            assert_match {test} [$rd read]
         }
 
         catch {$rd read} res
@@ -933,14 +1061,14 @@ start_server {tags {"scripting"}} {
                     redis.call("incr","x")
                     redis.call("select","11")
                     redis.call("incr","z")
-                } 0
+                } 3 foo1 x z
                 run_script {
                     redis.call("set","foo1","bar1")
                     redis.call("select","10")
                     redis.call("incr","x")
                     redis.call("select","11")
                     redis.call("incr","z")
-                } 0
+                } 3 foo1 x z
                 wait_for_condition 50 100 {
                     [debug_digest -1] eq [debug_digest]
                 } else {
@@ -998,7 +1126,7 @@ start_server {tags {"scripting repl external:skip"}} {
                 redis.call('set','c','3');
                 redis.set_repl(redis.REPL_ALL);
                 redis.call('set','d','4');
-            } 0
+            } 4 a b c d
 
             wait_for_condition 50 100 {
                 [r -1 mget a b c d] eq {1 {} {} 4}
@@ -1103,8 +1231,12 @@ start_server {tags {"scripting needs:debug"}} {
 
     for {set i 2} {$i <= 3} {incr i} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
+            if {[lsearch $::denytags "resp3"] >= 0} {
+                if {$client_proto == 3} {continue}
+            } else {
+                r hello $client_proto
+            }
             set extra "RESP$i/$client_proto"
-            r hello $client_proto
             r readraw 1
 
             test "test $extra big number protocol parsing" {
@@ -1226,7 +1358,7 @@ start_server {tags {"scripting needs:debug"}} {
             redis.call("SET", "key", "value", "PX", "1")
             redis.call("DEBUG", "SLEEP", 0.01)
             return redis.call("EXISTS", "key")
-        } 0] 1
+        } 1 key] 1
 
         assert_equal 0 [r EXISTS key]
     }
@@ -1239,7 +1371,7 @@ start_server {tags {"scripting needs:debug"}} {
         # use DEBUG OBJECT to make sure it doesn't error (means the key still exists)
         r DEBUG OBJECT key
 
-        assert_equal [run_script "return redis.call('EXISTS', 'key')" 0] 0
+        assert_equal [run_script {return redis.call('EXISTS', 'key')} 1 key] 0
         assert_equal 0 [r EXISTS key]
         r DEBUG set-active-expire 1
     }
@@ -1302,21 +1434,52 @@ start_server {tags {"scripting"}} {
         ] {123}
 
         # Fail to execute regardless of script content when we use default flags in OOM condition
-        assert_error {OOM allow-oom flag is not set on the script, can not run it when used memory > 'maxmemory'} {
+        assert_error {OOM *} {
             r eval {#!lua flags=
                 return 1
             } 0
         }
 
+        # Script with allow-oom can write despite being in OOM state
         assert_equal [
             r eval {#!lua flags=allow-oom
                 redis.call('set','x',1)
                 return 1
+            } 1 x
+        ] 1
+
+        # read-only scripts implies allow-oom
+        assert_equal [
+            r eval {#!lua flags=no-writes
+                redis.call('get','x')
+                return 1
             } 0
+        ] 1
+        assert_equal [
+            r eval_ro {#!lua flags=no-writes
+                redis.call('get','x')
+                return 1
+            } 1 x
+        ] 1
+
+        # Script with no shebang can read in OOM state
+        assert_equal [
+            r eval {
+                redis.call('get','x')
+                return 1
+            } 1 x
+        ] 1
+
+        # Script with no shebang can read in OOM state (eval_ro variant)
+        assert_equal [
+            r eval_ro {
+                redis.call('get','x')
+                return 1
+            } 1 x
         ] 1
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 
     test "no-writes shebang flag" {
         assert_error {ERR Write commands are not allowed from read-only scripts*} {
@@ -1344,13 +1507,132 @@ start_server {tags {"scripting"}} {
                 } 1 x
             ] "some value"
 
-            assert_error {ERR Can not run script with write flag on readonly replica} {
+            assert_error {READONLY You can't write against a read only replica.} {
                 r eval {#!lua
                     return redis.call('get','x')
                 } 1 x
             }
+
+            # test no-write inside multi-exec
+            r multi
+            r eval {#!lua flags=no-writes
+                redis.call('get','x')
+                return 1
+            } 1 x
+            assert_equal [r exec] 1
+
+            # test no shebang without write inside multi-exec
+            r multi
+            r eval {
+                redis.call('get','x')
+                return 1
+            } 1 x
+            assert_equal [r exec] 1
+
+            # temporarily set the server to master, so it doesn't block the queuing
+            # and we can test the evaluation of the flags on exec
+            r replicaof no one
+            set rr [redis_client]
+            set rr2 [redis_client]
+            $rr multi
+            $rr2 multi
+
+            # test write inside multi-exec
+            # we don't need to do any actual write
+            $rr eval {#!lua
+                return 1
+            } 0
+
+            # test no shebang with write inside multi-exec
+            $rr2 eval {
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+
+            r replicaof [srv -1 host] [srv -1 port]
+            assert_error {EXECABORT Transaction discarded because of: READONLY *} {$rr exec}
+            assert_error {READONLY You can't write against a read only replica. script: *} {$rr2 exec}
+            $rr close
+            $rr2 close
         }
     }
+
+    test "not enough good replicas" {
+        r set x "some value"
+        r config set min-replicas-to-write 1
+
+        assert_equal [
+            r eval {#!lua flags=no-writes
+                return redis.call('get','x')
+            } 1 x
+        ] "some value"
+
+        assert_equal [
+            r eval {
+                return redis.call('get','x')
+            } 1 x
+        ] "some value"
+
+        assert_error {NOREPLICAS *} {
+            r eval {#!lua
+                return redis.call('get','x')
+            } 1 x
+        }
+
+        assert_error {NOREPLICAS *} {
+            r eval {
+                return redis.call('set','x', 1)
+            } 1 x
+        }
+
+        r config set min-replicas-to-write 0
+    }
+
+    test "not enough good replicas state change during long script" {
+        r set x "pre-script value"
+        r config set min-replicas-to-write 1
+        r config set lua-time-limit 10
+        start_server {tags {"external:skip"}} {
+            # add a replica and wait for the master to recognize it's online
+            r slaveof [srv -1 host] [srv -1 port]
+            wait_replica_online [srv -1 client]
+
+            # run a slow script that does one write, then waits for INFO to indicate
+            # that the replica dropped, and then runs another write
+            set rd [redis_deferring_client -1]
+            $rd eval {
+                redis.call('set','x',"script value")
+                while true do
+                    local info = redis.call('info','replication')
+                    if (string.match(info, "connected_slaves:0")) then
+                        redis.call('set','x',info)
+                        break
+                    end
+                end
+                return 1
+            } 1 x
+
+            # wait for the script to time out and yield
+            wait_for_condition 100 100 {
+                [catch {r -1 ping} e] == 1
+            } else {
+                fail "Can't wait for script to start running"
+            }
+            catch {r -1 ping} e
+            assert_match {BUSY*} $e
+
+            # cause the replica to disconnect (triggering the busy script to exit)
+            r slaveof no one
+
+            # make sure the script was able to write after the replica dropped
+            assert_equal [$rd read] 1
+            assert_match {*connected_slaves:0*} [r -1 get x]
+
+            $rd close
+        }
+        r config set min-replicas-to-write 0
+        r config set lua-time-limit 5000
+    } {OK} {external:skip needs:repl}
 
     test "allow-stale shebang flag" {
         r config set replica-serve-stale-data no
@@ -1362,7 +1644,7 @@ start_server {tags {"scripting"}} {
             } 1 x
         }
 
-        assert_error {*'allow-stale' flag is not set on the script*} {
+        assert_error {MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.} {
             r eval {#!lua flags=no-writes
                 return 1
             } 0
@@ -1381,24 +1663,37 @@ start_server {tags {"scripting"}} {
             } 1 x
         }
         
-        assert_match {*redis_version*} [
+        assert_match {foobar} [
             r eval {#!lua flags=allow-stale,no-writes
-                return redis.call('info','server')
+                return redis.call('echo','foobar')
             } 0
         ]
         
         # Test again with EVALSHA
         set sha [
             r script load {#!lua flags=allow-stale,no-writes
-                return redis.call('info','server')
+                return redis.call('echo','foobar')
             }
         ]
-        assert_match {*redis_version*} [r evalsha $sha 0]
+        assert_match {foobar} [r evalsha $sha 0]
         
         r replicaof no one
         r config set replica-serve-stale-data yes
         set _ {}
     } {} {external:skip}
+
+    test "reject script do not cause a Lua stack leak" {
+        r config set maxmemory 1
+        for {set i 0} {$i < 50} {incr i} {
+            assert_error {OOM *} {r eval {#!lua
+                return 1
+            } 0}
+        }
+        r config set maxmemory 0
+        assert_equal [r eval {#!lua
+            return 1
+        } 0] 1
+    }
 }
 
 # Additional eval only tests

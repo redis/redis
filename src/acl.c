@@ -144,7 +144,7 @@ void ACLFreeLogEntry(void *le);
 int ACLSetSelector(aclSelector *selector, const char *op, size_t oplen);
 
 /* The length of the string representation of a hashed password. */
-#define HASH_PASSWORD_LEN SHA256_BLOCK_SIZE*2
+#define HASH_PASSWORD_LEN (SHA256_BLOCK_SIZE*2)
 
 /* =============================================================================
  * Helper functions for the rest of the ACL implementation
@@ -153,42 +153,13 @@ int ACLSetSelector(aclSelector *selector, const char *op, size_t oplen);
 /* Return zero if strings are the same, non-zero if they are not.
  * The comparison is performed in a way that prevents an attacker to obtain
  * information about the nature of the strings just monitoring the execution
- * time of the function.
- *
- * Note that limiting the comparison length to strings up to 512 bytes we
- * can avoid leaking any information about the password length and any
- * possible branch misprediction related leak.
+ * time of the function. Note: The two strings must be the same length.
  */
-int time_independent_strcmp(char *a, char *b) {
-    char bufa[CONFIG_AUTHPASS_MAX_LEN], bufb[CONFIG_AUTHPASS_MAX_LEN];
-    /* The above two strlen perform len(a) + len(b) operations where either
-     * a or b are fixed (our password) length, and the difference is only
-     * relative to the length of the user provided string, so no information
-     * leak is possible in the following two lines of code. */
-    unsigned int alen = strlen(a);
-    unsigned int blen = strlen(b);
-    unsigned int j;
+int time_independent_strcmp(char *a, char *b, int len) {
     int diff = 0;
-
-    /* We can't compare strings longer than our static buffers.
-     * Note that this will never pass the first test in practical circumstances
-     * so there is no info leak. */
-    if (alen > sizeof(bufa) || blen > sizeof(bufb)) return 1;
-
-    memset(bufa,0,sizeof(bufa));        /* Constant time. */
-    memset(bufb,0,sizeof(bufb));        /* Constant time. */
-    /* Again the time of the following two copies is proportional to
-     * len(a) + len(b) so no info is leaked. */
-    memcpy(bufa,a,alen);
-    memcpy(bufb,b,blen);
-
-    /* Always compare all the chars in the two buffers without
-     * conditional expressions. */
-    for (j = 0; j < sizeof(bufa); j++) {
-        diff |= (bufa[j] ^ bufb[j]);
+    for (int j = 0; j < len; j++) {
+        diff |= (a[j] ^ b[j]);
     }
-    /* Length must be equal as well. */
-    diff |= alen ^ blen;
     return diff; /* If zero strings are the same. */
 }
 
@@ -1414,7 +1385,7 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
     sds hashed = ACLHashPassword(password->ptr,sdslen(password->ptr));
     while((ln = listNext(&li))) {
         sds thispass = listNodeValue(ln);
-        if (!time_independent_strcmp(hashed, thispass)) {
+        if (!time_independent_strcmp(hashed, thispass, HASH_PASSWORD_LEN)) {
             sdsfree(hashed);
             return C_OK;
         }
@@ -1526,6 +1497,37 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
             return ACL_OK;
     }
     return ACL_DENIED_KEY;
+}
+
+/* Checks if the provided selector selector has access specified in flags
+ * to all keys in the keyspace. For example, CMD_KEY_READ access requires either
+ * '%R~*', '~*', or allkeys to be granted to the selector. Returns 1 if all 
+ * the access flags are satisfied with this selector or 0 otherwise.
+ */
+static int ACLSelectorHasUnrestrictedKeyAccess(aclSelector *selector, int flags) {
+    /* The selector can access any key */
+    if (selector->flags & SELECTOR_FLAG_ALLKEYS) return 1;
+
+    listIter li;
+    listNode *ln;
+    listRewind(selector->patterns,&li);
+
+    int access_flags = 0;
+    if (flags & CMD_KEY_ACCESS) access_flags |= ACL_READ_PERMISSION;
+    if (flags & CMD_KEY_INSERT) access_flags |= ACL_WRITE_PERMISSION;
+    if (flags & CMD_KEY_DELETE) access_flags |= ACL_WRITE_PERMISSION;
+    if (flags & CMD_KEY_UPDATE) access_flags |= ACL_WRITE_PERMISSION;
+
+    /* Test this key against every pattern. */
+    while((ln = listNext(&li))) {
+        keyPattern *pattern = listNodeValue(ln);
+        if ((pattern->flags & access_flags) != access_flags)
+            continue;
+        if (!strcmp(pattern->pattern,"*")) {
+           return 1;
+       }
+    }
+    return 0;
 }
 
 /* Checks a channel against a provided list of channels. The is_pattern 
@@ -1670,6 +1672,39 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
         }
     }
     return ACL_DENIED_KEY;
+}
+
+/* Checks if the user can execute the given command with the added restriction
+ * it must also have the access specified in flags to any key in the key space. 
+ * For example, CMD_KEY_READ access requires either '%R~*', '~*', or allkeys to be 
+ * granted in addition to the access required by the command. Returns 1 
+ * if the user has access or 0 otherwise.
+ */
+int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags) {
+    listIter li;
+    listNode *ln;
+    int local_idxptr;
+
+    /* If there is no associated user, the connection can run anything. */
+    if (u == NULL) return 1;
+
+    /* For multiple selectors, we cache the key result in between selector
+     * calls to prevent duplicate lookups. */
+    aclKeyResultCache cache;
+    initACLKeyResultCache(&cache);
+
+    /* Check each selector sequentially */
+    listRewind(u->selectors,&li);
+    while((ln = listNext(&li))) {
+        aclSelector *s = (aclSelector *) listNodeValue(ln);
+        int acl_retval = ACLSelectorCheckCmd(s, cmd, argv, argc, &local_idxptr, &cache);
+        if (acl_retval == ACL_OK && ACLSelectorHasUnrestrictedKeyAccess(s, flags)) {
+            cleanupACLKeyResultCache(&cache);
+            return 1;
+        }
+    }
+    cleanupACLKeyResultCache(&cache);
+    return 0;
 }
 
 /* Check if the channel can be accessed by the client according to
@@ -2134,15 +2169,25 @@ sds ACLLoadFromFile(const char *filename) {
                     server.acl_filename, linenum);
         }
 
-        int j;
-        for (j = 0; j < merged_argc; j++) {
+        int syntax_error = 0;
+        for (int j = 0; j < merged_argc; j++) {
             acl_args[j] = sdstrim(acl_args[j],"\t\r\n");
             if (ACLSetUser(u,acl_args[j],sdslen(acl_args[j])) != C_OK) {
                 const char *errmsg = ACLSetUserStringError();
-                errors = sdscatprintf(errors,
-                         "%s:%d: %s. ",
-                         server.acl_filename, linenum, errmsg);
-                continue;
+                if (errno == ENOENT) {
+                    /* For missing commands, we print out more information since
+                     * it shouldn't contain any sensitive information. */
+                    errors = sdscatprintf(errors,
+                            "%s:%d: Error in applying operation '%s': %s. ",
+                            server.acl_filename, linenum, acl_args[j], errmsg);
+                } else if (syntax_error == 0) {
+                    /* For all other errors, only print out the first error encountered
+                     * since it might affect future operations. */
+                    errors = sdscatprintf(errors,
+                            "%s:%d: %s. ",
+                            server.acl_filename, linenum, errmsg);
+                    syntax_error = 1;
+                }
             }
         }
 
@@ -2219,7 +2264,7 @@ int ACLSaveToFile(const char *filename) {
     /* Create a temp file with the new content. */
     tmpfilename = sdsnew(filename);
     tmpfilename = sdscatfmt(tmpfilename,".tmp-%i-%I",
-        (int)getpid(),(int)mstime());
+        (int) getpid(),mstime());
     if ((fd = open(tmpfilename,O_WRONLY|O_CREAT,0644)) == -1) {
         serverLog(LL_WARNING,"Opening temp ACL file for ACL SAVE: %s",
             strerror(errno));
@@ -2227,8 +2272,19 @@ int ACLSaveToFile(const char *filename) {
     }
 
     /* Write it. */
-    if (write(fd,acl,sdslen(acl)) != (ssize_t)sdslen(acl)) {
-        serverLog(LL_WARNING,"Writing ACL file for ACL SAVE: %s",
+    size_t offset = 0;
+    while (offset < sdslen(acl)) {
+        ssize_t written_bytes = write(fd,acl + offset,sdslen(acl) - offset);
+        if (written_bytes <= 0) {
+            if (errno == EINTR) continue;
+            serverLog(LL_WARNING,"Writing ACL file for ACL SAVE: %s",
+                strerror(errno));
+            goto cleanup;
+        }
+        offset += written_bytes;
+    }
+    if (redis_fsync(fd) == -1) {
+        serverLog(LL_WARNING,"Syncing ACL file for ACL SAVE: %s",
             strerror(errno));
         goto cleanup;
     }
@@ -2237,6 +2293,11 @@ int ACLSaveToFile(const char *filename) {
     /* Let's replace the new file with the old one. */
     if (rename(tmpfilename,filename) == -1) {
         serverLog(LL_WARNING,"Renaming ACL file for ACL SAVE: %s",
+            strerror(errno));
+        goto cleanup;
+    }
+    if (fsyncFileDir(filename) == -1) {
+        serverLog(LL_WARNING,"Syncing ACL directory for ACL SAVE: %s",
             strerror(errno));
         goto cleanup;
     }
@@ -2406,6 +2467,22 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
             listDelNode(ACLLog,ln);
         }
     }
+}
+
+const char* getAclErrorMessage(int acl_res) {
+    /* Notice that a variant of this code also exists on aclCommand so
+     * it also need to be updated on changed. */
+    switch (acl_res) {
+    case ACL_DENIED_CMD:
+        return "can't run this command or subcommand";
+    case ACL_DENIED_KEY:
+        return "can't access at least one of the keys mentioned in the command arguments";
+    case ACL_DENIED_CHANNEL:
+        return "can't publish to the channel mentioned in the command";
+    default:
+        return "lacking the permissions for the command";
+    }
+    serverPanic("Reached deadcode on getAclErrorMessage");
 }
 
 /* =============================================================================
@@ -2790,8 +2867,17 @@ setuser_cleanup:
             return;
         }
 
+        if ((cmd->arity > 0 && cmd->arity != c->argc-3) ||
+            (c->argc-3 < -cmd->arity))
+        {
+            addReplyErrorFormat(c,"wrong number of arguments for '%s' command", cmd->fullname);
+            return;
+        }
+
         int idx;
         int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
+        /* Notice that a variant of this code also exists on getAclErrorMessage so
+         * it also need to be updated on changed. */
         if (result != ACL_OK) {
             sds err = sdsempty();
             if (result == ACL_DENIED_CMD) {

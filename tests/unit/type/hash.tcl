@@ -507,8 +507,8 @@ start_server {tags {"hash"}} {
         catch {r hincrby smallhash str 1} smallerr
         catch {r hincrby bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not an integer*" $smallerr]
-        lappend rv [string match "ERR*not an integer*" $bigerr]
+        lappend rv [string match "ERR *not an integer*" $smallerr]
+        lappend rv [string match "ERR *not an integer*" $bigerr]
     } {1 1}
 
     test {HINCRBY fails against hash value with spaces (right)} {
@@ -517,8 +517,8 @@ start_server {tags {"hash"}} {
         catch {r hincrby smallhash str 1} smallerr
         catch {r hincrby bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not an integer*" $smallerr]
-        lappend rv [string match "ERR*not an integer*" $bigerr]
+        lappend rv [string match "ERR *not an integer*" $smallerr]
+        lappend rv [string match "ERR *not an integer*" $bigerr]
     } {1 1}
 
     test {HINCRBY can detect overflows} {
@@ -579,8 +579,8 @@ start_server {tags {"hash"}} {
         catch {r hincrbyfloat smallhash str 1} smallerr
         catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not*float*" $smallerr]
-        lappend rv [string match "ERR*not*float*" $bigerr]
+        lappend rv [string match "ERR *not*float*" $smallerr]
+        lappend rv [string match "ERR *not*float*" $bigerr]
     } {1 1}
 
     test {HINCRBYFLOAT fails against hash value with spaces (right)} {
@@ -589,15 +589,15 @@ start_server {tags {"hash"}} {
         catch {r hincrbyfloat smallhash str 1} smallerr
         catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not*float*" $smallerr]
-        lappend rv [string match "ERR*not*float*" $bigerr]
+        lappend rv [string match "ERR *not*float*" $smallerr]
+        lappend rv [string match "ERR *not*float*" $bigerr]
     } {1 1}
 
     test {HINCRBYFLOAT fails against hash value that contains a null-terminator in the middle} {
         r hset h f "1\x002"
         catch {r hincrbyfloat h f 1} err
         set rv {}
-        lappend rv [string match "ERR*not*float*" $err]
+        lappend rv [string match "ERR *not*float*" $err]
     } {1}
 
     test {HSTRLEN against the small hash} {
@@ -646,6 +646,31 @@ start_server {tags {"hash"}} {
             assert {$len1 == $len2}
             assert {$len2 == $len3}
         }
+    }
+
+    test {HINCRBYFLOAT over hash-max-listpack-value encoded with a listpack} {
+        set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
+        r config set hash-max-listpack-value 8
+        
+        # hash's value exceeds hash-max-listpack-value
+        r del smallhash
+        r del bighash
+        r hset smallhash tmp 0
+        r hset bighash tmp 0
+        r hincrbyfloat smallhash tmp 0.000005
+        r hincrbyfloat bighash tmp 0.0000005
+        assert_encoding listpack smallhash
+        assert_encoding hashtable bighash
+
+        # hash's field exceeds hash-max-listpack-value
+        r del smallhash
+        r del bighash
+        r hincrbyfloat smallhash abcdefgh 1
+        r hincrbyfloat bighash abcdefghi 1
+        assert_encoding listpack smallhash
+        assert_encoding hashtable bighash
+
+        r config set hash-max-listpack-value $original_max_value
     }
 
     test {Hash ziplist regression test for large keys} {
@@ -794,4 +819,11 @@ start_server {tags {"hash"}} {
         set _ $k
     } {ZIP_INT_8B 127 ZIP_INT_16B 32767 ZIP_INT_32B 2147483647 ZIP_INT_64B 9223372036854775808 ZIP_INT_IMM_MIN 0 ZIP_INT_IMM_MAX 12}
 
+    # On some platforms strtold("+inf") with valgrind returns a non-inf result
+    if {!$::valgrind} {
+        test {HINCRBYFLOAT does not allow NaN or Infinity} {
+            assert_error "*value is NaN or Infinity*" {r hincrbyfloat hfoo field +inf}
+            assert_equal 0 [r exists hfoo]
+        }
+    }
 }

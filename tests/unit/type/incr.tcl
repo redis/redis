@@ -111,21 +111,21 @@ start_server {tags {"incr"}} {
         r set novar "    11"
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against key with spaces (right)} {
         set err {}
         r set novar "11    "
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against key with spaces (both)} {
         set err {}
         r set novar " 11 "
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against a key holding a list} {
         r del mylist
@@ -146,7 +146,7 @@ start_server {tags {"incr"}} {
             # p.s. no way I can force NaN to test it from the API because
             # there is no way to increment / decrement by infinity nor to
             # perform divisions.
-        } {ERR*would produce*}
+        } {ERR *would produce*}
     }
 
     test {INCRBYFLOAT decrement} {
@@ -159,7 +159,7 @@ start_server {tags {"incr"}} {
         r setrange foo 2 2
         catch {r incrbyfloat foo 1} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {No negative zero} {
         r del foo

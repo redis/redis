@@ -82,7 +82,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                     fail "defrag didn't stop."
                 }
 
-                # Test the the fragmentation is lower.
+                # Test the fragmentation is lower.
                 after 120 ;# serverCron only updates the info once in 100ms
                 set frag [s allocator_frag_ratio]
                 set max_latency 0
@@ -226,7 +226,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                     fail "defrag didn't stop."
                 }
 
-                # test the the fragmentation is lower
+                # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
                 if {$::verbose} {
                     puts "used [s allocator_allocated]"
@@ -336,7 +336,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                     fail "defrag didn't stop."
                 }
 
-                # test the the fragmentation is lower
+                # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
                 set frag [s allocator_frag_ratio]
                 set max_latency 0
@@ -433,7 +433,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                     fail "defrag didn't stop."
                 }
 
-                # test the the fragmentation is lower
+                # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
                 set misses [s active_defrag_misses]
                 set hits [s active_defrag_hits]
@@ -553,7 +553,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                         fail "defrag didn't stop."
                     }
 
-                    # test the the fragmentation is lower
+                    # test the fragmentation is lower
                     after 120 ;# serverCron only updates the info once in 100ms
                     set misses [s active_defrag_misses]
                     set hits [s active_defrag_hits]

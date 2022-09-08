@@ -278,7 +278,7 @@ start_server {overrides {save ""}} {
 
         set current_save_keys_total [s current_save_keys_total]
         if {$::verbose} {
-            puts "Keys before bgsave start: current_save_keys_total"
+            puts "Keys before bgsave start: $current_save_keys_total"
         }
 
         # on each iteration, we will write some key to the server to trigger copy-on-write, and
@@ -364,6 +364,51 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "scriptbackup
     test {script won't load anymore if it's in rdb} {
         assert_equal [r script exists a0c38691e9fffe4563723c32ba77a34398e090e6] 0
     }
+}
+
+start_server {} {
+    test "failed bgsave prevents writes" {
+        r config set rdb-key-save-delay 10000000
+        populate 1000
+        r set x x
+        r bgsave
+        set pid1 [get_child_pid 0]
+        catch {exec kill -9 $pid1}
+        waitForBgsave r
+
+        # make sure a read command succeeds
+        assert_equal [r get x] x
+
+        # make sure a write command fails
+        assert_error {MISCONF *} {r set x y}
+
+        # repeate with script
+        assert_error {MISCONF *} {r eval {
+            return redis.call('set','x',1)
+            } 1 x
+        }
+        assert_equal {x} [r eval {
+            return redis.call('get','x')
+            } 1 x
+        ]
+
+        # again with script using shebang
+        assert_error {MISCONF *} {r eval {#!lua
+            return redis.call('set','x',1)
+            } 1 x
+        }
+        assert_equal {x} [r eval {#!lua flags=no-writes
+            return redis.call('get','x')
+            } 1 x
+        ]
+
+        r config set rdb-key-save-delay 0
+        r bgsave
+        waitForBgsave r
+
+        # server is writable again
+        r set x y
+    } {OK}
 }
 
 } ;# tags

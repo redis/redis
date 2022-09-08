@@ -47,7 +47,7 @@ start_server {tags {"repl external:skip"}} {
         set slave [srv 0 client]
 
         # Load some functions to be used later
-        $master FUNCTION load lua test replace {
+        $master FUNCTION load replace {#!lua name=test
             redis.register_function{function_name='f_default_flags', callback=function(keys, args) return redis.call('get',keys[1]) end, flags={}}
             redis.register_function{function_name='f_no_writes', callback=function(keys, args) return redis.call('get',keys[1]) end, flags={'no-writes'}}
         }
@@ -192,6 +192,51 @@ start_server {tags {"repl external:skip"}} {
             } else {
                 fail "SPOP replication inconsistency"
             }
+        }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set replica [srv 0 client]
+
+        test {First server should have role slave after SLAVEOF} {
+            $replica slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 role] eq {slave}
+            } else {
+                fail "Replication not started."
+            }
+            wait_for_sync $replica
+        }
+
+        test {Data divergence can happen under default conditions} {       
+            $replica config set propagation-error-behavior ignore     
+            $master debug replicate fake-command-1
+
+            # Wait for replication to normalize
+            $master set foo bar2
+            $master wait 1 2000
+
+            # Make sure we triggered the error, by finding the critical
+            # message and the fake command.
+            assert_equal [count_log_message 0 "fake-command-1"] 1
+            assert_equal [count_log_message 0 "== CRITICAL =="] 1
+        }
+
+        test {Data divergence is allowed on writable replicas} {            
+            $replica config set replica-read-only no
+            $replica set number2 foo
+            $master incrby number2 1
+            $master wait 1 2000
+
+            assert_equal [$master get number2] 1
+            assert_equal [$replica get number2] foo
+
+            assert_equal [count_log_message 0 "incrby"] 1
         }
     }
 }

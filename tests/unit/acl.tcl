@@ -383,7 +383,8 @@ start_server {tags {"acl external:skip"}} {
     } {}
 
     test {ACLs including of a type includes also subcommands} {
-        r ACL setuser newuser -@all +acl +@stream
+        r ACL setuser newuser -@all +del +acl +@stream
+        r DEL key
         r XADD key * field value
         r XINFO STREAM key
     }
@@ -395,10 +396,11 @@ start_server {tags {"acl external:skip"}} {
         r SELECT 0
         catch {r SELECT 1} e
         set e
-    } {*NOPERM*select*}
+    } {*NOPERM*select*} {singledb:skip}
 
     test {ACLs can block all DEBUG subcommands except one} {
-        r ACL setuser newuser -@all +acl +incr +debug|object
+        r ACL setuser newuser -@all +acl +del +incr +debug|object
+        r DEL key
         set cmdstr [dict get [r ACL getuser newuser] commands]
         assert_match {*+debug|object*} $cmdstr
         r INCR key
@@ -511,7 +513,7 @@ start_server {tags {"acl external:skip"}} {
 
     test "ACL CAT with illegal arguments" {
         assert_error {*Unknown category 'NON_EXISTS'} {r ACL CAT NON_EXISTS}
-        assert_error {*Unknown subcommand or wrong number of arguments for 'CAT'*} {r ACL CAT NON_EXISTS NON_EXISTS2}
+        assert_error {*unknown subcommand or wrong number of arguments for 'CAT'*} {r ACL CAT NON_EXISTS NON_EXISTS2}
     }
 
     test "ACL CAT without category - list all categories" {
@@ -527,6 +529,13 @@ start_server {tags {"acl external:skip"}} {
         # Negative check to make sure it doesn't actually return all commands.
         assert_equal [lsearch [r acl cat keyspace] "set"] -1
         assert_equal [lsearch [r acl cat stream] "get"] -1
+    }
+
+    test "ACL requires explicit permission for scripting for EVAL_RO, EVALSHA_RO and FCALL_RO" {
+        r ACL SETUSER scripter on nopass +readonly
+        assert_equal "This user has no permissions to run the 'eval_ro' command" [r ACL DRYRUN scripter EVAL_RO "" 0]
+        assert_equal "This user has no permissions to run the 'evalsha_ro' command" [r ACL DRYRUN scripter EVALSHA_RO "" 0]
+        assert_equal "This user has no permissions to run the 'fcall_ro' command" [r ACL DRYRUN scripter FCALL_RO "" 0]
     }
 
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {
@@ -926,3 +935,13 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         assert_match {*Duplicate user*} $err
     } {} {external:skip}
 }
+
+start_server {overrides {user "default on nopass ~* +@all -flushdb"} tags {acl external:skip}} {
+    test {ACL from config file and config rewrite} {
+        assert_error {NOPERM *} {r flushdb}
+        r config rewrite
+        restart_server 0 true false
+        assert_error {NOPERM *} {r flushdb}
+    }
+}
+

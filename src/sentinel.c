@@ -30,7 +30,7 @@
 
 #include "server.h"
 #include "hiredis.h"
-#ifdef USE_OPENSSL
+#if USE_OPENSSL == 1 /* BUILD_YES */
 #include "openssl/ssl.h"
 #include "hiredis_ssl.h"
 #endif
@@ -44,7 +44,7 @@
 
 extern char **environ;
 
-#ifdef USE_OPENSSL
+#if USE_OPENSSL == 1 /* BUILD_YES */
 extern SSL_CTX *redis_tls_ctx;
 extern SSL_CTX *redis_tls_client_ctx;
 #endif
@@ -200,7 +200,7 @@ typedef struct sentinelRedisInstance {
     dict *renamed_commands;     /* Commands renamed in this instance:
                                    Sentinel will use the alternative commands
                                    mapped on this table to send things like
-                                   SLAVEOF, CONFING, INFO, ... */
+                                   SLAVEOF, CONFIG, INFO, ... */
 
     /* Role and the first time we observed it.
      * This is useful in order to delay replacing what the instance reports
@@ -391,7 +391,6 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
 sentinelRedisInstance *sentinelGetMasterByName(char *name);
 char *sentinelGetSubjectiveLeader(sentinelRedisInstance *master);
 char *sentinelGetObjectiveLeader(sentinelRedisInstance *master);
-int yesnotoi(char *s);
 void instanceLinkConnectionError(const redisAsyncContext *c);
 const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri);
 void sentinelAbortFailover(sentinelRedisInstance *ri);
@@ -706,7 +705,7 @@ void sentinelEvent(int level, char *type, sentinelRedisInstance *ri,
     if (level != LL_DEBUG) {
         channel = createStringObject(type,strlen(type));
         payload = createStringObject(msg,strlen(msg));
-        pubsubPublishMessage(channel,payload);
+        pubsubPublishMessage(channel,payload,0);
         decrRefCount(channel);
         decrRefCount(payload);
     }
@@ -849,7 +848,7 @@ void sentinelRunPendingScripts(void) {
             sj->pid = 0;
         } else if (pid == 0) {
             /* Child */
-            tlsCleanup();
+            connTypeCleanupAll();
             execve(sj->argv[0],sj->argv,environ);
             /* If we are here an error occurred. */
             _exit(2); /* Don't retry execution. */
@@ -1132,6 +1131,27 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
     }
     dictReleaseIterator(di);
     return C_ERR;
+}
+
+/* Disconnect the relevant master and its replicas. */
+void dropInstanceConnections(sentinelRedisInstance *ri) {
+    serverAssert(ri->flags & SRI_MASTER);
+
+    /* Disconnect with the master. */
+    instanceLinkCloseConnection(ri->link, ri->link->cc);
+    instanceLinkCloseConnection(ri->link, ri->link->pc);
+    
+    /* Disconnect with all replicas. */
+    dictIterator *di;
+    dictEntry *de;
+    sentinelRedisInstance *repl_ri;
+    di = dictGetIterator(ri->slaves);
+    while ((de = dictNext(di)) != NULL) {
+        repl_ri = dictGetVal(de);
+        instanceLinkCloseConnection(repl_ri->link, repl_ri->link->cc);
+        instanceLinkCloseConnection(repl_ri->link, repl_ri->link->pc);
+    }
+    dictReleaseIterator(di);
 }
 
 /* Drop all connections to other sentinels. Returns the number of connections
@@ -2358,9 +2378,7 @@ void sentinelSetClientName(sentinelRedisInstance *ri, redisAsyncContext *c, char
 }
 
 static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
-#ifndef USE_OPENSSL
-    (void) context;
-#else
+#if USE_OPENSSL == 1 /* BUILD_YES */
     if (!redis_tls_ctx) return C_ERR;
     SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);
     if (!ssl) return C_ERR;
@@ -2369,6 +2387,8 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
         SSL_free(ssl);
         return C_ERR;
     }
+#else
+    UNUSED(context);
 #endif
     return C_OK;
 }
@@ -3007,7 +3027,7 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
     if (sentinel.announce_ip) {
         announce_ip = sentinel.announce_ip;
     } else {
-        if (anetFdToString(ri->link->cc->c.fd,ip,sizeof(ip),NULL,FD_TO_SOCK_NAME) == -1)
+        if (anetFdToString(ri->link->cc->c.fd,ip,sizeof(ip),NULL,0) == -1)
             return C_ERR;
         announce_ip = ip;
     }
@@ -4063,7 +4083,7 @@ NULL
         dictReleaseIterator(di);
         if (masters_local != sentinel.masters) dictRelease(masters_local);
     } else if (!strcasecmp(c->argv[1]->ptr,"simulate-failure")) {
-        /* SENTINEL SIMULATE-FAILURE <flag> <flag> ... <flag> */
+        /* SENTINEL SIMULATE-FAILURE [CRASH-AFTER-ELECTION] [CRASH-AFTER-PROMOTION] [HELP] */
         int j;
 
         sentinel.simfailure_flags = SENTINEL_SIMFAILURE_NONE;
@@ -4107,7 +4127,7 @@ numargserr:
 
 void addInfoSectionsToDict(dict *section_dict, char **sections);
 
-/* SENTINEL INFO [section] */
+/* INFO [<section> [<section> ...]] */
 void sentinelInfoCommand(client *c) {
     char *sentinel_sections[] = {"server", "clients", "cpu", "stats", "sentinel", NULL};
     int sec_all = 0, sec_everything = 0;
@@ -4297,6 +4317,7 @@ void sentinelSetCommand(client *c) {
             char *value = c->argv[++j]->ptr;
             sdsfree(ri->auth_pass);
             ri->auth_pass = strlen(value) ? sdsnew(value) : NULL;
+            dropInstanceConnections(ri);
             changes++;
             redacted = 1;
         } else if (!strcasecmp(option,"auth-user") && moreargs > 0) {
@@ -4304,6 +4325,7 @@ void sentinelSetCommand(client *c) {
             char *value = c->argv[++j]->ptr;
             sdsfree(ri->auth_user);
             ri->auth_user = strlen(value) ? sdsnew(value) : NULL;
+            dropInstanceConnections(ri);
             changes++;
         } else if (!strcasecmp(option,"quorum") && moreargs > 0) {
             /* quorum <count> */

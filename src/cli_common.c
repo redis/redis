@@ -299,7 +299,7 @@ static sds percentDecode(const char *pe, size_t len) {
 }
 
 /* Parse a URI and extract the server connection information.
- * URI scheme is based on the the provisional specification[1] excluding support
+ * URI scheme is based on the provisional specification[1] excluding support
  * for query parameters. Valid URIs are:
  *   scheme:    "redis://"
  *   authority: [[<username> ":"] <password> "@"] [<hostname> [":" <port>]]
@@ -390,7 +390,7 @@ sds escapeJsonString(sds s, const char *p, size_t len) {
         case '\t': s = sdscatlen(s,"\\t",2); break;
         case '\b': s = sdscatlen(s,"\\b",2); break;
         default:
-            s = sdscatprintf(s,(*p >= 0 && *p <= 0x1f) ? "\\u%04x" : "%c",*p);
+            s = sdscatprintf(s,*(unsigned char *)p <= 0x1f ? "\\u%04x" : "%c",*p);
         }
         p++;
     }

@@ -225,11 +225,45 @@ start_server {tags {"repl external:skip"}} {
             }
         }
 
-        test {FLUSHALL should replicate} {
+        test {FLUSHDB / FLUSHALL should replicate} {
+            set repl [attach_to_replication_stream]
+
+            r -1 set key value
+            r -1 flushdb
+
+            r -1 set key value2
             r -1 flushall
-            if {$::valgrind} {after 2000}
-            list [r -1 dbsize] [r 0 dbsize]
-        } {0 0}
+
+            wait_for_ofs_sync [srv 0 client] [srv -1 client]
+            assert_equal [r -1 dbsize] 0
+            assert_equal [r 0 dbsize] 0
+
+            # DB is empty.
+            r -1 flushdb
+            r -1 flushdb
+            r -1 flushdb
+
+            # DBs are empty.
+            r -1 flushall
+            r -1 flushall
+            r -1 flushall
+
+            # Assert that each FLUSHDB command is replicated even the DB is empty.
+            # Assert that each FLUSHALL command is replicated even the DBs are empty.
+            assert_replication_stream $repl {
+                {set key value}
+                {flushdb}
+                {set key value2}
+                {flushall}
+                {flushdb}
+                {flushdb}
+                {flushdb}
+                {flushall}
+                {flushall}
+                {flushall}
+            }
+            close_replication_stream $repl
+        }
 
         test {ROLE in master reports master with a slave} {
             set res [r -1 role]
@@ -523,10 +557,14 @@ foreach testType {Successful Aborted} {
             $replica set mykey myvalue
 
             # Set a function value on replica to check status during loading, on failure and after swapping db
-            $replica function load LUA test {redis.register_function('test', function() return 'hello1' end)}
+            $replica function load {#!lua name=test
+                redis.register_function('test', function() return 'hello1' end)
+            }
 
             # Set a function value on master to check it reaches the replica when replication ends
-            $master function load LUA test {redis.register_function('test', function() return 'hello2' end)}
+            $master function load {#!lua name=test
+                redis.register_function('test', function() return 'hello2' end)
+            }
 
             # Force the replica to try another full sync (this time it will have matching master replid)
             $master multi
@@ -659,7 +697,9 @@ test {diskless loading short read} {
             set start [clock clicks -milliseconds]
 
             # Set a function value to check short read handling on functions
-            r function load LUA test {redis.register_function('test', function() return 'hello1' end)}
+            r function load {#!lua name=test
+                redis.register_function('test', function() return 'hello1' end)
+            }
 
             for {set k 0} {$k < 3} {incr k} {
                 for {set i 0} {$i < 10} {incr i} {
@@ -1249,7 +1289,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica generated a reply to command 'ping', disconnecting it: *" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
@@ -1267,7 +1306,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica generated a reply to command 'xinfo|help', disconnecting it: *" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
@@ -1288,7 +1326,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica can't interact with the keyspace*" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
@@ -1307,7 +1344,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica generated a reply to command 'slowlog|get', disconnecting it: *" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
@@ -1317,5 +1353,36 @@ start_server {tags {"repl" "external:skip"}} {
         set logs [exec tail -n 100 < [srv 0 stdout]]
         assert_match {*Replica * asks for synchronization but with a wrong offset} $logs
         assert_equal "PONG" [r ping]
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    $master debug SET-ACTIVE-EXPIRE 0
+    start_server {} {
+        set slave [srv 0 client]
+        $slave debug SET-ACTIVE-EXPIRE 0
+        $slave slaveof $master_host $master_port
+
+        test "Test replication with lazy expire" {
+            # wait for replication to be in sync
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            $master sadd s foo
+            $master pexpire s 1
+            after 10
+            $master sadd s foo
+            assert_equal 1 [$master wait 1 0]
+
+            assert_equal "set" [$master type s]
+            assert_equal "set" [$slave type s]
+        }
     }
 }

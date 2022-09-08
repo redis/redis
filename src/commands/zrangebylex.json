@@ -7,7 +7,7 @@
         "arity": -4,
         "function": "zrangebylexCommand",
         "deprecated_since": "6.2.0",
-        "replaced_by": "`ZRANGE` with the `BYSCORE` argument",
+        "replaced_by": "`ZRANGE` with the `BYLEX` argument",
         "doc_flags": [
             "DEPRECATED"
         ],
@@ -53,7 +53,7 @@
             },
             {
                 "token": "LIMIT",
-                "name": "offset_count",
+                "name": "limit",
                 "type": "block",
                 "optional": true,
                 "arguments": [

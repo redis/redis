@@ -282,7 +282,7 @@ int dictRehashMilliseconds(dict *d, int ms) {
 /* This function performs just a step of rehashing, and only if hashing has
  * not been paused for our hash table. When we have iterators in the
  * middle of a rehashing we can't mess with the two hash tables otherwise
- * some element can be missed or duplicated.
+ * some elements can be missed or duplicated.
  *
  * This function is called by common lookup or update operations in the
  * dictionary so that the hash table automatically migrates from H1 to H2
@@ -572,16 +572,36 @@ unsigned long long dictFingerprint(dict *d) {
     return hash;
 }
 
-dictIterator *dictGetIterator(dict *d)
+void dictInitIterator(dictIterator *iter, dict *d)
 {
-    dictIterator *iter = zmalloc(sizeof(*iter));
-
     iter->d = d;
     iter->table = 0;
     iter->index = -1;
     iter->safe = 0;
     iter->entry = NULL;
     iter->nextEntry = NULL;
+}
+
+void dictInitSafeIterator(dictIterator *iter, dict *d)
+{
+    dictInitIterator(iter, d);
+    iter->safe = 1;
+}
+
+void dictResetIterator(dictIterator *iter)
+{
+    if (!(iter->index == -1 && iter->table == 0)) {
+        if (iter->safe)
+            dictResumeRehashing(iter->d);
+        else
+            assert(iter->fingerprint == dictFingerprint(iter->d));
+    }
+}
+
+dictIterator *dictGetIterator(dict *d)
+{
+    dictIterator *iter = zmalloc(sizeof(*iter));
+    dictInitIterator(iter, d);
     return iter;
 }
 
@@ -627,12 +647,7 @@ dictEntry *dictNext(dictIterator *iter)
 
 void dictReleaseIterator(dictIterator *iter)
 {
-    if (!(iter->index == -1 && iter->table == 0)) {
-        if (iter->safe)
-            dictResumeRehashing(iter->d);
-        else
-            assert(iter->fingerprint == dictFingerprint(iter->d));
-    }
+    dictResetIterator(iter);
     zfree(iter);
 }
 
@@ -1210,7 +1225,7 @@ char *stringFromLongLong(long long value) {
     int len;
     char *s;
 
-    len = sprintf(buf,"%lld",value);
+    len = snprintf(buf,sizeof(buf),"%lld",value);
     s = zmalloc(len+1);
     memcpy(s, buf, len);
     s[len] = '\0';

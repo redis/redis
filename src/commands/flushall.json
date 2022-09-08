@@ -13,7 +13,7 @@
             ],
             [
                 "6.2.0",
-                "Added the `SYNC` flushing mode modifier and the **lazyfree-lazy-user-flush** configuration directive."
+                "Added the `SYNC` flushing mode modifier."
             ]
         ],
         "command_flags": [
@@ -29,7 +29,7 @@
         ],
         "arguments": [
             {
-                "name": "async",
+                "name": "flush-type",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [

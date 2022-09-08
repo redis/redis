@@ -186,7 +186,7 @@ void activeExpireCycle(int type) {
      * we're in cron */
     serverAssert(server.also_propagate.numops == 0);
     server.core_propagates = 1;
-    server.propagate_no_multi = 1;
+    server.in_nested_call++;
 
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         /* Expired and checked in a single loop. */
@@ -264,7 +264,11 @@ void activeExpireCycle(int type) {
                         de = de->next;
 
                         ttl = dictGetSignedIntegerVal(e)-now;
-                        if (activeExpireCycleTryExpire(db,e,now)) expired++;
+                        if (activeExpireCycleTryExpire(db,e,now)) {
+                            expired++;
+                            /* Propagate the DEL command */
+                            propagatePendingCommands();
+                        }
                         if (ttl > 0) {
                             /* We want the average TTL of keys yet
                              * not expired. */
@@ -310,11 +314,8 @@ void activeExpireCycle(int type) {
 
     serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
-    /* Propagate all DELs */
-    propagatePendingCommands();
-
     server.core_propagates = 0;
-    server.propagate_no_multi = 0;
+    server.in_nested_call--;
 
     elapsed = ustime()-start;
     server.stat_expire_cycle_time_used += elapsed;
@@ -662,22 +663,22 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     }
 }
 
-/* EXPIRE key seconds */
+/* EXPIRE key seconds [ NX | XX | GT | LT] */
 void expireCommand(client *c) {
     expireGenericCommand(c,mstime(),UNIT_SECONDS);
 }
 
-/* EXPIREAT key time */
+/* EXPIREAT key unix-time-seconds [ NX | XX | GT | LT] */
 void expireatCommand(client *c) {
     expireGenericCommand(c,0,UNIT_SECONDS);
 }
 
-/* PEXPIRE key milliseconds */
+/* PEXPIRE key milliseconds [ NX | XX | GT | LT] */
 void pexpireCommand(client *c) {
     expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
 }
 
-/* PEXPIREAT key ms_time */
+/* PEXPIREAT key unix-time-milliseconds [ NX | XX | GT | LT] */
 void pexpireatCommand(client *c) {
     expireGenericCommand(c,0,UNIT_MILLISECONDS);
 }

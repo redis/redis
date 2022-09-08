@@ -3,7 +3,7 @@
         "summary": "Perform arbitrary bitfield integer operations on strings. Read-only variant of BITFIELD",
         "complexity": "O(1) for each subcommand specified",
         "group": "bitmap",
-        "since": "6.2.0",
+        "since": "6.0.0",
         "arity": -2,
         "function": "bitfieldroCommand",
         "command_flags": [
@@ -41,8 +41,10 @@
             },
             {
                 "token": "GET",
-                "name": "encoding_offset",
+                "name": "get-block",
                 "type": "block",
+                "multiple": true,
+                "multiple_token": true,
                 "arguments": [
                     {
                         "name": "encoding",

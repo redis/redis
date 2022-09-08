@@ -61,6 +61,7 @@
 #include "help.h" /* Used for backwards-compatibility with pre-7.0 servers that don't support COMMAND DOCS. */
 #include "anet.h"
 #include "ae.h"
+#include "connection.h"
 #include "cli_common.h"
 #include "mt19937-64.h"
 
@@ -81,6 +82,7 @@
 #define REDIS_CLI_CLUSTER_YES_ENV "REDISCLI_CLUSTER_YES"
 
 #define CLUSTER_MANAGER_SLOTS               16384
+#define CLUSTER_MANAGER_PORT_INCR           10000 /* same as CLUSTER_PORT_INCR */
 #define CLUSTER_MANAGER_MIGRATE_TIMEOUT     60000
 #define CLUSTER_MANAGER_MIGRATE_PIPELINE    10
 #define CLUSTER_MANAGER_REBALANCE_THRESHOLD 2
@@ -90,15 +92,15 @@
     "address (ie. 120.0.0.1:7000) or space separated IP " \
     "and port (ie. 120.0.0.1 7000)\n"
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
-#define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) (nodes/(replicas + 1))
+#define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) ((nodes)/((replicas) + 1))
 #define CLUSTER_MANAGER_COMMAND(n,...) \
-        (redisCommand(n->context, __VA_ARGS__))
+        (redisCommand((n)->context, __VA_ARGS__))
 
-#define CLUSTER_MANAGER_NODE_ARRAY_FREE(array) zfree(array->alloc)
+#define CLUSTER_MANAGER_NODE_ARRAY_FREE(array) zfree((array)->alloc)
 
 #define CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, err) \
     clusterManagerLogErr("Node %s:%d replied with error:\n%s\n", \
-                         n->ip, n->port, err);
+                         (n)->ip, (n)->port, (err));
 
 #define clusterManagerLogInfo(...) \
     clusterManagerLog(CLUSTER_MANAGER_LOG_LVL_INFO,__VA_ARGS__)
@@ -155,6 +157,9 @@
 /* cliConnect() flags. */
 #define CC_FORCE (1<<0)         /* Re-connect if already connected. */
 #define CC_QUIET (1<<1)         /* Don't log connecting errors. */
+
+/* DNS lookup */
+#define NET_IP_STR_LEN 46       /* INET6_ADDRSTRLEN is 46 */
 
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
@@ -282,7 +287,7 @@ static void usage(int err);
 static void slaveMode(void);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
-static int cliConnect(int force);
+static int cliConnect(int flags);
 
 static char *getInfoField(char *info, char *field);
 static long getLongInfoField(char *info, char *field);
@@ -290,6 +295,7 @@ static long getLongInfoField(char *info, char *field);
 /*------------------------------------------------------------------------------
  * Utility functions
  *--------------------------------------------------------------------------- */
+size_t redis_strlcpy(char *dst, const char *src, size_t dsize);
 
 static void cliPushHandler(void *, void *);
 
@@ -317,7 +323,7 @@ static void cliRefreshPrompt(void) {
         prompt = sdscatfmt(prompt,"redis %s",config.hostsocket);
     } else {
         char addr[256];
-        anetFormatAddr(addr, sizeof(addr), config.conn_info.hostip, config.conn_info.hostport);
+        formatAddr(addr, sizeof(addr), config.conn_info.hostip, config.conn_info.hostport);
         prompt = sdscatlen(prompt,addr,strlen(addr));
     }
 
@@ -800,7 +806,12 @@ static void cliInitHelp(void) {
     redisReply *commandTable;
     dict *groups;
 
-    if (cliConnect(CC_QUIET) == REDIS_ERR) return;
+    if (cliConnect(CC_QUIET) == REDIS_ERR) {
+        /* Can not connect to the server, but we still want to provide
+         * help, generate it only from the old help.h data instead. */
+        cliOldInitHelp();
+        return;
+    }
     commandTable = redisCommand(context, "COMMAND DOCS");
     if (commandTable == NULL || commandTable->type == REDIS_REPLY_ERROR) {
         /* New COMMAND DOCS subcommand not supported - generate help from old help.h data instead. */
@@ -810,7 +821,7 @@ static void cliInitHelp(void) {
         return;
     };
     if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) return;
-    
+
     /* Scan the array reported by COMMAND DOCS and fill in the entries */
     helpEntriesLen = cliCountCommands(commandTable);
     helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
@@ -868,6 +879,12 @@ static void cliOutputHelp(int argc, char **argv) {
         return;
     } else if (argc > 0 && argv[0][0] == '@') {
         group = argv[0]+1;
+    }
+
+    if (helpEntries == NULL) {
+        /* Initialize the help using the results of the COMMAND command.
+         * In case we are using redis-cli help XXX, we need to init it. */
+        cliInitHelp();
     }
 
     assert(argc > 0);
@@ -1713,12 +1730,6 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     size_t *argvlen;
     int j, output_raw;
 
-    if (!config.eval_ldb && /* In debugging mode, let's pass "help" to Redis. */
-        (!strcasecmp(command,"help") || !strcasecmp(command,"?"))) {
-        cliOutputHelp(--argc, ++argv);
-        return REDIS_OK;
-    }
-
     if (context == NULL) return REDIS_ERR;
 
     output_raw = 0;
@@ -1952,6 +1963,10 @@ static int parseOptions(int argc, char **argv) {
             config.stdin_tag_name = argv[++i];
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.conn_info.hostport = atoi(argv[++i]);
+            if (config.conn_info.hostport < 0 || config.conn_info.hostport > 65535) {
+                fprintf(stderr, "Invalid server port.\n");
+                exit(1);
+            }
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
@@ -1973,6 +1988,10 @@ static int parseOptions(int argc, char **argv) {
             config.conn_info.user = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i],"redis-cli",&config.conn_info,&config.tls);
+            if (config.conn_info.hostport < 0 || config.conn_info.hostport > 65535) {
+                fprintf(stderr, "Invalid server port.\n");
+                exit(1);
+            }
         } else if (!strcmp(argv[i],"--raw")) {
             config.output = OUTPUT_RAW;
         } else if (!strcmp(argv[i],"--no-raw")) {
@@ -2420,6 +2439,17 @@ static int confirmWithYes(char *msg, int ignore_force) {
 }
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
+    /* In Lua debugging mode, we want to pass the "help" to Redis to get
+     * it's own HELP message, rather than handle it by the CLI, see ldbRepl.
+     *
+     * For the normal Redis HELP, we can process it without a connection. */
+    if (!config.eval_ldb &&
+        (!strcasecmp(argv[0],"help") || !strcasecmp(argv[0],"?")))
+    {
+        cliOutputHelp(--argc, ++argv);
+        return REDIS_OK;
+    }
+
     while (1) {
         if (config.cluster_reissue_command || context == NULL ||
             context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
@@ -2439,6 +2469,8 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
         }
         if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
             cliPrintContextError();
+            redisFree(context);
+            context = NULL;
             return REDIS_ERR;
         }
 
@@ -2576,8 +2608,13 @@ static void repl(void) {
     int argc;
     sds *argv;
 
-    /* Initialize the help using the results of the COMMAND command. */
-    cliInitHelp();
+    /* There is no need to initialize redis HELP when we are in lua debugger mode.
+     * It has its own HELP and commands (COMMAND or COMMAND DOCS will fail and got nothing).
+     * We will initialize the redis HELP after the Lua debugging session ended.*/
+    if (!config.eval_ldb) {
+        /* Initialize the help using the results of the COMMAND command. */
+        cliInitHelp();
+    }
 
     config.interactive = 1;
     linenoiseSetMultiLine(1);
@@ -2679,6 +2716,7 @@ static void repl(void) {
                     printf("\n(Lua debugging session ended%s)\n\n",
                         config.eval_ldb_sync ? "" :
                         " -- dataset changes rolled back");
+                    cliInitHelp();
                 }
 
                 elapsed = mstime()-start_time;
@@ -2731,7 +2769,7 @@ static int noninteractive(int argc, char **argv) {
 
     retval = issueCommand(argc, sds_args);
     sdsfreesplitres(sds_args, argc);
-    return retval;
+    return retval == REDIS_OK ? 0 : 1;
 }
 
 /*------------------------------------------------------------------------------
@@ -2818,7 +2856,7 @@ static int evalMode(int argc, char **argv) {
             break; /* Return to the caller. */
         }
     }
-    return retval;
+    return retval == REDIS_OK ? 0 : 1;
 }
 
 /*------------------------------------------------------------------------------
@@ -2840,6 +2878,7 @@ typedef struct clusterManagerNode {
     sds name;
     char *ip;
     int port;
+    int bus_port; /* cluster-port */
     uint64_t current_epoch;
     time_t ping_sent;
     time_t ping_recv;
@@ -2910,7 +2949,7 @@ typedef int (*clusterManagerOnReplyError)(redisReply *reply,
 
 /* Cluster Manager helper functions */
 
-static clusterManagerNode *clusterManagerNewNode(char *ip, int port);
+static clusterManagerNode *clusterManagerNewNode(char *ip, int port, int bus_port);
 static clusterManagerNode *clusterManagerNodeByName(const char *name);
 static clusterManagerNode *clusterManagerNodeByAbbreviatedName(const char *n);
 static void clusterManagerNodeResetSlots(clusterManagerNode *node);
@@ -2970,15 +3009,15 @@ typedef struct clusterManagerCommandDef {
 clusterManagerCommandDef clusterManagerCommands[] = {
     {"create", clusterManagerCommandCreate, -2, "host1:port1 ... hostN:portN",
      "replicas <arg>"},
-    {"check", clusterManagerCommandCheck, -1, "host:port",
+    {"check", clusterManagerCommandCheck, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "search-multiple-owners"},
-    {"info", clusterManagerCommandInfo, -1, "host:port", NULL},
-    {"fix", clusterManagerCommandFix, -1, "host:port",
+    {"info", clusterManagerCommandInfo, -1, "<host:port> or <host> <port> - separated by either colon or space", NULL},
+    {"fix", clusterManagerCommandFix, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "search-multiple-owners,fix-with-unreachable-masters"},
-    {"reshard", clusterManagerCommandReshard, -1, "host:port",
+    {"reshard", clusterManagerCommandReshard, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "from <arg>,to <arg>,slots <arg>,yes,timeout <arg>,pipeline <arg>,"
      "replace"},
-    {"rebalance", clusterManagerCommandRebalance, -1, "host:port",
+    {"rebalance", clusterManagerCommandRebalance, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "weight <node1=w1...nodeN=wN>,use-empty-masters,"
      "timeout <arg>,simulate,pipeline <arg>,threshold <arg>,replace"},
     {"add-node", clusterManagerCommandAddNode, 2,
@@ -3067,6 +3106,7 @@ static clusterManagerCommandProc *validateClusterManagerCommand(void) {
 static int parseClusterNodeAddress(char *addr, char **ip_ptr, int *port_ptr,
                                    int *bus_port_ptr)
 {
+    /* ip:port[@bus_port] */
     char *c = strrchr(addr, '@');
     if (c != NULL) {
         *c = '\0';
@@ -3176,12 +3216,15 @@ static void freeClusterManager(void) {
         dictRelease(clusterManagerUncoveredSlots);
 }
 
-static clusterManagerNode *clusterManagerNewNode(char *ip, int port) {
+static clusterManagerNode *clusterManagerNewNode(char *ip, int port, int bus_port) {
     clusterManagerNode *node = zmalloc(sizeof(*node));
     node->context = NULL;
     node->name = NULL;
     node->ip = ip;
     node->port = port;
+    /* We don't need to know the bus_port, at this point this value may be wrong.
+     * If it is used, it will be corrected in clusterManagerLoadInfoFromNode. */
+    node->bus_port = bus_port ? bus_port : port + CLUSTER_MANAGER_PORT_INCR;
     node->current_epoch = 0;
     node->ping_sent = 0;
     node->ping_recv = 0;
@@ -3223,7 +3266,7 @@ static int clusterManagerCheckRedisReply(clusterManagerNode *n,
         if (is_err) {
             if (err != NULL) {
                 *err = zmalloc((r->len + 1) * sizeof(char));
-                strcpy(*err, r->str);
+                redis_strlcpy(*err, r->str,(r->len + 1));
             } else CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, r->str);
         }
         return 0;
@@ -3383,7 +3426,7 @@ static redisReply *clusterManagerGetNodeRedisInfo(clusterManagerNode *node,
     if (info->type == REDIS_REPLY_ERROR) {
         if (err != NULL) {
             *err = zmalloc((info->len + 1) * sizeof(char));
-            strcpy(*err, info->str);
+            redis_strlcpy(*err, info->str,(info->len + 1));
         }
         freeReplyObject(info);
         return  NULL;
@@ -3951,13 +3994,16 @@ static int clusterManagerSetSlot(clusterManagerNode *node1,
                                                 slot, status,
                                                 (char *) node2->name);
     if (err != NULL) *err = NULL;
-    if (!reply) return 0;
+    if (!reply) {
+        if (err) *err = zstrdup("CLUSTER SETSLOT failed to run");
+        return 0;
+    }
     int success = 1;
     if (reply->type == REDIS_REPLY_ERROR) {
         success = 0;
         if (err != NULL) {
             *err = zmalloc((reply->len + 1) * sizeof(char));
-            strcpy(*err, reply->str);
+            redis_strlcpy(*err, reply->str,(reply->len + 1));
         } else CLUSTER_MANAGER_PRINT_REPLY_ERROR(node1, reply->str);
         goto cleanup;
     }
@@ -4231,7 +4277,7 @@ static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source,
             success = 0;
             if (err != NULL) {
                 *err = zmalloc((reply->len + 1) * sizeof(char));
-                strcpy(*err, reply->str);
+                redis_strlcpy(*err, reply->str,(reply->len + 1));
                 CLUSTER_MANAGER_PRINT_REPLY_ERROR(source, *err);
             }
             goto next;
@@ -4343,7 +4389,7 @@ static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source,
                 if (migrate_reply != NULL) {
                     if (err) {
                         *err = zmalloc((migrate_reply->len + 1) * sizeof(char));
-                        strcpy(*err, migrate_reply->str);
+                        redis_strlcpy(*err, migrate_reply->str, (migrate_reply->len + 1));
                     }
                     printf("\n");
                     CLUSTER_MANAGER_PRINT_REPLY_ERROR(source,
@@ -4401,33 +4447,41 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
                                               pipeline, print_dots, err);
     if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) printf("\n");
     if (!success) return 0;
-    /* Set the new node as the owner of the slot in all the known nodes. */
     if (!option_cold) {
+        /* Set the new node as the owner of the slot in all the known nodes.
+         *
+         * We inform the target node first. It will propagate the information to
+         * the rest of the cluster.
+         *
+         * If we inform any other node first, it can happen that the target node
+         * crashes before it is set as the new owner and then the slot is left
+         * without an owner which results in redirect loops. See issue #7116. */
+        success = clusterManagerSetSlot(target, target, slot, "node", err);
+        if (!success) return 0;
+
+        /* Inform the source node. If the source node has just lost its last
+         * slot and the target node has already informed the source node, the
+         * source node has turned itself into a replica. This is not an error in
+         * this scenario so we ignore it. See issue #9223. */
+        success = clusterManagerSetSlot(source, target, slot, "node", err);
+        const char *acceptable = "ERR Please use SETSLOT only with masters.";
+        if (!success && err && !strncmp(*err, acceptable, strlen(acceptable))) {
+            zfree(*err);
+            *err = NULL;
+        } else if (!success && err) {
+            return 0;
+        }
+
+        /* We also inform the other nodes to avoid redirects in case the target
+         * node is slow to propagate the change to the entire cluster. */
         listIter li;
         listNode *ln;
         listRewind(cluster_manager.nodes, &li);
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *n = ln->value;
+            if (n == target || n == source) continue; /* already done */
             if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
-            redisReply *r = CLUSTER_MANAGER_COMMAND(n, "CLUSTER "
-                                                    "SETSLOT %d %s %s",
-                                                    slot, "node",
-                                                    target->name);
-            success = (r != NULL);
-            if (!success) {
-                if (err) *err = zstrdup("CLUSTER SETSLOT failed to run");
-                return 0;
-            }
-            if (r->type == REDIS_REPLY_ERROR) {
-                success = 0;
-                if (err != NULL) {
-                    *err = zmalloc((r->len + 1) * sizeof(char));
-                    strcpy(*err, r->str);
-                } else {
-                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, r->str);
-                }
-            }
-            freeReplyObject(r);
+            success = clusterManagerSetSlot(n, target, slot, "node", err);
             if (!success) return 0;
         }
     }
@@ -4452,7 +4506,7 @@ static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err) {
         if (reply == NULL || (is_err = (reply->type == REDIS_REPLY_ERROR))) {
             if (is_err && err != NULL) {
                 *err = zmalloc((reply->len + 1) * sizeof(char));
-                strcpy(*err, reply->str);
+                redis_strlcpy(*err, reply->str, (reply->len + 1));
             }
             success = 0;
             /* If the cluster did not already joined it is possible that
@@ -4573,9 +4627,20 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
             success = 0;
             goto cleanup;
         }
+
+        char *ip = NULL;
+        int port = 0, bus_port = 0;
+        if (addr == NULL || !parseClusterNodeAddress(addr, &ip, &port, &bus_port)) {
+            fprintf(stderr, "Error: invalid CLUSTER NODES reply\n");
+            success = 0;
+            goto cleanup;
+        }
+
         int myself = (strstr(flags, "myself") != NULL);
         clusterManagerNode *currentNode = NULL;
         if (myself) {
+            /* bus-port could be wrong, correct it here, see clusterManagerNewNode. */
+            node->bus_port = bus_port;
             node->flags |= CLUSTER_MANAGER_FLAG_MYSELF;
             currentNode = node;
             clusterManagerNodeResetSlots(node);
@@ -4643,22 +4708,7 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
             if (!(node->flags & CLUSTER_MANAGER_FLAG_MYSELF)) continue;
             else break;
         } else {
-            if (addr == NULL) {
-                fprintf(stderr, "Error: invalid CLUSTER NODES reply\n");
-                success = 0;
-                goto cleanup;
-            }
-            char *c = strrchr(addr, '@');
-            if (c != NULL) *c = '\0';
-            c = strrchr(addr, ':');
-            if (c == NULL) {
-                fprintf(stderr, "Error: invalid CLUSTER NODES reply\n");
-                success = 0;
-                goto cleanup;
-            }
-            *c = '\0';
-            int port = atoi(++c);
-            currentNode = clusterManagerNewNode(sdsnew(addr), port);
+            currentNode = clusterManagerNewNode(sdsnew(ip), port, bus_port);
             currentNode->flags |= CLUSTER_MANAGER_FLAG_FRIEND;
             if (node->friends == NULL) node->friends = listCreate();
             listAddNodeTail(node->friends, currentNode);
@@ -6072,17 +6122,14 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
     cluster_manager.nodes = listCreate();
     for (i = 0; i < argc; i++) {
         char *addr = argv[i];
-        char *c = strrchr(addr, '@');
-        if (c != NULL) *c = '\0';
-        c = strrchr(addr, ':');
-        if (c == NULL) {
+        char *ip = NULL;
+        int port = 0;
+        if (!parseClusterNodeAddress(addr, &ip, &port, NULL)) {
             fprintf(stderr, "Invalid address format: %s\n", addr);
             return 0;
         }
-        *c = '\0';
-        char *ip = addr;
-        int port = atoi(++c);
-        clusterManagerNode *node = clusterManagerNewNode(ip, port);
+
+        clusterManagerNode *node = clusterManagerNewNode(ip, port, 0);
         if (!clusterManagerNodeConnect(node)) {
             freeClusterManagerNode(node);
             return 0;
@@ -6271,16 +6318,34 @@ assign_replicas:
         clusterManagerLogInfo(">>> Sending CLUSTER MEET messages to join "
                               "the cluster\n");
         clusterManagerNode *first = NULL;
+        char first_ip[NET_IP_STR_LEN]; /* first->ip may be a hostname */
         listRewind(cluster_manager.nodes, &li);
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *node = ln->value;
             if (first == NULL) {
                 first = node;
+                /* Although hiredis supports connecting to a hostname, CLUSTER
+                 * MEET requires an IP address, so we do a DNS lookup here. */
+                if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE)
+                    == ANET_ERR)
+                {
+                    fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
+                    success = 0;
+                    goto cleanup;
+                }
                 continue;
             }
             redisReply *reply = NULL;
-            reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d",
-                                            first->ip, first->port);
+            if (first->bus_port == 0 || (first->bus_port == first->port + CLUSTER_MANAGER_PORT_INCR)) {
+                /* CLUSTER MEET bus-port parameter was added in 4.0.
+                 * So if (bus_port == 0) or (bus_port == port + CLUSTER_MANAGER_PORT_INCR),
+                 * we just call CLUSTER MEET with 2 arguments, using the old form. */
+                reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d",
+                                                first->ip, first->port);
+            } else {
+                reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d %d",
+                                                first->ip, first->port, first->bus_port);
+            }
             int is_err = 0;
             if (reply != NULL) {
                 if ((is_err = reply->type == REDIS_REPLY_ERROR))
@@ -6314,6 +6379,8 @@ assign_replicas:
                 }
                 success = 0;
                 goto cleanup;
+            } else if (err != NULL) {
+                zfree(err);
             }
         }
         // Reset Nodes
@@ -6357,7 +6424,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     clusterManagerLogInfo(">>> Adding node %s:%d to cluster %s:%d\n", ip, port,
                           ref_ip, ref_port);
     // Check the existing cluster
-    clusterManagerNode *refnode = clusterManagerNewNode(ref_ip, ref_port);
+    clusterManagerNode *refnode = clusterManagerNewNode(ref_ip, ref_port, 0);
     if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     if (!clusterManagerCheckCluster(0)) return 0;
 
@@ -6381,7 +6448,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     }
 
     // Add the new node
-    clusterManagerNode *new_node = clusterManagerNewNode(ip, port);
+    clusterManagerNode *new_node = clusterManagerNewNode(ip, port, 0);
     int added = 0;
     if (!clusterManagerNodeConnect(new_node)) {
         clusterManagerLogErr("[ERR] Sorry, can't connect to node %s:%d\n",
@@ -6452,8 +6519,25 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     // Send CLUSTER MEET command to the new node
     clusterManagerLogInfo(">>> Send CLUSTER MEET to node %s:%d to make it "
                           "join the cluster.\n", ip, port);
-    reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d",
-                                    first->ip, first->port);
+    /* CLUSTER MEET requires an IP address, so we do a DNS lookup here. */
+    char first_ip[NET_IP_STR_LEN];
+    if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE) == ANET_ERR) {
+        fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
+        success = 0;
+        goto cleanup;
+    }
+
+    if (first->bus_port == 0 || (first->bus_port == first->port + CLUSTER_MANAGER_PORT_INCR)) {
+        /* CLUSTER MEET bus-port parameter was added in 4.0.
+         * So if (bus_port == 0) or (bus_port == port + CLUSTER_MANAGER_PORT_INCR),
+         * we just call CLUSTER MEET with 2 arguments, using the old form. */
+        reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d",
+                                        first_ip, first->port);
+    } else {
+        reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d %d",
+                                        first->ip, first->port, first->bus_port);
+    }
+
     if (!(success = clusterManagerCheckRedisReply(new_node, reply, NULL)))
         goto cleanup;
 
@@ -6490,7 +6574,7 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
     char *node_id = argv[1];
     clusterManagerLogInfo(">>> Removing node %s from cluster %s:%d\n",
                           node_id, ip, port);
-    clusterManagerNode *ref_node = clusterManagerNewNode(ip, port);
+    clusterManagerNode *ref_node = clusterManagerNewNode(ip, port, 0);
     clusterManagerNode *node = NULL;
 
     // Load cluster information
@@ -6552,7 +6636,7 @@ static int clusterManagerCommandInfo(int argc, char **argv) {
     int port = 0;
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
-    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    clusterManagerNode *node = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerShowClusterInfo();
     return 1;
@@ -6565,7 +6649,7 @@ static int clusterManagerCommandCheck(int argc, char **argv) {
     int port = 0;
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
-    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    clusterManagerNode *node = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerShowClusterInfo();
     return clusterManagerCheckCluster(0);
@@ -6583,7 +6667,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
     int port = 0;
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
-    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    clusterManagerNode *node = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerCheckCluster(0);
     if (cluster_manager.errors && listLength(cluster_manager.errors) > 0) {
@@ -6772,7 +6856,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     clusterManagerNode **weightedNodes = NULL;
     list *involved = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
-    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    clusterManagerNode *node = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(node)) return 0;
     int result = 1, i;
     if (config.cluster_manager_command.weight != NULL) {
@@ -6973,7 +7057,7 @@ static int clusterManagerCommandSetTimeout(int argc, char **argv) {
         return 0;
     }
     // Load cluster information
-    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    clusterManagerNode *node = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(node)) return 0;
     int ok_count = 0, err_count = 0;
 
@@ -7043,7 +7127,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     clusterManagerLogInfo(">>> Importing data from %s:%d to cluster %s:%d\n",
                           src_ip, src_port, ip, port);
 
-    clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
+    clusterManagerNode *refnode = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     if (!clusterManagerCheckCluster(0)) return 0;
     char *reply_err = NULL;
@@ -7178,7 +7262,7 @@ static int clusterManagerCommandCall(int argc, char **argv) {
     int port = 0, i;
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
-    clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
+    clusterManagerNode *refnode = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     argc--;
     argv++;
@@ -7223,7 +7307,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     int success = 1, port = 0;
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
-    clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
+    clusterManagerNode *refnode = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     int no_issues = clusterManagerCheckCluster(0);
     int cluster_errors_count = (no_issues ? 0 :
@@ -7288,14 +7372,14 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
     int commands_count = sizeof(clusterManagerCommands) /
                          sizeof(clusterManagerCommandDef);
     int i = 0, j;
-    fprintf(stderr, "Cluster Manager Commands:\n");
+    fprintf(stdout, "Cluster Manager Commands:\n");
     int padding = 15;
     for (; i < commands_count; i++) {
         clusterManagerCommandDef *def = &(clusterManagerCommands[i]);
         int namelen = strlen(def->name), padlen = padding - namelen;
-        fprintf(stderr, "  %s", def->name);
-        for (j = 0; j < padlen; j++) fprintf(stderr, " ");
-        fprintf(stderr, "%s\n", (def->args ? def->args : ""));
+        fprintf(stdout, "  %s", def->name);
+        for (j = 0; j < padlen; j++) fprintf(stdout, " ");
+        fprintf(stdout, "%s\n", (def->args ? def->args : ""));
         if (def->options != NULL) {
             int optslen = strlen(def->options);
             char *p = def->options, *eos = p + optslen;
@@ -7305,18 +7389,18 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
                 char buf[255];
                 memcpy(buf, p, deflen);
                 buf[deflen] = '\0';
-                for (j = 0; j < padding; j++) fprintf(stderr, " ");
-                fprintf(stderr, "  --cluster-%s\n", buf);
+                for (j = 0; j < padding; j++) fprintf(stdout, " ");
+                fprintf(stdout, "  --cluster-%s\n", buf);
                 p = comma + 1;
                 if (p >= eos) break;
             }
             if (p < eos) {
-                for (j = 0; j < padding; j++) fprintf(stderr, " ");
-                fprintf(stderr, "  --cluster-%s\n", p);
+                for (j = 0; j < padding; j++) fprintf(stdout, " ");
+                fprintf(stdout, "  --cluster-%s\n", p);
             }
         }
     }
-    fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout, "
+    fprintf(stdout, "\nFor check, fix, reshard, del-node, set-timeout, "
                     "info, rebalance, call, import, backup you "
                     "can specify the host and port of any working node in "
                     "the cluster.\n");
@@ -7324,16 +7408,16 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
     int options_count = sizeof(clusterManagerOptions) /
                         sizeof(clusterManagerOptionDef);
     i = 0;
-    fprintf(stderr, "\nCluster Manager Options:\n");
+    fprintf(stdout, "\nCluster Manager Options:\n");
     for (; i < options_count; i++) {
         clusterManagerOptionDef *def = &(clusterManagerOptions[i]);
         int namelen = strlen(def->name), padlen = padding - namelen;
-        fprintf(stderr, "  %s", def->name);
-        for (j = 0; j < padlen; j++) fprintf(stderr, " ");
-        fprintf(stderr, "%s\n", def->desc);
+        fprintf(stdout, "  %s", def->name);
+        for (j = 0; j < padlen; j++) fprintf(stdout, " ");
+        fprintf(stdout, "%s\n", def->desc);
     }
 
-    fprintf(stderr, "\n");
+    fprintf(stdout, "\n");
     return 0;
 }
 
@@ -7434,7 +7518,7 @@ struct distsamples {
  * of the collected samples targeting an xterm 256 terminal.
  *
  * Takes an array of distsamples structures, ordered from smaller to bigger
- * 'max' value. Last sample max must be 0, to mean that it olds all the
+ * 'max' value. Last sample max must be 0, to mean that it holds all the
  * samples greater than the previous one, and is also the stop sentinel.
  *
  * "tot' is the total number of samples in the different buckets, so it
@@ -8165,6 +8249,11 @@ static void getKeySizes(redisReply *keys, typeinfo **types,
     }
 }
 
+static void longStatLoopModeStop(int s) {
+    UNUSED(s);
+    force_cancel_loop = 1;
+}
+
 static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
     redisReply *reply, *keys;
@@ -8182,6 +8271,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     typeinfo_add(types_dict, "zset", &type_zset);
     typeinfo_add(types_dict, "stream", &type_stream);
 
+    signal(SIGINT, longStatLoopModeStop);
     /* Total keys pre scanning */
     total_keys = getDbSize();
 
@@ -8260,14 +8350,14 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
         }
 
         freeReplyObject(reply);
-    } while(it != 0);
+    } while(force_cancel_loop == 0 && it != 0);
 
     if(types) zfree(types);
     if(sizes) zfree(sizes);
 
     /* We're done */
     printf("\n-------- summary -------\n\n");
-
+    if (force_cancel_loop) printf("[%05.2f%%] ", pct);
     printf("Sampled %llu keys in the keyspace!\n", sampled);
     printf("Total key length in bytes is %llu (avg len %.2f)\n\n",
        totlen, totlen ? (double)totlen/sampled : 0);
@@ -8346,6 +8436,7 @@ static void findHotKeys(void) {
     unsigned int arrsize = 0, i, k;
     double pct;
 
+    signal(SIGINT, longStatLoopModeStop);
     /* Total keys pre scanning */
     total_keys = getDbSize();
 
@@ -8411,13 +8502,13 @@ static void findHotKeys(void) {
         }
 
         freeReplyObject(reply);
-    } while(it != 0);
+    } while(force_cancel_loop ==0 && it != 0);
 
     if (freqs) zfree(freqs);
 
     /* We're done */
     printf("\n-------- summary -------\n\n");
-
+    if(force_cancel_loop)printf("[%05.2f%%] ",pct);
     printf("Sampled %llu keys in the keyspace!\n", sampled);
 
     for (i=1; i<= HOTKEYS_SAMPLE; i++) {
@@ -8468,7 +8559,7 @@ static long getLongInfoField(char *info, char *field) {
 
 /* Convert number of bytes into a human readable string of the form:
  * 100B, 2G, 100M, 4K, and so forth. */
-void bytesToHuman(char *s, long long n) {
+void bytesToHuman(char *s, size_t size, long long n) {
     double d;
 
     if (n < 0) {
@@ -8478,17 +8569,17 @@ void bytesToHuman(char *s, long long n) {
     }
     if (n < 1024) {
         /* Bytes */
-        sprintf(s,"%lldB",n);
+        snprintf(s,size,"%lldB",n);
         return;
     } else if (n < (1024*1024)) {
         d = (double)n/(1024);
-        sprintf(s,"%.2fK",d);
+        snprintf(s,size,"%.2fK",d);
     } else if (n < (1024LL*1024*1024)) {
         d = (double)n/(1024*1024);
-        sprintf(s,"%.2fM",d);
+        snprintf(s,size,"%.2fM",d);
     } else if (n < (1024LL*1024*1024*1024)) {
         d = (double)n/(1024LL*1024*1024);
-        sprintf(s,"%.2fG",d);
+        snprintf(s,size,"%.2fG",d);
     }
 }
 
@@ -8521,38 +8612,38 @@ static void statMode(void) {
         for (j = 0; j < 20; j++) {
             long k;
 
-            sprintf(buf,"db%d:keys",j);
+            snprintf(buf,sizeof(buf),"db%d:keys",j);
             k = getLongInfoField(reply->str,buf);
             if (k == LONG_MIN) continue;
             aux += k;
         }
-        sprintf(buf,"%ld",aux);
+        snprintf(buf,sizeof(buf),"%ld",aux);
         printf("%-11s",buf);
 
         /* Used memory */
         aux = getLongInfoField(reply->str,"used_memory");
-        bytesToHuman(buf,aux);
+        bytesToHuman(buf,sizeof(buf),aux);
         printf("%-8s",buf);
 
         /* Clients */
         aux = getLongInfoField(reply->str,"connected_clients");
-        sprintf(buf,"%ld",aux);
+        snprintf(buf,sizeof(buf),"%ld",aux);
         printf(" %-8s",buf);
 
         /* Blocked (BLPOPPING) Clients */
         aux = getLongInfoField(reply->str,"blocked_clients");
-        sprintf(buf,"%ld",aux);
+        snprintf(buf,sizeof(buf),"%ld",aux);
         printf("%-8s",buf);
 
         /* Requests */
         aux = getLongInfoField(reply->str,"total_commands_processed");
-        sprintf(buf,"%ld (+%ld)",aux,requests == 0 ? 0 : aux-requests);
+        snprintf(buf,sizeof(buf),"%ld (+%ld)",aux,requests == 0 ? 0 : aux-requests);
         printf("%-19s",buf);
         requests = aux;
 
         /* Connections */
         aux = getLongInfoField(reply->str,"total_connections_received");
-        sprintf(buf,"%ld",aux);
+        snprintf(buf,sizeof(buf),"%ld",aux);
         printf(" %-12s",buf);
 
         /* Children */
@@ -8588,7 +8679,7 @@ static void statMode(void) {
 static void scanMode(void) {
     redisReply *reply;
     unsigned long long cur = 0;
-
+    signal(SIGINT, longStatLoopModeStop);
     do {
         reply = sendScan(&cur);
         for (unsigned int j = 0; j < reply->element[1]->elements; j++) {
@@ -8603,7 +8694,7 @@ static void scanMode(void) {
         }
         freeReplyObject(reply);
         if (config.interval) usleep(config.interval);
-    } while(cur != 0);
+    } while(force_cancel_loop == 0 && cur != 0);
 
     exit(0);
 }
@@ -8730,11 +8821,6 @@ unsigned long compute_something_fast(void) {
     return output;
 }
 
-static void intrinsicLatencyModeStop(int s) {
-    UNUSED(s);
-    force_cancel_loop = 1;
-}
-
 static void sigIntHandler(int s) {
     UNUSED(s);
 
@@ -8752,7 +8838,7 @@ static void intrinsicLatencyMode(void) {
 
     run_time = (long long)config.intrinsic_latency_duration * 1000000;
     test_end = ustime() + run_time;
-    signal(SIGINT, intrinsicLatencyModeStop);
+    signal(SIGINT, longStatLoopModeStop);
 
     while(1) {
         long long start, end, latency;
@@ -9005,10 +9091,11 @@ int main(int argc, char **argv) {
     }
 
     /* Otherwise, we have some arguments to execute */
-    if (cliConnect(0) != REDIS_OK) exit(1);
     if (config.eval) {
+        if (cliConnect(0) != REDIS_OK) exit(1);
         return evalMode(argc,argv);
     } else {
+        cliConnect(CC_QUIET);
         return noninteractive(argc,argv);
     }
 }

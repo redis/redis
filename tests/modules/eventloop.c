@@ -11,7 +11,6 @@
  * 4- test.oneshot   : Test for oneshot API
  */
 
-#define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
 #include <stdlib.h>
 #include <unistd.h>

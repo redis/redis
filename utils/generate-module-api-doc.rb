@@ -1,5 +1,4 @@
 #!/usr/bin/env ruby
-
 # coding: utf-8
 # gendoc.rb -- Converts the top-comments inside module.c to modules API
 #              reference documentation in markdown format.
@@ -12,16 +11,17 @@ def markdown(s)
     s.chop! while s[-1] == "\n" || s[-1] == " "
     lines = s.split("\n")
     newlines = []
-    # Fix some markdown, except in code blocks indented by 4 spaces.
+    # Fix some markdown
     lines.each{|l|
+        # Rewrite RM_Xyz() to RedisModule_Xyz().
+        l = l.gsub(/(?<![A-Z_])RM_(?=[A-Z])/, 'RedisModule_')
+        # Fix more markdown, except in code blocks indented by 4 spaces, which we
+        # don't want to mess with.
         if not l.start_with?('    ')
-            # Rewrite RM_Xyz() to `RedisModule_Xyz()`. The () suffix is
-            # optional. Even RM_Xyz*() with * as wildcard is handled.
-            l = l.gsub(/(?<!`)RM_([A-z]+(?:\*?\(\))?)/, '`RedisModule_\1`')
             # Add backquotes around RedisModule functions and type where missing.
             l = l.gsub(/(?<!`)RedisModule[A-z]+(?:\*?\(\))?/){|x| "`#{x}`"}
             # Add backquotes around c functions like malloc() where missing.
-            l = l.gsub(/(?<![`A-z])[a-z_]+\(\)/, '`\0`')
+            l = l.gsub(/(?<![`A-z.])[a-z_]+\(\)/, '`\0`')
             # Add backquotes around macro and var names containing underscores.
             l = l.gsub(/(?<![`A-z\*])[A-Za-z]+_[A-Za-z0-9_]+/){|x| "`#{x}`"}
             # Link URLs preceded by space or newline (not already linked)
@@ -80,7 +80,7 @@ def docufy(src,i)
     puts "<span id=\"#{name}\"></span>\n\n"
     puts "### `#{name}`\n\n"
     puts "    #{proto}\n"
-    puts "**Available since:** #{$since[name]}\n\n" if $since[name]
+    puts "**Available since:** #{$since[name] or "unreleased"}\n\n"
     comment = ""
     while true
         i = i-1
@@ -137,7 +137,16 @@ def is_func_line(src, i)
          src[i-1] =~ /\*\//
 end
 
-puts "# Modules API reference\n\n"
+puts "---\n"
+puts "title: \"Modules API reference\"\n"
+puts "linkTitle: \"API reference\"\n"
+puts "weight: 1\n"
+puts "description: >\n"
+puts "    Reference for the Redis Modules API\n"
+puts "aliases:\n"
+puts "    - /topics/modules-api-ref\n"
+puts "---\n"
+puts "\n"
 puts "<!-- This file is generated from module.c using\n"
 puts "     utils/generate-module-api-doc.rb -->\n\n"
 src = File.open(File.dirname(__FILE__) ++ "/../src/module.c").to_a

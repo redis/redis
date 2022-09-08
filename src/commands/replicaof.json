@@ -19,7 +19,7 @@
             },
             {
                 "name": "port",
-                "type": "string"
+                "type": "integer"
             }
         ]
     }

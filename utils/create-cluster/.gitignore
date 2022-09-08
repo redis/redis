@@ -3,3 +3,4 @@ config.sh
 *.aof
 *.conf
 *.log
+appendonlydir-*

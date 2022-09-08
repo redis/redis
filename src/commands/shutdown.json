@@ -9,7 +9,7 @@
         "history": [
             [
                 "7.0.0",
-                "Added the `NOW`, `FORCE` and `ABORT` modifiers. Introduced waiting for lagging replicas before exiting."
+                "Added the `NOW`, `FORCE` and `ABORT` modifiers."
             ]
         ],
         "command_flags": [
@@ -23,7 +23,7 @@
         ],
         "arguments": [
             {
-                "name": "nosave_save",
+                "name": "save-selector",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [

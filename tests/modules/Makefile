@@ -49,12 +49,16 @@ TEST_MODULES = \
     hash.so \
     zset.so \
     stream.so \
+    mallocsize.so \
     aclcheck.so \
     list.so \
     subcommands.so \
     reply.so \
     cmdintrospection.so \
-    eventloop.so
+    eventloop.so \
+    moduleconfigs.so \
+    moduleconfigstwo.so \
+    publish.so
 
 .PHONY: all
 
@@ -67,7 +71,7 @@ all: $(TEST_MODULES)
 	$(CC) -I../../src $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
 %.so: %.xo
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LDFLAGS) $(LIBS)
+	$(LD) -o $@ $^ $(SHOBJ_LDFLAGS) $(LDFLAGS) $(LIBS)
 
 .PHONY: clean
 

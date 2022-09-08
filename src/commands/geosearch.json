@@ -6,6 +6,12 @@
         "since": "6.2.0",
         "arity": -7,
         "function": "geosearchCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added support for uppercase unit names."
+            ]
+        ],
         "command_flags": [
             "READONLY"
         ],
@@ -39,102 +45,110 @@
                 "key_spec_index": 0
             },
             {
-                "token": "FROMMEMBER",
-                "name": "member",
-                "type": "string",
-                "optional": true
-            },
-            {
-                "token": "FROMLONLAT",
-                "name": "longitude_latitude",
-                "type": "block",
-                "optional": true,
+                "name": "from",
+                "type": "oneof",
                 "arguments": [
                     {
-                        "name": "longitude",
-                        "type": "double"
+                        "token": "FROMMEMBER",
+                        "name": "member",
+                        "type": "string"
                     },
                     {
-                        "name": "latitude",
-                        "type": "double"
-                    }
-                ]
-            },
-            {
-                "name": "circle",
-                "type": "block",
-                "optional": true,
-                "arguments": [
-                    {
-                        "token": "BYRADIUS",
-                        "name": "radius",
-                        "type": "double"
-                    },
-                    {
-                        "name": "unit",
-                        "type": "oneof",
+                        "token": "FROMLONLAT",
+                        "name": "fromlonlat",
+                        "type": "block",
                         "arguments": [
                             {
-                                "name": "m",
-                                "type": "pure-token",
-                                "token": "m"
+                                "name": "longitude",
+                                "type": "double"
                             },
                             {
-                                "name": "km",
-                                "type": "pure-token",
-                                "token": "km"
-                            },
-                            {
-                                "name": "ft",
-                                "type": "pure-token",
-                                "token": "ft"
-                            },
-                            {
-                                "name": "mi",
-                                "type": "pure-token",
-                                "token": "mi"
+                                "name": "latitude",
+                                "type": "double"
                             }
                         ]
                     }
                 ]
             },
             {
-                "name": "box",
-                "type": "block",
-                "optional": true,
+                "name": "by",
+                "type": "oneof",
                 "arguments": [
                     {
-                        "token": "BYBOX",
-                        "name": "width",
-                        "type": "double"
-                    },
-                    {
-                        "name": "height",
-                        "type": "double"
-                    },
-                    {
-                        "name": "unit",
-                        "type": "oneof",
+                        "name": "circle",
+                        "type": "block",
                         "arguments": [
                             {
-                                "name": "m",
-                                "type": "pure-token",
-                                "token": "m"
+                                "token": "BYRADIUS",
+                                "name": "radius",
+                                "type": "double"
                             },
                             {
-                                "name": "km",
-                                "type": "pure-token",
-                                "token": "km"
+                                "name": "unit",
+                                "type": "oneof",
+                                "arguments": [
+                                    {
+                                        "name": "m",
+                                        "type": "pure-token",
+                                        "token": "m"
+                                    },
+                                    {
+                                        "name": "km",
+                                        "type": "pure-token",
+                                        "token": "km"
+                                    },
+                                    {
+                                        "name": "ft",
+                                        "type": "pure-token",
+                                        "token": "ft"
+                                    },
+                                    {
+                                        "name": "mi",
+                                        "type": "pure-token",
+                                        "token": "mi"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "name": "box",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "token": "BYBOX",
+                                "name": "width",
+                                "type": "double"
                             },
                             {
-                                "name": "ft",
-                                "type": "pure-token",
-                                "token": "ft"
+                                "name": "height",
+                                "type": "double"
                             },
                             {
-                                "name": "mi",
-                                "type": "pure-token",
-                                "token": "mi"
+                                "name": "unit",
+                                "type": "oneof",
+                                "arguments": [
+                                    {
+                                        "name": "m",
+                                        "type": "pure-token",
+                                        "token": "m"
+                                    },
+                                    {
+                                        "name": "km",
+                                        "type": "pure-token",
+                                        "token": "km"
+                                    },
+                                    {
+                                        "name": "ft",
+                                        "type": "pure-token",
+                                        "token": "ft"
+                                    },
+                                    {
+                                        "name": "mi",
+                                        "type": "pure-token",
+                                        "token": "mi"
+                                    }
+                                ]
                             }
                         ]
                     }
@@ -158,7 +172,7 @@
                 ]
             },
             {
-                "name": "count",
+                "name": "count-block",
                 "type": "block",
                 "optional": true,
                 "arguments": [
