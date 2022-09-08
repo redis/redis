@@ -2256,7 +2256,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
 
 /* This command declares incomplete keys, so the flags are correctly set for this function */
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int i, num, first;
+    int i, j, num, first;
     keyReference *keys;
     UNUSED(cmd);
 
@@ -2265,14 +2265,28 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     num = 1;
 
     /* But check for the extended one with the KEYS option. */
-    if (argc > 6) {
-        for (i = 6; i < argc; i++) {
-            if (!strcasecmp(argv[i]->ptr,"keys") &&
-                sdslen(argv[3]->ptr) == 0)
-            {
-                first = i+1;
-                num = argc-first;
+    struct {
+        char* name;
+        int skip;
+    } skiplist[] = {       
+        {"copy", 0},
+        {"replace", 0},
+        {"auth", 1},
+        {"auth2", 2},
+        {NULL, 0}
+    };
+    if (argc > 7 && sdslen(argv[3]->ptr) == 0) {
+        for (i = 6; i < argc - 1; i++) {
+            if (!strcasecmp(argv[i]->ptr, "keys")) {
+                first = i + 1;
+                num = argc - first;
                 break;
+            }
+            for (j = 0; skiplist[j].name != NULL; j++) {
+                if (!strcasecmp(argv[i]->ptr, skiplist[j].name)) {
+                    i += skiplist[j].skip;
+                    break;
+                }
             }
         }
     }
