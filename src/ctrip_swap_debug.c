@@ -33,10 +33,10 @@ int doRIO(RIO *rio);
 static sds getSwapObjectInfo(robj *o) {
     if (o) {
         return sdscatprintf(sdsempty(),
-                "at=%p,refcount=%d,type=%s,encoding=%s,big=%d,dirty=%d,"
+                "at=%p,refcount=%d,type=%s,encoding=%s,dirty=%d,"
                 "lru=%d,lru_seconds_idle=%llu",
                 (void*)o,o->refcount,strObjectType(o->type),
-                strEncoding(o->encoding),o->big,o->dirty,o->lru,
+                strEncoding(o->encoding),o->dirty,o->lru,
                 estimateObjectIdleTime(o)/1000);
     } else {
         return sdsnew("<nil>");
@@ -47,7 +47,7 @@ static sds getSwapMetaInfo(objectMeta *m) {
     if (m) {
         return sdscatprintf(sdsempty(),
                 "at=%p,len=%ld",
-                (void*)m, m->hash.len);
+                (void*)m, (ssize_t)m->len);
     } else {
         return sdsnew("<nil>");
     }
@@ -94,7 +94,7 @@ NULL
         sds typesds = c->argv[2]->ptr;
         char type = typesds[0];
         long long version;
-        sds rawkey;
+        sds rawkey = NULL;
         if ((sdslen(typesds)) != 1) {
             addReplyError(c,"Key type invalid");
             return;
@@ -115,7 +115,7 @@ NULL
         const char *key = NULL, *sub = NULL;
         size_t klen = 0, slen = 0;
         uint64_t version = 0;
-        char type;
+        //char type;
         if (sdslen(raw) < 1) {
             addReplyError(c, "Invalid raw key.");
             return;
@@ -160,7 +160,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"rio-scan") && c->argc == 3) {
         RIO _rio, *rio = &_rio;
         sds prefix = sdsdup(c->argv[2]->ptr);
-        RIOInitScan(rio,DATA_CF,prefix);
+        RIOInitScan(rio,DATA_CF,prefix,0);
         doRIO(rio);
         addReplyArrayLen(c,rio->scan.numkeys);
         for (int i = 0; i < rio->scan.numkeys; i++) {

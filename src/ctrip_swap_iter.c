@@ -134,8 +134,8 @@ void *rocksIterIOThreadMain(void *arg) {
         while (slots--) {
             iterResult *cur;
             int curidx, meta_valid, data_valid, cf = -1;
-            unsigned char rdbtype;
-            const char *meta_rawkey, *meta_rawval, *data_rawkey, *data_rawval;
+            const char *meta_rawkey = NULL, *meta_rawval = NULL,
+                  *data_rawkey = NULL, *data_rawval = NULL;
             size_t meta_rklen, meta_rvlen, data_rklen, data_rvlen;
 
             meta_valid = rocksdb_iter_valid(it->meta_iter);

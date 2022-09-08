@@ -73,10 +73,11 @@ void RIOInitMultiGet(RIO *rio, int numkeys, int *cfs, sds *rawkeys) {
     rio->err = NULL;
 }
 
-void RIOInitScan(RIO *rio, int cf, sds prefix) {
+void RIOInitScan(RIO *rio, int cf, sds prefix, int limit) {
     rio->action = ROCKS_SCAN;
     rio->scan.cf = cf;
     rio->scan.prefix = prefix;
+    rio->scan.limit = limit;
     rio->scan.rawkeys = NULL;
     rio->scan.rawvals = NULL;
     rio->err = NULL;
@@ -279,6 +280,8 @@ static int doRIOScan(RIO *rio) {
     rocksdb_iterator_t *iter = NULL;
     sds prefix = rio->scan.prefix;
     size_t numkeys = 0, numalloc = 8;
+    /* scan atmost -limit rawkeys */
+    size_t limit = rio->scan.limit < 0 ? -rio->scan.limit : LONG_MAX;
     sds *rawkeys = zmalloc(numalloc*sizeof(sds));
     sds *rawvals = zmalloc(numalloc*sizeof(sds));
 
@@ -286,7 +289,7 @@ static int doRIOScan(RIO *rio) {
             rioGetCF(rio->scan.cf));
     rocksdb_iter_seek(iter,prefix,sdslen(prefix));
 
-    while (rocksdb_iter_valid(iter)) {
+    while (rocksdb_iter_valid(iter) && numkeys < limit) {
         size_t klen, vlen;
         const char *rawkey, *rawval;
         rawkey = rocksdb_iter_key(iter, &klen);
@@ -681,6 +684,11 @@ static int executeSwapInRequest(swapRequest *req) {
                 goto end;
             }
 
+            /* when intention is IN_DEL, robj will be set dirty when keyrequest
+             * finished, in which case rocks-meta is obselete and might need
+             * to be deleted (requires IO again). so we delete this obselete
+             * rocks-meta before command call so we don't have to check and delete
+             * rocks-meta if key deleted (requires IO again). */
             if (doSwapDelMeta(data)) {
                 retval = EXEC_FAIL;
                 goto end;
@@ -714,6 +722,7 @@ static int executeSwapInRequest(swapRequest *req) {
                 goto end;
             }
 
+            /* see previous comment for details. */
             if (doSwapDelMeta(data)) {
                 retval = EXEC_FAIL;
                 goto end;
@@ -724,8 +733,7 @@ static int executeSwapInRequest(swapRequest *req) {
         zfree(rawkeys);
     } else if (action == ROCKS_SCAN) {
         int *tmpcfs, i;
-        serverAssert(numkeys == 1);
-        RIOInitScan(rio,cfs[0],rawkeys[0]);
+        RIOInitScan(rio,cfs[0],rawkeys[0],numkeys);
         if (doRIO(rio)) {
             retval = EXEC_FAIL;
             goto end;
@@ -748,6 +756,7 @@ static int executeSwapInRequest(swapRequest *req) {
                 goto end;
             }
 
+            /* see previous comment for details. */
             if (doSwapDelMeta(data)) {
                 retval = EXEC_FAIL;
                 goto end;
@@ -805,11 +814,6 @@ static int swapRequestSwapInMeta(swapRequest *req) {
         goto end;
     }
 
-    /* swap in meta into keyspace for cold keys */
-    if (req->intention == SWAP_IN) {
-        data->swapin_meta = 1;
-    }
-
 end:
     RIODeinit(rio);
     return retval;
@@ -862,6 +866,7 @@ int processSwapRequest(swapRequest *req) {
 
     swapRequestSetIntention(req,intention,intention_flags);
 
+    /* If intention is nop, req will finish without executeXXX. */
     return executeSwapRequest(req);
 }
 
@@ -871,17 +876,37 @@ int finishSwapRequest(swapRequest *req) {
     DEBUG_MSGS_APPEND(req->msgs,"execswap-finish","intention=%s",
             swapIntentionName(req->intention));
     int ret;
+    swapData *data = req->data;
+    void *datactx = req->datactx;
 
     switch(req->intention) {
     case SWAP_IN:
-        ret = swapDataSwapIn(req->data,req->result,req->datactx);
-        if (ret == 0) ret = swapDataSwapInMeta(req->data);
+        ret = swapDataSwapIn(data,req->result,datactx);
+        if (ret == 0) {
+            if (swapDataIsCold(data) && req->result && data->expire != -1) {
+                setExpire(NULL,data->db,data->key,data->expire);
+            }
+        }
         return ret;
     case SWAP_OUT:
-        return swapDataSwapOut(req->data,req->datactx);
-    case SWAP_DEL: 
-        return swapDataSwapDel(req->data,req->datactx,
+        /* exec removes expire if rocks-meta persists, while object_meta
+         * is removed by swapdata. note that exec remove expire (satellite
+         * dict) before swapout remove key from db.dict. */
+        if ((req->intention_flags & SWAP_EXEC_OUT_META) &&
+                data->expire != -1) {
+            removeExpire(data->db,data->key);
+        }
+        return swapDataSwapOut(data,datactx);
+    case SWAP_DEL:
+        /* rocks-meta already deleted, only need to delete object_meta
+         * from keyspace. */
+        if (data->expire != -1) {
+            removeExpire(data->db,data->key);
+        }
+
+        ret = swapDataSwapDel(data,datactx,
                 req->intention_flags & SWAP_FIN_DEL_SKIP);
+        return ret;
     default:
         return -1;
     }
@@ -1038,7 +1063,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        test_assert(sdscmp(rio->multiget.rawvals[0],rawval1) == 0);
        test_assert(sdscmp(rio->multiget.rawvals[1],rawval2) == 0);
 
-       RIOInitScan(rio,DATA_CF,prefix);
+       RIOInitScan(rio,DATA_CF,prefix,0);
        test_assert(doRIO(rio) == C_OK);
        test_assert(rio->scan.numkeys == 2);
        test_assert(sdscmp(rio->scan.rawvals[0],rawval1) == 0);

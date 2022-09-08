@@ -200,16 +200,74 @@ robj *rocksDecodeValRdb(sds raw) {
     return value;
 }
 
-int keyIsHot(objectMeta *om, robj *value) {
-    if (value == NULL) return 0;
-    if (om == NULL) return 1;
-    serverAssert(om->object_type == value->type);
-    switch (value->type) {
-    case OBJ_HASH:
-        return om->hash.len == 0;
-    default:
-        return 0;
-    }
-    return 0;
+sds rocksEncodeObjectMetaLen(unsigned long len) {
+    return sdsnewlen(&len,sizeof(len));
 }
 
+long rocksDecodeObjectMetaLen(const char *raw, size_t rawlen) {
+    if (rawlen != sizeof(unsigned long)) return -1;
+    return *(long*)raw;
+}
+
+int keyIsHot(objectMeta *object_meta, robj *value) {
+    objectMetaType *type = NULL;
+    if (value == NULL) {
+        type = NULL;
+    } else if (value->type == OBJ_STRING) {
+        type = NULL;
+    } else if (value->type == OBJ_HASH) {
+        type = &hashObjectMetaType;
+    } else {
+        type = NULL;
+    }
+
+    swapObjectMeta som;
+    initStaticSwapObjectMeta(som,type,object_meta,value);
+    return swapObjectMetaIsHot(&som);
+}
+
+sds rocksCalculateNextKey(sds current) {
+	sds next = NULL;
+	size_t nextlen = sdslen(current);
+
+	do {
+		if (current[nextlen - 1] != (char)0xff) break;
+		nextlen--;
+	} while(nextlen > 0); 
+
+	if (0 == nextlen) return NULL;
+
+	next = sdsnewlen(current, nextlen);
+	next[nextlen - 1]++;
+
+	return next;
+}
+
+#ifdef REDIS_TEST
+
+int swapUtilTest(int argc, char **argv, int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+    int error = 0;
+
+    TEST("util - encode & decode object meta len") {
+        sds raw;
+        raw = rocksEncodeObjectMetaLen(666);
+        test_assert(666 == rocksDecodeObjectMetaLen(raw,sdslen(raw)));
+        sdsfree(raw);
+        raw = rocksEncodeObjectMetaLen(0);
+        test_assert(0 == rocksDecodeObjectMetaLen(raw,sdslen(raw)));
+        sdsfree(raw);
+        raw = rocksEncodeObjectMetaLen(-1);
+        test_assert(-1 == rocksDecodeObjectMetaLen(raw,sdslen(raw)));
+        sdsfree(raw);
+        raw = rocksEncodeObjectMetaLen(-666);
+        test_assert(-666 == rocksDecodeObjectMetaLen(raw,sdslen(raw)));
+        sdsfree(raw);
+    }
+
+    return error;
+}
+
+#endif

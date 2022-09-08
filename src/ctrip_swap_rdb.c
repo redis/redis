@@ -90,17 +90,17 @@ int rdbSaveKeyHeader(rio *rdb, robj *key, robj *x, unsigned char rdbtype,
 }
 
 /* return -1 if save start failed. */
-int rdbKeySaveStart(struct rdbKeySaveData *keydata, rio *rdb) {
-    if (keydata->type->save_start)
-        return keydata->type->save_start(keydata,rdb);
+int rdbKeySaveStart(struct rdbKeySaveData *save, rio *rdb) {
+    if (save->type->save_start)
+        return save->type->save_start(save,rdb);
     else
         return 0;
 }
 
 /* return -1 if save failed. */
-int rdbKeySave(struct rdbKeySaveData *keydata, rio *rdb, decodedData *d) {
-    if (keydata->type->save) {
-        int ret = keydata->type->save(keydata,rdb,d);
+int rdbKeySave(struct rdbKeySaveData *save, rio *rdb, decodedData *d) {
+    if (save->type->save) {
+        int ret = save->type->save(save,rdb,d);
         /* Delay return if required (for testing) */
         if (server.rdb_key_save_delay)
             debugDelay(server.rdb_key_save_delay);
@@ -111,21 +111,21 @@ int rdbKeySave(struct rdbKeySaveData *keydata, rio *rdb, decodedData *d) {
 }
 
 /* return -1 if save_result is -1 or save end failed. */
-int rdbKeySaveEnd(struct rdbKeySaveData *keydata, int save_result) {
-    if (keydata->type->save_end)
-        return keydata->type->save_end(keydata, save_result);
+int rdbKeySaveEnd(struct rdbKeySaveData *save, int save_result) {
+    if (save->type->save_end)
+        return save->type->save_end(save, save_result);
     else
         return C_OK;
 }
 
-void rdbKeySaveDataDeinit(rdbKeySaveData *keydata) {
-    if (keydata->key) {
-        decrRefCount(keydata->key);
-        keydata->key = NULL;
+void rdbKeySaveDataDeinit(rdbKeySaveData *save) {
+    if (save->key) {
+        decrRefCount(save->key);
+        save->key = NULL;
     }
 
-    if (keydata->type->save_deinit)
-        keydata->type->save_deinit(keydata);
+    if (save->type->save_deinit)
+        save->type->save_deinit(save);
 }
 
 sds rdbSaveRocksStatsDump(rdbSaveRocksStats *stats) {
@@ -148,67 +148,81 @@ sds rdbSaveRocksStatsDump(rdbSaveRocksStats *stats) {
 #define INIT_SAVE_ERR -1
 #define INIT_SAVE_SKIP -2
 
-static void rdbKeySaveDataInitCommon(rdbKeySaveData *keydata,
+static void rdbKeySaveDataInitCommon(rdbKeySaveData *save,
         MOVE robj *key, robj *value, long long expire, objectMeta *om) {
-    keydata->key = key;
-    keydata->value = value;
-    keydata->expire = expire;
-    keydata->object_meta = om;
-    keydata->saved = 0;
+    save->key = key;
+    save->value = value;
+    save->expire = expire;
+    save->object_meta = dupObjectMeta(om);
+    save->saved = 0;
 }
 
-static int rdbKeySaveDataInitWarm(rdbKeySaveData *keydata, redisDb *db,
+static int rdbKeySaveDataInitWarm(rdbKeySaveData *save, redisDb *db,
         MOVE robj *key, robj *value) {
+    int retval = INIT_SAVE_OK;
     objectMeta *object_meta = lookupMeta(db,key);
     long long expire = getExpire(db,key);
 
     serverAssert(value && !keyIsHot(object_meta,value));
 
-    rdbKeySaveDataInitCommon(keydata,key,value,expire,object_meta);
+    rdbKeySaveDataInitCommon(save,key,value,expire,object_meta);
 
     switch (value->type) {
     case OBJ_STRING:
-        return wholeKeySaveInit(keydata);
+        wholeKeySaveInit(save);
+        break;
+    case OBJ_HASH:
+        hashSaveInit(save,NULL,0);
+        break;
     default:
-        return INIT_SAVE_ERR;
+        retval = INIT_SAVE_ERR;
+        break;
     }
 
-    return INIT_SAVE_OK;
+    return retval;
 }
 
-static int rdbKeySaveDataInitCold(rdbKeySaveData *keydata, redisDb *db,
+static int rdbKeySaveDataInitCold(rdbKeySaveData *save, redisDb *db,
         MOVE robj *key, decodedMeta *dm) {
+    int retval = INIT_SAVE_OK;
     UNUSED(db);
 
-    rdbKeySaveDataInitCommon(keydata,key,NULL,dm->expire,NULL);
+    rdbKeySaveDataInitCommon(save,key,NULL,dm->expire,NULL);
 
     switch (dm->object_type) {
     case OBJ_STRING:
         serverAssert(dm->extend == NULL);
-        return wholeKeySaveInit(keydata);
+        wholeKeySaveInit(save);
+        break;
+    case OBJ_HASH:
+        serverAssert(dm->extend != NULL);
+        retval = hashSaveInit(save,dm->extend,sdslen(dm->extend));
+        break;
     default:
-        return INIT_SAVE_ERR;
+        retval = INIT_SAVE_ERR;
+        break;
     }
 
-    return INIT_SAVE_OK;
+    return retval;
 }
 
-int rdbKeySaveDataInit(rdbKeySaveData *keydata, redisDb *db, decodedMeta *dm) {
+int rdbKeySaveDataInit(rdbKeySaveData *save, redisDb *db, decodedResult *dr) {
     robj *value, *key;
     objectMeta *object_meta;
 
-    serverAssert(db->id == dm->dbid);
+    serverAssert(db->id == dr->dbid);
 
-    key = createStringObject(dm->key, sdslen(dm->key));
+    key = createStringObject(dr->key, sdslen(dr->key));
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
     object_meta = lookupMeta(db,key);
 
-    if (keyIsHot(object_meta, value)) {
+    if (keyIsHot(object_meta, value)) { /* hot */
         return INIT_SAVE_SKIP;
-    } else if (value) {
-        return rdbKeySaveDataInitWarm(keydata,db,key,value);
-    } else  {
-        return rdbKeySaveDataInitCold(keydata,db,key,dm);
+    } else if (value) { /* warm */
+        return rdbKeySaveDataInitWarm(save,db,key,value);
+    } else  { /* cold */
+        serverAssert(dr->cf == META_CF);
+        return rdbKeySaveDataInitCold(save,db,key,(decodedMeta*)dr);
     }
 }
 
@@ -333,7 +347,7 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
 
     while (1) {
         int init_result, decode_result, save_result = 0;
-        rdbKeySaveData _keydata, *keydata = &_keydata;
+        rdbKeySaveData _save, *save = &_save;
         serverAssert(next->key == NULL);
 
         if (cur->key == NULL) {
@@ -347,13 +361,7 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
             serverAssert(cur->key != NULL);
         }
 
-        if (cur->cf != META_CF) {
-            stats->init_save_skip++;
-            decodedResultDeinit(cur);
-            continue;
-        }
-
-        init_result = rdbKeySaveDataInit(keydata,db,(decodedMeta*)cur);
+        init_result = rdbKeySaveDataInit(save,db,cur);
         if (init_result == INIT_SAVE_SKIP) {
             stats->init_save_skip++;
             decodedResultDeinit(cur);
@@ -370,12 +378,26 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
             stats->init_save_ok++;
         }
 
-        if (rdbKeySaveStart(keydata,rdb) == -1) {
+        if (rdbKeySaveStart(save,rdb) == -1) {
             errstr = sdscatfmt(sdsempty(),"Save key(%S) start failed: %s",
                     cur->key, strerror(errno));
-            rdbKeySaveDataDeinit(keydata);
+            rdbKeySaveDataDeinit(save);
             decodedResultDeinit(cur);
             goto err; /* IO error, can't recover. */
+        }
+
+        /* There may be no rocks-meta for warm/hot hash(set/zset...), in
+         * which case cur is decodedData. note that rdbKeyDataInit only
+         * consumes decodedMeta. */
+        if (cur->cf == DATA_CF) {
+            if ((save_result = rdbKeySave(save,rdb,(decodedData*)cur)) == -1) {
+                sds repr = sdscatrepr(sdsempty(),cur->key,sdslen(cur->key));
+                errstr = sdscatfmt("Save key (%S) failed: %s", repr,
+                        strerror(errno));
+                sdsfree(repr);
+                decodedResultDeinit(cur);
+                goto saveend;
+            }
         }
 
         while (1) {
@@ -414,7 +436,7 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
             if (key_switch) break;
 
             /* key not switched, continue rdbSave. */
-            if ((save_result = rdbKeySave(keydata,rdb,(decodedData*)cur)) == -1) {
+            if ((save_result = rdbKeySave(save,rdb,(decodedData*)cur)) == -1) {
                 sds repr = sdscatrepr(sdsempty(),cur->key,sdslen(cur->key));
                 errstr = sdscatfmt("Save key (%S) failed: %s", repr,
                         strerror(errno));
@@ -424,17 +446,18 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
             }
         }
 
+saveend:
         /* call save_end if save_start called, no matter error or not. */
-        if (rdbKeySaveEnd(keydata,save_result) == -1) {
+        if (rdbKeySaveEnd(save,save_result) == -1) {
             if (errstr == NULL) {
                 errstr = sdscatfmt(sdsempty(),"Save key end failed: %s",
                         strerror(errno));
             }
-            rdbKeySaveDataDeinit(keydata);
+            rdbKeySaveDataDeinit(save);
             goto err;
         }
 
-        rdbKeySaveDataDeinit(keydata);
+        rdbKeySaveDataDeinit(save);
         stats->save_ok++;
         rdbSaveProgress(rdb,rdbflags);
     };
@@ -743,84 +766,89 @@ int rdbLoadHashFieldsVerbatim(rio *rdb, unsigned long long len, sds *verbatim) {
 }
 
 /* return 1 if load not load finished (needs to continue load). */
-int rdbKeyLoad(struct rdbKeyLoadData *keydata, rio *rdb, int *cf, sds *rawkey,
+int rdbKeyLoad(struct rdbKeyLoadData *load, rio *rdb, int *cf, sds *rawkey,
         sds *rawval, int *error) {
-    if (keydata->type->load)
-        return keydata->type->load(keydata,rdb,cf,rawkey,rawval,error);
+    if (load->type->load)
+        return load->type->load(load,rdb,cf,rawkey,rawval,error);
     else
         return 0;
 }
 
-int rdbKeyLoadStart(struct rdbKeyLoadData *keydata, rio *rdb, int *cf,
+void rdbKeyLoadStart(struct rdbKeyLoadData *load, rio *rdb, int *cf,
         sds *rawkey, sds *rawval, int *error) {
-    if (keydata->type->load_start)
-        return keydata->type->load_start(keydata,rdb,cf,rawkey,rawval,error);
-    else
-        return 0;
+    if (load->type->load_start)
+        load->type->load_start(load,rdb,cf,rawkey,rawval,error);
 }
 
-int rdbKeyLoadEnd(struct rdbKeyLoadData *keydata, rio *rdb) {
-    if (keydata->type->load_end)
-        return keydata->type->load_end(keydata,rdb);
+int rdbKeyLoadEnd(struct rdbKeyLoadData *load, rio *rdb) {
+    if (load->type->load_end)
+        return load->type->load_end(load,rdb);
     else
         return C_OK;
 }
 
-void rdbKeyLoadDataDeinit(struct rdbKeyLoadData *keydata) {
-    if (keydata->type && keydata->type->load_deinit)
-        keydata->type->load_deinit(keydata);
+void rdbKeyLoadDataDeinit(struct rdbKeyLoadData *load) {
+    if (load->type && load->type->load_deinit)
+        load->type->load_deinit(load);
 }
 
-int rdbKeyLoadDataInit(rdbKeyLoadData *keydata, int rdbtype,
+int rdbKeyLoadDataInit(rdbKeyLoadData *load, int rdbtype,
         redisDb *db, sds key, long long expire, long long now) {
     int retval = 0;
     if (!rdbIsObjectType(rdbtype)) return RDB_LOAD_ERR_OTHER;
-    memset(keydata,0,sizeof(rdbKeyLoadData));
+    memset(load,0,sizeof(rdbKeyLoadData));
 
-    keydata->db = db;
-    keydata->expire = expire;
-    keydata->now = now;
-    keydata->rdbtype = rdbtype;
-    keydata->key = key;
+    load->rdbtype = rdbtype;
+    load->db = db;
+    load->key = key;
+    load->expire = expire;
+    load->now = now;
+    load->value = NULL;
+    load->iter = NULL;
 
     switch(rdbtype) {
     case RDB_TYPE_STRING:
-        wholeKeyLoadInit(keydata);
+        wholeKeyLoadInit(load);
+        break;
+    case RDB_TYPE_HASH:
+    case RDB_TYPE_HASH_ZIPMAP:
+    case RDB_TYPE_HASH_ZIPLIST:
+        hashLoadInit(load);
         break;
     default:
-        retval = SWAP_RDB_LOAD_ERR_UNSUPPORTED;
+        retval = SWAP_ERR_RDB_LOAD_UNSUPPORTED;
         break;
     }
     return retval;
 }
 
 int ctripRdbLoadObject(int rdbtype, rio *rdb, redisDb *db, sds key,
-        long long expiretime, long long now, rdbKeyLoadData *keydata) {
+        long long expiretime, long long now, rdbKeyLoadData *load) {
     int error = 0, cont, cf;
     sds rawkey = NULL, rawval = NULL;
 
-    if ((error = rdbKeyLoadDataInit(keydata,rdbtype,db,key,
+    if ((error = rdbKeyLoadDataInit(load,rdbtype,db,key,
                     expiretime,now))) {
         return error;
     }
 
-    rdbKeyLoadStart(keydata,rdb,&cf,&rawkey,&rawval,&error);
+    rdbKeyLoadStart(load,rdb,&cf,&rawkey,&rawval,&error);
     if (error) return error;
     if (rawkey) {
         ctripRdbLoadCtxFeed(server.rdb_load_ctx,cf,rawkey,rawval);
-        keydata->nfeeds++;
+        load->nfeeds++;
     }
 
     do {
-        cont = rdbKeyLoad(keydata,rdb,&cf,&rawkey,&rawval,&error);
+        cont = rdbKeyLoad(load,rdb,&cf,&rawkey,&rawval,&error);
         if (!error && rawkey) {
             serverAssert(rawval);
             ctripRdbLoadCtxFeed(server.rdb_load_ctx,cf,rawkey,rawval);
-            keydata->nfeeds++;
+            load->nfeeds++;
         }
     } while (!error && cont);
 
-    if (!error) error = rdbKeyLoadEnd(keydata,rdb);
+    if (!error) error = rdbKeyLoadEnd(load,rdb);
     return error;
 }
 
@@ -852,6 +880,7 @@ int swapRdbTest(int argc, char *argv[], int accurate) {
     robj *myhash, *mystring;
     sds myhash_key, mystring_key;
     redisDb *db;
+    long long NOW = 1661657836000;
 
     TEST("rdb: init") {
         initServerConfig();
@@ -882,32 +911,32 @@ int swapRdbTest(int argc, char *argv[], int accurate) {
         int rdbtype;
         sds rawval = rocksEncodeValRdb(mystring);
         rioInitWithBuffer(&sdsrdb, rawval);
-        rdbKeyLoadData _keydata, *keydata = &_keydata;
+        rdbKeyLoadData _keydata, *load = &_keydata;
 
         evictStartLoading();
         rdbtype = rdbLoadObjectType(&sdsrdb);
-        retval = ctripRdbLoadObject(rdbtype,&sdsrdb,db,mystring_key,-1,1661657836000,keydata);
+        retval = ctripRdbLoadObject(rdbtype,&sdsrdb,db,mystring_key,-1,NOW,load);
         test_assert(!retval);
-        test_assert(keydata->rdbtype == RDB_TYPE_STRING);
-        test_assert(keydata->object_type == OBJ_STRING);
-        test_assert(keydata->nfeeds == 2);
+        test_assert(load->rdbtype == RDB_TYPE_STRING);
+        test_assert(load->object_type == OBJ_STRING);
+        test_assert(load->nfeeds == 2);
     }
 
-    /* TEST("rdb: save&load hash ok in rocks format") { */
-        /* rio sdsrdb; */
-        /* int rdbtype; */
-        /* sds rawval = rocksEncodeValRdb(myhash); */
-        /* rioInitWithBuffer(&sdsrdb, rawval); */
-        /* rdbKeyLoadData _keydata, *keydata = &_keydata; */
+    TEST("rdb: save&load hash ok in rocks format") {
+        rio sdsrdb;
+        int rdbtype;
+        sds rawval = rocksEncodeValRdb(myhash);
+        rioInitWithBuffer(&sdsrdb, rawval);
+        rdbKeyLoadData _keydata, *load = &_keydata;
 
-        /* evictStartLoading(); */
-        /* rdbtype = rdbLoadObjectType(&sdsrdb); */
-        /* retval = ctripRdbLoadObject(rdbtype,&sdsrdb,NULL,myhash_key,-1,1661657836000,keydata); */
-        /* test_assert(!retval); */
-        /* test_assert(keydata->rdbtype == RDB_TYPE_HASH); */
-        /* test_assert(keydata->object_type == OBJ_HASH); */
-        /* test_assert(keydata->nfeeds == 1); */
-    /* } */
+        evictStartLoading();
+        rdbtype = rdbLoadObjectType(&sdsrdb);
+        retval = ctripRdbLoadObject(rdbtype,&sdsrdb,db,myhash_key,-1,NOW,load);
+        test_assert(!retval);
+        test_assert(load->rdbtype == RDB_TYPE_HASH);
+        test_assert(load->object_type == OBJ_HASH);
+        test_assert(load->nfeeds == 4);
+    }
 
     return error;
 }

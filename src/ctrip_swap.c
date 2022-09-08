@@ -197,7 +197,7 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
     swapData *data = NULL;
     swapCtx *ctx = pd;
     robj *value;
-    objectMeta *object_meta;
+    objectMeta *object_meta, *dup_meta;
     char *reason;
     void *msgs = NULL;
     uint32_t swap_intention_flags;
@@ -239,8 +239,8 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
     }
 
     object_meta = lookupMeta(db,key);
-    /* TODO incrRef object_meta */
-    swapDataSetObjectMeta(data,object_meta);
+    dup_meta = dupObjectMeta(object_meta);
+    swapDataSetObjectMeta(data,dup_meta);
 
     if (swapDataAna(data,ctx->key_request,&swap_intention,
                 &swap_intention_flags,datactx)) {
@@ -435,6 +435,7 @@ int swapTest(int argc, char **argv, int accurate) {
   result += swapObjectTest(argc, argv, accurate);
   result += swapRdbTest(argc, argv, accurate);
   result += swapIterTest(argc, argv, accurate);
+  result += swapDataHashTest(argc, argv, accurate);
   return result;
 }
 #endif

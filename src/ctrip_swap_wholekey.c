@@ -259,19 +259,6 @@ objectMetaType wholekeyObjectMetaType = {
 };
 
 /* ------------------- whole key rdb save -------------------------------- */
-rdbKeySaveType wholekeyRdbSaveType = {
-    .save_start = NULL,
-    .save = wholekeySave,
-    .save_end = NULL,
-    .save_deinit = NULL,
-};
-
-int wholeKeySaveInit(rdbKeySaveData *keydata) {
-    keydata->type = &wholekeyRdbSaveType;
-    keydata->omtype = &wholekeyObjectMetaType;
-    return 0;
-}
-
 int wholekeySave(rdbKeySaveData *keydata, rio *rdb, decodedData *decoded) {
     robj keyobj = {0};
 
@@ -292,28 +279,26 @@ int wholekeySave(rdbKeySaveData *keydata, rio *rdb, decodedData *decoded) {
     return 0;
 }
 
-/* ------------------- whole key rdb load -------------------------------- */
-rdbKeyLoadType wholekeyLoadType = {
-    .load_start = wholekeyLoadStart,
-    .load = wholekeyLoad,
-    .load_end = NULL,
-    .load_deinit = NULL,
+rdbKeySaveType wholekeyRdbSaveType = {
+    .save_start = NULL,
+    .save = wholekeySave,
+    .save_end = NULL,
+    .save_deinit = NULL,
 };
 
-void wholeKeyLoadInit(rdbKeyLoadData *keydata) {
-    keydata->type = &wholekeyLoadType;
+void wholeKeySaveInit(rdbKeySaveData *keydata) {
+    keydata->type = &wholekeyRdbSaveType;
     keydata->omtype = &wholekeyObjectMetaType;
-    keydata->object_type = OBJ_STRING;
 }
 
-int wholekeyLoadStart(struct rdbKeyLoadData *keydata, rio *rdb, int *cf,
+/* ------------------- whole key rdb load -------------------------------- */
+void wholekeyLoadStart(struct rdbKeyLoadData *keydata, rio *rdb, int *cf,
         sds *rawkey, sds *rawval, int *error) {
     UNUSED(rdb);
     *cf = META_CF;
     *rawkey = rocksEncodeMetaKey(keydata->db,keydata->key);
     *rawval = rocksEncodeMetaVal(keydata->object_type,keydata->expire,NULL);
     *error = 0;
-    return 0;
 }
 
 int wholekeyLoad(struct rdbKeyLoadData *keydata, rio *rdb, int *cf,
@@ -335,6 +320,19 @@ int wholekeyLoad(struct rdbKeyLoadData *keydata, rio *rdb, int *cf,
 err:
     if (verbatim) sdsfree(verbatim);
     return 0;
+}
+
+rdbKeyLoadType wholekeyLoadType = {
+    .load_start = wholekeyLoadStart,
+    .load = wholekeyLoad,
+    .load_end = NULL,
+    .load_deinit = NULL,
+};
+
+void wholeKeyLoadInit(rdbKeyLoadData *keydata) {
+    keydata->type = &wholekeyLoadType;
+    keydata->omtype = &wholekeyObjectMetaType;
+    keydata->object_type = OBJ_STRING;
 }
 
 
@@ -650,7 +648,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(!memcmp(dd->rdbraw,data_rawval+1,sdslen(dd->rdbraw)));
 
         rioInitWithBuffer(&sdsrdb, sdsempty());
-        test_assert(!rdbKeySaveDataInit(savedata,db,dm));
+        test_assert(!rdbKeySaveDataInit(savedata,db,(decodedResult*)dm));
         test_assert(!wholekeySave(savedata,&sdsrdb,dd));
 
         rioInitWithBuffer(&sdsrdb,sdsrdb.io.buffer.ptr);

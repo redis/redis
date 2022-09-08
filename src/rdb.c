@@ -2681,12 +2681,12 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         /* Read value */
         int swap_unsupported = 0;
         if (server.swap_mode != SWAP_MODE_MEMORY) {
-            rdbKeyLoadData _keydata, *keydata = &_keydata;
+            rdbKeyLoadData _keydata = {0}, *keydata = &_keydata;
             int swap_load_error = ctripRdbLoadObject(type,rdb,db,key,
                     expiretime,now,keydata);
             if (swap_load_error == 0) {
                 error = 0;
-            } else if (swap_load_error == SWAP_RDB_LOAD_ERR_UNSUPPORTED) {
+            } else if (swap_load_error == SWAP_ERR_RDB_LOAD_UNSUPPORTED) {
                 error = 0;
                 swap_unsupported = 1;
             } else {

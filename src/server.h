@@ -697,8 +697,7 @@ typedef struct redisObject {
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
     unsigned dirty:1;
-    unsigned big:1;
-    unsigned reserved:2;
+    unsigned reserved:3;
     int refcount:REFCOUNT_BITS;
     void *ptr;
 } robj;

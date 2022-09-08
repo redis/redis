@@ -96,21 +96,14 @@ int swapDataAna(swapData *d, struct keyRequest *key_request,
         retval = d->type->swapAna(d,key_request,intention,
                 intention_flags,datactx);
         
-        //TODO confirm & opt
         if ((*intention_flags & SWAP_FIN_DEL_SKIP) ||
                 (*intention_flags & SWAP_EXEC_IN_DEL)) {
-            /* rocksdb and mem differs after rocksdb del. */
+            /* rocksdb and mem differs. */
             d->set_dirty = 1;
         }
     }
 
     return retval;
-}
-
-int swapDataSwapInMeta(swapData *d) {
-    //TODO impl
-    UNUSED(d);
-    return 0;
 }
 
 /* Swap-thread: decide how to encode keys by data and intention. */
@@ -188,9 +181,8 @@ inline int swapDataCleanObject(swapData *d, void *datactx) {
 inline void swapDataFree(swapData *d, void *datactx) {
     /* free extend */
     if (d->type && d->type->free) d->type->free(d,datactx);
-    /* TODO unref object_meta */
-    // if (d->omtype && d->omtype->free) d->omtype->free(d->object_meta);
     /* free base */
+    if (d->object_meta) freeObjectMeta(d->object_meta);
     if (d->key) decrRefCount(d->key);
     if (d->value) decrRefCount(d->value);
     zfree(d);
@@ -220,6 +212,8 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
         retval = swapDataSetupWholeKey(d,datactx);
         break;
     case OBJ_HASH:
+        retval = swapDataSetupHash(d,datactx);
+        break;
     case OBJ_LIST:
     case OBJ_SET:
     case OBJ_ZSET:
@@ -232,7 +226,7 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
     return retval;
 }
 
-void swapDataSetObjectMeta(swapData *d, objectMeta *object_meta) {
+void swapDataSetObjectMeta(swapData *d, MOVE objectMeta *object_meta) {
     d->object_meta = object_meta;
 }
 
@@ -250,13 +244,10 @@ int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
     retval = swapDataSetupMeta(d,object_type,expire,datactx);
     if (retval) return retval;
 
-    if (d->omtype->decodeObjectMeta) {
-        retval = d->omtype->decodeObjectMeta(extend,extend_len,&object_meta);
-        if (retval) return retval;
-    }
+    retval = buildObjectMeta(d->omtype,extend,extend_len,&object_meta);
+    if (retval) return SWAP_ERR_META_DECODE_FAILED;
 
     swapDataSetObjectMeta(d,object_meta);
-
     return retval;
 }
 
