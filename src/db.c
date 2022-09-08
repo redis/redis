@@ -2275,8 +2275,8 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
         {"auth2", 2},
         {NULL, 0}
     };
-    if (argc > 7 && sdslen(argv[3]->ptr) == 0) {
-        for (i = 6; i < argc - 1; i++) {
+    if (argc > 6 && sdslen(argv[3]->ptr) == 0) {
+        for (i = 6; i < argc; i++) {
             if (!strcasecmp(argv[i]->ptr, "keys")) {
                 first = i + 1;
                 num = argc - first;
