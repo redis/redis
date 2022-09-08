@@ -19,23 +19,6 @@ int call_without_user(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
-int call_with_user(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc < 2) {
-        return RedisModule_WrongArity(ctx);
-    }
-
-    const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
-
-    RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
-    if (!rep) {
-        RedisModule_ReplyWithError(ctx, "NULL reply returned");
-    } else {
-        RedisModule_ReplyWithCallReply(ctx, rep);
-        RedisModule_FreeCallReply(rep);
-    }
-    return REDISMODULE_OK;
-}
-
 int call_with_user_flag(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3) {
         return RedisModule_WrongArity(ctx);
@@ -128,9 +111,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"usercall.call_without_user", call_without_user,"write",0,0,0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx,"usercall.call_with_user", call_with_user,"write",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"usercall.call_with_user_flag", call_with_user_flag,"write",0,0,0) == REDISMODULE_ERR)

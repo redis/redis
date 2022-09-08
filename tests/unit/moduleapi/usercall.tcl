@@ -29,7 +29,7 @@ start_server {tags {"modules usercall"}} {
         assert_equal [r usercall.get_acl] "off ~* &* +@all -set"
 
         # doesn't fail for regular commands as just testing acl here
-        assert_equal [r usercall.call_with_user set x 10] OK
+        assert_equal [r usercall.call_with_user_flag E set x 10] OK
 
         assert_equal [r get x] 10
         assert_equal [r usercall.reset_user] OK
@@ -73,8 +73,8 @@ start_server {tags {"modules usercall"}} {
         assert_equal [r usercall.get_acl] "off ~* &* +@all -set"
 
         # passes as not checking ACL
-        assert_equal [r usercall.call_with_user evalsha $sha_set 0] 1
-        assert_equal [r usercall.call_with_user evalsha $sha_get 0] 1
+        assert_equal [r usercall.call_with_user_flag E evalsha $sha_set 0] 1
+        assert_equal [r usercall.call_with_user_flag E evalsha $sha_get 0] 1
     }
 
     # call with user on script (without rm_call acl check) to ensure user carries through to script execution
