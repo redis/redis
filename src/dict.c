@@ -585,7 +585,7 @@ void dictInitIterator(dictIterator *iter, dict *d)
 void dictInitSafeIterator(dictIterator *iter, dict *d)
 {
     dictInitIterator(i, d);
-    i->safe = 1;
+    iter->safe = 1;
 }
 
 void dictResetIterator(dictIterator *iter)
