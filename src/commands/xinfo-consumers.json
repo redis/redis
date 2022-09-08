@@ -43,7 +43,7 @@
                 "key_spec_index": 0
             },
             {
-                "name": "groupname",
+                "name": "group",
                 "type": "string"
             }
         ]
