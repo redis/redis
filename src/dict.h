@@ -188,7 +188,7 @@ int dictResize(dict *d);
 dictIterator *dictGetIterator(dict *d);
 dictIterator *dictGetSafeIterator(dict *d);
 void dictInitIterator(dictIterator *iter, dict *d);
-void dictInitSafeIterator(dictIterator *i, dict *d);
+void dictInitSafeIterator(dictIterator *iter, dict *d);
 void dictResetIterator(dictIterator *iter);
 dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
