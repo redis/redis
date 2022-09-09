@@ -179,6 +179,7 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
     node->encoding = QUICKLIST_NODE_ENCODING_RAW;
     node->container = QUICKLIST_NODE_CONTAINER_PACKED;
     node->recompress = 0;
+    node->dont_compress = 0;
     return node;
 }
 
@@ -214,6 +215,7 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
 #ifdef REDIS_TEST
     node->attempted_compress = 1;
 #endif
+    if (node->dont_compress) return 0;
 
     /* validate that the node is neither
      * tail nor head (it has prev and next)*/
@@ -750,14 +752,15 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
             __quicklistDelNode(quicklist, entry->node);
         }
     } else {
+        entry->node->dont_compress = 1; /* Prevent compression in quicklistInsertAfter() */
         quicklistInsertAfter(iter, entry, data, sz);
         if (entry->node->count == 1) {
             __quicklistDelNode(quicklist, entry->node);
         } else {
-            quicklistDecompressNodeForUse(entry->node);
             unsigned char *p = lpSeek(entry->node->entry, -1);
             quicklistDelIndex(quicklist, entry->node, &p);
-            quicklistRecompressOnly(entry->node);
+            entry->node->dont_compress = 0; /* Re-enable compression */
+            quicklistCompress(quicklist, entry->node);
             quicklistCompress(quicklist, entry->node->next);
         }
     }
