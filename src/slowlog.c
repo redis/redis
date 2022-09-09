@@ -117,15 +117,38 @@ void slowlogInit(void) {
     listSetFreeMethod(server.slowlog,slowlogFreeEntry);
 }
 
+/* write slow log to logfile. */
+void fillSlowLogInfo(slowlogEntry *se) {
+    sds info = sdsempty();
+    info = sdscatprintf(info, "id: %lld, T: %lld, duration: %lld us, peer: %s, cmd:",
+                        se->id, (long long)se->time, se->duration, se->peerid);
+    int j;
+    for (j = 0; j < se->argc; j++) {
+        if (sdsEncodedObject(se->argv[j])) {
+            info = sdscatprintf(info, " %s", (char *)(se->argv[j]->ptr));
+            /* The auth command is not recorded to prevent sensitive information leakage. */
+            if ((j == 0) && (strcasecmp((char *)(se->argv[j]->ptr), "auth") == 0)) {
+                break;
+            }
+        } else {
+            info = sdscatprintf(info, " %lld", (long long)(se->argv[j]->ptr));
+        }
+    }
+    serverSlowLog(LL_NOTICE, "%s", info);
+    sdsfree(info);
+}
+
 /* Push a new entry into the slow log.
  * This function will make sure to trim the slow log accordingly to the
  * configured max length. */
 void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration) {
     if (server.slowlog_log_slower_than < 0) return; /* Slowlog disabled */
-    if (duration >= server.slowlog_log_slower_than)
-        listAddNodeHead(server.slowlog,
-                        slowlogCreateEntry(c,argv,argc,duration));
-
+    if (duration >= server.slowlog_log_slower_than) {
+        slowlogEntry *se = slowlogCreateEntry(c, argv, argc, duration);
+        listAddNodeHead(server.slowlog, se);
+        if(server.slowlog_in_logfile)
+            fillSlowLogInfo(se);
+    }
     /* Remove old entries if needed. */
     while (listLength(server.slowlog) > server.slowlog_max_len)
         listDelNode(server.slowlog,listLast(server.slowlog));
