@@ -216,7 +216,7 @@ int rdbKeySaveDataInit(rdbKeySaveData *save, redisDb *db, decodedResult *dr) {
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
     object_meta = lookupMeta(db,key);
 
-    if (keyIsHot(object_meta, value)) { /* hot */
+    if (keyIsHot(object_meta,value)) { /* hot */
         return INIT_SAVE_SKIP;
     } else if (value) { /* warm */
         return rdbKeySaveDataInitWarm(save,db,key,value);
@@ -605,7 +605,7 @@ void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
             ctx->batch.index);
 
     /* Submit to rio thread. */
-    submitSwapDataRequest(SWAP_MODE_PARALLEL_SYNC,SWAP_OUT,0,data,NULL,
+    submitSwapDataRequest(SWAP_MODE_PARALLEL_SYNC,SWAP_OUT,0,NULL,data,NULL,
             ctripRdbLoadWriteFinished,NULL,msgs);
 }
 

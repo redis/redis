@@ -197,7 +197,7 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
     swapData *data = NULL;
     swapCtx *ctx = pd;
     robj *value;
-    objectMeta *object_meta, *dup_meta;
+    objectMeta *object_meta;
     char *reason;
     void *msgs = NULL;
     uint32_t swap_intention_flags;
@@ -224,7 +224,7 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
 
     if (value == NULL) {
         submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
-                data,datactx,keyRequestSwapFinished,ctx,msgs);
+                ctx,data,datactx,keyRequestSwapFinished,ctx,msgs);
         return C_OK;
     }
 
@@ -239,8 +239,7 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
     }
 
     object_meta = lookupMeta(db,key);
-    dup_meta = dupObjectMeta(object_meta);
-    swapDataSetObjectMeta(data,dup_meta);
+    swapDataSetObjectMeta(data,object_meta);
 
     if (swapDataAna(data,ctx->key_request,&swap_intention,
                 &swap_intention_flags,datactx)) {
@@ -261,7 +260,7 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
             swapIntentionName(swap_intention));
 
     submitSwapDataRequest(SWAP_MODE_ASYNC,swap_intention,swap_intention_flags,
-            data,datactx,keyRequestSwapFinished,ctx,msgs);
+            ctx,data,datactx,keyRequestSwapFinished,ctx,msgs);
 
     return C_OK;
 

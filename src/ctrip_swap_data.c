@@ -182,7 +182,8 @@ inline void swapDataFree(swapData *d, void *datactx) {
     /* free extend */
     if (d->type && d->type->free) d->type->free(d,datactx);
     /* free base */
-    if (d->object_meta) freeObjectMeta(d->object_meta);
+    if (d->cold_meta) freeObjectMeta(d->cold_meta);
+    if (d->new_meta) freeObjectMeta(d->new_meta);
     if (d->key) decrRefCount(d->key);
     if (d->value) decrRefCount(d->value);
     zfree(d);
@@ -190,8 +191,10 @@ inline void swapDataFree(swapData *d, void *datactx) {
 
 sds swapDataEncodeMetaVal(swapData *d) {
     sds extend = NULL;
-    if (d->omtype->encodeObjectMeta)
-        extend = d->omtype->encodeObjectMeta(d->object_meta);
+    objectMeta *object_meta = swapDataObjectMeta(d);
+    if (d->omtype->encodeObjectMeta) {
+        extend = d->omtype->encodeObjectMeta(object_meta);
+    }
     return rocksEncodeMetaVal(d->object_type,d->expire,extend);
 }
 
@@ -226,8 +229,16 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
     return retval;
 }
 
-void swapDataSetObjectMeta(swapData *d, MOVE objectMeta *object_meta) {
+void swapDataSetObjectMeta(swapData *d, objectMeta *object_meta) {
     d->object_meta = object_meta;
+}
+
+void swapDataSetColdObjectMeta(swapData *d, MOVE objectMeta *object_meta) {
+    d->cold_meta = object_meta;
+}
+
+void swapDataSetNewObjectMeta(swapData *d, MOVE objectMeta *object_meta) {
+    d->new_meta = object_meta;
 }
 
 int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
@@ -244,11 +255,19 @@ int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
     retval = swapDataSetupMeta(d,object_type,expire,datactx);
     if (retval) return retval;
 
-    retval = buildObjectMeta(d->omtype,extend,extend_len,&object_meta);
+    retval = buildObjectMeta(object_type,extend,extend_len,&object_meta);
     if (retval) return SWAP_ERR_META_DECODE_FAILED;
 
-    swapDataSetObjectMeta(d,object_meta);
+    swapDataSetColdObjectMeta(d,object_meta/*moved*/);
     return retval;
+}
+
+void swapDataObjectMetaModifyLen(swapData *d, int delta) {
+    objectMeta *object_meta = swapDataObjectMeta(d);
+    ssize_t olen = object_meta->len;
+    //TODO use inline version in swap.h
+    object_meta->len += delta;
+    serverLog(LL_WARNING, "[xxx] modifylen %ld => %ld", olen, (ssize_t)object_meta->len);
 }
 
 

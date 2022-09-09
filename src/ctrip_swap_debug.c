@@ -46,8 +46,8 @@ static sds getSwapObjectInfo(robj *o) {
 static sds getSwapMetaInfo(objectMeta *m) {
     if (m) {
         return sdscatprintf(sdsempty(),
-                "at=%p,len=%ld",
-                (void*)m, (ssize_t)m->len);
+                "at=%p,object_type=%d,len=%ld",
+                (void*)m, m->object_type,(ssize_t)m->len);
     } else {
         return sdsnew("<nil>");
     }
@@ -76,7 +76,6 @@ NULL
         robj *key = c->argv[2];
         robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
         objectMeta *meta = lookupMeta(db,key);
-        //FIXME handle code key
         if (!value) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
@@ -84,8 +83,8 @@ NULL
         sds value_info = getSwapObjectInfo(value);
         sds meta_info = getSwapMetaInfo(meta);
         sds info = sdscatprintf(sdsempty(),
-                "value: %s\nevict: %s\nmeta: %s",
-                value_info,"FIXME",meta_info);
+                "value: %s\nmeta: %s",
+                value_info,meta_info);
         addReplyVerbatim(c,info,sdslen(info),"txt");
         sdsfree(value_info);
         sdsfree(meta_info);
@@ -160,7 +159,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"rio-scan") && c->argc == 3) {
         RIO _rio, *rio = &_rio;
         sds prefix = sdsdup(c->argv[2]->ptr);
-        RIOInitScan(rio,DATA_CF,prefix,0);
+        RIOInitScan(rio,DATA_CF,prefix);
         doRIO(rio);
         addReplyArrayLen(c,rio->scan.numkeys);
         for (int i = 0; i < rio->scan.numkeys; i++) {

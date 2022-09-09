@@ -168,12 +168,11 @@ typedef struct objectMeta {
 extern objectMetaType lenObjectMetaType;
 extern objectMetaType listObjectMetaType;
 
-int buildObjectMeta(objectMetaType *omtype, const char *extend, size_t extlen, OUT objectMeta **pobject_meta);
+int buildObjectMeta(int object_type, const char *extend, size_t extlen, OUT objectMeta **pobject_meta);
 objectMeta *dupObjectMeta(objectMeta *object_meta);
 void freeObjectMeta(objectMeta *object_meta);
 
 objectMeta *createLenObjectMeta(int object_type, size_t len);
-objectMeta *createPtrObjectMeta(int object_type, void *ptr);
 sds encodeLenObjectMeta(struct objectMeta *object_meta);
 int decodeLenObjectMeta(struct objectMeta *object_meta, const char *extend, size_t extlen);
 int lenObjectMetaIsHot(struct objectMeta *object_meta, robj *value);
@@ -185,6 +184,7 @@ int dbDeleteMeta(redisDb *db, robj *key);
 typedef struct swapObjectMeta {
   objectMetaType *omtype;
   objectMeta *object_meta;
+  objectMeta *cold_meta;
   robj *value;
 } swapObjectMeta;
 
@@ -220,7 +220,9 @@ typedef struct swapData {
   robj *key;
   robj *value;
   long long expire;
-  objectMeta *object_meta; /* own */
+  objectMeta *object_meta; /* ref */
+  objectMeta *cold_meta; /* own, moved from exec */
+  objectMeta *new_meta; /* own */
   int object_type;
   unsigned propagate_expire:1;
   unsigned set_dirty:1;
@@ -272,6 +274,27 @@ static inline int swapDataIsHot(swapData *data) {
   initStaticSwapObjectMeta(som,data->omtype,data->object_meta,data->value);
   return swapObjectMetaIsHot(&som);
 }
+static inline objectMeta *swapDataObjectMeta(swapData *d) {
+    serverAssert(
+        !(d->object_meta && d->new_meta) || 
+        !(d->object_meta && d->cold_meta) ||
+        !(d->new_meta && d->cold_meta));
+
+    if (d->object_meta) return d->object_meta;
+    if (d->cold_meta) return d->cold_meta;
+    return d->new_meta;
+}
+static inline int swapDataPersisted(swapData *d) {
+  return d->object_meta || d->cold_meta;
+}
+
+void swapDataObjectMetaModifyLen(swapData *d, int delta);
+// static inline void swapDataObjectMetaModifyLen(swapData *d, int delta) {
+    // objectMeta *object_meta = swapDataObjectMeta(d);
+    // //TODO remove 
+    // int olen = object_meta->len;
+    // object_meta->len += delta;
+// }
 
 /* Debug msgs */
 #ifdef SWAP_DEBUG
@@ -327,7 +350,7 @@ typedef struct swapCtx {
 } swapCtx;
 
 swapCtx *swapCtxCreate(client *c, keyRequest *key_request, clientKeyRequestFinished finished);
-void swapCtxSetData(swapCtx *ctx, MOVE swapData *data, MOVE void *datactx);
+void swapCtxSetSwapData(swapCtx *ctx, MOVE swapData *data, MOVE void *datactx);
 void swapCtxFree(swapCtx *ctx);
 
 /* String */
@@ -348,8 +371,6 @@ typedef struct hashSwapData {
 typedef struct hashDataCtx {
 	int num;
 	robj **subkeys;
-	ssize_t meta_len_delta;
-	objectMeta *new_meta; /* own, will be moved to db.meta or abandoned */
 } hashDataCtx;
 
 int swapDataSetupHash(swapData *d, OUT void **datactx);
@@ -372,6 +393,7 @@ typedef struct swapRequest {
   keyRequest *key_request; /* key_request for meta swap request */
   int intention; /* intention for data swap request */
   uint32_t intention_flags;
+  swapCtx *swapCtx;
   swapData *data;
   void *datactx;
   robj *result;
@@ -385,12 +407,12 @@ typedef struct swapRequest {
 #endif
 } swapRequest;
 
-swapRequest *swapRequestNew(keyRequest *key_request, int intention, uint32_t intention_flags, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
+swapRequest *swapRequestNew(keyRequest *key_request, int intention, uint32_t intention_flags, swapCtx *swapCtx, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
 void swapRequestFree(swapRequest *req);
 int processSwapRequest(swapRequest *req);
 int finishSwapRequest(swapRequest *req);
-void submitSwapDataRequest(int mode, int intention, uint32_t intention_flags, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
-void submitSwapMetaRequest(int mode, keyRequest *key_request,swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
+void submitSwapDataRequest(int mode, int intention, uint32_t intention_flags, swapCtx *ctx, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
+void submitSwapMetaRequest(int mode, keyRequest *key_request, swapCtx *ctx, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
 
 /* Threads (encode/rio/decode/finish) */
 #define SWAP_THREADS_DEFAULT     4
@@ -457,7 +479,6 @@ typedef struct RIO {
 		struct {
       int cf;
 			sds prefix;
-      int limit;
 			int numkeys;
 			sds *rawkeys;
 			sds *rawvals;
@@ -476,7 +497,7 @@ void RIOInitPut(RIO *rio, int cf, sds rawkey, sds rawval);
 void RIOInitDel(RIO *rio, int cf, sds rawkey);
 void RIOInitWrite(RIO *rio, rocksdb_writebatch_t *wb);
 void RIOInitMultiGet(RIO *rio, int numkeys, int *cfs, sds *rawkeys);
-void RIOInitScan(RIO *rio, int cf, sds prefix, int limit);
+void RIOInitScan(RIO *rio, int cf, sds prefix);
 void RIOInitDeleteRange(RIO *rio, int cf, sds start_key, sds end_key);
 void RIODeinit(RIO *rio);
 

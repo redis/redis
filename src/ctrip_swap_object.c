@@ -41,44 +41,9 @@ int objectIsDirty(robj *o) {
     return o->dirty;
 }
 
-int buildObjectMeta(objectMetaType *omtype, const char *extend,
-        size_t extlen, OUT objectMeta **pobject_meta) {
-    objectMeta *object_meta;
-
-    if (omtype == NULL || omtype->decodeObjectMeta == NULL || extend == NULL) {
-        if (pobject_meta) *pobject_meta = NULL;
-        return 0;
-    }
-
-    object_meta = zmalloc(sizeof(objectMeta));
-    if (omtype->decodeObjectMeta(object_meta,extend,extlen)) {
-        zfree(object_meta);
-        if (pobject_meta) *pobject_meta = NULL;
-        return -1;
-    }
-
-    if (pobject_meta) *pobject_meta = object_meta;
-    return 0;
-}
-
-objectMeta *createLenObjectMeta(int object_type, size_t len) {
-	objectMeta *m = zmalloc(sizeof(objectMeta));
-    m->object_type = object_type;
-    m->reserved = 0;
-	m->len = len;
-	return m;
-}
-
-objectMeta *createPtrObjectMeta(int object_type, void *ptr) {
-	objectMeta *m = zmalloc(sizeof(objectMeta));
-    m->object_type = object_type;
-	m->ptr = (unsigned long)ptr;
-	return m;
-}
-
-static inline objectMetaType *getObjectMetaType(objectMeta *object_meta) {
+static inline objectMetaType *getObjectMetaType(int object_type) {
     objectMetaType *omtype = NULL;
-    switch (object_meta->object_type) {
+    switch (object_type) {
     case OBJ_STRING:
         omtype = NULL;
         break;
@@ -96,10 +61,17 @@ static inline objectMetaType *getObjectMetaType(objectMeta *object_meta) {
     return omtype;
 }
 
+objectMeta *createObjectMeta(int object_type) {
+	objectMeta *m = zmalloc(sizeof(objectMeta));
+    m->object_type = object_type;
+    m->reserved = 0;
+    return m;
+}
+
 void freeObjectMeta(objectMeta *object_meta) {
     objectMetaType *omtype;
     if (object_meta == NULL) return;
-    omtype = getObjectMetaType(object_meta);
+    omtype = getObjectMetaType(object_meta->object_type);
     if (omtype != NULL && omtype->free) omtype->free(object_meta);
     zfree(object_meta);
 }
@@ -108,15 +80,44 @@ objectMeta *dupObjectMeta(objectMeta *object_meta) {
     objectMeta *dup_meta;
     objectMetaType *omtype;
     if (object_meta == NULL) return NULL;
-    omtype = getObjectMetaType(object_meta);
+    omtype = getObjectMetaType(object_meta->object_type);
     dup_meta = zmalloc(sizeof(objectMeta));
     memcpy(dup_meta,object_meta,sizeof(objectMeta));
     if (omtype != NULL && omtype->duplicate) omtype->duplicate(dup_meta,object_meta);
     return dup_meta;
 }
 
+int buildObjectMeta(int object_type, const char *extend,
+        size_t extlen, OUT objectMeta **pobject_meta) {
+    objectMeta *object_meta;
+    objectMetaType *omtype = getObjectMetaType(object_type);
+
+    if (omtype == NULL || omtype->decodeObjectMeta == NULL || extend == NULL) {
+        if (pobject_meta) *pobject_meta = NULL;
+        return 0;
+    }
+
+    if (pobject_meta == NULL) return 0;
+
+    object_meta = createObjectMeta(object_type);
+    if (omtype->decodeObjectMeta(object_meta,extend,extlen)) {
+        zfree(object_meta);
+        *pobject_meta = NULL;
+        return -1;
+    }
+
+    *pobject_meta = object_meta;
+    return 0;
+}
+
+objectMeta *createLenObjectMeta(int object_type, size_t len) {
+    objectMeta *m = createObjectMeta(object_type);
+	m->len = len;
+	return m;
+}
+
 sds encodeLenObjectMeta(struct objectMeta *object_meta) {
-    return rocksEncodeObjectMetaLen(object_meta->len);
+    return object_meta ? rocksEncodeObjectMetaLen(object_meta->len) : NULL;
 }
 
 int decodeLenObjectMeta(struct objectMeta *object_meta, const char *extend, size_t extlen) {
@@ -139,6 +140,7 @@ objectMetaType lenObjectMetaType = {
     .free = NULL,
     .duplicate = NULL,
 };
+
 
 /* Note that db.meta is a satellite dict just like db.expire. */ 
 /* Db->meta */
