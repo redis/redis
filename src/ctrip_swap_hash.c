@@ -29,7 +29,8 @@
 #include "ctrip_swap.h"
 
 static void createFakeHashForDeleteIfCold(swapData *data) {
-	if (data->value == NULL) {
+	if (swapDataIsCold(data)) {
+        /* empty hash allowed */
 		dbAdd(data->db,data->key,createHashObject());
 	}
 }

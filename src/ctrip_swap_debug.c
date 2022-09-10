@@ -30,6 +30,15 @@
 
 int doRIO(RIO *rio);
 
+static sds debugRioGet(int cf, sds rawkey) {
+    sds rawval;
+    RIO _rio, *rio = &_rio;
+    RIOInitGet(rio,cf,rawkey);
+    doRIO(rio);
+    rawval = rio->get.rawval;
+    return rawval;
+}
+
 static sds getSwapObjectInfo(robj *o) {
     if (o) {
         return sdscatprintf(sdsempty(),
@@ -43,25 +52,31 @@ static sds getSwapObjectInfo(robj *o) {
     }
 }
 
-static sds getSwapMetaInfo(objectMeta *m) {
+static sds getSwapMetaInfo(int object_type, long long expire, objectMeta *m) {
+    if (object_type == -1) return sdsnew("<nil>");
+    sds info = sdscatprintf(sdsempty(),"object_type=%d,expire=%lld",
+            object_type,expire);
     if (m) {
-        return sdscatprintf(sdsempty(),
-                "at=%p,object_type=%d,len=%ld",
-                (void*)m, m->object_type,(ssize_t)m->len);
+        info = sdscatprintf(info, ",at=%p,len=%ld",(void*)m,(ssize_t)m->len);
     } else {
-        return sdsnew("<nil>");
+        info = sdscatprintf(info, ",at=<nil>");
     }
+    return info;
 }
 
 void swapCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "OBJECT <key>",
-"    Show swap info about `key` and assosiated value.",
-"ENCODE-KEY <type:K/H/h/...> <key>|<version key subkey>",
-"    Encode rocksdb key or subkey.",
-"DECODE-KEY <rawkey>",
-"    Decode rocksdb rawkey.",
+"    Show info about `key` and assosiated value.",
+"ENCODE-META-KEY <key>",
+"    Encode meta key.",
+"DECODE-META-KEY <rawkey>",
+"    Decode meta key.",
+"ENCODE-DATA-KEY <key>",
+"    Encode data key.",
+"DECODE-DATA-KEY <rawkey>",
+"    Decode data key.",
 "RIO-GET <rawkey> <rawkey> ...",
 "    Get raw value from rocksdb.",
 "RIO-SCAN <prefix>",
@@ -75,86 +90,87 @@ NULL
         redisDb *db = c->db;
         robj *key = c->argv[2];
         robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-        objectMeta *meta = lookupMeta(db,key);
-        if (!value) {
+        objectMeta *hot_meta = lookupMeta(db,key), *cold_meta = NULL;
+        long long hot_expire = getExpire(db,key), cold_expire = -1;
+        sds meta_rawkey = NULL, meta_rawval = NULL;
+        int hot_object_type = hot_meta ? hot_meta->object_type : -1;
+        int cold_object_type = -1;
+
+        meta_rawkey = rocksEncodeMetaKey(db,key->ptr);
+        meta_rawval = debugRioGet(META_CF,meta_rawkey);
+        if (meta_rawval) {
+            const char *extend;
+            size_t extlen;
+            rocksDecodeMetaVal(meta_rawval,sdslen(meta_rawval),
+                    &cold_object_type,&cold_expire,&extend,&extlen);
+            if (extend) {
+                buildObjectMeta(cold_object_type,extend,extlen,&cold_meta);
+            }
+        }
+
+        if (!value && !hot_meta && !meta_rawval) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
+
         sds value_info = getSwapObjectInfo(value);
-        sds meta_info = getSwapMetaInfo(meta);
+        sds hot_meta_info = getSwapMetaInfo(hot_object_type,hot_expire,hot_meta);
+        sds cold_meta_info = getSwapMetaInfo(cold_object_type,cold_expire,cold_meta);
         sds info = sdscatprintf(sdsempty(),
-                "value: %s\nmeta: %s",
-                value_info,meta_info);
+                "value: %s\nhot_meta: %s\ncold_meta: %s\n",
+                value_info,hot_meta_info,cold_meta_info);
         addReplyVerbatim(c,info,sdslen(info),"txt");
         sdsfree(value_info);
-        sdsfree(meta_info);
+        sdsfree(hot_meta_info);
+        sdsfree(cold_meta_info);
         sdsfree(info);
-    } else if (!strcasecmp(c->argv[1]->ptr,"encode-key") && c->argc >= 4) {
-        sds typesds = c->argv[2]->ptr;
-        char type = typesds[0];
-        long long version;
-        sds rawkey = NULL;
-        if ((sdslen(typesds)) != 1) {
-            addReplyError(c,"Key type invalid");
-            return;
-        } else if (type >= 'A' && type <= 'Z' && c->argc == 4) {
-            //TODO FIXME
-            /* rawkey = rocksEncodeKey(type, c->argv[3]->ptr); */
-        } else if (type >= 'a' && type <= 'z' && c->argc == 6 &&
-                isSdsRepresentableAsLongLong(c->argv[3]->ptr,&version) == C_OK) {
-            //TODO FIXME
-            //rawkey = rocksEncodeSubkey(type, (uint64_t)version, (sds)c->argv[4]->ptr, (sds)c->argv[5]->ptr);
-        } else {
-            addReply(c, shared.syntaxerr);
-            return;
-        }
-        addReplyBulkSds(c,rawkey);
-    } else if (!strcasecmp(c->argv[1]->ptr,"decode-key") && c->argc == 3) {
-        sds raw = c->argv[2]->ptr;
-        const char *key = NULL, *sub = NULL;
-        size_t klen = 0, slen = 0;
-        uint64_t version = 0;
-        //char type;
-        if (sdslen(raw) < 1) {
-            addReplyError(c, "Invalid raw key.");
-            return;
-        } else if (raw[0] >= 'A' && raw[0] <= 'Z') {
-            /* if ((type = rocksDecodeKey(raw,sdslen(raw),&key,&klen)) < 0) { */
-                /* addReplyError(c, "Invalid raw key."); */
-                /* return; */
-            /* } */
-        } else if (raw[0] >= 'a' && raw[0] <= 'z') {
-            /* if ((type = rocksDecodeSubkey(raw,sdslen(raw),&version, */
-                            /* &key,&klen,&sub,&slen)) < 0) { */
-                /* addReplyError(c, "Invalid raw key."); */
-                /* return; */
-            /* } */
-        } else {
-            addReplyError(c, "Invalid raw key.");
-            return;
-        }
+        if (meta_rawkey) sdsfree(meta_rawkey);
+        if (meta_rawval) sdsfree(meta_rawval);
+        if (cold_meta) freeObjectMeta(cold_meta);
+    } else if (!strcasecmp(c->argv[1]->ptr,"encode-meta-key") && c->argc == 3) {
+        addReplyBulkSds(c,rocksEncodeMetaKey(c->db,c->argv[2]->ptr));
+    } else if (!strcasecmp(c->argv[1]->ptr,"decode-meta-key") && c->argc == 3) {
+        int dbid, retval;
+        sds rawkey = c->argv[2]->ptr;
+        const char *key;
+        size_t keylen;
 
-        addReplyArrayLen(c,4);
-        addReplyBulkCBuffer(c,raw,1);
-        addReplyBulkLongLong(c,version);
-        addReplyBulkCBuffer(c,key,klen);
-        addReplyBulkCBuffer(c,sub,slen);
+        retval = rocksDecodeMetaKey(rawkey,sdslen(rawkey),&dbid,&key,&keylen);
+        if (retval) {
+            addReplyError(c,"invalid meta key");
+        } else {
+            addReplyArrayLen(c,2);
+            addReplyBulkLongLong(c,dbid);
+            addReplyBulkCBuffer(c,key,keylen);
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr,"encode-data-key") && c->argc == 4) {
+        addReplyBulkSds(c,rocksEncodeDataKey(c->db,c->argv[2]->ptr,c->argv[3]->ptr));
+    } else if (!strcasecmp(c->argv[1]->ptr,"decode-data-key") && c->argc == 3) {
+        int dbid, retval;
+        sds rawkey = c->argv[2]->ptr;
+        const char *key, *subkey;
+        size_t keylen, sublen;
+
+        retval = rocksDecodeDataKey(rawkey,sdslen(rawkey),
+                &dbid,&key,&keylen,&subkey,&sublen);
+        if (retval) {
+            addReplyError(c,"invalid data key");
+        } else {
+            addReplyArrayLen(c,3);
+            addReplyBulkLongLong(c,dbid);
+            addReplyBulkCBuffer(c,key,keylen);
+            addReplyBulkCBuffer(c,subkey,sublen);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"rio-get") && c->argc >= 3) {
-        RIO _rio, *rio = &_rio;
-        sds rawkey, rawval;
-
         addReplyArrayLen(c, c->argc-2);
         for (int i = 2; i < c->argc; i++) {
-            rawkey = sdsdup(c->argv[i]->ptr);
-            RIOInitGet(rio,DATA_CF,rawkey);
-            doRIO(rio);
-            rawval = rio->get.rawval;
+            sds rawval = debugRioGet(DATA_CF,c->argv[i]->ptr);
             if (rawval == NULL) {
                 addReplyNull(c);
             } else {
                 addReplyBulkSds(c,sdsdup(rawval));
             }
-            RIODeinit(rio);
+            sdsfree(rawval);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"rio-scan") && c->argc == 3) {
         RIO _rio, *rio = &_rio;

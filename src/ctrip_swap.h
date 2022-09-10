@@ -285,7 +285,7 @@ static inline objectMeta *swapDataObjectMeta(swapData *d) {
     return d->new_meta;
 }
 static inline int swapDataPersisted(swapData *d) {
-  return d->object_meta || d->cold_meta;
+    return d->object_meta || d->cold_meta;
 }
 
 void swapDataObjectMetaModifyLen(swapData *d, int delta);
