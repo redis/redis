@@ -83,6 +83,7 @@ typedef struct registerFunctionArgs {
 static void luaEngineLoadHook(lua_State *lua, lua_Debug *ar) {
     UNUSED(ar);
     loadCtx *load_ctx = luaGetFromRegistry(lua, REGISTRY_LOAD_CTX_NAME);
+    serverAssert(load_ctx); /* Only supported inside script invocation */
     uint64_t duration = elapsedMs(load_ctx->start_time);
     if (duration > LOAD_TIMEOUT_MS) {
         lua_sethook(lua, luaEngineLoadHook, LUA_MASKLINE, 0);

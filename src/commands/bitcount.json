@@ -45,7 +45,7 @@
                 "key_spec_index": 0
             },
             {
-                "name": "index",
+                "name": "range",
                 "type": "block",
                 "optional": true,
                 "arguments": [
@@ -58,7 +58,7 @@
                         "type": "integer"
                     },
                     {
-                        "name": "index_unit",
+                        "name": "unit",
                         "type": "oneof",
                         "optional": true,
                         "since": "7.0.0",

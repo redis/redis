@@ -33,6 +33,7 @@
 #include "cluster.h"
 #include "bio.h"
 #include "functions.h"
+#include "connection.h"
 
 #include <memory.h>
 #include <sys/time.h>
@@ -68,6 +69,13 @@ void updateClientsSelectDB();
 int RDBGeneratedByReplication = 0;
 
 /* --------------------------- Utility functions ---------------------------- */
+static ConnectionType *connTypeOfReplication() {
+    if (server.tls_replication) {
+        return connectionTypeTls();
+    }
+
+    return connectionTypeTcp();
+}
 
 /* Return the pointer to a string representing the slave ip:listening_port
  * pair. Mostly useful for logging, since we want to log a slave using its
@@ -80,11 +88,11 @@ char *replicationGetSlaveName(client *c) {
     ip[0] = '\0';
     buf[0] = '\0';
     if (c->slave_addr ||
-        connPeerToString(c->conn,ip,sizeof(ip),NULL) != -1)
+        connAddrPeerName(c->conn,ip,sizeof(ip),NULL) != -1)
     {
         char *addr = c->slave_addr ? c->slave_addr : ip;
         if (c->slave_listening_port)
-            anetFormatAddr(buf,sizeof(buf),addr,c->slave_listening_port);
+            formatAddr(buf,sizeof(buf),addr,c->slave_listening_port);
         else
             snprintf(buf,sizeof(buf),"%s:<unknown-replica-port>",addr);
     } else {
@@ -434,7 +442,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     char llstr[LONG_STR_SIZE];
 
     /* In case we propagate a command that doesn't touch keys (PING, REPLCONF) we
-     * pass dbid=server.slaveseldb which may be -1. */
+     * pass dbid=-1 that indicate there is no need to replicate `select` command. */
     serverAssert(dictid == -1 || (dictid >= 0 && dictid < server.dbnum));
 
     /* If the instance is not a top level master, return ASAP: we'll just proxy
@@ -456,7 +464,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     prepareReplicasToWrite();
 
     /* Send SELECT command to every slave if needed. */
-    if (server.slaveseldb != dictid) {
+    if (dictid != -1 && server.slaveseldb != dictid) {
         robj *selectcmd;
 
         /* For a few DBs we have pre-computed SELECT command. */
@@ -2546,7 +2554,7 @@ void readSyncBulkPayload(connection *conn) {
             /* RDB loading failed. */
             serverLog(LL_WARNING,
                       "Failed trying to load the MASTER synchronization DB "
-                      "from socket: %s", strerror(errno));
+                      "from socket, check server logs.");
             loadingFailed = 1;
         } else if (usemark) {
             /* Verify the end mark is correct. */
@@ -2655,7 +2663,7 @@ void readSyncBulkPayload(connection *conn) {
         if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != RDB_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "
-                "DB from disk: %s", strerror(errno));
+                "DB from disk, check server logs.");
             cancelReplicationHandshake(1);
             if (server.rdb_del_sync_files && allPersistenceDisabled()) {
                 serverLog(LL_NOTICE,"Removing the RDB file obtained from "
@@ -3388,7 +3396,7 @@ write_error: /* Handle sendCommand() errors. */
 }
 
 int connectWithMaster(void) {
-    server.repl_transfer_s = server.tls_replication ? connCreateTLS() : connCreateSocket();
+    server.repl_transfer_s = connCreate(connTypeOfReplication());
     if (connConnect(server.repl_transfer_s, server.masterhost, server.masterport,
                 server.bind_source_addr, syncWithMaster) == C_ERR) {
         serverLog(LL_WARNING,"Unable to connect to MASTER: %s",
@@ -3695,7 +3703,7 @@ void roleCommand(client *c) {
             char ip[NET_IP_STR_LEN], *slaveaddr = slave->slave_addr;
 
             if (!slaveaddr) {
-                if (connPeerToString(slave->conn,ip,sizeof(ip),NULL) == -1)
+                if (connAddrPeerName(slave->conn,ip,sizeof(ip),NULL) == -1)
                     continue;
                 slaveaddr = ip;
             }
@@ -4154,7 +4162,7 @@ void replicationCron(void) {
 
         if (!manual_failover_in_progress) {
             ping_argv[0] = shared.ping;
-            replicationFeedSlaves(server.slaves, server.slaveseldb,
+            replicationFeedSlaves(server.slaves, -1,
                 ping_argv, 1);
         }
     }
@@ -4356,7 +4364,7 @@ static client *findReplica(char *host, int port) {
         char ip[NET_IP_STR_LEN], *replicaip = replica->slave_addr;
 
         if (!replicaip) {
-            if (connPeerToString(replica->conn, ip, sizeof(ip), NULL) == -1)
+            if (connAddrPeerName(replica->conn, ip, sizeof(ip), NULL) == -1)
                 continue;
             replicaip = ip;
         }
@@ -4587,7 +4595,7 @@ void updateFailoverStatus(void) {
                 char ip[NET_IP_STR_LEN], *replicaaddr = replica->slave_addr;
 
                 if (!replicaaddr) {
-                    if (connPeerToString(replica->conn,ip,sizeof(ip),NULL) == -1)
+                    if (connAddrPeerName(replica->conn,ip,sizeof(ip),NULL) == -1)
                         continue;
                     replicaaddr = ip;
                 }

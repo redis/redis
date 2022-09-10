@@ -489,7 +489,7 @@ void debugCommand(client *c) {
 "    In case NEVER is provided the last observed peak will never be reset",
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
-"    Enable or disable the replay buffer resize cron job",
+"    Enable or disable the reply buffer resize cron job",
 NULL
         };
         addReplyHelp(c, help);
@@ -568,7 +568,7 @@ NULL
         int ret = rdbLoad(server.rdb_filename,NULL,flags);
         unprotectClient(c);
         if (ret != RDB_OK) {
-            addReplyError(c,"Error trying to load the RDB dump");
+            addReplyError(c,"Error trying to load the RDB dump, check server logs.");
             return;
         }
         serverLog(LL_WARNING,"DB reloaded by DEBUG RELOAD");
@@ -852,7 +852,7 @@ NULL
         server.aof_flush_sleep = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc >= 3) {
-        replicationFeedSlaves(server.slaves, server.slaveseldb,
+        replicationFeedSlaves(server.slaves, -1,
                 c->argv + 2, c->argc - 2);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"error") && c->argc == 3) {

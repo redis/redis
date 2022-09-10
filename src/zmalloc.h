@@ -96,22 +96,22 @@
 #define HAVE_DEFRAG
 #endif
 
-void *zmalloc(size_t size);
-void *zcalloc(size_t size);
-void *zcalloc_num(size_t num, size_t size);
-void *zrealloc(void *ptr, size_t size);
-void *ztrymalloc(size_t size);
-void *ztrycalloc(size_t size);
-void *ztryrealloc(void *ptr, size_t size);
+__attribute__((malloc)) void *zmalloc(size_t size);
+__attribute__((malloc)) void *zcalloc(size_t size);
+__attribute__((malloc)) __attribute((alloc_size(1,2))) void *zcalloc_num(size_t num, size_t size);
+__attribute__((alloc_size(2))) void *zrealloc(void *ptr, size_t size);
+__attribute__((malloc)) void *ztrymalloc(size_t size);
+__attribute__((malloc)) void *ztrycalloc(size_t size);
+__attribute__((alloc_size(2))) void *ztryrealloc(void *ptr, size_t size);
 void zfree(void *ptr);
-void *zmalloc_usable(size_t size, size_t *usable);
-void *zcalloc_usable(size_t size, size_t *usable);
-void *zrealloc_usable(void *ptr, size_t size, size_t *usable);
-void *ztrymalloc_usable(size_t size, size_t *usable);
-void *ztrycalloc_usable(size_t size, size_t *usable);
-void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable);
+__attribute__((malloc)) __attribute__((alloc_size(1))) void *zmalloc_usable(size_t size, size_t *usable);
+__attribute__((malloc)) __attribute__((alloc_size(1))) void *zcalloc_usable(size_t size, size_t *usable);
+__attribute__((alloc_size(2))) void *zrealloc_usable(void *ptr, size_t size, size_t *usable);
+__attribute__((malloc)) __attribute__((alloc_size(1))) void *ztrymalloc_usable(size_t size, size_t *usable);
+__attribute__((malloc)) __attribute__((alloc_size(1))) void *ztrycalloc_usable(size_t size, size_t *usable);
+__attribute__((alloc_size(2))) void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable);
 void zfree_usable(void *ptr, size_t *usable);
-char *zstrdup(const char *s);
+__attribute__((malloc)) char *zstrdup(const char *s);
 size_t zmalloc_used_memory(void);
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));
 size_t zmalloc_get_rss(void);
@@ -126,7 +126,7 @@ void zmadvise_dontneed(void *ptr);
 
 #ifdef HAVE_DEFRAG
 void zfree_no_tcache(void *ptr);
-void *zmalloc_no_tcache(size_t size);
+__attribute__((malloc)) void *zmalloc_no_tcache(size_t size);
 #endif
 
 #ifndef HAVE_MALLOC_SIZE
