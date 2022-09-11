@@ -2859,21 +2859,9 @@ static int setConfigBindOption(standardConfig *config, sds* argv, int argc, cons
 static int setConfigReplicaOfOption(standardConfig *config, sds* argv, int argc, const char **err) {
     UNUSED(config);
 
-    if (argc > 3) {
+    if (argc != 2) {
         *err = "wrong number of arguments";
         return 0;
-    }
-
-    if (argc == 3) {
-        if (!strcasecmp(argv[2], "rdb")) {
-            server.repl_full_sync_type = 0;
-        } else if (!strcasecmp(argv[2], "aof")) {
-            if (!server.aof_enabled || server.aof_state == AOF_OFF) {
-                *err = "Cannot use aof to sync: aof is off";
-                return 0;
-            }
-            server.repl_full_sync_type = 1;
-        }
     }
 
     sdsfree(server.masterhost);

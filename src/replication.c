@@ -2918,11 +2918,9 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
          * progress then send the failover argument to the replica to cause it
          * to become a master */
         if (server.failover_state == FAILOVER_IN_PROGRESS) {
-            reply = sendCommand(conn, "PSYNC", psync_replid, psync_offset, server.repl_full_sync_type ? "aof" : "rdb",
-                                "FAILOVER", NULL);
+            reply = sendCommand(conn,"PSYNC",psync_replid,psync_offset,"FAILOVER",NULL);
         } else {
-            reply = sendCommand(conn, "PSYNC", psync_replid, psync_offset, server.repl_full_sync_type ? "aof" : "rdb",
-                                NULL);
+            reply = sendCommand(conn,"PSYNC",psync_replid,psync_offset,NULL);
         }
 
         if (reply != NULL) {
@@ -2952,16 +2950,30 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
     connSetReadHandler(conn, NULL);
 
-    if (!strncmp(reply,"+FULLRESYNC",11)) {
+    if (!strncmp(reply, "+FULLRESYNC", 11)) {
         char *replid = NULL, *offset = NULL;
-
-        /* FULL RESYNC, parse the reply in order to extract the replid
-         * and the replication offset. */
-        replid = strchr(reply,' ');
-        if (replid) {
-            replid++;
-            offset = strchr(replid,' ');
-            if (offset) offset++;
+        if (!strncmp(reply, "+FULLRESYNC aof_sync", 20)) {
+            server.repl_full_sync_type = 1;
+            char *aof_tmp = strchr(reply, ' ');
+            if (aof_tmp) {
+                aof_tmp++;
+                replid = strchr(aof_tmp, ' ');
+                /* FULL RESYNC, parse the reply in order to extract the replid
+                 * and the replication offset. */
+                if (replid) {
+                    replid++;
+                    offset = strchr(replid, ' ');
+                    if (offset) offset++;
+                }
+            }
+        } else {
+            server.repl_full_sync_type = 0;
+            replid = strchr(reply, ' ');
+            if (replid) {
+                replid++;
+                offset = strchr(replid, ' ');
+                if (offset) offset++;
+            }
         }
         if (!replid || !offset || (offset-replid-1) != CONFIG_RUN_ID_SIZE) {
             serverLog(LL_WARNING,
@@ -3310,14 +3322,12 @@ void syncWithMaster(connection *conn) {
      * and the server.master_replid and master_initial_offset are
      * already populated. */
     if (psync_result == PSYNC_NOT_SUPPORTED) {
-        serverLog(LL_NOTICE, "Retrying with SYNC...");
-        err = sendCommand(conn, "SYNC",
-                          server.repl_full_sync_type == 0 ? "rbd" : "aof");
-        if (err) {
-            serverLog(LL_WARNING, "I/O error writing to MASTER: %s",
+        serverLog(LL_NOTICE,"Retrying with SYNC...");
+        if (connSyncWrite(conn,"SYNC\r\n",6,server.repl_syncio_timeout*1000) == -1) {
+            serverLog(LL_WARNING,"I/O error writing to MASTER: %s",
                       strerror(errno));
+            goto error;
         }
-        goto error;
     }
 
     if (server.repl_full_sync_type) {
@@ -3665,19 +3675,6 @@ void replicaofCommand(client *c) {
             addReplySds(c,sdsnew("+OK Already connected to specified "
                                  "master\r\n"));
             return;
-        }
-
-        if (c->argc > 3) {
-            if (!strcasecmp(c->argv[3]->ptr, "rdb")) {
-                server.repl_full_sync_type = 0;
-            } else if (!strcasecmp(c->argv[3]->ptr, "aof")) {
-                if (!server.aof_enabled || server.aof_state == AOF_OFF) {
-                    serverLog(LL_WARNING, "Cannot use aof to sync: aof is off");
-                    addReplyError(c, "Cannot use aof to sync: aof is off");
-                    return;
-                }
-                server.repl_full_sync_type = 1;
-            }
         }
 
         /* There was no previous master or the user specified a different one,
