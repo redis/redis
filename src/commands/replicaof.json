@@ -4,7 +4,7 @@
         "complexity": "O(1)",
         "group": "server",
         "since": "5.0.0",
-        "arity": -3,
+        "arity": 3,
         "function": "replicaofCommand",
         "command_flags": [
             "NO_ASYNC_LOADING",
@@ -20,22 +20,6 @@
             {
                 "name": "port",
                 "type": "integer"
-            },
-            {
-                "name": "type",
-                "type": "oneof",
-                "arguments": [
-                    {
-                        "name": "aof",
-                        "type": "pure-token",
-                        "token": "AOF"
-                    },
-                    {
-                        "name": "rdb",
-                        "type": "pure-token",
-                        "token": "RDB"
-                    }
-                ]
             }
         ]
     }
