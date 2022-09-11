@@ -63,6 +63,8 @@ void cleanupAOFReplication(client *c);
 void initServerDB(void);
 void updateClientsSelectDB();
 
+int aofSyncBetterRdb();
+
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
  * the instance is configured to have no persistence. */
@@ -719,14 +721,23 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset, int isAo
     /* Don't send this reply to slaves that approached us with
      * the old SYNC command. */
     if (!(slave->flags & CLIENT_PRE_PSYNC)) {
-        buflen = snprintf(buf,sizeof(buf),"+FULLRESYNC %s %lld\r\n",
-                          server.replid,offset);
-        if (connWrite(slave->conn,buf,buflen) != buflen) {
+        if (slave->slave_capa & SLAVE_CAPA_AOFSYNC && aofSyncBetterRdb()) {
+            buflen = snprintf(buf, sizeof(buf), "+FULLRESYNC aof_sync %s %lld\r\n",
+                              server.replid, offset);
+        } else {
+            buflen = snprintf(buf, sizeof(buf), "+FULLRESYNC %s %lld\r\n",
+                              server.replid, offset);
+        }
+        if (connWrite(slave->conn, buf, buflen) != buflen) {
             freeClientAsync(slave);
             return C_ERR;
         }
     }
     return C_OK;
+}
+
+int aofSyncBetterRdb() {
+    return 0;
 }
 
 /* This function handles the PSYNC command from the point of view of a
