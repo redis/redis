@@ -187,8 +187,10 @@ void *rocksIterIOThreadMain(void *arg) {
                 accumulated_memory += meta_rklen+meta_rvlen;
                 rocksdb_iter_next(it->meta_iter);
             } else { /* DATA_CF */
-                iterResultInit(cur,cf,-1,sdsnewlen(data_rawkey,data_rklen),
-                        sdsnewlen(data_rawval+1,data_rvlen-1));
+                unsigned char rdbtype = data_rawval[0];
+                data_rawval++, data_rvlen--;
+                iterResultInit(cur,cf,rdbtype,sdsnewlen(data_rawkey,data_rklen),
+                        sdsnewlen(data_rawval,data_rvlen));
                 data_itered++;
                 accumulated_memory += data_rklen+data_rvlen;
                 rocksdb_iter_next(it->data_iter);

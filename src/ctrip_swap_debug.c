@@ -64,6 +64,17 @@ static sds getSwapMetaInfo(int object_type, long long expire, objectMeta *m) {
     return info;
 }
 
+static int getCfOrReply(client *c, robj *cf) {
+    if (!strcasecmp(cf->ptr,"meta")) {
+        return META_CF;
+    } else if (!strcasecmp(cf->ptr, "data")) {
+        return DATA_CF;
+    } else {
+        addReplyError(c,"invalid cf");
+        return -1;
+    }
+}
+
 void swapCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
@@ -77,9 +88,9 @@ void swapCommand(client *c) {
 "    Encode data key.",
 "DECODE-DATA-KEY <rawkey>",
 "    Decode data key.",
-"RIO-GET <rawkey> <rawkey> ...",
+"RIO-GET meta|data <rawkey> <rawkey> ...",
 "    Get raw value from rocksdb.",
-"RIO-SCAN <prefix>",
+"RIO-SCAN meta|data <prefix>",
 "    Scan rocksdb with prefix.",
 "RESET-STATS",
 "    Reset swap stats.",
@@ -161,10 +172,12 @@ NULL
             addReplyBulkCBuffer(c,key,keylen);
             addReplyBulkCBuffer(c,subkey,sublen);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"rio-get") && c->argc >= 3) {
-        addReplyArrayLen(c, c->argc-2);
-        for (int i = 2; i < c->argc; i++) {
-            sds rawval = debugRioGet(DATA_CF,c->argv[i]->ptr);
+    } else if (!strcasecmp(c->argv[1]->ptr,"rio-get") && c->argc >= 4) {
+        int cf;
+        addReplyArrayLen(c, c->argc-3);
+        if ((cf = getCfOrReply(c,c->argv[2])) < 0) return;
+        for (int i = 3; i < c->argc; i++) {
+            sds rawval = debugRioGet(cf,c->argv[i]->ptr);
             if (rawval == NULL) {
                 addReplyNull(c);
             } else {
@@ -172,10 +185,12 @@ NULL
             }
             sdsfree(rawval);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"rio-scan") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"rio-scan") && c->argc == 4) {
+        int cf;
         RIO _rio, *rio = &_rio;
-        sds prefix = sdsdup(c->argv[2]->ptr);
-        RIOInitScan(rio,DATA_CF,prefix);
+        if ((cf = getCfOrReply(c,c->argv[2])) < 0) return;
+        sds prefix = sdsdup(c->argv[3]->ptr);
+        RIOInitScan(rio,cf,prefix);
         doRIO(rio);
         addReplyArrayLen(c,rio->scan.numkeys);
         for (int i = 0; i < rio->scan.numkeys; i++) {
