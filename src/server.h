@@ -444,6 +444,7 @@ typedef enum {
 #define SLAVE_CAPA_NONE 0
 #define SLAVE_CAPA_EOF (1<<0)    /* Can parse the RDB EOF streaming format. */
 #define SLAVE_CAPA_PSYNC2 (1<<1) /* Supports PSYNC2 protocol. */
+#define SLAVE_CAPA_AOFSYNC (1<<2) /* Supports sync with aof. */
 
 /* Slave requirements */
 #define SLAVE_REQ_NONE 0
