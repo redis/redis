@@ -19,6 +19,7 @@
             {
                 "name": "offset",
                 "type": "integer"
-            }       ]
+            }
+        ]
     }
 }
