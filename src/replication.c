@@ -58,7 +58,7 @@ int persistAofManifest(aofManifest *am);
 int aofDelHistoryFiles(void);
 
 void cleanupTmpAof();
-void cleanupAOFReplication(client *c);
+void cleanupAofReplication(client *c);
 
 void initServerDB(void);
 void updateClientsSelectDB();
@@ -1069,7 +1069,7 @@ void sendAofManifestToSlaver(struct connection *conn) {
             slave->replstate = SLAVE_STATE_SEND_AOF_INCR;
         } else if (slave->repl_aof_incr_idx + 1 == (int) listLength(am->incr_aof_list)) {
             // final incr finished
-            cleanupAOFReplication(slave);
+            cleanupAofReplication(slave);
             connSetWriteHandler(slave->conn, NULL);
             replicaPutOnline(slave);
             replicaStartCommandStream(slave);
@@ -1078,7 +1078,7 @@ void sendAofManifestToSlaver(struct connection *conn) {
     }
 }
 
-void cleanupAOFReplication(client *c) {
+void cleanupAofReplication(client *c) {
     serverLog(LL_NOTICE, "Cleaning aof replication %s.", replicationGetSlaveName(c));
     if (c->replstate == SLAVE_STATE_SEND_AOF_BASE ||
             c->replstate == SLAVE_STATE_SEND_AOF_INCR) {

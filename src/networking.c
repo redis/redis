@@ -38,7 +38,7 @@
 
 static void setProtocolError(const char *errstr, client *c);
 int postponeClientRead(client *c);
-void cleanupAOFReplication(client *c);
+void cleanupAofReplication(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
@@ -1619,7 +1619,7 @@ void freeClient(client *c) {
 
             if (c->replstate == SLAVE_STATE_SEND_AOF_BASE ||
                     c->replstate == SLAVE_STATE_SEND_AOF_INCR) {
-                cleanupAOFReplication(c);
+                cleanupAofReplication(c);
             }
         }
 
