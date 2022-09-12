@@ -95,9 +95,13 @@ FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
 DEBUG=-g -ggdb
 
-# Linux ARM32 needs -latomic at linking time
+# Linux ARM needs -latomic at linking time
+ifneq (,$(filter aarch64 armv,$(uname_M)))
+	FINAL_LIBS+=-latomic
+else
 ifneq (,$(findstring armv,$(uname_M)))
-        FINAL_LIBS+=-latomic
+	FINAL_LIBS+=-latomic
+endif
 endif
 
 ifeq ($(uname_S),SunOS)
