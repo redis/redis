@@ -209,23 +209,6 @@ long rocksDecodeObjectMetaLen(const char *raw, size_t rawlen) {
     return *(long*)raw;
 }
 
-int keyIsHot(objectMeta *object_meta, robj *value) {
-    objectMetaType *type = NULL;
-    if (value == NULL) {
-        type = NULL;
-    } else if (value->type == OBJ_STRING) {
-        type = NULL;
-    } else if (value->type == OBJ_HASH) {
-        type = &hashObjectMetaType;
-    } else {
-        type = NULL;
-    }
-
-    swapObjectMeta som;
-    initStaticSwapObjectMeta(som,type,object_meta,value);
-    return swapObjectMetaIsHot(&som);
-}
-
 sds rocksCalculateNextKey(sds current) {
 	sds next = NULL;
 	size_t nextlen = sdslen(current);

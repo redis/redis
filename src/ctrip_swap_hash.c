@@ -628,6 +628,7 @@ void hashLoadStartZip(struct rdbKeyLoadData *load, rio *rdb, int *cf,
         return;
     }
     
+    load->total_fields = hashTypeLength(load->value);
     extend = rocksEncodeObjectMetaLen(load->total_fields);
     *cf = META_CF;
     *rawkey = rocksEncodeMetaKey(load->db,load->key);
@@ -719,13 +720,14 @@ int hashLoad(struct rdbKeyLoadData *load, rio *rdb, int *cf,
 }
 
 void hashLoadDeinit(struct rdbKeyLoadData *load) {
-    if (load->value) {
-        decrRefCount(load->value);
-        load->value = NULL;
-    }
     if (load->iter) {
         hashTypeReleaseIterator(load->iter);
         load->iter = NULL;
+    }
+
+    if (load->value) {
+        decrRefCount(load->value);
+        load->value = NULL;
     }
 }
 

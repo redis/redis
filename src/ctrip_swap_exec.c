@@ -918,14 +918,15 @@ int finishSwapRequest(swapRequest *req) {
          * is removed by swapdata. note that exec remove expire (satellite
          * dict) before swapout remove key from db.dict. */
         if ((req->intention_flags & SWAP_EXEC_OUT_META) &&
-                data->expire != -1) {
+                data->expire != -1 &&
+                !swapDataIsCold(data)) {
             removeExpire(data->db,data->key);
         }
         return swapDataSwapOut(data,datactx);
     case SWAP_DEL:
         /* rocks-meta already deleted, only need to delete object_meta
          * from keyspace. */
-        if (data->expire != -1) {
+        if (data->expire != -1 && !swapDataIsCold(data)) {
             removeExpire(data->db,data->key);
         }
 

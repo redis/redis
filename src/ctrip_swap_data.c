@@ -262,12 +262,12 @@ int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
     return retval;
 }
 
+//TODO use inline version in swap.h
 void swapDataObjectMetaModifyLen(swapData *d, int delta) {
     objectMeta *object_meta = swapDataObjectMeta(d);
-    ssize_t olen = object_meta->len;
-    //TODO use inline version in swap.h
     object_meta->len += delta;
-    serverLog(LL_WARNING, "[xxx] modifylen %ld => %ld", olen, (ssize_t)object_meta->len);
+    // ssize_t olen = object_meta->len;
+    // serverLog(LL_WARNING, "[xxx] modifylen %ld => %ld", olen, (ssize_t)object_meta->len);
 }
 
 

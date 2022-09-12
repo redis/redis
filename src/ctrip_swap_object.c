@@ -128,9 +128,8 @@ int decodeLenObjectMeta(struct objectMeta *object_meta, const char *extend, size
 }
 
 int lenObjectMetaIsHot(objectMeta *object_meta, robj *value) {
-    if (value == NULL) return 0;
-    if (object_meta && object_meta->len > 0) return 0;
-    return 1;
+    serverAssert(value && object_meta && object_meta->len >= 0);
+    return object_meta->len == 0;
 }
 
 objectMetaType lenObjectMetaType = {
@@ -141,6 +140,15 @@ objectMetaType lenObjectMetaType = {
     .duplicate = NULL,
 };
 
+int keyIsHot(objectMeta *object_meta, robj *value) {
+    swapObjectMeta som;
+    objectMetaType *type;
+    if (value == NULL) return 0;
+    if (object_meta == NULL) return 1;
+    type = getObjectMetaType(object_meta->object_type);
+    initStaticSwapObjectMeta(som,type,object_meta,value);
+    return swapObjectMetaIsHot(&som);
+}
 
 /* Note that db.meta is a satellite dict just like db.expire. */ 
 /* Db->meta */

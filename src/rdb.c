@@ -1294,13 +1294,17 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
-            objectMeta *om = lookupMeta(db,&key);
+            objectMeta *object_meta;
             long long expire;
 
             initStaticStringObject(key,keystr);
             /* cold or warm bighash will be saved later in rdbSaveRocks. */
-            if (!keyIsHot(om,o)) continue;
+            object_meta = lookupMeta(db,&key);
+            if (!keyIsHot(object_meta,o)) continue;
+
             expire = getExpire(db,&key);
+            // TODO remove
+            // serverLog(LL_WARNING, "[xxx] saveing %s as hot, len=(%lu)",keystr,hashTypeLength(o));
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
             rdbSaveProgress(rdb,rdbflags);
         }
