@@ -505,7 +505,7 @@ int checkAlreadyExpired(long long when) {
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
  * the argv[2] parameter. The basetime is always specified in milliseconds. */
 void expireGenericCommand(client *c, long long basetime, int unit) {
-    robj *key = c->argv[1], *param = c->argv[2];
+    robj *key = c->argv[1], *param = c->argv[2], *o;
     long long when; /* unix time in milliseconds when the key will expire. */
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
@@ -521,7 +521,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     }
 
     /* No key, return zero. */
-    if (lookupKeyWrite(c->db,key) == NULL) {
+    if ((o = lookupKeyWrite(c->db,key)) == NULL) {
         addReply(c,shared.czero);
         return;
     }
@@ -531,7 +531,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
         signalModifiedKey(c,c->db,key);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
+        notifyKeyspaceEventDirty(NOTIFY_GENERIC,"expire",key,c->db->id,o,NULL);
         server.dirty++;
         return;
     }
@@ -562,7 +562,6 @@ void ttlGenericCommand(client *c, int output_ms) {
     long long expire, ttl = -1;
 
     /* If the key does not exist at all, return -2 */
-    // FIXME handle cold key
     if (lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH) == NULL) {
         addReplyLongLong(c,-2);
         return;
@@ -593,11 +592,11 @@ void pttlCommand(client *c) {
 
 /* PERSIST key */
 void persistCommand(client *c) {
-    // FIXME handle cold key
-    if (lookupKeyWrite(c->db,c->argv[1])) {
+    robj *o;
+    if ((o = lookupKeyWrite(c->db,c->argv[1]))) {
         if (removeExpire(c->db,c->argv[1])) {
             signalModifiedKey(c,c->db,c->argv[1]);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
+            notifyKeyspaceEventDirty(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id,o,NULL);
             addReply(c,shared.cone);
             server.dirty++;
         } else {

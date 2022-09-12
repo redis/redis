@@ -1098,9 +1098,8 @@ void scanCommand(client *c) {
     scanGenericCommand(c,NULL,cursor);
 }
 
-//TODO fixme
 void dbsizeCommand(client *c) {
-    addReplyLongLong(c,dictSize(c->db->dict));
+    addReplyLongLong(c,dictSize(c->db->dict)+c->db->cold_keys);
 }
 
 void lastsaveCommand(client *c) {
@@ -1132,8 +1131,6 @@ char* getObjectTypeName(robj *o) {
 void typeCommand(client *c) {
     robj *o;
     o = lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH);
-    //FIXME handle cold key
-	// if (o == NULL) o = lookupEvictKey(c->db,c->argv[1]);
     addReplyStatus(c, getObjectTypeName(o));
 }
 

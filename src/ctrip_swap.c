@@ -401,6 +401,7 @@ int initTestRedisDb() {
         server.db[j].meta = dictCreate(&objectMetaDictType, NULL);
         server.db[j].hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
         server.db[j].evict_asap = listCreate();
+        server.db[j].cold_keys = 0;
         server.db[j].expires_cursor = 0;
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;

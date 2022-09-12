@@ -895,6 +895,30 @@ end:
     return retval;
 }
 
+static inline void swapDataTurnWarmOrHot(swapData *data) {
+    if (data->expire != -1)
+        setExpire(NULL,data->db,data->key,data->expire);
+    data->db->cold_keys--;
+}
+
+static inline void swapDataTurnCold(swapData *data) {
+    if (data->expire != -1)
+        removeExpire(data->db,data->key);
+    data->db->cold_keys++;
+}
+
+static inline void swapDataTurnDeleted(swapData *data) {
+    if (swapDataIsCold(data)) {
+        data->db->cold_keys--;
+    } else {
+        /* rocks-meta already deleted, only need to delete object_meta
+         * from keyspace. */
+        if (data->expire != -1) {
+            removeExpire(data->db,data->key);
+        }
+    }
+}
+
 /* Called by async-complete-queue or parallel-sync in server thread
  * to swap in/out/del data */
 int finishSwapRequest(swapRequest *req) {
@@ -904,12 +928,12 @@ int finishSwapRequest(swapRequest *req) {
     swapData *data = req->data;
     void *datactx = req->datactx;
 
-    switch(req->intention) {
+    switch (req->intention) {
     case SWAP_IN:
         ret = swapDataSwapIn(data,req->result,datactx);
         if (ret == 0) {
-            if (swapDataIsCold(data) && req->result && data->expire != -1) {
-                setExpire(NULL,data->db,data->key,data->expire);
+            if (swapDataIsCold(data) && req->result) {
+                swapDataTurnWarmOrHot(data);
             }
         }
         return ret;
@@ -918,18 +942,12 @@ int finishSwapRequest(swapRequest *req) {
          * is removed by swapdata. note that exec remove expire (satellite
          * dict) before swapout remove key from db.dict. */
         if ((req->intention_flags & SWAP_EXEC_OUT_META) &&
-                data->expire != -1 &&
                 !swapDataIsCold(data)) {
-            removeExpire(data->db,data->key);
+            swapDataTurnCold(data);
         }
         return swapDataSwapOut(data,datactx);
     case SWAP_DEL:
-        /* rocks-meta already deleted, only need to delete object_meta
-         * from keyspace. */
-        if (data->expire != -1 && !swapDataIsCold(data)) {
-            removeExpire(data->db,data->key);
-        }
-
+        swapDataTurnDeleted(data);
         ret = swapDataSwapDel(data,datactx,
                 req->intention_flags & SWAP_FIN_DEL_SKIP);
         return ret;

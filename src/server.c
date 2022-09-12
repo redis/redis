@@ -245,7 +245,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"exists",existsCommand,-2,
      "read-only fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,-1,1,0,0,0},
 
     {"setbit",setbitCommand,4,
      "write use-memory @bitmap",
@@ -679,19 +679,19 @@ struct redisCommand redisCommandTable[] = {
 
     {"expire",expireCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"expireat",expireatCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"pexpire",pexpireCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"pexpireat",pexpireatCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"keys",keysCommand,2,
      "read-only to-sort @keyspace @dangerous",
@@ -746,7 +746,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"type",typeCommand,2,
      "read-only fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"multi",multiCommand,1,
      "no-script fast ok-loading ok-stale @transaction",
@@ -794,19 +794,19 @@ struct redisCommand redisCommandTable[] = {
 
     {"ttl",ttlCommand,2,
      "read-only fast random @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"touch",touchCommand,-2,
      "read-only fast @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,-1,1,0,0,0},
 
     {"pttl",pttlCommand,2,
      "read-only fast random @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"persist",persistCommand,2,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"slaveof",replicaofCommand,3,
      "admin no-script ok-stale",
@@ -3315,6 +3315,7 @@ void initServer(void) {
         server.db[j].meta = dictCreate(&objectMetaDictType, NULL);
         server.db[j].hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
         server.db[j].evict_asap = listCreate();
+        server.db[j].cold_keys = 0;
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
@@ -5451,15 +5452,16 @@ sds genRedisInfoString(const char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
-            long long keys, vkeys, metas;
+            long long keys, evicts, vkeys, metas;
 
             keys = dictSize(server.db[j].dict);
+            evicts = server.db[j].cold_keys;
             vkeys = dictSize(server.db[j].expires);
             metas = dictSize(server.db[j].meta);
-            if (keys || vkeys) {
+            if (keys || vkeys || evicts) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,metas=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j,keys,metas,vkeys,server.db[j].avg_ttl);
+                    "db%d:keys=%lld,evicts=%lld,metas=%lld,expires=%lld,avg_ttl=%lld\r\n",
+                    j,keys,evicts,metas,vkeys,server.db[j].avg_ttl);
             }
         }
     }

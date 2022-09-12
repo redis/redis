@@ -744,6 +744,7 @@ typedef struct redisDb {
     dict *meta;                 /* meta for rocksdb subkeys of big object . */
     dict *hold_keys;            /* holded keys. */
     list *evict_asap;           /* keys to be evicted asap. */
+    long long cold_keys;        /* # of cold keys */
 } redisDb;
 
 /* Declare database backup that include redis main DBs and slots to keys map.
