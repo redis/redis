@@ -248,6 +248,13 @@ robj *createIntsetObject(void) {
     return o;
 }
 
+robj *createSmallSetObject(void) {
+    unsigned char *lp = lpNew(0);
+    robj *o = createObject(OBJ_SET, lp);
+    o->encoding = OBJ_ENCODING_LISTPACK;
+    return o;
+}
+
 robj *createHashObject(void) {
     unsigned char *zl = lpNew(0);
     robj *o = createObject(OBJ_HASH, zl);
@@ -307,6 +314,7 @@ void freeSetObject(robj *o) {
         dictRelease((dict*) o->ptr);
         break;
     case OBJ_ENCODING_INTSET:
+    case OBJ_ENCODING_LISTPACK:
         zfree(o->ptr);
         break;
     default:
