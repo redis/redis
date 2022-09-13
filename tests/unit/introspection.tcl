@@ -77,6 +77,46 @@ start_server {tags {"introspection"}} {
         $rd close
     }
 
+    test {MONITOR support filtering match and command} {
+        set rd [redis_deferring_client]
+        $rd monitor match *get* command get
+        $rd read ;# Discard the OK
+        r get foo
+        r set foo bar
+        r get foo
+        assert_match {*"get"*"foo"*} [$rd read]
+        assert_match {*"get"*"foo"*} [$rd read]
+        $rd close
+    }
+
+    test {MONITOR support filtering command and key} {
+        set rd [redis_deferring_client]
+        $rd monitor command get key foo
+        $rd read ;# Discard the OK
+        r get foo
+        r get foobar
+        r set foo bar
+        r get foo
+        assert_match {*"get"*"foo"*} [$rd read]
+        assert_match {*"get"*"foo"*} [$rd read]
+        $rd close
+    }
+
+    test {MONITOR support filtering addr,user and match} {
+        set rd [redis_deferring_client]
+        $rd monitor addr 127.0.0.1 user default match *foo*
+        $rd read ;# Discard the OK
+        r get foo
+        r set foo bar
+        r get foo
+        r lpush foolist 1 2 3 4
+        assert_match {*"get"*"foo"*} [$rd read]
+        assert_match {*"set"*"foo"*"bar"} [$rd read]
+        assert_match {*"get"*"foo"*} [$rd read]
+        assert_match {*"lpush"*"foolist"*} [$rd read]
+        $rd close
+    }
+
     test {MONITOR supports redacting command arguments} {
         set rd [redis_deferring_client]
         $rd monitor
