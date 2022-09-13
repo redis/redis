@@ -145,6 +145,7 @@ set ::cluster_mode 0
 set ::ignoreencoding 0
 set ::ignoredigest 0
 set ::large_memory 0
+set ::log_req_res 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -646,6 +647,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         lappend ::global_overrides $arg
         lappend ::global_overrides $arg2
         incr j 2
+    } elseif {$opt eq {--log-req-res}} {
+        set ::log_req_res 1
     } elseif {$opt eq {--skipfile}} {
         incr j
         set fp [open $arg r]

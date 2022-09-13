@@ -511,6 +511,12 @@ proc start_server {options {code undefined}} {
         dict unset config $directive
     }
 
+    if {$::log_req_res} {
+        dict set config "req-res-logfile" "stdout.reqres"
+    }
+
+    puts $config
+
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
     create_server_config_file $config_file $config $config_lines

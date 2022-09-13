@@ -136,7 +136,7 @@ client *createClient(connection *conn) {
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
-    c->resp = 2;
+    c->resp = server.client_default_resp;
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
@@ -1744,6 +1744,45 @@ client *lookupClientByID(uint64_t id) {
     return (c == raxNotFound) ? NULL : c;
 }
 
+void reqresAppendBuffer(void *buf, size_t len) {
+    serverLog(LL_WARNING, "GUYBE %s", server.req_res_logfile);
+    if (!server.req_res_logfile)
+        return;
+
+    FILE *fp = fopen(server.req_res_logfile, "a");
+    if (!fp) {
+        serverLog(LL_WARNING, "GUYBE cant open");
+        return;
+
+    }
+
+    fwrite(buf, len, 1, fp);
+    fflush(fp);
+    fclose(fp);
+}
+
+static void reqresAppendIov(struct iovec *iov, int iovcnt) {
+    for (int i = 0; i < iovcnt; i++)
+        reqresAppendBuffer(iov[i].iov_base, iov[i].iov_len);
+}
+
+static void reqresAppendArgv(client *c) {
+    robj **argv = c->original_argv ? c->original_argv : c->argv;
+    for (int i = 0; i < c->argc; i++) {
+        if (sdsEncodedObject(argv[i])) {
+            reqresAppendBuffer(argv[i]->ptr, sdslen(argv[i]->ptr));
+        } else if (argv[i]->encoding == OBJ_ENCODING_INT) {
+            char buf[32];
+            size_t len = ll2string(buf,sizeof(buf),(long)argv[i]->ptr);
+            reqresAppendBuffer(buf, len);
+        } else {
+            serverPanic("Wrong encoding in reqresAppendArgv()");
+        }
+        reqresAppendBuffer("\r\n", 2);
+    }
+    reqresAppendBuffer("__argv_end\r\n", 12);
+}
+
 /* This function should be called from _writeToClient when the reply list is not empty,
  * it gathers the scattered buffers from reply list and sends them away with connWritev.
  * If we write successfully, it returns C_OK, otherwise, C_ERR is returned,
@@ -1784,6 +1823,8 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
     if (iovcnt == 0) return C_OK;
     *nwritten = connWritev(c->conn, iov, iovcnt);
     if (*nwritten <= 0) return C_ERR;
+
+    reqresAppendIov(iov, iovcnt);
 
     /* Locate the new node which has leftover data and
      * release all nodes in front of it. */
@@ -1833,6 +1874,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             *nwritten = connWrite(c->conn, o->buf+c->ref_block_pos,
                                   o->used-c->ref_block_pos);
             if (*nwritten <= 0) return C_ERR;
+            reqresAppendBuffer(o->buf+c->ref_block_pos, o->used-c->ref_block_pos);
             c->ref_block_pos += *nwritten;
         }
 
@@ -1861,6 +1903,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
     } else if (c->bufpos > 0) {
         *nwritten = connWrite(c->conn, c->buf + c->sentlen, c->bufpos - c->sentlen);
         if (*nwritten <= 0) return C_ERR;
+        reqresAppendBuffer(c->buf + c->sentlen, c->bufpos - c->sentlen);
         c->sentlen += *nwritten;
 
         /* If the buffer was sent, set bufpos to zero to continue with
@@ -2362,6 +2405,7 @@ void commandProcessed(client *c) {
      *    since we have not applied the command. */
     if (c->flags & CLIENT_BLOCKED) return;
 
+    reqresAppendArgv(c);
     resetClient(c);
 
     long long prev_offset = c->reploff;
