@@ -2913,7 +2913,7 @@ int clientSetNameOrReply(client *c, robj *name) {
  *
  * Setting an empty string as custom data has the effect of unsetting the
  * currently set custom data: the client will remain without custom data.*/
-int clientSetCustomDataOrReply(client *c)
+int clientSetCustomDataOrReply(client *c, robj **argv, int argc)
 {
     if (c->custom_data != NULL)
     {
@@ -2925,9 +2925,9 @@ int clientSetCustomDataOrReply(client *c)
     {
         c->custom_data = dictCreate(&hashDictType);
 
-        for (int i = 2; i < c->argc; i++) {
-            robj *o1 = c->argv[i++];
-            robj *o2 = c->argv[i];
+        for (int i = 0; i < argc; i++) {
+            robj *o1 = argv[i++];
+            robj *o2 = argv[i];
             sds key = sdsdup(o1->ptr);
             sds val = sdsdup(o2->ptr);
             if (dictAdd(c->custom_data, key, val) != DICT_OK){
@@ -3237,7 +3237,7 @@ NULL
             addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"setcustomdata") && ((c->argc % 2) == 0)) {
         /* CLIENT SETCUSTOMDATA */
-        if (clientSetCustomDataOrReply(c) == C_OK)
+        if (clientSetCustomDataOrReply(c, c->argv+2, c->argc-2) == C_OK)
             addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
         /* CLIENT GETNAME */
@@ -3505,7 +3505,7 @@ NULL
     }
 }
 
-/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] ] */
+/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] [SETCUSTOMDATA <name>]] */
 void helloCommand(client *c) {
     long long ver = 0;
     int next_arg = 1;
@@ -3534,6 +3534,10 @@ void helloCommand(client *c) {
             }
             j += 2;
         } else if (!strcasecmp(opt,"SETNAME") && moreargs) {
+            if (clientSetNameOrReply(c, c->argv[j+1]) == C_ERR) return;
+            j++;
+        } else if (!strcasecmp(opt,"SETCUSTOMDATA") && ((moreargs % 2) == 0)) {
+            // if (clientSetCustomDataOrReply(c) == C_OK)
             if (clientSetNameOrReply(c, c->argv[j+1]) == C_ERR) return;
             j++;
         } else {
