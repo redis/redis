@@ -102,7 +102,7 @@ start_server {tags {"introspection"}} {
         $rd close
     }
 
-    test {MONITOR support filtering addr,user and match} {
+    test {MONITOR support filtering addr and match} {
         set rd [redis_deferring_client]
         $rd monitor addr 127.0.0.1 user default match *foo*
         $rd read ;# Discard the OK
@@ -111,6 +111,25 @@ start_server {tags {"introspection"}} {
         r get foo
         r lpush foolist 1 2 3 4
         assert_match {*"get"*"foo"*} [$rd read]
+        assert_match {*"set"*"foo"*"bar"} [$rd read]
+        assert_match {*"get"*"foo"*} [$rd read]
+        assert_match {*"lpush"*"foolist"*} [$rd read]
+        $rd close
+    }
+
+    test {MONITOR support filtering user} {
+        set rd [redis_deferring_client]
+        $rd monitor user newuser
+        $rd read ;# Discard the OK
+        r set foo bar
+        r get foo
+        r ACL setuser newuser on >passwd1 ~* &* +@all
+        r AUTH newuser passwd1
+        r set foo bar
+        r get foo
+        r lpush foolist 1 2 3 4
+        r AUTH default pwd
+        assert_match {*"AUTH"*"(redacted)"*"(redacted)"} [$rd read]
         assert_match {*"set"*"foo"*"bar"} [$rd read]
         assert_match {*"get"*"foo"*} [$rd read]
         assert_match {*"lpush"*"foolist"*} [$rd read]
