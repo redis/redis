@@ -492,6 +492,8 @@ void spopWithCountCommand(client *c) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 
+        /* todo: Move the spop notification to be executed after the command logic. */
+
         /* Propagate this command as a DEL operation */
         rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c,c->db,c->argv[1]);

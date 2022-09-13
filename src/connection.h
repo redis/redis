@@ -32,12 +32,19 @@
 #define __REDIS_CONNECTION_H
 
 #include <errno.h>
+#include <stdio.h>
+#include <string.h>
 #include <sys/uio.h>
 
+#include "ae.h"
+
 #define CONN_INFO_LEN   32
+#define CONN_ADDR_STR_LEN 128 /* Similar to INET6_ADDRSTRLEN, hoping to handle other protocols. */
+#define MAX_ACCEPTS_PER_CALL 1000
 
 struct aeEventLoop;
 typedef struct connection connection;
+typedef struct connListener connListener;
 
 typedef enum {
     CONN_STATE_NONE = 0,
@@ -51,27 +58,55 @@ typedef enum {
 #define CONN_FLAG_CLOSE_SCHEDULED   (1<<0)      /* Closed scheduled by a handler */
 #define CONN_FLAG_WRITE_BARRIER     (1<<1)      /* Write barrier requested */
 
-#define CONN_TYPE_SOCKET            1
-#define CONN_TYPE_TLS               2
+#define CONN_TYPE_SOCKET            "tcp"
+#define CONN_TYPE_UNIX              "unix"
+#define CONN_TYPE_TLS               "tls"
+#define CONN_TYPE_MAX               8           /* 8 is enough to be extendable */
 
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
 
 typedef struct ConnectionType {
+    /* connection type */
+    const char *(*get_type)(struct connection *conn);
+
+    /* connection type initialize & finalize & configure */
+    void (*init)(void); /* auto-call during register */
+    void (*cleanup)(void);
+    int (*configure)(void *priv, int reconfigure);
+
+    /* ae & accept & listen & error & address handler */
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
+    aeFileProc *accept_handler;
+    int (*addr)(connection *conn, char *ip, size_t ip_len, int *port, int remote);
+    int (*listen)(connListener *listener);
+
+    /* create/close connection */
+    connection* (*conn_create)(void);
+    connection* (*conn_create_accepted)(int fd, void *priv);
+    void (*close)(struct connection *conn);
+
+    /* connect & accept */
     int (*connect)(struct connection *conn, const char *addr, int port, const char *source_addr, ConnectionCallbackFunc connect_handler);
+    int (*blocking_connect)(struct connection *conn, const char *addr, int port, long long timeout);
+    int (*accept)(struct connection *conn, ConnectionCallbackFunc accept_handler);
+
+    /* IO */
     int (*write)(struct connection *conn, const void *data, size_t data_len);
     int (*writev)(struct connection *conn, const struct iovec *iov, int iovcnt);
     int (*read)(struct connection *conn, void *buf, size_t buf_len);
-    void (*close)(struct connection *conn);
-    int (*accept)(struct connection *conn, ConnectionCallbackFunc accept_handler);
     int (*set_write_handler)(struct connection *conn, ConnectionCallbackFunc handler, int barrier);
     int (*set_read_handler)(struct connection *conn, ConnectionCallbackFunc handler);
     const char *(*get_last_error)(struct connection *conn);
-    int (*blocking_connect)(struct connection *conn, const char *addr, int port, long long timeout);
     ssize_t (*sync_write)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_read)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_readline)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
-    int (*get_type)(struct connection *conn);
+
+    /* pending data */
+    int (*has_pending_data)(void);
+    int (*process_pending_data)(void);
+
+    /* TLS specified methods */
+    sds (*get_peer_cert)(struct connection *conn);
 } ConnectionType;
 
 struct connection {
@@ -85,6 +120,19 @@ struct connection {
     ConnectionCallbackFunc write_handler;
     ConnectionCallbackFunc read_handler;
     int fd;
+};
+
+#define CONFIG_BINDADDR_MAX 16
+
+/* Setup a listener by a connection type */
+struct connListener {
+    int fd[CONFIG_BINDADDR_MAX];
+    int count;
+    char **bindaddr;
+    int bindaddr_count;
+    int port;
+    ConnectionType *ct;
+    void *priv; /* used by connection type specified data */
 };
 
 /* The connection module does not deal with listening and accepting sockets,
@@ -216,7 +264,7 @@ static inline ssize_t connSyncReadLine(connection *conn, char *ptr, ssize_t size
 }
 
 /* Return CONN_TYPE_* for the specified connection */
-static inline int connGetType(connection *conn) {
+static inline const char *connGetType(connection *conn) {
     return conn->type->get_type(conn);
 }
 
@@ -224,18 +272,77 @@ static inline int connLastErrorRetryable(connection *conn) {
     return conn->last_errno == EINTR;
 }
 
-connection *connCreateSocket();
-connection *connCreateAcceptedSocket(int fd);
+/* Get address information of a connection.
+ * remote works as boolean type to get local/remote address */
+static inline int connAddr(connection *conn, char *ip, size_t ip_len, int *port, int remote) {
+    if (conn && conn->type->addr) {
+        return conn->type->addr(conn, ip, ip_len, port, remote);
+    }
 
-connection *connCreateTLS();
-connection *connCreateAcceptedTLS(int fd, int require_auth);
+    return -1;
+}
 
-void connSetPrivateData(connection *conn, void *data);
-void *connGetPrivateData(connection *conn);
-int connGetState(connection *conn);
-int connHasWriteHandler(connection *conn);
-int connHasReadHandler(connection *conn);
-int connGetSocketError(connection *conn);
+/* Format an IP,port pair into something easy to parse. If IP is IPv6
+ * (matches for ":"), the ip is surrounded by []. IP and port are just
+ * separated by colons. This the standard to display addresses within Redis. */
+static inline int formatAddr(char *buf, size_t buf_len, char *ip, int port) {
+    return snprintf(buf, buf_len, strchr(ip,':') ?
+           "[%s]:%d" : "%s:%d", ip, port);
+}
+
+static inline int connFormatAddr(connection *conn, char *buf, size_t buf_len, int remote)
+{
+    char ip[CONN_ADDR_STR_LEN];
+    int port;
+
+    if (connAddr(conn, ip, sizeof(ip), &port, remote) < 0) {
+        return -1;
+    }
+
+    return formatAddr(buf, buf_len, ip, port);
+}
+
+static inline int connAddrPeerName(connection *conn, char *ip, size_t ip_len, int *port) {
+    return connAddr(conn, ip, ip_len, port, 1);
+}
+
+static inline int connAddrSockName(connection *conn, char *ip, size_t ip_len, int *port) {
+    return connAddr(conn, ip, ip_len, port, 0);
+}
+
+static inline int connGetState(connection *conn) {
+    return conn->state;
+}
+
+/* Returns true if a write handler is registered */
+static inline int connHasWriteHandler(connection *conn) {
+    return conn->write_handler != NULL;
+}
+
+/* Returns true if a read handler is registered */
+static inline int connHasReadHandler(connection *conn) {
+    return conn->read_handler != NULL;
+}
+
+/* Associate a private data pointer with the connection */
+static inline void connSetPrivateData(connection *conn, void *data) {
+    conn->private_data = data;
+}
+
+/* Get the associated private data pointer */
+static inline void *connGetPrivateData(connection *conn) {
+    return conn->private_data;
+}
+
+/* Return a text that describes the connection, suitable for inclusion
+ * in CLIENT LIST and similar outputs.
+ *
+ * For sockets, we always return "fd=<fdnum>" to maintain compatibility.
+ */
+static inline const char *connGetInfo(connection *conn, char *buf, size_t buf_len) {
+    snprintf(buf, buf_len-1, "fd=%i", conn == NULL ? -1 : conn->fd);
+    return buf;
+}
 
 /* anet-style wrappers to conns */
 int connBlock(connection *conn);
@@ -245,14 +352,81 @@ int connDisableTcpNoDelay(connection *conn);
 int connKeepAlive(connection *conn, int interval);
 int connSendTimeout(connection *conn, long long ms);
 int connRecvTimeout(connection *conn, long long ms);
-int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port);
-int connFormatFdAddr(connection *conn, char *buf, size_t buf_len, int fd_to_str_type);
-int connSockName(connection *conn, char *ip, size_t ip_len, int *port);
-const char *connGetInfo(connection *conn, char *buf, size_t buf_len);
 
-/* Helpers for tls special considerations */
-sds connTLSGetPeerCert(connection *conn);
-int tlsHasPendingData();
-int tlsProcessPendingData();
+/* Get cert for the secure connection */
+static inline sds connGetPeerCert(connection *conn) {
+    if (conn->type->get_peer_cert) {
+        return conn->type->get_peer_cert(conn);
+    }
+
+    return NULL;
+}
+
+/* Initialize the redis connection framework */
+int connTypeInitialize();
+
+/* Register a connection type into redis connection framework */
+int connTypeRegister(ConnectionType *ct);
+
+/* Lookup a connection type by type name */
+ConnectionType *connectionByType(const char *typename);
+
+/* Fast path to get TCP connection type */
+ConnectionType *connectionTypeTcp();
+
+/* Fast path to get TLS connection type */
+ConnectionType *connectionTypeTls();
+
+/* Fast path to get Unix connection type */
+ConnectionType *connectionTypeUnix();
+
+/* Lookup the index of a connection type by type name, return -1 if not found */
+int connectionIndexByType(const char *typename);
+
+/* Create a connection of specified type */
+static inline connection *connCreate(ConnectionType *ct) {
+    return ct->conn_create();
+}
+
+/* Create an accepted connection of specified type.
+ * priv is connection type specified argument */
+static inline connection *connCreateAccepted(ConnectionType *ct, int fd, void *priv) {
+    return ct->conn_create_accepted(fd, priv);
+}
+
+/* Configure a connection type. A typical case is to configure TLS.
+ * priv is connection type specified,
+ * reconfigure is boolean type to specify if overwrite the original config */
+static inline int connTypeConfigure(ConnectionType *ct, void *priv, int reconfigure) {
+    return ct->configure(priv, reconfigure);
+}
+
+/* Walk all the connection types and cleanup them all if possible */
+void connTypeCleanupAll();
+
+/* Test all the connection type has pending data or not. */
+int connTypeHasPendingData(void);
+
+/* walk all the connection types and process pending data for each connection type */
+int connTypeProcessPendingData(void);
+
+/* Listen on an initialized listener */
+static inline int connListen(connListener *listener) {
+    return listener->ct->listen(listener);
+}
+
+/* Get accept_handler of a connection type */
+static inline aeFileProc *connAcceptHandler(ConnectionType *ct) {
+    if (ct)
+        return ct->accept_handler;
+    return NULL;
+}
+
+/* Get Listeners information, note that caller should free the non-empty string */
+sds getListensInfoString(sds info);
+
+int RedisRegisterConnectionTypeSocket();
+int RedisRegisterConnectionTypeUnix();
+int RedisRegisterConnectionTypeTLS();
 
 #endif  /* __REDIS_CONNECTION_H */

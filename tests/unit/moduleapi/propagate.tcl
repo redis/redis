@@ -45,8 +45,8 @@ tags "modules" {
                     $master set x y
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr notifications}
                         {set x y}
                         {exec}
@@ -63,8 +63,8 @@ tags "modules" {
                     $master exec
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr notifications}
                         {set x1 y1}
                         {incr notifications}
@@ -91,8 +91,8 @@ tags "modules" {
                     # Note whenever there's double notification: SET with PX issues two separate
                     # notifications: one for "set" and one for "expire"
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr notifications}
                         {incr notifications}
                         {set asdf1 1 PXAT *}
@@ -107,18 +107,24 @@ tags "modules" {
                         {incr notifications}
                         {set asdf3 3 PXAT *}
                         {exec}
+                        {multi}
                         {incr notifications}
                         {incr notifications}
                         {incr testkeyspace:expired}
                         {del asdf*}
+                        {exec}
+                        {multi}
                         {incr notifications}
                         {incr notifications}
                         {incr testkeyspace:expired}
                         {del asdf*}
+                        {exec}
+                        {multi}
                         {incr notifications}
                         {incr notifications}
                         {incr testkeyspace:expired}
                         {del asdf*}
+                        {exec}
                     }
                     close_replication_stream $repl
 
@@ -143,8 +149,11 @@ tags "modules" {
                     # Bottom line: "notifications" always exists and we can't really determine the order of evictions
                     # This test is here only for sanity
 
+                    # The replica will get the notification with multi exec and we have a generic notification handler
+                    # that performs `RedisModule_Call(ctx, "INCR", "c", "multi");` if the notification is inside multi exec.
+                    # so we will have 2 keys, "notifications" and "multi".
                     wait_for_condition 500 10 {
-                        [$replica dbsize] eq 1
+                        [$replica dbsize] eq 2 
                     } else {
                         fail "Not all keys have been evicted"
                     }
@@ -183,8 +192,8 @@ tags "modules" {
                     # Note that although CONFIG SET maxmemory is called in this flow (see issue #10014),
                     # eviction will happen and will not induce propagation of the CONFIG command (see #10019).
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr notifications}
                         {incr notifications}
                         {set asdf1 1 PXAT *}
@@ -199,12 +208,18 @@ tags "modules" {
                         {incr notifications}
                         {set asdf3 3 PXAT *}
                         {exec}
+                        {multi}
                         {incr notifications}
                         {del asdf*}
+                        {exec}
+                        {multi}
                         {incr notifications}
                         {del asdf*}
+                        {exec}
+                        {multi}
                         {incr notifications}
                         {del asdf*}
+                        {exec}
                         {multi}
                         {incr notifications}
                         {set asdf4 4}
@@ -229,8 +244,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr notifications}
                         {incr notifications}
                         {set timer-maxmemory-volatile-start 1 PXAT *}
@@ -239,10 +254,14 @@ tags "modules" {
                         {incr notifications}
                         {set timer-maxmemory-volatile-end 1 PXAT *}
                         {exec}
+                        {multi}
                         {incr notifications}
                         {del timer-maxmemory-volatile-*}
+                        {exec}
+                        {multi}
                         {incr notifications}
                         {del timer-maxmemory-volatile-*}
+                        {exec}
                     }
                     close_replication_stream $repl
 
@@ -256,8 +275,8 @@ tags "modules" {
                     $master propagate-test.timer-eval
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr notifications}
                         {incrby timer-eval-start 1}
                         {incr notifications}
@@ -282,8 +301,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incrby timer-nested-start 1}
                         {incrby timer-nested-end 1}
                         {exec}
@@ -307,8 +326,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incrby timer-nested-start 1}
                         {incr notifications}
                         {incr using-call}
@@ -350,8 +369,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr a-from-thread}
                         {incr notifications}
                         {incr thread-call}
@@ -385,8 +404,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr thread-detached-before}
                         {incr notifications}
                         {incr thread-detached-1}
@@ -405,8 +424,8 @@ tags "modules" {
                     $master propagate-test.mixed
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
@@ -431,8 +450,8 @@ tags "modules" {
                         redis.call("propagate-test.mixed"); return "OK" } 0 ] {OK}
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {incr notifications}
@@ -456,8 +475,8 @@ tags "modules" {
                     $master propagate-test.mixed
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
@@ -482,8 +501,8 @@ tags "modules" {
                     $master propagate-test.mixed
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
@@ -515,8 +534,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {incr notifications}
@@ -566,8 +585,8 @@ tags "modules" {
                     $master propagate-test.incr k1
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {del k1}
                         {propagate-test.incr k1}
                         {exec}
@@ -578,6 +597,71 @@ tags "modules" {
                     assert_equal [$master ttl k1] -1
                     assert_equal [$replica get k1] 1
                     assert_equal [$replica ttl k1] -1
+                }
+
+                test {module notification on set} {
+                    set repl [attach_to_replication_stream]
+
+                    $master SADD s foo
+
+                    wait_for_condition 500 10 {
+                        [$replica SCARD s] eq "1"
+                    } else {
+                        fail "Failed to wait for set to be replicated"
+                    }
+
+                    $master SPOP s 1
+
+                    wait_for_condition 500 10 {
+                        [$replica SCARD s] eq "0"
+                    } else {
+                        fail "Failed to wait for set to be replicated"
+                    }
+
+                    # Currently the `del` command comes after the notification.
+                    # When we fix spop to fire notification at the end (like all other commands),
+                    # the `del` will come first.
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr notifications}
+                        {sadd s foo}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {del s}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module key miss notification do not cause read command to be replicated} {
+                    set repl [attach_to_replication_stream]
+
+                    $master flushall
+                    
+                    $master get unexisting_key
+
+                    wait_for_condition 500 10 {
+                        [$replica get missed] eq "1"
+                    } else {
+                        fail "Failed to wait for set to be replicated"
+                    }
+
+                    # Test is checking a wrong!!! behavior that causes a read command to be replicated to replica/aof.
+                    # We keep the test to verify that such a wrong behavior does not cause any crashes.
+                    assert_replication_stream $repl {
+                        {select *}
+                        {flushall}
+                        {multi}
+                        {incr notifications}
+                        {incr missed}
+                        {get unexisting_key}
+                        {exec}
+                    }
+                    
+                    close_replication_stream $repl
                 }
 
                 test "Unload the module - propagate-test/testkeyspace" {
