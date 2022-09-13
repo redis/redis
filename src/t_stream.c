@@ -1772,9 +1772,11 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             consumer->active_time = server.mstime;
 
             /* Propagate as XCLAIM. */
-            robj *idarg = createObjectFromStreamID(&id);
-            streamPropagateXCLAIM(c,spi->keyname,group,spi->groupname,idarg,nack);
-            decrRefCount(idarg);
+            if (spi) {
+                robj *idarg = createObjectFromStreamID(&id);
+                streamPropagateXCLAIM(c,spi->keyname,group,spi->groupname,idarg,nack);
+                decrRefCount(idarg);
+            }
         }
 
         arraylen++;

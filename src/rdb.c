@@ -769,8 +769,8 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
         }
         nwritten += n;
 
-        /* Last seen time. */
-        if ((n = rdbSaveMillisecondTime(rdb,consumer->seen_time)) == -1) {
+        /* Active time. */
+        if ((n = rdbSaveMillisecondTime(rdb,consumer->active_time)) == -1) {
             raxStop(&ri);
             return -1;
         }
@@ -2541,7 +2541,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     decrRefCount(o);
                     return NULL;
                 }
-                consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
+                /* We didn't want to change the RDB version when active_time was
+                 * added, so we just set both to the same value when loading */
+                consumer->active_time = consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream short read reading seen time.");
                     decrRefCount(o);
