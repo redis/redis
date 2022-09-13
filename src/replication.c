@@ -1198,9 +1198,8 @@ void syncCommand(client *c) {
 
     /* Check if this is a failover request to a replica with the same replid and
      * become a master if so. */
-    if (!strcasecmp(c->argv[0]->ptr, "psync") &&
-        ((c->argc > 3 && !strcasecmp(c->argv[3]->ptr, "failover")) ||
-         ((c->argc > 4 && !strcasecmp(c->argv[4]->ptr, "failover")))))
+    if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") &&
+        !strcasecmp(c->argv[3]->ptr,"failover"))
     {
         serverLog(LL_WARNING, "Failover request received for replid %s.",
             (unsigned char *)c->argv[1]->ptr);
@@ -1254,6 +1253,7 @@ void syncCommand(client *c) {
     serverLog(LL_NOTICE,"Replica %s asks for synchronization",
         replicationGetSlaveName(c));
 
+    //TODO get useAofSync
     int useAofSync = 0;
 
     /* Try a partial resynchronization if this is a PSYNC command.
@@ -1266,13 +1266,6 @@ void syncCommand(client *c) {
      * So the slave knows the new replid and offset to try a PSYNC later
      * if the connection with the master is lost. */
     if (!strcasecmp(c->argv[0]->ptr,"psync")) {
-        if (c->argc > 3) {
-            if (!strcasecmp(c->argv[3]->ptr, "rdb")) {
-                useAofSync = 0;
-            } else if (!strcasecmp(c->argv[3]->ptr, "aof")) {
-                useAofSync = 1;
-            }
-        }
         long long psync_offset;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &psync_offset, NULL) != C_OK) {
             serverLog(LL_WARNING, "Replica %s asks for synchronization but with a wrong offset",
@@ -1297,13 +1290,6 @@ void syncCommand(client *c) {
          * of the replication protocol (like redis-cli --slave). Flag the client
          * so that we don't expect to receive REPLCONF ACK feedbacks. */
         c->flags |= CLIENT_PRE_PSYNC;
-        if (c->argc > 1) {
-            if (!strcasecmp(c->argv[1]->ptr, "rdb")) {
-                useAofSync = 0;
-            } else if (!strcasecmp(c->argv[1]->ptr, "aof")) {
-                useAofSync = 1;
-            }
-        }
     }
 
     /* Full resynchronization. */
