@@ -2268,23 +2268,27 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     struct {
         char* name;
         int skip;
-    } skiplist[] = {       
+    } skip_keywords[] = {       
         {"copy", 0},
         {"replace", 0},
         {"auth", 1},
         {"auth2", 2},
         {NULL, 0}
     };
-    if (argc > 6 && sdslen(argv[3]->ptr) == 0) {
+    if (argc > 6) {
         for (i = 6; i < argc; i++) {
             if (!strcasecmp(argv[i]->ptr, "keys")) {
-                first = i + 1;
-                num = argc - first;
+                if (sdslen(argv[3]->ptr) > 0) {
+                    num = 0; // Skip the ACL check and let migrateCommand return syntax error.
+                } else {
+                    first = i + 1;
+                    num = argc - first;
+                }
                 break;
             }
-            for (j = 0; skiplist[j].name != NULL; j++) {
-                if (!strcasecmp(argv[i]->ptr, skiplist[j].name)) {
-                    i += skiplist[j].skip;
+            for (j = 0; skip_keywords[j].name != NULL; j++) {
+                if (!strcasecmp(argv[i]->ptr, skip_keywords[j].name)) {
+                    i += skip_keywords[j].skip;
                     break;
                 }
             }
