@@ -173,6 +173,29 @@ start_server {tags {"modules"}} {
         r config set maxmemory 0
     } {OK} {needs:config-maxmemory}
 
+    test {rm_call OOM Eval} {
+        r config set maxmemory 1
+        r config set maxmemory-policy volatile-lru
+
+        # use the M flag without allow-oom shebang flag
+        assert_error {OOM *} {
+            r test.rm_call_flags M eval {#!lua
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+        }
+
+        # add the M flag with allow-oom shebang flag
+        assert_equal {1} [
+            r test.rm_call_flags M eval {#!lua flags=allow-oom
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+        ]
+
+        r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
     test {rm_call write flag} {
         # add the W flag
         assert_error {ERR Write command 'set' was called while write is not allowed.} {
@@ -366,6 +389,40 @@ start_server {tags {"modules"}} {
         # server is writable again
         r set x y
     } {OK}
+}
+
+start_server {tags {"modules"}} {
+    r module load $testmodule
+
+    test {test Dry Run - OK OOM/ACL} {
+        set x 5
+        r set x $x
+        catch {r test.rm_call_flags DMC set x 10} e
+        assert_match {*NULL reply returned*} $e
+        assert_equal [r get x] 5
+    }
+
+    test {test Dry Run - Fail OOM} {
+        set x 5
+        r set x $x
+        r config set maxmemory 1
+        catch {r test.rm_call_flags DM set x 10} e
+        assert_match {*OOM*} $e
+        assert_equal [r get x] $x
+        r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
+    test {test Dry Run - Fail ACL} {
+        set x 5
+        r set x $x
+        # deny all permissions besides the dryrun command
+        r acl setuser default resetkeys
+
+        catch {r test.rm_call_flags DC set x 10} e
+        assert_match {*ERR acl verification failed, can't access at least one of the keys*} $e
+        r acl setuser default +@all ~*
+        assert_equal [r get x] $x
+    }
 
     test "Unload the module - misc" {
         assert_equal {OK} [r module unload misc]
