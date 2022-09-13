@@ -3537,9 +3537,8 @@ void helloCommand(client *c) {
             if (clientSetNameOrReply(c, c->argv[j+1]) == C_ERR) return;
             j++;
         } else if (!strcasecmp(opt,"SETCUSTOMDATA") && ((moreargs % 2) == 0)) {
-            // if (clientSetCustomDataOrReply(c) == C_OK)
-            if (clientSetNameOrReply(c, c->argv[j+1]) == C_ERR) return;
-            j++;
+            if (clientSetCustomDataOrReply(c, c->argv+j+1, moreargs) != C_OK) return;
+            j += moreargs;
         } else {
             addReplyErrorFormat(c,"Syntax error in HELLO option '%s'",opt);
             return;

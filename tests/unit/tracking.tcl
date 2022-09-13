@@ -170,6 +170,12 @@ start_server {tags {"tracking network"}} {
         r HELLO 3
     }
 
+    test {HELLO should SETCUSTOMDATA} {
+        set reply [r HELLO 3 SETCUSTOMDATA meta foo meta2 bar]
+        assert_match {*meta2 bar*} [r client getcustomdata]
+        assert_match {*meta foo*} [r client getcustomdata]
+    }
+
     test {RESP3 based basic invalidation} {
         r CLIENT TRACKING off
         r CLIENT TRACKING on
