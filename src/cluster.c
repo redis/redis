@@ -86,7 +86,7 @@ unsigned int countChannelsInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
 void clusterAddNodeToShard(const char *shard_id, clusterNode *node);
 list *clusterLookupNodeListByShardId(const char *shard_id);
-void clusterRemoveNodeFromShard(const char *shard_id, clusterNode *node);
+void clusterRemoveNodeFromShard(clusterNode *node);
 int auxShardIdUpdater(clusterNode *n, void *value, int length);
 
 /* Links to the next and previous entries for keys in the same slot are stored
@@ -142,13 +142,21 @@ dictType clusterSdsToListType = {
         NULL                        /* allow to expand */
 };
 
+/* Aux fields are introduced in Redis 7.2 to support the persistence
+ * of various important node properties, such as shard id, in nodes.conf.
+ * Aux fields take an explicit format of name=value pairs and have no
+ * intrinsic order among them. Aux fields are always grouped together
+ * at the end of the second column of each row after the node's IP
+ * address/port/cluster_port and the optional hostname. Aux fields
+ * are separated by ','. */
+
 /* Aux field updater function prototype
  * return 1 when the update is successful; 0 otherwise */
-typedef int (aux_updater) (clusterNode* n, void *value, int length);
+typedef int (aux_value_updater) (clusterNode* n, void *value, int length);
 
 typedef struct {
     char *field;
-    aux_updater *updater;
+    aux_value_updater *updater;
     int present;
 } auxFieldUpdater;
 
@@ -311,8 +319,9 @@ int clusterLoadConfig(char *filename) {
         }
 
         /* All fields after hostname are auxiliary and they take on
-         * the format of "aux=val" where both aux and val are alphanum
-         * only. The order of the aux fields is insignificant. */
+         * the format of "aux=val" where both aux and val can contain
+         * characters that pass the isValidAuxChar check only. The order
+         * of the aux fields is insignificant. */
 
         for (int i = 2; i < aux_argc; i++) {
             int field_argc;
@@ -338,7 +347,7 @@ int clusterLoadConfig(char *filename) {
             /* Note that we don't expect lots of aux fields in the foreseeable
              * future so a linear search is completely fine. */
             int field_found = 0;
-            for (unsigned j = 0; j < num_elements(auxUpdaters); j++) {
+            for (unsigned j = 0; j < numElements(auxUpdaters); j++) {
                 if (sdslen(field_argv[0]) != strlen(auxUpdaters[j].field) ||
                     memcmp(field_argv[0], auxUpdaters[j].field, sdslen(field_argv[0])) != 0) {
                     continue;
@@ -771,7 +780,7 @@ static void updateAnnouncedHostname(clusterNode *node, char *new) {
 
 static void updateShardId(clusterNode *node, const char *shard_id) {
     if (memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
-        clusterRemoveNodeFromShard(node->shard_id, node);
+        clusterRemoveNodeFromShard(node);
         memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
         clusterAddNodeToShard(shard_id, node);
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
@@ -779,8 +788,8 @@ static void updateShardId(clusterNode *node, const char *shard_id) {
     if (myself != node && myself->slaveof == node) {
         if (memcmp(myself->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
             /* shard-id can diverge right after a rolling upgrade
-             * from pre-7.0 releases */
-            clusterRemoveNodeFromShard(myself->shard_id, myself);
+             * from pre-7.2 releases */
+            clusterRemoveNodeFromShard(myself);
             memcpy(myself->shard_id, shard_id, CLUSTER_NAMELEN);
             clusterAddNodeToShard(shard_id, myself);
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
@@ -1403,7 +1412,7 @@ void clusterDelNode(clusterNode *delnode) {
     dictReleaseIterator(di);
 
     /* 3) Remove the node from the owning shard */
-    clusterRemoveNodeFromShard(delnode->shard_id, delnode);
+    clusterRemoveNodeFromShard(delnode);
 
     /* 4) Free the node, unlinking it from the cluster. */
     freeClusterNode(delnode);
@@ -1477,9 +1486,9 @@ void clusterAddNodeToShard(const char *shard_id, clusterNode *node) {
     }
 }
 
-void clusterRemoveNodeFromShard(const char *shard_id, clusterNode *node) {
-    sds s = sdsnewlen(shard_id, CLUSTER_NAMELEN);
-    dictEntry *de = dictFind(server.cluster->shards,s);
+void clusterRemoveNodeFromShard(clusterNode *node) {
+    sds s = sdsnewlen(node->shard_id, CLUSTER_NAMELEN);
+    dictEntry *de = dictFind(server.cluster->shards, s);
     if (de != NULL) {
         list *l = dictGetVal(de);
         listNode *ln = listSearchKey(l, node);
@@ -1487,7 +1496,7 @@ void clusterRemoveNodeFromShard(const char *shard_id, clusterNode *node) {
             listDelNode(l, ln);
         }
         if (listLength(l) == 0) {
-            dictDelete(server.cluster->shards,s);
+            dictDelete(server.cluster->shards, s);
         }
     }
     sdsfree(s);
@@ -5517,7 +5526,7 @@ void clusterCommand(client *c) {
 "MYID",
 "    Return the node id.",
 "MYSHARDID",
-"    Return the node shard id.",
+"    Return the node's shard id.",
 "NODES",
 "    Return cluster configuration seen by node. Output format:",
 "    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ...",

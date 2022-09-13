@@ -92,7 +92,7 @@ typedef struct redisObject robj;
 #include "crc64.h"
 
 /* helpers */
-#define num_elements(x) (sizeof(x)/sizeof((x)[0]))
+#define numElements(x) (sizeof(x)/sizeof((x)[0]))
 
 /* min/max */
 #undef min
