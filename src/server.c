@@ -5193,7 +5193,7 @@ sds genRedisInfoStringACLStats(sds info) {
     "invalid_channel_accesses:%ld\r\n",
     server.acl_info.invalid_channel_accesses);
 
-    info = sdscatprintf(info, metrics);
+    info = sdscatprintf(info, "%s", metrics);
     sdsfree(metrics);
     return info;
 }
