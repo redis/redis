@@ -1368,8 +1368,8 @@ void sendBulkDone(client *myself) {
     }
 
     if (shouldInvalidateCache) {
-        if (invalidatePageCache(myself->repldbfd, 0, 0) == -1) {
-            serverLog(LL_NOTICE,"Unable to invalidate cache after sending RDB: %s", strerror(errno));
+        if (reclaimFilePageCache(myself->repldbfd, 0, 0) == -1) {
+            serverLog(LL_NOTICE,"Unable to reclaim cache after sending RDB: %s", strerror(errno));
         }
     }
 
@@ -2227,8 +2227,8 @@ void readSyncBulkPayload(connection *conn) {
             bg_unlink(server.rdb_filename);
         }
 
-        if (invalidatePageCache(server.repl_transfer_fd, 0, 0) == -1) {
-            serverLog(LL_NOTICE,"Unable to invalidate cache after receiving RDB: %s", strerror(errno));
+        if (reclaimFilePageCache(server.repl_transfer_fd, 0, 0) == -1) {
+            serverLog(LL_NOTICE,"Unable to reclaim cache after receiving RDB: %s", strerror(errno));
         }
 
         zfree(server.repl_transfer_tmpfile);

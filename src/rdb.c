@@ -1474,8 +1474,8 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp)) { err_op = "fflush"; goto werr; }
     if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
-    if (!(rsi && rsi->keep_cache) && invalidatePageCache(fileno(fp), 0, 0) == -1) {
-        serverLog(LL_NOTICE,"Unable to invalidate cache after saving RDB: %s", strerror(errno));
+    if (!(rsi && rsi->keep_cache) && reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
+        serverLog(LL_NOTICE,"Unable to reclaim cache after saving RDB: %s", strerror(errno));
     }
     if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
     fp = NULL;
