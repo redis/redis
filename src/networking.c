@@ -119,19 +119,50 @@ int authRequired(client *c) {
 }
 
 void getAllClientCustomDataFields(client *c) {
-    dictIterator *di = dictGetIterator(c->custom_data);
-    dictEntry *de;
-    
-    void *ufields = addReplyDeferredLen(c);
-    while((de = dictNext(di)) != NULL) {
-        sds key = dictGetKey(de);
-        sds value = dictGetVal(de);
+    if(c->custom_data != NULL) {
+        dictIterator *di = dictGetIterator(c->custom_data);
+        dictEntry *de;
+        
+        void *ufields = addReplyDeferredLen(c);
+        while((de = dictNext(di)) != NULL) {
+            sds key = dictGetKey(de);
+            sds value = dictGetVal(de);
 
-        addReplyBulkCBuffer(c, key, sdslen(key));
-        addReplyBulkCBuffer(c, value, sdslen(value));
+            addReplyBulkCBuffer(c, key, sdslen(key));
+            addReplyBulkCBuffer(c, value, sdslen(value));
+        }
+        dictReleaseIterator(di);
+        setDeferredMapLen(c, ufields, (int) dictSize(c->custom_data));
+    } else {
+        addReplyNull(c);
+    }
+}
+
+/* Helper function for the Custom Data and HELLO command: send the list of the
+ * loaded custom data to the client. */
+void addReplyLoadedCustomData(client *c) {
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+
+    addReplyArrayLen(c,dictSize(modules));
+    while ((de = dictNext(di)) != NULL) {
+        sds name = dictGetKey(de);
+        struct RedisModule *module = dictGetVal(de);
+        sds path = module->loadmod->path;
+        addReplyMapLen(c,4);
+        addReplyBulkCString(c,"name");
+        addReplyBulkCBuffer(c,name,sdslen(name));
+        addReplyBulkCString(c,"ver");
+        addReplyLongLong(c,module->ver);
+        addReplyBulkCString(c,"path");
+        addReplyBulkCBuffer(c,path,sdslen(path));
+        addReplyBulkCString(c,"args");
+        addReplyArrayLen(c,module->loadmod->argc);
+        for (int i = 0; i < module->loadmod->argc; i++) {
+            addReplyBulk(c,module->loadmod->argv[i]);
+        }
     }
     dictReleaseIterator(di);
-    setDeferredMapLen(c, ufields, (int) dictSize(c->custom_data));
 }
 
 sds getClientCustomData(dict *custom_data) {
@@ -3556,7 +3587,7 @@ void helloCommand(client *c) {
 
     /* Let's switch to the specified RESP mode. */
     if (ver) c->resp = ver;
-    addReplyMapLen(c,6 + !server.sentinel_mode);
+    addReplyMapLen(c,7 + !server.sentinel_mode);
 
     addReplyBulkCString(c,"server");
     addReplyBulkCString(c,"redis");
@@ -3582,6 +3613,9 @@ void helloCommand(client *c) {
 
     addReplyBulkCString(c,"modules");
     addReplyLoadedModules(c);
+
+    addReplyBulkCString(c,"customData");
+    getAllClientCustomDataFields(c);
 }
 
 /* This callback is bound to POST and "Host:" command names. Those are not

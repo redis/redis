@@ -172,6 +172,9 @@ start_server {tags {"tracking network"}} {
 
     test {HELLO should SETCUSTOMDATA} {
         set reply [r HELLO 3 SETCUSTOMDATA meta foo meta2 bar]
+        assert_match {*meta foo*} [dict get $reply customData]
+        assert_match {*meta2 bar*} [dict get $reply customData]
+
         assert_match {*meta2 bar*} [r client getcustomdata]
         assert_match {*meta foo*} [r client getcustomdata]
     }
