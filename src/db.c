@@ -2279,7 +2279,9 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
         for (i = 6; i < argc; i++) {
             if (!strcasecmp(argv[i]->ptr, "keys")) {
                 if (sdslen(argv[3]->ptr) > 0) {
-                    num = 0; // Skip the ACL check and let migrateCommand return syntax error.
+                    /* This is a syntax error. So ignore the keys and leave
+                     * the syntax error to be handled by migrateCommand. */
+                    num = 0; 
                 } else {
                     first = i + 1;
                     num = argc - first;
