@@ -93,3 +93,9 @@ proc rio_get_data {r key subkey} {
     lindex [$r swap rio-get data [$r swap encode-data-key $key $subkey]] 0
 }
 
+proc get_info {r section line} {
+    set str [$r info $section]
+    if {[regexp ".*${line}:(\[^\r\n\]*)\r\n" $str match submatch]} {
+        set _ $submatch
+    }
+}

@@ -796,3 +796,32 @@ start_server {tags {"hash"}} {
     # } {ZIP_INT_8B 127 ZIP_INT_16B 32767 ZIP_INT_32B 2147483647 ZIP_INT_64B 9223372036854775808 ZIP_INT_IMM_MIN 0 ZIP_INT_IMM_MAX 12}
 
 }
+
+start_server {tags {"bugfix"}} {
+    test {bugfix - delete range: end key comes before start key} {
+        r config set debug-evict-keys 0
+        r config set swap-big-hash-threshold 40
+
+        set limit 300
+
+        for {set i 0} {$i <= $limit} {incr i} {
+            r hmset myhash-$i a a b b c c
+            r evict myhash-$i
+        }
+
+        wait_keys_evicted r
+
+        for {set i 0} {$i <= $limit} {incr i} {
+            r del myhash-$i
+        }
+
+        for {set i 0} {$i <= $limit} {incr i} {
+            r hset myhash-$i 1 1 
+            r evict myhash-$i
+        }
+
+        for {set i 0} {$i <= $limit} {incr i} {
+            r hget myhash-$i 1
+        }
+    }
+}

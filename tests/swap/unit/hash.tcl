@@ -99,8 +99,7 @@ start_server {tags "bighash"} {
         r hmset hash11 a a b b 1 1 2 2 
         r evict hash11
         wait_keys_evicted r
-        set meta_version [object_meta_version r hash11]
-        set old_b_encode [r swap encode-key h $meta_version hash11 b]
+        set old_b_encode [r swap encode-key h hash11 b]
         r del hash11
         assert_equal [r exists hash11] 0
         assert_equal [r hget hash11 a] {}
@@ -131,8 +130,7 @@ start_server {tags "bighash"} {
         assert [object_is_big r hash10]
 
         assert {[get_info_property r Swaps swap_OUT count] > $old_swap_out_count}
-        set meta_version [object_meta_version r hash10]
-        assert {[r swap rio-get [r swap encode-key h $meta_version hash10 a]] != {}}
+        assert {[r swap rio-get [r swap encode-key h hash10 a]] != {}}
 
         # bighash could not tranform back too wholekey again
         r config set swap-big-hash-threshold 256k
@@ -240,15 +238,17 @@ start_server {tags "bighash"} {
     }
 
     test {bighash hdel & del} {
+        set old_swap_threshold [lindex [r config get swap-big-hash-threshold] 1]
+        r config set swap-big-hash-threshold 1
+
         r hmset hash12 a a 1 1
         assert_equal [r evict hash12] 1
         wait_key_cold r hash12
 
-        set hash12_version [object_meta_version r hash12]
         r hdel hash12 a
         r hdel hash12 1
-        assert {[rocks_get_bighash r $hash12_version hash12 a] eq {}}
-        assert {[rocks_get_bighash r $hash12_version hash12 1] eq {}}
+        assert {[rocks_get_bighash r hash12 a] eq {}}
+        assert {[rocks_get_bighash r hash12 1] eq {}}
         catch {r swap object hash12} err
         assert_match "*ERR no such key*" $err
 
@@ -258,13 +258,13 @@ start_server {tags "bighash"} {
         r evict hash12
         assert_equal [r hlen hash12] 2
 
-        set hash12_version2 [object_meta_version r hash12]
-        assert {$hash12_version2 > $hash12_version}
+        r del hash12
+        assert {[rocks_get_bighash r hash12 a] eq {}}
+        assert {[rocks_get_bighash r hash12 1] eq {}}
+        catch {r swap object hash12} err
+        assert_match "*ERR no such key*" $err
 
-        # bighash swapout and swapin all reserves meta
-        r hkeys hash12
-        set hash12_version3 [object_meta_version r hash12]
-        assert {$hash12_version2 == $hash12_version3}
+        r config set swap-big-hash-threshold $old_swap_threshold
     }
 
     test {hdel warm key} {
@@ -281,6 +281,23 @@ start_server {tags "bighash"} {
         assert_equal [object_meta_len r hash13] 0
         assert_equal [r hlen hash13] 1
         assert_equal [r del hash13] 1
+    }
+
+    test {big hash deletes other key by mistake} {
+        r hmset hash_aa foo bar        
+        # hash_aa is encoded as: h|1|7hash_aa
+        r evict hash_aa
+        wait_key_cold r hash_aa        
+        r hmset hash_a foo bar
+        # hash_a is encoded as: h|2|6hash_a
+        r evict hash_a
+        wait_key_cold r hash_a
+        # if hash subkey is encoded enc_type|version|keylen|key|subkey
+        # (commit 72322eea3), then delete range is [ h|1, h|2|7|hash_aa ),
+        # which includes h|2|6|hash_a, so subkey of hash_a will be deleted
+        # by mistake.
+        r del hash_aa
+        assert_equal [r hkeys hash_a] {foo}
     }
 }
 
