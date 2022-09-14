@@ -2712,9 +2712,6 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
     {
         /* Quick win, exactly one range spec. */
         c->legacy_range_key_spec = c->key_specs[0];
-        /* If it has the incomplete flag, set the movablekeys flag on the command. */
-        if (c->key_specs[0].flags & CMD_KEY_INCOMPLETE)
-            c->flags |= CMD_MOVABLE_KEYS;
         return;
     }
 
@@ -2735,10 +2732,6 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
              * Skip it, and we set the movablekeys flag. */
             c->flags |= CMD_MOVABLE_KEYS;
             continue;
-        }
-        if (c->key_specs[i].flags & CMD_KEY_INCOMPLETE) {
-            /* The spec we're using is incomplete, we can use it, but we also have to set the movablekeys flag. */
-            c->flags |= CMD_MOVABLE_KEYS;
         }
         firstkey = min(firstkey, c->key_specs[i].bs.index.pos);
         /* Get the absolute index for lastkey (in the "range" spec, lastkey is relative to firstkey) */
@@ -4424,7 +4417,6 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
         {CMD_KEY_INSERT,          "insert"},
         {CMD_KEY_DELETE,          "delete"},
         {CMD_KEY_NOT_KEY,         "not_key"},
-        {CMD_KEY_INCOMPLETE,      "incomplete"},
         {CMD_KEY_VARIABLE_FLAGS,  "variable_flags"},
         {0,NULL}
     };

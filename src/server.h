@@ -275,8 +275,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_NOT_KEY (1ULL<<8)     /* A 'fake' key that should be routed
                                        * like a key in cluster mode but is 
                                        * excluded from other key checks. */
-#define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
-                                       * out to all keys it should cover */
 #define CMD_KEY_VARIABLE_FLAGS (1ULL<<10)  /* Means that some keys might have
                                             * different flags depending on arguments */
 

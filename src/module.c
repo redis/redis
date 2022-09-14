@@ -1487,9 +1487,6 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
  *     * `REDISMODULE_CMD_KEY_NOT_KEY`: The key is not actually a key, but 
  *       should be routed in cluster mode as if it was a key.
  *
- *     * `REDISMODULE_CMD_KEY_INCOMPLETE`: The keyspec might not point out all
- *       the keys it should cover.
- *
  *     * `REDISMODULE_CMD_KEY_VARIABLE_FLAGS`: Some keys might have different
  *       flags depending on arguments.
  *
@@ -1827,7 +1824,6 @@ static int64_t moduleConvertKeySpecsFlags(int64_t flags, int from_api) {
         {REDISMODULE_CMD_KEY_UPDATE, CMD_KEY_UPDATE},
         {REDISMODULE_CMD_KEY_DELETE, CMD_KEY_DELETE},
         {REDISMODULE_CMD_KEY_NOT_KEY, CMD_KEY_NOT_KEY},
-        {REDISMODULE_CMD_KEY_INCOMPLETE, CMD_KEY_INCOMPLETE},
         {REDISMODULE_CMD_KEY_VARIABLE_FLAGS, CMD_KEY_VARIABLE_FLAGS},
         {0,0}};
 

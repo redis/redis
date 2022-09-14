@@ -306,7 +306,6 @@ typedef enum {
 #define REDISMODULE_CMD_KEY_INSERT (1ULL<<6)
 #define REDISMODULE_CMD_KEY_DELETE (1ULL<<7)
 #define REDISMODULE_CMD_KEY_NOT_KEY (1ULL<<8)
-#define REDISMODULE_CMD_KEY_INCOMPLETE (1ULL<<9)
 #define REDISMODULE_CMD_KEY_VARIABLE_FLAGS (1ULL<<10)
 
 /* Channel flags, for details see the documentation of

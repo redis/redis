@@ -1764,8 +1764,8 @@ int64_t getAllKeySpecsFlags(struct redisCommand *cmd, int inv) {
  * There are several flags that can be used to modify how this function finds keys in a command.
  * 
  * GET_KEYSPEC_INCLUDE_NOT_KEYS: Return 'fake' keys as if they were keys.
- * GET_KEYSPEC_RETURN_PARTIAL:   Skips invalid and incomplete keyspecs but returns the keys
- *                               found in other valid keyspecs. 
+ * GET_KEYSPEC_RETURN_PARTIAL:   Skips invalid keyspecs but returns the keys found in other valid
+ *                               keyspecs. 
  */
 int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
     int j, i, k = 0, last, first, step;
@@ -1859,12 +1859,6 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
             keys[k++].flags = spec->flags;
         }
 
-        /* Handle incomplete specs (only after we added the current spec
-         * to `keys`, just in case GET_KEYSPEC_RETURN_PARTIAL was given) */
-        if (spec->flags & CMD_KEY_INCOMPLETE) {
-            goto invalid_spec;
-        }
-
         /* Done with this spec */
         continue;
 
@@ -1912,7 +1906,7 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
         int ret = getKeysUsingKeySpecs(cmd,argv,argc,search_flags,result);
         if (ret >= 0)
             return ret;
-        /* If the specs returned with an error (probably an INVALID or INCOMPLETE spec),
+        /* If the specs returned with an error (probably an INVALID spec),
          * fallback to the callback method. */
     }
 
@@ -1921,7 +1915,7 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
         return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
 
     /* We use native getkeys as a last resort, since not all these native getkeys provide
-     * flags properly (only the ones that correspond to INVALID, INCOMPLETE or VARIABLE_FLAGS do.*/
+     * flags properly (only the ones that correspond to INVALID or VARIABLE_FLAGS do.*/
     if (cmd->getkeys_proc)
         return cmd->getkeys_proc(cmd,argv,argc,result);
     return 0;
@@ -2014,9 +2008,6 @@ int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getK
  * (firstkey, lastkey, step).
  * This function works only on command with the legacy_range_key_spec,
  * all other commands should be handled by getkeys_proc. 
- * 
- * If the commands keyspec is incomplete, no keys will be returned, and the provided
- * keys function should be called instead.
  * 
  * NOTE: This function does not guarantee populating the flags for 
  * the keys, in order to get flags you should use getKeysUsingKeySpecs. */
@@ -2185,10 +2176,10 @@ int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
  *
  * The second argument of SORT is always a key, however an arbitrary number of
  * keys may be accessed while doing the sort (the BY and GET args), so the
- * key-spec declares incomplete keys which is why we have to provide a concrete
+ * key-spec declares unknown keys which is why we have to provide a concrete
  * implementation to fetch the keys.
  *
- * This command declares incomplete keys, so the flags are correctly set for this function */
+ * This command declares unknown keys, so the flags are correctly set for this function */
 int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     keyReference *keys;
     UNUSED(cmd);
@@ -2209,7 +2200,7 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
  * follow in SQL-alike style. Here we parse just the minimum in order to
  * correctly identify keys in the "STORE" option. 
  * 
- * This command declares incomplete keys, so the flags are correctly set for this function */
+ * This command declares unknown keys, so the flags are correctly set for this function */
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, j, num, found_store = 0;
     keyReference *keys;
@@ -2254,7 +2245,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
     return result->numkeys;
 }
 
-/* This command declares incomplete keys, so the flags are correctly set for this function */
+/* This command declares unknown keys, so the flags are correctly set for this function */
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num, first;
     keyReference *keys;

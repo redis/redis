@@ -315,7 +315,7 @@ start_server {tags {"acl external:skip"}} {
     test {Test various odd commands for key permissions} {
         r ACL setuser command-test +@all %R~read* %W~write* %RW~rw*
 
-        # Test migrate, which is marked with incomplete keys
+        # Test migrate, which has keyword marked "unknown"
         assert_equal "OK" [r ACL DRYRUN command-test MIGRATE whatever whatever rw 0 500]
         assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever read 0 500]
         assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever write 0 500]
@@ -323,7 +323,7 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 KEYS read]
         assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 KEYS write]
 
-        # Test SORT, which is marked with incomplete keys
+        # Test SORT, which has keyword marked "unknown"
         assert_equal "OK" [r ACL DRYRUN command-test SORT read STORE write]
         assert_equal "This user has no permissions to access the 'read' key"  [r ACL DRYRUN command-test SORT read STORE read]
         assert_equal "This user has no permissions to access the 'write' key"  [r ACL DRYRUN command-test SORT write STORE write]
