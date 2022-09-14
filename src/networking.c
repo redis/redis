@@ -207,6 +207,7 @@ client *createClient(connection *conn) {
     c->CLIENT_REPL_CMD_DISCARDED = 0;
     c->swap_rl_until = 0;
     c->swap_locks = listCreate();
+    c->swap_errcode = 0;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);

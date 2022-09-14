@@ -326,6 +326,468 @@ void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh) {
     if (mh) zfree(mh);
 }
 
+
+char* nextUnSpace(char* start, int size) {
+    if (start == NULL) return NULL;
+    int index = 0;
+    while(index < size) {
+        if(strncmp(start + index, " ", 1) != 0) {
+            return start + index;
+        } 
+        index++;
+    }
+    return NULL;
+}
+
+char* nextSpace(char* start, int n) {
+    if (start == NULL) return NULL;
+    char* result = start;
+    while (n > 0) {
+        n--;
+        result = strstr(result, " ");
+        if (result == NULL) return NULL;
+        if(n != 0) result = result + 1;
+    }
+    return result;    
+}
+
+#define readNextSds($v)  do {                           \
+    start = nextUnSpace(end, line_end - end);\
+    end = nextSpace(start, 1);\
+    if (start != NULL && end != NULL) { \
+        $v = sdsnewlen(start, end - start);                         \
+    }\
+} while (0) 
+
+#define default(a, b) (a == NULL? b: a)
+
+sds compactLevelInfo(sds info, int level , char* rocksdb_stats) {
+    sds totalFiles = NULL;
+    sds compacting_files = NULL;
+    double size = 0;
+    sds score = NULL;
+    sds read = NULL;
+    sds rn = NULL;
+    sds rnp1 = NULL;
+    sds write = NULL;
+    sds wnew = NULL;
+    sds moved = NULL;
+    sds w_amp = NULL;
+    sds rd = NULL;
+    sds wr = NULL;
+    sds comp_sec = NULL;
+    sds comp_merge_cpu = NULL;
+    sds comp_cnt = NULL;
+    sds avg_sec = NULL;
+    sds keyin = NULL;
+    sds keydrop = NULL;
+    /**
+     * @brief 
+     * @example
+     *      Level    Files   Size     Score Read(GB)  Rn(GB) Rnp1(GB) Write(GB) Wnew(GB) Moved(GB) W-Amp Rd(MB/s) Wr(MB/s) Comp(sec) CompMergeCPU(sec) Comp(cnt) Avg(sec) KeyIn KeyDrop Rblob(GB) Wblob(GB)
+            ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+            L0      0/0    0.00 KB   0.0     36.0     0.0     36.0     110.0     74.0       0.0   1.5     53.8    164.6    684.42            665.60       904    0.757     19M    73K       0.0       0.0
+     * 
+     */
+    //TODO get level data
+    if (rocksdb_stats == NULL) {
+        goto end;
+    }
+    char find_buf[256];
+    sprintf(find_buf, "  L%d", level);
+    char* start = strstr(rocksdb_stats, find_buf);
+    if (start == NULL) {
+        goto end;
+    }
+    char* end = start + strlen(find_buf);
+    char* line_end = strstr(end, "\n");
+    
+
+    //Files
+    start = nextUnSpace(end, line_end - end);
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        char* split_index = strstr(start, "/");
+        if((end - split_index) > 0) {
+            totalFiles = sdsnewlen(start, split_index - start);
+            compacting_files = sdsnewlen(split_index + 1, end - split_index - 1);
+        }
+    }
+    //Size
+    start = nextUnSpace(end, line_end - end);
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        string2d(start, end - start, &size);
+    }
+
+    start = end + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        // unit GB
+        if(strncmp(start, "B", 1) == 0) {
+            size = size / (1024 * 1024 * 1024);
+        } if (strncmp(start, "KB", 2) == 0) {
+            size = size / (1024 * 1024);
+        } else if (strncmp(start, "MB", 2) == 0) {
+            size = size / 1024;
+        } else if (strncmp(start, "GB", 2) == 0) {
+
+        }
+    }
+
+    //Score
+    readNextSds(score);
+    //Read(GB)  
+    readNextSds(read);
+    //Rn(GB) 
+    readNextSds(rn);
+    //Rnp1(GB)
+    readNextSds(rnp1);
+    //Write(GB) 
+    readNextSds(write);
+    //Wnew(GB) 
+    readNextSds(wnew);
+    //Moved(GB) 
+    readNextSds(moved);
+    //W-Amp 
+    readNextSds(w_amp);
+    //Rd(MB/s) 
+    readNextSds(rd);
+    //Wr(MB/s) 
+    readNextSds(wr);
+    //Comp(sec) 
+    readNextSds(comp_sec);
+    //CompMergeCPU(sec) 
+    readNextSds(comp_merge_cpu);
+    //Comp(cnt) 
+    readNextSds(comp_cnt);
+    //Avg(sec) 
+    readNextSds(avg_sec);
+    //KeyIn 
+    readNextSds(keyin);
+    //KeyDrop 
+    readNextSds(keydrop);
+    //Rblob(GB) Wblob(GB)
+
+
+    end:
+    info = sdscatprintf(info,
+        "# L%d\r\n"
+        "TotalFiles:%s\r\n"
+        "CompactingFiles:%s\r\n"
+        "Size(GB):%.2f\r\n"
+        "Score:%s\r\n"
+        "Read(GB):%s\r\n"
+        "Rn(GB):%s\r\n"
+        "Rnp1(GB):%s\r\n"
+        "Write(GB):%s\r\n"
+        "Wnew(GB):%s\r\n"
+        "Moved(GB):%s\r\n"
+        "W-Amp:%s\r\n"
+        "Rd(MB/s):%s\r\n"
+        "Wr(MB/s):%s\r\n"
+        "Comp(sec):%s\r\n"
+        "CompMergeCPU(sec):%s\r\n"
+        "Comp(cnt):%s\r\n"
+        "Avg(sec):%s\r\n"
+        "KeyIn(K):%s\r\n"
+        "KeyDrop(K):%s\r\n",
+        level,
+        default(totalFiles, "0"),
+        default(compacting_files, "0"),
+        size,
+        default(score,"0"),
+        default(read, "0"),
+        default(rn, "0"),
+        default(rnp1, "0"),
+        default(write, "0"),
+        default(wnew, "0"),
+        default(moved, "0"),
+        default(w_amp, "0"),
+        default(rd, "0"),
+        default(wr, "0"),
+        default(comp_sec, "0"),
+        default(comp_merge_cpu, "0"),
+        default(comp_cnt, "0"),
+        default(avg_sec, "0"),
+        default(keyin, "0"),
+        default(keydrop, "0"));
+    sdsfree(totalFiles);
+    sdsfree(compacting_files);
+    sdsfree(score);
+    sdsfree(read);
+    sdsfree(rn);
+    sdsfree(rnp1);
+    sdsfree(write);
+    sdsfree(wnew);
+    sdsfree(moved);
+    sdsfree(w_amp);
+    sdsfree(rd);
+    sdsfree(wr);
+    sdsfree(comp_sec);
+    sdsfree(comp_merge_cpu);
+    sdsfree(comp_cnt);
+    sdsfree(avg_sec);
+    sdsfree(keyin);
+    sdsfree(keydrop);
+    return info;
+}
+
+sds compactLevelsInfo(sds info, char* rocksdb_stats) {
+    for(int i = 0; i < 2; i++) {
+        info = compactLevelInfo(info, i, rocksdb_stats);
+    }
+    return info;
+}
+
+
+
+double str2k(char* str, int size) {
+    //G -> k
+    char* end;
+    double result = 0.0;
+    end = strstr(str, "G");
+    if ( end != NULL && (end - str) < size) {
+        if (string2d(str, end - str, &result) == 1) {
+            result *= 1000000;
+            return result;
+        }  
+    }
+
+    //M -> k 
+    end = strstr(str, "M");
+    if ( end != NULL && (end - str) < size) {
+        if (string2d(str, end - str, &result) == 1) {
+            result *= 1000;
+            return result;
+        }
+    }
+    // k 
+    end = strstr(str, "K");
+    if ( end != NULL && (end - str) < size) {
+        if (string2d(str, end - str, &result) == 1) {
+            return result;
+        }
+    }
+    //
+    if (string2d(str, size, &result) == 1) {
+        return result/1000;
+    }
+    return -1.0;
+}
+
+sds rocksdbStatsInfo(sds info, char* type, char* rocksdb_stats) {
+    double writes_num_k = 0;
+    double writes_keys_k = 0;
+    double writes_commit_group = 0;
+    sds writes_per_commit_group = NULL;
+    sds writes_ingest_size = NULL;
+    sds writes_ingest_size_unit = NULL;
+    sds writes_ingest_speed = NULL;
+
+    double wal_writes_k = 0;
+    sds wal_syncs = NULL;
+    sds wal_writes_per_sync = NULL;
+    sds wal_writen_size_unit = NULL;
+    sds wal_writen_size = NULL;
+    sds wal_writen_speed = NULL;
+
+    sds stall_time = NULL;
+    sds stall_percent = NULL;
+    //updateCaseFirst
+    char Type[256] = {0};
+    memcpy(&Type, type, strlen(type));
+    Type[0] = Type[0] - 32;
+    Type[strlen(type)] = '\0';
+    
+    
+    /**
+     * @brief writes
+     * @example 
+            Cumulative writes: 285M writes, 556M keys, 283M commit groups, 1.0 writes per commit group, ingest: 83.45 GB, 0.29 MB/s
+     * 
+     */
+
+    //find writes line frist address
+    if (rocksdb_stats == NULL) {
+        goto end;
+    }
+    char find_buf[512];
+    snprintf(find_buf, sizeof(find_buf)-1, "%s writes: ", Type);
+    char* start = strstr(rocksdb_stats, find_buf);
+    if (start == NULL) {
+        goto end;
+    }
+
+    //writes num
+    start = start + strlen(find_buf);
+    char* end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        writes_num_k = str2k(start, end - start);
+    }
+    //writes keys
+    start = nextSpace(end + 1, 1) + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        writes_keys_k = str2k(start, end - start);
+    }
+    //writes commit groups
+    start = nextSpace(end + 1, 1) + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        writes_commit_group = str2k(start, end - start);
+    }
+    //writes per commit group
+    start = nextSpace(end + 1, 2) + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        writes_per_commit_group = sdsnewlen(start, end - start);
+    }
+    //writes ingest size
+    start = nextSpace(end + 1, 5) + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        writes_ingest_size = sdsnewlen(start, end - start);
+    }
+    start = end + 1;
+    end = nextSpace(start, 1);
+    //1 is ','
+    if (start != NULL && end != NULL) {
+        writes_ingest_size_unit = sdsnewlen(start, end - start - 1);
+    }
+    //writes ingest speed
+    start = end + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        writes_ingest_speed = sdsnewlen(start, end - start);
+    }
+    
+    /**
+     * @brief wal
+     * @example 
+     *      Cumulative WAL: 0 writes, 0 syncs, 0.00 writes per sync, written: 0.00 GB, 0.00 MB/s
+     */
+    //find writes line frist address
+    snprintf(find_buf, sizeof(find_buf)-1, "%s WAL: ", Type);
+    start = strstr(rocksdb_stats, find_buf);
+    if (start != NULL) {
+        start = start + strlen(find_buf);
+    } 
+    
+    //wal_writes
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        wal_writes_k = str2k(start, end - start);
+    }
+
+    //wal syncs
+    start = nextSpace(end + 1, 1) + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        wal_syncs = sdsnewlen(start, end - start);
+    }
+
+    //wal writes per sync
+    start = nextSpace(end + 1, 1) + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        wal_writes_per_sync = sdsnewlen(start, end - start);
+    }
+    //wal writeen 
+    start = nextSpace(end + 1, 4) + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        wal_writen_size = sdsnewlen(start, end - start);
+    }
+    start = end + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        //1 is ','
+        wal_writen_size_unit = sdsnewlen(start, end - start - 1);
+    }
+    //wal writeen speed 
+    start = end + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        wal_writen_speed = sdsnewlen(start, end - start);
+    }
+    /**
+     * @brief stall
+     * @example
+     *      Cumulative stall: 00:00:0.000 H:M:S, 0.0 percent
+     */
+    //find writes line frist address
+    snprintf(find_buf, sizeof(find_buf)-1, "%s stall: ", Type);
+    start = strstr(rocksdb_stats, find_buf);
+    if (start != NULL) {
+        start = start + strlen(find_buf);
+    }
+
+    //stall time 
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        stall_time = sdsnewlen(start, end - start);
+    }
+    //stall percent
+    start = nextSpace(end + 1, 1) + 1;
+    end = nextSpace(start, 1);
+    if (start != NULL && end != NULL) {
+        stall_percent = sdsnewlen(start, end - start);
+    }
+end:
+    info = sdscatprintf(info, 
+        "# %s\r\n"
+        "%s_writes_num(K):%.3f\r\n"
+        "%s_writes_keys(K):%.3f\r\n"
+        "%s_writes_commit_group(K):%.3f\r\n"
+        "%s_writes_per_commit_group:%s\r\n"
+        "%s_writes_ingest_size(%s):%s\r\n"
+        "%s_writes_ingest_speed(MB/s):%s\r\n"
+        "%s_wal_writes(K):%.3f\r\n"
+        "%s_wal_syncs:%s\r\n"
+        "%s_wal_writes_per_sync:%s\r\n"
+        "%s_wal_writen_size(%s):%s\r\n"
+        "%s_wal_writen_speed(MB/s):%s\r\n"
+        "%s_stall_time:%s\r\n"
+        "%s_stall_percent:%s\r\n",
+        Type,
+        type, writes_num_k,
+        type, writes_keys_k,
+        type, writes_commit_group,
+        type, writes_per_commit_group,
+        type, writes_ingest_size_unit, writes_ingest_size,
+        type, writes_ingest_speed,
+        type, wal_writes_k,
+        type, wal_syncs,
+        type, wal_writes_per_sync,
+        type, wal_writen_size_unit, wal_writen_size,
+        type, wal_writen_speed,
+        type, stall_time,
+        type, stall_percent
+    ); 
+    sdsfree(writes_per_commit_group);
+    sdsfree(writes_ingest_size_unit);
+    sdsfree(writes_ingest_size);
+    sdsfree(writes_ingest_speed);
+    sdsfree(wal_syncs);
+    sdsfree(wal_writes_per_sync);
+    sdsfree(wal_writen_size_unit);
+    sdsfree(wal_writen_size);
+    sdsfree(wal_writen_speed);
+    sdsfree(stall_time);
+    sdsfree(stall_percent);
+    return info;
+}
+
+
+sds cumulativeInfo(sds info, char* rocksdb_stats) {
+    return rocksdbStatsInfo(info, "cumulative", rocksdb_stats);
+}
+
+sds intervalInfo(sds info, char* rocksdb_stats) {
+    return rocksdbStatsInfo(info, "interval", rocksdb_stats);
+}
+
 sds genRocksInfoString(sds info) {
 	char *err;
 	size_t used_db_size = 0, max_db_size = 0, disk_capacity = 0, used_disk_size = 0;
@@ -356,14 +818,22 @@ sds genRocksInfoString(sds info) {
 			"used_percent:%0.2f%%\r\n"
 			"used_disk_size:%lu\r\n"
 			"disk_capacity:%lu\r\n"
-			"used_disk_percent:%0.2f%%\r\n",
+			"used_disk_percent:%0.2f%%\r\n"
+            "swap_error:%lu\r\n",
 			sequence,
 			used_db_size,
 			max_db_size,
 			used_db_percent,
 			used_disk_size,
 			disk_capacity,
-			used_disk_percent);
+			used_disk_percent,
+            server.swap_error);
+
+    // # ROCKSDB  (MOCK TROCKS)
+    char* rocksdb_stats = server.rocks->rocksdb_stats_cache;
+    info = compactLevelsInfo(info, rocksdb_stats);
+    info = cumulativeInfo(info, rocksdb_stats);
+    info = intervalInfo(info, rocksdb_stats);
 
 	return info;
 }
@@ -410,6 +880,10 @@ void rocksCron() {
             }
         }
         if (fp) fclose(fp);
+    }
+
+    if (rocks_cron_loops % server.rocksdb_stats_interval == 0) {
+        submitUtilTask(GET_ROCKSDB_STATS_TASK, NULL, NULL);
     }
 
     rocks_cron_loops++;

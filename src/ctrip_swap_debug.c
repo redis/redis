@@ -92,8 +92,12 @@ void swapCommand(client *c) {
 "    Get raw value from rocksdb.",
 "RIO-SCAN meta|data <prefix>",
 "    Scan rocksdb with prefix.",
+"RIO-ERROR <count>",
+"    Make next count rio return error.",
 "RESET-STATS",
 "    Reset swap stats.",
+"COMPACT",
+"   COMPACT rocksdb",
 NULL
         };
         addReplyHelp(c, help);
@@ -201,9 +205,26 @@ NULL
             addReplyBulkSds(c,repr);
         }
         RIODeinit(rio);
+    } else if (!strcasecmp(c->argv[1]->ptr,"debug-rio-error") && c->argc == 3) {
+        long long count;
+        if (getLongLongFromObjectOrReply(c,c->argv[2],&count,NULL))
+            return;
+        if (count > INT_MAX || count < 0) {
+            addReplyError(c,"debug-rio-error count invalid");
+        } else {
+            server.debug_rio_error = (int)count;
+            addReply(c,shared.ok);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"reset-stats") && c->argc == 2) {
         resetStatsSwap();
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"compact") && c->argc == 2) {
+        sds error = NULL;
+        if (submitUtilTask(COMPACT_RANGE_TASK, NULL, &error)) {
+            addReply(c,shared.ok);
+        } else {
+            addReplyErrorSds(c,error);
+        }
     } else {
         addReplySubcommandSyntaxError(c);
         return;

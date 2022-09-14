@@ -104,10 +104,10 @@ int wholeKeyEncodeKeys(swapData *data, int intention, void *datactx,
     switch (intention) {
     case SWAP_IN:
         *action = ROCKS_GET;
-        return C_OK;
+        return 0;
     case SWAP_DEL:
         *action = ROCKS_DEL;
-        return C_OK;
+        return 0;
     case SWAP_OUT:
     default:
         sdsfree(rawkeys[0]);
@@ -116,9 +116,9 @@ int wholeKeyEncodeKeys(swapData *data, int intention, void *datactx,
         *action = SWAP_NOP;
         *numkeys = 0;
         *prawkeys = NULL;
-        return C_ERR;
+        return SWAP_ERR_DATA_FAIL;
     }
-    return C_OK;
+    return 0;
 }
 
 static sds wholeKeyEncodeDataKey(swapData *data) {
@@ -144,7 +144,7 @@ int wholeKeyEncodeData(swapData *data, int intention, void *datactx,
     *prawkeys = rawkeys;
     *prawvals = rawvals;
     *pcfs = cfs;
-    return C_OK;
+    return 0;
 }
 
 /* decoded move to exec module */

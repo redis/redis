@@ -124,13 +124,20 @@ void swapCtxFree(swapCtx *ctx) {
 void continueProcessCommand(client *c) {
 	c->flags &= ~CLIENT_SWAPPING;
     server.current_client = c;
+
     server.in_swap_cb = 1;
-	call(c,CMD_CALL_FULL);
+	if (c->swap_errcode) {
+        rejectCommandFormat(c,"Swap failed (code=%d)",c->swap_errcode);
+        c->swap_errcode = 0;
+    } else {
+		call(c,CMD_CALL_FULL);
+		/* post call */
+		c->woff = server.master_repl_offset;
+		if (listLength(server.ready_keys))
+			handleClientsBlockedOnKeys();
+	}
     server.in_swap_cb = 0;
-    /* post call */
-    c->woff = server.master_repl_offset;
-    if (listLength(server.ready_keys))
-        handleClientsBlockedOnKeys();
+
     /* unhold keys for current command. */
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_CMD);
     clientUnholdKeys(c);
@@ -146,17 +153,19 @@ void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
     robj *key = ctx->key_request->key;
     UNUSED(key);
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-finished",
-            "key=%s, keyrequests_count=%d",
-            key?(sds)key->ptr:"<nil>", c->keyrequests_count);
+            "key=%s, keyrequests_count=%d, errcode=%d",
+            key?(sds)key->ptr:"<nil>", c->keyrequests_count, ctx->errcode);
     c->keyrequests_count--;
+    if (ctx->errcode) clientSwapError(c,ctx->errcode);
     if (c->keyrequests_count == 0) {
         if (!c->CLIENT_DEFERED_CLOSING) continueProcessCommand(c);
     }
 }
 
-int keyRequestSwapFinished(swapData *data, void *pd) {
+void keyRequestSwapFinished(swapData *data, void *pd, int errcode) {
     UNUSED(data);
     swapCtx *ctx = pd;
+	if (errcode) ctx->errcode = errcode;
 
     if (data) {
         swapDataKeyRequestFinished(data);
@@ -171,8 +180,6 @@ int keyRequestSwapFinished(swapData *data, void *pd) {
     clientReleaseRequestIO(ctx->c,ctx);
 
     ctx->finished(ctx->c,ctx);
-    
-    return 0;
 }
 
 /* Expired key should delete only if server is master, check expireIfNeeded
@@ -190,9 +197,9 @@ int keyExpiredAndShouldDelete(redisDb *db, robj *key) {
 #define NOSWAP_REASON_SWAPANADECIDED 4
 #define NOSWAP_REASON_UNEXPECTED 100
 
-int keyRequestProceed(void *listeners, redisDb *db, robj *key,
+void keyRequestProceed(void *listeners, redisDb *db, robj *key,
         client *c, void *pd) {
-    int retval = C_OK, reason_num = 0, swap_intention;
+    int reason_num = 0, retval = 0, swap_intention;
     void *datactx = NULL;
     swapData *data = NULL;
     swapCtx *ctx = pd;
@@ -224,8 +231,8 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
 
     if (value == NULL) {
         submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
-                ctx,data,datactx,keyRequestSwapFinished,ctx,msgs);
-        return C_OK;
+                ctx,data,datactx,keyRequestSwapFinished,ctx,msgs,-1);
+        return;
     }
 
     expire = getExpire(db,key);
@@ -243,8 +250,7 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
 
     if (swapDataAna(data,ctx->key_request,&swap_intention,
                 &swap_intention_flags,datactx)) {
-        ctx->errcode = SWAP_ERR_ANA_FAIL;
-        retval = C_ERR;
+        ctx->errcode = SWAP_ERR_DATA_ANA_FAIL;
         reason = "swap ana failed";
         reason_num = NOSWAP_REASON_UNEXPECTED;
         goto noswap;
@@ -260,9 +266,9 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key,
             swapIntentionName(swap_intention));
 
     submitSwapDataRequest(SWAP_MODE_ASYNC,swap_intention,swap_intention_flags,
-            ctx,data,datactx,keyRequestSwapFinished,ctx,msgs);
+            ctx,data,datactx,keyRequestSwapFinished,ctx,msgs,-1);
 
-    return C_OK;
+    return;
 
 noswap:
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed",
@@ -273,9 +279,9 @@ noswap:
     }
 
     /* noswap is kinda swapfinished. */
-    keyRequestSwapFinished(data,ctx);
+    keyRequestSwapFinished(data,ctx,ctx->errcode);
 
-    return retval;
+    return;
 }
 
 void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
@@ -415,7 +421,6 @@ void createSharedObjects(void);
 int initTestRedisServer() {
     server.maxmemory_policy = MAXMEMORY_FLAG_LFU;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
-    server.meta_version = 1;
     createSharedObjects();
     initTestRedisDb();
     return 1;
@@ -436,6 +441,7 @@ int swapTest(int argc, char **argv, int accurate) {
   result += swapRdbTest(argc, argv, accurate);
   result += swapIterTest(argc, argv, accurate);
   result += swapDataHashTest(argc, argv, accurate);
+  result += testRocksCalculateNextKey(argc, argv, accurate);
   return result;
 }
 #endif

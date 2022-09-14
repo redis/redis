@@ -27,9 +27,8 @@
  */
 
 #include "ctrip_swap.h"
-
-#define EXEC_OK      0
-#define EXEC_FAIL    -1
+#include <dirent.h>
+#include <sys/stat.h>
 
 #define RIO_SCAN_NUMKEYS_ALLOC_INIT 16
 #define RIO_SCAN_NUMKEYS_ALLOC_LINER 4096
@@ -416,6 +415,10 @@ void dumpRIO(RIO *rio) {
 int doRIO(RIO *rio) {
     int ret;
     if (server.debug_rio_latency) usleep(server.debug_rio_latency*1000);
+    if (server.debug_rio_error > 0) {
+        server.debug_rio_error--;
+        return SWAP_ERR_EXEC_RIO_FAIL;
+    }
 
     switch (rio->action) {
     case ROCKS_GET:
@@ -448,7 +451,7 @@ int doRIO(RIO *rio) {
     dumpRIO(rio);
 #endif
 
-    return ret;
+    return ret ? SWAP_ERR_EXEC_RIO_FAIL : 0;
 }
 
 static void doNotify(swapRequest *req) {
@@ -466,7 +469,7 @@ static inline int doSwapDelMeta(swapData *data) {
 }
 
 static int executeSwapDelRequest(swapRequest *req) {
-    int i, numkeys, retval = EXEC_OK, action;
+    int i, numkeys, retval = 0, action;
     int *cfs = NULL;
     sds *rawkeys = NULL;
     RIO _rio = {0}, *rio = &_rio;
@@ -477,9 +480,8 @@ static int executeSwapDelRequest(swapRequest *req) {
     DEBUG_MSGS_APPEND(req->msgs,"exec-del.meta","retval=%d",retval);
     if (retval) goto end;
 
-    if (swapDataEncodeKeys(data,req->intention,req->datactx,
-                &action,&numkeys,&cfs,&rawkeys)) {
-        retval = EXEC_FAIL;
+    if ((retval = swapDataEncodeKeys(data,req->intention,req->datactx,
+                &action,&numkeys,&cfs,&rawkeys))) {
         goto end;
     }
     DEBUG_MSGS_APPEND(req->msgs,"exec-del-encodekeys",
@@ -510,13 +512,12 @@ static int executeSwapDelRequest(swapRequest *req) {
         zfree(rawkeys), rawkeys = NULL;
         zfree(cfs), cfs = NULL;
     } else {
-        retval = EXEC_FAIL;
+        retval = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
         goto end;
     }
 
     updateStatsSwapRIO(req, rio);
-    if (doRIO(rio)) {
-        retval = EXEC_FAIL;
+    if ((retval = doRIO(rio))) {
         goto end;
     }
 
@@ -524,6 +525,79 @@ end:
     doNotify(req);
     RIODeinit(rio);
     return retval;
+}
+
+
+/*
+    calculate the size of all files in a folder
+*/
+static long get_dir_size(char *dirname)
+{
+    DIR *dir;
+    struct dirent *ptr;
+    long total_size = 0;
+    char path[PATH_MAX] = {0};
+
+    dir = opendir(dirname);
+    if(dir == NULL)
+    {
+        serverLog(LL_WARNING,"open dir(%s) failed.", dirname);
+        return -1;
+    }
+
+    while((ptr=readdir(dir)) != NULL)
+    {
+        snprintf(path, (size_t)PATH_MAX, "%s/%s", dirname,ptr->d_name);
+        struct stat buf;
+        if(lstat(path, &buf) < 0) {
+            serverLog(LL_WARNING, "path(%s) lstat error", path);
+        }
+        if(strcmp(ptr->d_name,".") == 0) {
+            total_size += buf.st_size;
+            continue;
+        }
+        if(strcmp(ptr->d_name,"..") == 0) {
+            continue;
+        }
+        if (S_ISDIR(buf.st_mode))
+        {
+            total_size += get_dir_size(path);
+            memset(path, 0, sizeof(path));
+        } else {
+            total_size += buf.st_size;
+        }
+    }
+    closedir(dir);
+    return total_size;
+}
+
+static int executeCompactRange(swapRequest *req) {
+    char dir[ROCKS_DIR_MAX_LEN];
+    snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocksdb_epoch);
+    serverLog(LL_WARNING, "[rocksdb compact range before] dir(%s) size(%ld)", dir, get_dir_size(dir));
+    rocksdb_compact_range(server.rocks->db, NULL, 0, NULL, 0);
+    serverLog(LL_WARNING, "[rocksdb compact range after] dir(%s) size(%ld)", dir, get_dir_size(dir));
+    doNotify(req);
+    return 0;
+}
+
+static int executeGetRocksdbStats(swapRequest* req) {
+    req->finish_pd = rocksdb_property_value(server.rocks->db, "rocksdb.stats");
+    doNotify(req);
+    return 0;
+}
+
+
+static int executeRocksdbUtils(swapRequest *req) {
+    switch(req->intention_flags) {
+        case COMPACT_RANGE_TASK:
+            return executeCompactRange(req);
+        case GET_ROCKSDB_STATS_TASK:
+            return executeGetRocksdbStats(req);
+        default:
+            return SWAP_ERR_EXEC_UNEXPECTED_UTIL;
+    }
+    return 0;
 }
 
 static inline int doSwapOutMeta(swapData *data) {
@@ -540,15 +614,14 @@ static inline int doSwapOutMeta(swapData *data) {
 }
 
 static int executeSwapOutRequest(swapRequest *req) {
-    int i, numkeys, retval = EXEC_OK, action, *cfs = NULL;
+    int i, numkeys, retval = 0, action, *cfs = NULL;
     sds *rawkeys = NULL, *rawvals = NULL;
     RIO _rio = {0}, *rio = &_rio;
     rocksdb_writebatch_t *wb = NULL;
     swapData *data = req->data;
 
-    if (swapDataEncodeData(data,req->intention,req->datactx,
-                &action,&numkeys,&cfs,&rawkeys,&rawvals)) {
-        retval = EXEC_FAIL;
+    if ((retval = swapDataEncodeData(data,req->intention,req->datactx,
+                &action,&numkeys,&cfs,&rawkeys,&rawvals))) {
         goto end;
     }
     DEBUG_MSGS_APPEND(req->msgs,"exec-out-encodedata",
@@ -579,18 +652,16 @@ static int executeSwapOutRequest(swapRequest *req) {
         RIOInitWrite(rio, wb);
         // TODO confirm rawkeys leaked?
     } else {
-        retval = EXEC_FAIL;
+        retval = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
         goto end;
     }
 
     updateStatsSwapRIO(req,rio);
-    if (doRIO(rio)) {
-        retval = EXEC_FAIL;
+    if ((retval = doRIO(rio))) {
         goto end;
     }
 
-    if (swapDataCleanObject(data,req->datactx)) {
-        retval = EXEC_FAIL;
+    if ((retval = swapDataCleanObject(data,req->datactx))) {
         goto end;
     }
     DEBUG_MSGS_APPEND(req->msgs,"exec-out-cleanobject","ok");
@@ -605,7 +676,7 @@ static int executeSwapOutRequest(swapRequest *req) {
             object_meta ? (ssize_t)object_meta->len : 0 );
 #endif
 
-        if (retval != EXEC_OK) goto end;
+        if (retval) goto end;
     }
 
 end:
@@ -651,14 +722,13 @@ static int doSwapIntentionDel(swapRequest *req, int numkeys, int *cfs, sds *rawk
 
 static int executeSwapInRequest(swapRequest *req) {
     robj *decoded;
-    int numkeys, retval = EXEC_OK, action, *cfs = NULL;
+    int numkeys, retval, action, *cfs = NULL;
     sds *rawkeys = NULL;
     RIO _rio = {0}, *rio = &_rio;
     swapData *data = req->data;
 
-    if (swapDataEncodeKeys(data,req->intention,req->datactx,
-                &action,&numkeys,&cfs,&rawkeys)) {
-        retval = EXEC_FAIL;
+    if ((retval = swapDataEncodeKeys(data,req->intention,req->datactx,
+                &action,&numkeys,&cfs,&rawkeys))) {
         goto end;
     }
     DEBUG_MSGS_APPEND(req->msgs,"exec-in-encodekeys","action=%s, numkeys=%d",
@@ -666,23 +736,20 @@ static int executeSwapInRequest(swapRequest *req) {
 
     if (action == ROCKS_MULTIGET) {
         RIOInitMultiGet(rio,numkeys,cfs,rawkeys);
-        if (doRIO(rio)) {
-            retval = EXEC_FAIL;
+        if ((retval = doRIO(rio))) {
             goto end;
         }
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-multiget",
                 "numkeys=%d,rio=ok", numkeys);
 
-        if (swapDataDecodeData(data,rio->multiget.numkeys,rio->multiget.cfs,
-                    rio->multiget.rawkeys,rio->multiget.rawvals,&decoded)) {
-            retval = EXEC_FAIL;
+        if ((retval = swapDataDecodeData(data,rio->multiget.numkeys,rio->multiget.cfs,
+                    rio->multiget.rawkeys,rio->multiget.rawvals,&decoded))) {
             goto end;
         }
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata","decoded=%p",(void*)decoded);
 
         if (req->intention_flags & SWAP_EXEC_IN_DEL) {
-            if (doSwapIntentionDel(req,numkeys,cfs,rawkeys)) {
-                retval = EXEC_FAIL;
+            if ((retval = doSwapIntentionDel(req,numkeys,cfs,rawkeys))) {
                 goto end;
             }
 
@@ -691,16 +758,14 @@ static int executeSwapInRequest(swapRequest *req) {
              * to be deleted (requires IO again). so we delete this obselete
              * rocks-meta before command call so we don't have to check and delete
              * rocks-meta if key gets deleted. */
-            if (doSwapDelMeta(data)) {
-                retval = EXEC_FAIL;
+            if ((retval = doSwapDelMeta(data))) {
                 goto end;
             }
         }
     } else if (action == ROCKS_GET) {
         serverAssert(numkeys == 1);
         RIOInitGet(rio, cfs[0], rawkeys[0]);
-        if (doRIO(rio)) {
-            retval = EXEC_FAIL;
+        if ((retval = doRIO(rio))) {
             goto end;
         }
 
@@ -711,22 +776,19 @@ static int executeSwapInRequest(swapRequest *req) {
         sdsfree(rawval_repr);
 #endif
 
-        if (swapDataDecodeData(data,1,&rio->get.cf,&rio->get.rawkey,
-                    &rio->get.rawval,&decoded)) {
-            retval = EXEC_FAIL;
+        if ((retval = swapDataDecodeData(data,1,&rio->get.cf,&rio->get.rawkey,
+                    &rio->get.rawval,&decoded))) {
             goto end;
         }
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata","decoded=%p",(void*)decoded);
 
         if (req->intention_flags & SWAP_EXEC_IN_DEL) {
-            if (doSwapIntentionDel(req,numkeys,cfs,rawkeys)) {
-                retval = EXEC_FAIL;
+            if ((retval = doSwapIntentionDel(req,numkeys,cfs,rawkeys))) {
                 goto end;
             }
 
             /* see previous comment for details. */
-            if (doSwapDelMeta(data)) {
-                retval = EXEC_FAIL;
+            if ((retval = doSwapDelMeta(data))) {
                 goto end;
             }
         }
@@ -736,16 +798,14 @@ static int executeSwapInRequest(swapRequest *req) {
     } else if (action == ROCKS_SCAN) {
         int *tmpcfs, i;
         RIOInitScan(rio,cfs[0],rawkeys[0]);
-        if (doRIO(rio)) {
-            retval = EXEC_FAIL;
+        if ((retval = doRIO(rio))) {
             goto end;
         }
         tmpcfs = zmalloc(sizeof(int)*rio->scan.numkeys);
         for (i = 0; i < rio->scan.numkeys; i++) tmpcfs[i] = cfs[0];
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-scan","prefix=%s,rio=ok",rawkeys[0]);
-        if (swapDataDecodeData(data,rio->scan.numkeys,tmpcfs,rio->scan.rawkeys,
-                    rio->scan.rawvals,&decoded)) {
-            retval = EXEC_FAIL;
+        if ((retval = swapDataDecodeData(data,rio->scan.numkeys,tmpcfs,rio->scan.rawkeys,
+                    rio->scan.rawvals,&decoded))) {
             zfree(tmpcfs);
             goto end;
         }
@@ -754,14 +814,12 @@ static int executeSwapInRequest(swapRequest *req) {
 
         if (req->intention_flags & SWAP_EXEC_IN_DEL) {
             //TODO FIXME use deleterange
-            if (doSwapIntentionDel(req,numkeys,cfs,rawkeys)) {
-                retval = EXEC_FAIL;
+            if ((retval = doSwapIntentionDel(req,numkeys,cfs,rawkeys))) {
                 goto end;
             }
 
             /* see previous comment for details. */
-            if (doSwapDelMeta(data)) {
-                retval = EXEC_FAIL;
+            if ((retval = doSwapDelMeta(data))) {
                 goto end;
             }
         }
@@ -769,7 +827,7 @@ static int executeSwapInRequest(swapRequest *req) {
         zfree(cfs);
         zfree(rawkeys);
     } else {
-        retval = EXEC_FAIL;
+        retval = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
         goto end;
     }
 
@@ -790,32 +848,29 @@ static inline int RIOGetNotFound(RIO *rio) {
 }
 
 static int swapRequestSwapInMeta(swapRequest *req) {
-    int retval = EXEC_OK;
+    int retval = 0;
     RIO _rio = {0}, *rio = &_rio;
     sds rawkey;
     swapData *data = req->data;
 
     rawkey = swapDataEncodeMetaKey(data);
     if (rawkey == NULL) {
-        retval = EXEC_FAIL;
+        retval = SWAP_ERR_EXEC_FAIL;
         goto end;
     }
 
     RIOInitGet(rio,META_CF,rawkey);
-    if (doRIO(rio)) {
-        retval = EXEC_FAIL;
+    if ((retval = doRIO(rio))) {
         goto end;
     }
 
-    if (RIOGetNotFound(rio)) {
-        retval = EXEC_OK;
+    if ((retval = RIOGetNotFound(rio))) {
         DEBUG_MSGS_APPEND(req->msgs,"exec-swapinmeta", "%s: notfound",
                 (sds)data->key->ptr);
         goto end;
     }
 
-    if (swapDataDecodeAndSetupMeta(data,rio->get.rawval,&req->datactx)) {
-        retval = EXEC_FAIL;
+    if ((retval = swapDataDecodeAndSetupMeta(data,rio->get.rawval,&req->datactx))) {
         goto end;
     }
 
@@ -837,23 +892,34 @@ static inline int swapRequestIsMetaType(swapRequest *req) {
     return req->key_request != NULL;
 }
 
-static int executeSwapRequest(swapRequest *req) {
+static void executeSwapRequest(swapRequest *req) {
+    int retval = 0;
+    serverAssert(req->errcode == 0);
+
     updateStatsSwapStart(req);
     /* do execute swap */ 
     switch (req->intention) {
     case SWAP_IN:
-        return executeSwapInRequest(req);
+        retval = executeSwapInRequest(req);
+        break;
     case SWAP_OUT:
-        return executeSwapOutRequest(req);
+        retval = executeSwapOutRequest(req);
+        break;
     case SWAP_DEL: 
-        return executeSwapDelRequest(req);
+        retval = executeSwapDelRequest(req);
+        break;
+    case ROCKSDB_UTILS:
+        retval = executeRocksdbUtils(req);
+        break;
     case SWAP_NOP:
         doNotify(req);
-        return EXEC_OK;
+        break;
     default:
         doNotify(req);
-        return EXEC_FAIL;
+        retval = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
+        break;
     }
+    req->errcode = retval;
 }
 
 static inline void swapRequestSetIntention(swapRequest *req, int intention,
@@ -862,12 +928,13 @@ static inline void swapRequestSetIntention(swapRequest *req, int intention,
     req->intention_flags = intention_flags;
 }
 
-int processSwapRequest(swapRequest *req) {
-    int retval = EXEC_OK, intention;
+void processSwapRequest(swapRequest *req) {
+    int retval = 0, intention;
     uint32_t intention_flags;
 
     if (!swapRequestIsMetaType(req)) {
-        return executeSwapRequest(req);
+         executeSwapRequest(req);
+         return;
     }
 
     if ((retval = swapRequestSwapInMeta(req))) {
@@ -876,7 +943,6 @@ int processSwapRequest(swapRequest *req) {
 
     /* key confirmed not exists, no need to execute swap request. */
     if (!swapDataAlreadySetup(req->data)) {
-        retval =  EXEC_OK;
         goto end;
     }
 
@@ -888,11 +954,14 @@ int processSwapRequest(swapRequest *req) {
     swapRequestSetIntention(req,intention,intention_flags);
 
     /* If intention is nop, req will finish without executeXXX. */
-    return executeSwapRequest(req);
+    executeSwapRequest(req);
+
+    return;
     
 end:
     doNotify(req);
-    return retval;
+
+    return;
 }
 
 static inline void swapDataTurnWarmOrHot(swapData *data) {
@@ -921,22 +990,24 @@ static inline void swapDataTurnDeleted(swapData *data) {
 
 /* Called by async-complete-queue or parallel-sync in server thread
  * to swap in/out/del data */
-int finishSwapRequest(swapRequest *req) {
+void finishSwapRequest(swapRequest *req) {
     DEBUG_MSGS_APPEND(req->msgs,"exec-finish","intention=%s",
             swapIntentionName(req->intention));
-    int ret;
+    int retval = 0;
+    if (req->errcode) return;
+
     swapData *data = req->data;
     void *datactx = req->datactx;
 
     switch (req->intention) {
     case SWAP_IN:
-        ret = swapDataSwapIn(data,req->result,datactx);
-        if (ret == 0) {
+        retval = swapDataSwapIn(data,req->result,datactx);
+        if (retval == 0) {
             if (swapDataIsCold(data) && req->result) {
                 swapDataTurnWarmOrHot(data);
             }
         }
-        return ret;
+        break;
     case SWAP_OUT:
         /* exec removes expire if rocks-meta persists, while object_meta
          * is removed by swapdata. note that exec remove expire (satellite
@@ -945,36 +1016,38 @@ int finishSwapRequest(swapRequest *req) {
                 !swapDataIsCold(data)) {
             swapDataTurnCold(data);
         }
-        return swapDataSwapOut(data,datactx);
+        retval = swapDataSwapOut(data,datactx);
+        break;
     case SWAP_DEL:
         swapDataTurnDeleted(data);
-        ret = swapDataSwapDel(data,datactx,
+        retval = swapDataSwapDel(data,datactx,
                 req->intention_flags & SWAP_FIN_DEL_SKIP);
-        return ret;
+        break;
     default:
-        return -1;
+        retval = SWAP_ERR_DATA_FIN_FAIL;
     }
+    req->errcode = retval;
 }
 
-static inline void submitSwapRequest(int mode,swapRequest *req) {
+static inline void submitSwapRequest(int mode,swapRequest *req, int idx) {
     if (mode == SWAP_MODE_ASYNC) {
-        asyncSwapRequestSubmit(req);
+        asyncSwapRequestSubmit(req,idx);
     } else {
-        parallelSyncSwapRequestSubmit(req);
+        parallelSyncSwapRequestSubmit(req,idx);
     }
 }
 
 void submitSwapMetaRequest(int mode,keyRequest *key_request, swapCtx *ctx, swapData* data,
-        void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs) {
+        void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs, int idx) {
     swapRequest *req = swapRequestNew(key_request,-1,-1,ctx,data,datactx,cb,pd,msgs);
-    submitSwapRequest(mode,req);
+    submitSwapRequest(mode,req,idx);
 }
 
 void submitSwapDataRequest(int mode, int intention,
         uint32_t intention_flags, swapCtx *ctx, swapData* data, void *datactx,
-        swapRequestFinishedCallback cb, void *pd, void *msgs) {
+        swapRequestFinishedCallback cb, void *pd, void *msgs, int idx) {
     swapRequest *req = swapRequestNew(NULL,intention,intention_flags,ctx,data,datactx,cb,pd,msgs);
-    submitSwapRequest(mode,req);
+    submitSwapRequest(mode,req,idx);
 }
 
 swapRequest *swapRequestNew(keyRequest *key_request, int intention,
@@ -1005,9 +1078,8 @@ void swapRequestFree(swapRequest *req) {
 
 #ifdef REDIS_TEST
 
-int mockNotifyCallback(swapRequest *req, void *pd) {
+void mockNotifyCallback(swapRequest *req, void *pd) {
     UNUSED(req),UNUSED(pd);
-    return 0;
 }
 
 int wholeKeyRocksDataExists(redisDb *db, robj *key) {
@@ -1123,7 +1195,8 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,NULL,data,NULL,NULL,NULL,NULL);
        req->notify_cb = mockNotifyCallback;
        req->notify_pd = NULL;
-       test_assert(processSwapRequest(req) == 0);
+       processSwapRequest(req);
+       test_assert(req->errcode == 0);
        test_assert(finishSwapRequest(req) == 0);
        test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) == NULL);
        test_assert(getExpire(db,key1) == -1);
@@ -1139,7 +1212,8 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        swapRequest *req = swapRequestNew(key1_req,-1,-1,NULL,data,NULL,NULL,NULL,NULL);
        req->notify_cb = mockNotifyCallback;
        req->notify_pd = NULL;
-       test_assert(processSwapRequest(req) == 0);
+       processSwapRequest(req);
+       test_assert(req->errcode == 0);
        test_assert(finishSwapRequest(req) == 0);
        test_assert((val1 = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL && !objectIsDirty(val1));
        test_assert(getExpire(db,key1) == EXPIRE);
@@ -1154,8 +1228,10 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_DEL,0,NULL,data,NULL,NULL,NULL,NULL);
        req->notify_cb = mockNotifyCallback;
        req->notify_pd = NULL;
-       test_assert(executeSwapRequest(req) == 0);
-       test_assert(finishSwapRequest(req) == 0);
+       executeSwapRequest(req);
+       test_assert(req->errcode == 0);
+       finishSwapRequest(req);
+       test_assert(req->errcode == 0);
        test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) == NULL);
        test_assert(getExpire(db,key1) == -1);
        test_assert(!wholeKeyRocksDataExists(db,key1));
@@ -1171,8 +1247,10 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        swapRequest *out_req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,NULL,out_data,NULL,NULL,NULL,NULL);
        out_req->notify_cb = mockNotifyCallback;
        out_req->notify_pd = NULL;
-       test_assert(processSwapRequest(out_req) == 0);
-       test_assert(finishSwapRequest(out_req) == 0);
+       processSwapRequest(out_req);
+       test_assert(out_req->errcode == 0);
+       finishSwapRequest(out_req);
+       test_assert(out_req->errcode == 0);
        test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) == NULL);
        test_assert(wholeKeyRocksMetaExists(db,key1));
        test_assert(wholeKeyRocksDataExists(db,key1));
@@ -1184,8 +1262,10 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        swapRequest *in_del_req = swapRequestNew(key1_req,-1,-1,NULL,in_del_data,NULL,NULL,NULL,NULL);
        in_del_req->notify_cb = mockNotifyCallback;
        in_del_req->notify_pd = NULL;
-       test_assert(processSwapRequest(in_del_req) == 0);
-       test_assert(finishSwapRequest(in_del_req) == 0);
+       processSwapRequest(in_del_req);
+       test_assert(in_del_req->errcode == 0);
+       finishSwapRequest(in_del_req);
+       test_assert(in_del_req->errcode == 0);
        test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) != NULL);
        test_assert(!wholeKeyRocksMetaExists(db,key1));
        test_assert(!wholeKeyRocksDataExists(db,key1));

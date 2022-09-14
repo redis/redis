@@ -28,6 +28,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "endianconv.h"
+
 typedef unsigned int keylen_t;
 
 sds objectDump(robj *o) {
@@ -248,6 +250,56 @@ int swapUtilTest(int argc, char **argv, int accurate) {
         raw = rocksEncodeObjectMetaLen(-666);
         test_assert(-666 == rocksDecodeObjectMetaLen(raw,sdslen(raw)));
         sdsfree(raw);
+    }
+
+    return error;
+}
+
+int testRocksCalculateNextKey(int argc, char **argv, int accurate) {
+    sds current = NULL, next = NULL;
+    int error = 0;
+
+    TEST("claculate-next-key: empty string") {
+        current = next = NULL;
+        current = sdsempty();
+        next = rocksCalculateNextKey(current);
+        test_assert(NULL == next);
+        sdsfree(current);
+        sdsfree(next);
+    }
+
+    TEST("claculate-next-key: string full with 0xff") {
+        current = next = NULL;
+        char str[10] = {0};
+        memset(str, (char)0xff, 9);
+        current = sdsnew(str);
+        next = rocksCalculateNextKey(current);
+        test_assert(NULL == next);
+        sdsfree(current);
+        sdsfree(next);
+    }
+
+    TEST("claculate-next-key: end with 0xff") {
+        current = next = NULL;
+        char str[] = {'t', 'e', 's', 't', (char)0xff, (char)0xff, 0};
+        current = sdsnew(str);
+        next = rocksCalculateNextKey(current);
+        test_assert(NULL != next);
+        test_assert(4 == sdslen(next));
+        test_assert(0 == memcmp("tesu", next, 4));
+        sdsfree(current);
+        sdsfree(next);
+    }
+
+    TEST("claculate-next-key: normal string") {
+        current = next = NULL;
+        current = sdsnew("normal string");
+        next = rocksCalculateNextKey(current);
+        test_assert(NULL != next);
+        test_assert(13 == sdslen(next));
+        test_assert(0 == memcmp("normal strinh", next, 13));
+        sdsfree(current);
+        sdsfree(next);
     }
 
     return error;

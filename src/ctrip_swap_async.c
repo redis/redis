@@ -47,7 +47,7 @@ int asyncCompleteQueueProcess(asyncCompleteQueue *cq) {
         swapRequest *req = listNodeValue(ln);
         /* currently async mode are only used by cmd swap. */
         finishSwapRequest(req);
-        req->finish_cb(req->data, req->finish_pd);
+        req->finish_cb(req->data, req->finish_pd, req->errcode);
         updateStatsSwapFinish(req);
         swapRequestFree(req);
     }
@@ -129,12 +129,12 @@ void asyncCompleteQueueDeinit(asyncCompleteQueue *cq) {
     listRelease(cq->complete_queue);
 }
 
-int asyncSwapRequestNotifyCallback(struct swapRequest *req, void *pd) {
+void asyncSwapRequestNotifyCallback(struct swapRequest *req, void *pd) {
     UNUSED(pd);
-    return asyncCompleteQueueAppend(server.CQ, req);
+    asyncCompleteQueueAppend(server.CQ, req);
 }
 
-int asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequest *req) {
+void asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequest *req) {
     pthread_mutex_lock(&cq->lock);
     listAddNodeTail(cq->complete_queue, req);
     pthread_mutex_unlock(&cq->lock);
@@ -145,15 +145,13 @@ int asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequest *req) {
             serverLog(LL_NOTICE, "[rocks] notify rio finish failed: %s",
                     strerror(errno));
         }
-        return -1;
     }
-    return 0;
 }
 
-void asyncSwapRequestSubmit(swapRequest *req) {
+void asyncSwapRequestSubmit(swapRequest *req, int idx) {
     req->notify_cb = asyncSwapRequestNotifyCallback;
     req->notify_pd = NULL;
-    swapThreadsDispatch(req);
+    swapThreadsDispatch(req, idx);
 }
 
 static int asyncCompleteQueueDrained() {

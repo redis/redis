@@ -141,7 +141,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define STATS_METRIC_NET_INPUT 1    /* Bytes read to network .*/
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
 #define STATS_METRIC_COUNT_MEM 3
-#define STATS_METRIC_COUNT_SWAP 24 /* define directly here to avoid dependcy cycle, will be checked later. */
+#define STATS_METRIC_COUNT_SWAP 26 /* define directly here to avoid dependcy cycle, will be checked later. */
 #define STATS_METRIC_COUNT (STATS_METRIC_COUNT_SWAP + STATS_METRIC_COUNT_MEM)
 
 /* Protocol and I/O related defines */
@@ -994,6 +994,7 @@ typedef struct client {
     struct client *repl_client; /* Master or peer client if this is a repl worker */
     long long swap_rl_until; /* client should not read or swap untill swap_rl_untill */
     list *swap_locks; /* swap locks */
+    int swap_errcode;
 } client;
 
 struct saveparam {
@@ -1687,7 +1688,9 @@ struct redisServer {
     int rocksdb_epoch;
     int rocksdb_disk_error;
     int rocksdb_disk_error_since;
+    int rocksdb_stats_interval;
 		struct rocks *rocks;
+    struct rocksdbUtilTaskManager* util_task_manager;
     /* swap threads */
     int swap_threads_num;
     struct swapThread *swap_threads;
@@ -1706,11 +1709,13 @@ struct redisServer {
     /* swap rate limiting */
     redisAtomic size_t swap_inprogress_count; /* swap request inprogress count */
     redisAtomic size_t swap_inprogress_memory;  /* swap consumed memory in bytes */
+    redisAtomic size_t swap_error;  /* swap error count */
     unsigned long long swap_memory_slowdown; /* swap memory to slowdown swap requests */
     unsigned long long swap_memory_stop; /* swap memory to (almost) stop swap requests */
     int maxmemory_oom_percentage; /* reject denyoom commands if server used more memory than
                                   maxmemory*maxmemory_oom_percentage */
     int debug_rio_latency; /* sleep debug_rio_latency ms to simulate ssd latency. */
+    int debug_rio_error; /* mock rio error */
     /* repl swap */
     int repl_workers;   /* num of repl worker clients */
     list *repl_worker_clients_free; /* free clients for repl(slaveof & peerof) swap. */
@@ -1722,7 +1727,6 @@ struct redisServer {
     /* request wait */
     struct requestListeners *request_listeners; /* server level request listeners */
     /* big object */
-    uint64_t meta_version; /* global meta version for objectMeta */
     int swap_evict_step_max_subkeys; /* max subkeys evict in one step. */
     unsigned long long swap_evict_step_max_memory; /* max memory evict in one step. */
     unsigned long long swap_big_hash_threshold; /* encode as big hash if memory exceeds threshold. */

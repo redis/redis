@@ -128,12 +128,17 @@ static void processFinishedReplCommands() {
         c->cmd = wc->cmd;
         server.current_client = c;
 
-        call(wc, CMD_CALL_FULL);
+        if (wc->swap_errcode) {
+            rejectCommandFormat(c,"Swap failed (code=%d)",wc->swap_errcode);
+            wc->swap_errcode = 0;
+        } else {
+            call(wc, CMD_CALL_FULL);
 
-        /* post call */
-        c->woff = server.master_repl_offset;
-        if (listLength(server.ready_keys))
-            handleClientsBlockedOnKeys();
+            /* post call */
+            c->woff = server.master_repl_offset;
+            if (listLength(server.ready_keys))
+                handleClientsBlockedOnKeys();
+        }
 
         c->db = wc->db;
         c->cmd = backup_cmd;
@@ -185,7 +190,9 @@ void replWorkerClientKeyRequestFinished(client *wc, swapCtx *ctx) {
     serverLog(LL_DEBUG, "> replWorkerClientSwapFinished client(id=%ld,cmd=%s,key=%s)",
         wc->id,wc->cmd->name,wc->argc <= 1 ? "": (sds)wc->argv[1]->ptr);
 
-    DEBUG_MSGS_APPEND(&ctx->msgs, "request-finished", "ret=ok");
+    DEBUG_MSGS_APPEND(&ctx->msgs, "request-finished", "errcode=%d",ctx->errcode);
+
+    if (ctx->errcode) clientSwapError(wc,ctx->errcode);
 
     /* Flag swap finished, note that command processing will be defered to
      * processFinishedReplCommands becasue there might be unfinished preceeding swap. */

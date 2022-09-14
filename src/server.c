@@ -722,11 +722,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"save",saveCommand,1,
      "admin no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"bgsave",bgsaveCommand,-1,
      "admin no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"refullsync",refullsyncCommand,1,
      "admin read-only",
@@ -734,7 +734,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"bgrewriteaof",bgrewriteaofCommand,1,
      "admin no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"shutdown",shutdownCommand,-1,
      "admin no-script ok-loading ok-stale",
@@ -762,11 +762,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"sync",syncCommand,1,
      "admin no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"psync",syncCommand,-3,
      "admin no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"replconf",replconfCommand,-1,
      "admin no-script ok-loading ok-stale",
@@ -2786,6 +2786,7 @@ void initServerConfig(void) {
     server.max_db_size = 0;
     server.debug_evict_keys = 0;
     server.debug_rio_latency = 0;
+    server.debug_rio_error = 0;
 
     /* Failover related */
     server.failover_end_time = 0;
@@ -3377,6 +3378,7 @@ void initServer(void) {
     server.repl_good_slaves_count = 0;
     server.swap_inprogress_count = 0;
     server.swap_inprogress_memory = 0;
+    server.swap_error = 0;
     server.in_swap_cb = 0;
 
     /* Create the timer callback, this is our way to process many background
@@ -3455,9 +3457,10 @@ void InitServerLast() {
     server.rocksdb_epoch = 0;
     server.rocksdb_disk_error = 0;
     server.rocksdb_disk_error_since = 0;
-    server.meta_version = 1;
+    server.rocksdb_stats_interval = 2;
     server.swap_txid = 0;
     rocksInit();
+    server.util_task_manager = createRocksdbUtilTaskManager();
     asyncCompleteQueueInit();
     parallelSyncInit(server.ps_parallism_rdb);
     swapThreadsInit();
@@ -5474,7 +5477,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Rocks */
-    if ((allsections || !strcasecmp(section,"rocks")) &&
+    if ((allsections || defsections || !strcasecmp(section,"rocks")) &&
             server.swap_mode != SWAP_MODE_MEMORY) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Rocks\r\n");

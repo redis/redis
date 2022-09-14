@@ -204,7 +204,7 @@ int hashEncodeKeys(swapData *data, int intention, void *datactx_,
             *prawkeys = rawkeys;
             *action = ROCKS_SCAN;
         }
-        return C_OK;
+        return 0;
     case SWAP_DEL:
         if (swapDataPersisted(data)) {
             int *cfs = zmalloc(sizeof(int)*2);
@@ -221,7 +221,7 @@ int hashEncodeKeys(swapData *data, int intention, void *datactx_,
             *pcfs = NULL;
             *prawkeys = NULL;
         }
-        return C_OK;
+        return 0;
     case SWAP_OUT:
     default:
         /* Should not happen .*/
@@ -229,10 +229,10 @@ int hashEncodeKeys(swapData *data, int intention, void *datactx_,
         *numkeys = 0;
         *pcfs = NULL;
         *prawkeys = NULL;
-        return C_OK;
+        return 0;
     }
 
-    return C_OK;
+    return 0;
 }
 
 static inline sds hashEncodeSubval(robj *subval) {
@@ -261,7 +261,7 @@ int hashEncodeData(swapData *data, int intention, void *datactx_,
     *pcfs = cfs;
     *prawkeys = rawkeys;
     *prawvals = rawvals;
-    return C_OK;
+    return 0;
 }
 
 /* decoded object move to exec module */
@@ -309,7 +309,7 @@ int hashDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
     }
 
     *pdecoded = decoded;
-    return C_OK;
+    return 0;
 }
 
 static inline robj *createSwapInObject(robj *newval) {
@@ -336,7 +336,7 @@ int hashSwapIn(swapData *data, robj *result, void *datactx) {
         }
     }
 
-    return C_OK;
+    return 0;
 }
 
 /* subkeys already cleaned by cleanObject(to save cpu usage of main thread),
@@ -365,7 +365,7 @@ int hashSwapOut(swapData *data, void *datactx) {
         }
     }
 
-    return C_OK;
+    return 0;
 }
 
 int hashSwapDel(swapData *data, void *datactx, int del_skip) {
@@ -373,12 +373,12 @@ int hashSwapDel(swapData *data, void *datactx, int del_skip) {
     if (del_skip) {
         if (!swapDataIsCold(data))
             dbDeleteMeta(data->db,data->key);
-        return C_OK;
+        return 0;
     } else {
         if (!swapDataIsCold(data))
             /* both value/object_meta/expire are deleted */
             dbDelete(data->db,data->key);
-        return C_OK;
+        return 0;
     }
 }
 
@@ -417,13 +417,13 @@ robj *hashCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) {
 
 int hashCleanObject(swapData *data, void *datactx_) {
     hashDataCtx *datactx = datactx_;
-    if (swapDataIsCold(data)) return C_OK;
+    if (swapDataIsCold(data)) return 0;
     for (int i = 0; i < datactx->num; i++) {
         if (hashTypeDelete(data->value,datactx->subkeys[i]->ptr)) {
             swapDataObjectMetaModifyLen(data,1);
         }
     }
-    return C_OK;
+    return 0;
 }
 
 /* Only free extend fields here, base fields (key/value/object_meta) freed

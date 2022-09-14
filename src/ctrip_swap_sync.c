@@ -86,7 +86,7 @@ static int parallelSwapProcess(swapEntry *e) {
         }
         serverAssert(c == 'x');
         finishSwapRequest(e->req);
-        e->req->finish_cb(e->req->data, e->req->finish_pd);
+        e->req->finish_cb(e->req->data, e->req->finish_pd, e->req->errcode);
         updateStatsSwapFinish(e->req);
         swapRequestFree(e->req);
         e->req = NULL;
@@ -95,7 +95,7 @@ static int parallelSwapProcess(swapEntry *e) {
     return C_OK;
 }
 
-int parallelSyncSwapNotifyCallback(swapRequest *req, void *pd) {
+void parallelSyncSwapNotifyCallback(swapRequest *req, void *pd) {
     swapEntry *e = pd;
     UNUSED(req);
     /* Notify svr to progress */
@@ -108,11 +108,10 @@ int parallelSyncSwapNotifyCallback(swapRequest *req, void *pd) {
                     strerror(errno));
         }
     }
-    return 0;
 }
 
 /* Submit one swap (task). swap will start and finish in submit order. */
-int parallelSyncSwapRequestSubmit(swapRequest *req) {
+int parallelSyncSwapRequestSubmit(swapRequest *req, int idx) {
     listNode *ln;
     swapEntry *e;
     parallelSync *ps = server.parallel_sync;
@@ -126,7 +125,7 @@ int parallelSyncSwapRequestSubmit(swapRequest *req) {
     req->notify_pd = e;
     e->req = req;
     e->inprogress = 1;
-    swapThreadsDispatch(req);
+    swapThreadsDispatch(req,idx);
     return C_OK;
 }
 

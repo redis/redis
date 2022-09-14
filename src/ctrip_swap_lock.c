@@ -400,7 +400,7 @@ requestListener *requestBindListener(int64_t txid,
  * - requestGetIOAndLock for one txid MUST next to each other.
  * - requestGetIOAndLock for one txid MUST not trigger requestGetIOAndLock/requestReleaseIO for
  *   other txid in between. */
-int requestGetIOAndLock(int64_t txid, redisDb *db, robj *key, requestProceed cb,
+void requestGetIOAndLock(int64_t txid, redisDb *db, robj *key, requestProceed cb,
         client *c, void *pd, freefunc pdfree, void *msgs) {
     int blocking;
     requestListeners *listeners;
@@ -421,8 +421,6 @@ int requestGetIOAndLock(int64_t txid, redisDb *db, robj *key, requestProceed cb,
     /* Proceed right away if request key is not blocking, otherwise
      * proceed is defered. */
     if (!blocking) proceed(listeners,listener);
-
-    return 0;
 }
 
 int proceedChain(requestListeners *listeners, requestListener *listener) {

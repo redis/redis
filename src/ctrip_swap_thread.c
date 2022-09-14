@@ -65,9 +65,9 @@ void *swapThreadMain (void *arg) {
 
 int swapThreadsInit() {
     int i;
-
-    server.swap_threads = zcalloc(sizeof(swapThread)*server.swap_threads_num);
-    for (i = 0; i < server.swap_threads_num; i++) {
+    int thread_num = server.swap_threads_num + 1;
+    server.swap_threads = zcalloc(sizeof(swapThread)*thread_num);
+    for (i = 0; i < thread_num; i++) {
         swapThread *thread = server.swap_threads+i;
         thread->id = i;
         thread->pending_reqs = listCreate();
@@ -85,8 +85,8 @@ int swapThreadsInit() {
 
 void swapThreadsDeinit() {
     int i, err;
-
-    for (i = 0; i < server.swap_threads_num; i++) {
+    int thread_num = server.swap_threads_num + 1;
+    for (i = 0; i < thread_num; i++) {
         swapThread *thread = server.swap_threads+i;
         listRelease(thread->pending_reqs);
         if (thread->thread_id == pthread_self()) continue;
@@ -108,8 +108,12 @@ static inline int swapThreadsDistNext() {
     return dist;
 }
 
-void swapThreadsDispatch(swapRequest *req) {
-    int idx = swapThreadsDistNext() % server.swap_threads_num;
+void swapThreadsDispatch(swapRequest *req, int idx) {
+    if (idx == -1) {
+        idx = swapThreadsDistNext() % server.swap_threads_num;
+    } else {
+        serverAssert(idx <= server.swap_threads_num);
+    }
     swapThread *t = server.swap_threads+idx;
     pthread_mutex_lock(&t->lock);
     listAddNodeTail(t->pending_reqs,req);
@@ -130,5 +134,59 @@ int swapThreadsDrained() {
         pthread_mutex_unlock(&rt->lock);
     }
     return drained;
+}
+
+// utils task
+#define ROCKSDB_UTILS_TASK_DONE 0
+#define ROCKSDB_UTILS_TASK_DOING 1
+
+rocksdbUtilTaskManager* createRocksdbUtilTaskManager() {
+    rocksdbUtilTaskManager * manager = zmalloc(sizeof(rocksdbUtilTaskManager));
+    for(int i = 0; i < TASK_COUNT;i++) {
+        manager->stats[i].stat = ROCKSDB_UTILS_TASK_DONE;
+    }
+    return manager;
+}
+int isRunningUtilTask(rocksdbUtilTaskManager* manager, int type) {
+    serverAssert(type < TASK_COUNT);
+    return manager->stats[type].stat == ROCKSDB_UTILS_TASK_DOING;
+}
+
+void compactRangeDone(swapData *data, void *pd, int errcode){
+    UNUSED(data),UNUSED(pd),UNUSED(errcode);
+    server.util_task_manager->stats[COMPACT_RANGE_TASK].stat = ROCKSDB_UTILS_TASK_DONE;
+}
+
+void getRocksdbStatsDone(swapData *data, void *pd, int errcode) {
+    UNUSED(data),UNUSED(pd),UNUSED(errcode);
+    if (pd != NULL) {
+        if (server.rocks->rocksdb_stats_cache != NULL)  {
+            zlibc_free(server.rocks->rocksdb_stats_cache);
+        }
+        server.rocks->rocksdb_stats_cache = pd;
+    }
+    server.util_task_manager->stats[GET_ROCKSDB_STATS_TASK].stat = ROCKSDB_UTILS_TASK_DONE;
+}
+
+int submitUtilTask(int type, void* pd, sds* error) {
+    if (isRunningUtilTask(server.util_task_manager, type)) {
+        if(error != NULL) *error = sdsnew("task running");
+        return 0;
+    }
+    serverAssert(type < TASK_COUNT);
+    server.util_task_manager->stats[type].stat = ROCKSDB_UTILS_TASK_DOING;
+    switch (type) {
+        case COMPACT_RANGE_TASK:
+            submitSwapDataRequest(SWAP_MODE_ASYNC,ROCKSDB_UTILS,0,NULL,
+                    NULL,NULL,compactRangeDone,pd,NULL,server.swap_threads_num);
+            break;
+        case GET_ROCKSDB_STATS_TASK:
+            submitSwapDataRequest(SWAP_MODE_ASYNC, ROCKSDB_UTILS,1,NULL,
+                    NULL,NULL,getRocksdbStatsDone,pd,NULL,server.swap_threads_num);
+            break;
+        default:
+            break;
+    }
+    return 1;
 }
 
