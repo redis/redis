@@ -751,6 +751,71 @@ start_server {tags {"acl external:skip"}} {
        catch {r ACL load} err
        set err
     } {*Redis instance is not configured to use an ACL file*}
+
+    # If there is an AUTH failure the matric increases
+    test {ACL-Metrics user AUTH failure} {
+        set current_auth_failures [s auth_failure_times]
+        set current_invalid_cmd_accesses [s invalid_cmd_accesses]
+        set current_invalid_key_accesses [s invalid_key_accesses]
+        set current_invalid_channel_accesses [s invalid_channel_accesses]
+        assert_error "*WRONGPASS*" {r AUTH notrealuser 1233456} 
+        assert {[s auth_failure_times] eq [expr $current_auth_failures + 1]}
+        assert_error "*WRONGPASS*" {r HELLO 3 AUTH notrealuser 1233456}
+        assert {[s auth_failure_times] eq [expr $current_auth_failures + 2]}
+        assert_error "*WRONGPASS*" {r HELLO 2 AUTH notrealuser 1233456}
+        assert {[s auth_failure_times] eq [expr $current_auth_failures + 3]}
+        assert {[s invalid_cmd_accesses] eq $current_invalid_cmd_accesses}
+        assert {[s invalid_key_accesses] eq $current_invalid_key_accesses}
+        assert {[s invalid_channel_accesses] eq $current_invalid_channel_accesses}
+    }
+
+    # If a user try to access an unauthorized  command the metric increases
+    test {ACL-Metrics invalid command accesses} {
+        set current_auth_failures [s auth_failure_times]
+        set current_invalid_cmd_accesses [s invalid_cmd_accesses]
+        set current_invalid_key_accesses [s invalid_key_accesses]
+        set current_invalid_channel_accesses [s invalid_channel_accesses]
+        r ACL setuser invalidcmduser on >passwd nocommands
+        r AUTH invalidcmduser passwd
+        assert_error "*no permissions to run the * command*" {r acl list}
+        r AUTH default ""
+        assert {[s auth_failure_times] eq $current_auth_failures}
+        assert {[s invalid_cmd_accesses] eq [expr $current_invalid_cmd_accesses + 1]}
+        assert {[s invalid_key_accesses] eq $current_invalid_key_accesses}
+        assert {[s invalid_channel_accesses] eq $current_invalid_channel_accesses}
+    }
+
+    # If a user try to access an unauthorized  key the metric increases
+    test {ACL-Metrics invalid key accesses} {
+        set current_auth_failures [s auth_failure_times]
+        set current_invalid_cmd_accesses [s invalid_cmd_accesses]
+        set current_invalid_key_accesses [s invalid_key_accesses]
+        set current_invalid_channel_accesses [s invalid_channel_accesses]
+        r ACL setuser invalidkeyuser on >passwd resetkeys allcommands
+        r AUTH invalidkeyuser passwd
+        assert_error "*no permissions to access one of the keys*" {r get x}
+        r AUTH default ""
+        assert {[s auth_failure_times] eq $current_auth_failures}
+        assert {[s invalid_cmd_accesses] eq $current_invalid_cmd_accesses}
+        assert {[s invalid_key_accesses] eq [expr $current_invalid_key_accesses + 1]}
+        assert {[s invalid_channel_accesses] eq $current_invalid_channel_accesses}
+    }
+
+    # If a user try to access an unauthorized  channel the metric increases
+    test {ACL-Metrics invalid channels accesses} {
+        set current_auth_failures [s auth_failure_times]
+        set current_invalid_cmd_accesses [s invalid_cmd_accesses]
+        set current_invalid_key_accesses [s invalid_key_accesses]
+        set current_invalid_channel_accesses [s invalid_channel_accesses]
+        r ACL setuser invalidchanneluser on >passwd resetchannels allcommands
+        r AUTH invalidkeyuser passwd
+        assert_error "*no permissions to access one of the channels*" {r subscribe x}
+        r AUTH default ""
+        assert {[s auth_failure_times] eq $current_auth_failures}
+        assert {[s invalid_cmd_accesses] eq $current_invalid_cmd_accesses}
+        assert {[s invalid_key_accesses] eq $current_invalid_key_accesses}
+        assert {[s invalid_channel_accesses] eq [expr $current_invalid_channel_accesses + 1]}
+    }
 }
 
 set server_path [tmpdir "server.acl"]

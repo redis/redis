@@ -2536,6 +2536,12 @@ void initServer(void) {
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
 
+    /* Initiate acl info struct */
+    server.acl_info.invalid_cmd_accesses = 0;
+    server.acl_info.invalid_key_accesses  = 0;
+    server.acl_info.user_auth_failures = 0;
+    server.acl_info.invalid_channel_accesses = 0;
+
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth. */
@@ -5167,6 +5173,31 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
     return info;
 }
 
+/* Writes the ACL metrics to the info */
+sds genRedisInfoStringACLStats(sds info) {
+    sds metrics = sdsempty();
+    
+    metrics = sdscatprintf(metrics,
+    "auth_failure_times:%ld\r\n",
+    server.acl_info.user_auth_failures);
+    
+    metrics = sdscatprintf(metrics,
+    "invalid_cmd_accesses:%ld\r\n",
+    server.acl_info.invalid_cmd_accesses);
+    
+    metrics = sdscatprintf(metrics,
+    "invalid_key_accesses:%ld\r\n",
+    server.acl_info.invalid_key_accesses);
+
+    metrics = sdscatprintf(metrics,
+    "invalid_channel_accesses:%ld\r\n",
+    server.acl_info.invalid_channel_accesses);
+
+    info = sdscatprintf(info, metrics);
+    sdsfree(metrics);
+    return info;
+}
+
 sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
     struct redisCommand *c;
     dictEntry *de;
@@ -5778,6 +5809,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_io_writes_processed,
             server.stat_reply_buffer_shrinks,
             server.stat_reply_buffer_expands);
+            info = genRedisInfoStringACLStats(info);
     }
 
     /* Replication */
