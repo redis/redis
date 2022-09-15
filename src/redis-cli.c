@@ -2061,7 +2061,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--memkeys")) {
             config.memkeys = 1;
             config.memkeys_samples = 0; /* use redis default */
-        } else if (!strcmp(argv[i],"--memkeys-samples")) {
+        } else if (!strcmp(argv[i],"--memkeys-samples") && !lastarg) {
             config.memkeys = 1;
             config.memkeys_samples = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--hotkeys")) {
