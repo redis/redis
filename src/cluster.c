@@ -845,10 +845,15 @@ void setClusterNodeToInboundClusterLink(clusterNode *node, clusterLink *link) {
         /* A peer may disconnect and then reconnect with us, and it's not guaranteed that
          * we would always process the disconnection of the existing inbound link before
          * accepting a new existing inbound link. Therefore, it's possible to have more than
-         * one inbound link from the same node at the same time. */
+         * one inbound link from the same node at the same time. Our cleanup logic assumes
+         * a one to one relationship between nodes and inbound links, so we need to kill
+         * one of the links. The existing link is more likely the outdated one, but it's
+         * possible the the other node may need to open another link. */
         serverLog(LL_DEBUG, "Replacing inbound link fd %d from node %.40s with fd %d",
                 node->inbound_link->conn->fd, node->name, link->conn->fd);
+        freeClusterLink(node->inbound_link);
     }
+    serverAssert(!node->inbound_link);
     node->inbound_link = link;
     link->node = node;
 }
@@ -1972,7 +1977,13 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG);
-    } else if (myself->slaveof && myself->slaveof->slaveof) {
+    } else if (myself->slaveof && myself->slaveof->slaveof &&
+               /* In some rare case when CLUSTER FAILOVER TAKEOVER is used, it
+                * can happen that myself is a replica of a replica of myself. If
+                * this happens, we do nothing to avoid a crash and wait for the
+                * admin to repair the cluster. */
+               myself->slaveof->slaveof != myself)
+    {
         /* Safeguard against sub-replicas. A replica's master can turn itself
          * into a replica if its last slot is removed. If no other node takes
          * over the slot, there is nothing else to trigger replica migration. */
