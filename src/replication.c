@@ -750,8 +750,8 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset, int isAo
  */
 int shouldUseAofFullresync() {
     serverLog(LL_DEBUG, "AOF_ENABLED: %d, AOF_STATE: %d", server.aof_enabled, server.aof_state);
-    if (!server.aof_enabled || server.aof_state == AOF_OFF) {
-        serverLog(LL_WARNING, "Cannot use aof to sync: aof is off");
+    if (!server.aof_enabled || server.aof_state == AOF_OFF || !server.aof_full_replication_enabled) {
+        serverLog(LL_WARNING, "Cannot use aof to sync: aof or aof-full-replication is disabled");
         return 0;
     } 
     size_t db_size = zmalloc_used_memory();
