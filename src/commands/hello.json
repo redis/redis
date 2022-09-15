@@ -55,6 +55,13 @@
                         "name": "clientname",
                         "type": "string",
                         "optional": true
+                    },
+                    {
+                        "token": "SETCUSTOMDATA",
+                        "name": "customdata",
+                        "type": "string",
+                        "multiple": true,
+                        "optional": true
                     }
                 ]
             }
