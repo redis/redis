@@ -138,33 +138,6 @@ void getAllClientCustomDataFields(client *c) {
     }
 }
 
-/* Helper function for the Custom Data and HELLO command: send the list of the
- * loaded custom data to the client. */
-void addReplyLoadedCustomData(client *c) {
-    dictIterator *di = dictGetIterator(modules);
-    dictEntry *de;
-
-    addReplyArrayLen(c,dictSize(modules));
-    while ((de = dictNext(di)) != NULL) {
-        sds name = dictGetKey(de);
-        struct RedisModule *module = dictGetVal(de);
-        sds path = module->loadmod->path;
-        addReplyMapLen(c,4);
-        addReplyBulkCString(c,"name");
-        addReplyBulkCBuffer(c,name,sdslen(name));
-        addReplyBulkCString(c,"ver");
-        addReplyLongLong(c,module->ver);
-        addReplyBulkCString(c,"path");
-        addReplyBulkCBuffer(c,path,sdslen(path));
-        addReplyBulkCString(c,"args");
-        addReplyArrayLen(c,module->loadmod->argc);
-        for (int i = 0; i < module->loadmod->argc; i++) {
-            addReplyBulk(c,module->loadmod->argv[i]);
-        }
-    }
-    dictReleaseIterator(di);
-}
-
 sds getClientCustomData(dict *custom_data) {
     dictIterator *di = dictGetIterator(custom_data);
     dictEntry *de;
@@ -2937,7 +2910,7 @@ int clientSetNameOrReply(client *c, robj *name) {
     return result;
 }
 
-/* This function implements CLIENT SETCUSTOMDATA, including replying to the
+/* This function implements HELLO SETCUSTOMDATA, including replying to the
  * user with an error if the charset is wrong (in that case C_ERR is
  * returned). If the function succeeded C_OK is returned, and it's up
  * to the caller to send a reply if needed.
@@ -3039,8 +3012,6 @@ void clientCommand(client *c) {
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
 "    Assign the name <name> to the current connection.",
-"SETCUSTOMDATA <data>",
-"    Assign the custom info <data> to the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR]",
 "    Unblock the specified blocked client.",
 "TRACKING (ON|OFF) [REDIRECT <id>] [BCAST] [PREFIX <prefix> [...]]",
@@ -3265,10 +3236,6 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
         /* CLIENT SETNAME */
         if (clientSetNameOrReply(c,c->argv[2]) == C_OK)
-            addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"setcustomdata") && ((c->argc % 2) == 0)) {
-        /* CLIENT SETCUSTOMDATA */
-        if (clientSetCustomDataOrReply(c, c->argv+2, c->argc-2) == C_OK)
             addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
         /* CLIENT GETNAME */
@@ -3536,7 +3503,7 @@ NULL
     }
 }
 
-/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] [SETCUSTOMDATA <name>]] */
+/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] [SETCUSTOMDATA <key> <value>]] */
 void helloCommand(client *c) {
     long long ver = 0;
     int next_arg = 1;

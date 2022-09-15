@@ -127,34 +127,34 @@ start_server {tags {"introspection"}} {
         r client getname
     } {}
 
-    test {CLIENT SETCUSTOMDATA does not accept odd params} {
-        catch {r client setcustomdata foo} e
+    test {HELLO SETCUSTOMDATA does not accept odd params} {
+        catch {r HELLO 3 SETCUSTOMDATA foo} e
         set e
     } {ERR*}
 
-    test {CLIENT SETCUSTOMDATA can clean custom data info to this connection} {
-        assert_equal [r client setcustomdata meta foo] {OK}
-        assert_equal [r client setcustomdata] {OK}
+    test {HELLO SETCUSTOMDATA can clean custom data info to this connection} {
+        r HELLO 3 SETCUSTOMDATA meta foo
+        r hello 3 SETCUSTOMDATA
         r client list
     } {*custom-data=*}
 
-    test {CLIENT SETCUSTOMDATA can assign a custom data to this connection} {
-        assert_equal [r client setcustomdata meta foo] {OK}
+    test {HELLO SETCUSTOMDATA can assign a custom data to this connection} {
+        r HELLO 3 SETCUSTOMDATA meta foo
         r client list
     } {*custom-data=meta=foo*}
 
     test {CLIENT GETCUSTOMDATA should return empty info for non-existing custom data attributes} {
-        assert_equal [r client setcustomdata meta foo] {OK}
+        r HELLO 3 SETCUSTOMDATA meta foo
         r client getcustomdata meta2 meta3
     } {}
 
     test {CLIENT GETCUSTOMDATA should return specific custom data attributes} {
-        assert_equal [r client setcustomdata meta foo meta2 bar] {OK}
+        r HELLO 3 SETCUSTOMDATA meta foo meta2 bar
         r client getcustomdata meta
     } {meta foo}
 
     test {CLIENT GETCUSTOMDATA should return all custom data attributes} {
-        assert_equal [r client setcustomdata meta foo meta2 bar] {OK}
+        r HELLO 3 SETCUSTOMDATA meta foo meta2 bar
         assert_match {*meta2 bar*} [r client getcustomdata]
         assert_match {*meta foo*} [r client getcustomdata]
     }
