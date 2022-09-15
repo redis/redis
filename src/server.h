@@ -1176,6 +1176,8 @@ typedef struct client {
     size_t ref_block_pos;        /* Access position of referenced buffer block,
                                   * i.e. the next offset to send. */
 
+    /* list node in clients_pending_write list */
+    listNode clients_pending_write_node;
     /* Response buffer */
     size_t buf_peak; /* Peak used size of buffer in last 5 sec interval. */
     mstime_t buf_peak_last_reset_time; /* keeps the last time the buffer peak value was reset */
