@@ -61,6 +61,7 @@
 #include "help.h" /* Used for backwards-compatibility with pre-7.0 servers that don't support COMMAND DOCS. */
 #include "anet.h"
 #include "ae.h"
+#include "connection.h"
 #include "cli_common.h"
 #include "mt19937-64.h"
 
@@ -91,15 +92,15 @@
     "address (ie. 120.0.0.1:7000) or space separated IP " \
     "and port (ie. 120.0.0.1 7000)\n"
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
-#define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) (nodes/(replicas + 1))
+#define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) ((nodes)/((replicas) + 1))
 #define CLUSTER_MANAGER_COMMAND(n,...) \
-        (redisCommand(n->context, __VA_ARGS__))
+        (redisCommand((n)->context, __VA_ARGS__))
 
-#define CLUSTER_MANAGER_NODE_ARRAY_FREE(array) zfree(array->alloc)
+#define CLUSTER_MANAGER_NODE_ARRAY_FREE(array) zfree((array)->alloc)
 
 #define CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, err) \
     clusterManagerLogErr("Node %s:%d replied with error:\n%s\n", \
-                         n->ip, n->port, err);
+                         (n)->ip, (n)->port, (err));
 
 #define clusterManagerLogInfo(...) \
     clusterManagerLog(CLUSTER_MANAGER_LOG_LVL_INFO,__VA_ARGS__)
@@ -322,7 +323,7 @@ static void cliRefreshPrompt(void) {
         prompt = sdscatfmt(prompt,"redis %s",config.hostsocket);
     } else {
         char addr[256];
-        anetFormatAddr(addr, sizeof(addr), config.conn_info.hostip, config.conn_info.hostport);
+        formatAddr(addr, sizeof(addr), config.conn_info.hostip, config.conn_info.hostport);
         prompt = sdscatlen(prompt,addr,strlen(addr));
     }
 

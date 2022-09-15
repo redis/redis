@@ -5,18 +5,21 @@ test {modules config rewrite} {
     start_server {tags {"modules"}} {
         r module load $testmodule
 
-        assert_equal [lindex [lindex [r module list] 0] 1] infotest
+        set modules [lmap x [r module list] {dict get $x name}]
+        assert_not_equal [lsearch $modules infotest] -1
 
         r config rewrite
         restart_server 0 true false
 
-        assert_equal [lindex [lindex [r module list] 0] 1] infotest
+        set modules [lmap x [r module list] {dict get $x name}]
+        assert_not_equal [lsearch $modules infotest] -1
 
         assert_equal {OK} [r module unload infotest]
 
         r config rewrite
         restart_server 0 true false
 
-        assert_equal [llength [r module list]] 0
+        set modules [lmap x [r module list] {dict get $x name}]
+        assert_equal [lsearch $modules infotest] -1
     }
 }

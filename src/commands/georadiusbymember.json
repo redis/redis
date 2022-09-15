@@ -7,6 +7,12 @@
         "arity": -5,
         "function": "georadiusbymemberCommand",
         "get_keys_function": "georadiusGetKeys",
+        "history": [
+            [
+                "7.0.0",
+                "Added support for uppercase unit names."
+            ]
+        ],
         "deprecated_since": "6.2.0",
         "replaced_by": "`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments",
         "doc_flags": [
@@ -136,7 +142,7 @@
                 "optional": true
             },
             {
-                "name": "count",
+                "name": "count-block",
                 "type": "block",
                 "optional": true,
                 "arguments": [
@@ -172,14 +178,16 @@
             },
             {
                 "token": "STORE",
-                "name": "key",
+                "name": "storekey",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 1,
                 "optional": true
             },
             {
                 "token": "STOREDIST",
-                "name": "key",
+                "name": "storedistkey",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 2,
                 "optional": true

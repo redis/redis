@@ -39,15 +39,9 @@
             {
                 "name": "args",
                 "token": "ARGS",
-                "type": "block",
+                "type": "string",
                 "multiple": true,
-                "optional": true,
-                "arguments": [
-                    {
-                        "name": "arg",
-                        "type": "string"
-                    }
-                ]
+                "optional": true
             }
         ]
     }

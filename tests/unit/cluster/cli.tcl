@@ -10,7 +10,7 @@ set ::singledb 1
 tags {tls:skip external:skip cluster} {
 
 # start three servers
-set base_conf [list cluster-enabled yes cluster-node-timeout 1]
+set base_conf [list cluster-enabled yes cluster-node-timeout 1000]
 start_multiple_servers 3 [list overrides $base_conf] {
 
     set node1 [srv 0 client]
@@ -229,7 +229,10 @@ test {Migrate the last slot away from a node using redis-cli} {
         exec src/redis-cli --cluster-yes --cluster add-node \
                      127.0.0.1:[srv -3 port] \
                      127.0.0.1:[srv 0 port]
-
+        
+        # First we wait for new node to be recognized by entire cluster 
+        wait_for_cluster_size 4
+        
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&
             [CI 1 cluster_state] eq {ok} &&

@@ -59,6 +59,20 @@ start_server {tags {"scripting"}} {
         run_script {return 'hello'} 0
     } {hello}
 
+    test {EVAL - Return _G} {
+        run_script {return _G} 0
+    } {}
+
+    test {EVAL - Return table with a metatable that raise error} {
+        run_script {local a = {}; setmetatable(a,{__index=function() foo() end}) return a} 0
+    } {}
+
+    test {EVAL - Return table with a metatable that call redis} {
+        run_script {local a = {}; setmetatable(a,{__index=function() redis.call('set', 'x', '1') end}) return a} 1 x
+        # make sure x was not set
+        r get x
+    } {}
+
     test {EVAL - Lua integer -> Redis protocol type conversion} {
         run_script {return 100.5} 0
     } {100}
@@ -201,37 +215,37 @@ start_server {tags {"scripting"}} {
 
     test {EVAL - Scripts can't run blpop command} {
         set e {}
-        catch {run_script {return redis.pcall('blpop','x',0)} 0} e
+        catch {run_script {return redis.pcall('blpop','x',0)} 1 x} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run brpop command} {
         set e {}
-        catch {run_script {return redis.pcall('brpop','empty_list',0)} 0} e
+        catch {run_script {return redis.pcall('brpop','empty_list',0)} 1 empty_list} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run brpoplpush command} {
         set e {}
-        catch {run_script {return redis.pcall('brpoplpush','empty_list1', 'empty_list2',0)} 0} e
+        catch {run_script {return redis.pcall('brpoplpush','empty_list1{t}', 'empty_list2{t}',0)} 2 empty_list1{t} empty_list2{t}} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run blmove command} {
         set e {}
-        catch {run_script {return redis.pcall('blmove','empty_list1', 'empty_list2', 'LEFT', 'LEFT', 0)} 0} e
+        catch {run_script {return redis.pcall('blmove','empty_list1{t}', 'empty_list2{t}', 'LEFT', 'LEFT', 0)} 2 empty_list1{t} empty_list2{t}} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run bzpopmin command} {
         set e {}
-        catch {run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 0} e
+        catch {run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 1 empty_zset} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run bzpopmax command} {
         set e {}
-        catch {run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 0} e
+        catch {run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 1 empty_zset} e
         set e
     } {*not allowed*}
 
@@ -249,7 +263,7 @@ start_server {tags {"scripting"}} {
     test {EVAL - Scripts can run non-deterministic commands} {
         set e {}
         catch {
-            run_script "redis.pcall('randomkey'); return redis.pcall('set','x','ciao')" 0
+            run_script {redis.pcall('randomkey'); return redis.pcall('set','x','ciao')} 1 x
         } e
         set e
     } {*OK*}
@@ -663,7 +677,7 @@ start_server {tags {"scripting"}} {
         assert_equal $res $expected_list
         set res [run_script {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
         assert_equal $res $expected_list
-    }
+    } {} {resp3}
 
     test {Script return recursive object} {
         r readraw 1
@@ -688,7 +702,7 @@ start_server {tags {"scripting"}} {
                 a[i] = 1
             end
             return redis.call("lpush", "l", unpack(a))
-        } 0
+        } 1 l
     } {7999}
 
     test "Script read key with expiration set" {
@@ -699,7 +713,7 @@ start_server {tags {"scripting"}} {
              else
                  return redis.call("EXISTS", "key")
              end
-        } 0] "value"
+        } 1 key] "value"
     }
 
     test "Script del key with expiration set" {
@@ -707,7 +721,7 @@ start_server {tags {"scripting"}} {
         assert_equal [run_script {
              redis.call("DEL", "key")
              return redis.call("EXISTS", "key")
-        } 0] 0
+        } 1 key] 0
     }
     
     test "Script ACL check" {
@@ -1047,14 +1061,14 @@ start_server {tags {"scripting"}} {
                     redis.call("incr","x")
                     redis.call("select","11")
                     redis.call("incr","z")
-                } 0
+                } 3 foo1 x z
                 run_script {
                     redis.call("set","foo1","bar1")
                     redis.call("select","10")
                     redis.call("incr","x")
                     redis.call("select","11")
                     redis.call("incr","z")
-                } 0
+                } 3 foo1 x z
                 wait_for_condition 50 100 {
                     [debug_digest -1] eq [debug_digest]
                 } else {
@@ -1112,7 +1126,7 @@ start_server {tags {"scripting repl external:skip"}} {
                 redis.call('set','c','3');
                 redis.set_repl(redis.REPL_ALL);
                 redis.call('set','d','4');
-            } 0
+            } 4 a b c d
 
             wait_for_condition 50 100 {
                 [r -1 mget a b c d] eq {1 {} {} 4}
@@ -1217,8 +1231,12 @@ start_server {tags {"scripting needs:debug"}} {
 
     for {set i 2} {$i <= 3} {incr i} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
+            if {[lsearch $::denytags "resp3"] >= 0} {
+                if {$client_proto == 3} {continue}
+            } else {
+                r hello $client_proto
+            }
             set extra "RESP$i/$client_proto"
-            r hello $client_proto
             r readraw 1
 
             test "test $extra big number protocol parsing" {
@@ -1340,7 +1358,7 @@ start_server {tags {"scripting needs:debug"}} {
             redis.call("SET", "key", "value", "PX", "1")
             redis.call("DEBUG", "SLEEP", 0.01)
             return redis.call("EXISTS", "key")
-        } 0] 1
+        } 1 key] 1
 
         assert_equal 0 [r EXISTS key]
     }
@@ -1353,7 +1371,7 @@ start_server {tags {"scripting needs:debug"}} {
         # use DEBUG OBJECT to make sure it doesn't error (means the key still exists)
         r DEBUG OBJECT key
 
-        assert_equal [run_script "return redis.call('EXISTS', 'key')" 0] 0
+        assert_equal [run_script {return redis.call('EXISTS', 'key')} 1 key] 0
         assert_equal 0 [r EXISTS key]
         r DEBUG set-active-expire 1
     }

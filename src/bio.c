@@ -64,15 +64,7 @@
 static pthread_t bio_threads[BIO_NUM_OPS];
 static pthread_mutex_t bio_mutex[BIO_NUM_OPS];
 static pthread_cond_t bio_newjob_cond[BIO_NUM_OPS];
-static pthread_cond_t bio_step_cond[BIO_NUM_OPS];
 static list *bio_jobs[BIO_NUM_OPS];
-/* The following array is used to hold the number of pending jobs for every
- * OP type. This allows us to export the bioPendingJobsOfType() API that is
- * useful when the main thread wants to perform some operation that may involve
- * objects shared with the background thread. The main thread will just wait
- * that there are no longer jobs of this type to be executed before performing
- * the sensible operation. This data is also useful for reporting. */
-static unsigned long long bio_pending[BIO_NUM_OPS];
 
 /* This structure represents a background Job. It is only used locally to this
  * file as the API does not expose the internals at all. */
@@ -107,9 +99,7 @@ void bioInit(void) {
     for (j = 0; j < BIO_NUM_OPS; j++) {
         pthread_mutex_init(&bio_mutex[j],NULL);
         pthread_cond_init(&bio_newjob_cond[j],NULL);
-        pthread_cond_init(&bio_step_cond[j],NULL);
         bio_jobs[j] = listCreate();
-        bio_pending[j] = 0;
     }
 
     /* Set the stack size as by default it may be small in some system */
@@ -135,7 +125,6 @@ void bioInit(void) {
 void bioSubmitJob(int type, bio_job *job) {
     pthread_mutex_lock(&bio_mutex[type]);
     listAddNodeTail(bio_jobs[type],job);
-    bio_pending[type]++;
     pthread_cond_signal(&bio_newjob_cond[type]);
     pthread_mutex_unlock(&bio_mutex[type]);
 }
@@ -257,40 +246,14 @@ void *bioProcessBackgroundJobs(void *arg) {
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[type]);
         listDelNode(bio_jobs[type],ln);
-        bio_pending[type]--;
-
-        /* Unblock threads blocked on bioWaitStepOfType() if any. */
-        pthread_cond_broadcast(&bio_step_cond[type]);
     }
 }
 
 /* Return the number of pending jobs of the specified type. */
-unsigned long long bioPendingJobsOfType(int type) {
+unsigned long bioPendingJobsOfType(int type) {
     unsigned long long val;
     pthread_mutex_lock(&bio_mutex[type]);
-    val = bio_pending[type];
-    pthread_mutex_unlock(&bio_mutex[type]);
-    return val;
-}
-
-/* If there are pending jobs for the specified type, the function blocks
- * and waits that the next job was processed. Otherwise the function
- * does not block and returns ASAP.
- *
- * The function returns the number of jobs still to process of the
- * requested type.
- *
- * This function is useful when from another thread, we want to wait
- * a bio.c thread to do more work in a blocking way.
- */
-unsigned long long bioWaitStepOfType(int type) {
-    unsigned long long val;
-    pthread_mutex_lock(&bio_mutex[type]);
-    val = bio_pending[type];
-    if (val != 0) {
-        pthread_cond_wait(&bio_step_cond[type],&bio_mutex[type]);
-        val = bio_pending[type];
-    }
+    val = listLength(bio_jobs[type]);
     pthread_mutex_unlock(&bio_mutex[type]);
     return val;
 }

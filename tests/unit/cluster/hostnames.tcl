@@ -1,12 +1,25 @@
+# Returns 1 if no node knows node_id, 0 if any node knows it.
+proc node_is_forgotten {node_id} {
+    for {set j 0} {$j < [llength $::servers]} {incr j} {
+        set cluster_nodes [R $j CLUSTER NODES]
+        if { [string match "*$node_id*" $cluster_nodes] } {
+            return 0
+        }
+    }
+    return 1
+}
+
 # Isolate a node from the cluster and give it a new nodeid
 proc isolate_node {id} {
     set node_id [R $id CLUSTER MYID]
     R $id CLUSTER RESET HARD
-    for {set j 0} {$j < [llength $::servers]} {incr j} {
-        if { $j eq $id } {
-            continue
-        }
-        R $j CLUSTER FORGET $node_id
+    # Here we additionally test that CLUSTER FORGET propagates to all nodes.
+    set other_id [expr $id == 0 ? 1 : 0]
+    R $other_id CLUSTER FORGET $node_id
+    wait_for_condition 50 100 {
+        [node_is_forgotten $node_id]
+    } else {
+        fail "CLUSTER FORGET was not propagated to all nodes"
     }
 }
 

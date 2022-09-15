@@ -162,11 +162,13 @@ typedef struct RedisModuleStreamID {
 #define REDISMODULE_CTX_FLAGS_RESP3 (1<<22)
 /* Redis is currently async loading database for diskless replication. */
 #define REDISMODULE_CTX_FLAGS_ASYNC_LOADING (1<<23)
+/* Redis is starting. */
+#define REDISMODULE_CTX_FLAGS_SERVER_STARTUP (1<<24)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
-#define _REDISMODULE_CTX_FLAGS_NEXT (1<<24)
+#define _REDISMODULE_CTX_FLAGS_NEXT (1<<25)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
@@ -326,6 +328,7 @@ typedef struct RedisModuleCommandArg {
     int flags;                /* The REDISMODULE_CMD_ARG_* macros. */
     const char *deprecated_since;
     struct RedisModuleCommandArg *subargs;
+    const char *display_text;
 } RedisModuleCommandArg;
 
 typedef struct {
@@ -747,11 +750,40 @@ typedef enum {
     REDISMODULE_ACL_LOG_CHANNEL /* Channel authorization failure */
 } RedisModuleACLLogEntryReason;
 
+/* Incomplete structures needed by both the core and modules. */
+typedef struct RedisModuleString RedisModuleString;
+typedef struct RedisModuleIO RedisModuleIO;
+typedef struct RedisModuleDigest RedisModuleDigest;
+typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
+typedef struct RedisModuleDefragCtx RedisModuleDefragCtx;
+
+/* Function pointers needed by both the core and modules, these needs to be
+ * exposed since you can't cast a function pointer to (void *). */
+typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_report);
+typedef void (*RedisModuleDefragFunc)(RedisModuleDefragCtx *ctx);
+typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
+
 /* ------------------------- End of common defines ------------------------ */
 
-#ifndef REDISMODULE_CORE
+#if defined REDISMODULE_CORE
+/* Things only defined for the modules core (server), not exported to modules
+ * that include this file. */
+
+#define RedisModuleString robj
+
+#endif /* defined REDISMODULE_CORE */
+
+#if !defined REDISMODULE_CORE && !defined REDISMODULE_CORE_MODULE
+/* Things defined for modules, but not for core-modules. */
 
 typedef long long mstime_t;
+typedef long long ustime_t;
+
+#endif /* !defined REDISMODULE_CORE && !defined REDISMODULE_CORE_MODULE */
+
+/* ----------- The rest of the defines are only for modules ----------------- */
+#if !defined REDISMODULE_CORE || defined REDISMODULE_CORE_MODULE
+/* Things defined for modules and core-modules. */
 
 /* Macro definitions specific to individual compilers */
 #ifndef REDISMODULE_ATTR_UNUSED
@@ -782,21 +814,16 @@ typedef long long mstime_t;
 typedef struct RedisModuleCtx RedisModuleCtx;
 typedef struct RedisModuleCommand RedisModuleCommand;
 typedef struct RedisModuleKey RedisModuleKey;
-typedef struct RedisModuleString RedisModuleString;
 typedef struct RedisModuleCallReply RedisModuleCallReply;
-typedef struct RedisModuleIO RedisModuleIO;
 typedef struct RedisModuleType RedisModuleType;
-typedef struct RedisModuleDigest RedisModuleDigest;
 typedef struct RedisModuleBlockedClient RedisModuleBlockedClient;
 typedef struct RedisModuleClusterInfo RedisModuleClusterInfo;
 typedef struct RedisModuleDict RedisModuleDict;
 typedef struct RedisModuleDictIter RedisModuleDictIter;
 typedef struct RedisModuleCommandFilterCtx RedisModuleCommandFilterCtx;
 typedef struct RedisModuleCommandFilter RedisModuleCommandFilter;
-typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
 typedef struct RedisModuleServerInfoData RedisModuleServerInfoData;
 typedef struct RedisModuleScanCursor RedisModuleScanCursor;
-typedef struct RedisModuleDefragCtx RedisModuleDefragCtx;
 typedef struct RedisModuleUser RedisModuleUser;
 typedef struct RedisModuleKeyOptCtx RedisModuleKeyOptCtx;
 
@@ -823,11 +850,8 @@ typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, const cha
 typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
 typedef void (*RedisModuleForkDoneHandler) (int exitcode, int bysignal, void *user_data);
-typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_report);
 typedef void (*RedisModuleScanCB)(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key, void *privdata);
 typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata);
-typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
-typedef int (*RedisModuleDefragFunc)(RedisModuleDefragCtx *ctx);
 typedef RedisModuleString * (*RedisModuleConfigGetStringFunc)(const char *name, void *privdata);
 typedef long long (*RedisModuleConfigGetNumericFunc)(const char *name, void *privdata);
 typedef int (*RedisModuleConfigGetBoolFunc)(const char *name, void *privdata);
@@ -1055,8 +1079,10 @@ REDISMODULE_API int (*RedisModule_GetDbIdFromOptCtx)(RedisModuleKeyOptCtx *ctx) 
 REDISMODULE_API int (*RedisModule_GetToDbIdFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetKeyNameFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetToKeyNameFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
-REDISMODULE_API long long (*RedisModule_Milliseconds)(void) REDISMODULE_ATTR;
+REDISMODULE_API mstime_t (*RedisModule_Milliseconds)(void) REDISMODULE_ATTR;
 REDISMODULE_API uint64_t (*RedisModule_MonotonicMicroseconds)(void) REDISMODULE_ATTR;
+REDISMODULE_API ustime_t (*RedisModule_Microseconds)(void) REDISMODULE_ATTR;
+REDISMODULE_API ustime_t (*RedisModule_CachedMicroseconds)(void) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestAddStringBuffer)(RedisModuleDigest *md, const char *ele, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestAddLongLong)(RedisModuleDigest *md, long long ele) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestEndSequence)(RedisModuleDigest *md) REDISMODULE_ATTR;
@@ -1390,6 +1416,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetToDbIdFromOptCtx);
     REDISMODULE_GET_API(Milliseconds);
     REDISMODULE_GET_API(MonotonicMicroseconds);
+    REDISMODULE_GET_API(Microseconds);
+    REDISMODULE_GET_API(CachedMicroseconds);
     REDISMODULE_GET_API(DigestAddStringBuffer);
     REDISMODULE_GET_API(DigestAddLongLong);
     REDISMODULE_GET_API(DigestEndSequence);
@@ -1550,12 +1578,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 #define RedisModule_Assert(_e) ((_e)?(void)0 : (RedisModule__Assert(#_e,__FILE__,__LINE__),exit(1)))
 
 #define RMAPI_FUNC_SUPPORTED(func) (func != NULL)
-
-#else
-
-/* Things only defined for the modules core, not exported to modules
- * including this file. */
-#define RedisModuleString robj
 
 #endif /* REDISMODULE_CORE */
 #endif /* REDISMODULE_H */

@@ -20,7 +20,7 @@
         ],
         "arguments": [
             {
-                "name": "async",
+                "name": "flush-type",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [
