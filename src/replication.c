@@ -3173,10 +3173,12 @@ void syncWithMaster(connection *conn) {
          *
          * EOF: supports EOF-style RDB transfer for diskless replication.
          * PSYNC2: supports PSYNC v2, so understands +CONTINUE <new repl ID>.
+         * aof_sync: supports aof full replication (option)
          *
          * The master will ignore capabilities it does not understand. */
         err = sendCommand(conn,"REPLCONF",
-                "capa","eof","capa","psync2","capa","aof_sync",NULL);
+                "capa","eof","capa","psync2",
+                server.aof_full_replication_enabled?"":"capa",server.aof_full_replication_enabled?"":"aof_sync",NULL);
         if (err) goto write_error;
 
         server.repl_state = REPL_STATE_RECEIVE_AUTH_REPLY;
