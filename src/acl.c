@@ -1404,13 +1404,24 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
     return C_ERR;
 }
 
+/* If `err` is provided, this is added as an error reply to the client.
+ * Otherwise, the standard Auth error is added as a reply. */
+void addAuthErrReply(client *c, const char *err) {
+    if (clientHasPendingReplies(c)) return;
+    if (!err) {
+        addReplyError(c, "-WRONGPASS invalid username-password pair or user is disabled.");
+        return;
+    }
+    addReplyError(c, err);
+}
+
 /* This is like ACLCheckUserCredentials(), however if the user/pass
  * are correct, the connection is put in authenticated state and the
  * connection user reference is populated.
  *
  * The return value is C_OK or C_ERR with the same meaning as
  * ACLCheckUserCredentials(). */
-int ACLAuthenticateUser(client *c, robj *username, robj *password) {
+int passwordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
         c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
@@ -1420,6 +1431,26 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
         addACLLogEntry(c,ACL_DENIED_AUTH,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,0,username->ptr,NULL);
         return C_ERR;
     }
+}
+
+/* Attempt authenticating the user. First through Module based custom authentication if any exists,
+ * and otherwise password based authentication.
+ * Returns C_OK if module based auth succeeded OR if in progress through a blocking custom auth
+ * OR if password based auth succeeded.
+ * Otherwise C_ERR is returned and errno is set to:
+ *  EINVAL: if the user is disabled or if the username-password do not match (password based auth).
+ *  ENONENT: if the specified user does not exist at all.
+ */
+int ACLAuthenticateUser(client *c, robj *username, robj *password, const char **err) {
+    if (checkModuleAuthentication(c, username, password, err) == C_OK) {
+        return C_OK;
+    }
+    if (c->flags & CLIENT_CUSTOM_AUTH_RESULT) {
+        c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
+        return C_ERR;
+    }
+    /* If custom authentication did not succeed / explicity get denied, attempt password auth. */
+    return passwordBasedAuth(c, username, password);
 }
 
 /* For ACL purposes, every user has a bitmap with the commands that such
@@ -3032,10 +3063,15 @@ void authCommand(client *c) {
         redactClientCommandArgument(c, 2);
     }
 
-    if (ACLAuthenticateUser(c,username,password) == C_OK) {
-        addReply(c,shared.ok);
+    const char *err = NULL;
+    if (ACLAuthenticateUser(c, username, password, &err) == C_OK) {
+        /* In case of a blocking custom auth, we will reply to the client later upon unblocking. */
+        if (c->btype == BLOCKED_MODULE) {
+            return;
+        }
+        addReply(c, shared.ok);
     } else {
-        addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
+        addAuthErrReply(c, err);
     }
 }
 

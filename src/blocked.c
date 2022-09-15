@@ -193,7 +193,7 @@ void unblockClient(client *c) {
 
     /* Reset the client for a new query, unless the client has pending command to process
      * or in case a shutdown operation was canceled and we are still in the processCommand sequence  */
-    if (!(c->flags & CLIENT_PENDING_COMMAND) && c->bstate.btype != BLOCKED_SHUTDOWN) {
+    if (!(c->flags & CLIENT_PENDING_COMMAND) && c->bstate.btype != BLOCKED_SHUTDOWN && !(c->flags & CLIENT_CUSTOM_AUTH)) {
         freeClientOriginalArgv(c);
         resetClient(c);
     }
@@ -206,7 +206,9 @@ void unblockClient(client *c) {
     c->bstate.btype = BLOCKED_NONE;
     c->bstate.unblock_on_nokey = 0;
     removeClientFromTimeoutTable(c);
-    queueClientForReprocessing(c);
+    if (!(c->flags & CLIENT_CUSTOM_AUTH)) {
+        queueClientForReprocessing(c);
+    }
 }
 
 /* This function gets called when a blocked client timed out in order to

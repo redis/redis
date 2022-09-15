@@ -3410,71 +3410,8 @@ NULL
     }
 }
 
-/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] ] */
-void helloCommand(client *c) {
-    long long ver = 0;
-    int next_arg = 1;
-
-    if (c->argc >= 2) {
-        if (getLongLongFromObjectOrReply(c, c->argv[next_arg++], &ver,
-            "Protocol version is not an integer or out of range") != C_OK) {
-            return;
-        }
-
-        if (ver < 2 || ver > 3) {
-            addReplyError(c,"-NOPROTO unsupported protocol version");
-            return;
-        }
-    }
-
-    robj *username = NULL;
-    robj *password = NULL;
-    robj *clientname = NULL;
-    for (int j = next_arg; j < c->argc; j++) {
-        int moreargs = (c->argc-1) - j;
-        const char *opt = c->argv[j]->ptr;
-        if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
-            redactClientCommandArgument(c, j+1);
-            redactClientCommandArgument(c, j+2);
-            username = c->argv[j+1];
-            password = c->argv[j+2];
-            j += 2;
-        } else if (!strcasecmp(opt,"SETNAME") && moreargs) {
-            clientname = c->argv[j+1];
-            if (validateClientName(clientname) == C_ERR) {
-                addReplyError(c,
-                    "Client names cannot contain spaces, "
-                    "newlines or special characters.");
-                return;
-            }
-            j++;
-        } else {
-            addReplyErrorFormat(c,"Syntax error in HELLO option '%s'",opt);
-            return;
-        }
-    }
-
-    if (username && password && ACLAuthenticateUser(c, username, password) == C_ERR) {
-        addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
-        return;
-    }
-
-    /* At this point we need to be authenticated to continue. */
-    if (!c->authenticated) {
-        addReplyError(c,"-NOAUTH HELLO must be called with the client already "
-                        "authenticated, otherwise the HELLO AUTH <user> <pass> "
-                        "option can be used to authenticate the client and "
-                        "select the RESP protocol version at the same time");
-        return;
-    }
-
-    /* Now that we're authenticated, set the client name. */
-    if (clientname) {
-        clientSetName(c, clientname);
-    }
-
-    /* Let's switch to the specified RESP mode. */
-    if (ver) c->resp = ver;
+/* Adds the HELLO Command response as a reply to the client. */
+void addReplyHelloResponse(client *c) {
     addReplyMapLen(c,6 + !server.sentinel_mode);
 
     addReplyBulkCString(c,"server");
@@ -3501,6 +3438,105 @@ void helloCommand(client *c) {
 
     addReplyBulkCString(c,"modules");
     addReplyLoadedModules(c);
+}
+
+/* Parses the HELLO command args and sets the pointers. Returns C_OK on success. Returns C_ERR on
+ * failure after adding an error reply to the client. */
+int parseHelloCmdArgsOrReply(client *c, long long *proto, robj **username, robj **password, robj **clientname) {
+    long long ver = 0;
+    int next_arg = 1;
+
+    if (c->argc >= 2) {
+        if (getLongLongFromObjectOrReply(c, c->argv[next_arg++], &ver,
+            "Protocol version is not an integer or out of range") != C_OK) {
+            return C_ERR;
+        }
+
+        if (ver < 2 || ver > 3) {
+            addReplyError(c,"-NOPROTO unsupported protocol version");
+            return C_ERR;
+        }
+    }
+    *proto = ver;
+    for (int j = next_arg; j < c->argc; j++) {
+        int moreargs = (c->argc-1) - j;
+        const char *opt = c->argv[j]->ptr;
+        if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
+            redactClientCommandArgument(c, j+1);
+            redactClientCommandArgument(c, j+2);
+            *username = c->argv[j+1];
+            *password = c->argv[j+2];
+            j += 2;
+        } else if (!strcasecmp(opt,"SETNAME") && moreargs) {
+            *clientname = c->argv[j+1];
+            if (validateClientName(*clientname) == C_ERR) {
+                addReplyError(c,
+                    "Client names cannot contain spaces, "
+                    "newlines or special characters.");
+                return C_ERR;
+            }
+            j++;
+        } else {
+            addReplyErrorFormat(c,"Syntax error in HELLO option '%s'",opt);
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
+/* Note: Use this function only when the command used is either AUTH or HELLO.
+ * Returns 1 in case of the AUTH command and sets username / password.
+ * Returns 0 in case of the HELLO command after setting the fields. */
+int getAuthOrHelloAuthCmdArgs(client *c, robj **username, robj **password, long long *ver, robj **clientname) {
+    struct redisCommand *auth_cmd = lookupCommandByCString("auth");
+    if (!auth_cmd) auth_cmd = lookupCommandByCStringLogic(server.orig_commands, "auth");
+    int is_auth_cmd = (c->realcmd == auth_cmd);
+    if (is_auth_cmd) {
+        *username = c->argv[1];
+        *password = c->argv[2];
+    }
+    else {
+        parseHelloCmdArgsOrReply(c, ver, username, password, clientname);
+    }
+    return is_auth_cmd;
+}
+
+/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] ] */
+void helloCommand(client *c) {
+    long long ver = 0;
+    robj *username = NULL;
+    robj *password = NULL;
+    robj *clientname = NULL;
+    if (parseHelloCmdArgsOrReply(c, &ver, &username, &password, &clientname) == C_ERR) {
+        return;
+    }
+
+    const char *err = NULL;
+    if (username && password && ACLAuthenticateUser(c, username, password, &err) == C_ERR) {
+        addAuthErrReply(c, err);
+        return;
+    }
+
+    /* In case of a blocking custom auth, we reply to the client / setname later upon unblocking. */
+    if (c->btype == BLOCKED_MODULE) {
+        return;
+    }
+
+    /* At this point we need to be authenticated to continue. */
+    if (!c->authenticated) {
+        addReplyError(c,"-NOAUTH HELLO must be called with the client already "
+                        "authenticated, otherwise the HELLO AUTH <user> <pass> "
+                        "option can be used to authenticate the client and "
+                        "select the RESP protocol version at the same time");
+        return;
+    }
+
+    /* Now that we're authenticated, set the client name. */
+    if (clientname) clientSetName(c, clientname);
+
+    /* Let's switch to the specified RESP mode. */
+    if (ver) c->resp = ver;
+    addReplyHelloResponse(c);
 }
 
 /* This callback is bound to POST and "Host:" command names. Those are not

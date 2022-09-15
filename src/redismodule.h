@@ -34,6 +34,12 @@ typedef long long ustime_t;
 #define REDISMODULE_OK 0
 #define REDISMODULE_ERR 1
 
+/* Custom Auth status return values. */
+#define REDISMODULE_AUTH_SUCCEEDED 0
+#define REDISMODULE_AUTH_DENIED 1
+#define REDISMODULE_AUTH_BLOCKED 2
+#define REDISMODULE_AUTH_NOT_HANDLED 3
+
 /* API versions. */
 #define REDISMODULE_APIVER_1 1
 
@@ -900,6 +906,7 @@ typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, 
 typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, RedisModuleString **err);
 typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, RedisModuleString **err);
 typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, RedisModuleString **err);
+typedef int (*RedisModuleCustomAuthCallback)(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, const char **err);
 
 typedef struct RedisModuleTypeMethods {
     uint64_t version;
@@ -1151,6 +1158,8 @@ REDISMODULE_API RedisModuleString * (*RedisModule_DictPrev)(RedisModuleCtx *ctx,
 REDISMODULE_API int (*RedisModule_DictCompareC)(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DictCompare)(RedisModuleDictIter *di, const char *op, RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RegisterInfoFunc)(RedisModuleCtx *ctx, RedisModuleInfoFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_RegisterCustomAuthCallback)(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_UnregisterCustomAuthCallbacks)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_InfoAddSection)(RedisModuleInfoCtx *ctx, const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_InfoBeginDictField)(RedisModuleInfoCtx *ctx, const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_InfoEndDictField)(RedisModuleInfoCtx *ctx) REDISMODULE_ATTR;
@@ -1188,6 +1197,7 @@ REDISMODULE_API int (*RedisModule_GetServerVersion)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetTypeMethodVersion)() REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_Yield)(RedisModuleCtx *ctx, int flags, const char *busy_reply) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_BlockClientOnAuth)(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback reply_callback, void (*free_privdata)(RedisModuleCtx*,void*)) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsBlockedReplyRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsBlockedTimeoutRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -1492,6 +1502,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(DictCompare);
     REDISMODULE_GET_API(DictCompareC);
     REDISMODULE_GET_API(RegisterInfoFunc);
+    REDISMODULE_GET_API(RegisterCustomAuthCallback);
+    REDISMODULE_GET_API(UnregisterCustomAuthCallbacks);
     REDISMODULE_GET_API(InfoAddSection);
     REDISMODULE_GET_API(InfoBeginDictField);
     REDISMODULE_GET_API(InfoEndDictField);
@@ -1540,6 +1552,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ThreadSafeContextTryLock);
     REDISMODULE_GET_API(ThreadSafeContextUnlock);
     REDISMODULE_GET_API(BlockClient);
+    REDISMODULE_GET_API(BlockClientOnAuth);
     REDISMODULE_GET_API(UnblockClient);
     REDISMODULE_GET_API(IsBlockedReplyRequest);
     REDISMODULE_GET_API(IsBlockedTimeoutRequest);
