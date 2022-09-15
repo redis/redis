@@ -56,14 +56,13 @@ int openNewIncrAofForAppend(void);
 void aofManifestFreeAndUpdate(aofManifest *am);
 int persistAofManifest(aofManifest *am);
 int aofDelHistoryFiles(void);
+off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am, int *status);
 
 void cleanupTmpAof();
 void cleanupAofReplication(client *c);
 
 void initServerDB(void);
 void updateClientsSelectDB();
-
-int aofSyncBetterRdb();
 
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
@@ -223,8 +222,11 @@ int canFeedReplicaReplBuffer(client *replica) {
     /* Don't feed replicas that only want the RDB. */
     if (replica->flags & CLIENT_REPL_RDBONLY) return 0;
 
-    /* Don't feed replicas that are still waiting for BGSAVE to start. */
-    if (replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START) return 0;
+    /* Don't feed replicas that are still waiting for BGSAVE to start,
+     * or waiting current AOF REWRITE to finish.
+     * This can ensure rdb/aof files will be sent does't overlay with repl buffer */
+    if (replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START 
+            || replica->replstate == SLAVE_STATE_WAIT_REWRITE) return 0;
 
     return 1;
 }
@@ -721,7 +723,7 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset, int isAo
     /* Don't send this reply to slaves that approached us with
      * the old SYNC command. */
     if (!(slave->flags & CLIENT_PRE_PSYNC)) {
-        if (slave->slave_capa & SLAVE_CAPA_AOFSYNC && aofSyncBetterRdb()) {
+        if (isAofSync) {
             buflen = snprintf(buf, sizeof(buf), "+FULLRESYNC aof_sync %s %lld\r\n",
                               server.replid, offset);
         } else {
@@ -736,8 +738,25 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset, int isAo
     return C_OK;
 }
 
-int aofSyncBetterRdb() {
-    return 0;
+/**
+ * Decide whether to use aof fullresync.
+ *
+ * It will be used if:
+ * 1. The server.aof_enabled is true.
+ * 2. Current aof files size is more bigger than zmalloc_used_memory. 
+ *    It will be better if we could compare the real rdb file size with 
+ *    aof file size. But currently we can only get zmalloc_used_memory
+ *    to estimate rdb file's size.
+ */
+int shouldUseAofFullresync() {
+    serverLog(LL_DEBUG, "AOF_ENABLED: %d, AOF_STATE: %d", server.aof_enabled, server.aof_state);
+    if (!server.aof_enabled || server.aof_state == AOF_OFF) {
+        serverLog(LL_WARNING, "Cannot use aof to sync: aof is off");
+        return 0;
+    } 
+    size_t db_size = zmalloc_used_memory();
+    size_t aof_size = getBaseAndIncrAppendOnlyFilesSize(server.aof_manifest, NULL);
+    return aof_size / 2 > db_size;
 }
 
 /* This function handles the PSYNC command from the point of view of a
@@ -1253,9 +1272,6 @@ void syncCommand(client *c) {
     serverLog(LL_NOTICE,"Replica %s asks for synchronization",
         replicationGetSlaveName(c));
 
-    //TODO get useAofSync
-    int useAofSync = 0;
-
     /* Try a partial resynchronization if this is a PSYNC command.
      * If it fails, we continue with usual full resynchronization, however
      * when this happens replicationSetupSlaveForFullResync will replied
@@ -1313,15 +1329,14 @@ void syncCommand(client *c) {
                             server.replid, server.replid2);
     }
 
-    if (useAofSync) {
-        serverLog(LL_WARNING, "AOF_ENABLED: %d, AOF_STATE: %d", server.aof_enabled, server.aof_state);
-        if (!server.aof_enabled || server.aof_state == AOF_OFF) {
-            serverLog(LL_WARNING, "Cannot use aof to sync: aof is off");
-            addReplyError(c, "Cannot use aof to sync: aof is off");
-        } else if (server.child_type == CHILD_TYPE_AOF) {
+    if (c->slave_capa & SLAVE_CAPA_AOFSYNC && shouldUseAofFullresync()) {
+        if (server.child_type == CHILD_TYPE_AOF) {
             serverLog(LL_WARNING, "Rewriting, waiting for rewrite finish");
             c->replstate = SLAVE_STATE_WAIT_REWRITE;
-        } else if (prepareClientForAofReplication(c) != C_OK) {
+            return;
+        } 
+        // start to aof repl
+        if (prepareClientForAofReplication(c) != C_OK) {
             addReplyError(c, "Failed to prepare for aof replication");
         }
         return;
