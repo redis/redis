@@ -1141,31 +1141,6 @@ int prepareAofManifestForReplication() {
 }
 
 int prepareClientForAofReplication(client *c) {
-    // 0. 检查aof状态
-    //   - AOF_ON
-    //   - AOF_OFF
-    //   - AOF_WAIT_REWRITE
-    // 1. 检查rewrite状态
-    //   - 如果正在rewrite，等待rewrite结束
-    //   - 如果未在rewrite，则继续
-    // 2. 禁用rewrite，避免已有的aof文件列表被修改
-    // 3. 如果当前server中没有用于repl的manifest，则：
-    //   复制一份当前的manifest，避免发送过程中修改
-    //     - 如果当前的最后一个aof文件不为空，则打开一个新的aof文件
-    //     - 如果当前的最后一个aof文件为空，且incr的文件数量==1，则打开一个新的aof文件，
-    //       这是为了避免一个aof文件都不发送
-    //     - 如果当前的最后一个aof文件为空，且incr的文件数量>=2，则不打开新的aof文件
-    // 4. 发送server中用于repl的manifest
-    // 5. 结束后
-    //   1. 将slave置为online
-    //   2. 准备进行命令传播
-    //   3. 如果这是最后一个aof sync的slave，则
-    //      1. 清空server.repl_aof_manifest
-    //      2. 重新启用rewrite
-
-    // rewriteDoneHandler is called before server.child_type change, so we
-    // cannot assert child_type.
-    /* serverAssert(server.child_type != CHILD_TYPE_AOF); */
     c->replstate = SLAVE_STATE_SEND_AOF_BASE;
     c->repl_aof_incr_idx = -1;
     c->repldbfd = -1;
