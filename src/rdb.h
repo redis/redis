@@ -161,6 +161,7 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len);
 void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr);
 int rdbSaveBinaryDoubleValue(rio *rdb, double val);
 int rdbLoadBinaryDoubleValue(rio *rdb, double *val);
+int rdbLoadDoubleValue(rio *rdb, double *val);
 int rdbSaveBinaryFloatValue(rio *rdb, float val);
 int rdbLoadBinaryFloatValue(rio *rdb, float *val);
 int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi);

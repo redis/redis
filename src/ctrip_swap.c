@@ -370,6 +370,7 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
         swapDataMarkPropagateExpire(data);
     }
 
+
     if (value == NULL) {
         submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
                 ctx,data,datactx,keyRequestSwapFinished,ctx,msgs,-1);
@@ -644,6 +645,8 @@ int swapTest(int argc, char **argv, int accurate) {
   result += swapIterTest(argc, argv, accurate);
   result += swapDataHashTest(argc, argv, accurate);
   result += swapDataSetTest(argc, argv, accurate);
+  result += swapDataZsetTest(argc, argv, accurate);
+  result += testRocksCalculateNextKey(argc, argv, accurate);
   result += metaScanTest(argc, argv, accurate);
   result += swapExpireTest(argc, argv, accurate);
   result += swapUtilTest(argc, argv, accurate);

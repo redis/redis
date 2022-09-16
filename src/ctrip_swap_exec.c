@@ -809,15 +809,6 @@ end:
     RIODeinit(rio);
 }
 
-static int doSwapIntentionDelRange(swapRequest *req, int cf, sds start, sds end) {
-    RIO _rio = {0}, *rio = &_rio;
-    int retval;
-    RIOInitDeleteRange(rio, cf, start, end);
-    updateStatsSwapRIO(req,rio);
-    retval = doRIO(rio);
-    RIODeinit(rio);
-    return retval;
-}
 
 static int doSwapIntentionDel(swapRequest *req, int numkeys, int *cfs, sds *rawkeys) {
     RIO _rio = {0}, *rio = &_rio;
@@ -836,6 +827,16 @@ static int doSwapIntentionDel(swapRequest *req, int numkeys, int *cfs, sds *rawk
 
     DEBUG_MSGS_APPEND(req->msgs,"exec-in.del","numkeys=%d,retval=%d",
             numkeys, retval);
+    return retval;
+}
+
+static int doSwapIntentionDelRange(swapRequest *req, int cf,sds start, sds end) {
+    RIO _rio = {0}, *rio = &_rio;
+    int retval;
+    RIOInitDeleteRange(rio, cf, start, end);
+    updateStatsSwapRIO(req,rio);
+    retval = doRIO(rio);
+    RIODeinit(rio);
     return retval;
 }
 
@@ -1169,6 +1170,8 @@ void finishSwapRequest(swapRequest *req) {
         del_skip = req->intention_flags & SWAP_FIN_DEL_SKIP;
         swapDataTurnDeleted(data,del_skip);
         retval = swapDataSwapDel(data,datactx,del_skip);
+        break;
+    case -1: //swap meta
         break;
     default:
         retval = SWAP_ERR_DATA_FIN_FAIL;

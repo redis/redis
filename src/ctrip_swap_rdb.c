@@ -196,6 +196,9 @@ static int rdbKeySaveDataInitWarm(rdbKeySaveData *save, redisDb *db,
     case OBJ_LIST:
         listSaveInit(save,NULL,0);
         break;
+    case OBJ_ZSET:
+        zsetSaveInit(save, NULL, 0);
+        break;
     default:
         retval = INIT_SAVE_ERR;
         break;
@@ -227,6 +230,10 @@ static int rdbKeySaveDataInitCold(rdbKeySaveData *save, redisDb *db,
     case OBJ_LIST:
         serverAssert(dm->extend != NULL);
         retval = listSaveInit(save,dm->extend,sdslen(dm->extend));
+        break;
+    case OBJ_ZSET:
+        serverAssert(dm->extend != NULL);
+        retval = zsetSaveInit(save,dm->extend,sdslen(dm->extend));
         break;
     default:
         retval = INIT_SAVE_ERR;
@@ -887,6 +894,11 @@ int rdbKeyLoadDataInit(rdbKeyLoadData *load, int rdbtype,
     case RDB_TYPE_LIST_ZIPLIST:
     case RDB_TYPE_LIST_QUICKLIST:
         listLoadInit(load);
+        break;
+    case RDB_TYPE_ZSET:
+    case RDB_TYPE_ZSET_2:
+    case RDB_TYPE_ZSET_ZIPLIST:
+        zsetLoadInit(load);
         break;
     default:
         retval = SWAP_ERR_RDB_LOAD_UNSUPPORTED;

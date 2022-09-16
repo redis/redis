@@ -187,8 +187,8 @@ int decodeLenObjectMeta(struct objectMeta *object_meta, const char *extend, size
 }
 
 int lenObjectMetaIsHot(objectMeta *object_meta, robj *value) {
-    serverAssert(value && object_meta && object_meta->len >= 0);
-    return object_meta->len == 0;
+    // serverAssert(value && object_meta && object_meta->len >= 0);
+    return value? object_meta? object_meta->len == 0: 0: 0;
 }
 
 objectMetaType lenObjectMetaType = {

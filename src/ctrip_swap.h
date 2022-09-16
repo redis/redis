@@ -68,6 +68,7 @@ extern const char *swap_cf_names[CF_COUNT];
  * if current role is slave. */
 #define SWAP_EXPIRE_FORCE (1U<<7)
 
+
 /* Delete rocksdb data key */
 #define SWAP_EXEC_IN_DEL (1U<<0)
 /* Put rocksdb meta key */
@@ -219,6 +220,33 @@ int getKeyRequestsLrange(int dbid, struct redisCommand *cmd, robj **argv, int ar
 int getKeyRequestsLtrim(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
 #define MAX_KEYREQUESTS_BUFFER 32
+/** zset **/
+int getKeyRequestsZAdd(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZScore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZincrby(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+// int getKeyRequestsZunionstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+// int getKeyRequestsZinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+// int getKeyRequestsZdiffstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZrangestore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsSinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZpopMin(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZpopMax(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+
+#define getKeyRequestsSdiffstore getKeyRequestsSinterstore
+#define getKeyRequestsSunionstore getKeyRequestsSinterstore
+#define getKeyRequestsZrem getKeyRequestsZScore
+
+/** geo **/
+// command use zset object 
+int getKeyRequestsGeoAdd(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsGeoRadius(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsGeoHash(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsGeoDist(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsGeoSearch(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsGeoSearchStore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+#define getKeyRequestsGeoRadiusByMember getKeyRequestsGeoRadius
+#define getKeyRequestsGeoPos getKeyRequestsGeoHash
+
 #define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYREQUESTS_BUFFER}
 
 typedef struct getKeyRequestsResult {
@@ -518,7 +546,7 @@ typedef struct hashDataCtx {
 } hashDataCtx;
 
 int swapDataSetupHash(swapData *d, OUT void **datactx);
-
+extern swapDataType hashSwapDataType;
 #define hashObjectMetaType lenObjectMetaType
 #define createHashObjectMeta(len) createLenObjectMeta(OBJ_HASH, len)
 
@@ -571,6 +599,17 @@ long ctripListTypeLength(robj *list, objectMeta *object_meta);
 void ctripListTypePush(robj *subject, robj *value, int where, redisDb *db, robj *key);
 robj *ctripListTypePop(robj *subject, int where, redisDb *db, robj *key);
 void ctripListMetaDelRange(redisDb *db, robj *key, long ltrim, long rtrim);
+/* zset */
+typedef struct zsetSwapData {
+  swapData sd;
+} zsetSwapData;
+
+typedef struct zsetDataCtx {
+	baseBigDataCtx bdc;
+} zsetDataCtx;
+int swapDataSetupZSet(swapData *d, OUT void **datactx);
+#define createZsetObjectMeta(len) createLenObjectMeta(OBJ_ZSET, len)
+
 
 /* MetaScan */
 #define DEFAULT_SCANMETA_BUFFER 16
@@ -1138,6 +1177,7 @@ void wholeKeySaveInit(rdbKeySaveData *keydata);
 int hashSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
 int setSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
 int listSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
+int zsetSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
 
 /* Rdb load */
 /* RDB_LOAD_ERR_*: [1 +inf), SWAP_ERR_RDB_LOAD_*: (-inf -500] */
@@ -1214,6 +1254,7 @@ void hashLoadInit(rdbKeyLoadData *load);
 void setLoadInit(rdbKeyLoadData *load);
 void listLoadInit(rdbKeyLoadData *load);
 
+void zsetLoadInit(rdbKeyLoadData *load);
 int rdbLoadLenVerbatim(rio *rdb, sds *verbatim, int *isencoded, unsigned long long *lenptr);
 
 /* Util */
@@ -1289,7 +1330,9 @@ swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value, void **dat
 
 int swapDataWholeKeyTest(int argc, char **argv, int accurate);
 int swapDataHashTest(int argc, char **argv, int accurate);
+robj **mockSubKeys(int num,...);
 int swapDataSetTest(int argc, char **argv, int accurate);
+int swapDataZsetTest(int argc, char **argv, int accurate);
 int swapDataTest(int argc, char *argv[], int accurate);
 int swapWaitTest(int argc, char **argv, int accurate);
 int swapWaitReentrantTest(int argc, char **argv, int accurate);

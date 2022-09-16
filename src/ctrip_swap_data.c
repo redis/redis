@@ -239,6 +239,8 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
         retval = swapDataSetupList(d,datactx);
         break;
     case OBJ_ZSET:
+        retval = swapDataSetupZSet(d, datactx);
+        break;
     case OBJ_STREAM:
         retval = SWAP_ERR_SETUP_UNSUPPORTED;
         break;
