@@ -473,9 +473,9 @@ unsigned char *lpSkip(unsigned char *p) {
  * already pointed to the last element of the listpack. */
 unsigned char *lpNext(unsigned char *lp, unsigned char *p) {
     assert(p);
+    (void)(lp);
     p = lpSkip(p);
     if (p[0] == LP_EOF) return NULL;
-    lpAssertValidEntry(lp, lpBytes(lp), p);
     return p;
 }
 
@@ -489,7 +489,6 @@ unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
     uint64_t prevlen = lpDecodeBacklen(p);
     prevlen += lpEncodeBacklen(NULL,prevlen);
     p -= prevlen-1; /* Seek the first byte of the previous entry. */
-    lpAssertValidEntry(lp, lpBytes(lp), p);
     return p;
 }
 
@@ -498,7 +497,6 @@ unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
 unsigned char *lpFirst(unsigned char *lp) {
     unsigned char *p = lp + LP_HDR_SIZE; /* Skip the header. */
     if (p[0] == LP_EOF) return NULL;
-    lpAssertValidEntry(lp, lpBytes(lp), p);
     return p;
 }
 
@@ -737,12 +735,6 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
             p = lpSkip(p);
         }
 
-        /* The next call to lpGetWithSize could read at most 8 bytes past `p`
-         * We use the slower validation call only when necessary. */
-        if (p + 8 >= lp + lp_bytes)
-            lpAssertValidEntry(lp, lp_bytes, p);
-        else
-            assert(p >= lp + LP_HDR_SIZE && p < lp + lp_bytes);
         if (p[0] == LP_EOF) break;
     }
 
@@ -853,7 +845,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     if (new_listpack_bytes > old_listpack_bytes &&
         new_listpack_bytes > lp_malloc_size(lp)) {
         if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
-        dst = lp + poff;
+        p = dst = lp + poff;
     }
 
     /* Setup the listpack relocating the elements to make the exact room
@@ -869,7 +861,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     /* Realloc after: we need to free space. */
     if (new_listpack_bytes < old_listpack_bytes) {
         if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
-        dst = lp + poff;
+        p = dst = lp + poff;
     }
 
     /* Store the entry. */
@@ -901,6 +893,9 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
         }
     }
     lpSetTotalBytes(lp,new_listpack_bytes);
+
+    /* check validity of the new element */
+    lpAssertValidEntry(lp, lpBytes(lp), p);
 
 #if 0
     /* This code path is normally disabled: what it does is to force listpack
