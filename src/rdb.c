@@ -662,6 +662,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,RDB_TYPE_SET_INTSET);
         else if (o->encoding == OBJ_ENCODING_HT)
             return rdbSaveType(rdb,RDB_TYPE_SET);
+        else if (o->encoding == OBJ_ENCODING_LISTPACK)
+            return rdbSaveType(rdb,RDB_TYPE_SET_LISTPACK);
         else
             serverPanic("Unknown set encoding");
     case OBJ_ZSET:
@@ -854,6 +856,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             size_t l = intsetBlobLen((intset*)o->ptr);
 
             if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            nwritten += n;
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            size_t l = lpBytes((unsigned char *)o->ptr);
+            if ((n = rdbSaveRawString(rdb, o->ptr, l)) == -1) return -1;
             nwritten += n;
         } else {
             serverPanic("Unknown set encoding");
@@ -2101,6 +2107,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == RDB_TYPE_SET_INTSET   ||
+               rdbtype == RDB_TYPE_SET_LISTPACK ||
                rdbtype == RDB_TYPE_ZSET_ZIPLIST ||
                rdbtype == RDB_TYPE_ZSET_LISTPACK ||
                rdbtype == RDB_TYPE_HASH_ZIPLIST ||
@@ -2217,6 +2224,24 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 o->encoding = OBJ_ENCODING_INTSET;
                 if (intsetLen(o->ptr) > server.set_max_intset_entries)
                     setTypeConvert(o,OBJ_ENCODING_HT);
+                break;
+            case RDB_TYPE_SET_LISTPACK:
+                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+                /*
+                if (!lpValidateIntegrity(encoded, encoded_len, deep_integrity_validation)) {
+                    rdbReportCorruptRDB("Set listpack integrity check failed.");
+                    zfree(encoded);
+                    o->ptr = NULL;
+                    decrRefCount(o);
+                    return NULL;
+                }
+                */
+                o->type = OBJ_SET;
+                o->encoding = OBJ_ENCODING_LISTPACK;
+                /*
+                if (setTypeSize(o->ptr) > server.set_max_listpack_entries)
+                    setTypeConvert(o, OBJ_ENCODING_HT);
+                */
                 break;
             case RDB_TYPE_ZSET_ZIPLIST:
                 {
