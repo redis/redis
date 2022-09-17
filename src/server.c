@@ -1913,8 +1913,7 @@ void initServerConfig(void) {
 
     /* Replication related */
     server.masterhost = NULL;
-//    server.masterport = 6379;
-    server.masterport = 7379;
+    server.masterport = 6379;
     server.master = NULL;
     server.cached_master = NULL;
     server.master_initial_offset = -1;
@@ -2420,8 +2419,7 @@ void initServer(void) {
     }
 
     /* Initialization after setting defaults from the config system. */
-//    server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
-    server.aof_state = AOF_ON ;
+    server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
     server.hz = server.config_hz;
     server.pid = getpid();
     server.in_fork_child = CHILD_TYPE_NONE;
