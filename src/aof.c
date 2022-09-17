@@ -1818,56 +1818,31 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
  * The function returns 0 on error, 1 on success. */
 int rewriteSetObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = setTypeSize(o);
-
-    if (o->encoding == OBJ_ENCODING_INTSET) {
-        int ii = 0;
-        int64_t llval;
-
-        while(intsetGet(o->ptr,ii++,&llval)) {
-            if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
-
-                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
-                    !rioWriteBulkString(r,"SADD",4) ||
-                    !rioWriteBulkObject(r,key)) 
-                {
-                    return 0;
-                }
+    setTypeIterator *si = setTypeInitIterator(o);
+    char *str;
+    size_t len;
+    int64_t llval;
+    while (setTypeNext(si, &str, &len, &llval) != -1) {
+        if (count == 0) {
+            int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
+                AOF_REWRITE_ITEMS_PER_CMD : items;
+            if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                !rioWriteBulkString(r,"SADD",4) ||
+                !rioWriteBulkObject(r,key))
+            {
+                return 0;
             }
-            if (!rioWriteBulkLongLong(r,llval)) return 0;
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-            items--;
         }
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        dictIterator *di = dictGetIterator(o->ptr);
-        dictEntry *de;
-
-        while((de = dictNext(di)) != NULL) {
-            sds ele = dictGetKey(de);
-            if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
-
-                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
-                    !rioWriteBulkString(r,"SADD",4) ||
-                    !rioWriteBulkObject(r,key)) 
-                {
-                    dictReleaseIterator(di);
-                    return 0;
-                }
-            }
-            if (!rioWriteBulkString(r,ele,sdslen(ele))) {
-                dictReleaseIterator(di);
-                return 0;          
-            }
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-            items--;
+        size_t written = str ?
+            rioWriteBulkString(r, str, len) : rioWriteBulkLongLong(r, llval);
+        if (!written) {
+            setTypeReleaseIterator(si);
+            return 0;
         }
-        dictReleaseIterator(di);
-    } else {
-        serverPanic("Unknown set encoding");
+        if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+        items--;
     }
+    setTypeReleaseIterator(si);
     return 1;
 }
 

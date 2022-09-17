@@ -450,6 +450,8 @@ void dismissSetObject(robj *o, size_t size_hint) {
         dismissMemory(set->ht_table[1], DICTHT_SIZE(set->ht_size_exp[1])*sizeof(dictEntry*));
     } else if (o->encoding == OBJ_ENCODING_INTSET) {
         dismissMemory(o->ptr, intsetBlobLen((intset*)o->ptr));
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        dismissMemory(o->ptr, lpBytes((unsigned char *)o->ptr));
     } else {
         serverPanic("Unknown set encoding type");
     }
