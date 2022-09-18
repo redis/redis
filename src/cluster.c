@@ -6107,7 +6107,7 @@ void restoreCommand(client *c) {
     if (replace)
         deleted = dbDelete(c->db,key);
 
-    if (ttl && !absttl) ttl+=mstime();
+    if (ttl && !absttl) ttl+=server.mstime;
     if (ttl && checkAlreadyExpired(ttl)) {
         if (deleted) {
             rewriteClientCommandVector(c,2,shared.del,key);
