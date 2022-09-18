@@ -275,8 +275,6 @@ static struct config {
     int resp3; /* value of 1: specified explicitly, value of 2: implicit like --json option */
     int in_multi;
     int pre_multi_dbnum;
-    int prefer_ipv4; /* Prefer IPv4 over IPv6 on DNS lookup. */
-    int prefer_ipv6; /* Prefer IPv6 over IPv4 on DNS lookup. */
 } config;
 
 /* User preferences. */
@@ -2089,12 +2087,6 @@ static int parseOptions(int argc, char **argv) {
             config.set_errcode = 1;
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
-        } else if (!strcmp(argv[i],"-4")) {
-            config.prefer_ipv4 = 1;
-            config.prefer_ipv6 = 0;
-        } else if (!strcmp(argv[i],"-6")) {
-            config.prefer_ipv4 = 0;
-            config.prefer_ipv6 = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
             if (CLUSTER_MANAGER_MODE()) usage(1);
             char *cmd = argv[++i];
@@ -2325,8 +2317,6 @@ static void usage(int err) {
 "  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
 "  -e                 Return exit error code when command execution fails.\n"
-"  -4                 Prefer IPv4 over IPv6 on DNS lookup.\n"
-"  -6                 Prefer IPv6 over IPv4 on DNS lookup.\n"
 #ifdef USE_OPENSSL
 "  --tls              Establish a secure TLS connection.\n"
 "  --sni <host>       Server name indication for TLS.\n"
@@ -2374,7 +2364,7 @@ static void usage(int err) {
 "  --replica          Simulate a replica showing commands received from the master.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
 "                     Use filename of \"-\" to write to stdout.\n"
-"  --functions-rdb <filename> Like --rdb but only get the functions (not the keys)\n"
+" --functions-rdb <filename> Like --rdb but only get the functions (not the keys)\n"
 "                     when getting the RDB dump file.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
@@ -6336,10 +6326,7 @@ assign_replicas:
                 first = node;
                 /* Although hiredis supports connecting to a hostname, CLUSTER
                  * MEET requires an IP address, so we do a DNS lookup here. */
-                int anet_flags = ANET_NONE;
-                if (config.prefer_ipv4) anet_flags |= ANET_PREFER_IPV4;
-                if (config.prefer_ipv6) anet_flags |= ANET_PREFER_IPV6;
-                if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), anet_flags)
+                if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE)
                     == ANET_ERR)
                 {
                     fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
@@ -6534,10 +6521,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
                           "join the cluster.\n", ip, port);
     /* CLUSTER MEET requires an IP address, so we do a DNS lookup here. */
     char first_ip[NET_IP_STR_LEN];
-    int anet_flags = ANET_NONE;
-    if (config.prefer_ipv4) anet_flags |= ANET_PREFER_IPV4;
-    if (config.prefer_ipv6) anet_flags |= ANET_PREFER_IPV6;
-    if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), anet_flags) == ANET_ERR) {
+    if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE) == ANET_ERR) {
         fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
         success = 0;
         goto cleanup;
@@ -8949,8 +8933,6 @@ int main(int argc, char **argv) {
     config.set_errcode = 0;
     config.no_auth_warning = 0;
     config.in_multi = 0;
-    config.prefer_ipv4 = 0;
-    config.prefer_ipv6 = 0;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;
