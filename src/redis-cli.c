@@ -2091,7 +2091,9 @@ static int parseOptions(int argc, char **argv) {
             config.verbose = 1;
         } else if (!strcmp(argv[i],"-4")) {
             config.prefer_ipv4 = 1;
+            config.prefer_ipv6 = 0;
         } else if (!strcmp(argv[i],"-6")) {
+            config.prefer_ipv4 = 0;
             config.prefer_ipv6 = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
             if (CLUSTER_MANAGER_MODE()) usage(1);
@@ -2270,11 +2272,6 @@ static int parseOptions(int argc, char **argv) {
  
     if (config.stdin_lastarg && config.stdin_tag_arg) {
         fprintf(stderr, "Options -x and -X are mutually exclusive.\n");
-        exit(1);
-    }
-
-    if (config.prefer_ipv4 && config.prefer_ipv6) {
-        fprintf(stderr, "Options -4 and -6 are mutually exclusive.\n");
         exit(1);
     }
 
