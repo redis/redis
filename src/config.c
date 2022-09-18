@@ -3174,8 +3174,6 @@ standardConfig static_configs[] = {
     createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),
     createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption, NULL),
     createSpecialConfig("latency-tracking-info-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyTrackingInfoPercentilesOutputOption, getConfigLatencyTrackingInfoPercentilesOutputOption, rewriteConfigLatencyTrackingInfoPercentilesOutputOption, NULL),
-
-    createULongLongConfig("maxpostnotificationsjobs", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.max_post_notifications_jobs, 1000, INTEGER_CONFIG, NULL, NULL),
     /* NULL Terminator, this is dropped when we convert to the runtime array. */
     {NULL}
 };

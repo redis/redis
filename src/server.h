@@ -1924,7 +1924,7 @@ struct redisServer {
     /* Local environment */
     char *locale_collate;
 
-    unsigned long long max_post_notifications_jobs; /* The maximum amount of post notifications jobs that will be executed */
+    size_t max_post_notifications_jobs; /* The maximum amount of post notifications jobs that will be executed */
 };
 
 #define MAX_KEYS_BUFFER 256

@@ -30,6 +30,36 @@ tags "modules" {
             close_replication_stream $repl
         }
 
+        test {Test write on post notification callback with small limit} {
+            r flushall
+            r postnotification.set_max_post_noitifcation_jobs 1
+
+            set repl [attach_to_replication_stream]
+
+            r set string_x 1
+            assert_equal {1} [r get string_changed{string_x}]
+            assert_equal {} [r get string_total]
+            
+            r set string_x 2
+            assert_equal {2} [r get string_changed{string_x}]
+            assert_equal {} [r get string_total]
+
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {set string_x 1}
+                {incr string_changed{string_x}}
+                {exec}
+                {multi}
+                {set string_x 2}
+                {incr string_changed{string_x}}
+                {exec}
+            }
+            close_replication_stream $repl
+
+            r postnotification.set_max_post_noitifcation_jobs 1000
+        }
+
         test {Test write on post notification callback from module thread} {
             r flushall
             set repl [attach_to_replication_stream]
