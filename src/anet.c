@@ -257,20 +257,20 @@ int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
 
     if (flags & ANET_PREFER_IPV4) {
         hints.ai_family = AF_INET;
+        if ((rv = getaddrinfo(host, NULL, &hints, &info)) == 0) goto found;
+        hints.ai_family = AF_INET6;
     } else if (flags & ANET_PREFER_IPV6) {
         hints.ai_family = AF_INET6;
+        if ((rv = getaddrinfo(host, NULL, &hints, &info)) == 0) goto found;
+        hints.ai_family = AF_INET;
     }
 
-    rv = getaddrinfo(host, NULL, &hints, &info);
-    if (rv != 0 && hints.ai_family != AF_UNSPEC) {
-        /* Try the other IP version. */
-        hints.ai_family = (hints.ai_family == AF_INET) ? AF_INET6 : AF_INET;
-        rv = getaddrinfo(host, NULL, &hints, &info);
-    }
-    if (rv != 0) {
+    if ((rv = getaddrinfo(host, NULL, &hints, &info)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
     }
+
+found:
     if (info->ai_family == AF_INET) {
         struct sockaddr_in *sa = (struct sockaddr_in *)info->ai_addr;
         inet_ntop(AF_INET, &(sa->sin_addr), ipbuf, ipbuf_len);
