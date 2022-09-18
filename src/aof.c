@@ -920,7 +920,7 @@ int aofFsyncInProgress(void) {
 /* Starts a background task that performs fsync() against the specified
  * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
-    bioCreateFsyncJob(fd);
+    bioCreateFsyncJob(fd, server.master_repl_offset);
 }
 
 /* Close the fd on the basis of aof_background_fsync. */
@@ -962,6 +962,8 @@ void stopAppendOnly(void) {
     server.aof_state = AOF_OFF;
     server.aof_rewrite_scheduled = 0;
     server.aof_last_incr_size = 0;
+    server.fsynced_reploff = -1;
+    atomicSet(server.pot_fsynced_reploff, 0);
     killAppendOnlyChild();
     sdsfree(server.aof_buf);
     server.aof_buf = sdsempty();
@@ -1241,6 +1243,7 @@ try_fsync:
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
         server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
+        atomicSet(server.pot_fsynced_reploff, server.master_repl_offset);
     } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                 server.unixtime > server.aof_last_fsync)) {
         if (!sync_in_progress) {

@@ -3215,10 +3215,12 @@ void replicationSendAck(void) {
 
     if (c != NULL) {
         c->flags |= CLIENT_MASTER_FORCE_REPLY;
-        addReplyArrayLen(c,3);
+        addReplyArrayLen(c,5);
         addReplyBulkCString(c,"REPLCONF");
         addReplyBulkCString(c,"ACK");
         addReplyBulkLongLong(c,c->reploff);
+        addReplyBulkCString(c,"FACK");
+        addReplyBulkLongLong(c,server.fsynced_reploff);
         c->flags &= ~CLIENT_MASTER_FORCE_REPLY;
     }
 }

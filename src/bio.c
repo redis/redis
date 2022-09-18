@@ -72,6 +72,7 @@ typedef union bio_job {
     /* Job specific arguments.*/
     struct {
         int fd; /* Fd for file based background jobs */
+        long long offset; /* A job-specific offset, if applicable */
         unsigned need_fsync:1; /* A flag to indicate that a fsync is required before
                                 * the file is closed. */
     } fd_args;
@@ -152,9 +153,10 @@ void bioCreateCloseJob(int fd, int need_fsync) {
     bioSubmitJob(BIO_CLOSE_FILE, job);
 }
 
-void bioCreateFsyncJob(int fd) {
+void bioCreateFsyncJob(int fd, long long offset) {
     bio_job *job = zmalloc(sizeof(*job));
     job->fd_args.fd = fd;
+    job->fd_args.offset = offset;
 
     bioSubmitJob(BIO_AOF_FSYNC, job);
 }
@@ -234,6 +236,7 @@ void *bioProcessBackgroundJobs(void *arg) {
                 }
             } else {
                 atomicSet(server.aof_bio_fsync_status,C_OK);
+                atomicSet(server.pot_fsynced_reploff, job->fd_args.offset);
             }
         } else if (type == BIO_LAZY_FREE) {
             job->free_args.free_fn(job->free_args.free_args);
