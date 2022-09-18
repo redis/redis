@@ -1168,9 +1168,9 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  *              "nopass" status. After "resetpass" the user has no associated
  *              passwords and there is no way to authenticate without adding
  *              some password (or setting it as "nopass" later).
- * reset        Performs the following actions: resetpass, resetkeys, off,
- *              -@all. The user returns to the same state it has immediately
- *              after its creation.
+ * reset        Performs the following actions: resetpass, resetkeys, resetchannels,
+ *              allchannels (if acl-pubsub-default is set), off, clearselectors, -@all.
+ *              The user returns to the same state it has immediately after its creation.
  * (<options>)  Create a new selector with the options specified within the
  *              parentheses and attach it to the user. Each option should be
  *              space separated. The first character must be ( and the last
@@ -1179,6 +1179,8 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  *                         Note this does not change the "root" user permissions,
  *                         which are the permissions directly applied onto the
  *                         user (outside the parentheses).
+ * sanitize-payload        The user require a deep RESTORE payload sanitization.
+ * skip-sanitize-payload   The user should skip the deep sanitization of RESTORE payload.
  * 
  * Selector options can also be specified by this function, in which case
  * they update the root selector for the user.
@@ -1291,7 +1293,6 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         if (server.acl_pubsub_default & SELECTOR_FLAG_ALLCHANNELS)
             serverAssert(ACLSetUser(u,"allchannels",-1) == C_OK);
         serverAssert(ACLSetUser(u,"off",-1) == C_OK);
-        serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
         serverAssert(ACLSetUser(u,"clearselectors",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
     } else {
