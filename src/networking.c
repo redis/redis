@@ -930,6 +930,19 @@ void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
     addReplyProto(c,buf,len+3);
 }
 
+/* Add a long long as integer reply or bulk len / multi bulk count.
+ * Basically this is used to output <prefix><long long><crlf>. */
+void addReplyUnsignedLongLong(client *c, long long ull) {
+    char buf[128];
+    int len;
+
+    buf[0] = ':';
+    len = ull2string(buf+1,sizeof(buf)-1,ull);
+    buf[len+1] = '\r';
+    buf[len+2] = '\n';
+    addReplyProto(c,buf,len+3);
+}
+
 void addReplyLongLong(client *c, long long ll) {
     if (ll == 0)
         addReply(c,shared.czero);

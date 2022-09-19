@@ -47,6 +47,26 @@ int rw_longdouble(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithLongDouble(ctx, longdbl);
 }
 
+int rw_longlong(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+
+    long long ll;
+    if (RedisModule_StringToLongLong(argv[1], &ll) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx, "Arg cannot be parsed as a double");
+
+    return RedisModule_ReplyWithLongLong(ctx, ll);
+}
+
+int rw_unsignedlonglong(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+
+    unsigned long long ull;
+    if (RedisModule_StringToLongLong(argv[1], &ull) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx, "Arg cannot be parsed as a double");
+
+    return RedisModule_ReplyWithLongLong(ctx, ull);
+}
+
 int rw_bignumber(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
 
@@ -171,6 +191,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"rw.double",rw_double,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.longdouble",rw_longdouble,"",0,0,0) != REDISMODULE_OK)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"rw.longlong",rw_longlong,"",0,0,0) != REDISMODULE_OK)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"rw.unsignedlonglong",rw_unsignedlonglong,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.array",rw_array,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;

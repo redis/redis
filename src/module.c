@@ -2734,6 +2734,16 @@ int RM_ReplyWithLongLong(RedisModuleCtx *ctx, long long ll) {
     return REDISMODULE_OK;
 }
 
+/* Send an unsignedinteger reply to the client, with the specified
+ * `unsigned long long` value.
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithUnsignedLongLong(RedisModuleCtx *ctx, unsigned long long ull) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyUnsignedLongLong(c,ull);
+    return REDISMODULE_OK;
+}
+
 /* Reply with the error 'err'.
  *
  * Note that 'err' must contain all the error, including
@@ -12455,6 +12465,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);
     REGISTER_API(ReplyWithLongLong);
+    REGISTER_API(ReplyWithUnsignedLongLong);
     REGISTER_API(ReplyWithError);
     REGISTER_API(ReplyWithSimpleString);
     REGISTER_API(ReplyWithArray);

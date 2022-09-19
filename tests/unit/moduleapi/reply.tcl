@@ -28,6 +28,14 @@ start_server {tags {"modules"}} {
             assert_equal 3.141 [r rw.double 3.141]
         }
 
+        test "RESP$proto: RM_ReplyWithLongLong: a long long reply" {
+            assert_equal -5 [r rw.longlong -5]
+        }
+
+        test "RESP$proto: RM_ReplyWithUnsignedLongLong: an unsigned long long reply" {
+            assert_equal 5 [r rw.unsignedlonglong 5]
+        }
+
         set ld 0.00000000000000001
         test "RESP$proto: RM_ReplyWithLongDouble: a float reply" {
             if {$proto == 2} {
