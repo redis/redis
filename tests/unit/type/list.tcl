@@ -241,7 +241,7 @@ start_server [list overrides [list save ""] ] {
     # but now with single item in each ziplist
     test {Test LSET with packed consist only one item} {
         r flushdb
-        r config set list-max-ziplist-size 1
+        set original_config [config_get_set list-max-ziplist-size 1]
         r debug quicklist-packed-threshold 1b
         r RPUSH lst "aa"
         r RPUSH lst "bb"
@@ -261,12 +261,13 @@ start_server [list overrides [list save ""] ] {
         set s1 [r lpop lst]
         assert_equal $s1 "cc"
         r debug quicklist-packed-threshold 0
+        r config set list-max-ziplist-size $original_config
     } {OK} {needs:debug}
 
     test {Crash due to delete entry from a compress quicklist node} {
         r flushdb
         r debug quicklist-packed-threshold 100b
-        r config set list-compress-depth 1
+        set original_config [config_get_set list-compress-depth 1]
 
         set small_ele [string repeat x 32]
         set large_ele [string repeat x 100]
@@ -284,7 +285,7 @@ start_server [list overrides [list save ""] ] {
         assert_equal "$large_ele $small_ele $large_ele" [r LRANGE lst 0 -1]
 
         r debug quicklist-packed-threshold 0
-        r config set list-compress-depth 0
+        r config set list-compress-depth $original_config
     } {OK} {needs:debug}
 
     test {Crash due to split quicklist node wrongly} {
