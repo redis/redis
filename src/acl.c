@@ -384,6 +384,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
     u->flags = USER_FLAG_DISABLED;
+    u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
     u->passwords = listCreate();
     listSetMatchMethod(u->passwords,ACLListMatchSds);
     listSetFreeMethod(u->passwords,ACLListFreeSds);
@@ -1146,6 +1147,8 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  * off          Disable the user: it's no longer possible to authenticate
  *              with this user, however the already authenticated connections
  *              will still work.
+ * skip-sanitize-payload    RESTORE dump-payload sanitization is skipped.
+ * sanitize-payload         RESTORE dump-payload is sanitized (default).
  * ><password>  Add this password to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
  *              This directive clears the "nopass" flag (see later).
@@ -1179,8 +1182,6 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  *                         Note this does not change the "root" user permissions,
  *                         which are the permissions directly applied onto the
  *                         user (outside the parentheses).
- * sanitize-payload        The user require a deep RESTORE payload sanitization.
- * skip-sanitize-payload   The user should skip the deep sanitization of RESTORE payload.
  * 
  * Selector options can also be specified by this function, in which case
  * they update the root selector for the user.
@@ -1293,6 +1294,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         if (server.acl_pubsub_default & SELECTOR_FLAG_ALLCHANNELS)
             serverAssert(ACLSetUser(u,"allchannels",-1) == C_OK);
         serverAssert(ACLSetUser(u,"off",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
         serverAssert(ACLSetUser(u,"clearselectors",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
     } else {
