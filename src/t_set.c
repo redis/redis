@@ -227,7 +227,7 @@ int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
         si->lpi = lpi;
         unsigned int l;
         *str = (char *)lpGetValue(lpi, &l, (long long *)llele);
-        *len = l;
+        *len = (size_t)l;
     } else {
         serverPanic("Wrong set encoding in setTypeNext");
     }
@@ -276,7 +276,9 @@ int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele) 
         unsigned char *lp = setobj->ptr;
         int r = rand() % lpLength(lp);
         unsigned char *p = lpSeek(lp, r);
-        *str = (char *)lpGetValue(p, (unsigned int *)len, (long long *)llele);
+        unsigned int l;
+        *str = (char *)lpGetValue(p, &l, (long long *)llele);
+        *len = (size_t)l;
     } else {
         serverPanic("Unknown set encoding");
     }

@@ -2227,17 +2227,20 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 break;
             case RDB_TYPE_SET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                /*
-                if (!lpValidateIntegrity(encoded, encoded_len, deep_integrity_validation)) {
+                if (!lpValidateIntegrity(encoded, encoded_len,
+                                         deep_integrity_validation,
+                                         NULL, NULL))
+                {
+                    /* FIXME: Check for duplicates too */
                     rdbReportCorruptRDB("Set listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
                     decrRefCount(o);
                     return NULL;
                 }
-                */
                 o->type = OBJ_SET;
                 o->encoding = OBJ_ENCODING_LISTPACK;
+                /* FIXME: convert encoding if necessary. */
                 /*
                 if (setTypeSize(o->ptr) > server.set_max_listpack_entries)
                     setTypeConvert(o, OBJ_ENCODING_HT);
