@@ -95,10 +95,12 @@ set ::all_tests {
     unit/client-eviction
     unit/violations
     unit/replybufsize
+    unit/cluster/misc
     unit/cluster/cli
     unit/cluster/scripting
     unit/cluster/hostnames
     unit/cluster/multi-slot-operations
+    unit/cluster/slot-ownership
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -111,6 +113,7 @@ set ::traceleaks 0
 set ::valgrind 0
 set ::durable 0
 set ::tls 0
+set ::tls_module 0
 set ::stack_logging 0
 set ::verbose 0
 set ::quiet 0
@@ -611,6 +614,7 @@ proc print_help_screen {} {
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
         "--dump-logs        Dump server log on test failure."
         "--tls              Run tests in TLS mode."
+        "--tls-module       Run tests in TLS mode with Redis module."
         "--host <addr>      Run tests against an external host."
         "--port <port>      TCP port to use against external host."
         "--baseport <port>  Initial port number for spawned redis servers."
@@ -659,13 +663,16 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         }
     } elseif {$opt eq {--quiet}} {
         set ::quiet 1
-    } elseif {$opt eq {--tls}} {
+    } elseif {$opt eq {--tls} || $opt eq {--tls-module}} {
         package require tls 1.6
         set ::tls 1
         ::tls::init \
             -cafile "$::tlsdir/ca.crt" \
             -certfile "$::tlsdir/client.crt" \
             -keyfile "$::tlsdir/client.key"
+        if {$opt eq {--tls-module}} {
+            set ::tls_module 1
+        }
     } elseif {$opt eq {--host}} {
         set ::external 1
         set ::host $arg

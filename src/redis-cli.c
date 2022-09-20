@@ -60,6 +60,7 @@
 #include "linenoise.h"
 #include "anet.h"
 #include "ae.h"
+#include "connection.h"
 #include "cli_common.h"
 #include "mt19937-64.h"
 
@@ -318,7 +319,7 @@ static void cliRefreshPrompt(void) {
         prompt = sdscatfmt(prompt,"redis %s",config.hostsocket);
     } else {
         char addr[256];
-        anetFormatAddr(addr, sizeof(addr), config.conn_info.hostip, config.conn_info.hostport);
+        formatAddr(addr, sizeof(addr), config.conn_info.hostip, config.conn_info.hostport);
         prompt = sdscatlen(prompt,addr,strlen(addr));
     }
 
@@ -6869,10 +6870,10 @@ assign_replicas:
                  * So if (bus_port == 0) or (bus_port == port + CLUSTER_MANAGER_PORT_INCR),
                  * we just call CLUSTER MEET with 2 arguments, using the old form. */
                 reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d",
-                                                first->ip, first->port);
+                                                first_ip, first->port);
             } else {
                 reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d %d",
-                                                first->ip, first->port, first->bus_port);
+                                                first_ip, first->port, first->bus_port);
             }
             int is_err = 0;
             if (reply != NULL) {
@@ -7063,7 +7064,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
                                         first_ip, first->port);
     } else {
         reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d %d",
-                                        first->ip, first->port, first->bus_port);
+                                        first_ip, first->port, first->bus_port);
     }
 
     if (!(success = clusterManagerCheckRedisReply(new_node, reply, NULL)))
