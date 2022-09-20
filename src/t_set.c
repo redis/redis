@@ -29,7 +29,8 @@
 
 #include "server.h"
 
-#define SET_LISTPACK_MAX_ELEMENTS 100
+#define SET_LISTPACK_MAX_ELEMENTS 128
+#define SET_LISTPACK_MAX_VALUE 64
 
 /*-----------------------------------------------------------------------------
  * Set Commands
@@ -70,7 +71,9 @@ int setTypeAdd(robj *subject, sds value) {
             /* Not found */
             /* Convert to hashtable if size limit is reached */
             /* FIXME configurable limits */
-            if (lpLength(lp) >= SET_LISTPACK_MAX_ELEMENTS) {
+            if (lpLength(lp) >= SET_LISTPACK_MAX_ELEMENTS ||
+                sdslen(value) > SET_LISTPACK_MAX_VALUE)
+            {
                 setTypeConvert(subject, OBJ_ENCODING_HT);
                 serverAssert(dictAdd(subject->ptr,sdsdup(value),NULL) == DICT_OK);
             } else {
@@ -93,21 +96,21 @@ int setTypeAdd(robj *subject, sds value) {
                     setTypeConvert(subject,OBJ_ENCODING_HT);
                 return 1;
             }
+        } else if (intsetLen((const intset*)subject->ptr) < SET_LISTPACK_MAX_ELEMENTS &&
+                   sdslen(value) <= SET_LISTPACK_MAX_VALUE)
+        {
+            /* Failed to get integer from object.
+             * Convert to listpack if the size allows it. */
+            setTypeConvert(subject, OBJ_ENCODING_LISTPACK);
+            unsigned char *lp = subject->ptr;
+            lp = lpAppend(lp, (unsigned char *)value, sdslen(value));
+            subject->ptr = lp;
+            return 1;
         } else {
-            /* Failed to get integer from object, convert to regular set. */
-            /* Convert to listpack if the size allows it. */
-            if (intsetLen((const intset*)subject->ptr) < SET_LISTPACK_MAX_ELEMENTS) {
-                setTypeConvert(subject, OBJ_ENCODING_LISTPACK);
-                unsigned char *lp = subject->ptr;
-                lp = lpAppend(lp, (unsigned char *)value, sdslen(value));
-                subject->ptr = lp;
-            } else {
-                setTypeConvert(subject, OBJ_ENCODING_HT);
-                /* The set *was* an intset and this value is not integer
-                 * encodable, so dictAdd should always work. */
-                serverAssert(dictAdd(subject->ptr,sdsdup(value),NULL) == DICT_OK);
-            }
-
+            setTypeConvert(subject, OBJ_ENCODING_HT);
+            /* The set *was* an intset and this value is not integer
+             * encodable, so dictAdd should always work. */
+            serverAssert(dictAdd(subject->ptr,sdsdup(value),NULL) == DICT_OK);
             return 1;
         }
     } else {
