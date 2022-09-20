@@ -1823,6 +1823,8 @@ struct redisServer {
     size_t hash_max_listpack_entries;
     size_t hash_max_listpack_value;
     size_t set_max_intset_entries;
+    size_t set_max_listpack_entries;
+    size_t set_max_listpack_value;
     size_t zset_max_listpack_entries;
     size_t zset_max_listpack_value;
     size_t hll_sparse_max_bytes;

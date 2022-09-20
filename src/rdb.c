@@ -1859,10 +1859,44 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         sdsfree(sdsele);
                         return NULL;
                     }
+                } else if (setTypeSize(o) < server.set_max_listpack_entries &&
+                           sdslen(sdsele) < server.set_max_listpack_value &&
+                           lpSafeToAdd(NULL, sdslen(sdsele)))
+                {
+                    setTypeConvert(o, OBJ_ENCODING_LISTPACK);
                 } else {
                     setTypeConvert(o,OBJ_ENCODING_HT);
                     if (dictTryExpand(o->ptr,len) != DICT_OK) {
                         rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
+                        sdsfree(sdsele);
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                }
+            }
+
+            /* This will also be called when the set was just converted
+             * to a listpack encoded set. */
+            if (o->encoding == OBJ_ENCODING_LISTPACK) {
+                if (setTypeSize(o) < server.set_max_listpack_entries &&
+                    sdslen(sdsele) <= server.set_max_listpack_value &&
+                    lpSafeToAdd(o->ptr, sdslen(sdsele)))
+                {
+                    unsigned char *p = lpFirst(o->ptr);
+                    if (p && lpFind(o->ptr, p, (unsigned char*)sdsele,
+                                    sdslen(sdsele), 0))
+                    {
+                        rdbReportCorruptRDB("Duplicate set members detected");
+                        decrRefCount(o);
+                        sdsfree(sdsele);
+                        return NULL;
+                    }
+                    o->ptr = lpAppend(o->ptr, (unsigned char *)sdsele, sdslen(sdsele));
+                } else {
+                    setTypeConvert(o, OBJ_ENCODING_HT);
+                    if (dictTryExpand(o->ptr, len) != DICT_OK) {
+                        rdbReportCorruptRDB("OOM in dictTryExpand %llu",
+                                            (unsigned long long)len);
                         sdsfree(sdsele);
                         decrRefCount(o);
                         return NULL;
@@ -2281,11 +2315,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
                 o->type = OBJ_SET;
                 o->encoding = OBJ_ENCODING_LISTPACK;
-                /* FIXME: convert encoding if necessary. */
-                /*
-                if (setTypeSize(o->ptr) > server.set_max_listpack_entries)
+                if (setTypeSize(o) > server.set_max_listpack_entries)
                     setTypeConvert(o, OBJ_ENCODING_HT);
-                */
                 break;
             case RDB_TYPE_ZSET_ZIPLIST:
                 {

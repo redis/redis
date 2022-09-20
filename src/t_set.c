@@ -29,9 +29,6 @@
 
 #include "server.h"
 
-#define SET_LISTPACK_MAX_ELEMENTS 128
-#define SET_LISTPACK_MAX_VALUE 64
-
 /*-----------------------------------------------------------------------------
  * Set Commands
  *----------------------------------------------------------------------------*/
@@ -68,11 +65,10 @@ int setTypeAdd(robj *subject, sds value) {
         if (p != NULL)
             p = lpFind(lp, p, (unsigned char*)value, sdslen(value), 0);
         if (p == NULL) {
-            /* Not found */
-            /* Convert to hashtable if size limit is reached */
-            /* FIXME configurable limits */
-            if (lpLength(lp) >= SET_LISTPACK_MAX_ELEMENTS ||
-                sdslen(value) > SET_LISTPACK_MAX_VALUE)
+            /* Not found. Convert to hashtable if size limit is reached. */
+            if (lpLength(lp) >= server.set_max_listpack_entries ||
+                sdslen(value) > server.set_max_listpack_value ||
+                !lpSafeToAdd(lp, sdslen(value)))
             {
                 setTypeConvert(subject, OBJ_ENCODING_HT);
                 serverAssert(dictAdd(subject->ptr,sdsdup(value),NULL) == DICT_OK);
@@ -96,11 +92,10 @@ int setTypeAdd(robj *subject, sds value) {
                     setTypeConvert(subject,OBJ_ENCODING_HT);
                 return 1;
             }
-        } else if (intsetLen((const intset*)subject->ptr) < SET_LISTPACK_MAX_ELEMENTS &&
-                   sdslen(value) <= SET_LISTPACK_MAX_VALUE)
+        } else if (intsetLen((const intset*)subject->ptr) < server.set_max_listpack_entries &&
+                   sdslen(value) <= server.set_max_listpack_value &&
+                   lpSafeToAdd(NULL, sdslen(value)))
         {
-            /* Failed to get integer from object.
-             * Convert to listpack if the size allows it. */
             setTypeConvert(subject, OBJ_ENCODING_LISTPACK);
             unsigned char *lp = subject->ptr;
             lp = lpAppend(lp, (unsigned char *)value, sdslen(value));
