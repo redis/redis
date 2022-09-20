@@ -1724,6 +1724,51 @@ int lpPairsValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep) {
     return ret;
 }
 
+/* callback for to check the listpack doesn't have duplicate entries */
+static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
+    struct {
+        dict *fields;
+    } *data = userdata;
+
+    if (data->fields == NULL) {
+        data->fields = dictCreate(&hashDictType);
+        dictExpand(data->fields, head_count);
+    }
+
+    /* Add to dict and check that's not a dup */
+    unsigned char *str;
+    int64_t slen;
+    unsigned char buf[LP_INTBUF_SIZE];
+
+    str = lpGet(p, &slen, buf);
+    sds field = sdsnewlen(str, slen);
+    if (dictAdd(data->fields, field, NULL) != DICT_OK) {
+        /* Duplicate, return an error */
+        sdsfree(field);
+        return 0;
+    }
+
+    return 1;
+}
+
+/* Validate the integrity of the listpack structure.
+ * when `deep` is 0, only the integrity of the header is validated.
+ * when `deep` is 1, we scan all the entries one by one. */
+int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep) {
+    if (!deep)
+        return lpValidateIntegrity(lp, size, 0, NULL, NULL);
+
+    /* Keep track of the field names to locate duplicate ones */
+    struct {
+        dict *fields; /* Initialisation at the first callback. */
+    } data = {NULL};
+
+    int ret = lpValidateIntegrity(lp, size, 1, _lpEntryValidation, &data);
+
+    if (data.fields) dictRelease(data.fields);
+    return ret;
+}
+
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL.
  * When the function returns NULL and if 'error' is not NULL, the
@@ -2227,11 +2272,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 break;
             case RDB_TYPE_SET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!lpValidateIntegrity(encoded, encoded_len,
-                                         deep_integrity_validation,
-                                         NULL, NULL))
-                {
-                    /* FIXME: Check for duplicates too */
+                if (!lpValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation)) {
                     rdbReportCorruptRDB("Set listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
