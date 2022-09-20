@@ -58,6 +58,10 @@ int hashSwapAna(swapData *data, struct keyRequest *req,
                 createFakeHashForDeleteIfCold(data);
                 *intention = SWAP_DEL;
                 *intention_flags = SWAP_FIN_DEL_SKIP;
+            } else if (swapDataIsHot(data)) {
+                /* No need to do swap for hot key(execept for SWAP_IN_DEl). */
+                *intention = SWAP_NOP;
+                *intention_flags = 0;
             } else if (cmd_intention_flags == SWAP_IN_META) {
                 /* HLEN: swap in meta (with random field gets empty hash)
                  * also HLEN command will be modified like dbsize. */
@@ -139,6 +143,7 @@ int hashSwapAna(swapData *data, struct keyRequest *req,
 
             if (!data->value->dirty) {
                 /* directly evict value from db.dict if not dirty. */
+                swapDataTurnCold(data);
                 swapDataCleanObject(data, datactx);
                 swapDataSwapOut(data,datactx);
                 *intention = SWAP_NOP;

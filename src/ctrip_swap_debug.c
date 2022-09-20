@@ -125,6 +125,8 @@ NULL
 
         if (!value && !hot_meta && !meta_rawval) {
             addReplyErrorObject(c,shared.nokeyerr);
+            if (meta_rawkey) sdsfree(meta_rawkey);
+            if (meta_rawval) sdsfree(meta_rawval);
             return;
         }
 

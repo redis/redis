@@ -81,7 +81,7 @@ proc object_meta_len {r key} {
     if {$meta_len != ""} {
         set _ $meta_len
     } else {
-        set _ -1
+        set _ 0
     }
 }
 

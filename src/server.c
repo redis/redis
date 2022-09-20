@@ -649,7 +649,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"randomkey",randomkeyCommand,1,
      "read-only random @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsMetaScan,SWAP_IN,SWAP_IN_METASCAN,0,0,0,0,0,0},
 
     {"select",selectCommand,2,
      "ok-loading fast ok-stale @keyspace",
@@ -699,7 +699,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"scan",scanCommand,-2,
      "read-only random @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsMetaScan,SWAP_IN,SWAP_IN_METASCAN,0,0,0,0,0,0},
 
     {"dbsize",dbsizeCommand,1,
      "read-only fast @keyspace",
@@ -1127,6 +1127,10 @@ struct redisCommand redisCommandTable[] = {
 	{"expired",expiredCommand,-2,
 	 "write fast @keyspace",
 	 0,NULL,getKeyRequestsNone,SWAP_IN,0,1,-1,1,0,0,0},
+
+    {"scanexpire",scanexpireCommand,1,
+     "read-only no-script @keyspace",
+     0,NULL,NULL,SWAP_NOP,0,1,-1,1,0,0,0},
 
 	{"swap",swapCommand,-2,
 	 "read-only fast",
@@ -3317,6 +3321,8 @@ void initServer(void) {
         server.db[j].hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
         server.db[j].evict_asap = listCreate();
         server.db[j].cold_keys = 0;
+        server.db[j].scan_expire = scanExpireCreate();
+        server.db[j].randomkey_nextseek = NULL;
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
@@ -5474,6 +5480,13 @@ sds genRedisInfoString(const char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Swaps\r\n");
         info = genSwapInfoString(info);
+    }
+
+   /* ScanExpire */
+    if (allsections || !strcasecmp(section,"scanexpire")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info, "# ScanExpire\r\n");
+        info = genScanExpireInfoString(info);
     }
 
     /* Rocks */

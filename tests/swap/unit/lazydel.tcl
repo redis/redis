@@ -6,9 +6,9 @@ start_server {tags "expire"} {
         r hmset filter00 a a b b 1 1 2 2 
         r evict filter00
         assert_equal [r hlen filter00] 4
-        assert {[r swap rio-scan h] != {}}
+        assert {[r swap rio-scan data [rio_get_meta r h]] != {}}
         r del filter00
-        assert {[r swap rio-scan h] == {}}
+        assert {[r swap rio-scan data [rio_get_meta r h]] == {}}
     }
 
     test {filter lazy deleted warm key} {
@@ -18,7 +18,7 @@ start_server {tags "expire"} {
         assert_equal [r hlen filter01] 4
         r del filter01
         assert_equal [r hlen filter01] 0
-        assert {[r swap rio-scan h] == {}}
+        assert {[r swap rio-scan data [rio_get_meta r h]] == {}}
     }
 
     test {filter lazy deleted hot key} {
@@ -29,7 +29,7 @@ start_server {tags "expire"} {
         assert_equal [object_meta_len r filter02] 0
         r del filter02
         assert_equal [r hlen filter02] 0
-        assert {[r swap rio-scan h] == {}}
+        assert {[r swap rio-scan data [rio_get_meta r h]] == {}}
     }
 
     test {filter lazy deleted bighash, now wholekey} {
@@ -42,10 +42,10 @@ start_server {tags "expire"} {
         r set filter03 foo
         r evict filter03
         wait_key_cold r filter03
-        assert {[r swap rio-scan h] == {}}
+        assert {[r swap rio-scan data [rio_get_meta r h]] != {}}
         assert_equal [r get filter03] foo
         r del filter03
-        assert {[r swap rio-scan ""] == {}}
+        assert {[r swap rio-scan data ""] == {}}
     }
 
     test {filter obselete subkeys} {
@@ -59,12 +59,12 @@ start_server {tags "expire"} {
         r hmset filter04 a A b B 1 11 2 22
         r evict filter04
         assert_equal [r hmget filter04 a 1] {A 11}
-        assert_equal [llength [r swap rio-scan h]] 4
+        assert_equal [llength [r swap rio-scan data [rio_get_meta r h]]] 4
         assert_equal [object_meta_len r filter04] 2
-        assert_equal [llength [r swap rio-scan h]] 4
+        assert_equal [llength [r swap rio-scan data [rio_get_meta r h]]] 4
         assert_equal [r hmget filter04 b 2] {B 22}
         r del filter04
-        assert_equal [llength [r swap rio-scan h]] 0
+        assert_equal [llength [r swap rio-scan data [rio_get_meta r h]]] 0
     }
 
     test {filter expired bighash} {
@@ -76,9 +76,9 @@ start_server {tags "expire"} {
         after 500
         assert [keyspace_is_empty r]
         r hmset filter05 a A b B
-        assert_equal [llength [r swap rio-scan h]] 0
+        assert_equal [llength [r swap rio-scan data [rio_get_meta r h]]] 0
         r del filter05
-        assert_equal [llength [r swap rio-scan h]] 0
+        assert_equal [llength [r swap rio-scan data [rio_get_meta r h]]] 0
     }
 
     # test {filter transformed wholekey} {

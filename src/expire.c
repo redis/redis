@@ -150,7 +150,7 @@ void activeExpireCycle(int type) {
 
     int j, iteration = 0;
     int dbs_per_call = CRON_DBS_PER_CALL;
-    long long start = ustime(), timelimit, elapsed;
+    long long start = ustime(), timelimit, elapsed, remaining_timelimit;
 
     /* When clients are paused the dataset should be static not just from the
      * POV of clients not being able to write, but also from the POV of
@@ -317,6 +317,13 @@ void activeExpireCycle(int type) {
              * not reclaimed). */
         } while (sampled == 0 ||
                  (expired*100/sampled) > config_cycle_acceptable_stale);
+
+        /* Scan and del expired keys in rocksdb. */
+        elapsed = ustime() - start;
+        remaining_timelimit = timelimit - elapsed;
+        if (!timelimit_exit && remaining_timelimit > 0) {
+            timelimit_exit = scanExpireDbCycle(db,type,remaining_timelimit);
+        }
     }
 
     elapsed = ustime()-start;

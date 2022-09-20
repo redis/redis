@@ -216,8 +216,18 @@ int getKeyRequestsGlobal(int dbid, struct redisCommand *cmd, robj **argv,
     return 0;
 }
 
-void expiredCommand(client *c) {
-    addReply(c, shared.ok);
+int getKeyRequestsMetaScan(int dbid, struct redisCommand *cmd, robj **argv,
+        int argc, struct getKeyRequestsResult *result) {
+    char randbuf[16] = {0};
+    robj *randkey;
+    UNUSED(cmd);
+    UNUSED(argc);
+    UNUSED(argv);
+    getRandomHexChars(randbuf,sizeof(randbuf));
+    randkey = createStringObject(randbuf,sizeof(randbuf));
+    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,randkey,0,NULL,
+            cmd->intention,cmd->intention_flags,dbid);
+    return 0;
 }
 
 #define GETKEYS_RESULT_SUBKEYS_INIT_LEN 8

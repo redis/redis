@@ -224,6 +224,21 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
         goto noswap;
     }
 
+	/* handle metascan request. */
+    if (ctx->key_request->cmd_intention_flags & SWAP_IN_METASCAN) {
+        data = createSwapData(c->db,NULL,NULL);
+        retval = swapDataSetupMetaScan(data,c,&datactx);
+        swapCtxSetSwapData(ctx,data,datactx);
+        if (retval) {
+            ctx->errcode = SWAP_ERR_SETUP_FAIL;
+            reason = "setup metascan failed";
+            reason_num = NOSWAP_REASON_UNEXPECTED;
+            goto noswap;
+        } else {
+            goto allset;
+        }
+    }
+
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
 
     data = createSwapData(db,key,value);
@@ -248,6 +263,7 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
     object_meta = lookupMeta(db,key);
     swapDataSetObjectMeta(data,object_meta);
 
+allset:
     if (swapDataAna(data,ctx->key_request,&swap_intention,
                 &swap_intention_flags,datactx)) {
         ctx->errcode = SWAP_ERR_DATA_ANA_FAIL;
@@ -374,6 +390,15 @@ void swapInit() {
         server.expire_clients[i] = c;
     }
 
+    server.scan_expire_clients = zmalloc(server.dbnum*sizeof(client*));
+    for (i = 0; i < server.dbnum; i++) {
+        client *c = createClient(NULL);
+        c->db = server.db+i;
+        c->cmd = lookupCommandByCString("scanexpire");
+        c->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
+        server.scan_expire_clients[i] = c;
+    }
+
     server.repl_workers = 256;
     server.repl_swapping_clients = listCreate();
     server.repl_worker_clients_free = listCreate();
@@ -408,6 +433,8 @@ int initTestRedisDb() {
         server.db[j].hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
         server.db[j].evict_asap = listCreate();
         server.db[j].cold_keys = 0;
+        server.db[j].randomkey_nextseek = NULL;
+        server.db[j].scan_expire = scanExpireCreate();
         server.db[j].expires_cursor = 0;
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
@@ -442,6 +469,8 @@ int swapTest(int argc, char **argv, int accurate) {
   result += swapIterTest(argc, argv, accurate);
   result += swapDataHashTest(argc, argv, accurate);
   result += testRocksCalculateNextKey(argc, argv, accurate);
+  result += metaScanTest(argc, argv, accurate);
+  result += swapExpireTest(argc, argv, accurate);
   return result;
 }
 #endif

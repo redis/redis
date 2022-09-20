@@ -44,19 +44,7 @@ int swapDataAlreadySetup(swapData *data) {
 
 /* See keyIsExpired for more details */
 static int swapDataExpired(swapData *d) {
-    mstime_t when = d->expire;
-    mstime_t now;
-
-    if (when < 0) return 0;
-    if (server.loading) return 0;
-    if (server.lua_caller) {
-        now = server.lua_time_snapshot;
-    } else if (server.fixed_time_expire > 0) {
-        now = server.mstime;
-    } else {
-        now = mstime();
-    }
-    return now > when;
+    return timestampIsExpired(d->expire);
 }
 
 static int swapDataExpiredAndShouldDelete(swapData *data) {
@@ -190,12 +178,14 @@ inline void swapDataFree(swapData *d, void *datactx) {
 }
 
 sds swapDataEncodeMetaVal(swapData *d) {
-    sds extend = NULL;
+    sds extend = NULL, encoded;
     objectMeta *object_meta = swapDataObjectMeta(d);
     if (d->omtype->encodeObjectMeta) {
         extend = d->omtype->encodeObjectMeta(object_meta);
     }
-    return rocksEncodeMetaVal(d->object_type,d->expire,extend);
+    encoded = rocksEncodeMetaVal(d->object_type,d->expire,extend);
+    sdsfree(extend);
+    return encoded;
 }
 
 sds swapDataEncodeMetaKey(swapData *d) {
@@ -209,6 +199,7 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
 
     d->expire = expire;
     d->object_type = object_type;
+    if (datactx) *datactx = NULL;
 
     switch (d->object_type) {
     case OBJ_STRING:
@@ -260,14 +251,6 @@ int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
 
     swapDataSetColdObjectMeta(d,object_meta/*moved*/);
     return retval;
-}
-
-//TODO use inline version in swap.h
-void swapDataObjectMetaModifyLen(swapData *d, int delta) {
-    objectMeta *object_meta = swapDataObjectMeta(d);
-    object_meta->len += delta;
-    // ssize_t olen = object_meta->len;
-    // serverLog(LL_WARNING, "[xxx] modifylen %ld => %ld", olen, (ssize_t)object_meta->len);
 }
 
 

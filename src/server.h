@@ -141,7 +141,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define STATS_METRIC_NET_INPUT 1    /* Bytes read to network .*/
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
 #define STATS_METRIC_COUNT_MEM 3
-#define STATS_METRIC_COUNT_SWAP 26 /* define directly here to avoid dependcy cycle, will be checked later. */
+#define STATS_METRIC_COUNT_SWAP 28 /* define directly here to avoid dependcy cycle, will be checked later. */
 #define STATS_METRIC_COUNT (STATS_METRIC_COUNT_SWAP + STATS_METRIC_COUNT_MEM)
 
 /* Protocol and I/O related defines */
@@ -745,6 +745,8 @@ typedef struct redisDb {
     dict *hold_keys;            /* holded keys. */
     list *evict_asap;           /* keys to be evicted asap. */
     long long cold_keys;        /* # of cold keys */
+    sds randomkey_nextseek;     /* nextseek for randomkey command */
+    struct scanExpire *scan_expire; /* scan expire related */
 } redisDb;
 
 /* Declare database backup that include redis main DBs and slots to keys map.
@@ -994,6 +996,9 @@ typedef struct client {
     struct client *repl_client; /* Master or peer client if this is a repl worker */
     long long swap_rl_until; /* client should not read or swap untill swap_rl_untill */
     list *swap_locks; /* swap locks */
+    unsigned long swap_scan_nextcursor; /* internal cursor, start from 0 */
+    sds swap_scan_nextseek;
+    struct metaScanResult *swap_metas;
     int swap_errcode;
 } client;
 
@@ -1702,7 +1707,8 @@ struct redisServer {
 		/* swaps */
     int in_swap_cb; /* flag whether call is in swap callback */
     client **evict_clients; /* array of evict clients (one for each db). */
-    client **expire_clients; /* array of rocks get clients (one for each db). */
+    client **expire_clients; /* array of rocks expire clients (one for each db). */
+    client **scan_expire_clients; /* array of expire scan clients (one for each db). */
     struct swapStat *swap_stats; /* array of swap stats (one for each swap type). */
     struct swapStat *rio_stats; /* array of swap stats (one for each swap type). */
     int debug_evict_keys; /* num of keys to evict before calling cmd. */

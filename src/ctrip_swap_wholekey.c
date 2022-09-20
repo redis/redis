@@ -29,6 +29,19 @@
 #include "ctrip_swap.h"
 #include "server.h"
 
+/* ------------------- whole key object meta ----------------------------- */
+int wholeKeyIsHot(objectMeta *om, robj *value) {
+    UNUSED(om);
+    return value != NULL;
+}
+
+objectMetaType wholekeyObjectMetaType = {
+    .encodeObjectMeta = NULL,
+    .decodeObjectMeta = NULL,
+    .objectIsHot = wholeKeyIsHot,
+};
+
+/* ------------------- whole key swap data ----------------------------- */
 int wholeKeySwapAna(swapData *data_, struct keyRequest *req,
         int *intention, uint32_t *intention_flags, void *datactx) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
@@ -69,6 +82,7 @@ int wholeKeySwapAna(swapData *data_, struct keyRequest *req,
                 *intention_flags = SWAP_EXEC_OUT_META;
             } else {
                 /* Not dirty: swapout right away without swap. */
+                swapDataTurnCold(data_);
                 swapDataSwapOut(data_, NULL);
                 *intention = SWAP_NOP;
                 *intention_flags = 0;
@@ -225,13 +239,6 @@ robj *wholeKeyCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) 
     return decoded;
 }
 
-int swapDataSetupWholeKey(swapData *d, void **datactx) {
-    d->type = &wholeKeySwapDataType;
-    d->omtype = &wholekeyObjectMetaType;
-    if (datactx) *datactx = NULL;
-    return 0;
-}
-
 swapDataType wholeKeySwapDataType = {
     .name = "wholekey",
     .swapAna = wholeKeySwapAna,
@@ -246,17 +253,12 @@ swapDataType wholeKeySwapDataType = {
     .free = NULL,
 };
 
-/* ------------------- whole key object meta ----------------------------- */
-int wholeKeyIsHot(objectMeta *om, robj *value) {
-    UNUSED(om);
-    return value != NULL;
+int swapDataSetupWholeKey(swapData *d, void **datactx) {
+    d->type = &wholeKeySwapDataType;
+    d->omtype = &wholekeyObjectMetaType;
+    if (datactx) *datactx = NULL;
+    return 0;
 }
-
-objectMetaType wholekeyObjectMetaType = {
-    .encodeObjectMeta = NULL,
-    .decodeObjectMeta = NULL,
-    .objectIsHot = wholeKeyIsHot,
-};
 
 /* ------------------- whole key rdb save -------------------------------- */
 int wholekeySave(rdbKeySaveData *keydata, rio *rdb, decodedData *decoded) {

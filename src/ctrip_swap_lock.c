@@ -551,13 +551,12 @@ int requestReleaseLock(void *listeners_) {
 
 static int blocked;
 
-int proceedNotifyLater(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
+void proceedNotifyLater(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
     UNUSED(db), UNUSED(key), UNUSED(c);
     void **pd = pd_;
     *pd = listeners;
     blocked--;
     requestReleaseIO(listeners);
-    return 0;
 }
 
 #define wait_init_suite() do {  \
@@ -697,13 +696,12 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
 
 
 static int proceeded = 0;
-int proceededCounter(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
+void proceededCounter(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
     UNUSED(db), UNUSED(key), UNUSED(c);
     void **pd = pd_;
     *pd = listeners;
     proceeded++;
     requestReleaseIO(listeners);
-    return 0;
 }
 
 #define reentrant_case_reset() do { \
@@ -976,22 +974,20 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
     return error;
 }
 
-int proceedWithoutAck(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
+void proceedWithoutAck(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
     UNUSED(db), UNUSED(key), UNUSED(c);
     void **pd = pd_;
     *pd = listeners;
     proceeded++;
-    return 0;
 }
 
-int proceedRightaway(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
+void proceedRightaway(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
     UNUSED(db), UNUSED(key), UNUSED(c);
     void **pd = pd_;
     *pd = listeners;
     proceeded++;
     requestReleaseIO(listeners);
     requestReleaseLock(listeners);
-    return 0;
 }
 
 #define ack_case_reset() do { \

@@ -89,6 +89,17 @@ void RIOInitDeleteRange(RIO *rio, int cf, sds start_key, sds end_key) {
     rio->err = NULL;
 }
 
+void RIOInitIterate(RIO *rio, int cf, sds seek, int limit) {
+    rio->action = ROCKS_ITERATE;
+    rio->iterate.cf = cf;
+    rio->iterate.seek = seek;
+    rio->iterate.limit = limit;
+    rio->iterate.numkeys = 0;
+    rio->iterate.rawkeys = NULL;
+    rio->iterate.rawvals = NULL;
+    rio->err = NULL;
+}
+
 void RIODeinit(RIO *rio) {
     int i;
 
@@ -141,6 +152,18 @@ void RIODeinit(RIO *rio) {
         rio->delete_range.start_key = NULL;
         sdsfree(rio->delete_range.end_key);
         rio->delete_range.end_key = NULL;
+        break;
+    case  ROCKS_ITERATE:
+        sdsfree(rio->iterate.seek);
+        rio->iterate.seek = NULL;
+        for (i = 0; i <= rio->iterate.numkeys; i++) {
+            if (rio->iterate.rawkeys) sdsfree(rio->iterate.rawkeys[i]);
+            if (rio->iterate.rawvals) sdsfree(rio->iterate.rawvals[i]);
+        }
+        zfree(rio->iterate.rawkeys);
+        rio->iterate.rawkeys = NULL;
+        zfree(rio->iterate.rawvals);
+        rio->iterate.rawvals = NULL;
         break;
     default:
         break;
@@ -272,6 +295,7 @@ end:
     return ret;
 }
 
+/*TODO opt cache iter (LRU) */
 static int doRIOScan(RIO *rio) {
     int ret = 0;
     char *err = NULL;
@@ -342,6 +366,59 @@ static int doRIODeleteRange(RIO *rio) {
     return 0;
 }
 
+static int doRIOIterate(RIO *rio) {
+    int ret = 0;
+    char *err = NULL;
+    rocksdb_iterator_t *iter;
+    sds seek = rio->iterate.seek;
+    int numkeys = 0;
+    int limit = rio->iterate.limit + 1; /*extra one to save nextseek */
+    sds *rawkeys = zmalloc(limit*sizeof(sds));
+    sds *rawvals = zmalloc(limit*sizeof(sds));
+
+    iter = rocksdb_create_iterator_cf(server.rocks->db,server.rocks->ropts,
+            rioGetCF(rio->iterate.cf));
+    rocksdb_iter_seek(iter,seek,sdslen(seek));
+
+    while (rocksdb_iter_valid(iter) && numkeys < rio->iterate.limit) {
+        size_t klen, vlen;
+        const char *rawkey, *rawval;
+        rawkey = rocksdb_iter_key(iter, &klen);
+        rawval = rocksdb_iter_value(iter, &vlen);
+        rawkeys[numkeys] = sdsnewlen(rawkey, klen);
+        rawvals[numkeys] = sdsnewlen(rawval, vlen);
+        numkeys++;
+        rocksdb_iter_next(iter);
+    }
+
+    rocksdb_iter_get_error(iter, &err);
+    if (err != NULL) {
+        rio->err = err;
+        serverLog(LL_WARNING,"[rocks] do rocksdb iterate failed: %s", err);
+        ret = -1;
+    }
+    
+    rio->iterate.numkeys = numkeys;
+    rio->iterate.rawkeys = rawkeys;
+    rio->iterate.rawvals = rawvals;
+    
+    /* save nextseek */
+    if (rocksdb_iter_valid(iter)) {
+        size_t klen;
+        const char *rawkey;
+        rawkey = rocksdb_iter_key(iter, &klen);
+        rio->iterate.rawkeys[rio->iterate.numkeys] = sdsnewlen(rawkey, klen);
+        rio->iterate.rawvals[rio->iterate.numkeys] = NULL;
+    } else {
+        rio->iterate.rawkeys[rio->iterate.numkeys] = NULL;
+        rio->iterate.rawvals[rio->iterate.numkeys] = NULL;
+    }
+
+    rocksdb_iter_destroy(iter);
+
+    return ret;
+}
+
 void dumpRIO(RIO *rio) {
     sds repr = sdsnew("[ROCKS] ");
     switch (rio->action) {
@@ -404,6 +481,24 @@ void dumpRIO(RIO *rio) {
         repr = sdscat(repr, ", end_key=");
         repr = sdscatrepr(repr, rio->delete_range.end_key, sdslen(rio->delete_range.end_key));
         break;
+    case ROCKS_ITERATE:
+        repr = sdscat(repr, "ITERATE:(");
+        repr = sdscatrepr(repr, rio->iterate.seek, sdslen(rio->iterate.seek));
+        repr = sdscat(repr, "=>");
+        sds nextseek = rio->iterate.rawkeys ? rio->iterate.rawkeys[rio->iterate.numkeys] : NULL;
+        if (nextseek)
+            repr = sdscatrepr(repr, nextseek, sdslen(nextseek));
+        repr = sdscat(repr, ")\n");
+        for (int i = 0; i < rio->iterate.numkeys; i++) {
+            repr = sdscat(repr, "  (");
+            repr = sdscatrepr(repr, rio->iterate.rawkeys[i],
+                    sdslen(rio->iterate.rawkeys[i]));
+            repr = sdscat(repr, ")=>(");
+            repr = sdscatrepr(repr, rio->iterate.rawvals[i],
+                    sdslen(rio->iterate.rawvals[i]));
+            repr = sdscat(repr,")\n");
+        }
+        break;
     default:
         serverPanic("[rocks] Unknown io action: %d", rio->action);
         break;
@@ -441,6 +536,9 @@ int doRIO(RIO *rio) {
         break;
     case ROCKS_DELETERANGE:
         ret = doRIODeleteRange(rio);
+        break;
+    case ROCKS_ITERATE:
+        ret = doRIOIterate(rio);
         break;
     default:
         serverPanic("[rocks] Unknown io action: %d", rio->action);
@@ -826,6 +924,28 @@ static int executeSwapInRequest(swapRequest *req) {
         /* rawkeys not moved, only rakeys[0] moved, free when done. */
         zfree(cfs);
         zfree(rawkeys);
+    } else if (action == ROCKS_ITERATE) {
+        int *tmpcfs, i;
+        RIOInitIterate(rio,cfs[0],rawkeys[0],numkeys);
+        if ((retval = doRIO(rio))) {
+            goto end;
+        }
+
+        tmpcfs = zmalloc(sizeof(int)*rio->iterate.numkeys);
+        for (i = 0; i < rio->iterate.numkeys; i++) tmpcfs[i] = cfs[0];
+        DEBUG_MSGS_APPEND(req->msgs,"exec-in-iterate","seek=%s,limit=%d,rio=ok",
+                rawkeys[0], numkeys);
+        if ((retval = swapDataDecodeData(data,rio->iterate.numkeys,tmpcfs,rio->iterate.rawkeys,
+                    rio->iterate.rawvals,&decoded))) {
+            zfree(tmpcfs);
+            goto end;
+        }
+        zfree(tmpcfs);
+        DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata", "decoded=%p",(void*)decoded);
+
+        /* rawkeys not moved, only rawkeys[0] moved, free when done. */
+        zfree(cfs);
+        zfree(rawkeys);
     } else {
         retval = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
         goto end;
@@ -964,19 +1084,19 @@ end:
     return;
 }
 
-static inline void swapDataTurnWarmOrHot(swapData *data) {
+void swapDataTurnWarmOrHot(swapData *data) {
     if (data->expire != -1)
         setExpire(NULL,data->db,data->key,data->expire);
     data->db->cold_keys--;
 }
 
-static inline void swapDataTurnCold(swapData *data) {
+void swapDataTurnCold(swapData *data) {
     if (data->expire != -1)
         removeExpire(data->db,data->key);
     data->db->cold_keys++;
 }
 
-static inline void swapDataTurnDeleted(swapData *data) {
+void swapDataTurnDeleted(swapData *data) {
     if (swapDataIsCold(data)) {
         data->db->cold_keys--;
     } else {
@@ -1138,6 +1258,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
     key1_req->num_subkeys = 0;
     key1_req->key = createStringObject("key1",4);
     key1_req->subkeys = NULL;
+    swapCtx *ctx = swapCtxCreate(NULL,key1_req,NULL);
 
     TEST("exec: init") {
         initServerConfig();
@@ -1180,7 +1301,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        test_assert(sdscmp(rio->multiget.rawvals[0],rawval1) == 0);
        test_assert(sdscmp(rio->multiget.rawvals[1],rawval2) == 0);
 
-       RIOInitScan(rio,DATA_CF,prefix,0);
+       RIOInitScan(rio,DATA_CF,prefix);
        test_assert(doRIO(rio) == C_OK);
        test_assert(rio->scan.numkeys == 2);
        test_assert(sdscmp(rio->scan.rawvals[0],rawval1) == 0);
@@ -1192,12 +1313,12 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        test_assert(val1 != NULL);
        test_assert(getExpire(db,key1) == EXPIRE);
        swapData *data = createWholeKeySwapDataWithExpire(db,key1,val1,EXPIRE,NULL);
-       swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,NULL,data,NULL,NULL,NULL,NULL);
+       swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,ctx,data,NULL,NULL,NULL,NULL);
        req->notify_cb = mockNotifyCallback;
        req->notify_pd = NULL;
        processSwapRequest(req);
        test_assert(req->errcode == 0);
-       test_assert(finishSwapRequest(req) == 0);
+       finishSwapRequest(req);
        test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) == NULL);
        test_assert(getExpire(db,key1) == -1);
        test_assert(wholeKeyRocksDataExists(db,key1));
@@ -1209,12 +1330,12 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        swapData *data = createSwapData(db,key1,NULL);
        key1_req->cmd_intention = SWAP_IN;
        key1_req->cmd_intention_flags = 0;
-       swapRequest *req = swapRequestNew(key1_req,-1,-1,NULL,data,NULL,NULL,NULL,NULL);
+       swapRequest *req = swapRequestNew(key1_req,-1,-1,ctx,data,NULL,NULL,NULL,NULL);
        req->notify_cb = mockNotifyCallback;
        req->notify_pd = NULL;
        processSwapRequest(req);
        test_assert(req->errcode == 0);
-       test_assert(finishSwapRequest(req) == 0);
+       finishSwapRequest(req);
        test_assert((val1 = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL && !objectIsDirty(val1));
        test_assert(getExpire(db,key1) == EXPIRE);
        test_assert(wholeKeyRocksDataExists(db,key1));
@@ -1225,7 +1346,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        /* rely on data swap out to rocksdb by previous case */
        val1 = lookupKey(db,key1,LOOKUP_NOTOUCH);
        swapData *data = createWholeKeySwapData(db,key1,val1,NULL);
-       swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_DEL,0,NULL,data,NULL,NULL,NULL,NULL);
+       swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_DEL,0,ctx,data,NULL,NULL,NULL,NULL);
        req->notify_cb = mockNotifyCallback;
        req->notify_pd = NULL;
        executeSwapRequest(req);
@@ -1244,7 +1365,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
 
        /* swap out hot key1 */
        swapData *out_data = createWholeKeySwapData(db,key1,val1,NULL);
-       swapRequest *out_req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,NULL,out_data,NULL,NULL,NULL,NULL);
+       swapRequest *out_req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,ctx,out_data,NULL,NULL,NULL,NULL);
        out_req->notify_cb = mockNotifyCallback;
        out_req->notify_pd = NULL;
        processSwapRequest(out_req);
@@ -1259,7 +1380,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        swapData *in_del_data = createSwapData(db,key1,NULL);
        key1_req->cmd_intention = SWAP_IN;
        key1_req->cmd_intention_flags = SWAP_IN_DEL;
-       swapRequest *in_del_req = swapRequestNew(key1_req,-1,-1,NULL,in_del_data,NULL,NULL,NULL,NULL);
+       swapRequest *in_del_req = swapRequestNew(key1_req,-1,-1,ctx,in_del_data,NULL,NULL,NULL,NULL);
        in_del_req->notify_cb = mockNotifyCallback;
        in_del_req->notify_pd = NULL;
        processSwapRequest(in_del_req);

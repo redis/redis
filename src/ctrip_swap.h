@@ -52,6 +52,8 @@ extern const char *swap_cf_names[CF_COUNT];
 #define SWAP_IN_DEL (1U<<0)
 /* No need to swap if this is a big object */
 #define SWAP_IN_META (1U<<1)
+/* This is a metascan request. */
+#define SWAP_IN_METASCAN (1U<<2)
 
 /* Delete rocksdb data key */
 #define SWAP_EXEC_IN_DEL (1U<<0)
@@ -112,6 +114,7 @@ void getKeyRequests(client *c, struct getKeyRequestsResult *result);
 void releaseKeyRequests(struct getKeyRequestsResult *result);
 int getKeyRequestsNone(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsGlobal(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsMetaScan(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
 #define getKeyRequestsHsetnx getKeyRequestsHset
 #define getKeyRequestsHget getKeyRequestsHmget
@@ -135,7 +138,7 @@ typedef struct getKeyRequestsResult {
 } getKeyRequestsResult;
 
 void getKeyRequestsPrepareResult(getKeyRequestsResult *result, int numswaps);
-void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level, robj *key, int num_subkeys, robj **subkeys, int cmd_intention, int cmd_intention_flags, int dbid);
+void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level, MOVE robj *key, int num_subkeys, MOVE robj **subkeys, int cmd_intention, int cmd_intention_flags, int dbid);
 void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 
 #define setObjectDirty(o) do { \
@@ -289,13 +292,13 @@ static inline int swapDataPersisted(swapData *d) {
     return d->object_meta || d->cold_meta;
 }
 
-void swapDataObjectMetaModifyLen(swapData *d, int delta);
-// static inline void swapDataObjectMetaModifyLen(swapData *d, int delta) {
-    // objectMeta *object_meta = swapDataObjectMeta(d);
-    // //TODO remove 
-    // int olen = object_meta->len;
-    // object_meta->len += delta;
-// }
+static inline void swapDataObjectMetaModifyLen(swapData *d, int delta) {
+    objectMeta *object_meta = swapDataObjectMeta(d);
+    object_meta->len += delta;
+}
+void swapDataTurnWarmOrHot(swapData *data);
+void swapDataTurnCold(swapData *data);
+void swapDataTurnDeleted(swapData *data);
 
 /* Debug msgs */
 #ifdef SWAP_DEBUG
@@ -328,13 +331,17 @@ void swapDebugMsgsDump(swapDebugMsgs *msgs);
 #endif
 
 /* Swap */
-#define SWAP_ERR_DATA_FAIL -100
-#define SWAP_ERR_DATA_ANA_FAIL -101
-#define SWAP_ERR_DATA_FIN_FAIL -102
-#define SWAP_ERR_EXEC_FAIL -200
-#define SWAP_ERR_EXEC_RIO_FAIL -201
-#define SWAP_ERR_EXEC_UNEXPECTED_ACTION -202
-#define SWAP_ERR_EXEC_UNEXPECTED_UTIL -203
+#define SWAP_ERR_SETUP_FAIL -100
+#define SWAP_ERR_METASCAN_CURSOR_INVALID -101
+#define SWAP_ERR_METASCAN_UNSUPPORTED_IN_MULTI -102
+#define SWAP_ERR_DATA_FAIL -200
+#define SWAP_ERR_DATA_ANA_FAIL -201
+#define SWAP_ERR_DATA_FIN_FAIL -202
+#define SWAP_ERR_DATA_UNEXPECTED_INTENTION -203
+#define SWAP_ERR_EXEC_FAIL -300
+#define SWAP_ERR_EXEC_RIO_FAIL -301
+#define SWAP_ERR_EXEC_UNEXPECTED_ACTION -302
+#define SWAP_ERR_EXEC_UNEXPECTED_UTIL -303
 
 struct swapCtx;
 
@@ -361,9 +368,6 @@ void swapCtxSetSwapData(swapCtx *ctx, MOVE swapData *data, MOVE void *datactx);
 void swapCtxFree(swapCtx *ctx);
 
 /* String */
-extern swapDataType wholeKeySwapDataType;
-extern objectMetaType wholekeyObjectMetaType;
-
 typedef struct wholeKeySwapData {
   swapData d;
 } wholeKeySwapData;
@@ -382,10 +386,91 @@ typedef struct hashDataCtx {
 
 int swapDataSetupHash(swapData *d, OUT void **datactx);
 
-extern swapDataType hashSwapDataType;
 #define hashObjectMetaType lenObjectMetaType
-
 #define createHashObjectMeta(len) createLenObjectMeta(OBJ_HASH, len)
+
+/* MetaScan */
+#define DEFAULT_SCANMETA_BUFFER 16
+
+typedef struct scanMeta {
+  sds key;
+  long long expire;
+  int object_type;
+} scanMeta;
+
+int scanMetaExpireIfNeeded(redisDb *db, scanMeta *meta);
+
+typedef struct metaScanResult {
+  scanMeta buffer[DEFAULT_SCANMETA_BUFFER];
+  scanMeta *metas;
+  int num;
+  int size;
+  sds nextseek;
+} metaScanResult;
+
+metaScanResult *metaScanResultCreate();
+void metaScanResultAppend(metaScanResult *result, int object_type, MOVE sds key, long long expire);
+void metaScanResultSetNextSeek(metaScanResult *result, MOVE sds nextseek);
+void freeScanMetaResult(metaScanResult *result);
+
+typedef struct metaScanSwapData {
+  swapData d;
+} metaScanSwapData;
+
+/* There are three kinds of meta scan ctx: scan/randomkey/activeexpire */
+struct metaScanDataCtx;
+
+typedef struct metaScanDataCtxType {
+    void (*swapAna)(struct metaScanDataCtx *datactx, int *intention, uint32_t *intention_flags);
+    void (*swapIn)(struct metaScanDataCtx *datactx, metaScanResult *result);
+    void (*freeExtend)(struct metaScanDataCtx *datactx);
+} metaScanDataCtxType;
+
+typedef struct metaScanDataCtx {
+    metaScanDataCtxType *type;
+    client *c;
+    int limit;
+    sds seek;
+    metaScanResult *result; /* ref */
+    void *extend;
+} metaScanDataCtx;
+
+int swapDataSetupMetaScan(swapData *d, client *c, OUT void **datactx);
+
+void rewindClientSwapScanCursor(client *c);
+robj *metaScanResultRandomKey(redisDb *db, metaScanResult *result);
+
+#define EXPIRESCAN_DEFAULT_LIMIT 32
+#define EXPIRESCAN_DEFAULT_CANDIDATES (16*1024)
+
+typedef struct expireCandidates {
+    robj *zobj;
+    size_t capacity;
+} expireCandidates;
+
+expireCandidates *expireCandidatesCreate(size_t capacity);
+void freeExpireCandidates(expireCandidates *candidates);
+
+typedef struct scanExpire {
+    expireCandidates *candidates;
+    int inprogress;
+    sds nextseek;
+    int limit;
+    double stale_percent;
+    long long stat_estimated_cycle_seconds;
+    size_t stat_scan_per_sec;
+    size_t stat_expired_per_sec;
+    long long stat_scan_time_used;
+    long long stat_expire_time_used;
+} scanExpire;
+
+scanExpire *scanExpireCreate();
+void scanExpireFree(scanExpire *scan_expire);
+void scanExpireEmpty(scanExpire *scan_expire);
+
+void scanexpireCommand(client *c);
+int scanExpireDbCycle(redisDb *db, int type, long long timelimit);
+sds genScanExpireInfoString(sds info);
 
 /* Exec */
 struct swapRequest;
@@ -448,11 +533,12 @@ int swapThreadsDrained();
 #define ROCKS_MULTIGET          5
 #define ROCKS_SCAN              6
 #define ROCKS_DELETERANGE       7
-#define ROCKS_TYPES             8
+#define ROCKS_ITERATE           8
+#define ROCKS_TYPES             9
 
 static inline const char *rocksActionName(int action) {
   const char *name = "?";
-  const char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "SCAN", "DELETERANGE"};
+  const char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "SCAN", "DELETERANGE", "ITERATE"};
   if (action >= 0 && (size_t)action < sizeof(actions)/sizeof(char*))
     name = actions[action];
   return name;
@@ -496,6 +582,14 @@ typedef struct RIO {
 			sds start_key;
       sds end_key;
 		} delete_range;
+    struct {
+      int cf;
+      sds seek;
+      int limit;
+      int numkeys;
+      sds *rawkeys;
+      sds *rawvals;
+    } iterate;
 	};
   sds err;
 } RIO;
@@ -507,6 +601,7 @@ void RIOInitWrite(RIO *rio, rocksdb_writebatch_t *wb);
 void RIOInitMultiGet(RIO *rio, int numkeys, int *cfs, sds *rawkeys);
 void RIOInitScan(RIO *rio, int cf, sds prefix);
 void RIOInitDeleteRange(RIO *rio, int cf, sds start_key, sds end_key);
+void RIOInitIterate(RIO *rio, int cf, sds seek, int limit);
 void RIODeinit(RIO *rio);
 
 #define SWAP_MODE_ASYNC 0
@@ -550,7 +645,7 @@ int parallelSyncDrain();
 int parallelSyncSwapRequestSubmit(swapRequest *req, int idx);
 
 /* Lock */
-#define DEFAULT_REQUEST_LISTENER_REENTRANT_SIZE 8
+#define DEFAULT_REQUEST_LISTENER_REENTRANT_SIZE 1
 #define REQUEST_NOTIFY_ACK  (1<<0)
 #define REQUEST_NOTIFY_RLS  (1<<1)
 
@@ -932,6 +1027,9 @@ robj *rocksDecodeValRdb(sds raw);
 sds rocksEncodeObjectMetaLen(unsigned long len);
 long rocksDecodeObjectMetaLen(const char *raw, size_t rawlen);
 sds rocksCalculateNextKey(sds current);
+sds encodeMetaScanKey(unsigned long cursor, int limit, sds seek);
+int decodeMetaScanKey(sds meta_scan_key, unsigned long *cursor, int *limit, const char **seek, size_t *seeklen);
+
 
 robj *unshareStringValue(robj *value);
 size_t objectEstimateSize(robj *o);
@@ -939,6 +1037,12 @@ size_t keyEstimateSize(redisDb *db, robj *key);
 void swapCommand(client *c);
 void expiredCommand(client *c);
 const char *strObjectType(int type);
+int timestampIsExpired(mstime_t expire);
+
+#define cursorIsHot(outer_cursor) ((outer_cursor & 0x1UL) == 0)
+#define cursorOuterToInternal(cursor) (cursor >> 1)
+#define cursorInternalToOuter(outer_cursor, cursor) (cursor << 1 | (outer_cursor & 0x1UL))
+
 static inline void clientSwapError(client *c, int swap_errcode) {
   if (c && swap_errcode) {
     atomicIncr(server.swap_error,1);
@@ -989,6 +1093,8 @@ int swapRdbTest(int argc, char **argv, int accurate);
 int swapObjectTest(int argc, char *argv[], int accurate);
 int swapIterTest(int argc, char *argv[], int accurate);
 int testRocksCalculateNextKey(int argc, char **argv, int accurate);
+int metaScanTest(int argc, char *argv[], int accurate);
+int swapExpireTest(int argc, char *argv[], int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 

@@ -30,6 +30,22 @@
 
 #include "endianconv.h"
 
+/* See keyIsExpired for more details */
+int timestampIsExpired(mstime_t when) {
+    mstime_t now;
+
+    if (when < 0) return 0;
+    if (server.loading) return 0;
+    if (server.lua_caller) {
+        now = server.lua_time_snapshot;
+    } else if (server.fixed_time_expire > 0) {
+        now = server.mstime;
+    } else {
+        now = mstime();
+    }
+    return now > when;
+}
+
 typedef unsigned int keylen_t;
 
 sds objectDump(robj *o) {
@@ -228,6 +244,31 @@ sds rocksCalculateNextKey(sds current) {
 	return next;
 }
 
+sds encodeMetaScanKey(unsigned long cursor, int limit, sds seek) {
+    size_t len = sizeof(cursor) + sizeof(limit) + (seek ? 0 : sdslen(seek));
+    sds result = sdsnewlen(SDS_NOINIT,len);
+    char *ptr = result;
+
+    memcpy(ptr,&cursor,sizeof(cursor)), ptr+=sizeof(cursor);
+    memcpy(ptr,&limit,sizeof(limit)), ptr+=sizeof(limit);
+    if (seek) memcpy(ptr,seek,sdslen(seek));
+    return result;
+}
+
+int decodeMetaScanKey(sds meta_scan_key, unsigned long *cursor, int *limit,
+        const char **seek, size_t *seeklen) {
+    size_t len = sizeof(unsigned long) + sizeof(int);
+    const char *ptr = meta_scan_key;
+    if (sdslen(meta_scan_key) < len) return -1;
+    if (cursor) *cursor = *(unsigned long*)ptr;
+    ptr += sizeof(unsigned long);
+    if (limit) *limit = *(int*)ptr;
+    ptr += sizeof(int);
+    if (seek) *seek = ptr;
+    if (seeklen) *seeklen = sdslen(meta_scan_key) - len;
+    return 0;
+}
+
 #ifdef REDIS_TEST
 
 int swapUtilTest(int argc, char **argv, int accurate) {
@@ -256,6 +297,9 @@ int swapUtilTest(int argc, char **argv, int accurate) {
 }
 
 int testRocksCalculateNextKey(int argc, char **argv, int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
     sds current = NULL, next = NULL;
     int error = 0;
 

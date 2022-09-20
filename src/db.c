@@ -274,6 +274,16 @@ void setKey(client *c, redisDb *db, robj *key, robj *val) {
     genericSetKey(c,db,key,val,0,1);
 }
 
+robj *ctripRandomKey(redisDb *db, metaScanResult *metas) {
+    size_t keys = dictSize(db->dict) + db->cold_keys;
+    if (keys == 0) return NULL;
+    if (random() % keys < dictSize(db->dict)) {
+        return dbRandomKey(db);
+    } else {
+        return metaScanResultRandomKey(db,metas);
+    }
+}
+
 /* Return a random key, in form of a Redis object.
  * If there are no keys, NULL is returned.
  *
@@ -286,9 +296,6 @@ robj *dbRandomKey(redisDb *db) {
     while(1) {
         sds key;
         robj *keyobj;
-        //TODO handle cold
-        size_t slots = dictSlots(db->dict);
-        if (slots == 0) return NULL;
         de = dictGetFairRandomKey(db->dict);
         if (de == NULL) return NULL;
 
@@ -411,6 +418,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
         dbarray[j].expires_cursor = 0;
+        scanExpireEmpty(dbarray[j].scan_expire);
     }
 
     return removed;
@@ -742,7 +750,6 @@ void existsCommand(client *c) {
     int j;
 
 	for (j = 1; j < c->argc; j++) {
-        //FIXME hanle cold key
 		if (lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH))
 			count++;
     }
@@ -778,7 +785,7 @@ void selectCommand(client *c) {
 void randomkeyCommand(client *c) {
     robj *key;
 
-    if ((key = dbRandomKey(c->db)) == NULL) {
+    if ((key = ctripRandomKey(c->db,c->swap_metas)) == NULL) {
         addReplyNull(c);
         return;
     }
@@ -881,12 +888,8 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
  *
  * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
-#define IS_DICT(orig_cursor)    ((orig_cursor & 0x1UL) == 0)
-#define IS_EVICT(orig_cursor)   ((orig_cursor & 0x1UL) != 0)
-#define O2I(cursor)             (cursor >> 1)
-#define I2O(orig_cursor,cursor) (cursor << 1 | (orig_cursor & 0x1UL))
 void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
-    int i, j;
+    int i, j, metascan = 0;
     list *keys = listCreate();
     listNode *node, *nextnode;
     long count = 10;
@@ -894,7 +897,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     sds typename = NULL;
     int patlen = 0, use_pattern = 0;
     dict *ht;
-    unsigned long orig_cursor = cursor;
+    unsigned long outer_cursor = cursor;
 
     /* Object must be NULL (to iterate keys names), or the type of the object
      * must be Set, Sorted Set, or Hash. */
@@ -950,10 +953,9 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* Handle the case of a hash table. */
     ht = NULL;
     if (o == NULL) {
-        if (IS_DICT(orig_cursor)) ht = c->db->dict;
-        //FIXME handle cold key
-        else ht = c->db->dict;
-        cursor = O2I(orig_cursor);
+        if (cursorIsHot(outer_cursor)) ht = c->db->dict;
+        else metascan = 1;
+        cursor = cursorOuterToInternal(outer_cursor);
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
@@ -983,6 +985,21 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         } while (cursor &&
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
+    } else if (metascan) {
+        metaScanResult *metas = c->swap_metas;
+        if (metas == NULL) {
+            addReplyErrorFormat(c,
+                    "Swap scan metas failed (nextcursor is %lu)",
+                    cursorInternalToOuter(outer_cursor,
+                        c->swap_scan_nextcursor));
+            goto cleanup;
+        }
+        for (i = 0; i < metas->num; i++) {
+            scanMeta *meta = metas->metas+i;
+            robj *key = createStringObject(meta->key, sdslen(meta->key));
+            listAddNodeTail(keys,key);
+        }
+        cursor = c->swap_scan_nextcursor;
     } else if (o->type == OBJ_SET) {
         int pos = 0;
         int64_t ll;
@@ -1009,11 +1026,18 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     }
 
     /* Step 3: Filter elements. */
+    scanMeta *curmeta = NULL;
+    i = 0;
     node = listFirst(keys);
     while (node) {
         robj *kobj = listNodeValue(node);
         nextnode = listNextNode(node);
         int filter = 0;
+
+        if (metascan) {
+            curmeta = c->swap_metas->metas + i;
+            i++;
+        }
 
         /* Filter element if it does not match the pattern. */
         if (use_pattern) {
@@ -1032,15 +1056,24 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
         /* Filter an element if it isn't the type we want. */
         if (!filter && o == NULL && typename){
-            robj* typecheck = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
-            //FIXME handle cold key
-            //if (typecheck == NULL) typecheck = lookupEvictKey(c->db, kobj);
-            char* type = getObjectTypeName(typecheck);
+            char* type;
+            if (metascan) {
+                type = (char*)strObjectType(curmeta->object_type);
+            } else {
+                robj* typecheck = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
+                type = getObjectTypeName(typecheck);
+            }
             if (strcasecmp((char*) typename, type)) filter = 1;
         }
 
         /* Filter element if it is an expired key. */
-        if (!filter && o == NULL && expireIfNeeded(c->db, kobj)) filter = 1;
+        if (!filter && o == NULL) {
+            if (metascan) {
+                if (scanMetaExpireIfNeeded(c->db,curmeta)) filter = 1;
+            } else {
+                if (expireIfNeeded(c->db, kobj)) filter = 1;
+            }
+        }
 
         /* Remove the element and its associated value if needed. */
         if (filter) {
@@ -1067,13 +1100,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* Step 4: Reply to the client. */
     if (o == NULL) {
         if (cursor == 0) {
-            if (IS_DICT(orig_cursor)){
-                orig_cursor = 1;
+            if (cursorIsHot(outer_cursor)){
+                outer_cursor = 1;
+                rewindClientSwapScanCursor(c);
             } else {
-                orig_cursor = 0;
+                outer_cursor = 0;
             }
         }
-        cursor = I2O(orig_cursor, cursor);
+        cursor = cursorInternalToOuter(outer_cursor, cursor);
     }
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);

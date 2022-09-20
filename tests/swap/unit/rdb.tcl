@@ -37,7 +37,7 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
             r evict wholekey_cold
             wait_key_cold r wholekey_cold
             assert_equal [object_meta_len r wholekey_hot] 0
-            assert_equal [object_meta_len r wholekey_cold] 0
+            assert_equal [object_meta_len r wholekey_cold] 4
 
             r debug reload
 
@@ -60,16 +60,12 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
             r hmset warm b b 2 2
             r hmset cold a a b b 1 1 2 2 
             r evict cold
-            assert_equal [object_is_big r warm] 1
-            assert_equal [object_is_big r cold] 1
             assert_equal [object_meta_len r hot] 0
             assert_equal [object_meta_len r warm] 2
             assert_equal [object_meta_len r cold] 4
             # reload
             r debug reload
             # check
-            assert_equal [object_is_big r warm] 1
-            assert_equal [object_is_big r cold] 1
             assert_equal [object_meta_len r hot] 4
             assert_equal [object_meta_len r warm] 4
             assert_equal [object_meta_len r cold] 4
@@ -87,7 +83,6 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
             r hmset myhash a a b b 1 1 2 2 
             r evict myhash
             wait_key_cold r myhash
-            assert_equal [object_is_big r myhash] 1
             r del myhash
             after 100
             r debug reload
@@ -98,7 +93,6 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
             r evict myhash 
             r hmset myhash b B 2 22
             assert_equal [r hlen myhash] 4
-            assert_equal [object_is_big r myhash] 1
 
             r debug reload
             assert_equal [r hlen myhash] 4
@@ -108,7 +102,7 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
             r config set hash-max-ziplist-entries $old_entries
         }
 
-        test {smallhash <=> bighash} {
+        test {rdb save & load with different encodings} {
             set old_thres [lindex [r config get swap-big-hash-threshold] 1]
             set old_entries [lindex [r config get hash-max-ziplist-entries] 1]
             r flushdb
@@ -116,25 +110,22 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
             r hmset myhash a a b b 1 1 2 2 
             r evict myhash
             wait_key_cold r myhash
-            assert_equal [object_is_big r myhash] 0
             # init big hash
             r config set swap-big-hash-threshold 1
             r hmset myhash a A b B 1 11 2 22
             r config set hash-max-ziplist-entries 1
             assert_equal [r hmget myhash a b 1 2] {A B 11 22}
             r evict myhash
-            assert_equal [object_is_big r myhash] 1
+            wait_key_cold r myhash
             # cold reload from bighash to wholekey
             r config set swap-big-hash-threshold $old_thres
             r config set hash-max-ziplist-entries $old_entries
             r debug reload
-            assert_equal [object_is_big r myhash] 0
             assert_equal [r hmget myhash a b 1 2] {A B 11 22}
             # hot reload from wholekey to bighash
             r config set swap-big-hash-threshold 1
             r config set hash-max-ziplist-entries 1
             r debug reload
-            assert_equal [object_is_big r myhash] 0; # ziplist always decoded as wholekey
             assert_equal [r hmget myhash a b 1 2] {A B 11 22}
         }
     }
@@ -144,5 +135,11 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
             r set key_$i val_$i
         }
         r debug reload
+    }
+
+    test {rdbsave and rdbload} {
+        r mset a a aa aa aaa aaa
+        r debug reload
+        assert_equal [r mget a aa aaa] {a aa aaa}
     }
 }

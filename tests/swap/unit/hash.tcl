@@ -5,15 +5,15 @@ start_server {tags "bighash"} {
     test {swapin entire hash} {
         r hmset hash1 a a b b 1 1 2 2
         r evict hash1
-        wait_keys_evicted r
-        r hgetall hash1
+        wait_key_cold r hash1
+        assert_equal [lsort [r hgetall hash1]] {1 1 2 2 a a b b}
         r del hash1
     }
 
     test {swapin specific hash fields} {
         r hmset hash2 a a b b 1 1 2 2
         r evict hash2
-        wait_keys_evicted r
+        wait_key_cold r hash2
         # cold - not exists fields
         assert_equal [r hmget hash2 not_exist 99] {{} {}}
         # cold - exists fields
@@ -32,7 +32,7 @@ start_server {tags "bighash"} {
     test {IN.meta} {
         r hmset hash3 a a b b 1 1 2 2
         r evict hash3
-        wait_keys_evicted r
+        wait_key_cold r hash3
         assert_equal [r hlen hash3] 4
         assert_equal [llength [r hkeys hash3]] 4
         assert_equal [r hlen hash3] 4
@@ -50,7 +50,7 @@ start_server {tags "bighash"} {
 
         r hmset hash5 a a b b 1 1 2 2
         r evict hash5
-        wait_keys_evicted r
+        wait_key_cold r hash5
         r del hash5
         assert_equal [r exists hash5] 0
         r del hash4 hash5
@@ -59,7 +59,7 @@ start_server {tags "bighash"} {
     test {active expire cold hash} {
         r hmset hash6 a a b b 1 1 2 2
         r evict hash6
-        wait_keys_evicted r
+        wait_key_cold r hash6
         r pexpire hash6 10
         after 100
         assert_equal [r ttl hash6] -2
@@ -78,7 +78,7 @@ start_server {tags "bighash"} {
         r debug set-active-expire 0
         r hmset hash8 a a b b 1 1 2 2
         r evict hash8
-        wait_keys_evicted r
+        wait_key_cold r hash8
         r pexpire hash8 10
         after 100
         assert_equal [r ttl hash8] -2
@@ -98,76 +98,31 @@ start_server {tags "bighash"} {
     test {lazy del obseletes rocksdb data} {
         r hmset hash11 a a b b 1 1 2 2 
         r evict hash11
-        wait_keys_evicted r
-        set old_b_encode [r swap encode-key h hash11 b]
+        wait_key_cold r hash11
+        set meta_raw [r swap rio-get meta [r swap encode-meta-key hash11]]
+        assert {$meta_raw != {{}}}
         r del hash11
         assert_equal [r exists hash11] 0
         assert_equal [r hget hash11 a] {}
-        assert {[r swap rio-get $old_b_encode] != {}}
+        set meta_raw [r swap rio-get meta [r swap encode-meta-key hash11]]
+        assert {$meta_raw == {{}}}
     }
 
-    test {wholekey bighash transform} {
-        set old_swap_threshold [lindex [r config get swap-big-hash-threshold] 1]
-        r config set swap-big-hash-threshold 256k
-
+    test {evict clean hash triggers no swap} {
         r hmset hash10 a a b b 1 1 2 2 
         r evict hash10
         wait_key_cold r hash10
-        assert ![object_is_big r hash10]
-
-        # evict clean hash triggers no swapout
         set old_swap_out_count [get_info_property r Swaps swap_OUT count]
         r hgetall hash10
         r evict hash10
+        # evict clean hash triggers no swapout
         assert_equal $old_swap_out_count [get_info_property r Swaps swap_OUT count]
 
-        # hash could transform to big and triggers swapout(bighash format subkey)
-        r config set swap-big-hash-threshold 1
-        r hgetall hash10
-
+        assert_equal [llength [r hkeys hash10]] 4
         r evict hash10
-        wait_key_cold r hash10
-        assert [object_is_big r hash10]
-
-        assert {[get_info_property r Swaps swap_OUT count] > $old_swap_out_count}
-        assert {[r swap rio-get [r swap encode-key h hash10 a]] != {}}
-
-        # bighash could not tranform back too wholekey again
-        r config set swap-big-hash-threshold 256k
-        assert_equal [llength [r hkeys hash10]] 4;
-        assert [object_is_big r hash10]
-        r evict hash10
-        wait_keys_evicted r
-        assert [object_is_big r hash10]
         assert_equal [llength  [r hvals hash10]] 4
-        assert [object_is_big r hash10]
         r del hash10
-
-        r config set swap-big-hash-threshold $old_swap_threshold
     }
-
-    ## we changed hash big transform policy, test case is now obselete
-    # test {wholekey bighash transform} {
-        # set old_swap_threshold [lindex [r config get swap-big-hash-threshold] 1]
-
-        # r config set swap-big-hash-threshold 1
-        # r hmset hash10 a a b b 1 1 2 2 
-        # r evict hash10
-        # assert_equal [object_is_big r hash10] 1
-        # wait_keys_evicted r
-        # r config set swap-big-hash-threshold 256k
-        # assert_equal [llength [r hkeys hash10]] 4;
-        # assert_equal [object_is_big r hash10] 1
-        # r evict hash10
-        # wait_keys_evicted r
-        # press_enter_to_continue
-        # assert_equal [object_is_big r hash10] 0
-        # assert_equal [llength  [r hvals hash10]] 4
-        # assert_equal [object_is_big r hash10] 0
-        # r del hash10
-
-        # r config set swap-big-hash-threshold $old_swap_threshold
-    # }
 
     test {bighash dirty & meta} {
         set old_swap_threshold [lindex [r config get swap-big-hash-threshold] 1]
@@ -185,12 +140,11 @@ start_server {tags "bighash"} {
         wait_key_warm r hash11
         assert [object_is_dirty r hash11]
         assert_equal [object_meta_len r hash11] 2
-        set hash11_version [object_meta_version r hash11]
 
-        # dirty bighash all evict is still dirty
+        # dirty bighash all evict
         r evict hash11
         wait_key_cold r hash11
-        assert [object_is_dirty r hash11]
+        assert ![object_is_dirty r hash11]
         assert_equal [object_meta_len r hash11] 4
 
         # cold bighash turns clean when swapin
@@ -204,7 +158,6 @@ start_server {tags "bighash"} {
         # all-swapin bighash meta remains
         assert_equal [object_meta_len r hash11] 0
         assert_equal [r hlen hash11] 4
-        assert_equal [object_meta_version r hash11] $hash11_version 
 
         # clean bighash swapout does not triggers swap
         set orig_swap_out_count [get_info_property r swaps swap_OUT count]
@@ -238,33 +191,18 @@ start_server {tags "bighash"} {
     }
 
     test {bighash hdel & del} {
-        set old_swap_threshold [lindex [r config get swap-big-hash-threshold] 1]
-        r config set swap-big-hash-threshold 1
-
         r hmset hash12 a a 1 1
         assert_equal [r evict hash12] 1
         wait_key_cold r hash12
-
+        assert_equal [object_meta_len r hash12] 2
         r hdel hash12 a
+        assert_equal [object_meta_len r hash12] 1
         r hdel hash12 1
-        assert {[rocks_get_bighash r hash12 a] eq {}}
-        assert {[rocks_get_bighash r hash12 1] eq {}}
+        assert {[rio_get_data r hash12 a] eq {}}
+        assert {[rio_get_data r hash12 1] eq {}}
+        assert {[rio_get_meta r hash12] eq {}}
         catch {r swap object hash12} err
         assert_match "*ERR no such key*" $err
-
-        # re-add bighash increase version
-        r hmset hash12 a a 1 1
-        catch {r swap object hash12} err
-        r evict hash12
-        assert_equal [r hlen hash12] 2
-
-        r del hash12
-        assert {[rocks_get_bighash r hash12 a] eq {}}
-        assert {[rocks_get_bighash r hash12 1] eq {}}
-        catch {r swap object hash12} err
-        assert_match "*ERR no such key*" $err
-
-        r config set swap-big-hash-threshold $old_swap_threshold
     }
 
     test {hdel warm key} {
@@ -299,6 +237,36 @@ start_server {tags "bighash"} {
         r del hash_aa
         assert_equal [r hkeys hash_a] {foo}
     }
+    test {hdel & reload} {
+        r hmset hash14 a a b b c c 1 1 2 2 3 3 
+        assert_equal [r evict hash14] 1
+        wait_key_cold r hash14
+        # evict cold
+        r evict hash14
+        wait_key_cold r hash14
+        # reload cold
+        r debug reload
+        assert_equal [r hmget hash14 a b 1 2] {a b 1 2}
+        # hdel non-existing field does not modify hlen, but meta gets deleted
+        r hdel hash14 x
+        assert_equal [r hlen hash14] 6
+        # reload warm
+        r debug reload
+        assert_equal [r hmget hash14 a b c 1 2 3] {a b c 1 2 3}
+        assert_equal [r hlen hash14] 6
+        # reload hot
+        r debug reload
+        assert_equal [r hlen hash14] 6
+    }
+
+    test {hdel cold field untill hash empty} {
+        r hset hash15 a a
+        r evict hash15
+        r hget hash15 b
+        r hdel hash15 a
+        catch {r swap object hash15} e
+        assert_match {*no such key*} $e
+    }
 }
 
 start_server {tags {"evict big hash, check hlen"}} {
@@ -312,12 +280,10 @@ start_server {tags {"evict big hash, check hlen"}} {
         after 100
         assert_equal [r hlen myhash] 8
         after 100
-        # puts [r swap object myhash]
         assert_equal [r evict myhash] 1
         after 100
         assert_equal [r hlen myhash] 8
         after 100
-        # puts [r swap object myhash]
     }
 } 
 
