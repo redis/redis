@@ -433,6 +433,8 @@ typedef enum {
 #define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
 #define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
+#define SLAVE_STATE_RDB_TRANSMITTED 10 /* RDB file transmitted - This state is used only for
+                                        * a replica that only wants RDB without replication buffer  */
 
 /* Slave capabilities. */
 #define SLAVE_CAPA_NONE 0
