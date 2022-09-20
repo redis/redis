@@ -256,30 +256,27 @@ start_server {tags {"keyspace"}} {
         assert_equal $digest [debug_digest_value mynewlist{t}]
     }
 
-    test {COPY basic usage for intset set} {
-        r del set1{t} newset1{t}
-        r sadd set1{t} 1 2 3
-        assert_encoding intset set1{t}
-        r copy set1{t} newset1{t}
-        set digest [debug_digest_value set1{t}]
-        assert_equal $digest [debug_digest_value newset1{t}]
-        assert_refcount 1 set1{t}
-        assert_refcount 1 newset1{t}
-        r del set1{t}
-        assert_equal $digest [debug_digest_value newset1{t}]
-    }
-
-    test {COPY basic usage for hashtable set} {
-        r del set2{t} newset2{t}
-        r sadd set2{t} 1 2 3 a
-        assert_encoding hashtable set2{t}
-        r copy set2{t} newset2{t}
-        set digest [debug_digest_value set2{t}]
-        assert_equal $digest [debug_digest_value newset2{t}]
-        assert_refcount 1 set2{t}
-        assert_refcount 1 newset2{t}
-        r del set2{t}
-        assert_equal $digest [debug_digest_value newset2{t}]
+    foreach type {intset listpack hashtable} {
+        test {COPY basic usage for $type set} {
+            r del set1{t} newset1{t}
+            r sadd set1{t} 1 2 3
+            if {$type ne "intset"} {
+                r sadd set1{t} a
+            }
+            if {$type eq "hashtable"} {
+                for {set i 4} {$i < 200} {incr i} {
+                    r sadd set1{t} $i
+                }
+            }
+            assert_encoding $type set1{t}
+            r copy set1{t} newset1{t}
+            set digest [debug_digest_value set1{t}]
+            assert_equal $digest [debug_digest_value newset1{t}]
+            assert_refcount 1 set1{t}
+            assert_refcount 1 newset1{t}
+            r del set1{t}
+            assert_equal $digest [debug_digest_value newset1{t}]
+        }
     }
 
     test {COPY basic usage for listpack sorted set} {
