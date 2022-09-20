@@ -341,9 +341,7 @@ struct COMMAND_ARG SETBIT_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER ADDSLOTS tips */
-const char *CLUSTER_ADDSLOTS_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_ADDSLOTS_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -365,9 +363,7 @@ struct COMMAND_ARG CLUSTER_ADDSLOTS_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER ADDSLOTSRANGE tips */
-const char *CLUSTER_ADDSLOTSRANGE_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_ADDSLOTSRANGE_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -438,9 +434,7 @@ struct COMMAND_ARG CLUSTER_COUNT_FAILURE_REPORTS_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER COUNTKEYSINSLOT tips */
-const char *CLUSTER_COUNTKEYSINSLOT_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_COUNTKEYSINSLOT_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -462,9 +456,7 @@ struct COMMAND_ARG CLUSTER_COUNTKEYSINSLOT_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER DELSLOTS tips */
-const char *CLUSTER_DELSLOTS_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_DELSLOTS_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -486,9 +478,7 @@ struct COMMAND_ARG CLUSTER_DELSLOTS_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER DELSLOTSRANGE tips */
-const char *CLUSTER_DELSLOTSRANGE_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_DELSLOTSRANGE_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -516,9 +506,7 @@ struct COMMAND_ARG CLUSTER_DELSLOTSRANGE_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER FAILOVER tips */
-const char *CLUSTER_FAILOVER_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_FAILOVER_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -546,9 +534,7 @@ struct COMMAND_ARG CLUSTER_FAILOVER_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER FLUSHSLOTS tips */
-const char *CLUSTER_FLUSHSLOTS_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_FLUSHSLOTS_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -565,9 +551,7 @@ const char *CLUSTER_FLUSHSLOTS_Tips[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER FORGET tips */
-const char *CLUSTER_FORGET_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_FORGET_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -650,9 +634,7 @@ const char *CLUSTER_INFO_Tips[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER KEYSLOT tips */
-const char *CLUSTER_KEYSLOT_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_KEYSLOT_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -695,9 +677,7 @@ commandHistory CLUSTER_MEET_History[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER MEET tips */
-const char *CLUSTER_MEET_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_MEET_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -721,9 +701,7 @@ struct COMMAND_ARG CLUSTER_MEET_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER MYID tips */
-const char *CLUSTER_MYID_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_MYID_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -783,9 +761,7 @@ struct COMMAND_ARG CLUSTER_REPLICAS_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER REPLICATE tips */
-const char *CLUSTER_REPLICATE_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_REPLICATE_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -807,9 +783,7 @@ struct COMMAND_ARG CLUSTER_REPLICATE_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER RESET tips */
-const char *CLUSTER_RESET_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_RESET_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -837,9 +811,7 @@ struct COMMAND_ARG CLUSTER_RESET_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER SAVECONFIG tips */
-const char *CLUSTER_SAVECONFIG_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_SAVECONFIG_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -856,9 +828,7 @@ const char *CLUSTER_SAVECONFIG_Tips[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER SET_CONFIG_EPOCH tips */
-const char *CLUSTER_SET_CONFIG_EPOCH_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_SET_CONFIG_EPOCH_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -880,9 +850,7 @@ struct COMMAND_ARG CLUSTER_SET_CONFIG_EPOCH_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLUSTER SETSLOT tips */
-const char *CLUSTER_SETSLOT_Tips[] = {
-"nondeterministic_output",
-};
+#define CLUSTER_SETSLOT_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -971,30 +939,30 @@ const char *CLUSTER_SLOTS_Tips[] = {
 
 /* CLUSTER command table */
 struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
-{MAKE_CMD("addslots","Assign new hash slots to receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTS_History,0,CLUSTER_ADDSLOTS_Tips,1,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_ADDSLOTS_Keyspecs,0,NULL,1),.args=CLUSTER_ADDSLOTS_Args},
-{MAKE_CMD("addslotsrange","Assign new hash slots to receiving node","O(N) where N is the total number of the slots between the start slot and end slot arguments.","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTSRANGE_History,0,CLUSTER_ADDSLOTSRANGE_Tips,1,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_ADDSLOTSRANGE_Keyspecs,0,NULL,1),.args=CLUSTER_ADDSLOTSRANGE_Args},
+{MAKE_CMD("addslots","Assign new hash slots to receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTS_History,0,CLUSTER_ADDSLOTS_Tips,0,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_ADDSLOTS_Keyspecs,0,NULL,1),.args=CLUSTER_ADDSLOTS_Args},
+{MAKE_CMD("addslotsrange","Assign new hash slots to receiving node","O(N) where N is the total number of the slots between the start slot and end slot arguments.","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTSRANGE_History,0,CLUSTER_ADDSLOTSRANGE_Tips,0,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_ADDSLOTSRANGE_Keyspecs,0,NULL,1),.args=CLUSTER_ADDSLOTSRANGE_Args},
 {MAKE_CMD("bumpepoch","Advance the cluster config epoch","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_BUMPEPOCH_History,0,CLUSTER_BUMPEPOCH_Tips,1,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_BUMPEPOCH_Keyspecs,0,NULL,0)},
 {MAKE_CMD("count-failure-reports","Return the number of failure reports active for a given node","O(N) where N is the number of failure reports","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_COUNT_FAILURE_REPORTS_History,0,CLUSTER_COUNT_FAILURE_REPORTS_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_COUNT_FAILURE_REPORTS_Keyspecs,0,NULL,1),.args=CLUSTER_COUNT_FAILURE_REPORTS_Args},
-{MAKE_CMD("countkeysinslot","Return the number of local keys in the specified hash slot","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_COUNTKEYSINSLOT_History,0,CLUSTER_COUNTKEYSINSLOT_Tips,1,clusterCommand,3,CMD_STALE,0,CLUSTER_COUNTKEYSINSLOT_Keyspecs,0,NULL,1),.args=CLUSTER_COUNTKEYSINSLOT_Args},
-{MAKE_CMD("delslots","Set hash slots as unbound in receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTS_History,0,CLUSTER_DELSLOTS_Tips,1,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_DELSLOTS_Keyspecs,0,NULL,1),.args=CLUSTER_DELSLOTS_Args},
-{MAKE_CMD("delslotsrange","Set hash slots as unbound in receiving node","O(N) where N is the total number of the slots between the start slot and end slot arguments.","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTSRANGE_History,0,CLUSTER_DELSLOTSRANGE_Tips,1,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_DELSLOTSRANGE_Keyspecs,0,NULL,1),.args=CLUSTER_DELSLOTSRANGE_Args},
-{MAKE_CMD("failover","Forces a replica to perform a manual failover of its master.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_FAILOVER_History,0,CLUSTER_FAILOVER_Tips,1,clusterCommand,-2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_FAILOVER_Keyspecs,0,NULL,1),.args=CLUSTER_FAILOVER_Args},
-{MAKE_CMD("flushslots","Delete a node's own slots information","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_FLUSHSLOTS_History,0,CLUSTER_FLUSHSLOTS_Tips,1,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_FLUSHSLOTS_Keyspecs,0,NULL,0)},
-{MAKE_CMD("forget","Remove a node from the nodes table","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_FORGET_History,0,CLUSTER_FORGET_Tips,1,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_FORGET_Keyspecs,0,NULL,1),.args=CLUSTER_FORGET_Args},
+{MAKE_CMD("countkeysinslot","Return the number of local keys in the specified hash slot","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_COUNTKEYSINSLOT_History,0,CLUSTER_COUNTKEYSINSLOT_Tips,0,clusterCommand,3,CMD_STALE,0,CLUSTER_COUNTKEYSINSLOT_Keyspecs,0,NULL,1),.args=CLUSTER_COUNTKEYSINSLOT_Args},
+{MAKE_CMD("delslots","Set hash slots as unbound in receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTS_History,0,CLUSTER_DELSLOTS_Tips,0,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_DELSLOTS_Keyspecs,0,NULL,1),.args=CLUSTER_DELSLOTS_Args},
+{MAKE_CMD("delslotsrange","Set hash slots as unbound in receiving node","O(N) where N is the total number of the slots between the start slot and end slot arguments.","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTSRANGE_History,0,CLUSTER_DELSLOTSRANGE_Tips,0,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_DELSLOTSRANGE_Keyspecs,0,NULL,1),.args=CLUSTER_DELSLOTSRANGE_Args},
+{MAKE_CMD("failover","Forces a replica to perform a manual failover of its master.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_FAILOVER_History,0,CLUSTER_FAILOVER_Tips,0,clusterCommand,-2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_FAILOVER_Keyspecs,0,NULL,1),.args=CLUSTER_FAILOVER_Args},
+{MAKE_CMD("flushslots","Delete a node's own slots information","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_FLUSHSLOTS_History,0,CLUSTER_FLUSHSLOTS_Tips,0,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_FLUSHSLOTS_Keyspecs,0,NULL,0)},
+{MAKE_CMD("forget","Remove a node from the nodes table","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_FORGET_History,0,CLUSTER_FORGET_Tips,0,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_FORGET_Keyspecs,0,NULL,1),.args=CLUSTER_FORGET_Args},
 {MAKE_CMD("getkeysinslot","Return local key names in the specified hash slot","O(log(N)) where N is the number of requested keys","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_GETKEYSINSLOT_History,0,CLUSTER_GETKEYSINSLOT_Tips,1,clusterCommand,4,CMD_STALE,0,CLUSTER_GETKEYSINSLOT_Keyspecs,0,NULL,2),.args=CLUSTER_GETKEYSINSLOT_Args},
 {MAKE_CMD("help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_HELP_History,0,CLUSTER_HELP_Tips,0,clusterCommand,2,CMD_LOADING|CMD_STALE,0,CLUSTER_HELP_Keyspecs,0,NULL,0)},
 {MAKE_CMD("info","Provides info about Redis Cluster node state","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_INFO_History,0,CLUSTER_INFO_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_INFO_Keyspecs,0,NULL,0)},
-{MAKE_CMD("keyslot","Returns the hash slot of the specified key","O(N) where N is the number of bytes in the key","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_KEYSLOT_History,0,CLUSTER_KEYSLOT_Tips,1,clusterCommand,3,CMD_STALE,0,CLUSTER_KEYSLOT_Keyspecs,0,NULL,1),.args=CLUSTER_KEYSLOT_Args},
+{MAKE_CMD("keyslot","Returns the hash slot of the specified key","O(N) where N is the number of bytes in the key","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_KEYSLOT_History,0,CLUSTER_KEYSLOT_Tips,0,clusterCommand,3,CMD_STALE,0,CLUSTER_KEYSLOT_Keyspecs,0,NULL,1),.args=CLUSTER_KEYSLOT_Args},
 {MAKE_CMD("links","Returns a list of all TCP links to and from peer nodes in cluster","O(N) where N is the total number of Cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_LINKS_History,0,CLUSTER_LINKS_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_LINKS_Keyspecs,0,NULL,0)},
-{MAKE_CMD("meet","Force a node cluster to handshake with another node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MEET_History,1,CLUSTER_MEET_Tips,1,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_MEET_Keyspecs,0,NULL,3),.args=CLUSTER_MEET_Args},
-{MAKE_CMD("myid","Return the node id","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MYID_History,0,CLUSTER_MYID_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_MYID_Keyspecs,0,NULL,0)},
+{MAKE_CMD("meet","Force a node cluster to handshake with another node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MEET_History,1,CLUSTER_MEET_Tips,0,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_MEET_Keyspecs,0,NULL,3),.args=CLUSTER_MEET_Args},
+{MAKE_CMD("myid","Return the node id","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MYID_History,0,CLUSTER_MYID_Tips,0,clusterCommand,2,CMD_STALE,0,CLUSTER_MYID_Keyspecs,0,NULL,0)},
 {MAKE_CMD("nodes","Get Cluster config for the node","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_NODES_History,0,CLUSTER_NODES_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_NODES_Keyspecs,0,NULL,0)},
 {MAKE_CMD("replicas","List replica nodes of the specified master node","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICAS_History,0,CLUSTER_REPLICAS_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_REPLICAS_Keyspecs,0,NULL,1),.args=CLUSTER_REPLICAS_Args},
-{MAKE_CMD("replicate","Reconfigure a node as a replica of the specified master node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICATE_History,0,CLUSTER_REPLICATE_Tips,1,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_REPLICATE_Keyspecs,0,NULL,1),.args=CLUSTER_REPLICATE_Args},
-{MAKE_CMD("reset","Reset a Redis Cluster node","O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_RESET_History,0,CLUSTER_RESET_Tips,1,clusterCommand,-2,CMD_ADMIN|CMD_STALE|CMD_NOSCRIPT,0,CLUSTER_RESET_Keyspecs,0,NULL,1),.args=CLUSTER_RESET_Args},
-{MAKE_CMD("saveconfig","Forces the node to save cluster state on disk","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SAVECONFIG_History,0,CLUSTER_SAVECONFIG_Tips,1,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SAVECONFIG_Keyspecs,0,NULL,0)},
-{MAKE_CMD("set-config-epoch","Set the configuration epoch in a new node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_History,0,CLUSTER_SET_CONFIG_EPOCH_Tips,1,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SET_CONFIG_EPOCH_Keyspecs,0,NULL,1),.args=CLUSTER_SET_CONFIG_EPOCH_Args},
-{MAKE_CMD("setslot","Bind a hash slot to a specific node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,0,CLUSTER_SETSLOT_Tips,1,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SETSLOT_Keyspecs,0,NULL,2),.args=CLUSTER_SETSLOT_Args},
+{MAKE_CMD("replicate","Reconfigure a node as a replica of the specified master node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICATE_History,0,CLUSTER_REPLICATE_Tips,0,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_REPLICATE_Keyspecs,0,NULL,1),.args=CLUSTER_REPLICATE_Args},
+{MAKE_CMD("reset","Reset a Redis Cluster node","O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_RESET_History,0,CLUSTER_RESET_Tips,0,clusterCommand,-2,CMD_ADMIN|CMD_STALE|CMD_NOSCRIPT,0,CLUSTER_RESET_Keyspecs,0,NULL,1),.args=CLUSTER_RESET_Args},
+{MAKE_CMD("saveconfig","Forces the node to save cluster state on disk","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SAVECONFIG_History,0,CLUSTER_SAVECONFIG_Tips,0,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SAVECONFIG_Keyspecs,0,NULL,0)},
+{MAKE_CMD("set-config-epoch","Set the configuration epoch in a new node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_History,0,CLUSTER_SET_CONFIG_EPOCH_Tips,0,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SET_CONFIG_EPOCH_Keyspecs,0,NULL,1),.args=CLUSTER_SET_CONFIG_EPOCH_Args},
+{MAKE_CMD("setslot","Bind a hash slot to a specific node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,0,CLUSTER_SETSLOT_Tips,0,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SETSLOT_Keyspecs,0,NULL,2),.args=CLUSTER_SETSLOT_Args},
 {MAKE_CMD("shards","Get array of cluster slots to node mappings","O(N) where N is the total number of cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SHARDS_History,0,CLUSTER_SHARDS_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_SHARDS_Keyspecs,0,NULL,0)},
 {MAKE_CMD("slaves","List replica nodes of the specified master node","O(1)","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,0,CLUSTER_SLAVES_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_SLAVES_Keyspecs,0,NULL,1),.args=CLUSTER_SLAVES_Args},
 {MAKE_CMD("slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER SHARDS`","7.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,2,CLUSTER_SLOTS_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_SLOTS_Keyspecs,0,NULL,0)},
@@ -2759,6 +2727,7 @@ struct COMMAND_ARG GEOPOS_Args[] = {
 /* GEORADIUS history */
 commandHistory GEORADIUS_History[] = {
 {"6.2.0","Added the `ANY` option for `COUNT`."},
+{"7.0.0","Added support for uppercase unit names."},
 };
 #endif
 
@@ -2814,7 +2783,9 @@ struct COMMAND_ARG GEORADIUS_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEORADIUSBYMEMBER history */
-#define GEORADIUSBYMEMBER_History NULL
+commandHistory GEORADIUSBYMEMBER_History[] = {
+{"7.0.0","Added support for uppercase unit names."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -2975,7 +2946,9 @@ struct COMMAND_ARG GEORADIUS_RO_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEOSEARCH history */
-#define GEOSEARCH_History NULL
+commandHistory GEOSEARCH_History[] = {
+{"7.0.0","Added support for uppercase unit names."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -3065,7 +3038,9 @@ struct COMMAND_ARG GEOSEARCH_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEOSEARCHSTORE history */
-#define GEOSEARCHSTORE_History NULL
+commandHistory GEOSEARCHSTORE_History[] = {
+{"7.0.0","Added support for uppercase unit names."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -9210,7 +9185,7 @@ struct COMMAND_ARG XGROUP_CREATE_id_selector_Subargs[] = {
 /* XGROUP CREATE argument table */
 struct COMMAND_ARG XGROUP_CREATE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_CREATE_id_selector_Subargs},
 {MAKE_ARG("mkstream",ARG_TYPE_PURE_TOKEN,-1,"MKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("entries-read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
@@ -9238,8 +9213,8 @@ keySpec XGROUP_CREATECONSUMER_Keyspecs[1] = {
 /* XGROUP CREATECONSUMER argument table */
 struct COMMAND_ARG XGROUP_CREATECONSUMER_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /********** XGROUP DELCONSUMER ********************/
@@ -9264,8 +9239,8 @@ keySpec XGROUP_DELCONSUMER_Keyspecs[1] = {
 /* XGROUP DELCONSUMER argument table */
 struct COMMAND_ARG XGROUP_DELCONSUMER_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /********** XGROUP DESTROY ********************/
@@ -9290,7 +9265,7 @@ keySpec XGROUP_DESTROY_Keyspecs[1] = {
 /* XGROUP DESTROY argument table */
 struct COMMAND_ARG XGROUP_DESTROY_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /********** XGROUP HELP ********************/
@@ -9340,7 +9315,7 @@ struct COMMAND_ARG XGROUP_SETID_id_selector_Subargs[] = {
 /* XGROUP SETID argument table */
 struct COMMAND_ARG XGROUP_SETID_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_SETID_id_selector_Subargs},
 {MAKE_ARG("entriesread",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="entries-read"},
 };
@@ -9397,7 +9372,7 @@ keySpec XINFO_CONSUMERS_Keyspecs[1] = {
 /* XINFO CONSUMERS argument table */
 struct COMMAND_ARG XINFO_CONSUMERS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /********** XINFO GROUPS ********************/
@@ -10527,12 +10502,12 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("geodist","Returns the distance between two members of a geospatial index","O(log(N))","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEODIST_History,0,GEODIST_Tips,0,geodistCommand,-4,CMD_READONLY,ACL_CATEGORY_GEO,GEODIST_Keyspecs,1,NULL,4),.args=GEODIST_Args},
 {MAKE_CMD("geohash","Returns members of a geospatial index as standard geohash strings","O(log(N)) for each member requested, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOHASH_History,0,GEOHASH_Tips,0,geohashCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOHASH_Keyspecs,1,NULL,2),.args=GEOHASH_Args},
 {MAKE_CMD("geopos","Returns longitude and latitude of members of a geospatial index","O(N) where N is the number of members requested.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOPOS_History,0,GEOPOS_Tips,0,geoposCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOPOS_Keyspecs,1,NULL,2),.args=GEOPOS_Args},
-{MAKE_CMD("georadius","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a point","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_History,1,GEORADIUS_Tips,0,georadiusCommand,-6,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUS_Keyspecs,3,georadiusGetKeys,12),.args=GEORADIUS_Args},
-{MAKE_CMD("georadiusbymember","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a member","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_History,0,GEORADIUSBYMEMBER_Tips,0,georadiusbymemberCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_Keyspecs,3,georadiusGetKeys,11),.args=GEORADIUSBYMEMBER_Args},
+{MAKE_CMD("georadius","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a point","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_History,2,GEORADIUS_Tips,0,georadiusCommand,-6,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUS_Keyspecs,3,georadiusGetKeys,12),.args=GEORADIUS_Args},
+{MAKE_CMD("georadiusbymember","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a member","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_History,1,GEORADIUSBYMEMBER_Tips,0,georadiusbymemberCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_Keyspecs,3,georadiusGetKeys,11),.args=GEORADIUSBYMEMBER_Args},
 {MAKE_CMD("georadiusbymember_ro","A read-only variant for GEORADIUSBYMEMBER","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.10",CMD_DOC_DEPRECATED,"`GEOSEARCH` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_RO_History,0,GEORADIUSBYMEMBER_RO_Tips,0,georadiusbymemberroCommand,-5,CMD_READONLY,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_RO_Keyspecs,1,NULL,9),.args=GEORADIUSBYMEMBER_RO_Args},
 {MAKE_CMD("georadius_ro","A read-only variant for GEORADIUS","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.10",CMD_DOC_DEPRECATED,"`GEOSEARCH` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_RO_History,1,GEORADIUS_RO_Tips,0,georadiusroCommand,-6,CMD_READONLY,ACL_CATEGORY_GEO,GEORADIUS_RO_Keyspecs,1,NULL,10),.args=GEORADIUS_RO_Args},
-{MAKE_CMD("geosearch","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOSEARCH_History,0,GEOSEARCH_Tips,0,geosearchCommand,-7,CMD_READONLY,ACL_CATEGORY_GEO,GEOSEARCH_Keyspecs,1,NULL,8),.args=GEOSEARCH_Args},
-{MAKE_CMD("geosearchstore","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle, and store the result in another key.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOSEARCHSTORE_History,0,GEOSEARCHSTORE_Tips,0,geosearchstoreCommand,-8,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEOSEARCHSTORE_Keyspecs,2,NULL,7),.args=GEOSEARCHSTORE_Args},
+{MAKE_CMD("geosearch","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOSEARCH_History,1,GEOSEARCH_Tips,0,geosearchCommand,-7,CMD_READONLY,ACL_CATEGORY_GEO,GEOSEARCH_Keyspecs,1,NULL,8),.args=GEOSEARCH_Args},
+{MAKE_CMD("geosearchstore","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle, and store the result in another key.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOSEARCHSTORE_History,1,GEOSEARCHSTORE_Tips,0,geosearchstoreCommand,-8,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEOSEARCHSTORE_Keyspecs,2,NULL,7),.args=GEOSEARCHSTORE_Args},
 /* hash */
 {MAKE_CMD("hdel","Delete one or more hash fields","O(N) where N is the number of fields to be removed.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HDEL_History,1,HDEL_Tips,0,hdelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_HASH,HDEL_Keyspecs,1,NULL,2),.args=HDEL_Args},
 {MAKE_CMD("hexists","Determine if a hash field exists","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HEXISTS_History,0,HEXISTS_Tips,0,hexistsCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HEXISTS_Keyspecs,1,NULL,2),.args=HEXISTS_Args},

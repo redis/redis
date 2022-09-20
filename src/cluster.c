@@ -119,6 +119,14 @@ dictType clusterNodesBlackListDictType = {
         NULL                        /* allow to expand */
 };
 
+static ConnectionType *connTypeOfCluster() {
+    if (server.tls_cluster) {
+        return connectionTypeTls();
+    }
+
+    return connectionTypeTcp();
+}
+
 /* -----------------------------------------------------------------------------
  * Initialization
  * -------------------------------------------------------------------------- */
@@ -670,9 +678,6 @@ void clusterInit(void) {
     }
     if (saveconf) clusterSaveConfigOrDie(1);
 
-    /* We need a listening TCP port for our cluster messaging needs. */
-    server.cfd.count = 0;
-
     /* Port sanity check II
      * The other handshake port check is triggered too late to stop
      * us from trying to use a too-high cluster port number. */
@@ -688,14 +693,25 @@ void clusterInit(void) {
         serverLog(LL_WARNING, "No bind address is configured, but it is required for the Cluster bus.");
         exit(1);
     }
-    int cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
-    if (listenToPort(cport, &server.cfd) == C_ERR ) {
+
+    if (connectionIndexByType(connTypeOfCluster()->get_type(NULL)) < 0) {
+        serverLog(LL_WARNING, "Missing connection type %s, but it is required for the Cluster bus.", connTypeOfCluster()->get_type(NULL));
+        exit(1);
+    }
+
+    connListener *listener = &server.clistener;
+    listener->count = 0;
+    listener->bindaddr = server.bindaddr;
+    listener->bindaddr_count = server.bindaddr_count;
+    listener->port = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
+    listener->ct = connTypeOfCluster();
+    if (connListen(listener) == C_ERR ) {
         /* Note: the following log text is matched by the test suite. */
-        serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", cport);
+        serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", listener->port);
         exit(1);
     }
     
-    if (createSocketAcceptHandler(&server.cfd, clusterAcceptHandler) != C_OK) {
+    if (createSocketAcceptHandler(&server.clistener, clusterAcceptHandler) != C_OK) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
 
@@ -829,10 +845,15 @@ void setClusterNodeToInboundClusterLink(clusterNode *node, clusterLink *link) {
         /* A peer may disconnect and then reconnect with us, and it's not guaranteed that
          * we would always process the disconnection of the existing inbound link before
          * accepting a new existing inbound link. Therefore, it's possible to have more than
-         * one inbound link from the same node at the same time. */
+         * one inbound link from the same node at the same time. Our cleanup logic assumes
+         * a one to one relationship between nodes and inbound links, so we need to kill
+         * one of the links. The existing link is more likely the outdated one, but it's
+         * possible the the other node may need to open another link. */
         serverLog(LL_DEBUG, "Replacing inbound link fd %d from node %.40s with fd %d",
                 node->inbound_link->conn->fd, node->name, link->conn->fd);
+        freeClusterLink(node->inbound_link);
     }
+    serverAssert(!node->inbound_link);
     node->inbound_link = link;
     link->node = node;
 }
@@ -865,6 +886,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
     int max = MAX_CLUSTER_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
+    int require_auth = TLS_CLIENT_AUTH_YES;
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);
@@ -882,8 +904,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
 
-        connection *conn = server.tls_cluster ?
-            connCreateAcceptedTLS(cfd, TLS_CLIENT_AUTH_YES) : connCreateAcceptedSocket(cfd);
+        connection *conn = connCreateAccepted(connTypeOfCluster(), cfd, &require_auth);
 
         /* Make sure connection is not in an error state */
         if (connGetState(conn) != CONN_STATE_ACCEPTING) {
@@ -1769,7 +1790,7 @@ int nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
         buf[NET_IP_STR_LEN-1] = '\0'; /* We are not sure the input is sane. */
         return C_OK;
     } else {
-        if (connPeerToString(link->conn, buf, NET_IP_STR_LEN, NULL) == C_ERR) {
+        if (connAddrPeerName(link->conn, buf, NET_IP_STR_LEN, NULL) == C_ERR) {
             serverLog(LL_NOTICE, "Error converting peer IP to string: %s",
                 link->conn ? connGetLastError(link->conn) : "no link");
             return C_ERR;
@@ -1956,7 +1977,13 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG);
-    } else if (myself->slaveof && myself->slaveof->slaveof) {
+    } else if (myself->slaveof && myself->slaveof->slaveof &&
+               /* In some rare case when CLUSTER FAILOVER TAKEOVER is used, it
+                * can happen that myself is a replica of a replica of myself. If
+                * this happens, we do nothing to avoid a crash and wait for the
+                * admin to repair the cluster. */
+               myself->slaveof->slaveof != myself)
+    {
         /* Safeguard against sub-replicas. A replica's master can turn itself
          * into a replica if its last slot is removed. If no other node takes
          * over the slot, there is nothing else to trigger replica migration. */
@@ -2273,7 +2300,7 @@ int clusterProcessPacket(clusterLink *link) {
         {
             char ip[NET_IP_STR_LEN];
 
-            if (connSockName(link->conn,ip,sizeof(ip),NULL) != -1 &&
+            if (connAddrSockName(link->conn,ip,sizeof(ip),NULL) != -1 &&
                 strcmp(ip,myself->ip))
             {
                 memcpy(myself->ip,ip,NET_IP_STR_LEN);
@@ -3969,7 +3996,7 @@ static int clusterNodeCronHandleReconnect(clusterNode *node, mstime_t handshake_
 
     if (node->link == NULL) {
         clusterLink *link = createClusterLink(node);
-        link->conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
+        link->conn = connCreate(connTypeOfCluster());
         connSetPrivateData(link->conn, link);
         if (connConnect(link->conn, node->ip, node->cport, server.bind_source_addr,
                     clusterLinkConnectHandler) == -1) {
@@ -5022,7 +5049,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     
     /* Report non-TLS ports to non-TLS client in TLS cluster if available. */
     int use_pport = (server.tls_cluster &&
-                     c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+                     c->conn && (c->conn->type != connectionTypeTls()));
     addReplyLongLong(c, use_pport && node->pport ? node->pport : node->port);
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
@@ -5327,7 +5354,7 @@ NULL
         /* Report plaintext ports, only if cluster is TLS but client is known to
          * be non-TLS). */
         int use_pport = (server.tls_cluster &&
-                        c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+                        c->conn && (c->conn->type != connectionTypeTls()));
         sds nodes = clusterGenNodesDescription(0, use_pport);
         addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
         sdsfree(nodes);
@@ -5759,7 +5786,7 @@ NULL
 
         /* Use plaintext port if cluster is TLS but client is non-TLS. */
         int use_pport = (server.tls_cluster &&
-                         c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+                         c->conn && (c->conn->type != connectionTypeTls()));
         addReplyArrayLen(c,n->numslaves);
         for (j = 0; j < n->numslaves; j++) {
             sds ni = clusterGenNodeDescription(n->slaves[j], use_pport);
@@ -6175,8 +6202,8 @@ migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long ti
         dictDelete(server.migrate_cached_sockets,dictGetKey(de));
     }
 
-    /* Create the socket */
-    conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
+    /* Create the connection */
+    conn = connCreate(connTypeOfCluster());
     if (connBlockingConnect(conn, host->ptr, atoi(port->ptr), timeout)
             != C_OK) {
         addReplyError(c,"-IOERR error or timeout connecting to the client");
@@ -6767,7 +6794,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
              * slot migration, the channel will be served from the source
              * node until the migration completes with CLUSTER SETSLOT <slot>
              * NODE <node-id>. */
-            int flags = LOOKUP_NOTOUCH | LOOKUP_NOSTATS | LOOKUP_NONOTIFY;
+            int flags = LOOKUP_NOTOUCH | LOOKUP_NOSTATS | LOOKUP_NONOTIFY | LOOKUP_NOEXPIRE;
             if ((migrating_slot || importing_slot) && !is_pubsubshard)
             {
                 if (lookupKeyReadWithFlags(&server.db[0], thiskey, flags) == NULL) missing_keys++;
@@ -6781,6 +6808,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * without redirections or errors in all the cases. */
     if (n == NULL) return myself;
 
+    uint64_t cmd_flags = getCommandFlags(c);
     /* Cluster is globally down but we got keys? We only serve the request
      * if it is a read command and when allow_reads_when_down is enabled. */
     if (server.cluster->state != CLUSTER_OK) {
@@ -6794,7 +6822,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
              * cluster is down. */
             if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
             return NULL;
-        } else if (cmd->flags & CMD_WRITE) {
+        } else if (cmd_flags & CMD_WRITE) {
             /* The cluster is configured to allow read only commands */
             if (error_code) *error_code = CLUSTER_REDIR_DOWN_RO_STATE;
             return NULL;
@@ -6832,7 +6860,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * involves multiple keys and we don't have them all, the only option is
      * to send a TRYAGAIN error. */
     if (importing_slot &&
-        (c->flags & CLIENT_ASKING || cmd->flags & CMD_ASKING))
+        (c->flags & CLIENT_ASKING || cmd_flags & CMD_ASKING))
     {
         if (multiple_keys && missing_keys) {
             if (error_code) *error_code = CLUSTER_REDIR_UNSTABLE;
@@ -6845,7 +6873,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* Handle the read-only client case reading from a slave: if this
      * node is a slave and the request is about a hash slot our master
      * is serving, we can reply without redirection. */
-    int is_write_command = (c->cmd->flags & CMD_WRITE) ||
+    int is_write_command = (cmd_flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
     if (((c->flags & CLIENT_READONLY) || is_pubsubshard) &&
         !is_write_command &&
@@ -6888,7 +6916,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
         /* Redirect to IP:port. Include plaintext port if cluster is TLS but
          * client is non-TLS. */
         int use_pport = (server.tls_cluster &&
-                        c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+                        c->conn && (c->conn->type != connectionTypeTls()));
         int port = use_pport && n->pport ? n->pport : n->port;
         addReplyErrorSds(c,sdscatprintf(sdsempty(),
             "-%s %d %s:%d",
@@ -7061,8 +7089,13 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         de = dictEntryNextInSlot(de);
         robj *key = createStringObject(sdskey, sdslen(sdskey));
         dbDelete(&server.db[0], key);
+        propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
+        propagatePendingCommands();
+        signalModifiedKey(NULL, &server.db[0], key);
+        moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
         decrRefCount(key);
         j++;
+        server.dirty++;
     }
     return j;
 }

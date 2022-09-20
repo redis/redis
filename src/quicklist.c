@@ -57,6 +57,8 @@ int quicklistisSetPackedThreshold(size_t sz) {
     /* Don't allow threshold to be set above or even slightly below 4GB */
     if (sz > (1ull<<32) - (1<<20)) {
         return 0;
+    } else if (sz == 0) { /* 0 means restore threshold */
+        sz = (1 << 30);
     }
     packed_threshold = sz;
     return 1;
@@ -177,6 +179,7 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
     node->encoding = QUICKLIST_NODE_ENCODING_RAW;
     node->container = QUICKLIST_NODE_CONTAINER_PACKED;
     node->recompress = 0;
+    node->dont_compress = 0;
     return node;
 }
 
@@ -212,6 +215,7 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
 #ifdef REDIS_TEST
     node->attempted_compress = 1;
 #endif
+    if (node->dont_compress) return 0;
 
     /* validate that the node is neither
      * tail nor head (it has prev and next)*/
@@ -748,12 +752,15 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
             __quicklistDelNode(quicklist, entry->node);
         }
     } else {
+        entry->node->dont_compress = 1; /* Prevent compression in quicklistInsertAfter() */
         quicklistInsertAfter(iter, entry, data, sz);
         if (entry->node->count == 1) {
             __quicklistDelNode(quicklist, entry->node);
         } else {
             unsigned char *p = lpSeek(entry->node->entry, -1);
             quicklistDelIndex(quicklist, entry->node, &p);
+            entry->node->dont_compress = 0; /* Re-enable compression */
+            quicklistCompress(quicklist, entry->node);
             quicklistCompress(quicklist, entry->node->next);
         }
     }
@@ -904,6 +911,9 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
 
     /* Copy original listpack so we can split it */
     memcpy(new_node->entry, node->entry, zl_sz);
+
+    /* Need positive offset for calculating extent below. */
+    if (offset < 0) offset = node->count + offset;
 
     /* Ranges to be trimmed: -1 here means "continue deleting until the list ends" */
     int orig_start = after ? offset + 1 : 0;
@@ -1608,10 +1618,11 @@ void quicklistRepr(unsigned char *ql, int full) {
 
     while(node != NULL) {
         printf("{quicklist node(%d)\n", i++);
-        printf("{container : %s, encoding: %s, size: %zu, recompress: %d, attempted_compress: %d}\n",
+        printf("{container : %s, encoding: %s, size: %zu, count: %d, recompress: %d, attempted_compress: %d}\n",
                QL_NODE_IS_PLAIN(node) ? "PLAIN": "PACKED",
                (node->encoding == QUICKLIST_NODE_ENCODING_RAW) ? "RAW": "LZF",
                node->sz,
+               node->count,
                node->recompress,
                node->attempted_compress);
 

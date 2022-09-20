@@ -595,7 +595,7 @@ int performEvictions(void) {
         {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
 
-            while(bestkey == NULL) {
+            while (bestkey == NULL) {
                 unsigned long total_keys = 0, keys;
 
                 /* We don't want to make local-db choices when expiring keys,
@@ -690,9 +690,9 @@ int performEvictions(void) {
             mem_freed += delta;
             server.stat_evictedkeys++;
             signalModifiedKey(NULL,db,keyobj);
+            notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
+                keyobj, db->id);
             propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
-            notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",keyobj,db->id);
-            /* Propagate notification commandds and the del. */
             propagatePendingCommands();
             decrRefCount(keyobj);
             keys_freed++;
@@ -738,12 +738,18 @@ cant_free:
         /* At this point, we have run out of evictable items.  It's possible
          * that some items are being freed in the lazyfree thread.  Perform a
          * short wait here if such jobs exist, but don't wait long.  */
-        if (bioPendingJobsOfType(BIO_LAZY_FREE)) {
-            usleep(eviction_time_limit_us);
+        mstime_t lazyfree_latency;
+        latencyStartMonitor(lazyfree_latency);
+        while (bioPendingJobsOfType(BIO_LAZY_FREE) &&
+              elapsedUs(evictionTimer) < eviction_time_limit_us) {
             if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
                 result = EVICT_OK;
+                break;
             }
+            usleep(eviction_time_limit_us < 1000 ? eviction_time_limit_us : 1000);
         }
+        latencyEndMonitor(lazyfree_latency);
+        latencyAddSampleIfNeeded("eviction-lazyfree",lazyfree_latency);
     }
 
     serverAssert(server.core_propagates); /* This function should not be re-entrant */

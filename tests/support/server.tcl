@@ -300,7 +300,7 @@ proc wait_server_started {config_file stdout pid} {
     set maxiter [expr {120*1000/$checkperiod}] ; # Wait up to 2 minutes.
     set port_busy 0
     while 1 {
-        if {[regexp -- " PID: $pid" [exec cat $stdout]]} {
+        if {[regexp -- " PID: $pid.*Server initialized" [exec cat $stdout]]} {
             break
         }
         after $checkperiod
@@ -464,6 +464,9 @@ proc start_server {options {code undefined}} {
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
     if {$::tls} {
+        if {$::tls_module} {
+            lappend config_lines [list "loadmodule" [format "%s/src/redis-tls.so" [pwd]]]
+        }
         dict set config "tls-cert-file" [format "%s/tests/tls/server.crt" [pwd]]
         dict set config "tls-key-file" [format "%s/tests/tls/server.key" [pwd]]
         dict set config "tls-client-cert-file" [format "%s/tests/tls/client.crt" [pwd]]
