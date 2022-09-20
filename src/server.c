@@ -5254,12 +5254,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
-    int sections_printed = 0;
-    int sections_found = 0;
+    int sections = 0;
     if (everything) all_sections = 1;
 
     /* Server */
-    if (((dictFind(section_dict,"server") != NULL) && ++sections_found) || all_sections) {
+    if (all_sections || (dictFind(section_dict,"server") != NULL)) {
         static int call_uname = 1;
         static struct utsname name;
         char *mode;
@@ -5277,7 +5276,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             supervised = "no";
         }
 
-        if (sections_printed++) info = sdscat(info,"\r\n");
+        if (sections++) info = sdscat(info,"\r\n");
 
         if (call_uname) {
             /* Uname can be slow and is always the same output. Cache it. */
@@ -5354,10 +5353,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Clients */
-    if (((dictFind(section_dict,"clients") != NULL) && ++sections_found) || all_sections) {
+    if (all_sections || (dictFind(section_dict,"clients") != NULL)) {
         size_t maxin, maxout;
         getExpansiveClientsInfo(&maxin,&maxout);
-        if (sections_printed++) info = sdscat(info,"\r\n");
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Clients\r\n"
             "connected_clients:%lu\r\n"
@@ -5378,7 +5377,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Memory */
-    if (((dictFind(section_dict,"memory") != NULL) && ++sections_found) || all_sections) {
+    if (all_sections || (dictFind(section_dict,"memory") != NULL)) {
         char hmem[64];
         char peak_hmem[64];
         char total_system_hmem[64];
@@ -5410,7 +5409,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         bytesToHuman(used_memory_rss_hmem,sizeof(used_memory_rss_hmem),server.cron_malloc_stats.process_rss);
         bytesToHuman(maxmemory_hmem,sizeof(maxmemory_hmem),server.maxmemory);
 
-        if (sections_printed++) info = sdscat(info,"\r\n");
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Memory\r\n"
             "used_memory:%zu\r\n"
@@ -5523,8 +5522,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Persistence */
-    if (((dictFind(section_dict,"persistence") != NULL) && ++sections_found) || all_sections) {
-        if (sections_printed++) info = sdscat(info,"\r\n");
+    if (all_sections || (dictFind(section_dict,"persistence") != NULL)) {
+        if (sections++) info = sdscat(info,"\r\n");
         double fork_perc = 0;
         if (server.stat_module_progress) {
             fork_perc = server.stat_module_progress * 100;
@@ -5658,7 +5657,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Stats */
-    if (((dictFind(section_dict,"stats") != NULL) && ++sections_found) || all_sections) {
+    if (all_sections  || (dictFind(section_dict,"stats") != NULL)) {
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
@@ -5673,7 +5672,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
 
-        if (sections_printed++) info = sdscat(info,"\r\n");
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Stats\r\n"
             "total_connections_received:%lld\r\n"
@@ -5779,8 +5778,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Replication */
-    if (((dictFind(section_dict,"replication") != NULL) && ++sections_found) || all_sections) {
-        if (sections_printed++) info = sdscat(info,"\r\n");
+    if (all_sections || (dictFind(section_dict,"replication") != NULL)) {
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Replication\r\n"
             "role:%s\r\n",
@@ -5915,8 +5914,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* CPU */
-    if (((dictFind(section_dict,"cpu") != NULL) && ++sections_found) || all_sections) {
-        if (sections_printed++) info = sdscat(info,"\r\n");
+    if (all_sections || (dictFind(section_dict,"cpu") != NULL)) {
+        if (sections++) info = sdscat(info,"\r\n");
 
         struct rusage self_ru, c_ru;
         getrusage(RUSAGE_SELF, &self_ru);
@@ -5943,22 +5942,22 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Modules */
-    if ((((dictFind(section_dict,"module_list") != NULL) && ++sections_found) || (dictFind(section_dict,"modules") != NULL)) || all_sections) {
-        if (sections_printed++) info = sdscat(info,"\r\n");
+    if (all_sections || (dictFind(section_dict,"module_list") != NULL) || (dictFind(section_dict,"modules") != NULL)) {
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,"# Modules\r\n");
         info = genModulesInfoString(info);
     }
 
     /* Command statistics */
-    if (((dictFind(section_dict,"commandstats") != NULL) && ++sections_found) || all_sections) {
-        if (sections_printed++) info = sdscat(info,"\r\n");
+    if (all_sections || (dictFind(section_dict,"commandstats") != NULL)) {
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Commandstats\r\n");
         info = genRedisInfoStringCommandStats(info, server.commands);
     }
 
     /* Error statistics */
-    if (((dictFind(section_dict,"errorstats") != NULL) && ++sections_found) || all_sections) {
-        if (sections_printed++) info = sdscat(info,"\r\n");
+    if (all_sections || (dictFind(section_dict,"errorstats") != NULL)) {
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscat(info, "# Errorstats\r\n");
         raxIterator ri;
         raxStart(&ri,server.errors);
@@ -5976,8 +5975,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Latency by percentile distribution per command */
-    if (((dictFind(section_dict,"latencystats") != NULL) && ++sections_found) || all_sections) {
-        if (sections_printed++) info = sdscat(info,"\r\n");
+    if (all_sections || (dictFind(section_dict,"latencystats") != NULL)) {
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Latencystats\r\n");
         if (server.latency_tracking_enabled) {
             info = genRedisInfoStringLatencyStats(info, server.commands);
@@ -5985,8 +5984,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Cluster */
-    if (((dictFind(section_dict,"cluster") != NULL) && ++sections_found) || all_sections) {
-        if (sections_printed++) info = sdscat(info,"\r\n");
+    if (all_sections || (dictFind(section_dict,"cluster") != NULL)) {
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
         "# Cluster\r\n"
         "cluster_enabled:%d\r\n",
@@ -5994,8 +5993,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Key space */
-    if (((dictFind(section_dict,"keyspace") != NULL) && ++sections_found) || all_sections) {
-        if (sections_printed++) info = sdscat(info,"\r\n");
+    if (all_sections || (dictFind(section_dict,"keyspace") != NULL)) {
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
             long long keys, vkeys;
@@ -6011,13 +6010,15 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Get info from modules.
-     * if user asked for "everything" or "modules", or a specific section
-     * that's not found yet. */
-    if (everything || dictFind(section_dict, "modules") != NULL || sections_found < (int)dictSize(section_dict)) {
+     * if user asked for "everything" or "modules", a specific section
+     * that's not found yet, or user asked for "all" with additional sections. */
+    if (everything || dictFind(section_dict, "modules") != NULL || sections < (int)dictSize(section_dict) ||
+        (all_sections && dictSize(section_dict))) {
+
         info = modulesCollectInfo(info,
                                   everything || dictFind(section_dict, "modules") != NULL ? NULL: section_dict,
                                   0, /* not a crash report */
-                                  sections_printed);
+                                  sections);
     }
     return info;
 }
