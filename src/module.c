@@ -3234,6 +3234,9 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
     /* Release the argv. */
     for (j = 0; j < argc; j++) decrRefCount(argv[j]);
     zfree(argv);
+
+    if (server.current_client != NULL) preventCommandPropagation(server.current_client);
+
     server.dirty++;
     return REDISMODULE_OK;
 }
@@ -3253,6 +3256,9 @@ int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
     alsoPropagate(ctx->client->db->id,
         ctx->client->argv,ctx->client->argc,
         PROPAGATE_AOF|PROPAGATE_REPL);
+
+    if (server.current_client != NULL) preventCommandPropagation(server.current_client);
+
     server.dirty++;
     return REDISMODULE_OK;
 }
