@@ -23,9 +23,6 @@ int isGtidEnabled() {
  *       
  */
 int isGtidExecCommand(client* c) {
-    if(!isGtidEnabled()) {
-        return 0;
-    }
     return c->cmd->proc == gtidCommand && c->argc > GTID_COMMAN_ARGC && strcasecmp(c->argv[GTID_COMMAN_ARGC]->ptr, "exec") == 0;
 }
 
@@ -382,10 +379,6 @@ sds gtidCommandTranslate(sds buf, struct redisCommand *cmd, robj **argv, int arg
  * @param c 
  */
 void gtidLwmCommand(client* c) {
-    if(!isGtidEnabled()) {
-        addReplyErrorFormat(c,"unsupport mergeGtid command");
-        return;
-    }
     sds rpl_sid = c->argv[1]->ptr;
     long long rpl_gno = 0;
     sds rpl_gno_str = c->argv[2]->ptr;
@@ -405,9 +398,6 @@ void gtidLwmCommand(client* c) {
  * @return int 
  */
 int rdbSaveGtidInfoAuxFields(rio* rdb) {
-    if(!isGtidEnabled()) {
-        return 1;
-    }
     char gtid_str[gtidSetEstimatedEncodeBufferSize(server.gtid_executed)];
     size_t gtid_str_len = gtidSetEncode(server.gtid_executed, gtid_str);
     if (rdbSaveAuxField(rdb, "gtid", 4, gtid_str, gtid_str_len)
@@ -427,9 +417,6 @@ int rdbSaveGtidInfoAuxFields(rio* rdb) {
  */
 int LoadGtidInfoAuxFields(robj* key, robj* val) {
     if (!strcasecmp(key->ptr, "gtid")) {
-        if (!isGtidEnabled()) {
-            return 1;
-        }
         if(server.gtid_executed != NULL) {
             gtidSetFree(server.gtid_executed);
             server.gtid_executed = NULL;
