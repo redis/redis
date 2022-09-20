@@ -874,7 +874,9 @@ long defragKey(redisDb *db, dictEntry *de) {
     } else if (ob->type == OBJ_SET) {
         if (ob->encoding == OBJ_ENCODING_HT) {
             defragged += defragSet(db, de);
-        } else if (ob->encoding == OBJ_ENCODING_INTSET) {
+        } else if (ob->encoding == OBJ_ENCODING_INTSET ||
+                   ob->encoding == OBJ_ENCODING_LISTPACK)
+        {
             intset *newis, *is = ob->ptr;
             if ((newis = activeDefragAlloc(is)))
                 defragged++, ob->ptr = newis;
