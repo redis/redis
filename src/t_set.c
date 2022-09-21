@@ -186,15 +186,18 @@ void setTypeReleaseIterator(setTypeIterator *si) {
 /* Move to the next entry in the set. Returns the object at the current
  * position, as a string or as an integer.
  *
- * Since set elements can be internally be stored as SDS strings, C strings or
+ * Since set elements can be internally be stored as SDS strings, char buffers or
  * simple arrays of integers, setTypeNext returns the encoding of the
- * set object you are iterating, and will populate the appropriate pointer
- * (sdsele) or (llele) accordingly.
+ * set object you are iterating, and will populate the appropriate pointers
+ * (str and len) or (llele) depending on whether the value is stored as a string
+ * or as an integer internally.
  *
- * If OBJ_ENCODING_HT is returned, then str is an sds string and can be used as
- * such. If OBJ_ENCODING_INTSET, then llele is populated. If
- * OBJ_ENCODING_LISTPACK is returned, the value can be either str or, if str is
- * NULL, llele populated with an integer value.
+ * If OBJ_ENCODING_HT is returned, then str points to an sds string and can be
+ * used as such. If OBJ_ENCODING_INTSET, then llele is populated and str is
+ * pointed to NULL. If OBJ_ENCODING_LISTPACK is returned, the value can be
+ * either a string or an integer. If *str is not NULL, then str and len are
+ * populated with the string content and length. Otherwise, llele populated with
+ * an integer value.
  *
  * Note that str, len and llele pointers should all be passed and cannot
  * be NULL since the function will try to defensively populate the non
@@ -250,13 +253,14 @@ sds setTypeNextObject(setTypeIterator *si) {
 
 /* Return random element from a non empty set.
  * The returned element can be an int64_t value if the set is encoded
- * as an "intset" blob of integers, or an SDS string if the set
- * is a regular set.
+ * as an "intset" blob of integers, or an string.
  *
- * The caller provides both pointers to be populated with the right
+ * The caller provides three pointers to be populated with the right
  * object. The return value of the function is the object->encoding
- * field of the object and is used by the caller to check if the
- * int64_t pointer or the sds pointer was populated.
+ * field of the object and can be used by the caller to check if the
+ * int64_t pointer or the str and len pointers were populated, as for
+ * setTypeNext. If OBJ_ENCODING_HT is returned, str is pointed to a
+ * string which is actually an sds string and it can be used as such.
  *
  * Note that both the str, len and llele pointers should be passed and cannot
  * be NULL. If str is set to NULL, the value is an integer stored in llele. */
