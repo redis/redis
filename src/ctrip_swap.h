@@ -52,8 +52,12 @@ extern const char *swap_cf_names[CF_COUNT];
 #define SWAP_IN_DEL (1U<<0)
 /* No need to swap if this is a big object */
 #define SWAP_IN_META (1U<<1)
-/* This is a metascan request. */
-#define SWAP_IN_METASCAN (1U<<2)
+/* This is a metascan request for scan command. */
+#define SWAP_METASCAN_SCAN (1U<<2)
+/* This is a metascan request for randomkey command. */
+#define SWAP_METASCAN_RANDOMKEY (1U<<3)
+/* This is a metascan request for active-expire. */
+#define SWAP_METASCAN_EXPIRE (1U<<4)
 
 /* Delete rocksdb data key */
 #define SWAP_EXEC_IN_DEL (1U<<0)
@@ -80,6 +84,12 @@ static inline const char *swapIntentionName(int intention) {
   if (intention >= 0 && intention < SWAP_TYPES)
     name = intentions[intention];
   return name;
+}
+
+static inline int isMetaScanRequest(uint32_t intention_flag) {
+    return (intention_flag & SWAP_METASCAN_SCAN) ||
+           (intention_flag & SWAP_METASCAN_RANDOMKEY) ||
+           (intention_flag & SWAP_METASCAN_EXPIRE);
 }
 
 /* Cmd */
@@ -435,7 +445,7 @@ typedef struct metaScanDataCtx {
     void *extend;
 } metaScanDataCtx;
 
-int swapDataSetupMetaScan(swapData *d, client *c, OUT void **datactx);
+int swapDataSetupMetaScan(swapData *d, uint32_t intention_flags, client *c, OUT void **datactx);
 
 void rewindClientSwapScanCursor(client *c);
 robj *metaScanResultRandomKey(redisDb *db, metaScanResult *result);

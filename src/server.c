@@ -649,7 +649,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"randomkey",randomkeyCommand,1,
      "read-only random @keyspace",
-     0,NULL,getKeyRequestsMetaScan,SWAP_IN,SWAP_IN_METASCAN,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsMetaScan,SWAP_IN,SWAP_METASCAN_RANDOMKEY,0,0,0,0,0,0},
 
     {"select",selectCommand,2,
      "ok-loading fast ok-stale @keyspace",
@@ -699,7 +699,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"scan",scanCommand,-2,
      "read-only random @keyspace",
-     0,NULL,getKeyRequestsMetaScan,SWAP_IN,SWAP_IN_METASCAN,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsMetaScan,SWAP_IN,SWAP_METASCAN_SCAN,0,0,0,0,0,0},
 
     {"dbsize",dbsizeCommand,1,
      "read-only fast @keyspace",

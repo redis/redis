@@ -141,7 +141,7 @@ void rewindClientSwapScanCursor(client *c) {
 void metaScanDataCtxScanSwapAna(metaScanDataCtx *datactx,
         int *intention, uint32_t *intention_flags) {
     metaScanDataCtxScan *scanctx = datactx->extend;
-    if (cursorIsHot(scanctx->outer_cursor)) {
+    if (scanctx == NULL) { /* Hot cursor */
         *intention = SWAP_NOP;
         *intention_flags = 0;
     } else {
@@ -173,26 +173,23 @@ metaScanDataCtxType scanMetaScanDataCtxType = {
     .freeExtend = NULL,
 };
 
+/* SCAN cursor [MATCH pattern] [COUNT count] [TYPE type] */
 int setupMetaScanDataCtx4Scan(metaScanDataCtx *datactx, client *c) {
     int i, j;
     unsigned long outer_cursor, cursor;
 
     datactx->type = &scanMetaScanDataCtxType;
 
-    /* TODO opt: currently we free swap_metas to flag swap failed,
-     * should use return value and skip command call. */
-    if (c->swap_metas) {
-        freeScanMetaResult(c->swap_metas);
-        c->swap_metas = NULL;
-    }
-
-    if (c->flags & CLIENT_MULTI) {
+    /* Not supported yet (maybe encode encode cursor to requestkey). */
+    if (c->argc < 2 || c->argv[1] == NULL) {
         return SWAP_ERR_METASCAN_UNSUPPORTED_IN_MULTI;
     }
 
-    /* SCAN cursor [MATCH pattern] [COUNT count] [TYPE type] */
-    if (parseScanCursor(c->argv[1],&outer_cursor)) {
-        return SWAP_ERR_METASCAN_CURSOR_INVALID;
+    /* No swap needed if cursor is invalid or hot. */
+    if (parseScanCursor(c->argv[1],&outer_cursor) ||
+            cursorIsHot(outer_cursor)) {
+        datactx->extend = NULL;
+        return 0;
     }
 
     cursor = cursorOuterToInternal(outer_cursor);
@@ -200,6 +197,7 @@ int setupMetaScanDataCtx4Scan(metaScanDataCtx *datactx, client *c) {
         return SWAP_ERR_METASCAN_CURSOR_INVALID;
     }
 
+    datactx->limit = 10;
     for (i = 2; i < c->argc; i+=2) {
         j = c->argc - i;
         if (!strcasecmp(c->argv[i]->ptr, "count") && j >= 2) {
@@ -484,7 +482,8 @@ swapDataType metaScanSwapDataType = {
 
 #define METASCAN_DEFAULT_LIMIT 16
 
-int swapDataSetupMetaScan(swapData *data, client *c, void **pdatactx) {
+int swapDataSetupMetaScan(swapData *data, uint32_t intention_flags,
+        client *c, void **pdatactx) {
     int retval;
 
     data->type = &metaScanSwapDataType;
@@ -502,13 +501,13 @@ int swapDataSetupMetaScan(swapData *data, client *c, void **pdatactx) {
     datactx->result = NULL;
     datactx->extend = NULL;
 
-    if (!c || !c->cmd) {
-        retval = SWAP_ERR_SETUP_FAIL;
-    } else if (c->cmd->proc == scanCommand) {
+    if (c == NULL) {
+        return SWAP_ERR_SETUP_FAIL;
+    } else if (intention_flags & SWAP_METASCAN_SCAN) {
         retval = setupMetaScanDataCtx4Scan(datactx,c);
-    } else if (c->cmd->proc == randomkeyCommand) {
+    } else if (intention_flags & SWAP_METASCAN_RANDOMKEY) {
         retval = setupMetaScanDataCtx4Randomkey(datactx,c);
-    } else if (c->cmd->proc == scanexpireCommand) {
+    } else if (intention_flags & SWAP_METASCAN_EXPIRE) {
         retval = setupMetaScanDataCtx4ScanExpire(datactx,c);
     } else {
         retval = SWAP_ERR_SETUP_FAIL;
@@ -567,7 +566,7 @@ int metaScanTest(int argc, char *argv[], int accurate) {
         c->swap_scan_nextcursor = 0;
         c->swap_scan_nextseek = sdsnew("nextseek");
         rewriteResetClientCommandCString(c,6,"SCAN","1","COUNT","3","MATCH","*");
-        retval = swapDataSetupMetaScan(data,c,(void**)&datactx);
+        retval = swapDataSetupMetaScan(data,SWAP_METASCAN_SCAN,c,(void**)&datactx);
         scanctx = datactx->extend;
         test_assert(retval == 0);
         test_assert(datactx->limit == 3);

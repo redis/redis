@@ -984,7 +984,9 @@ static int swapRequestSwapInMeta(swapRequest *req) {
         goto end;
     }
 
-    if ((retval = RIOGetNotFound(rio))) {
+    if (RIOGetNotFound(rio)) {
+        /* No swap needed if meta not found. */
+        req->intention = SWAP_NOP;
         DEBUG_MSGS_APPEND(req->msgs,"exec-swapinmeta", "%s: notfound",
                 (sds)data->key->ptr);
         goto end;
@@ -1120,6 +1122,9 @@ void finishSwapRequest(swapRequest *req) {
     void *datactx = req->datactx;
 
     switch (req->intention) {
+    case SWAP_NOP:
+        /* No swap for req if meta not found. */
+        break;
     case SWAP_IN:
         retval = swapDataSwapIn(data,req->result,datactx);
         if (retval == 0) {

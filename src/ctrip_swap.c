@@ -121,13 +121,27 @@ void swapCtxFree(swapCtx *ctx) {
     zfree(ctx);
 }
 
+void replySwapFailed(client *c) {
+    serverAssert(c->swap_errcode);
+    switch (c->swap_errcode) {
+    case SWAP_ERR_METASCAN_CURSOR_INVALID:
+        rejectCommandFormat(c,
+                "Swap failed: invalid cursor, nextcursor is %lu",
+                    cursorInternalToOuter(1,c->swap_scan_nextcursor));
+        break;
+    default:
+        rejectCommandFormat(c,"Swap failed (code=%d)",c->swap_errcode);
+        break;
+    }
+}
+
 void continueProcessCommand(client *c) {
 	c->flags &= ~CLIENT_SWAPPING;
     server.current_client = c;
 
     server.in_swap_cb = 1;
 	if (c->swap_errcode) {
-        rejectCommandFormat(c,"Swap failed (code=%d)",c->swap_errcode);
+        replySwapFailed(c);
         c->swap_errcode = 0;
     } else {
 		call(c,CMD_CALL_FULL);
@@ -209,6 +223,7 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
     void *msgs = NULL;
     uint32_t swap_intention_flags;
     long long expire;
+    uint32_t cmd_intention_flags = ctx->key_request->cmd_intention_flags;
     UNUSED(reason), UNUSED(c);
     
 #ifdef SWAP_DEBUG
@@ -225,12 +240,12 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
     }
 
 	/* handle metascan request. */
-    if (ctx->key_request->cmd_intention_flags & SWAP_IN_METASCAN) {
+    if (isMetaScanRequest(cmd_intention_flags)) {
         data = createSwapData(c->db,NULL,NULL);
-        retval = swapDataSetupMetaScan(data,c,&datactx);
+        retval = swapDataSetupMetaScan(data,cmd_intention_flags,c,&datactx);
         swapCtxSetSwapData(ctx,data,datactx);
         if (retval) {
-            ctx->errcode = SWAP_ERR_SETUP_FAIL;
+            ctx->errcode = retval;
             reason = "setup metascan failed";
             reason_num = NOSWAP_REASON_UNEXPECTED;
             goto noswap;

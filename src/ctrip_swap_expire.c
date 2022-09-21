@@ -203,6 +203,7 @@ void scanExpireEmpty(scanExpire *scan_expire) {
 void metaScan4ScanExpireRequestFinished(client *c, swapCtx *ctx) {
     UNUSED(ctx);
     robj *key = ctx->key_request->key;
+    if (ctx->errcode) clientSwapError(c,ctx->errcode);
     incrRefCount(key);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
@@ -218,7 +219,7 @@ void startMetaScan4ScanExpire(client *c) {
     robj *key = createStringObject(expire_scan_key,strlen(expire_scan_key));
     getKeyRequestsPrepareResult(&result,1);
     getKeyRequestsAppendResult(&result,REQUEST_LEVEL_KEY,key,0,NULL,
-            SWAP_IN,SWAP_IN_METASCAN,c->db->id);
+            SWAP_IN,SWAP_METASCAN_EXPIRE,c->db->id);
     c->keyrequests_count++;
     submitClientKeyRequests(c,&result,metaScan4ScanExpireRequestFinished);
     releaseKeyRequests(&result);

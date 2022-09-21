@@ -988,10 +988,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     } else if (metascan) {
         metaScanResult *metas = c->swap_metas;
         if (metas == NULL) {
-            addReplyErrorFormat(c,
-                    "Swap scan metas failed (nextcursor is %lu)",
-                    cursorInternalToOuter(outer_cursor,
-                        c->swap_scan_nextcursor));
+            addReplyErrorFormat(c,"Swap scan metas null");
             goto cleanup;
         }
         for (i = 0; i < metas->num; i++) {
