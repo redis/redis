@@ -544,30 +544,56 @@ int performEvictions(void) {
 
     int keys_freed = 0;
     size_t mem_reported, mem_tofree;
-    long long mem_freed; /* May be negative */
+    long long mem_freed = 0; /* May be negative */
     mstime_t latency, eviction_latency;
     long long delta;
     int slaves = listLength(server.slaves);
     int result = EVICT_FAIL;
+
+    latencyStartMonitor(latency);
 
     if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree,NULL) == C_OK) {
         result = EVICT_OK;
         goto update_metrics;
     }
 
+    unsigned long eviction_time_limit_us = evictionTimeLimitUs();
+
+    monotime evictionTimer;
+    elapsedStart(&evictionTimer);
+
+    /* It's possible that some items are being freed in the lazyfree thread.
+     * So we just wait here before do the real eviction, in case we perform
+     * the redundant eviction. */
+    mstime_t lazyfree_latency;
+    latencyStartMonitor(lazyfree_latency);
+    while (bioPendingJobsOfType(BIO_LAZY_FREE)) {
+        usleep(eviction_time_limit_us < 1000 ? eviction_time_limit_us : 1000);
+        if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
+            result = EVICT_OK;
+            break;
+        }
+        if (elapsedUs(evictionTimer) > eviction_time_limit_us) {
+            // We still need to free memory - start eviction timer proc
+            startEvictionTimeProc();
+            result = EVICT_RUNNING;
+            break;
+        }
+    }
+    latencyEndMonitor(lazyfree_latency);
+    latencyAddSampleIfNeeded("eviction-lazyfree",lazyfree_latency);
+
+    /* Lazyfree waiting succeeds, or time is running out.
+     *
+     * Note: even the policy is no-eviction, we can return EVICT_RUNNING,
+     * since there are still items in lazyfree thread can be freed. */
+    if (result != EVICT_FAIL)
+        goto update_metrics;
+
     if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION) {
         result = EVICT_FAIL;  /* We need to free memory, but policy forbids. */
         goto update_metrics;
     }
-
-    unsigned long eviction_time_limit_us = evictionTimeLimitUs();
-
-    mem_freed = 0;
-
-    latencyStartMonitor(latency);
-
-    monotime evictionTimer;
-    elapsedStart(&evictionTimer);
 
     /* Unlike active-expire and blocked client, we can reach here from 'CONFIG SET maxmemory'
      * so we have to back-up and restore server.core_propagates. */
@@ -730,37 +756,20 @@ int performEvictions(void) {
             goto cant_free; /* nothing to free... */
         }
     }
+
     /* at this point, the memory is OK, or we have reached the time limit */
     result = (isEvictionProcRunning) ? EVICT_RUNNING : EVICT_OK;
 
 cant_free:
-    if (result == EVICT_FAIL) {
-        /* At this point, we have run out of evictable items.  It's possible
-         * that some items are being freed in the lazyfree thread.  Perform a
-         * short wait here if such jobs exist, but don't wait long.  */
-        mstime_t lazyfree_latency;
-        latencyStartMonitor(lazyfree_latency);
-        while (bioPendingJobsOfType(BIO_LAZY_FREE) &&
-              elapsedUs(evictionTimer) < eviction_time_limit_us) {
-            if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
-                result = EVICT_OK;
-                break;
-            }
-            usleep(eviction_time_limit_us < 1000 ? eviction_time_limit_us : 1000);
-        }
-        latencyEndMonitor(lazyfree_latency);
-        latencyAddSampleIfNeeded("eviction-lazyfree",lazyfree_latency);
-    }
-
     serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
     server.core_propagates = prev_core_propagates;
     server.in_nested_call--;
 
+update_metrics:
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);
 
-update_metrics:
     if (result == EVICT_RUNNING || result == EVICT_FAIL) {
         if (server.stat_last_eviction_exceeded_time == 0)
             elapsedStart(&server.stat_last_eviction_exceeded_time);
