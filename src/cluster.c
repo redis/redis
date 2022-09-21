@@ -152,7 +152,7 @@ dictType clusterSdsToListType = {
  * are separated by ','. */
 
 /* Aux field setter function prototype
- * return 1 when the update is successful; 0 otherwise */
+ * return C_OK when the update is successful; C_ERR otherwise */
 typedef int (aux_value_setter) (clusterNode* n, void *value, int length);
 /* Aux field getter function prototype
  * return an sds that is a concatenation of the input sds string and
@@ -194,18 +194,18 @@ int isValidAuxString(sds s) {
 
 int auxShardIdSetter(clusterNode *n, void *value, int length) {
     if (verifyClusterNodeId(value, length) == C_ERR) {
-        return 0;
+        return C_ERR;
     }
     memcpy(n->shard_id, value, CLUSTER_NAMELEN);
     /* if n already has replicas, make sure they all agree
      * on the shard id */
     for (int i = 0; i < n->numslaves; i++) {
         if (memcmp(n->slaves[i]->shard_id, n->shard_id, CLUSTER_NAMELEN) != 0) {
-            return 0;
+            return C_ERR;
         }
     }
     clusterAddNodeToShard(value, n);
-    return 1;
+    return C_OK;
 }
 
 sds auxShardIdGetter(clusterNode *n, sds s) {
@@ -365,7 +365,7 @@ int clusterLoadConfig(char *filename) {
                     continue;
                 }
                 field_found = 1;
-                if (auxFieldHandlers[j].setter(n, field_argv[1], sdslen(field_argv[1])) == 0) {
+                if (auxFieldHandlers[j].setter(n, field_argv[1], sdslen(field_argv[1])) != C_OK) {
                     /* Invalid aux field format */
                     sdsfreesplitres(field_argv, field_argc);
                     sdsfreesplitres(argv,argc);
