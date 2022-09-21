@@ -5122,7 +5122,7 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     addReplyBulkCString(c, getPreferredEndpoint(node));
     reply_count++;
 
-    if (node->hostname) {
+    if (sdslen(node->hostname) != 0) {
         addReplyBulkCString(c, "hostname");
         addReplyBulkCString(c, node->hostname);
         reply_count++;
