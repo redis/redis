@@ -1196,6 +1196,79 @@ static void *getMcontextEip(ucontext_t *uc) {
 #undef NOT_SUPPORTED
 }
 
+static void setMcontextEip(ucontext_t *uc, void *eip) {
+#define NOT_SUPPORTED() do {\
+    UNUSED(uc);\
+    UNUSED(eip);\
+} while(0)
+#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+    /* OSX < 10.6 */
+    #if defined(__x86_64__)
+    *((void**)&uc->uc_mcontext->__ss.__rip) = eip;
+    #elif defined(__i386__)
+    *((void**)&uc->uc_mcontext->__ss.__eip) = eip;
+    #else
+    *((void**)&uc->uc_mcontext->__ss.__srr0) = eip;
+    #endif
+#elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+    /* OSX >= 10.6 */
+    #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
+    *((void**)&uc->uc_mcontext->__ss.__rip) = eip;
+    #elif defined(__i386__)
+    *((void**)&uc->uc_mcontext->__ss.__eip) = eip;
+    #else
+    /* OSX ARM64 */
+    arm_thread_state64_set_pc_fptr(uc->uc_mcontext->__ss, eip);
+    #endif
+#elif defined(__linux__)
+    /* Linux */
+    #if defined(__i386__) || ((defined(__X86_64__) || defined(__x86_64__)) && defined(__ILP32__))
+    *((void**)&uc->uc_mcontext.gregs[14]) = eip; /* Linux 32 */
+    #elif defined(__X86_64__) || defined(__x86_64__)
+    *((void**)&uc->uc_mcontext.gregs[16]) = eip; /* Linux 64 */
+    #elif defined(__ia64__) /* Linux IA64 */
+    *((void**)&uc->uc_mcontext.sc_ip) = eip;
+    #elif defined(__arm__) /* Linux ARM */
+    *((void**)&uc->uc_mcontext.arm_pc) = eip;
+    #elif defined(__aarch64__) /* Linux AArch64 */
+    *((void**)&uc->uc_mcontext.pc) = eip;
+    #else
+    NOT_SUPPORTED();
+    #endif
+#elif defined(__FreeBSD__)
+    /* FreeBSD */
+    #if defined(__i386__)
+    *((void**)&uc->uc_mcontext.mc_eip) = eip;
+    #elif defined(__x86_64__)
+    *((void**)&uc->uc_mcontext.mc_rip) = eip;
+    #else
+    NOT_SUPPORTED();
+    #endif
+#elif defined(__OpenBSD__)
+    /* OpenBSD */
+    #if defined(__i386__)
+    *((void**)&uc->sc_eip) = eip;
+    #elif defined(__x86_64__)
+    *((void**)&uc->sc_rip) = eip;
+    #else
+    NOT_SUPPORTED();
+    #endif
+#elif defined(__NetBSD__)
+    #if defined(__i386__)
+    *((void**)&uc->uc_mcontext.__gregs[_REG_EIP]) = eip;
+    #elif defined(__x86_64__)
+    *((void**)&uc->uc_mcontext.__gregs[_REG_RIP]) = eip;
+    #else
+    NOT_SUPPORTED();
+    #endif
+#elif defined(__DragonFly__)
+    *((void**)&uc->uc_mcontext.mc_rip) = eip;
+#else
+    NOT_SUPPORTED();
+#endif
+#undef NOT_SUPPORTED
+}
+
 REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
     int i;
@@ -1951,6 +2024,10 @@ void dumpCodeAroundEIP(void *eip) {
     }
 }
 
+void invalidFunctionWasCalled() {}
+
+typedef void (*invalidFunctionWasCalledType)();
+
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
     UNUSED(info);
@@ -1974,7 +2051,25 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         "Crashed running the instruction at: %p", eip);
     }
 
+    if (eip == info->si_addr) {
+        /* We crashed when calling a none mapped pointer.
+         * Set pointer to some valid address otherwise logStackTrace will crash
+         * when tryint to access this pointer. */
+        serverLog(LL_WARNING, "Crashed caused by calling to invalid function pointer %p.", eip);
+
+        /* This trick allow to avoid compiler warning */
+        void *ptr;
+        invalidFunctionWasCalledType *ptr_ptr = (invalidFunctionWasCalledType*)&ptr;
+        *ptr_ptr = invalidFunctionWasCalled;
+        setMcontextEip(uc, ptr);
+    }
+
     logStackTrace(getMcontextEip(uc), 1);
+
+    if (eip == info->si_addr) {
+        /* Restore old eip */
+        setMcontextEip(uc, eip);
+    }
 
     logRegisters(uc);
 #endif
