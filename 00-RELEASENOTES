@@ -13,6 +13,49 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 7.0.5 Released Wed Sep 21 20:00:00 IST 2022
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues.
+
+Security Fixes:
+* (CVE-2022-35951) Executing a XAUTOCLAIM command on a stream key in a specific
+  state, with a specially crafted COUNT argument, may cause an integer overflow,
+  a subsequent heap overflow, and potentially lead to remote code execution.
+  The problem affects Redis versions 7.0.0 or newer
+  [reported by Xion (SeungHyun Lee) of KAIST GoN].
+
+Module API changes
+==================
+
+* Fix RM_Call execution of scripts when used with M/W/S flags to properly
+  handle script flags (#11159)
+* Fix RM_SetAbsExpire and RM_GetAbsExpire API registration (#11025, #8564)
+
+Bug Fixes
+=========
+
+* Fix a hang when eviction is combined with lazy-free and maxmemory-eviction-tenacity is set to 100 (#11237)
+* Fix a crash when a replica may attempt to set itself as its master as a result of a manual failover (#11263)
+* Fix a bug where a cluster-enabled replica node may permanently set its master's hostname to '?' (#10696)
+* Fix a crash when a Lua script returns a meta-table (#11032)
+
+Fixes for issues in previous releases of Redis 7.0
+--------------------------------------------------
+
+* Fix redis-cli to do DNS lookup before sending CLUSTER MEET (#11151)
+* Fix crash when a key is lazy expired during cluster key migration (#11176)
+* Fix AOF rewrite to fsync the old AOF file when a new one is created (#11004)
+* Fix some crashes involving a list containing entries larger than 1GB (#11242)
+* Correctly handle scripts with a non-read-only shebang on a cluster replica (#11223)
+* Fix memory leak when unloading a module (#11147)
+* Fix bug with scripts ignoring client tracking NOLOOP (#11052)
+* Fix client-side tracking breaking protocol when FLUSHDB / FLUSHALL / SWAPDB is used inside MULTI-EXEC (#11038)
+* Fix ACL: BITFIELD with GET and also SET / INCRBY can be executed with read-only key permission (#11086)
+* Fix missing sections for INFO ALL when also requesting a module info section (#11291)
+
+
+================================================================================
 Redis 7.0.4 Released Monday Jul 18 12:00:00 IST 2022
 ================================================================================
 
