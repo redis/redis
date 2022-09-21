@@ -613,17 +613,17 @@ void spopWithCountCommand(client *c) {
         while(count--) {
             /* Emit and remove. */
             encoding = setTypeRandomElement(set, &str, &len, &llele);
-            if (str == NULL) {
+            if (encoding == OBJ_ENCODING_INTSET) {
                 addReplyBulkLongLong(c,llele);
                 objele = createStringObjectFromLongLong(llele);
+                set->ptr = intsetRemove(set->ptr,llele,NULL);
+            } else if (str == NULL) {
+                addReplyBulkLongLong(c,llele);
+                objele = createObject(OBJ_STRING, sdsfromlonglong(llele));
+                setTypeRemove(set, objele->ptr);
             } else {
                 addReplyBulkCBuffer(c, str, len);
                 objele = createStringObject(str, len);
-            }
-
-            if (encoding == OBJ_ENCODING_INTSET) {
-                set->ptr = intsetRemove(set->ptr,llele,NULL);
-            } else {
                 setTypeRemove(set, objele->ptr);
             }
 
