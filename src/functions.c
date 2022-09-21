@@ -245,7 +245,7 @@ functionsLibCtx* functionsLibCtxCreate() {
  */
 int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err) {
     if (functionsVerifyName(name) != C_OK) {
-        *err = sdsnew("Function names can only contain letters and numbers and must be at least one character long");
+        *err = sdsnew("Library names can only contain letters, numbers, or underscores(_) and must be at least one character long");
         return C_ERR;
     }
 
@@ -293,7 +293,7 @@ static void libraryUnlink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     entry = dictUnlink(lib_ctx->libraries, li->name);
     dictSetVal(lib_ctx->libraries, entry, NULL);
     dictFreeUnlinkedEntry(lib_ctx->libraries, entry);
-    lib_ctx->cache_memory += libraryMallocSize(li);
+    lib_ctx->cache_memory -= libraryMallocSize(li);
 
     /* update stats */
     functionsLibEngineStats *stats = dictFetchValue(lib_ctx->engines_stats, li->ei->name);
@@ -325,7 +325,7 @@ static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
 /* Takes all libraries from lib_ctx_src and add to lib_ctx_dst.
  * On collision, if 'replace' argument is true, replace the existing library with the new one.
  * Otherwise abort and leave 'lib_ctx_dst' and 'lib_ctx_src' untouched.
- * Return C_OK on success and C_ERR if aborted. If C_ERR is retunred, set a relevant
+ * Return C_OK on success and C_ERR if aborted. If C_ERR is returned, set a relevant
  * error message on the 'err' out parameter.
  *  */
 static int libraryJoin(functionsLibCtx *functions_lib_ctx_dst, functionsLibCtx *functions_lib_ctx_src, int replace, sds *err) {
@@ -604,6 +604,17 @@ void functionKillCommand(client *c) {
     scriptKill(c, 0);
 }
 
+/* Try to extract command flags if we can, returns the modified flags.
+ * Note that it does not guarantee the command arguments are right. */
+uint64_t fcallGetCommandFlags(client *c, uint64_t cmd_flags) {
+    robj *function_name = c->argv[1];
+    functionInfo *fi = dictFetchValue(curr_functions_lib_ctx->functions, function_name->ptr);
+    if (!fi)
+        return cmd_flags;
+    uint64_t script_flags = fi->f_flags;
+    return scriptFlagsToCmdFlags(cmd_flags, script_flags);
+}
+
 static void fcallCommandGeneric(client *c, int ro) {
     robj *function_name = c->argv[1];
     functionInfo *fi = dictFetchValue(curr_functions_lib_ctx->functions, function_name->ptr);
@@ -663,7 +674,7 @@ void fcallroCommand(client *c) {
  * * Engine name
  * * Library description
  * * Library code
- * RDB_OPCODE_FUNCTION is saved before each library to present
+ * RDB_OPCODE_FUNCTION2 is saved before each library to present
  * that the payload is a library.
  * RDB version and crc64 is saved at the end of the payload.
  * The RDB version is saved for backward compatibility.
@@ -743,11 +754,15 @@ void functionRestoreCommand(client *c) {
             err = sdsnew("can not read data type");
             goto load_error;
         }
-        if (type != RDB_OPCODE_FUNCTION && type != RDB_OPCODE_FUNCTION2) {
+        if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
+            err = sdsnew("Pre-GA function format not supported");
+            goto load_error;
+        }
+        if (type != RDB_OPCODE_FUNCTION2) {
             err = sdsnew("given type is not a function");
             goto load_error;
         }
-        if (rdbFunctionLoad(&payload, rdbver, functions_lib_ctx, type, RDBFLAGS_NONE, &err) != C_OK) {
+        if (rdbFunctionLoad(&payload, rdbver, functions_lib_ctx, RDBFLAGS_NONE, &err) != C_OK) {
             if (!err) {
                 err = sdsnew("failed loading the given functions payload");
             }
@@ -808,7 +823,7 @@ void functionFlushCommand(client *c) {
 /* FUNCTION HELP */
 void functionHelpCommand(client *c) {
     const char *help[] = {
-"LOAD <ENGINE NAME> <LIBRARY NAME> [REPLACE] [DESCRIPTION <LIBRARY DESCRIPTION>] <LIBRARY CODE>",
+"LOAD [REPLACE] <FUNCTION CODE>",
 "    Create a new library with the given library name and code.",
 "DELETE <LIBRARY NAME>",
 "    Delete the given library.",
@@ -836,7 +851,7 @@ void functionHelpCommand(client *c) {
 "    * ASYNC: Asynchronously flush the libraries.",
 "    * SYNC: Synchronously flush the libraries.",
 "DUMP",
-"    Returns a serialized payload representing the current libraries, can be restored using FUNCTION RESTORE command",
+"    Return a serialized payload representing the current libraries, can be restored using FUNCTION RESTORE command",
 "RESTORE <PAYLOAD> [FLUSH|APPEND|REPLACE]",
 "    Restore the libraries represented by the given payload, it is possible to give a restore policy to",
 "    control how to handle existing libraries (default APPEND):",
@@ -950,7 +965,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
     }
 
     if (functionsVerifyName(md.name)) {
-        *err = sdsnew("Library names can only contain letters and numbers and must be at least one character long");
+        *err = sdsnew("Library names can only contain letters, numbers, or underscores(_) and must be at least one character long");
         goto error;
     }
 

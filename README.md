@@ -223,11 +223,11 @@ public discussion groups, you agree to release your code under the terms
 of the BSD license that you can find in the [COPYING][1] file included in the Redis
 source distribution.
 
-Please see the [CONTRIBUTING][2] file in this source distribution for more
+Please see the [CONTRIBUTING.md][2] file in this source distribution for more
 information. For security bugs and vulnerabilities, please see [SECURITY.md][3].
 
 [1]: https://github.com/redis/redis/blob/unstable/COPYING
-[2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING
+[2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING.md
 [3]: https://github.com/redis/redis/blob/unstable/SECURITY.md
 
 Redis internals

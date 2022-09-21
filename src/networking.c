@@ -799,7 +799,7 @@ void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
     }
 
     char lenstr[128];
-    size_t lenstr_len = sprintf(lenstr, "%c%ld\r\n", prefix, length);
+    size_t lenstr_len = snprintf(lenstr, sizeof(lenstr), "%c%ld\r\n", prefix, length);
     setDeferredReply(c, node, lenstr, lenstr_len);
 }
 
@@ -840,13 +840,29 @@ void addReplyDouble(client *c, double d) {
                               d > 0 ? 6 : 7);
         }
     } else {
-        char dbuf[MAX_LONG_DOUBLE_CHARS+3],
-             sbuf[MAX_LONG_DOUBLE_CHARS+32];
-        int dlen, slen;
+        char dbuf[MAX_LONG_DOUBLE_CHARS+32];
+        int dlen = 0;
         if (c->resp == 2) {
-            dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
-            slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
-            addReplyProto(c,sbuf,slen);
+            /* In order to prepend the string length before the formatted number,
+             * but still avoid an extra memcpy of the whole number, we reserve space
+             * for maximum header `$0000\r\n`, print double, add the resp header in
+             * front of it, and then send the buffer with the right `start` offset. */
+            int dlen = snprintf(dbuf+7,sizeof(dbuf) - 7,"%.17g",d);
+            int digits = digits10(dlen);
+            int start = 4 - digits;
+            dbuf[start] = '$';
+
+            /* Convert `dlen` to string, putting it's digits after '$' and before the
+	     * formatted double string. */
+            for(int i = digits, val = dlen; val && i > 0 ; --i, val /= 10) {
+                dbuf[start + i] = "0123456789"[val % 10];
+            }
+
+            dbuf[5] = '\r';
+            dbuf[6] = '\n';
+            dbuf[dlen+7] = '\r';
+            dbuf[dlen+8] = '\n';
+            addReplyProto(c,dbuf+start,dlen+9-start);
         } else {
             dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
             addReplyProto(c,dbuf,dlen);
@@ -860,7 +876,7 @@ void addReplyBigNum(client *c, const char* num, size_t len) {
     } else {
         addReplyProto(c,"(",1);
         addReplyProto(c,num,len);
-        addReply(c,shared.crlf);
+        addReplyProto(c,"\r\n",2);
     }
 }
 
@@ -991,21 +1007,21 @@ void addReplyBulkLen(client *c, robj *obj) {
 void addReplyBulk(client *c, robj *obj) {
     addReplyBulkLen(c,obj);
     addReply(c,obj);
-    addReply(c,shared.crlf);
+    addReplyProto(c,"\r\n",2);
 }
 
 /* Add a C buffer as bulk reply */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
     addReplyLongLongWithPrefix(c,len,'$');
     addReplyProto(c,p,len);
-    addReply(c,shared.crlf);
+    addReplyProto(c,"\r\n",2);
 }
 
 /* Add sds to reply (takes ownership of sds and frees it) */
 void addReplyBulkSds(client *c, sds s)  {
     addReplyLongLongWithPrefix(c,sdslen(s),'$');
     addReplySds(c,s);
-    addReply(c,shared.crlf);
+    addReplyProto(c,"\r\n",2);
 }
 
 /* Set sds to a deferred reply (for symmetry with addReplyBulkSds it also frees the sds) */
@@ -1080,7 +1096,7 @@ void addReplyHelp(client *c, const char **help) {
     while (help[blen]) addReplyStatus(c,help[blen++]);
 
     addReplyStatus(c,"HELP");
-    addReplyStatus(c,"    Prints this help.");
+    addReplyStatus(c,"    Print this help.");
 
     blen += 1;  /* Account for the header. */
     blen += 2;  /* Account for the footer. */
@@ -1196,7 +1212,7 @@ int islocalClient(client *c) {
 
     /* tcp */
     char cip[NET_IP_STR_LEN+1] = { 0 };
-    connPeerToString(c->conn, cip, sizeof(cip)-1, NULL);
+    connAddrPeerName(c->conn, cip, sizeof(cip)-1, NULL);
 
     return !strcmp(cip,"127.0.0.1") || !strcmp(cip,"::1");
 }
@@ -1237,7 +1253,7 @@ void clientAcceptHandler(connection *conn) {
                 "mode option to 'no', and then restarting the server. "
                 "3) If you started the server manually just for testing, restart "
                 "it with the '--protected-mode no' option. "
-                "4) Setup a an authentication password for the default user. "
+                "4) Set up an authentication password for the default user. "
                 "NOTE: You only need to do one of the above things in order for "
                 "the server to start accepting connections from the outside.\r\n";
             if (connWrite(c->conn,err,strlen(err)) == -1) {
@@ -1255,8 +1271,7 @@ void clientAcceptHandler(connection *conn) {
                           c);
 }
 
-#define MAX_ACCEPTS_PER_CALL 1000
-static void acceptCommonHandler(connection *conn, int flags, char *ip) {
+void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
     char conninfo[100];
     UNUSED(ip);
@@ -1325,65 +1340,6 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
                     connGetLastError(conn), connGetInfo(conn, conninfo, sizeof(conninfo)));
         freeClient(connGetPrivateData(conn));
         return;
-    }
-}
-
-void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
-    char cip[NET_IP_STR_LEN];
-    UNUSED(el);
-    UNUSED(mask);
-    UNUSED(privdata);
-
-    while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
-            return;
-        }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAcceptedSocket(cfd),0,cip);
-    }
-}
-
-void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
-    char cip[NET_IP_STR_LEN];
-    UNUSED(el);
-    UNUSED(mask);
-    UNUSED(privdata);
-
-    while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
-            return;
-        }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAcceptedTLS(cfd, server.tls_auth_clients),0,cip);
-    }
-}
-
-void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cfd, max = MAX_ACCEPTS_PER_CALL;
-    UNUSED(el);
-    UNUSED(mask);
-    UNUSED(privdata);
-
-    while(max--) {
-        cfd = anetUnixAccept(server.neterr, fd);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
-            return;
-        }
-        serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
-        acceptCommonHandler(connCreateAcceptedSocket(cfd),CLIENT_UNIX_SOCKET,NULL);
     }
 }
 
@@ -1953,7 +1909,13 @@ int writeToClient(client *c, int handler_installed) {
              zmalloc_used_memory() < server.maxmemory) &&
             !(c->flags & CLIENT_SLAVE)) break;
     }
-    atomicIncr(server.stat_net_output_bytes, totwritten);
+
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+        atomicIncr(server.stat_net_repl_output_bytes, totwritten);
+    } else {
+        atomicIncr(server.stat_net_output_bytes, totwritten);
+    }
+
     if (nwritten == -1) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE,
@@ -2499,7 +2461,7 @@ int processInputBuffer(client *c) {
          * condition on the slave. We want just to accumulate the replication
          * stream (instead of replying -BUSY like we do with other clients) and
          * later resume the processing. */
-        if (scriptIsTimedout() && c->flags & CLIENT_MASTER) break;
+        if (isInsideYieldingLongCommand() && c->flags & CLIENT_MASTER) break;
 
         /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after
@@ -2655,8 +2617,13 @@ void readQueryFromClient(connection *conn) {
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
 
     c->lastinteraction = server.unixtime;
-    if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
-    atomicIncr(server.stat_net_input_bytes, nread);
+    if (c->flags & CLIENT_MASTER) {
+        c->read_reploff += nread;
+        atomicIncr(server.stat_net_repl_input_bytes, nread);
+    } else {
+        atomicIncr(server.stat_net_input_bytes, nread);
+    }
+
     if (!(c->flags & CLIENT_MASTER) && sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
@@ -2689,13 +2656,13 @@ done:
  * you want to relax error checking or need to display something anyway (see
  * anetFdToString implementation for more info). */
 void genClientAddrString(client *client, char *addr,
-                         size_t addr_len, int fd_to_str_type) {
+                         size_t addr_len, int remote) {
     if (client->flags & CLIENT_UNIX_SOCKET) {
         /* Unix socket client. */
         snprintf(addr,addr_len,"%s:0",server.unixsocket);
     } else {
         /* TCP client. */
-        connFormatFdAddr(client->conn,addr,addr_len,fd_to_str_type);
+        connFormatAddr(client->conn,addr,addr_len,remote);
     }
 }
 
@@ -2704,10 +2671,10 @@ void genClientAddrString(client *client, char *addr,
  * The Peer ID never changes during the life of the client, however it
  * is expensive to compute. */
 char *getClientPeerId(client *c) {
-    char peerid[NET_ADDR_STR_LEN];
+    char peerid[NET_ADDR_STR_LEN] = {0};
 
     if (c->peerid == NULL) {
-        genClientAddrString(c,peerid,sizeof(peerid),FD_TO_PEER_NAME);
+        genClientAddrString(c,peerid,sizeof(peerid),1);
         c->peerid = sdsnew(peerid);
     }
     return c->peerid;
@@ -2718,10 +2685,10 @@ char *getClientPeerId(client *c) {
  * The Socket Name never changes during the life of the client, however it
  * is expensive to compute. */
 char *getClientSockname(client *c) {
-    char sockname[NET_ADDR_STR_LEN];
+    char sockname[NET_ADDR_STR_LEN] = {0};
 
     if (c->sockname == NULL) {
-        genClientAddrString(c,sockname,sizeof(sockname),FD_TO_SOCK_NAME);
+        genClientAddrString(c,sockname,sizeof(sockname),0);
         c->sockname = sdsnew(sockname);
     }
     return c->sockname;
@@ -2774,7 +2741,7 @@ sds catClientInfoString(sds s, client *client) {
     }
 
     sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2786,6 +2753,7 @@ sds catClientInfoString(sds s, client *client) {
         client->db->id,
         (int) dictSize(client->pubsub_channels),
         (int) listLength(client->pubsub_patterns),
+        (int) dictSize(client->pubsubshard_channels),
         (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
         (unsigned long long) sdslen(client->querybuf),
         (unsigned long long) sdsavail(client->querybuf),
@@ -2821,18 +2789,9 @@ sds getAllClientsInfoString(int type) {
     return o;
 }
 
-/* This function implements CLIENT SETNAME, including replying to the
- * user with an error if the charset is wrong (in that case C_ERR is
- * returned). If the function succeeded C_OK is returned, and it's up
- * to the caller to send a reply if needed.
- *
- * Setting an empty string as name has the effect of unsetting the
- * currently set name: the client will remain unnamed.
- *
- * This function is also used to implement the HELLO SETNAME option. */
-int clientSetNameOrReply(client *c, robj *name) {
-    int len = sdslen(name->ptr);
-    char *p = name->ptr;
+/* Returns C_OK if the name has been set or C_ERR if the name is invalid. */
+int clientSetName(client *c, robj *name) {
+    int len = (name != NULL) ? sdslen(name->ptr) : 0;
 
     /* Setting the client name to an empty string actually removes
      * the current name. */
@@ -2845,11 +2804,9 @@ int clientSetNameOrReply(client *c, robj *name) {
     /* Otherwise check if the charset is ok. We need to do this otherwise
      * CLIENT LIST format will break. You should always be able to
      * split by space to get the different fields. */
+    char *p = name->ptr;
     for (int j = 0; j < len; j++) {
         if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
-            addReplyError(c,
-                "Client names cannot contain spaces, "
-                "newlines or special characters.");
             return C_ERR;
         }
     }
@@ -2857,6 +2814,25 @@ int clientSetNameOrReply(client *c, robj *name) {
     c->name = name;
     incrRefCount(name);
     return C_OK;
+}
+
+/* This function implements CLIENT SETNAME, including replying to the
+ * user with an error if the charset is wrong (in that case C_ERR is
+ * returned). If the function succeeded C_OK is returned, and it's up
+ * to the caller to send a reply if needed.
+ *
+ * Setting an empty string as name has the effect of unsetting the
+ * currently set name: the client will remain unnamed.
+ *
+ * This function is also used to implement the HELLO SETNAME option. */
+int clientSetNameOrReply(client *c, robj *name) {
+    int result = clientSetName(c, name);
+    if (result == C_ERR) {
+        addReplyError(c,
+                      "Client names cannot contain spaces, "
+                      "newlines or special characters.");
+    }
+    return result;
 }
 
 /* Reset the client state to resemble a newly connected client.
@@ -3649,9 +3625,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
 
     /* Add memory overhead of pubsub channels and patterns. Note: this is just the overhead of the robj pointers
      * to the strings themselves because they aren't stored per client. */
-    mem += listLength(c->pubsub_patterns) * sizeof(listNode);
-    mem += dictSize(c->pubsub_channels) * sizeof(dictEntry) +
-           dictSlots(c->pubsub_channels) * sizeof(dictEntry*);
+    mem += pubsubMemOverhead(c);
 
     /* Add memory overhead of the tracking prefixes, this is an underestimation so we don't need to traverse the entire rax */
     if (c->client_tracking_prefixes)
@@ -3986,10 +3960,15 @@ void processEventsWhileBlocked(void) {
  * ========================================================================== */
 
 #define IO_THREADS_MAX_NUM 128
+#define CACHE_LINE_SIZE 64
+
+typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) threads_pending {
+    redisAtomic unsigned long value;
+} threads_pending;
 
 pthread_t io_threads[IO_THREADS_MAX_NUM];
 pthread_mutex_t io_threads_mutex[IO_THREADS_MAX_NUM];
-redisAtomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
+threads_pending io_threads_pending[IO_THREADS_MAX_NUM];
 int io_threads_op;      /* IO_THREADS_OP_IDLE, IO_THREADS_OP_READ or IO_THREADS_OP_WRITE. */ // TODO: should access to this be atomic??!
 
 /* This is the list of clients each thread will serve when threaded I/O is
@@ -3999,12 +3978,12 @@ list *io_threads_list[IO_THREADS_MAX_NUM];
 
 static inline unsigned long getIOPendingCount(int i) {
     unsigned long count = 0;
-    atomicGetWithSync(io_threads_pending[i], count);
+    atomicGetWithSync(io_threads_pending[i].value, count);
     return count;
 }
 
 static inline void setIOPendingCount(int i, unsigned long count) {
-    atomicSetWithSync(io_threads_pending[i], count);
+    atomicSetWithSync(io_threads_pending[i].value, count);
 }
 
 void *IOThreadMain(void *myid) {

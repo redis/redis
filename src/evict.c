@@ -266,14 +266,14 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
  * has a low value.
  *
  * New keys don't start at zero, in order to have the ability to collect
- * some accesses before being trashed away, so they start at COUNTER_INIT_VAL.
- * The logarithmic increment performed on LOG_C takes care of COUNTER_INIT_VAL
- * when incrementing the key, so that keys starting at COUNTER_INIT_VAL
+ * some accesses before being trashed away, so they start at LFU_INIT_VAL.
+ * The logarithmic increment performed on LOG_C takes care of LFU_INIT_VAL
+ * when incrementing the key, so that keys starting at LFU_INIT_VAL
  * (or having a smaller value) have a very high chance of being incremented
  * on access.
  *
  * During decrement, the value of the logarithmic counter is halved if
- * its current value is greater than two times the COUNTER_INIT_VAL, otherwise
+ * its current value is greater than two times the LFU_INIT_VAL, otherwise
  * it is just decremented by one.
  * --------------------------------------------------------------------------*/
 
@@ -295,7 +295,7 @@ unsigned long LFUTimeElapsed(unsigned long ldt) {
 }
 
 /* Logarithmically increment a counter. The greater is the current counter value
- * the less likely is that it gets really implemented. Saturate it at 255. */
+ * the less likely is that it gets really incremented. Saturate it at 255. */
 uint8_t LFULogIncr(uint8_t counter) {
     if (counter == 255) return 255;
     double r = (double)rand()/RAND_MAX;
@@ -481,7 +481,7 @@ void startEvictionTimeProc(void) {
 static int isSafeToPerformEvictions(void) {
     /* - There must be no script in timeout condition.
      * - Nor we are loading data right now.  */
-    if (scriptIsTimedout() || server.loading) return 0;
+    if (isInsideYieldingLongCommand() || server.loading) return 0;
 
     /* By default replicas should ignore maxmemory
      * and just be masters exact copies. */
@@ -574,7 +574,12 @@ int performEvictions(void) {
     int prev_core_propagates = server.core_propagates;
     serverAssert(server.also_propagate.numops == 0);
     server.core_propagates = 1;
-    server.propagate_no_multi = 1;
+
+    /* Increase nested call counter
+     * we add this in order to prevent any RM_Call that may exist
+     * in the notify CB to be propagated immediately.
+     * we want them in multi/exec with the DEL command */
+    server.in_nested_call++;
 
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
@@ -688,6 +693,7 @@ int performEvictions(void) {
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
             propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
+            propagatePendingCommands();
             decrRefCount(keyobj);
             keys_freed++;
 
@@ -742,11 +748,8 @@ cant_free:
 
     serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
-    /* Propagate all DELs */
-    propagatePendingCommands();
-
     server.core_propagates = prev_core_propagates;
-    server.propagate_no_multi = 0;
+    server.in_nested_call--;
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);

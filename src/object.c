@@ -62,7 +62,7 @@ robj *createObject(int type, void *ptr) {
  * objects such as small integers from different threads without any
  * mutex.
  *
- * A common patter to create shared objects:
+ * A common pattern to create shared objects:
  *
  * robj *myobject = makeObjectShared(createObject(...));
  *
@@ -710,7 +710,7 @@ robj *getDecodedObject(robj *o) {
 #define REDIS_COMPARE_BINARY (1<<0)
 #define REDIS_COMPARE_COLL (1<<1)
 
-int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
+int compareStringObjectsWithFlags(const robj *a, const robj *b, int flags) {
     serverAssertWithInfo(NULL,a,a->type == OBJ_STRING && b->type == OBJ_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
@@ -743,12 +743,12 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
 }
 
 /* Wrapper for compareStringObjectsWithFlags() using binary comparison. */
-int compareStringObjects(robj *a, robj *b) {
+int compareStringObjects(const robj *a, const robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_BINARY);
 }
 
 /* Wrapper for compareStringObjectsWithFlags() using collation. */
-int collateStringObjects(robj *a, robj *b) {
+int collateStringObjects(const robj *a, const robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_COLL);
 }
 
@@ -930,7 +930,6 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_INT: return "int";
     case OBJ_ENCODING_HT: return "hashtable";
     case OBJ_ENCODING_QUICKLIST: return "quicklist";
-    case OBJ_ENCODING_ZIPLIST: return "ziplist";
     case OBJ_ENCODING_LISTPACK: return "listpack";
     case OBJ_ENCODING_INTSET: return "intset";
     case OBJ_ENCODING_SKIPLIST: return "skiplist";
@@ -998,8 +997,6 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
                 samples++;
             } while ((node = node->next) && samples < sample_size);
             asize += (double)elesize/samples*ql->len;
-        } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {
             serverPanic("Unknown list encoding");
         }

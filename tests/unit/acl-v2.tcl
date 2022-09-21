@@ -195,6 +195,7 @@ start_server {tags {"acl external:skip"}} {
 
         # We don't have the permission to WRITE key.
         assert_error {*NOPERM*keys*} {$r2 bitfield readstr set u4 0 1}
+        assert_error {*NOPERM*keys*} {$r2 bitfield readstr get u4 0 set u4 0 1}
         assert_error {*NOPERM*keys*} {$r2 bitfield readstr incrby u4 0 1}
     }
 

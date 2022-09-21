@@ -96,7 +96,7 @@
                 "optional": true
             },
             {
-                "name": "count",
+                "name": "count-block",
                 "type": "block",
                 "optional": true,
                 "arguments": [
