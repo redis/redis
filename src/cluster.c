@@ -4990,10 +4990,10 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
     for (int i = af_start; i < af_count; i++) {
         ci = sdscatprintf(ci, ",%s=", auxFieldHandlers[i].field);
         ci = auxFieldHandlers[i].getter(node, ci);
-        ci = sdscatprintf(ci, " ");
     }
 
     /* Flags */
+    ci = sdscatlen(ci," ",1);
     ci = representClusterNodeFlags(ci, node->flags);
 
     /* Slave of... or just "-" */
