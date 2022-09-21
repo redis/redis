@@ -709,15 +709,14 @@ void spopCommand(client *c) {
     encoding = setTypeRandomElement(set, &str, &len, &llele);
 
     /* Remove the element from the set */
-    if (str == NULL) {
+    if (encoding == OBJ_ENCODING_INTSET) {
         ele = createStringObjectFromLongLong(llele);
+        set->ptr = intsetRemove(set->ptr,llele,NULL);
+    } else if (str == NULL) {
+        ele = createObject(OBJ_STRING, sdsfromlonglong(llele));
+        setTypeRemove(set, ele->ptr);
     } else {
         ele = createStringObject(str, len);
-    }
-
-    if (encoding == OBJ_ENCODING_INTSET) {
-        set->ptr = intsetRemove(set->ptr,llele,NULL);
-    } else {
         setTypeRemove(set, ele->ptr);
     }
 
