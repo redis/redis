@@ -1068,25 +1068,20 @@ static void startBenchmarkThreads() {
 
 static void initQpsControl() {
     int num_threads = config.num_threads == 0 ? 1 : config.num_threads;
-    int qps_divisor = config.numclients < num_threads ? config.numclients : num_threads;
     config.paused_clients = zmalloc(num_threads * sizeof(list *));
     config.last_resume_time = zmalloc(num_threads * sizeof(long long));
     config.count = zcalloc(num_threads * sizeof(int));
     config.paused = zcalloc(num_threads * sizeof(bool));
     config.control_granularity = zmalloc(num_threads * sizeof(int));
     config.resume_interval = zmalloc(num_threads * sizeof(long long));
-    if (config.qps/qps_divisor <= config.pipeline) {
-        printf("warning: qps is too small with %d threads, qps control may fail\n", num_threads);
-        qps_divisor = config.qps / config.pipeline;
-        qps_divisor = qps_divisor <= 0 ? 1 : qps_divisor;
+    if (config.qps/num_threads <= config.pipeline) {
+        fprintf(stderr, "WARNING: QPS is too small with %d threads, increasing QPS to %d\n", num_threads, num_threads);
+        config.qps = num_threads;
     }
     for (int i = 0; i < num_threads; ++i) {
         config.paused_clients[i] = listCreate();
         config.last_resume_time[i] = -1;
-        if (i < config.numclients)
-            config.control_granularity[i] = (i+1) * config.qps / qps_divisor - i * config.qps / qps_divisor;
-        else
-            config.control_granularity[i] = 0;
+        config.control_granularity[i] = (i+1) * config.qps / num_threads - i * config.qps / num_threads;
         config.resume_interval[i] = USECOND;
     }
 }
@@ -1957,9 +1952,15 @@ int main(int argc, char **argv) {
             fprintf(stderr, "WARNING: Could not fetch server CONFIG\n");
         }
     }
+
     if (config.num_threads > 0) {
         pthread_mutex_init(&(config.liveclients_mutex), NULL);
         pthread_mutex_init(&(config.is_updating_slots_mutex), NULL);
+    }
+
+    if (config.num_threads > config.numclients) {
+        config.num_threads = config.numclients;
+        fprintf(stderr, "WARNING: %d redundent threads with %d clients, limiting threads to %d\n", config.num_threads-config.numclients, config.numclients, config.numclients);
     }
 
     if (config.keepalive == 0) {
