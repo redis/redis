@@ -1201,21 +1201,25 @@ static void setMcontextEip(ucontext_t *uc, void *eip) {
     UNUSED(uc);\
     UNUSED(eip);\
 } while(0)
+#define SET_VALUD_AT(add, val) do {\
+    void **temp = (void**)&add; \
+    *temp = val; \
+} while(0)
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
     /* OSX < 10.6 */
     #if defined(__x86_64__)
-    *((void**)&uc->uc_mcontext->__ss.__rip) = eip;
+    SET_VALUD_AT(uc->uc_mcontext->__ss.__rip, eip);
     #elif defined(__i386__)
-    *((void**)&uc->uc_mcontext->__ss.__eip) = eip;
+    SET_VALUD_AT(uc->uc_mcontext->__ss.__eip, eip);
     #else
-    *((void**)&uc->uc_mcontext->__ss.__srr0) = eip;
+    SET_VALUD_AT(uc->uc_mcontext->__ss.__srr0, eip);
     #endif
 #elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
     /* OSX >= 10.6 */
     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
-    *((void**)&uc->uc_mcontext->__ss.__rip) = eip;
+    SET_VALUD_AT(uc->uc_mcontext->__ss.__rip, eip);
     #elif defined(__i386__)
-    *((void**)&uc->uc_mcontext->__ss.__eip) = eip;
+    SET_VALUD_AT(uc->uc_mcontext->__ss.__eip, eip);
     #else
     /* OSX ARM64 */
     arm_thread_state64_set_pc_fptr(uc->uc_mcontext->__ss, eip);
@@ -1223,46 +1227,46 @@ static void setMcontextEip(ucontext_t *uc, void *eip) {
 #elif defined(__linux__)
     /* Linux */
     #if defined(__i386__) || ((defined(__X86_64__) || defined(__x86_64__)) && defined(__ILP32__))
-    *((void**)&uc->uc_mcontext.gregs[14]) = eip; /* Linux 32 */
+    SET_VALUD_AT(uc->uc_mcontext.gregs[14], eip);
     #elif defined(__X86_64__) || defined(__x86_64__)
-    *((void**)&uc->uc_mcontext.gregs[16]) = eip; /* Linux 64 */
+    SET_VALUD_AT(uc->uc_mcontext.gregs[16], eip);
     #elif defined(__ia64__) /* Linux IA64 */
-    *((void**)&uc->uc_mcontext.sc_ip) = eip;
+    SET_VALUD_AT(uc->uc_mcontext.sc_ip, eip);
     #elif defined(__arm__) /* Linux ARM */
-    *((void**)&uc->uc_mcontext.arm_pc) = eip;
+    SET_VALUD_AT(uc->uc_mcontext.arm_pc, eip);
     #elif defined(__aarch64__) /* Linux AArch64 */
-    *((void**)&uc->uc_mcontext.pc) = eip;
+    SET_VALUD_AT(uc->uc_mcontext.pc, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__FreeBSD__)
     /* FreeBSD */
     #if defined(__i386__)
-    *((void**)&uc->uc_mcontext.mc_eip) = eip;
+    SET_VALUD_AT(uc->uc_mcontext.mc_eip, eip);
     #elif defined(__x86_64__)
-    *((void**)&uc->uc_mcontext.mc_rip) = eip;
+    SET_VALUD_AT(uc->uc_mcontext.mc_rip, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__OpenBSD__)
     /* OpenBSD */
     #if defined(__i386__)
-    *((void**)&uc->sc_eip) = eip;
+    SET_VALUD_AT(uc->sc_eip, eip);
     #elif defined(__x86_64__)
-    *((void**)&uc->sc_rip) = eip;
+    SET_VALUD_AT(uc->sc_rip, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__NetBSD__)
     #if defined(__i386__)
-    *((void**)&uc->uc_mcontext.__gregs[_REG_EIP]) = eip;
+    SET_VALUD_AT(uc->uc_mcontext.__gregs[_REG_EIP], eip);
     #elif defined(__x86_64__)
-    *((void**)&uc->uc_mcontext.__gregs[_REG_RIP]) = eip;
+    SET_VALUD_AT(uc->uc_mcontext.__gregs[_REG_RIP], eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__DragonFly__)
-    *((void**)&uc->uc_mcontext.mc_rip) = eip;
+    SET_VALUD_AT(uc->uc_mcontext.mc_rip, eip);
 #else
     NOT_SUPPORTED();
 #endif
