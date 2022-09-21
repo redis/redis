@@ -552,7 +552,8 @@ int doRIO(RIO *rio) {
     return ret ? SWAP_ERR_EXEC_RIO_FAIL : 0;
 }
 
-static void doNotify(swapRequest *req) {
+static void doNotify(swapRequest *req, int errcode) {
+    req->errcode = errcode;
     req->notify_cb(req, req->notify_pd);
 }
 
@@ -566,19 +567,19 @@ static inline int doSwapDelMeta(swapData *data) {
     return retval;
 }
 
-static int executeSwapDelRequest(swapRequest *req) {
-    int i, numkeys, retval = 0, action;
+static void executeSwapDelRequest(swapRequest *req) {
+    int i, numkeys, errcode = 0, action;
     int *cfs = NULL;
     sds *rawkeys = NULL;
     RIO _rio = {0}, *rio = &_rio;
     rocksdb_writebatch_t *wb;
     swapData *data = req->data;
 
-    retval = doSwapDelMeta(data);
-    DEBUG_MSGS_APPEND(req->msgs,"exec-del.meta","retval=%d",retval);
-    if (retval) goto end;
+    errcode = doSwapDelMeta(data);
+    DEBUG_MSGS_APPEND(req->msgs,"exec-del.meta","errcode=%d",errcode);
+    if (errcode) goto end;
 
-    if ((retval = swapDataEncodeKeys(data,req->intention,req->datactx,
+    if ((errcode = swapDataEncodeKeys(data,req->intention,req->datactx,
                 &action,&numkeys,&cfs,&rawkeys))) {
         goto end;
     }
@@ -610,19 +611,18 @@ static int executeSwapDelRequest(swapRequest *req) {
         zfree(rawkeys), rawkeys = NULL;
         zfree(cfs), cfs = NULL;
     } else {
-        retval = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
+        errcode = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
         goto end;
     }
 
     updateStatsSwapRIO(req, rio);
-    if ((retval = doRIO(rio))) {
+    if ((errcode = doRIO(rio))) {
         goto end;
     }
 
 end:
-    doNotify(req);
+    doNotify(req,errcode);
     RIODeinit(rio);
-    return retval;
 }
 
 
@@ -669,33 +669,33 @@ static long get_dir_size(char *dirname)
     return total_size;
 }
 
-static int executeCompactRange(swapRequest *req) {
+static void executeCompactRange(swapRequest *req) {
     char dir[ROCKS_DIR_MAX_LEN];
     snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocksdb_epoch);
     serverLog(LL_WARNING, "[rocksdb compact range before] dir(%s) size(%ld)", dir, get_dir_size(dir));
     rocksdb_compact_range(server.rocks->db, NULL, 0, NULL, 0);
     serverLog(LL_WARNING, "[rocksdb compact range after] dir(%s) size(%ld)", dir, get_dir_size(dir));
-    doNotify(req);
-    return 0;
+    doNotify(req,0);
 }
 
-static int executeGetRocksdbStats(swapRequest* req) {
+static void executeGetRocksdbStats(swapRequest* req) {
     req->finish_pd = rocksdb_property_value(server.rocks->db, "rocksdb.stats");
-    doNotify(req);
-    return 0;
+    doNotify(req,0);
 }
 
 
-static int executeRocksdbUtils(swapRequest *req) {
+static void executeRocksdbUtils(swapRequest *req) {
     switch(req->intention_flags) {
         case COMPACT_RANGE_TASK:
-            return executeCompactRange(req);
+            executeCompactRange(req);
+			break;
         case GET_ROCKSDB_STATS_TASK:
-            return executeGetRocksdbStats(req);
+            executeGetRocksdbStats(req);
+			break;
         default:
-            return SWAP_ERR_EXEC_UNEXPECTED_UTIL;
+            doNotify(req,SWAP_ERR_EXEC_UNEXPECTED_UTIL);
+			break;
     }
-    return 0;
 }
 
 static inline int doSwapOutMeta(swapData *data) {
@@ -711,14 +711,14 @@ static inline int doSwapOutMeta(swapData *data) {
     return retval;
 }
 
-static int executeSwapOutRequest(swapRequest *req) {
-    int i, numkeys, retval = 0, action, *cfs = NULL;
+static void executeSwapOutRequest(swapRequest *req) {
+    int i, numkeys, errcode = 0, action, *cfs = NULL;
     sds *rawkeys = NULL, *rawvals = NULL;
     RIO _rio = {0}, *rio = &_rio;
     rocksdb_writebatch_t *wb = NULL;
     swapData *data = req->data;
 
-    if ((retval = swapDataEncodeData(data,req->intention,req->datactx,
+    if ((errcode = swapDataEncodeData(data,req->intention,req->datactx,
                 &action,&numkeys,&cfs,&rawkeys,&rawvals))) {
         goto end;
     }
@@ -750,22 +750,22 @@ static int executeSwapOutRequest(swapRequest *req) {
         RIOInitWrite(rio, wb);
         // TODO confirm rawkeys leaked?
     } else {
-        retval = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
+        errcode = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
         goto end;
     }
 
     updateStatsSwapRIO(req,rio);
-    if ((retval = doRIO(rio))) {
+    if ((errcode = doRIO(rio))) {
         goto end;
     }
 
-    if ((retval = swapDataCleanObject(data,req->datactx))) {
+    if ((errcode = swapDataCleanObject(data,req->datactx))) {
         goto end;
     }
     DEBUG_MSGS_APPEND(req->msgs,"exec-out-cleanobject","ok");
 
     if (req->intention_flags & SWAP_EXEC_OUT_META) {
-        retval = doSwapOutMeta(data);
+        errcode = doSwapOutMeta(data);
 
 #ifdef SWAP_DEBUG
     objectMeta *object_meta = swapDataObjectMeta(data);
@@ -774,13 +774,13 @@ static int executeSwapOutRequest(swapRequest *req) {
             object_meta ? (ssize_t)object_meta->len : 0 );
 #endif
 
-        if (retval) goto end;
+        if (errcode) goto end;
     }
 
 end:
 
-    DEBUG_MSGS_APPEND(req->msgs,"exec-out-end","retval=%d",retval);
-    doNotify(req);
+    DEBUG_MSGS_APPEND(req->msgs,"exec-out-end","errcode=%d",errcode);
+    doNotify(req,errcode);
     if (cfs) zfree(cfs);
     if (rawkeys) {
         for (i = 0; i < numkeys; i++) {
@@ -795,7 +795,6 @@ end:
         zfree(rawvals);
     }
     RIODeinit(rio);
-    return retval;
 }
 
 static int doSwapIntentionDel(swapRequest *req, int numkeys, int *cfs, sds *rawkeys) {
@@ -818,14 +817,14 @@ static int doSwapIntentionDel(swapRequest *req, int numkeys, int *cfs, sds *rawk
     return retval;
 }
 
-static int executeSwapInRequest(swapRequest *req) {
+static void executeSwapInRequest(swapRequest *req) {
     robj *decoded;
-    int numkeys, retval, action, *cfs = NULL;
+    int numkeys, errcode, action, *cfs = NULL;
     sds *rawkeys = NULL;
     RIO _rio = {0}, *rio = &_rio;
     swapData *data = req->data;
 
-    if ((retval = swapDataEncodeKeys(data,req->intention,req->datactx,
+    if ((errcode = swapDataEncodeKeys(data,req->intention,req->datactx,
                 &action,&numkeys,&cfs,&rawkeys))) {
         goto end;
     }
@@ -834,20 +833,20 @@ static int executeSwapInRequest(swapRequest *req) {
 
     if (action == ROCKS_MULTIGET) {
         RIOInitMultiGet(rio,numkeys,cfs,rawkeys);
-        if ((retval = doRIO(rio))) {
+        if ((errcode = doRIO(rio))) {
             goto end;
         }
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-multiget",
                 "numkeys=%d,rio=ok", numkeys);
 
-        if ((retval = swapDataDecodeData(data,rio->multiget.numkeys,rio->multiget.cfs,
+        if ((errcode = swapDataDecodeData(data,rio->multiget.numkeys,rio->multiget.cfs,
                     rio->multiget.rawkeys,rio->multiget.rawvals,&decoded))) {
             goto end;
         }
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata","decoded=%p",(void*)decoded);
 
         if (req->intention_flags & SWAP_EXEC_IN_DEL) {
-            if ((retval = doSwapIntentionDel(req,numkeys,cfs,rawkeys))) {
+            if ((errcode = doSwapIntentionDel(req,numkeys,cfs,rawkeys))) {
                 goto end;
             }
 
@@ -856,14 +855,14 @@ static int executeSwapInRequest(swapRequest *req) {
              * to be deleted (requires IO again). so we delete this obselete
              * rocks-meta before command call so we don't have to check and delete
              * rocks-meta if key gets deleted. */
-            if ((retval = doSwapDelMeta(data))) {
+            if ((errcode = doSwapDelMeta(data))) {
                 goto end;
             }
         }
     } else if (action == ROCKS_GET) {
         serverAssert(numkeys == 1);
         RIOInitGet(rio, cfs[0], rawkeys[0]);
-        if ((retval = doRIO(rio))) {
+        if ((errcode = doRIO(rio))) {
             goto end;
         }
 
@@ -874,19 +873,19 @@ static int executeSwapInRequest(swapRequest *req) {
         sdsfree(rawval_repr);
 #endif
 
-        if ((retval = swapDataDecodeData(data,1,&rio->get.cf,&rio->get.rawkey,
+        if ((errcode = swapDataDecodeData(data,1,&rio->get.cf,&rio->get.rawkey,
                     &rio->get.rawval,&decoded))) {
             goto end;
         }
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata","decoded=%p",(void*)decoded);
 
         if (req->intention_flags & SWAP_EXEC_IN_DEL) {
-            if ((retval = doSwapIntentionDel(req,numkeys,cfs,rawkeys))) {
+            if ((errcode = doSwapIntentionDel(req,numkeys,cfs,rawkeys))) {
                 goto end;
             }
 
             /* see previous comment for details. */
-            if ((retval = doSwapDelMeta(data))) {
+            if ((errcode = doSwapDelMeta(data))) {
                 goto end;
             }
         }
@@ -896,13 +895,13 @@ static int executeSwapInRequest(swapRequest *req) {
     } else if (action == ROCKS_SCAN) {
         int *tmpcfs, i;
         RIOInitScan(rio,cfs[0],rawkeys[0]);
-        if ((retval = doRIO(rio))) {
+        if ((errcode = doRIO(rio))) {
             goto end;
         }
         tmpcfs = zmalloc(sizeof(int)*rio->scan.numkeys);
         for (i = 0; i < rio->scan.numkeys; i++) tmpcfs[i] = cfs[0];
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-scan","prefix=%s,rio=ok",rawkeys[0]);
-        if ((retval = swapDataDecodeData(data,rio->scan.numkeys,tmpcfs,rio->scan.rawkeys,
+        if ((errcode = swapDataDecodeData(data,rio->scan.numkeys,tmpcfs,rio->scan.rawkeys,
                     rio->scan.rawvals,&decoded))) {
             zfree(tmpcfs);
             goto end;
@@ -912,12 +911,12 @@ static int executeSwapInRequest(swapRequest *req) {
 
         if (req->intention_flags & SWAP_EXEC_IN_DEL) {
             //TODO FIXME use deleterange
-            if ((retval = doSwapIntentionDel(req,numkeys,cfs,rawkeys))) {
+            if ((errcode = doSwapIntentionDel(req,numkeys,cfs,rawkeys))) {
                 goto end;
             }
 
             /* see previous comment for details. */
-            if ((retval = doSwapDelMeta(data))) {
+            if ((errcode = doSwapDelMeta(data))) {
                 goto end;
             }
         }
@@ -927,7 +926,7 @@ static int executeSwapInRequest(swapRequest *req) {
     } else if (action == ROCKS_ITERATE) {
         int *tmpcfs, i;
         RIOInitIterate(rio,cfs[0],rawkeys[0],numkeys);
-        if ((retval = doRIO(rio))) {
+        if ((errcode = doRIO(rio))) {
             goto end;
         }
 
@@ -935,7 +934,7 @@ static int executeSwapInRequest(swapRequest *req) {
         for (i = 0; i < rio->iterate.numkeys; i++) tmpcfs[i] = cfs[0];
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-iterate","seek=%s,limit=%d,rio=ok",
                 rawkeys[0], numkeys);
-        if ((retval = swapDataDecodeData(data,rio->iterate.numkeys,tmpcfs,rio->iterate.rawkeys,
+        if ((errcode = swapDataDecodeData(data,rio->iterate.numkeys,tmpcfs,rio->iterate.rawkeys,
                     rio->iterate.rawvals,&decoded))) {
             zfree(tmpcfs);
             goto end;
@@ -947,7 +946,7 @@ static int executeSwapInRequest(swapRequest *req) {
         zfree(cfs);
         zfree(rawkeys);
     } else {
-        retval = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
+        errcode = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
         goto end;
     }
 
@@ -956,10 +955,9 @@ static int executeSwapInRequest(swapRequest *req) {
 
 end:
     updateStatsSwapRIO(req,rio);
-    DEBUG_MSGS_APPEND(req->msgs,"exec-in-end","retval=%d",retval);
-    doNotify(req);
+    DEBUG_MSGS_APPEND(req->msgs,"exec-in-end","errcode=%d",errcode);
+    doNotify(req,errcode);
     RIODeinit(rio);
-    return retval;
 }
 
 static inline int RIOGetNotFound(RIO *rio) {
@@ -1015,33 +1013,30 @@ static inline int swapRequestIsMetaType(swapRequest *req) {
 }
 
 static void executeSwapRequest(swapRequest *req) {
-    int retval = 0;
     serverAssert(req->errcode == 0);
 
     updateStatsSwapStart(req);
     /* do execute swap */ 
     switch (req->intention) {
+    case SWAP_NOP:
+        doNotify(req,req->errcode);
+        break;
     case SWAP_IN:
-        retval = executeSwapInRequest(req);
+        executeSwapInRequest(req);
         break;
     case SWAP_OUT:
-        retval = executeSwapOutRequest(req);
+        executeSwapOutRequest(req);
         break;
     case SWAP_DEL: 
-        retval = executeSwapDelRequest(req);
+        executeSwapDelRequest(req);
         break;
     case ROCKSDB_UTILS:
-        retval = executeRocksdbUtils(req);
-        break;
-    case SWAP_NOP:
-        doNotify(req);
+        executeRocksdbUtils(req);
         break;
     default:
-        doNotify(req);
-        retval = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
+        doNotify(req,SWAP_ERR_EXEC_UNEXPECTED_ACTION);
         break;
     }
-    req->errcode = retval;
 }
 
 static inline void swapRequestSetIntention(swapRequest *req, int intention,
@@ -1051,7 +1046,7 @@ static inline void swapRequestSetIntention(swapRequest *req, int intention,
 }
 
 void processSwapRequest(swapRequest *req) {
-    int retval = 0, intention;
+    int errcode = 0, intention;
     uint32_t intention_flags;
 
     if (!swapRequestIsMetaType(req)) {
@@ -1059,7 +1054,7 @@ void processSwapRequest(swapRequest *req) {
          return;
     }
 
-    if ((retval = swapRequestSwapInMeta(req))) {
+    if ((errcode = swapRequestSwapInMeta(req))) {
         goto end;
     }
 
@@ -1068,7 +1063,7 @@ void processSwapRequest(swapRequest *req) {
         goto end;
     }
 
-    if ((retval = swapDataAna(req->data,req->key_request,
+    if ((errcode = swapDataAna(req->data,req->key_request,
                     &intention,&intention_flags,req->datactx))) {
         goto end;
     }
@@ -1081,7 +1076,7 @@ void processSwapRequest(swapRequest *req) {
     return;
     
 end:
-    doNotify(req);
+    doNotify(req,errcode);
 
     return;
 }
