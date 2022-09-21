@@ -124,7 +124,7 @@ int setTypeRemove(robj *setobj, sds value) {
     } else if (setobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = setobj->ptr;
         unsigned char *p = lpFirst(lp);
-        serverAssert(p != NULL);
+        if (p == NULL) return 0;
         p = lpFind(lp, p, (unsigned char*)value, sdslen(value), 0);
         if (p != NULL) {
             lp = lpDelete(lp, p, NULL);
@@ -150,8 +150,7 @@ int setTypeIsMember(robj *subject, sds value) {
     } else if (subject->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = subject->ptr;
         unsigned char *p = lpFirst(lp);
-        serverAssert(p != NULL);
-        return lpFind(lp, p, (unsigned char*)value, sdslen(value), 0) != NULL;
+        return p && lpFind(lp, p, (unsigned char*)value, sdslen(value), 0);
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
         if (isSdsRepresentableAsLongLong(value,&llval) == C_OK) {
             return intsetFind((intset*)subject->ptr,llval);
