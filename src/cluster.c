@@ -5314,7 +5314,11 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_IP) {
         addReplyBulkCString(c, node->ip);
     } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_HOSTNAME) {
-        addReplyBulkCString(c, sdslen(node->hostname) != 0 ? node->hostname : "?");
+        if (sdslen(node->hostname) != 0) {
+            addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
+        } else {
+            addReplyBulkCString(c, "?");
+        }
     } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT) {
         addReplyNull(c);
     } else {
@@ -5340,7 +5344,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
         && sdslen(node->hostname) != 0)
     {
         addReplyBulkCString(c, "hostname");
-        addReplyBulkCString(c, node->hostname);
+        addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
         length++;
     }
     setDeferredMapLen(c, deflen, length);
@@ -5396,9 +5400,9 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     addReplyBulkCString(c, getPreferredEndpoint(node));
     reply_count++;
 
-    if (node->hostname) {
+    if (sdslen(node->hostname) != 0) {
         addReplyBulkCString(c, "hostname");
-        addReplyBulkCString(c, node->hostname);
+        addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
         reply_count++;
     }
 
