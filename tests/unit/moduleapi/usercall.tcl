@@ -25,8 +25,8 @@ start_server {tags {"modules usercall"}} {
 
         assert_equal [r usercall.reset_user] OK
         assert_equal [r usercall.add_to_acl "~* &* +@all -set"] OK
-        # off because module user / default value
-        assert_equal [r usercall.get_acl] "off ~* &* +@all -set"
+        # off and sanitize-payload because module user / default value
+        assert_equal [r usercall.get_acl] "off sanitize-payload ~* &* +@all -set"
 
         # doesn't fail for regular commands as just testing acl here
         assert_equal [r usercall.call_with_user_flag {} set x 10] OK
@@ -41,8 +41,8 @@ start_server {tags {"modules usercall"}} {
 
         assert_equal [r usercall.reset_user] OK
         assert_equal [r usercall.add_to_acl "~* &* +@all -set"] OK
-        # off because module user / default value
-        assert_equal [r usercall.get_acl] "off ~* &* +@all -set"
+        # off and sanitize-payload because module user / default value
+        assert_equal [r usercall.get_acl] "off sanitize-payload ~* &* +@all -set"
 
         # fails here as testing acl in rm call
         catch {r usercall.call_with_user_flag C set x 10} e
@@ -69,8 +69,8 @@ start_server {tags {"modules usercall"}} {
 
         assert_equal [r usercall.reset_user] OK
         assert_equal [r usercall.add_to_acl "~* &* +@all -set"] OK
-        # off because module user / default value
-        assert_equal [r usercall.get_acl] "off ~* &* +@all -set"
+        # off and sanitize-payload because module user / default value
+        assert_equal [r usercall.get_acl] "off sanitize-payload ~* &* +@all -set"
 
         # passes as not checking ACL
         assert_equal [r usercall.call_with_user_flag {} evalsha $sha_set 0] 1
