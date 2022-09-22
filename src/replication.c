@@ -1260,11 +1260,17 @@ void replconfCommand(client *c) {
  * It does a few things:
  * 1) Put the slave in ONLINE state.
  * 2) Update the count of "good replicas".
- * 3) Trigger the module event. */
+ * 3) Trigger the module event.
+ *
+ * the return value indicates that the replica should be disconnected.
+ * */
 int replicaPutOnline(client *slave) {
     if (slave->flags & CLIENT_REPL_RDBONLY) {
         slave->replstate = SLAVE_STATE_RDB_TRANSMITTED;
         /* The client asked for RDB only so we should close it ASAP */
+        serverLog(LL_NOTICE,
+                  "RDB transfer completed, rdb only replica (%s) should be disconnected asap",
+                  replicationGetSlaveName(slave));
         return 0;
     }
     slave->replstate = SLAVE_STATE_ONLINE;
@@ -1397,9 +1403,6 @@ void sendBulkToSlave(connection *conn) {
         slave->repldbfd = -1;
         connSetWriteHandler(slave->conn,NULL);
         if (!replicaPutOnline(slave)) {
-            serverLog(LL_NOTICE,
-                      "Close the connection with replica %s as RDB transfer is complete",
-                      replicationGetSlaveName(slave));
             freeClient(slave);
             return;
         }
@@ -1606,9 +1609,6 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                  * the RDB transfer with the start of the other replication
                  * data. */
                 if (!replicaPutOnline(slave)) {
-                    serverLog(LL_NOTICE,
-                              "Close the connection with replica %s as RDB transfer is complete",
-                              replicationGetSlaveName(slave));
                     freeClientAsync(slave);
                     continue;
                 }
