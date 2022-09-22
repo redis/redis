@@ -46,6 +46,7 @@
 #include <sys/mman.h>
 #endif
 
+void exitFromChild(int retcode);
 
 #ifdef __linux__
 static sds read_sysfs_line(char *path) {
@@ -291,7 +292,7 @@ int checkLinuxMadvFreeForkBug(sds *error_msg) {
             res = 0;
 
         ret = write(pipefd[1], &res, sizeof(res)); /* Assume success, ignore return value*/
-        exit(0);
+        exitFromChild(0);
     } else {
         /* Read the result from the child. */
         ret = read(pipefd[0], &res, sizeof(res));
