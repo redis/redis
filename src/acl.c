@@ -384,6 +384,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
     u->flags = USER_FLAG_DISABLED;
+    u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
     u->passwords = listCreate();
     listSetMatchMethod(u->passwords,ACLListMatchSds);
     listSetFreeMethod(u->passwords,ACLListFreeSds);
@@ -1146,6 +1147,8 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  * off          Disable the user: it's no longer possible to authenticate
  *              with this user, however the already authenticated connections
  *              will still work.
+ * skip-sanitize-payload    RESTORE dump-payload sanitization is skipped.
+ * sanitize-payload         RESTORE dump-payload is sanitized (default).
  * ><password>  Add this password to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
  *              This directive clears the "nopass" flag (see later).
@@ -1168,9 +1171,9 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  *              "nopass" status. After "resetpass" the user has no associated
  *              passwords and there is no way to authenticate without adding
  *              some password (or setting it as "nopass" later).
- * reset        Performs the following actions: resetpass, resetkeys, off,
- *              -@all. The user returns to the same state it has immediately
- *              after its creation.
+ * reset        Performs the following actions: resetpass, resetkeys, resetchannels,
+ *              allchannels (if acl-pubsub-default is set), off, clearselectors, -@all.
+ *              The user returns to the same state it has immediately after its creation.
  * (<options>)  Create a new selector with the options specified within the
  *              parentheses and attach it to the user. Each option should be
  *              space separated. The first character must be ( and the last
