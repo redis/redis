@@ -58,6 +58,11 @@ static void KeySpace_PostNotificationStringFreePD(void *pd) {
     RedisModule_FreeString(NULL, pd);
 }
 
+static void KeySpace_PostNotificationReadKey(RedisModuleCtx *ctx, void *pd) {
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "get", "!s", pd);
+    RedisModule_FreeCallReply(rep);
+}
+
 static void KeySpace_PostNotificationString(RedisModuleCtx *ctx, void *pd) {
     REDISMODULE_NOT_USED(ctx);
     RedisModuleCallReply* rep = RedisModule_Call(ctx, "incr", "!s", pd);
@@ -113,6 +118,22 @@ static int KeySpace_NotificationString(RedisModuleCtx *ctx, int type, const char
     }
 
     RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    return REDISMODULE_OK;
+}
+
+static int KeySpace_LazyExpireInsidePostNotificationJob(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+
+    if (strncmp(key_str, "read_", 5) != 0) {
+        return REDISMODULE_OK;
+    }
+
+    RedisModuleString *new_key = RedisModule_CreateString(NULL, key_str + 5, strlen(key_str) - 5);;
+    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationReadKey, new_key, KeySpace_PostNotificationStringFreePD);
     return REDISMODULE_OK;
 }
 
@@ -173,6 +194,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationString) != REDISMODULE_OK){
         return REDISMODULE_ERR;
     }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_LazyExpireInsidePostNotificationJob) != REDISMODULE_OK){
+            return REDISMODULE_ERR;
+        }
 
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_EXPIRED, KeySpace_NotificationExpired) != REDISMODULE_OK){
         return REDISMODULE_ERR;

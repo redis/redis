@@ -128,6 +128,30 @@ tags "modules" {
             r DEBUG SET-ACTIVE-EXPIRE 1
         } {OK} {needs:debug}
 
+        test {Test lazy expire inside post job notification} {
+            r flushall
+            r DEBUG SET-ACTIVE-EXPIRE 0
+            set repl [attach_to_replication_stream]
+
+            r set x 1
+            r pexpire x 1
+            after 10
+            assert_equal {OK} [r set read_x 1]
+
+            assert_replication_stream $repl {
+                {select *}
+                {set x 1}
+                {pexpireat x *}
+                {multi}
+                {set read_x 1}
+                {del x}
+                {incr expired}
+                {exec}
+            }
+            close_replication_stream $repl
+            r DEBUG SET-ACTIVE-EXPIRE 1
+        } {OK} {needs:debug}
+
         test {Test eviction} {
             r flushall
             set repl [attach_to_replication_stream]
