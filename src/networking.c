@@ -207,6 +207,7 @@ client *createClient(connection *conn) {
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
+    listInitNode(&c->clients_pending_write_node, c);
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     c->mem_usage_bucket = NULL;
@@ -255,7 +256,7 @@ void putClientInPendingWriteQueue(client *c) {
          * a system call. We'll only really install the write handler if
          * we'll not be able to write the whole reply at once. */
         c->flags |= CLIENT_PENDING_WRITE;
-        listAddNodeHead(server.clients_pending_write,c);
+        listLinkNodeHead(server.clients_pending_write, &c->clients_pending_write_node);
     }
 }
 
@@ -1439,9 +1440,9 @@ void unlinkClient(client *c) {
 
     /* Remove from the list of pending writes if needed. */
     if (c->flags & CLIENT_PENDING_WRITE) {
-        ln = listSearchKey(server.clients_pending_write,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients_pending_write,ln);
+        serverAssert(&c->clients_pending_write_node.next != NULL || 
+                     &c->clients_pending_write_node.prev != NULL);
+        listUnlinkNode(server.clients_pending_write, &c->clients_pending_write_node);
         c->flags &= ~CLIENT_PENDING_WRITE;
     }
 
@@ -1975,7 +1976,7 @@ int handleClientsWithPendingWrites(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
-        listDelNode(server.clients_pending_write,ln);
+        listUnlinkNode(server.clients_pending_write,ln);
 
         /* If a client is protected, don't do anything,
          * that may trigger write error or recreate handler. */
@@ -4156,7 +4157,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         /* Remove clients from the list of pending writes since
          * they are going to be closed ASAP. */
         if (c->flags & CLIENT_CLOSE_ASAP) {
-            listDelNode(server.clients_pending_write, ln);
+            listUnlinkNode(server.clients_pending_write, ln);
             continue;
         }
 
@@ -4215,7 +4216,9 @@ int handleClientsWithPendingWritesUsingThreads(void) {
             installClientWriteHandler(c);
         }
     }
-    listEmpty(server.clients_pending_write);
+    while(listLength(server.clients_pending_write) > 0) {
+        listUnlinkNode(server.clients_pending_write, server.clients_pending_write->head);
+    }
 
     /* Update processed count on server */
     server.stat_io_writes_processed += processed;
