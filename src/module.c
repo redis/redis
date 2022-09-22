@@ -7890,7 +7890,6 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
 void firePostKeySpaceJobs() {
     /* Avoid propagation of commands. */
     server.in_nested_call++;
-    unsigned long long i = 0;
     while (listLength(modulePostKeyspaceJobs) > 0) {
         listNode *ln = listFirst(modulePostKeyspaceJobs);
         RedisModulePostKeyspaceJob *job = listNodeValue(ln);
@@ -7900,12 +7899,7 @@ void firePostKeySpaceJobs() {
         moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
         selectDb(ctx.client, job->dbid);
 
-        if (i < server.max_post_notifications_jobs) {
-            job->callback(&ctx, job->pd);
-        } else if (i == server.max_post_notifications_jobs) {
-            serverLog(LL_WARNING,"Exceed max_post_notifications_jobs, will stop triggering any more post notifications jobs.");
-        }
-        ++i;
+        job->callback(&ctx, job->pd);
         if (job->free_pd) job->free_pd(job->pd);
 
         moduleFreeContext(&ctx);
@@ -7947,13 +7941,6 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationFu
 
     listAddNodeTail(modulePostKeyspaceJobs, job);
     return REDISMODULE_OK;
-}
-
-/* Set the max number of post notification jobs that will be trigger.
- * If this number reached, Redis will stop processing post notification
- * jobs for the current batch and will print a warning message to the log file. */
-void RM_SetMaxPostNotificationJobs(size_t val) {
-    server.max_post_notifications_jobs = val;
 }
 
 /* Get the configured bitmap of notify-keyspace-events (Could be used
@@ -12738,7 +12725,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
     REGISTER_API(AddPostNotificationJob);
-    REGISTER_API(SetMaxPostNotificationJobs);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
     REGISTER_API(GetClusterNodeInfo);

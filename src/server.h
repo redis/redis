@@ -1925,8 +1925,6 @@ struct redisServer {
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
     /* Local environment */
     char *locale_collate;
-
-    size_t max_post_notifications_jobs; /* The maximum amount of post notifications jobs that will be executed */
 };
 
 #define MAX_KEYS_BUFFER 256

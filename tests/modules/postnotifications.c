@@ -166,21 +166,6 @@ static int KeySpace_PostNotificationsAsyncSet(RedisModuleCtx *ctx, RedisModuleSt
     return REDISMODULE_OK;
 }
 
-static int KeySpace_SetMaxPostNotificationsJobs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 2)
-        return RedisModule_WrongArity(ctx);
-    long long val = 0;
-    if (RedisModule_StringToLongLong(argv[1], &val) != REDISMODULE_OK) {
-        return RedisModule_ReplyWithError(ctx, "ERR second argument must be a number");
-    }
-    if (val <= 0) {
-        return RedisModule_ReplyWithError(ctx, "ERR second argument must be a positive number");
-    }
-    RedisModule_SetMaxPostNotificationJobs(val);
-    RedisModule_ReplyWithCString(ctx, "OK");
-    return REDISMODULE_OK;
-}
-
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -209,11 +194,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx, "postnotification.async_set", KeySpace_PostNotificationsAsyncSet,
                                       "write", 0, 0, 0) == REDISMODULE_ERR){
-        return REDISMODULE_ERR;
-    }
-
-    if (RedisModule_CreateCommand(ctx, "postnotification.set_max_post_noitifcation_jobs", KeySpace_SetMaxPostNotificationsJobs,
-                                       "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 
