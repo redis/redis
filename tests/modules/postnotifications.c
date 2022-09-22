@@ -137,6 +137,26 @@ static int KeySpace_LazyExpireInsidePostNotificationJob(RedisModuleCtx *ctx, int
     return REDISMODULE_OK;
 }
 
+static int KeySpace_NestedNotification(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+
+    if (strncmp(key_str, "write_sync_", 11) != 0) {
+        return REDISMODULE_OK;
+    }
+
+    /* This test was only meant to check REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS.
+     * In general it is wrong and discourage to perform any writes inside a notification callback.  */
+    RedisModuleString *new_key = RedisModule_CreateString(NULL, key_str + 11, strlen(key_str) - 11);;
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "set", "!sc", new_key, "1");
+    RedisModule_FreeCallReply(rep);
+    RedisModule_FreeString(NULL, new_key);
+    return REDISMODULE_OK;
+}
+
 static void *KeySpace_PostNotificationsAsyncSetInner(void *arg) {
     RedisModuleBlockedClient *bc = arg;
     RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
@@ -176,13 +196,19 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
+    RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS);
+
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationString) != REDISMODULE_OK){
         return REDISMODULE_ERR;
     }
 
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_LazyExpireInsidePostNotificationJob) != REDISMODULE_OK){
-            return REDISMODULE_ERR;
-        }
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NestedNotification) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
 
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_EXPIRED, KeySpace_NotificationExpired) != REDISMODULE_OK){
         return REDISMODULE_ERR;

@@ -257,6 +257,12 @@ typedef uint64_t RedisModuleTimerID;
 /* Declare that the module can handle diskless async replication with RedisModule_SetModuleOptions. */
 #define REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD    (1<<2)
 
+ /* Declare that the module want to get nested key space notifications.
+  * By default, Redis will not fire key space notification that happened inside
+  * a key space notification callback. This flag allows to change this behavior
+  * and fire nested key space notifications. */
+ #define REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS    (1<<3)
+
 /* Definitions for RedisModule_SetCommandInfo. */
 
 typedef enum {

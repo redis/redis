@@ -122,6 +122,23 @@ tags "modules" {
             r DEBUG SET-ACTIVE-EXPIRE 1
         } {OK} {needs:debug}
 
+        test {Test nested keyspace notification} {
+            r flushall
+            set repl [attach_to_replication_stream]
+
+            assert_equal {OK} [r set write_sync_write_sync_x 1]
+
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {set x 1}
+                {set write_sync_x 1}
+                {set write_sync_write_sync_x 1}
+                {exec}
+            }
+            close_replication_stream $repl
+        }
+
         test {Test eviction} {
             r flushall
             set repl [attach_to_replication_stream]
