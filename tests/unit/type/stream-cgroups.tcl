@@ -741,6 +741,10 @@ start_server {
         assert_equal [r XPENDING x grp - + 10 Alice] {}
     }
 
+    test {XAUTOCLAIM with out of range count} {
+        assert_error {ERR COUNT*} {r XAUTOCLAIM x grp Bob 0 3-0 COUNT 8070450532247928833}
+    }
+
     test {XCLAIM with trimming} {
         r DEL x
         r config set stream-node-max-entries 2

@@ -1418,9 +1418,9 @@ void rewriteConfigUserOption(struct rewriteConfigState *state) {
         sds line = sdsnew("user ");
         line = sdscatsds(line,u->name);
         line = sdscatlen(line," ",1);
-        sds descr = ACLDescribeUser(u);
-        line = sdscatsds(line,descr);
-        sdsfree(descr);
+        robj *descr = ACLDescribeUser(u);
+        line = sdscatsds(line,descr->ptr);
+        decrRefCount(descr);
         rewriteConfigRewriteLine(state,"user",line,1);
     }
     raxStop(&ri);
