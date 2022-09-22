@@ -386,6 +386,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->flags = USER_FLAG_DISABLED;
     u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
     u->passwords = listCreate();
+    u->acl_string = NULL;
     listSetMatchMethod(u->passwords,ACLListMatchSds);
     listSetFreeMethod(u->passwords,ACLListFreeSds);
     listSetDupMethod(u->passwords,ACLListDupSds);
@@ -423,6 +424,10 @@ user *ACLCreateUnlinkedUser(void) {
  * will not remove the user from the Users global radix tree. */
 void ACLFreeUser(user *u) {
     sdsfree(u->name);
+    if (u->acl_string) {
+        decrRefCount(u->acl_string);
+        u->acl_string = NULL;
+    }
     listRelease(u->passwords);
     listRelease(u->selectors);
     zfree(u);
@@ -467,6 +472,14 @@ void ACLCopyUser(user *dst, user *src) {
     dst->passwords = listDup(src->passwords);
     dst->selectors = listDup(src->selectors);
     dst->flags = src->flags;
+    if (dst->acl_string) {
+        decrRefCount(dst->acl_string);
+    }
+    dst->acl_string = src->acl_string;
+    if (dst->acl_string) {
+        /* if src is NULL, we set it to NULL, if not, need to increment reference count */
+        incrRefCount(dst->acl_string);
+    }
 }
 
 /* Free all the users registered in the radix tree 'users' and free the
@@ -803,7 +816,12 @@ sds ACLDescribeSelector(aclSelector *selector) {
  * the ACLDescribeSelectorCommandRules() function. This is the function we call
  * when we want to rewrite the configuration files describing ACLs and
  * in order to show users with ACL LIST. */
-sds ACLDescribeUser(user *u) {
+robj *ACLDescribeUser(user *u) {
+    if (u->acl_string) {
+        incrRefCount(u->acl_string);
+        return u->acl_string;
+    }
+
     sds res = sdsempty();
 
     /* Flags. */
@@ -837,7 +855,12 @@ sds ACLDescribeUser(user *u) {
         }
         sdsfree(default_perm);
     }
-    return res;
+
+    u->acl_string = createObject(OBJ_STRING, res);
+    /* because we are returning it, have to increase count */
+    incrRefCount(u->acl_string);
+
+    return u->acl_string;
 }
 
 /* Get a command from the original command table, that is not affected
@@ -1211,6 +1234,12 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  * ECHILD: Attempt to allow a specific first argument of a subcommand
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
+    /* as we are changing the ACL, the old generated string is now invalid */
+    if (u->acl_string) {
+        decrRefCount(u->acl_string);
+        u->acl_string = NULL;
+    }
+
     if (oplen == -1) oplen = strlen(op);
     if (oplen == 0) return C_OK; /* Empty string is a no-operation. */
     if (!strcasecmp(op,"on")) {
@@ -1940,6 +1969,68 @@ sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *inval
     return acl_args;
 }
 
+/* takes an acl string already split on spaces and adds it to the given user
+ * if the user object is NULL, will create a user with the given username
+ *
+ * Returns an error as an sds string if the ACL string is not parsable
+ */
+sds ACLStringSetUser(user *u, sds username, sds *argv, int argc) {
+    serverAssert(u != NULL || username != NULL);
+
+    sds error = NULL;
+
+    int merged_argc = 0, invalid_idx = 0;
+    sds *acl_args = ACLMergeSelectorArguments(argv, argc, &merged_argc, &invalid_idx);
+
+    if (!acl_args) {
+        return sdscatfmt(sdsempty(),
+                         "Unmatched parenthesis in acl selector starting "
+                         "at '%s'.", (char *) argv[invalid_idx]);
+    }
+
+    /* Create a temporary user to validate and stage all changes against
+     * before applying to an existing user or creating a new user. If all
+     * arguments are valid the user parameters will all be applied together.
+     * If there are any errors then none of the changes will be applied. */
+    user *tempu = ACLCreateUnlinkedUser();
+    if (u) {
+        ACLCopyUser(tempu, u);
+    }
+
+    for (int j = 0; j < merged_argc; j++) {
+        if (ACLSetUser(tempu,acl_args[j],(ssize_t) sdslen(acl_args[j])) != C_OK) {
+            const char *errmsg = ACLSetUserStringError();
+            error = sdscatfmt(sdsempty(),
+                              "Error in ACL SETUSER modifier '%s': %s",
+                              (char*)acl_args[j], errmsg);
+            goto cleanup;
+        }
+    }
+
+    /* Existing pub/sub clients authenticated with the user may need to be
+     * disconnected if (some of) their channel permissions were revoked. */
+    if (u) {
+        ACLKillPubsubClientsIfNeeded(tempu, u);
+    }
+
+    /* Overwrite the user with the temporary user we modified above. */
+    if (!u) {
+        u = ACLCreateUser(username,sdslen(username));
+    }
+    serverAssert(u != NULL);
+
+    ACLCopyUser(u, tempu);
+
+cleanup:
+    ACLFreeUser(tempu);
+    for (int i = 0; i < merged_argc; i++) {
+        sdsfree(acl_args[i]);
+    }
+    zfree(acl_args);
+
+    return error;
+}
+
 /* Given an argument vector describing a user in the form:
  *
  *      user <username> ... ACL rules and flags ...
@@ -2255,9 +2346,9 @@ int ACLSaveToFile(const char *filename) {
         sds user = sdsnew("user ");
         user = sdscatsds(user,u->name);
         user = sdscatlen(user," ",1);
-        sds descr = ACLDescribeUser(u);
-        user = sdscatsds(user,descr);
-        sdsfree(descr);
+        robj *descr = ACLDescribeUser(u);
+        user = sdscatsds(user,descr->ptr);
+        decrRefCount(descr);
         acl = sdscatsds(acl,user);
         acl = sdscatlen(acl,"\n",1);
         sdsfree(user);
@@ -2590,50 +2681,18 @@ void aclCommand(client *c) {
             return;
         }
 
-        int merged_argc = 0, invalid_idx = 0;
+        user *u = ACLGetUserByName(username,sdslen(username));
+
         sds *temp_argv = zmalloc(c->argc * sizeof(sds));
         for (int i = 3; i < c->argc; i++) temp_argv[i-3] = c->argv[i]->ptr;
-        sds *acl_args = ACLMergeSelectorArguments(temp_argv, c->argc - 3, &merged_argc, &invalid_idx);
+
+        sds error = ACLStringSetUser(u, username, temp_argv, c->argc - 3);
         zfree(temp_argv);
-
-        if (!acl_args) {
-            addReplyErrorFormat(c,
-                "Unmatched parenthesis in acl selector starting "
-                "at '%s'.", (char *) c->argv[invalid_idx]->ptr);
-            return;
+        if (error == NULL) {
+            addReply(c,shared.ok);
+        } else {
+            addReplyErrorSdsSafe(c, error);
         }
-
-        /* Create a temporary user to validate and stage all changes against
-         * before applying to an existing user or creating a new user. If all
-         * arguments are valid the user parameters will all be applied together.
-         * If there are any errors then none of the changes will be applied. */
-        user *tempu = ACLCreateUnlinkedUser();
-        user *u = ACLGetUserByName(username,sdslen(username));
-        if (u) ACLCopyUser(tempu, u);
-
-        for (int j = 0; j < merged_argc; j++) {
-            if (ACLSetUser(tempu,acl_args[j],sdslen(acl_args[j])) != C_OK) {
-                const char *errmsg = ACLSetUserStringError();
-                addReplyErrorFormat(c,
-                    "Error in ACL SETUSER modifier '%s': %s",
-                    (char*)acl_args[j], errmsg);
-                goto setuser_cleanup;
-            }
-        }
-
-        /* Existing pub/sub clients authenticated with the user may need to be
-         * disconnected if (some of) their channel permissions were revoked. */
-        if (u) ACLKillPubsubClientsIfNeeded(tempu, u);
-
-        /* Overwrite the user with the temporary user we modified above. */
-        if (!u) u = ACLCreateUser(username,sdslen(username));
-        serverAssert(u != NULL);
-        ACLCopyUser(u, tempu);
-        addReply(c,shared.ok);
-setuser_cleanup:
-        ACLFreeUser(tempu);
-        for (int i = 0; i < merged_argc; i++) sdsfree(acl_args[i]);
-        zfree(acl_args);
         return;
     } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
         int deleted = 0;
@@ -2720,9 +2779,9 @@ setuser_cleanup:
                 sds config = sdsnew("user ");
                 config = sdscatsds(config,u->name);
                 config = sdscatlen(config," ",1);
-                sds descr = ACLDescribeUser(u);
-                config = sdscatsds(config,descr);
-                sdsfree(descr);
+                robj *descr = ACLDescribeUser(u);
+                config = sdscatsds(config,descr->ptr);
+                decrRefCount(descr);
                 addReplyBulkSds(c,config);
             }
         }
