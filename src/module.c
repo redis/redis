@@ -730,7 +730,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
          * outside of call() context (timers, events, etc.). */
         if (--server.module_ctx_nesting == 0) {
             if (!server.core_propagates)
-                propagatePendingCommands();
+                afterDatasetChange();
             if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -7759,7 +7759,7 @@ void moduleGILBeforeUnlock() {
      * (because it's u clear when thread safe contexts are
      * released we have to propagate here). */
     server.module_ctx_nesting--;
-    propagatePendingCommands();
+    afterDatasetChange();
 
     if (server.busy_module_yield_flags) {
         blockingOperationEnds();

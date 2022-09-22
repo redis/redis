@@ -170,13 +170,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
-    int keySpaceAll = RedisModule_GetKeyspaceNotificationFlagsAll();
-
-    if (!(keySpaceAll & REDISMODULE_NOTIFY_LOADED)) {
-        // REDISMODULE_NOTIFY_LOADED event are not supported we can not start
-        return REDISMODULE_ERR;
-    }
-
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationString) != REDISMODULE_OK){
         return REDISMODULE_ERR;
     }

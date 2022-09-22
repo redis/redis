@@ -3197,7 +3197,7 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
 /* Handle the alsoPropagate() API to handle commands that want to propagate
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
-void propagatePendingCommands() {
+static void propagatePendingCommands() {
     firePostKeySpaceJobs();
     if (server.also_propagate.numops == 0)
         return;
@@ -3232,6 +3232,11 @@ void propagatePendingCommands() {
     }
 
     redisOpArrayFree(&server.also_propagate);
+}
+
+void afterDatasetChange() {
+    firePostKeySpaceJobs();
+    propagatePendingCommands();
 }
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).
@@ -3551,7 +3556,7 @@ void afterCommand(client *c) {
          * Should be done before trackingHandlePendingKeyInvalidations so that we
          * reply to client before invalidating cache (makes more sense) */
         if (server.core_propagates)
-            propagatePendingCommands();
+            afterDatasetChange();
         /* Flush pending invalidation messages only when we are not in nested call.
          * So the messages are not interleaved with transaction response. */
         trackingHandlePendingKeyInvalidations();
