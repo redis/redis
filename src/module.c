@@ -5979,8 +5979,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Check if the user can run this command according to the current
      * ACLs.
      *
-     * If RedisModule_SetContextModuleUser has set a user, uses that user, otherwise
-     * uses the attached client's user.  If there is no attached client user and no manually
+     * If RM_SetContextModuleUser has set a user, that user is used, otherwise
+     * use the attached client's user. If there is no attached client user and no manually
      * set user, an error will be returned */
     if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
         int acl_errpos;
@@ -8709,7 +8709,7 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
 }
 
 /* Sets the permission of a user with a complete ACL string, such as one
- * would use on the redis ACL SETUSER command line API.  This differs from
+ * would use on the redis ACL SETUSER command line API. This differs from
  * RM_SetModuleUserACL, which only takes single ACL operations at a time.
  *
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR on failure
