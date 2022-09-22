@@ -1132,28 +1132,28 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     return NULL;\
 } while(0)
 #define GET_SET_RETURN(target_var, new_val) do {\
-    void *old_val = (void*)add; \
-    if (val) { \
-        void **temp = (void**)&add; \
-        *temp = val; \
+    void *old_val = (void*)target_var; \
+    if (new_val) { \
+        void **temp = (void**)&target_var; \
+        *temp = new_val; \
     } \
     return old_val; \
 } while(0)
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
     /* OSX < 10.6 */
     #if defined(__x86_64__)
-    GET_SET_VALUD_AT(uc->uc_mcontext->__ss.__rip, eip);
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__rip, eip);
     #elif defined(__i386__)
-    GET_SET_VALUD_AT(uc->uc_mcontext->__ss.__eip, eip);
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__eip, eip);
     #else
-    GET_SET_VALUD_AT(uc->uc_mcontext->__ss.__srr0, eip);
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__srr0, eip);
     #endif
 #elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
     /* OSX >= 10.6 */
     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
-    GET_SET_VALUD_AT(uc->uc_mcontext->__ss.__rip, eip);
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__rip, eip);
     #elif defined(__i386__)
-    GET_SET_VALUD_AT(uc->uc_mcontext->__ss.__eip, eip);
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__eip, eip);
     #else
     /* OSX ARM64 */
     void *old_val = (void*)arm_thread_state64_get_pc(uc->uc_mcontext->__ss);
@@ -1165,46 +1165,46 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
 #elif defined(__linux__)
     /* Linux */
     #if defined(__i386__) || ((defined(__X86_64__) || defined(__x86_64__)) && defined(__ILP32__))
-    GET_SET_VALUD_AT(uc->uc_mcontext.gregs[14], eip);
+    GET_SET_RETURN(uc->uc_mcontext.gregs[14], eip);
     #elif defined(__X86_64__) || defined(__x86_64__)
-    GET_SET_VALUD_AT(uc->uc_mcontext.gregs[16], eip);
+    GET_SET_RETURN(uc->uc_mcontext.gregs[16], eip);
     #elif defined(__ia64__) /* Linux IA64 */
-    GET_SET_VALUD_AT(uc->uc_mcontext.sc_ip, eip);
+    GET_SET_RETURN(uc->uc_mcontext.sc_ip, eip);
     #elif defined(__arm__) /* Linux ARM */
-    GET_SET_VALUD_AT(uc->uc_mcontext.arm_pc, eip);
+    GET_SET_RETURN(uc->uc_mcontext.arm_pc, eip);
     #elif defined(__aarch64__) /* Linux AArch64 */
-    GET_SET_VALUD_AT(uc->uc_mcontext.pc, eip);
+    GET_SET_RETURN(uc->uc_mcontext.pc, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__FreeBSD__)
     /* FreeBSD */
     #if defined(__i386__)
-    GET_SET_VALUD_AT(uc->uc_mcontext.mc_eip, eip);
+    GET_SET_RETURN(uc->uc_mcontext.mc_eip, eip);
     #elif defined(__x86_64__)
-    GET_SET_VALUD_AT(uc->uc_mcontext.mc_rip, eip);
+    GET_SET_RETURN(uc->uc_mcontext.mc_rip, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__OpenBSD__)
     /* OpenBSD */
     #if defined(__i386__)
-    GET_SET_VALUD_AT(uc->sc_eip, eip);
+    GET_SET_RETURN(uc->sc_eip, eip);
     #elif defined(__x86_64__)
-    GET_SET_VALUD_AT(uc->sc_rip, eip);
+    GET_SET_RETURN(uc->sc_rip, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__NetBSD__)
     #if defined(__i386__)
-    GET_SET_VALUD_AT(uc->uc_mcontext.__gregs[_REG_EIP], eip);
+    GET_SET_RETURN(uc->uc_mcontext.__gregs[_REG_EIP], eip);
     #elif defined(__x86_64__)
-    GET_SET_VALUD_AT(uc->uc_mcontext.__gregs[_REG_RIP], eip);
+    GET_SET_RETURN(uc->uc_mcontext.__gregs[_REG_RIP], eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__DragonFly__)
-    GET_SET_VALUD_AT(uc->uc_mcontext.mc_rip, eip);
+    GET_SET_RETURN(uc->uc_mcontext.mc_rip, eip);
 #else
     NOT_SUPPORTED();
 #endif
