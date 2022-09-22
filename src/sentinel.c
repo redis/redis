@@ -834,7 +834,7 @@ void sentinelRunPendingScripts(void) {
         if (sj->start_time && sj->start_time > now) continue;
 
         sj->flags |= SENTINEL_SCRIPT_RUNNING;
-        sj->start_time = now;
+        sj->start_time = mstime();
         sj->retry_num++;
         pid = fork();
 
@@ -1015,7 +1015,6 @@ void sentinelCallClientReconfScript(sentinelRedisInstance *master, int role, cha
 /* Create a not yet connected link object. */
 instanceLink *createInstanceLink(void) {
     instanceLink *link = zmalloc(sizeof(*link));
-    mstime_t now = mstime();
 
     link->refcount = 1;
     link->disconnected = 1;
@@ -1030,10 +1029,10 @@ instanceLink *createInstanceLink(void) {
      * a connection with the node, nor we sent a ping.
      * This is useful to detect a timeout in case we'll not be able to connect
      * with the node at all. */
-    link->act_ping_time = now;
+    link->act_ping_time = mstime();
     link->last_ping_time = 0;
-    link->last_avail_time = now;
-    link->last_pong_time = now;
+    link->last_avail_time = mstime();
+    link->last_pong_time = mstime();
     return link;
 }
 
@@ -1314,8 +1313,6 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
         return NULL;
     }
 
-    mstime_t now = mstime();
-
     /* Create the instance object. */
     ri = zmalloc(sizeof(*ri));
     /* Note that all the instances are started in the disconnected state,
@@ -1326,9 +1323,9 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->config_epoch = 0;
     ri->addr = addr;
     ri->link = createInstanceLink();
-    ri->last_pub_time = now;
-    ri->last_hello_time = now;
-    ri->last_master_down_reply_time = now;
+    ri->last_pub_time = mstime();
+    ri->last_hello_time = mstime();
+    ri->last_master_down_reply_time = mstime();
     ri->s_down_since_time = 0;
     ri->o_down_since_time = 0;
     ri->down_after_period = master ? master->down_after_period : sentinel_default_down_after;
@@ -1367,8 +1364,8 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
 
     /* Role */
     ri->role_reported = ri->flags & (SRI_MASTER|SRI_SLAVE);
-    ri->role_reported_time = now;
-    ri->slave_conf_change_time = now;
+    ri->role_reported_time = mstime();
+    ri->slave_conf_change_time = mstime();
 
     /* Add into the right table. */
     dictAdd(table, ri->name, ri);
@@ -1532,8 +1529,6 @@ sentinelRedisInstance *sentinelGetMasterByName(char *name) {
 
 #define SENTINEL_RESET_NO_SENTINELS (1<<0)
 void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
-    mstime_t now = mstime();
-
     serverAssert(ri->flags & SRI_MASTER);
     dictRelease(ri->slaves);
     ri->slaves = dictCreate(&instancesDictType);
@@ -1556,11 +1551,11 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     sdsfree(ri->slave_master_host);
     ri->runid = NULL;
     ri->slave_master_host = NULL;
-    ri->link->act_ping_time = now;
+    ri->link->act_ping_time = mstime();
     ri->link->last_ping_time = 0;
-    ri->link->last_avail_time = now;
-    ri->link->last_pong_time = now;
-    ri->role_reported_time = now;
+    ri->link->last_avail_time = mstime();
+    ri->link->last_pong_time = mstime();
+    ri->role_reported_time = mstime();
     ri->role_reported = SRI_MASTER;
     if (flags & SENTINEL_GENERATE_EVENT)
         sentinelEvent(LL_WARNING,"+reset-master",ri,"%@");
@@ -2441,7 +2436,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
             instanceLinkCloseConnection(link,link->cc);
         } else {
             link->pending_commands = 0;
-            link->cc_conn_time = now;
+            link->cc_conn_time = mstime();
             link->cc->data = link;
             redisAeAttach(server.el,link->cc);
             redisAsyncSetConnectCallback(link->cc,
@@ -2470,7 +2465,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
             instanceLinkCloseConnection(link,link->pc);
         } else {
             int retval;
-            link->pc_conn_time = now;
+            link->pc_conn_time = mstime();
             link->pc->data = link;
             redisAeAttach(server.el,link->pc);
             redisAsyncSetConnectCallback(link->pc,
@@ -2518,7 +2513,6 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     sds *lines;
     int numlines, j;
     int role = 0;
-    mstime_t now = mstime();
 
     /* cache full INFO output for instance */
     sdsfree(ri->info);
@@ -2544,7 +2538,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
                     if (ri->flags & SRI_MASTER && ri->master_reboot_down_after_period != 0) {
                         ri->flags |= SRI_MASTER_REBOOT;
-                        ri->master_reboot_since_time = now;
+                        ri->master_reboot_since_time = mstime();
                     }
 
                     sdsfree(ri->runid);
@@ -2612,7 +2606,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 {
                     sdsfree(ri->slave_master_host);
                     ri->slave_master_host = sdsnew(l+12);
-                    ri->slave_conf_change_time = now;
+                    ri->slave_conf_change_time = mstime();
                 }
             }
 
@@ -2622,7 +2616,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
                 if (ri->slave_master_port != slave_master_port) {
                     ri->slave_master_port = slave_master_port;
-                    ri->slave_conf_change_time = now;
+                    ri->slave_conf_change_time = mstime();
                 }
             }
 
@@ -2647,7 +2641,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 ri->replica_announced = atoi(l+18);
         }
     }
-    ri->info_refresh = now;
+    ri->info_refresh = mstime();
     sdsfreesplitres(lines,numlines);
 
     /* ---------------------------- Acting half -----------------------------
@@ -2656,9 +2650,9 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Remember when the role changed. */
     if (role != ri->role_reported) {
-        ri->role_reported_time = now;
+        ri->role_reported_time = mstime();
         ri->role_reported = role;
-        if (role == SRI_SLAVE) ri->slave_conf_change_time = now;
+        if (role == SRI_SLAVE) ri->slave_conf_change_time = mstime();
         /* Log the event with +role-change if the new role is coherent or
          * with -role-change if there is a mismatch with the current config. */
         sentinelEvent(LL_VERBOSE,
@@ -2695,7 +2689,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
              * a newer one already available). */
             ri->master->config_epoch = ri->master->failover_epoch;
             ri->master->failover_state = SENTINEL_FAILOVER_STATE_RECONF_SLAVES;
-            ri->master->failover_state_change_time = now;
+            ri->master->failover_state_change_time = mstime();
             sentinelFlushConfig();
             sentinelEvent(LL_WARNING,"+promoted-slave",ri,"%@");
             if (sentinel.simfailure_flags &
@@ -2715,7 +2709,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             if (!(ri->flags & SRI_PROMOTED) &&
                  sentinelMasterLooksSane(ri->master) &&
                  sentinelRedisInstanceNoDownFor(ri,wait_time) &&
-                 now - ri->role_reported_time > wait_time)
+                 mstime() - ri->role_reported_time > wait_time)
             {
                 int retval = sentinelSendSlaveOf(ri,ri->master->addr);
                 if (retval == C_OK)
@@ -2736,7 +2730,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
          * into a slave. */
         if (sentinelMasterLooksSane(ri->master) &&
             sentinelRedisInstanceNoDownFor(ri,wait_time) &&
-            now - ri->slave_conf_change_time > wait_time)
+            mstime() - ri->slave_conf_change_time > wait_time)
         {
             int retval = sentinelSendSlaveOf(ri,ri->master->addr);
             if (retval == C_OK)
@@ -2803,7 +2797,6 @@ void sentinelPingReplyCallback(redisAsyncContext *c, void *reply, void *privdata
     if (!reply || !link) return;
     link->pending_commands--;
     r = reply;
-    mstime_t now = mstime();
 
     if (r->type == REDIS_REPLY_STATUS ||
         r->type == REDIS_REPLY_ERROR) {
@@ -2813,7 +2806,7 @@ void sentinelPingReplyCallback(redisAsyncContext *c, void *reply, void *privdata
             strncmp(r->str,"LOADING",7) == 0 ||
             strncmp(r->str,"MASTERDOWN",10) == 0)
         {
-            link->last_avail_time = now;
+            link->last_avail_time = mstime();
             link->act_ping_time = 0; /* Flag the pong as received. */
 
             if (ri->flags & SRI_MASTER_REBOOT && strncmp(r->str,"PONG",4) == 0)
@@ -2837,7 +2830,7 @@ void sentinelPingReplyCallback(redisAsyncContext *c, void *reply, void *privdata
             }
         }
     }
-    link->last_pong_time = now;
+    link->last_pong_time = mstime();
 }
 
 /* This is called when we get the reply about the PUBLISH command we send
@@ -3297,7 +3290,6 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     char *flags = sdsempty();
     void *mbl;
     int fields = 0;
-    mstime_t now = mstime();
 
     mbl = addReplyDeferredLen(c);
 
@@ -3355,26 +3347,26 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
 
     addReplyBulkCString(c,"last-ping-sent");
     addReplyBulkLongLong(c,
-        ri->link->act_ping_time ? (now - ri->link->act_ping_time) : 0);
+        ri->link->act_ping_time ? (mstime() - ri->link->act_ping_time) : 0);
     fields++;
 
     addReplyBulkCString(c,"last-ok-ping-reply");
-    addReplyBulkLongLong(c,now - ri->link->last_avail_time);
+    addReplyBulkLongLong(c,mstime() - ri->link->last_avail_time);
     fields++;
 
     addReplyBulkCString(c,"last-ping-reply");
-    addReplyBulkLongLong(c,now - ri->link->last_pong_time);
+    addReplyBulkLongLong(c,mstime() - ri->link->last_pong_time);
     fields++;
 
     if (ri->flags & SRI_S_DOWN) {
         addReplyBulkCString(c,"s-down-time");
-        addReplyBulkLongLong(c,now - ri->s_down_since_time);
+        addReplyBulkLongLong(c,mstime()-ri->s_down_since_time);
         fields++;
     }
 
     if (ri->flags & SRI_O_DOWN) {
         addReplyBulkCString(c,"o-down-time");
-        addReplyBulkLongLong(c,now - ri->o_down_since_time);
+        addReplyBulkLongLong(c,mstime()-ri->o_down_since_time);
         fields++;
     }
 
@@ -3386,7 +3378,7 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     if (ri->flags & (SRI_MASTER|SRI_SLAVE)) {
         addReplyBulkCString(c,"info-refresh");
         addReplyBulkLongLong(c,
-            ri->info_refresh ? (now - ri->info_refresh) : 0);
+            ri->info_refresh ? (mstime() - ri->info_refresh) : 0);
         fields++;
 
         addReplyBulkCString(c,"role-reported");
@@ -3395,7 +3387,7 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
         fields++;
 
         addReplyBulkCString(c,"role-reported-time");
-        addReplyBulkLongLong(c,now - ri->role_reported_time);
+        addReplyBulkLongLong(c,mstime() - ri->role_reported_time);
         fields++;
     }
 
@@ -3475,7 +3467,7 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     /* Only sentinels */
     if (ri->flags & SRI_SENTINEL) {
         addReplyBulkCString(c,"last-hello-message");
-        addReplyBulkLongLong(c,now - ri->last_hello_time);
+        addReplyBulkLongLong(c,mstime() - ri->last_hello_time);
         fields++;
 
         addReplyBulkCString(c,"voted-leader");
@@ -4429,12 +4421,11 @@ void sentinelPublishCommand(client *c) {
 /* Is this instance down from our point of view? */
 void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
     mstime_t elapsed = 0;
-    mstime_t now = mstime();
 
     if (ri->link->act_ping_time)
-        elapsed = now - ri->link->act_ping_time;
+        elapsed = mstime() - ri->link->act_ping_time;
     else if (ri->link->disconnected)
-        elapsed = now - ri->link->last_avail_time;
+        elapsed = mstime() - ri->link->last_avail_time;
 
     /* Check if we are in need for a reconnection of one of the
      * links, because we are detecting low activity.
@@ -4443,13 +4434,13 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
      *    than SENTINEL_MIN_LINK_RECONNECT_PERIOD, but still we have a
      *    pending ping for more than half the timeout. */
     if (ri->link->cc &&
-        (now - ri->link->cc_conn_time) >
+        (mstime() - ri->link->cc_conn_time) >
         sentinel_min_link_reconnect_period &&
         ri->link->act_ping_time != 0 && /* There is a pending ping... */
         /* The pending ping is delayed, and we did not receive
          * error replies as well. */
-        (now - ri->link->act_ping_time) > (ri->down_after_period/2) &&
-        (now - ri->link->last_pong_time) > (ri->down_after_period/2))
+        (mstime() - ri->link->act_ping_time) > (ri->down_after_period/2) &&
+        (mstime() - ri->link->last_pong_time) > (ri->down_after_period/2))
     {
         instanceLinkCloseConnection(ri->link,ri->link->cc);
     }
@@ -4460,9 +4451,9 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
      *    SENTINEL_PUBLISH_PERIOD * 3.
      */
     if (ri->link->pc &&
-        (now - ri->link->pc_conn_time) >
+        (mstime() - ri->link->pc_conn_time) >
          sentinel_min_link_reconnect_period &&
-        (now - ri->link->pc_last_activity) > (sentinel_publish_period*3))
+        (mstime() - ri->link->pc_last_activity) > (sentinel_publish_period*3))
     {
         instanceLinkCloseConnection(ri->link,ri->link->pc);
     }
@@ -4476,15 +4467,15 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
     if (elapsed > ri->down_after_period ||
         (ri->flags & SRI_MASTER &&
          ri->role_reported == SRI_SLAVE &&
-         now - ri->role_reported_time >
+         mstime() - ri->role_reported_time >
           (ri->down_after_period+sentinel_info_period*2)) ||
           (ri->flags & SRI_MASTER_REBOOT && 
-           now-ri->master_reboot_since_time > ri->master_reboot_down_after_period))
+           mstime()-ri->master_reboot_since_time > ri->master_reboot_down_after_period))
     {
         /* Is subjectively down */
         if ((ri->flags & SRI_S_DOWN) == 0) {
             sentinelEvent(LL_WARNING,"+sdown",ri,"%@");
-            ri->s_down_since_time = now;
+            ri->s_down_since_time = mstime();
             ri->flags |= SRI_S_DOWN;
         }
     } else {
@@ -4841,7 +4832,6 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, const sentinelAddr *addr) {
 /* Setup the master state to start a failover. */
 void sentinelStartFailover(sentinelRedisInstance *master) {
     serverAssert(master->flags & SRI_MASTER);
-    mstime_t now = mstime();
 
     master->failover_state = SENTINEL_FAILOVER_STATE_WAIT_START;
     master->flags |= SRI_FAILOVER_IN_PROGRESS;
@@ -4849,8 +4839,8 @@ void sentinelStartFailover(sentinelRedisInstance *master) {
     sentinelEvent(LL_WARNING,"+new-epoch",master,"%llu",
         (unsigned long long) sentinel.current_epoch);
     sentinelEvent(LL_WARNING,"+try-failover",master,"%@");
-    master->failover_start_time = now+rand()%SENTINEL_MAX_DESYNC;
-    master->failover_state_change_time = now;
+    master->failover_start_time = mstime()+rand()%SENTINEL_MAX_DESYNC;
+    master->failover_state_change_time = mstime();
 }
 
 /* This function checks if there are the conditions to start the failover,
@@ -5003,7 +4993,6 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
 void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     char *leader;
     int isleader;
-    mstime_t now = mstime();
 
     /* Check if we are the leader for the failover epoch. */
     leader = sentinelGetLeader(ri, ri->failover_epoch);
@@ -5020,7 +5009,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
         if (election_timeout > ri->failover_timeout)
             election_timeout = ri->failover_timeout;
         /* Abort the failover if I'm not the leader after some time. */
-        if (now - ri->failover_start_time > election_timeout) {
+        if (mstime() - ri->failover_start_time > election_timeout) {
             sentinelEvent(LL_WARNING,"-failover-abort-not-elected",ri,"%@");
             sentinelAbortFailover(ri);
         }
@@ -5030,7 +5019,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     if (sentinel.simfailure_flags & SENTINEL_SIMFAILURE_CRASH_AFTER_ELECTION)
         sentinelSimFailureCrash();
     ri->failover_state = SENTINEL_FAILOVER_STATE_SELECT_SLAVE;
-    ri->failover_state_change_time = now;
+    ri->failover_state_change_time = mstime();
     sentinelEvent(LL_WARNING,"+failover-state-select-slave",ri,"%@");
 }
 
@@ -5055,13 +5044,12 @@ void sentinelFailoverSelectSlave(sentinelRedisInstance *ri) {
 
 void sentinelFailoverSendSlaveOfNoOne(sentinelRedisInstance *ri) {
     int retval;
-    mstime_t now = mstime();
 
     /* We can't send the command to the promoted slave if it is now
      * disconnected. Retry again and again with this state until the timeout
      * is reached, then abort the failover. */
     if (ri->promoted_slave->link->disconnected) {
-        if (now - ri->failover_state_change_time > ri->failover_timeout) {
+        if (mstime() - ri->failover_state_change_time > ri->failover_timeout) {
             sentinelEvent(LL_WARNING,"-failover-abort-slave-timeout",ri,"%@");
             sentinelAbortFailover(ri);
         }
@@ -5077,7 +5065,7 @@ void sentinelFailoverSendSlaveOfNoOne(sentinelRedisInstance *ri) {
     sentinelEvent(LL_NOTICE, "+failover-state-wait-promotion",
         ri->promoted_slave,"%@");
     ri->failover_state = SENTINEL_FAILOVER_STATE_WAIT_PROMOTION;
-    ri->failover_state_change_time = now;
+    ri->failover_state_change_time = mstime();
 }
 
 /* We actually wait for promotion indirectly checking with INFO when the
@@ -5095,8 +5083,7 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
     int not_reconfigured = 0, timeout = 0;
     dictIterator *di;
     dictEntry *de;
-    mstime_t now = mstime();
-    mstime_t elapsed = now - master->failover_state_change_time;
+    mstime_t elapsed = mstime() - master->failover_state_change_time;
 
     /* We can't consider failover finished if the promoted slave is
      * not reachable. */
@@ -5125,7 +5112,7 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
     if (not_reconfigured == 0) {
         sentinelEvent(LL_WARNING,"+failover-end",master,"%@");
         master->failover_state = SENTINEL_FAILOVER_STATE_UPDATE_CONFIG;
-        master->failover_state_change_time = now;
+        master->failover_state_change_time = mstime();
     }
 
     /* If I'm the leader it is a good idea to send a best effort SLAVEOF
@@ -5359,10 +5346,10 @@ void sentinelCheckTiltCondition(void) {
 
     if (delta < 0 || delta > sentinel_tilt_trigger) {
         sentinel.tilt = 1;
-        sentinel.tilt_start_time = now;
+        sentinel.tilt_start_time = mstime();
         sentinelEvent(LL_WARNING,"+tilt",NULL,"#tilt mode entered");
     }
-    sentinel.previous_time = now;
+    sentinel.previous_time = mstime();
 }
 
 void sentinelTimer(void) {
