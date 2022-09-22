@@ -24,7 +24,7 @@ int call_with_user_flag(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return RedisModule_WrongArity(ctx);
     }
 
-    RedisModule_SetContextModuleUser(ctx, user);
+    RedisModule_SetContextUser(ctx, user);
 
     /* Append Ev to the provided flags. */
     RedisModuleString *flags = RedisModule_CreateStringFromString(ctx, argv[1]);

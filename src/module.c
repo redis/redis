@@ -5624,7 +5624,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
 }
 
 /* Modifies the user that RM_Call will use (e.g. for ACL checks) */
-void RM_SetContextModuleUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
+void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     ctx->user = user;
 }
 
@@ -5753,9 +5753,9 @@ fmterr:
  *              probably used when you want to pass the reply directly to the client.
  *     * `C` -- Run a command as the user attached to the context.
  *              User is either attached automatically via the client that directly
- *              issued the command and created the context or via RM_SetContextModuleUser.
+ *              issued the command and created the context or via RM_SetContextUser.
  *              If the context is not directly created by an issued command (such as a
- *              background context and no user was set on it via RM_SetContextModuleUser,
+ *              background context and no user was set on it via RM_SetContextUser,
  *              RM_Call will fail.
  *              Checks if the command can be executed according to ACL rules and causes
  *              the command to run as the determined user, so that any future user
@@ -5979,7 +5979,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Check if the user can run this command according to the current
      * ACLs.
      *
-     * If RM_SetContextModuleUser has set a user, that user is used, otherwise
+     * If RM_SetContextUser has set a user, that user is used, otherwise
      * use the attached client's user. If there is no attached client user and no manually
      * set user, an error will be returned */
     if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
@@ -12792,7 +12792,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Scan);
     REGISTER_API(ScanKey);
     REGISTER_API(CreateModuleUser);
-    REGISTER_API(SetContextModuleUser);
+    REGISTER_API(SetContextUser);
     REGISTER_API(SetModuleUserACL);
     REGISTER_API(SetModuleUserACLString);
     REGISTER_API(GetModuleUserACLString);
