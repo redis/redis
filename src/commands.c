@@ -229,10 +229,7 @@ struct redisCommandArg SETBIT_Args[] = {
 #define CLUSTER_ADDSLOTS_History NULL
 
 /* CLUSTER ADDSLOTS tips */
-const char *CLUSTER_ADDSLOTS_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_ADDSLOTS_tips NULL
 
 /* CLUSTER ADDSLOTS argument table */
 struct redisCommandArg CLUSTER_ADDSLOTS_Args[] = {
@@ -246,10 +243,7 @@ struct redisCommandArg CLUSTER_ADDSLOTS_Args[] = {
 #define CLUSTER_ADDSLOTSRANGE_History NULL
 
 /* CLUSTER ADDSLOTSRANGE tips */
-const char *CLUSTER_ADDSLOTSRANGE_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_ADDSLOTSRANGE_tips NULL
 
 /* CLUSTER ADDSLOTSRANGE range argument table */
 struct redisCommandArg CLUSTER_ADDSLOTSRANGE_range_Subargs[] = {
@@ -298,10 +292,7 @@ struct redisCommandArg CLUSTER_COUNT_FAILURE_REPORTS_Args[] = {
 #define CLUSTER_COUNTKEYSINSLOT_History NULL
 
 /* CLUSTER COUNTKEYSINSLOT tips */
-const char *CLUSTER_COUNTKEYSINSLOT_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_COUNTKEYSINSLOT_tips NULL
 
 /* CLUSTER COUNTKEYSINSLOT argument table */
 struct redisCommandArg CLUSTER_COUNTKEYSINSLOT_Args[] = {
@@ -315,10 +306,7 @@ struct redisCommandArg CLUSTER_COUNTKEYSINSLOT_Args[] = {
 #define CLUSTER_DELSLOTS_History NULL
 
 /* CLUSTER DELSLOTS tips */
-const char *CLUSTER_DELSLOTS_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_DELSLOTS_tips NULL
 
 /* CLUSTER DELSLOTS argument table */
 struct redisCommandArg CLUSTER_DELSLOTS_Args[] = {
@@ -332,10 +320,7 @@ struct redisCommandArg CLUSTER_DELSLOTS_Args[] = {
 #define CLUSTER_DELSLOTSRANGE_History NULL
 
 /* CLUSTER DELSLOTSRANGE tips */
-const char *CLUSTER_DELSLOTSRANGE_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_DELSLOTSRANGE_tips NULL
 
 /* CLUSTER DELSLOTSRANGE range argument table */
 struct redisCommandArg CLUSTER_DELSLOTSRANGE_range_Subargs[] = {
@@ -356,10 +341,7 @@ struct redisCommandArg CLUSTER_DELSLOTSRANGE_Args[] = {
 #define CLUSTER_FAILOVER_History NULL
 
 /* CLUSTER FAILOVER tips */
-const char *CLUSTER_FAILOVER_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_FAILOVER_tips NULL
 
 /* CLUSTER FAILOVER options argument table */
 struct redisCommandArg CLUSTER_FAILOVER_options_Subargs[] = {
@@ -380,10 +362,7 @@ struct redisCommandArg CLUSTER_FAILOVER_Args[] = {
 #define CLUSTER_FLUSHSLOTS_History NULL
 
 /* CLUSTER FLUSHSLOTS tips */
-const char *CLUSTER_FLUSHSLOTS_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_FLUSHSLOTS_tips NULL
 
 /********** CLUSTER FORGET ********************/
 
@@ -391,10 +370,7 @@ NULL
 #define CLUSTER_FORGET_History NULL
 
 /* CLUSTER FORGET tips */
-const char *CLUSTER_FORGET_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_FORGET_tips NULL
 
 /* CLUSTER FORGET argument table */
 struct redisCommandArg CLUSTER_FORGET_Args[] = {
@@ -445,10 +421,7 @@ NULL
 #define CLUSTER_KEYSLOT_History NULL
 
 /* CLUSTER KEYSLOT tips */
-const char *CLUSTER_KEYSLOT_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_KEYSLOT_tips NULL
 
 /* CLUSTER KEYSLOT argument table */
 struct redisCommandArg CLUSTER_KEYSLOT_Args[] = {
@@ -476,10 +449,7 @@ commandHistory CLUSTER_MEET_History[] = {
 };
 
 /* CLUSTER MEET tips */
-const char *CLUSTER_MEET_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_MEET_tips NULL
 
 /* CLUSTER MEET argument table */
 struct redisCommandArg CLUSTER_MEET_Args[] = {
@@ -495,10 +465,7 @@ struct redisCommandArg CLUSTER_MEET_Args[] = {
 #define CLUSTER_MYID_History NULL
 
 /* CLUSTER MYID tips */
-const char *CLUSTER_MYID_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_MYID_tips NULL
 
 /********** CLUSTER NODES ********************/
 
@@ -534,10 +501,7 @@ struct redisCommandArg CLUSTER_REPLICAS_Args[] = {
 #define CLUSTER_REPLICATE_History NULL
 
 /* CLUSTER REPLICATE tips */
-const char *CLUSTER_REPLICATE_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_REPLICATE_tips NULL
 
 /* CLUSTER REPLICATE argument table */
 struct redisCommandArg CLUSTER_REPLICATE_Args[] = {
@@ -551,10 +515,7 @@ struct redisCommandArg CLUSTER_REPLICATE_Args[] = {
 #define CLUSTER_RESET_History NULL
 
 /* CLUSTER RESET tips */
-const char *CLUSTER_RESET_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_RESET_tips NULL
 
 /* CLUSTER RESET reset_type argument table */
 struct redisCommandArg CLUSTER_RESET_reset_type_Subargs[] = {
@@ -575,10 +536,7 @@ struct redisCommandArg CLUSTER_RESET_Args[] = {
 #define CLUSTER_SAVECONFIG_History NULL
 
 /* CLUSTER SAVECONFIG tips */
-const char *CLUSTER_SAVECONFIG_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_SAVECONFIG_tips NULL
 
 /********** CLUSTER SET_CONFIG_EPOCH ********************/
 
@@ -586,10 +544,7 @@ NULL
 #define CLUSTER_SET_CONFIG_EPOCH_History NULL
 
 /* CLUSTER SET_CONFIG_EPOCH tips */
-const char *CLUSTER_SET_CONFIG_EPOCH_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_SET_CONFIG_EPOCH_tips NULL
 
 /* CLUSTER SET_CONFIG_EPOCH argument table */
 struct redisCommandArg CLUSTER_SET_CONFIG_EPOCH_Args[] = {
@@ -603,10 +558,7 @@ struct redisCommandArg CLUSTER_SET_CONFIG_EPOCH_Args[] = {
 #define CLUSTER_SETSLOT_History NULL
 
 /* CLUSTER SETSLOT tips */
-const char *CLUSTER_SETSLOT_tips[] = {
-"nondeterministic_output",
-NULL
-};
+#define CLUSTER_SETSLOT_tips NULL
 
 /* CLUSTER SETSLOT subcommand argument table */
 struct redisCommandArg CLUSTER_SETSLOT_subcommand_Subargs[] = {
@@ -6324,7 +6276,7 @@ struct redisCommandArg XGROUP_CREATE_id_selector_Subargs[] = {
 /* XGROUP CREATE argument table */
 struct redisCommandArg XGROUP_CREATE_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XGROUP_CREATE_id_selector_Subargs},
 {"mkstream",ARG_TYPE_PURE_TOKEN,-1,"MKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL},
 {"entries-read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL},
@@ -6342,8 +6294,8 @@ struct redisCommandArg XGROUP_CREATE_Args[] = {
 /* XGROUP CREATECONSUMER argument table */
 struct redisCommandArg XGROUP_CREATECONSUMER_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6358,8 +6310,8 @@ struct redisCommandArg XGROUP_CREATECONSUMER_Args[] = {
 /* XGROUP DELCONSUMER argument table */
 struct redisCommandArg XGROUP_DELCONSUMER_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6374,7 +6326,7 @@ struct redisCommandArg XGROUP_DELCONSUMER_Args[] = {
 /* XGROUP DESTROY argument table */
 struct redisCommandArg XGROUP_DESTROY_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6407,7 +6359,7 @@ struct redisCommandArg XGROUP_SETID_id_selector_Subargs[] = {
 /* XGROUP SETID argument table */
 struct redisCommandArg XGROUP_SETID_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XGROUP_SETID_id_selector_Subargs},
 {"entriesread",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="entries-read"},
 {0}
@@ -6446,7 +6398,7 @@ NULL
 /* XINFO CONSUMERS argument table */
 struct redisCommandArg XINFO_CONSUMERS_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
