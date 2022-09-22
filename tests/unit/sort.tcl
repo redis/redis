@@ -34,10 +34,22 @@ start_server {
         set _ $result
     }
 
+    proc check_sort_store_encoding {key} {
+        set listpack_max_size [lindex [r config get list-max-ziplist-size] 1]
+
+        # When the length or size of quicklist is below the threshold
+        # of 0.5(QUICKLIST_CONVERT_THRESHOLD), it will be converted to listpack.
+        if {[r llen $key] <= [expr {$listpack_max_size * 0.5}]} {
+            assert_encoding listpack $key
+        } else {
+            assert_encoding quicklist $key
+        }
+    }
+
     foreach {num cmd enc title} {
-        16 lpush quicklist "Old Ziplist"
-        1000 lpush quicklist "Old Linked list"
-        10000 lpush quicklist "Old Big Linked list"
+        16 lpush listpack "Listpack"
+        1000 lpush quicklist "Quicklist"
+        10000 lpush quicklist "Quicklist"
         16 sadd intset "Intset"
         1000 sadd hashtable "Hash table"
         10000 sadd hashtable "Big Hash table"
@@ -84,14 +96,14 @@ start_server {
         r sort tosort BY weight_* store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
-        assert_encoding quicklist sort-res
+        check_sort_store_encoding sort-res
     } {} {cluster:skip}
 
     test "SORT BY hash field STORE" {
         r sort tosort BY wobj_*->weight store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
-        assert_encoding quicklist sort-res
+        check_sort_store_encoding sort-res
     } {} {cluster:skip}
 
     test "SORT extracts STORE correctly" {

@@ -1158,6 +1158,13 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
     return target;
 }
 
+unsigned char *lpDup(unsigned char *lp) {
+    size_t lpbytes = lpBytes(lp);
+    unsigned char *newlp = zmalloc(lpbytes);
+    memcpy(newlp, lp, lpbytes);
+    return newlp;
+}
+
 /* Return the total number of bytes the listpack is composed of. */
 size_t lpBytes(unsigned char *lp) {
     return lpGetTotalBytes(lp);

@@ -4106,7 +4106,7 @@ int moduleListIteratorSeek(RedisModuleKey *key, long index, int mode) {
 
     /* Seek the iterator to the requested index. */
     unsigned char dir = key->u.list.index < index ? LIST_TAIL : LIST_HEAD;
-    listTypeSetIteratorDirection(key->iter, dir);
+    listTypeSetIteratorDirection(key->iter, &key->u.list.entry, dir);
     while (key->u.list.index != index) {
         serverAssert(listTypeNext(key->iter, &key->u.list.entry));
         key->u.list.index += dir == LIST_HEAD ? -1 : 1;
@@ -4144,6 +4144,7 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
         key->iter = NULL;
     }
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_LIST);
+    listTypeTryConvertListpack(key->value, &ele, 0, 0);
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     return REDISMODULE_OK;
@@ -4235,6 +4236,7 @@ int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
         return REDISMODULE_ERR;
     }
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
+        listTypeTryConvertListpack(key->value, &value, 0, 0);
         listTypeReplace(&key->u.list.entry, value);
         /* A note in quicklist.c forbids use of iterator after insert, so
          * probably also after replace. */
@@ -4282,6 +4284,7 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
     }
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         int where = index < 0 ? LIST_TAIL : LIST_HEAD;
+        listTypeTryConvertListpack(key->value, &value, 0, 0);
         listTypeInsert(&key->u.list.entry, value, where);
         /* A note in quicklist.c forbids use of iterator after insert. */
         listTypeReleaseIterator(key->iter);

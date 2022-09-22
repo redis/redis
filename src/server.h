@@ -2287,12 +2287,15 @@ typedef struct {
     robj *subject;
     unsigned char encoding;
     unsigned char direction; /* Iteration direction */
-    quicklistIter *iter;
+
+    unsigned char *lpi; /* listpack iterator */
+    quicklistIter *iter; /* quicklist iterator */
 } listTypeIterator;
 
 /* Structure for an entry while iterating over a list. */
 typedef struct {
     listTypeIterator *li;
+    unsigned char *p; /* Entry in listpack */
     quicklistEntry entry; /* Entry in quicklist */
 } listTypeEntry;
 
@@ -2568,18 +2571,22 @@ robj *listTypePop(robj *subject, int where);
 unsigned long listTypeLength(const robj *subject);
 listTypeIterator *listTypeInitIterator(robj *subject, long index, unsigned char direction);
 void listTypeReleaseIterator(listTypeIterator *li);
-void listTypeSetIteratorDirection(listTypeIterator *li, unsigned char direction);
+void listTypeSetIteratorDirection(listTypeIterator *li, listTypeEntry *entry, unsigned char direction);
 int listTypeNext(listTypeIterator *li, listTypeEntry *entry);
 robj *listTypeGet(listTypeEntry *entry);
+void listTypeGetValue(listTypeEntry *entry, unsigned char **vstr, size_t *vlen, long long *lval);
 void listTypeInsert(listTypeEntry *entry, robj *value, int where);
 void listTypeReplace(listTypeEntry *entry, robj *value);
 int listTypeEqual(listTypeEntry *entry, robj *o);
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 robj *listTypeDup(robj *o);
-int listTypeDelRange(robj *o, long start, long stop);
+void listTypeDelRange(robj *o, long start, long stop);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int *deleted);
+void listTypeConvertListpack(robj *o, int enc);
+void listTypeTryConvertQuicklist(robj *o);
+void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
@@ -2621,6 +2628,7 @@ robj *createStringObjectFromLongLong(long long value);
 robj *createStringObjectFromLongLongForValue(long long value);
 robj *createStringObjectFromLongDouble(long double value, int humanfriendly);
 robj *createQuicklistObject(void);
+robj *createListListpackObject(void);
 robj *createSetObject(void);
 robj *createIntsetObject(void);
 robj *createHashObject(void);

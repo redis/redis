@@ -71,6 +71,7 @@ unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **new
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num);
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);
+unsigned char *lpDup(unsigned char *lp);
 unsigned long lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
 unsigned char *lpGetValue(unsigned char *p, unsigned int *slen, long long *lval);
