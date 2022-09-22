@@ -7363,11 +7363,18 @@ RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleC
 
 /* This function is used in order to potentially unblock a client blocked
  * on keys with RedisModule_BlockClientOnKeys(). When this function is called,
- * all the clients blocked for this key will get their reply_callback called.
- *
- * Note: The function has no effect if the signaled key doesn't exist. */
+ * all the clients blocked for this key will get their reply_callback called. */
 void RM_SignalKeyAsReady(RedisModuleCtx *ctx, RedisModuleString *key) {
     signalKeyAsReady(ctx->client->db, key, OBJ_MODULE);
+}
+
+/* Same as RedisModule_SignalKeyAsReady, but takes a db-id instead of
+ * a RedisModuleCtx */
+int RM_SignalKeyAsReadyByDbId(int dbid, RedisModuleString *key) {
+    if (dbid < 0 || dbid >= server.dbnum)
+        return REDISMODULE_ERR;
+    signalKeyAsReady(&server.db[dbid], key, OBJ_MODULE);
+    return REDISMODULE_OK;
 }
 
 /* Implements RM_UnblockClient() and moduleUnblockClient(). */
@@ -12724,6 +12731,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetLFU);
     REGISTER_API(BlockClientOnKeys);
     REGISTER_API(SignalKeyAsReady);
+    REGISTER_API(SignalKeyAsReadyByDbId);
     REGISTER_API(GetBlockedClientReadyKey);
     REGISTER_API(GetUsedMemoryRatio);
     REGISTER_API(MallocSize);

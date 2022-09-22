@@ -1133,6 +1133,7 @@ REDISMODULE_API int (*RedisModule_SetLFU)(RedisModuleKey *key, long long lfu_fre
 REDISMODULE_API int (*RedisModule_GetLFU)(RedisModuleKey *key, long long *lfu_freq) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_BlockClientOnKeys)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SignalKeyAsReady)(RedisModuleCtx *ctx, RedisModuleString *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SignalKeyAsReadyByDbId)(int dbid, RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_GetBlockedClientReadyKey)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleScanCursor * (*RedisModule_ScanCursorCreate)() REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ScanCursorRestart)(RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
@@ -1473,6 +1474,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetLFU);
     REDISMODULE_GET_API(BlockClientOnKeys);
     REDISMODULE_GET_API(SignalKeyAsReady);
+    REDISMODULE_GET_API(SignalKeyAsReadyByDbId);
     REDISMODULE_GET_API(GetBlockedClientReadyKey);
     REDISMODULE_GET_API(ScanCursorCreate);
     REDISMODULE_GET_API(ScanCursorRestart);

@@ -398,14 +398,26 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
 
 /* Helper function for handleClientsBlockedOnKeys(). This function is called
  * when there may be clients blocked on a stream key, and there may be new
- * data to fetch (the key is ready). */
+ * data to fetch (the key is ready).
+ * This function also handles the case where there may be clients blocked,
+ * via XREADGROUP, on an existing stream which was deleted.
+ * We need to unblock the clients in that case.
+ * The idea is that a client that is blocked via XREADGROUP is different from
+ * any other blocking type in the sense that it depends on the existence of both
+ * the key and the group. Even if the key is deleted and then revived with XADD
+ * it won't help any clients blocked on XREADGROUP because the group no longer
+ * exist, so they would fail with -NOGROUP anyway.
+ * The conclusion is that it's better to unblock these client (with error) upon
+ * the deletion of the key, rather than waiting for the first XADD.*/
 void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
     /* Optimization: If no clients are in type BLOCKED_STREAM,
      * we can skip this loop. */
     if (!server.blocked_clients_by_type[BLOCKED_STREAM]) return;
 
     dictEntry *de = dictFind(rl->db->blocking_keys,rl->key);
-    stream *s = o->ptr;
+    /* This function may be called with o=NULL (in order to unblock
+     * XREADGROUP clients whose key was deleted) */
+    stream *s = o? o->ptr : NULL;
 
     /* We need to provide the new data arrived on the stream
      * to all the clients that are waiting for an offset smaller
@@ -421,6 +433,13 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
             if (receiver->btype != BLOCKED_STREAM) continue;
             bkinfo *bki = dictFetchValue(receiver->bpop.keys,rl->key);
             streamID *gt = &bki->stream_id;
+
+            if (!receiver->bpop.xread_group || (!o || o->type != OBJ_STREAM)) {
+                 /* If it's a blocking XREAD and the stream was either deleted
+                 * or replaced with another key, we don't do anything (it's ok
+                 * the the client blocks on a non-existing key). */
+                continue;
+            }
 
             long long prev_error_replies = server.stat_total_error_replies;
             client *old_client = server.current_client;
@@ -439,6 +458,12 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
              * otherwise. */
             streamCG *group = NULL;
             if (receiver->bpop.xread_group) {
+                /* If it's a blocking XREADGROUP and the stream was either deleted
+                 * or replaced with another key, we unblock the client */
+                if (!o || o->type != OBJ_STREAM) {
+                    addReplyError(receiver, "-UNBLOCKED the stream key no longer exists");
+                    goto unblock_receiver;
+                }
                 group = streamLookupCG(s,
                         receiver->bpop.xread_group->ptr);
                 /* If the group was not found, send an error
@@ -545,52 +570,13 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
             server.current_client = receiver;
             monotime replyTimer;
             elapsedStart(&replyTimer);
-            if (!moduleTryServeClientBlockedOnKey(receiver, rl->key)) continue;
-            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
-            moduleUnblockClient(receiver);
-            afterCommand(receiver);
-            server.current_client = old_client;
-        }
-    }
-}
-
-/* Helper function for handleClientsBlockedOnKeys(). This function is called
- * when there may be clients blocked, via XREADGROUP, on an existing stream which
- * was deleted. We need to unblock the clients in that case.
- * The idea is that a client that is blocked via XREADGROUP is different from
- * any other blocking type in the sense that it depends on the existence of both
- * the key and the group. Even if the key is deleted and then revived with XADD
- * it won't help any clients blocked on XREADGROUP because the group no longer
- * exist, so they would fail with -NOGROUP anyway.
- * The conclusion is that it's better to unblock these client (with error) upon
- * the deletion of the key, rather than waiting for the first XADD. */
-void unblockDeletedStreamReadgroupClients(readyList *rl) {
-    /* Optimization: If no clients are in type BLOCKED_STREAM,
-     * we can skip this loop. */
-    if (!server.blocked_clients_by_type[BLOCKED_STREAM]) return;
-
-    /* We serve clients in the same order they blocked for
-     * this key, from the first blocked to the last. */
-    dictEntry *de = dictFind(rl->db->blocking_keys,rl->key);
-    if (de) {
-        list *clients = dictGetVal(de);
-        listNode *ln;
-        listIter li;
-        listRewind(clients,&li);
-
-        while((ln = listNext(&li))) {
-            client *receiver = listNodeValue(ln);
-            if (receiver->btype != BLOCKED_STREAM || !receiver->bpop.xread_group)
-                continue;
-
-            long long prev_error_replies = server.stat_total_error_replies;
-            client *old_client = server.current_client;
-            server.current_client = receiver;
-            monotime replyTimer;
-            elapsedStart(&replyTimer);
-            addReplyError(receiver, "-UNBLOCKED the stream key no longer exists");
-            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
-            unblockClient(receiver);
+            if (moduleTryServeClientBlockedOnKey(receiver, rl->key)) {
+                updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
+                moduleUnblockClient(receiver);
+            }
+            /* We need to call afterCommand even if the client was not unblocked
+             * in order to propagate any changes that could have been done inside
+             * moduleTryServeClientBlockedOnKey */
             afterCommand(receiver);
             server.current_client = old_client;
         }
@@ -654,32 +640,28 @@ void handleClientsBlockedOnKeys(void) {
 
             /* Serve clients blocked on the key. */
             robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NONOTIFY | LOOKUP_NOSTATS);
-            if (o != NULL) {
-                int objtype = o->type;
-                if (objtype == OBJ_LIST)
-                    serveClientsBlockedOnListKey(o,rl);
-                else if (objtype == OBJ_ZSET)
-                    serveClientsBlockedOnSortedSetKey(o,rl);
-                else if (objtype == OBJ_STREAM)
-                    serveClientsBlockedOnStreamKey(o,rl);
-                /* We want to serve clients blocked on module keys
-                 * regardless of the object type: we don't know what the
-                 * module is trying to accomplish right now. */
-                serveClientsBlockedOnKeyByModule(rl);
-                /* If we have XREADGROUP clients blocked on this key, and
-                 * the key is not a stream, it must mean that the key was
-                 * overwritten by either SET or something like
-                 * (MULTI, DEL key, SADD key e, EXEC).
-                 * In this case we need to unblock all these clients. */
-                 if (objtype != OBJ_STREAM)
-                     unblockDeletedStreamReadgroupClients(rl);
-            } else {
-                /* Unblock all XREADGROUP clients of this deleted key */
-                unblockDeletedStreamReadgroupClients(rl);
+            if (!o) {
                 /* Edge case: If lookupKeyReadWithFlags decides to expire the key we have to
                  * take care of the propagation here, because afterCommand wasn't called */
-                if (server.also_propagate.numops > 0)
-                    propagatePendingCommands();
+                propagatePendingCommands();
+            }
+            /* We need to try to serve stream clients even if the key
+             * no longer exists because XREADGROUP clients need to be
+             * unblocked in case the key is missing, either deleted
+             * or replaced by SET or something like
+             * (MULTI, DEL key, SADD key e, EXEC).
+             * In this case we need to unblock all these clients. */
+            serveClientsBlockedOnStreamKey(o,rl);
+            /* We want to serve clients blocked on module keys
+             * regardless of the object type, or whether the
+             * object exists or not: we don't know what the
+             * module is trying to accomplish right now. */
+            serveClientsBlockedOnKeyByModule(rl);
+            if (o != NULL) {
+                if (o->type == OBJ_LIST)
+                    serveClientsBlockedOnListKey(o,rl);
+                else if (o->type == OBJ_ZSET)
+                    serveClientsBlockedOnSortedSetKey(o,rl);
             }
             server.fixed_time_expire--;
 
