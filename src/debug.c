@@ -1995,9 +1995,8 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
     if (eip == info->si_addr) {
         /* When eip matches the bad address, it's an indication that we crashed when calling a non-mapped
-         *  function pointer. In that case the call to backtrace will crash trying to access that address and we
+         * function pointer. In that case the call to backtrace will crash trying to access that address and we
          * won't get a crash report logged. Set it to a valid point to avoid that crash. */
-        serverLog(LL_WARNING, "Crashed caused by calling to invalid function pointer %p.", eip);
 
         /* This trick allow to avoid compiler warning */
         void *ptr;
