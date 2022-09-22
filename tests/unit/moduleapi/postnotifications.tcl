@@ -173,3 +173,46 @@ tags "modules" {
         } {} {needs:config-maxmemory}
     }
 }
+
+set testmodule2 [file normalize tests/modules/keyspace_events.so]
+
+tags "modules" {
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+        r module load $testmodule2
+        test {Test write on post notification callback} {
+            set repl [attach_to_replication_stream]
+
+            r set string_x 1
+            assert_equal {1} [r get string_changed{string_x}]
+            assert_equal {1} [r get string_total]
+            
+            r set string_x 2
+            assert_equal {2} [r get string_changed{string_x}]
+            assert_equal {2} [r get string_total]
+
+            r set string1_x 1
+            assert_equal {1} [r get string_changed{string1_x}]
+            assert_equal {3} [r get string_total]
+
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {set string_x 1}
+                {incr string_changed{string_x}}
+                {incr string_total}
+                {exec}
+                {multi}
+                {set string_x 2}
+                {incr string_changed{string_x}}
+                {incr string_total}
+                {exec}
+                {multi}
+                {set string1_x 1}
+                {incr string_changed{string1_x}}
+                {incr string_total}
+                {exec}
+            }
+            close_replication_stream $repl
+        }
+    }
+}
