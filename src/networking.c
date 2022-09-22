@@ -601,6 +601,13 @@ void addReplyErrorSds(client *c, sds err) {
     addReplyErrorSdsEx(c, err, 0);
 }
 
+/* See addReplyErrorLength for expectations from the input string. */
+/* As a side effect the SDS string is freed. */
+void addReplyErrorSdsSafe(client *c, sds err) {
+    err = sdsmapchars(err, "\r\n", "  ",  2);
+    addReplyErrorSdsEx(c, err, 0);
+}
+
 /* Internal function used by addReplyErrorFormat and addReplyErrorFormatEx.
  * Refer to afterErrorReply for more information about the flags. */
 static void addReplyErrorFormatInternal(client *c, int flags, const char *fmt, va_list ap) {
