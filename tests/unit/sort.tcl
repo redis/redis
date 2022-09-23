@@ -38,7 +38,7 @@ start_server {
         set listpack_max_size [lindex [r config get list-max-ziplist-size] 1]
 
         # When the length or size of quicklist is below the threshold
-        # of 0.5(QUICKLIST_CONVERT_THRESHOLD), it will be converted to listpack.
+        # of 0.5 (QUICKLIST_CONVERT_THRESHOLD), it will be converted to listpack.
         if {[r llen $key] <= [expr {$listpack_max_size * 0.5}]} {
             assert_encoding listpack $key
         } else {
@@ -49,7 +49,7 @@ start_server {
     foreach {num cmd enc title} {
         16 lpush listpack "Listpack"
         1000 lpush quicklist "Quicklist"
-        10000 lpush quicklist "Quicklist"
+        10000 lpush quicklist "Big Quicklist"
         16 sadd intset "Intset"
         1000 sadd hashtable "Hash table"
         10000 sadd hashtable "Big Hash table"

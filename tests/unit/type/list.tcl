@@ -2030,6 +2030,6 @@ foreach type {listpack quicklist} {
         set _ $k
     } {12 0 9223372036854775808 2147483647 32767 127}
     config_set list-max-listpack-size $origin_config
-}
+} ;# foreach type
 
-}
+} ;# stop servers

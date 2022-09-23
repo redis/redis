@@ -86,7 +86,7 @@ void listTypeTryConvertQuicklist(robj *o) {
     unsigned long count_limit;
     quicklist *ql = o->ptr;
 
-    /* A quicklsit can be converted to listpack only if it
+    /* A quicklist can be converted to listpack only if it
      * has only one non-plain node. */
     if (o->encoding != OBJ_ENCODING_QUICKLIST || ql->len != 1 ||
         ql->head->container != QUICKLIST_NODE_CONTAINER_PACKED)
@@ -154,12 +154,11 @@ robj *listTypePop(robj *subject, int where) {
         unsigned char *vstr;
         int64_t vlen;
         unsigned char intbuf[LP_INTBUF_SIZE];
-        int pos = (where == LIST_HEAD) ? 0 : -1;
 
-        p = lpSeek(subject->ptr,pos);
-        vstr = lpGet(p,&vlen,intbuf);
-        value = createStringObject((char*)vstr,vlen);
-        subject->ptr = lpDelete(subject->ptr,p,NULL);
+        p = (where == LIST_HEAD) ? lpFirst(subject->ptr) : lpLast(subject->ptr);
+        vstr = lpGet(p, &vlen, intbuf);
+        value = createStringObject((char*)vstr, vlen);
+        subject->ptr = lpDelete(subject->ptr, p, NULL);
     } else if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         long long vlong;
         int ql_where = where == LIST_HEAD ? QUICKLIST_HEAD : QUICKLIST_TAIL;
@@ -255,15 +254,15 @@ int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
 }
 
 /* Return entry value at the current position of the iterator. */
-void listTypeGetValue(listTypeEntry *entry, unsigned char **vstr, size_t *vlen, long long *lval) {
+unsigned char *listTypeGetValue(listTypeEntry *entry, size_t *vlen, long long *lval) {
+    unsigned char *vstr = NULL;
     if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned int slen;
-        *vstr = lpGetValue(entry->p, &slen, lval);
+        vstr = lpGetValue(entry->p, &slen, lval);
         *vlen = slen;
     } else if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
-        *vstr = NULL;
         if (entry->entry.value) {
-            *vstr = entry->entry.value;
+            vstr = entry->entry.value;
             *vlen = entry->entry.sz;
         } else {
             *lval = entry->entry.longval;
@@ -271,6 +270,7 @@ void listTypeGetValue(listTypeEntry *entry, unsigned char **vstr, size_t *vlen, 
     } else {
         serverPanic("Unknown list encoding");
     }
+    return vstr;
 }
 
 /* Return entry or NULL at the current position of the iterator. */
@@ -279,7 +279,7 @@ robj *listTypeGet(listTypeEntry *entry) {
     size_t vlen;
     long long lval;
 
-    listTypeGetValue(entry, &vstr, &vlen, &lval);
+    vstr = listTypeGetValue(entry, &vlen, &lval);
     if (vstr) 
         return createStringObject((char *)vstr, vlen);
     else
@@ -408,25 +408,6 @@ void listTypeDelRange(robj *subject, long start, long count) {
         subject->ptr = lpDeleteRange(subject->ptr, start, count);
     } else if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistDelRange(subject->ptr, start, count);
-    } else {
-        serverPanic("Unknown list encoding");
-    }
-}
-
-void listTypeCurrentObject(listTypeEntry *entry, unsigned char **vstr, size_t *vlen, long long *lval) {
-    if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned int slen;
-        *vstr = lpGetValue(entry->p, &slen, lval);
-        *vlen = slen;
-    } else if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistEntry *qe = &entry->entry;
-        *vstr = NULL;
-        if (qe->value) {
-            *vstr = qe->value;
-            *vlen = qe->sz;
-        } else {
-            *lval = qe->longval;
-        }
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -563,7 +544,7 @@ void lindexCommand(client *c) {
     long long lval;
 
     if (listTypeNext(iter,&entry)) {
-        listTypeCurrentObject(&entry,&vstr,&vlen,&lval);
+        vstr = listTypeGetValue(&entry,&vlen,&lval);
         if (vstr) {
             addReplyBulkCBuffer(c, vstr, vlen);
         } else {
@@ -650,29 +631,26 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
 
     /* Return the result in form of a multi-bulk reply */
     addReplyArrayLen(c,rangelen);
-    if (o->encoding == OBJ_ENCODING_QUICKLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
-        int from = reverse ? end : start;
-        int direction = reverse ? LIST_HEAD : LIST_TAIL;
-        listTypeIterator *iter = listTypeInitIterator(o,from,direction);
 
-        while(rangelen--) {
-            listTypeEntry entry;
-            unsigned char *vstr;
-            size_t vlen;
-            long long lval;
+    int from = reverse ? end : start;
+    int direction = reverse ? LIST_HEAD : LIST_TAIL;
+    listTypeIterator *iter = listTypeInitIterator(o,from,direction);
 
-            serverAssert(listTypeNext(iter, &entry)); /* fail on corrupt data */
-            listTypeCurrentObject(&entry,&vstr,&vlen,&lval);
-            if (vstr) {
-                addReplyBulkCBuffer(c,vstr,vlen);
-            } else {
-                addReplyBulkLongLong(c,lval);
-            }
+    while(rangelen--) {
+        listTypeEntry entry;
+        unsigned char *vstr;
+        size_t vlen;
+        long long lval;
+
+        serverAssert(listTypeNext(iter, &entry)); /* fail on corrupt data */
+        vstr = listTypeGetValue(&entry,&vlen,&lval);
+        if (vstr) {
+            addReplyBulkCBuffer(c,vstr,vlen);
+        } else {
+            addReplyBulkLongLong(c,lval);
         }
-        listTypeReleaseIterator(iter);
-    } else {
-        serverPanic("Unknown list encoding");
     }
+    listTypeReleaseIterator(iter);
 }
 
 /* A housekeeping helper for list elements popping tasks.
