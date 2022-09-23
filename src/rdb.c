@@ -1860,7 +1860,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         return NULL;
                     }
                 } else if (setTypeSize(o) < server.set_max_listpack_entries &&
-                           sdslen(sdsele) < server.set_max_listpack_value &&
+                           sdslen(sdsele) <= server.set_max_listpack_value &&
                            lpSafeToAdd(NULL, sdslen(sdsele)))
                 {
                     setTypeConvert(o, OBJ_ENCODING_LISTPACK);
