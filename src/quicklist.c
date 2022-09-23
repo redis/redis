@@ -468,6 +468,7 @@ _quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
 
 #define sizeMeetsSafetyLimit(sz) ((sz) <= SIZE_SAFETY_LIMIT)
 
+/* Calculate the maximum size or length of the quicklist node by fill. */
 void quicklistSizeAndCountLimit(int fill, size_t *size, unsigned long *count) {
     *size = SIZE_MAX;
     *count = ULONG_MAX;
