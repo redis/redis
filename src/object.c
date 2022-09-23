@@ -248,7 +248,7 @@ robj *createIntsetObject(void) {
     return o;
 }
 
-robj *createSmallSetObject(void) {
+robj *createSetListpackObject(void) {
     unsigned char *lp = lpNew(0);
     robj *o = createObject(OBJ_SET, lp);
     o->encoding = OBJ_ENCODING_LISTPACK;

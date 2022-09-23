@@ -2626,7 +2626,7 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly);
 robj *createQuicklistObject(void);
 robj *createSetObject(void);
 robj *createIntsetObject(void);
-robj *createSmallSetObject(void);
+robj *createSetListpackObject(void);
 robj *createHashObject(void);
 robj *createZsetObject(void);
 robj *createZsetListpackObject(void);

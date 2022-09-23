@@ -42,7 +42,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 robj *setTypeCreate(sds value) {
     if (isSdsRepresentableAsLongLong(value,NULL) == C_OK)
         return createIntsetObject();
-    return createSmallSetObject();
+    return createSetListpackObject();
 }
 
 /* Add the specified value into a set.
