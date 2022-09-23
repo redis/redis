@@ -276,6 +276,47 @@ int getKeyRequestsHmget(int dbid, struct redisCommand *cmd, robj **argv, int arg
     return getKeyRequestsSingleKeyWithSubkeys(dbid,cmd,argv,argc,result,1,2,-1,1);
 }
 
+int getKeyRequestSmembers(int dbid, struct redisCommand *cmd, robj **argv, int argc,
+                          struct getKeyRequestsResult *result) {
+    return getKeyRequestsSingleKeyWithSubkeys(dbid,cmd,argv,argc,result,1,2,-1,1);
+}
+
+int getKeyRequestSmove(int dbid, struct redisCommand *cmd, robj **argv, int argc,
+                       struct getKeyRequestsResult *result) {
+    robj** subkeys;
+    getKeyRequestsPrepareResult(result, result->num + 2);
+
+    incrRefCount(argv[1]);
+    incrRefCount(argv[3]);
+    subkeys = zmalloc(sizeof(robj*));
+    subkeys[0] = argv[3];
+    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[1], 1, subkeys,
+                               SWAP_IN, SWAP_IN_DEL, dbid);
+
+    incrRefCount(argv[2]);
+    incrRefCount(argv[3]);
+    subkeys = zmalloc(sizeof(robj*));
+    subkeys[0] = argv[3];
+    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[2], 1, subkeys,
+                               SWAP_IN, 0, dbid);
+
+    return 0;
+}
+
+int getKeyRequestsSinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    getKeyRequestsPrepareResult(result, result->num + argc);
+    incrRefCount(argv[1]);
+    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[1], 0, NULL,
+                               SWAP_IN, SWAP_IN_DEL, dbid);
+    for(int i = 2; i < argc; i++) {
+        incrRefCount(argv[i]);
+        getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[i], 0, NULL,
+                                   SWAP_IN,0, dbid);
+    }
+
+    return 0;
+}
+
 #ifdef REDIS_TEST
 
 void rewriteResetClientCommandCString(client *c, int argc, ...) {

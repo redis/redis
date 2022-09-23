@@ -174,6 +174,9 @@ static int rdbKeySaveDataInitWarm(rdbKeySaveData *save, redisDb *db,
     case OBJ_HASH:
         hashSaveInit(save,NULL,0);
         break;
+    case OBJ_SET:
+        setSaveInit(save,NULL,0);
+        break;
     default:
         retval = INIT_SAVE_ERR;
         break;
@@ -197,6 +200,10 @@ static int rdbKeySaveDataInitCold(rdbKeySaveData *save, redisDb *db,
     case OBJ_HASH:
         serverAssert(dm->extend != NULL);
         retval = hashSaveInit(save,dm->extend,sdslen(dm->extend));
+        break;
+    case OBJ_SET:
+        serverAssert(dm->extend != NULL);
+        retval = setSaveInit(save,dm->extend,sdslen(dm->extend));
         break;
     default:
         retval = INIT_SAVE_ERR;
@@ -645,6 +652,34 @@ void evictStopLoading(int success) {
     server.rdb_load_ctx = NULL;
 }
 
+/* ------------------------------ rdb load start -------------------------------- */
+void rdbLoadStartList(struct rdbKeyLoadData *load, rio *rdb, int *cf,
+                    sds *rawkey, sds *rawval, int *error) {
+    int isencode;
+    unsigned long long len;
+    sds header, extend = NULL;
+
+    header = rdbVerbatimNew((unsigned char)load->rdbtype);
+
+    /* nfield */
+    if (rdbLoadLenVerbatim(rdb,&header,&isencode,&len)) {
+        sdsfree(header);
+        *error = RDB_LOAD_ERR_OTHER;
+        return;
+    }
+
+    load->total_fields = len;
+    extend = rocksEncodeObjectMetaLen(len);
+
+    *cf = META_CF;
+    *rawkey = rocksEncodeMetaKey(load->db,load->key);
+    *rawval = rocksEncodeMetaVal(load->object_type,load->expire,extend);
+    *error = 0;
+
+    sdsfree(extend);
+    sdsfree(header);
+}
+
 /* ------------------------------ rdb verbatim -------------------------------- */
 int rdbLoadIntegerVerbatim(rio *rdb, sds *verbatim, int enctype, long long *val) {
     unsigned char enc[4];
@@ -814,6 +849,9 @@ int rdbKeyLoadDataInit(rdbKeyLoadData *load, int rdbtype,
     case RDB_TYPE_HASH_ZIPLIST:
         hashLoadInit(load);
         break;
+    case RDB_TYPE_SET:
+    case RDB_TYPE_SET_INTSET:
+        setLoadInit(load);
     default:
         retval = SWAP_ERR_RDB_LOAD_UNSUPPORTED;
         break;

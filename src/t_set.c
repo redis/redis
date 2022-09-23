@@ -232,6 +232,18 @@ unsigned long setTypeSize(const robj *subject) {
     }
 }
 
+// count up members in memory and in disk
+unsigned long setTypeSizeDiskAndMem(const objectMeta *meta, const robj *subject) {
+    unsigned long disksize = meta ? meta->len : 0;
+    unsigned long memsize = subject ? setTypeSize(subject) : 0;
+    return memsize + disksize;
+}
+
+
+unsigned long ctrip_setTypeSize(redisDb *db, robj *key, const robj *subject) {
+    return setTypeSizeDiskAndMem(lookupMeta(db, key), subject);
+}
+
 /* Convert the set to specified encoding. The resulting dict (when converting
  * to a hash table) is presized to hold the number of elements in the original
  * set. */
@@ -333,7 +345,7 @@ void sremCommand(client *c) {
     for (j = 2; j < c->argc; j++) {
         if (setTypeRemove(set,c->argv[j]->ptr)) {
             deleted++;
-            if (setTypeSize(set) == 0) {
+            if (ctrip_setTypeSize(c->db, c->argv[1], set) == 0) {
                 dbDelete(c->db,c->argv[1]);
                 keyremoved = 1;
                 break;
@@ -383,7 +395,7 @@ void smoveCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
 
     /* Remove the src set from the database when empty */
-    if (setTypeSize(srcset) == 0) {
+    if (ctrip_setTypeSize(c->db, c->argv[1], srcset) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
@@ -444,6 +456,18 @@ void scardCommand(client *c) {
         checkType(c,o,OBJ_SET)) return;
 
     addReplyLongLong(c,setTypeSize(o));
+}
+
+void ctrip_scardCommand(client *c) {
+    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    objectMeta *m = lookupMeta(c->db, c->argv[1]);
+
+    if (NULL != o && checkType(c,o,OBJ_SET)) return;
+    else if (NULL != o || NULL != m) {
+        addReplyLongLong(c, setTypeSizeDiskAndMem(m, o));
+    } else { // NULL == o && NULL == m
+        SentReplyOnKeyMiss(c, shared.czero);
+    }
 }
 
 /* Handle the "SPOP key <count>" variant. The normal version of the
@@ -638,7 +662,7 @@ void spopCommand(client *c) {
     decrRefCount(ele);
 
     /* Delete the set if it's empty */
-    if (setTypeSize(set) == 0) {
+    if (ctrip_setTypeSize(c->db, c->argv[1], set) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }

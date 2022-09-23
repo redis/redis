@@ -52,17 +52,20 @@ extern const char *swap_cf_names[CF_COUNT];
 #define SWAP_IN_DEL (1U<<0)
 /* No need to swap if this is a big object */
 #define SWAP_IN_META (1U<<1)
+/* Delete key in rocksdb and mock value needed to be swapped in. */
+#define SWAP_IN_DEL_MOCK_VALUE (1U<<2)
 /* This is a metascan request for scan command. */
-#define SWAP_METASCAN_SCAN (1U<<2)
+#define SWAP_METASCAN_SCAN (1U<<3)
 /* This is a metascan request for randomkey command. */
-#define SWAP_METASCAN_RANDOMKEY (1U<<3)
+#define SWAP_METASCAN_RANDOMKEY (1U<<4)
 /* This is a metascan request for active-expire. */
-#define SWAP_METASCAN_EXPIRE (1U<<4)
+#define SWAP_METASCAN_EXPIRE (1U<<5)
 
 /* Delete rocksdb data key */
 #define SWAP_EXEC_IN_DEL (1U<<0)
 /* Put rocksdb meta key */
 #define SWAP_EXEC_OUT_META (1U<<1)
+#define SWAP_EXEC_IN_DEL_MOCK_VALUE (1U<<2)
 
 /* Don't delete key in keyspace when swap (Delete key in rocksdb) finish. */
 #define SWAP_FIN_DEL_SKIP (1U<<8)
@@ -136,6 +139,14 @@ int getKeyRequestsMetaScan(int dbid, struct redisCommand *cmd, robj **argv, int 
 int getKeyRequestsHset(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsHmget(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsHlen(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+
+#define getKeyRequestsSadd getKeyRequestSmembers
+#define getKeyRequestsSrem getKeyRequestSmembers
+#define getKeyRequestsSdiffstore getKeyRequestsSinterstore
+#define getKeyRequestsSunionstore getKeyRequestsSinterstore
+int getKeyRequestSmembers(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestSmove(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsSinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
 #define MAX_KEYREQUESTS_BUFFER 32
 #define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYREQUESTS_BUFFER}
@@ -395,15 +406,35 @@ typedef struct hashSwapData {
   swapData d;
 } hashSwapData;
 
+typedef struct baseBigDataCtx {
+    int num;
+    robj **subkeys;
+} baseBigDataCtx;
+
 typedef struct hashDataCtx {
-	int num;
-	robj **subkeys;
+    baseBigDataCtx ctx;
 } hashDataCtx;
 
 int swapDataSetupHash(swapData *d, OUT void **datactx);
 
 #define hashObjectMetaType lenObjectMetaType
 #define createHashObjectMeta(len) createLenObjectMeta(OBJ_HASH, len)
+
+/* Set */
+typedef struct setSwapData {
+    swapData d;
+} setSwapData;
+
+typedef struct setDataCtx {
+    baseBigDataCtx ctx;
+} setDataCtx;
+
+int swapDataSetupSet(swapData *d, OUT void **datactx);
+
+extern swapDataType setSwapDataType;
+#define setObjectMetaType lenObjectMetaType
+
+#define createSetObjectMeta(len) createLenObjectMeta(OBJ_SET, len)
 
 /* MetaScan */
 #define DEFAULT_SCANMETA_BUFFER 16
@@ -964,7 +995,7 @@ int rdbKeySave(struct rdbKeySaveData *keydata, rio *rdb, decodedData *d);
 int rdbKeySaveEnd(struct rdbKeySaveData *keydata, int save_result);
 void wholeKeySaveInit(rdbKeySaveData *keydata);
 int hashSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
-
+int setSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
 
 /* Rdb load */
 /* RDB_LOAD_ERR_*: [1 +inf), SWAP_ERR_RDB_LOAD_*: (-inf -500] */
@@ -1032,8 +1063,13 @@ int rdbKeyLoadEnd(struct rdbKeyLoadData *keydata, rio *rdb);
 int rdbKeyLoadDbAdd(struct rdbKeyLoadData *keydata, redisDb *db);
 void rdbKeyLoadExpired(struct rdbKeyLoadData *keydata);
 
+#define rdbLoadStartHT rdbLoadStartList
+#define rdbLoadStartSet rdbLoadStartList
+void rdbLoadStartList(struct rdbKeyLoadData *load, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
+
 void wholeKeyLoadInit(rdbKeyLoadData *keydata);
 void hashLoadInit(rdbKeyLoadData *load);
+void setLoadInit(rdbKeyLoadData *load);
 int rdbLoadLenVerbatim(rio *rdb, sds *verbatim, int *isencoded, unsigned long long *lenptr);
 
 /* Util */
@@ -1105,6 +1141,7 @@ swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value, void **dat
 
 int swapDataWholeKeyTest(int argc, char **argv, int accurate);
 int swapDataHashTest(int argc, char **argv, int accurate);
+int swapDataSetTest(int argc, char **argv, int accurate);
 int swapDataTest(int argc, char *argv[], int accurate);
 int swapWaitTest(int argc, char **argv, int accurate);
 int swapWaitReentrantTest(int argc, char **argv, int accurate);

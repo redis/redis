@@ -183,8 +183,14 @@ void *rocksIterIOThreadMain(void *arg) {
                 accumulated_memory += meta_rklen+meta_rvlen;
                 rocksdb_iter_next(it->meta_iter);
             } else { /* DATA_CF */
-                unsigned char rdbtype = data_rawval[0];
-                data_rawval++, data_rvlen--;
+                unsigned char rdbtype;
+                if (data_rvlen == 0) {
+                    // set type data only save empty str in rocksdb
+                    rdbtype = 0;
+                } else {
+                    rdbtype = data_rawval[0];
+                    data_rawval++, data_rvlen--;
+                }
                 iterResultInit(cur,cf,rdbtype,sdsnewlen(data_rawkey,data_rklen),
                         sdsnewlen(data_rawval,data_rvlen));
                 data_itered++;

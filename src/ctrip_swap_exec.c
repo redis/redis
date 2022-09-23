@@ -263,7 +263,7 @@ static int doRIOMultiGet(RIO *rio) {
 
     rio->multiget.rawvals = zmalloc(rio->multiget.numkeys*sizeof(sds));
     for (i = 0; i < rio->multiget.numkeys; i++) {
-        if (values_list[i] == NULL || values_list_sizes[i] == 0) {
+        if (values_list[i] == NULL) {
             rio->multiget.rawvals[i] = NULL;
         } else {
             rio->multiget.rawvals[i] = sdsnewlen(values_list[i],
@@ -802,6 +802,16 @@ end:
     RIODeinit(rio);
 }
 
+static int doSwapIntentionDelRange(swapRequest *req, int cf, sds start, sds end) {
+    RIO _rio = {0}, *rio = &_rio;
+    int retval;
+    RIOInitDeleteRange(rio, cf, start, end);
+    updateStatsSwapRIO(req,rio);
+    retval = doRIO(rio);
+    RIODeinit(rio);
+    return retval;
+}
+
 static int doSwapIntentionDel(swapRequest *req, int numkeys, int *cfs, sds *rawkeys) {
     RIO _rio = {0}, *rio = &_rio;
     int i, retval;
@@ -915,8 +925,8 @@ static void executeSwapInRequest(swapRequest *req) {
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata", "decoded=%p",(void*)decoded);
 
         if (req->intention_flags & SWAP_EXEC_IN_DEL) {
-            //TODO FIXME use deleterange
-            if ((errcode = doSwapIntentionDel(req,numkeys,cfs,rawkeys))) {
+            if ((errcode = doSwapIntentionDelRange(req, cfs[0], sdsdup(rawkeys[0]),
+                                                  rocksCalculateNextKey(rawkeys[0])))) {
                 goto end;
             }
 

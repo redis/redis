@@ -237,11 +237,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"del",delCommand,-2,
      "write @keyspace",
-     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_EXEC_IN_DEL_MOCK_VALUE,1,-1,1,0,0,0},
 
     {"unlink",unlinkCommand,-2,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_EXEC_IN_DEL_MOCK_VALUE,1,-1,1,0,0,0},
 
     {"exists",existsCommand,-2,
      "read-only fast @keyspace",
@@ -369,31 +369,31 @@ struct redisCommand redisCommandTable[] = {
 
     {"sadd",saddCommand,-3,
      "write use-memory fast @set",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsSadd,SWAP_IN,0,1,1,1,0,0,0},
 
     {"srem",sremCommand,-3,
      "write fast @set",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsSrem,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"smove",smoveCommand,4,
      "write fast @set",
-     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,getKeyRequestSmove,SWAP_IN,SWAP_IN_DEL,1,2,1,0,0,0},
 
     {"sismember",sismemberCommand,3,
      "read-only fast @set",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestSmembers,SWAP_IN,0,1,1,1,0,0,0},
 
     {"smismember",smismemberCommand,-3,
      "read-only fast @set",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestSmembers,SWAP_IN,0,1,1,1,0,0,0},
 
-    {"scard",scardCommand,2,
+    {"scard",ctrip_scardCommand,2,
      "read-only fast @set",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"spop",spopCommand,-2,
      "write random fast @set",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"srandmember",srandmemberCommand,-2,
      "read-only random @set",
@@ -405,7 +405,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"sinterstore",sinterstoreCommand,-3,
      "write use-memory @set",
-     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-1,1,0,0,0},
+     0,NULL,getKeyRequestsSinterstore,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sunion",sunionCommand,-2,
      "read-only to-sort @set",
@@ -413,7 +413,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"sunionstore",sunionstoreCommand,-3,
      "write use-memory @set",
-     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-1,1,0,0,0},
+     0,NULL,getKeyRequestsSunionstore,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sdiff",sdiffCommand,-2,
      "read-only to-sort @set",
@@ -421,7 +421,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"sdiffstore",sdiffstoreCommand,-3,
      "write use-memory @set",
-     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-1,1,0,0,0},
+     0,NULL,getKeyRequestsSdiffstore,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"smembers",sinterCommand,2,
      "read-only to-sort @set",

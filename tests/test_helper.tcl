@@ -52,6 +52,9 @@ set ::disk_tests {
     swap/unit/swap_out+in
     swap/unit/hash
     swap/unit/big_hash
+    swap/unit/big_set
+    swap/unit/latency-monitor
+    swap/unit/keyspace
     swap/unit/lazydel
     swap/unit/swap_error
     swap/tmp_tests/stream-cgroups
@@ -63,7 +66,6 @@ set ::disk_tests {
     unit/dump
     unit/auth
     unit/protocol
-    unit/keyspace
     unit/scan
     unit/info
     unit/type/string
@@ -71,14 +73,12 @@ set ::disk_tests {
     unit/type/list
     unit/type/list-2
     unit/type/list-3
-    unit/type/set
     unit/type/zset
     unit/type/hash
     unit/expire
     unit/multi
     unit/quit
     unit/acl
-    unit/latency-monitor 
     unit/slowlog
     unit/introspection-2
     unit/limits
