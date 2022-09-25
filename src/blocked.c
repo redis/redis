@@ -679,7 +679,7 @@ void handleClientsBlockedOnKeys(void) {
                 /* Edge case: If lookupKeyReadWithFlags decides to expire the key we have to
                  * take care of the propagation here, because afterCommand wasn't called */
                 if (server.also_propagate.numops > 0)
-                    afterDatasetChange();
+                    propagatePendingCommands();
             }
             server.fixed_time_expire--;
 

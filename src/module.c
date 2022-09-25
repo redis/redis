@@ -738,7 +738,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
          * outside of call() context (timers, events, etc.). */
         if (--server.module_ctx_nesting == 0) {
             if (!server.core_propagates)
-                afterDatasetChange();
+                propagatePendingCommands();
             if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -2180,7 +2180,14 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
  * REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD:
  * Setting this flag indicates module awareness of diskless async replication (repl-diskless-load=swapdb)
  * and that redis could be serving reads during replication instead of blocking with LOADING status.
- */
+ *
+ * REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS:
+ * Declare that the module want to get nested key space notifications.
+ * By default, Redis will not fire key space notification that happened inside
+ * a key space notification callback. This flag allows to change this behavior
+ * and fire nested key space notifications. Notice, if enabled, the module
+ * should protected himself from endless loops that might happened due to recursive
+ * key space notifications. */
 void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
     ctx->module->options = options;
 }
@@ -7803,7 +7810,7 @@ void moduleGILBeforeUnlock() {
      * (because it's u clear when thread safe contexts are
      * released we have to propagate here). */
     server.module_ctx_nesting--;
-    afterDatasetChange();
+    propagatePendingCommands();
 
     if (server.busy_module_yield_flags) {
         blockingOperationEnds();
@@ -7902,7 +7909,7 @@ void moduleReleaseGIL(void) {
  * that the notification code will be executed in the middle on Redis logic
  * (commands logic, eviction, expire). Changing the key space while the logic
  * runs is dangerous and discouraged. In order to react to key space events with
- * write actions, please refer to 'RM_AddPostNotificationJob'.
+ * write actions, please refer to `RM_AddPostNotificationJob`.
  *
  * See https://redis.io/topics/notifications for more information.
  */
@@ -7942,21 +7949,19 @@ void firePostKeySpaceJobs() {
  * react to the notification with some write operations.
  *
  * In general it is dangerous and highly discouraged to write inside key space notification callback.
- * This is because the callback is executed synchronously in the middle of Redis logic
- * (commands logic, eviction, expire). This means that writing inside a notification can cause
- * data that held by Redis to be freed and cause Redis to crash when continue running his logic after.
- *
- * In order to still performing write actions as a reaction to key space notification, Redis gives
- * `RM_AddPostNotificationJob` API. The api allows to register a job. When Redis will call this job
- * the following condition are promised to be fulfilled:
+ * See `RM_SubscribeToKeyspaceEvents` for more information. In order to still performing write actions
+ * as a reaction to key space notification, Redis provides `RM_AddPostNotificationJob` API.
+ * The api allows to register a job. When Redis calls this job the following condition are promised to be fulfilled:
  * 1. It is safe to perform any write operation.
  * 2. The job will be called atomically along side the notification (the notification effect and the
  *    job effect will be replicated to the replication and the aof wrapped with multi exec).
  *
  * Notice, one post notification job might trigger more key space notification and cause more jobs
- * to be registered, in order to avoid infinite loop we limit the number of jobs that can be registered in
- * a single logic unit (command, eviction, active expire). This limitation is configurable using `maxpostnotificationsjobs`
- * configuration value.
+ * to be registered, This raises a concerns of entering an infinite loops,
+ * we consider infinite loops as a logical bug that need to be fixed in the module,
+ * an attempt to protect against infinite loops by halting the execution could result
+ * in violation of the feature correctness and so Redis will make no attempt to protect
+ * the module from infinite loops.
  *
  * 'free_pd' can be NULL and in such case will not be used.
  *

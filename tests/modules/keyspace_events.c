@@ -127,8 +127,10 @@ static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, cons
     RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
 
     size_t len = 0;
+    /* RedisModule_StringDMA could change the data format and cause the old robj to be freed.
+     * This code verifies that such format change will not cause any crashes.*/
     char *data = RedisModule_StringDMA(redis_key, &len, REDISMODULE_READ);
-    REDISMODULE_NOT_USED(data);
+    strncmp(data, "dummy", 5);
 
     RedisModule_CloseKey(redis_key);
 
