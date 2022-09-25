@@ -409,12 +409,12 @@ int metaScanDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
         serverAssert(cfs[i] == META_CF);
         if (rocksDecodeMetaKey(rawkeys[i],sdslen(rawkeys[i]),
                 NULL,&key,&keylen)) {
-            retval = SWAP_DATA_ERR;
+            retval = SWAP_ERR_DATA_DECODE_FAIL;
             break;
         }
         if (rocksDecodeMetaVal(rawvals[i],sdslen(rawvals[i]),
                 &object_type,&expire,NULL,NULL)) {
-            retval = SWAP_DATA_ERR;
+            retval = SWAP_ERR_DATA_DECODE_FAIL;
             break;
         }
 

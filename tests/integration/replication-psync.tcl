@@ -106,7 +106,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
                 }  
                 if {$::debug_evict_keys} {
                     wait_for_condition 100 100 {
-                        [$master debug digest-keys] == [$slave debug digest-keys]
+                        [$master dbsize] == [$slave dbsize]
                     } else {
                         set csv1 [csvdump r]
                         set csv2 [csvdump {r -1}]
@@ -138,7 +138,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
                          fail "Master - Replica sync fail"
                     }
                     wait_for_condition 100 100 {
-                        [$master debug digest-keys] == [$slave debug digest-keys]
+                        [$master dbsize] == [$slave dbsize]
                     } else {
                         set csv1 [csvdump r]
                         set csv2 [csvdump {r -1}]

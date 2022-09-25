@@ -28,6 +28,11 @@
 
 #include "ctrip_swap.h"
 
+/* Note that expire clients are used only if key is decided to be expired. */
+int isExpireClientRequest(client *c) {
+    return c->cmd && c->cmd->proc == expiredCommand;
+}
+
 /* Passive expire */
 void expireClientKeyRequestFinished(client *c, swapCtx *ctx) {
     robj *key = ctx->key_request->key;
@@ -355,8 +360,8 @@ void scanexpireCommand(client *c) {
 }
 
 size_t objectComputeSize(robj *o, size_t sample_size);
-/* TODO support multi-db */
 
+/* TODO support multi-db */
 sds genScanExpireInfoString(sds info) {
 	redisDb *db0 = server.db + 0;
 	scanExpire *scan_expire = db0->scan_expire;
@@ -385,6 +390,168 @@ sds genScanExpireInfoString(sds info) {
             scan_expire->stat_scan_time_used,
             scan_expire->stat_expire_time_used);
     return info;
+}
+
+/* Slave expire cycle */
+typedef struct slaveExpiringKey {
+    redisDb *db;
+    robj *key;
+} slaveExpiringKey;
+
+int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now);
+
+list *slave_expiring_keys = NULL;
+
+/* object meta should be in memory now, note that ttl may be triggered
+ * multiple times if key is cold. */ 
+void slaveExpireClientKeyRequestFinished(client *c, swapCtx *ctx) {
+    redisDb *db = c->db;
+    int dbid = db->id;
+    uint64_t dbids;
+    robj *key = ctx->key_request->key;
+    long long expire = getExpire(db,key);
+    dictEntry *dbids_entry = dictFind(slaveKeysWithExpire,key->ptr);
+
+    if (expire < mstime()) {
+        /* no expired or expired */
+        if (expire >= 0) {
+            if (slave_expiring_keys == NULL)
+                slave_expiring_keys = listCreate();
+            slaveExpiringKey *sek = zmalloc(sizeof(slaveExpiringKey));
+            incrRefCount(key);
+            sek->key = key;
+            sek->db = db;
+            listAddNodeTail(slave_expiring_keys, sek);
+        }
+
+        if (dbids_entry) {
+            dbids = dictGetUnsignedIntegerVal(dbids_entry);
+            dbids &= ~(1ULL << dbid);
+            if (dbids) {
+                dictSetUnsignedIntegerVal(dbids_entry,dbids);
+            } else {
+                dictDelete(slaveKeysWithExpire,key->ptr);
+            }
+        }
+    } else {
+        /* have expire but not expired yet */
+    }
+
+    incrRefCount(key);
+    if (ctx->errcode) clientSwapError(c,ctx->errcode);
+    c->keyrequests_count--;
+    serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
+    clientUnholdKey(c,key);
+    clientReleaseRequestLocks(c,ctx);
+    decrRefCount(key);
+}
+
+int submitSlaveExpireClientRequest(client *c, robj *key) {
+    getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+    getKeyRequestsPrepareResult(&result,1);
+    incrRefCount(key);
+    getKeyRequestsAppendResult(&result,REQUEST_LEVEL_KEY,key,0,NULL,
+            c->cmd->intention,c->cmd->intention_flags,c->db->id);
+    c->keyrequests_count++;
+    submitClientKeyRequests(c,&result,slaveExpireClientKeyRequestFinished);
+    releaseKeyRequests(&result);
+    getKeyRequestsFreeResult(&result);
+    return 1;
+}
+
+/* In most case, slave is readonly and no active-expire needed, so we don't
+ * start a metascan to trigger expire. we try to expire slave keys by
+ * triggering SLAVEEXPIRE command, which triggers expire even if current
+ * role is slave. */
+void expireSlaveKeysSwapMode(void) {
+    if (slave_expiring_keys && listLength(slave_expiring_keys)) {
+        listNode *ln;
+        while ((ln = listFirst(slave_expiring_keys))) {
+            slaveExpiringKey *sek = listNodeValue(ln);
+            client *c = server.expire_clients[sek->db->id];
+            /* FIXME expire_client can used only when determined to expire key
+             * but key expire can only be determined after lock get.
+             * similar issue exists for master active expire */
+            submitExpireClientRequest(c,sek->key);
+            decrRefCount(sek->key);
+            zfree(sek);
+            listDelNode(slave_expiring_keys,ln);
+        }
+    }
+
+    if (slaveKeysWithExpire == NULL ||
+        dictSize(slaveKeysWithExpire) == 0) return;
+
+    serverAssert(server.swap_mode != SWAP_MODE_MEMORY);
+
+    int cycles = 0, noexpire = 0, slaveexpire = 0;
+    mstime_t start = mstime();
+    while(1) {
+        dictEntry *de = dictGetRandomKey(slaveKeysWithExpire);
+        sds keyname = dictGetKey(de);
+        uint64_t dbids = dictGetUnsignedIntegerVal(de);
+        uint64_t new_dbids = 0;
+
+        /* Check the key against every database corresponding to the
+         * bits set in the value bitmap. */
+        int dbid = 0;
+        while(dbids && dbid < server.dbnum) {
+            if ((dbids & 1) != 0) {
+                robj *key, *val;
+                redisDb *db = server.db+dbid;
+
+                key = createStringObject(keyname,sdslen(keyname));
+                val = lookupKey(db,key,LOOKUP_NOTOUCH);
+                if (val) {
+                    /* This is a hot/warm key, expire like memory mode, see 
+                     * expireSlaveKeys for more detail. */
+                    dictEntry *expire = dictFind(db->expires,keyname);
+                    int expired = 0;
+
+                    if (expire &&
+                        activeExpireCycleTryExpire(server.db+dbid,expire,start))
+                    {
+                        expired = 1;
+                    }
+
+                    /* If the key was not expired in this DB, we need to set the
+                     * corresponding bit in the new bitmap we set as value.
+                     * At the end of the loop if the bitmap is zero, it means we
+                     * no longer need to keep track of this key. */
+                    if (expire && !expired) {
+                        noexpire++;
+                        new_dbids |= (uint64_t)1 << dbid;
+                    }
+                } else {
+                    /* This is a cold/notexist key, start TTL command to swap
+                     * in meta and expire if needed when swap finished. */
+                    client *c = server.ttl_clients[dbid];
+                    submitSlaveExpireClientRequest(c,key);
+                    slaveexpire++;
+                    new_dbids |= (uint64_t)1 << dbid;
+                }
+                decrRefCount(key);
+            }
+            dbid++;
+            dbids >>= 1;
+        }
+
+        /* Set the new bitmap as value of the key, in the dictionary
+         * of keys with an expire set directly in the writable slave. Otherwise
+         * if the bitmap is zero, we no longer need to keep track of it. */
+        if (new_dbids)
+            dictSetUnsignedIntegerVal(de,new_dbids);
+        else
+            dictDelete(slaveKeysWithExpire,keyname);
+
+        /* Stop conditions: found 3 keys we can't expire in a row or
+         * time limit was reached. */
+        cycles++;
+        if (noexpire > 3) break;
+        if (slaveexpire > 16) break;
+        if ((cycles % 64) == 0 && mstime()-start > 1) break;
+        if (dictSize(slaveKeysWithExpire) == 0) break;
+    }
 }
 
 

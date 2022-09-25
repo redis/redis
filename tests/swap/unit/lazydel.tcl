@@ -80,27 +80,5 @@ start_server {tags "expire"} {
         r del filter05
         assert_equal [llength [r swap rio-scan data [rio_get_meta r h]]] 0
     }
-
-    # test {filter transformed wholekey} {
-        # set old_thres [r config get swap-big-hash-threshold]
-        # r config set swap-big-hash-threshold 256k
-
-        # r hmset filter06 a a b b 1 1 2 2 
-        # r evict filter06
-        # wait_key_cold r filter06
-        # assert ![object_is_big r filter06]
-        # assert {[r swap rio-get [r swap encode-key H filter06]] != {}}
-
-        # r config set swap-big-hash-threshold 1
-        # r hkeys filter06
-        # r evict filter06
-        # assert [object_is_big r filter06]
-        # assert {[r swap rio-get [r swap encode-key H filter06]] == {}}
-
-        # r del filter06
-        # assert_equal [llength [r swap rio-scan ""]] 0
-
-        # r config set swap-big-hash-threshold $old_thres
-    # }
 }
 

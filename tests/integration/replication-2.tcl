@@ -72,9 +72,15 @@ start_server {tags {"repl"}} {
         r flushall
 
         test {MASTER and SLAVE dataset should be identical after complex ops} {
-            createComplexDataset r 10000
+            # createComplexDataset r 10000
+            createComplexDataset r 2000
             after 500
-            if {[r debug digest] ne [r -1 debug digest]} {
+            if {$::swap} {
+                set data_identical [expr [r dbsize] eq [r -1 dbsize]]
+            } else {
+                set data_identical [expr [r debug digest] eq [r -1 debug digest]]
+            }
+            if {!$data_identical} {
                 set csv1 [csvdump r]
                 set csv2 [csvdump {r -1}]
                 set fd [open /tmp/repldump1.txt w]

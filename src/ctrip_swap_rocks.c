@@ -389,7 +389,6 @@ sds compactLevelInfo(sds info, int level , char* rocksdb_stats) {
             L0      0/0    0.00 KB   0.0     36.0     0.0     36.0     110.0     74.0       0.0   1.5     53.8    164.6    684.42            665.60       904    0.757     19M    73K       0.0       0.0
      * 
      */
-    //TODO get level data
     if (rocksdb_stats == NULL) {
         goto end;
     }

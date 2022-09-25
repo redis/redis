@@ -405,7 +405,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"sinterstore",sinterstoreCommand,-3,
      "write use-memory @set",
-     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-1,1,0,0,0},
 
     {"sunion",sunionCommand,-2,
      "read-only to-sort @set",
@@ -413,7 +413,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"sunionstore",sunionstoreCommand,-3,
      "write use-memory @set",
-     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-1,1,0,0,0},
 
     {"sdiff",sdiffCommand,-2,
      "read-only to-sort @set",
@@ -421,7 +421,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"sdiffstore",sdiffstoreCommand,-3,
      "write use-memory @set",
-     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-1,1,0,0,0},
 
     {"smembers",sinterCommand,2,
      "read-only to-sort @set",
@@ -457,15 +457,15 @@ struct redisCommand redisCommandTable[] = {
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zinterstore",zinterstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zdiffstore",zdiffstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zunion",zunionCommand,-3,
      "read-only @sortedset",
@@ -485,7 +485,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"zrangestore",zrangestoreCommand,-5,
      "write use-memory @sortedset",
-     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,2,1,0,0,0},
 
     {"zrangebyscore",zrangebyscoreCommand,-4,
      "read-only @sortedset",
@@ -671,11 +671,11 @@ struct redisCommand redisCommandTable[] = {
      * overwriting the target key may result in an implicit slow DEL. */
     {"rename",renameCommand,3,
      "write @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,2,1,0,0,0},
 
     {"renamenx",renamenxCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,2,1,0,0,0},
 
     {"expire",expireCommand,3,
      "write fast @keyspace",
@@ -870,7 +870,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"restore",restoreCommand,-4,
      "write use-memory @keyspace @dangerous",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"restore-asking",restoreCommand,-4,
      "write use-memory cluster-asking @keyspace @dangerous",
@@ -878,7 +878,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"migrate",migrateCommand,-6,
      "write random @keyspace @dangerous",
-     0,migrateGetKeys,NULL,SWAP_IN,0,3,3,1,0,0,0},
+     0,migrateGetKeys,NULL,SWAP_IN,SWAP_IN_DEL,3,3,1,0,0,0},
 
     {"asking",askingCommand,1,
      "fast @keyspace",
@@ -997,7 +997,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"geosearchstore",geosearchstoreCommand,-8,
      "write use-memory @geo",
-      0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
+      0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,2,1,0,0,0},
 
     {"pfselftest",pfselftestCommand,1,
      "admin @hyperloglog",
@@ -1116,7 +1116,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"failover",failoverCommand,-1,
      "admin no-script ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     /* evict/rksdel/rksget command used by shared fake to identify swap does
      * not need any swap before command proc, but triggers swap in proc. */
@@ -1124,9 +1124,9 @@ struct redisCommand redisCommandTable[] = {
 	 "read-only fast",
      0,NULL,getKeyRequestsNone,SWAP_OUT,0,1,-1,1,0,0,0},
 
-	{"expired",expiredCommand,-2,
+	{"expired",expiredCommand,1,
 	 "write fast @keyspace",
-	 0,NULL,getKeyRequestsNone,SWAP_IN,0,1,-1,1,0,0,0},
+	 0,NULL,getKeyRequestsNone,SWAP_NOP,0,1,-1,1,0,0,0},
 
     {"scanexpire",scanexpireCommand,1,
      "read-only no-script @keyspace",
@@ -1918,7 +1918,10 @@ void databasesCron(void) {
         if (iAmMaster()) {
             activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
         } else {
-            expireSlaveKeys();
+            if (server.swap_mode == SWAP_MODE_MEMORY)
+                expireSlaveKeys();
+            else
+                expireSlaveKeysSwapMode();
         }
     }
 
@@ -2472,6 +2475,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Try to process pending commands for clients that were just unblocked. */
     if (listLength(server.unblocked_clients))
         processUnblockedClients();
+
+    if (listLength(server.swap_resumed_keyrequests))
+        processResumedClientKeyRequests();
 
     /* Send all the slaves an ACK request if at least one client blocked
      * during the previous event loop iteration. Note that we do this after
@@ -3465,13 +3471,15 @@ void InitServerLast() {
     server.rocksdb_disk_error_since = 0;
     server.rocksdb_stats_interval = 2;
     server.swap_txid = 0;
+    server.swap_pause_type = CLIENT_PAUSE_OFF;
+    server.swap_paused_keyrequests = listCreate();
+    server.swap_resumed_keyrequests = listCreate();
     rocksInit();
     server.util_task_manager = createRocksdbUtilTaskManager();
     asyncCompleteQueueInit();
     parallelSyncInit(server.ps_parallism_rdb);
     swapThreadsInit();
     swapInit();
-    // initSwapWholeKey(); //TODO remove
     initThreadedIO();
     set_jemalloc_max_bg_threads(server.jemalloc_max_bg_threads);
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);

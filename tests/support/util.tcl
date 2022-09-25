@@ -252,6 +252,7 @@ proc findKeyWithType {r type} {
 
 proc createComplexDataset {r ops {opt {}}} {
     for {set j 0} {$j < $ops} {incr j} {
+        # if {$j % 100 == 0} { puts "$j: [$r dbsize]" }
         set k [randomKey]
         set k2 [randomKey]
         set f [randomValue]

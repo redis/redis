@@ -384,8 +384,6 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
     redisDb* db = server.db + 0;
     int error = 0;
 
-    //initSwapWholeKey();
-
     TEST("wholeKey - SwapAna hot key") {
         void* ctx = NULL;
         robj* value  = createRawStringObject("value", 5);

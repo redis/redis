@@ -1709,6 +1709,7 @@ struct redisServer {
     client **evict_clients; /* array of evict clients (one for each db). */
     client **expire_clients; /* array of rocks expire clients (one for each db). */
     client **scan_expire_clients; /* array of expire scan clients (one for each db). */
+    client **ttl_clients; /* array of expire scan clients (one for each db). */
     struct swapStat *swap_stats; /* array of swap stats (one for each swap type). */
     struct swapStat *rio_stats; /* array of swap stats (one for each swap type). */
     int debug_evict_keys; /* num of keys to evict before calling cmd. */
@@ -1739,6 +1740,9 @@ struct redisServer {
     unsigned long long swap_max_iter_rate; /* max swap iter rate. */ 
     int rocksdb_compression; /* rocksdb compresssion type: no/snappy/zlib. */
     int64_t swap_txid; /* swap txid. */
+    int swap_pause_type;
+    list *swap_paused_keyrequests;
+    list *swap_resumed_keyrequests;
 };
 
 #define MAX_KEYS_BUFFER 256

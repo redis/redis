@@ -809,7 +809,7 @@ start_server {tags {"bugfix"}} {
             r evict myhash-$i
         }
 
-        wait_keys_evicted r
+        wait_keyspace_cold r
 
         for {set i 0} {$i <= $limit} {incr i} {
             r del myhash-$i

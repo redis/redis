@@ -1267,10 +1267,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        //FIXME handle cold
-        // if (dictSize(db->dict) == 0) continue;
-        // TODO remove
-        if (j > 0) break;
+        if (ctripDbSize(db) == 0) continue;
 
         /* Write the SELECT DB opcode */
         if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
@@ -1278,8 +1275,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
         /* Write the RESIZE DB opcode. */
         uint64_t db_size, expires_size;
-        //FIXME handle cold
-        db_size = dictSize(db->dict);
+        db_size = ctripDbSize(db);
         expires_size = dictSize(db->expires);
         if (rdbSaveType(rdb,RDB_OPCODE_RESIZEDB) == -1) goto werr;
         if (rdbSaveLen(rdb,db_size) == -1) goto werr;
@@ -1303,8 +1299,6 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
             if (!keyIsHot(object_meta,o)) continue;
 
             expire = getExpire(db,&key);
-            // TODO remove
-            // serverLog(LL_WARNING, "[xxx] saveing %s as hot, len=(%lu)",keystr,hashTypeLength(o));
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
             rdbSaveProgress(rdb,rdbflags);
         }
@@ -2694,7 +2688,11 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             } else if (swap_load_error == SWAP_ERR_RDB_LOAD_UNSUPPORTED) {
                 error = 0;
                 swap_unsupported = 1;
+            } else if (swap_load_error > 0) {
+                /* reserve RDB_LOAD_ERR errno */
+                error = swap_load_error;
             } else {
+                /* convert SWAP_ERR_RDB_LOAD_* to RDB_LOAD_ERR_OTHER */
                 error = RDB_LOAD_ERR_OTHER;
             }
             rdbKeyLoadDataDeinit(keydata);

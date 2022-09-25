@@ -137,7 +137,7 @@ int getKeyRequestsHset(int dbid, struct redisCommand *cmd, robj **argv, int argc
 int getKeyRequestsHmget(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsHlen(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
-#define MAX_KEYREQUESTS_BUFFER 128
+#define MAX_KEYREQUESTS_BUFFER 32
 #define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYREQUESTS_BUFFER}
 
 typedef struct getKeyRequestsResult {
@@ -222,8 +222,6 @@ static inline int swapObjectMetaIsHot(swapObjectMeta *som) {
 int keyIsHot(objectMeta *object_meta, robj *value);
 
 /* Data */
-#define SWAP_DATA_ERR  -1
-#define SWAP_DATA_UNSUPPORTED  1
 
 /* SwapData represents key state when swap start. It is stable during
  * key swapping, misc dynamic data are save in dataCtx. */
@@ -265,6 +263,7 @@ swapData *createSwapData(redisDb *db, robj *key, robj *value);
 int swapDataSetupMeta(swapData *d, int object_type, long long expire, OUT void **datactx);
 void swapDataSetObjectMeta(swapData *d, MOVE objectMeta *object_meta);
 int swapDataAlreadySetup(swapData *d);
+void swapDataMarkPropagateExpire(swapData *data);
 int swapDataAna(swapData *d, struct keyRequest *key_request, int *intention, uint32_t *intention_flag, void *datactx);
 sds swapDataEncodeMetaKey(swapData *d);
 sds swapDataEncodeMetaVal(swapData *d);
@@ -308,7 +307,7 @@ static inline void swapDataObjectMetaModifyLen(swapData *d, int delta) {
 }
 void swapDataTurnWarmOrHot(swapData *data);
 void swapDataTurnCold(swapData *data);
-void swapDataTurnDeleted(swapData *data);
+void swapDataTurnDeleted(swapData *data,int del_skip);
 
 /* Debug msgs */
 #ifdef SWAP_DEBUG
@@ -342,16 +341,19 @@ void swapDebugMsgsDump(swapDebugMsgs *msgs);
 
 /* Swap */
 #define SWAP_ERR_SETUP_FAIL -100
-#define SWAP_ERR_METASCAN_CURSOR_INVALID -101
-#define SWAP_ERR_METASCAN_UNSUPPORTED_IN_MULTI -102
+#define SWAP_ERR_SETUP_UNSUPPORTED -101
 #define SWAP_ERR_DATA_FAIL -200
 #define SWAP_ERR_DATA_ANA_FAIL -201
-#define SWAP_ERR_DATA_FIN_FAIL -202
-#define SWAP_ERR_DATA_UNEXPECTED_INTENTION -203
+#define SWAP_ERR_DATA_DECODE_FAIL -202
+#define SWAP_ERR_DATA_FIN_FAIL -203
+#define SWAP_ERR_DATA_UNEXPECTED_INTENTION -204
+#define SWAP_ERR_DATA_DECODE_META_FAILED -205
 #define SWAP_ERR_EXEC_FAIL -300
 #define SWAP_ERR_EXEC_RIO_FAIL -301
 #define SWAP_ERR_EXEC_UNEXPECTED_ACTION -302
 #define SWAP_ERR_EXEC_UNEXPECTED_UTIL -303
+#define SWAP_ERR_METASCAN_CURSOR_INVALID -401
+#define SWAP_ERR_METASCAN_UNSUPPORTED_IN_MULTI -402
 
 struct swapCtx;
 
@@ -376,6 +378,10 @@ typedef struct swapCtx {
 swapCtx *swapCtxCreate(client *c, keyRequest *key_request, clientKeyRequestFinished finished);
 void swapCtxSetSwapData(swapCtx *ctx, MOVE swapData *data, MOVE void *datactx);
 void swapCtxFree(swapCtx *ctx);
+
+void pauseClientSwap(int pause_type);
+void resumeClientSwap();
+void processResumedClientKeyRequests(void);
 
 /* String */
 typedef struct wholeKeySwapData {
@@ -453,6 +459,8 @@ robj *metaScanResultRandomKey(redisDb *db, metaScanResult *result);
 #define EXPIRESCAN_DEFAULT_LIMIT 32
 #define EXPIRESCAN_DEFAULT_CANDIDATES (16*1024)
 
+extern dict *slaveKeysWithExpire;
+
 typedef struct expireCandidates {
     robj *zobj;
     size_t capacity;
@@ -481,6 +489,8 @@ void scanExpireEmpty(scanExpire *scan_expire);
 void scanexpireCommand(client *c);
 int scanExpireDbCycle(redisDb *db, int type, long long timelimit);
 sds genScanExpireInfoString(sds info);
+
+void expireSlaveKeysSwapMode(void);
 
 /* Exec */
 struct swapRequest;
@@ -744,6 +754,7 @@ void clientUnholdKey(client *c, robj *key);
 
 /* Expire */
 int submitExpireClientRequest(client *c, robj *key);
+int isExpireClientRequest(client *c);
 
 /* Rocks */
 #define ROCKS_DIR_MAX_LEN 512
@@ -956,8 +967,8 @@ int hashSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
 
 
 /* Rdb load */
-#define SWAP_ERR_RDB_LOAD_UNSUPPORTED 1
-#define SWAP_ERR_META_DECODE_FAILED -203
+/* RDB_LOAD_ERR_*: [1 +inf), SWAP_ERR_RDB_LOAD_*: (-inf -500] */
+#define SWAP_ERR_RDB_LOAD_UNSUPPORTED -500
 
 #define RDB_LOAD_BATCH_COUNT 50
 #define RDB_LOAD_BATCH_CAPACITY  (4*1024*1024)
@@ -1048,6 +1059,7 @@ void swapCommand(client *c);
 void expiredCommand(client *c);
 const char *strObjectType(int type);
 int timestampIsExpired(mstime_t expire);
+size_t ctripDbSize(redisDb *db);
 
 #define cursorIsHot(outer_cursor) ((outer_cursor & 0x1UL) == 0)
 #define cursorOuterToInternal(cursor) (cursor >> 1)

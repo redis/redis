@@ -43,6 +43,10 @@ test {corrupt payload: #7445 - without sanitize - 2} {
 
 test {corrupt payload: hash with valid zip list header, invalid entry len} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        if {$::swap} {
+            # otherwise tryEvictKey may trigger server to exit, causing case fail
+            r config set debug-evict-keys 0
+        }
         r config set sanitize-dump-payload no
         r restore key 0 "\x0D\x1B\x1B\x00\x00\x00\x16\x00\x00\x00\x04\x00\x00\x02\x61\x00\x04\x02\x62\x00\x04\x14\x63\x00\x04\x02\x64\x00\xFF\x09\x00\xD9\x10\x54\x92\x15\xF5\x5F\x52"
         r config set hash-max-ziplist-entries 1
@@ -63,6 +67,10 @@ test {corrupt payload: invalid zlbytes header} {
 
 test {corrupt payload: valid zipped hash header, dup records} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        if {$::swap} {
+            # otherwise tryEvictKey may trigger server to exit, causing case fail
+            r config set debug-evict-keys 0
+        }
         r config set sanitize-dump-payload no
         r restore key 0 "\x0D\x1B\x1B\x00\x00\x00\x16\x00\x00\x00\x04\x00\x00\x02\x61\x00\x04\x02\x62\x00\x04\x02\x61\x00\x04\x02\x64\x00\xFF\x09\x00\xA1\x98\x36\x78\xCC\x8E\x93\x2E"
         r config set hash-max-ziplist-entries 1
@@ -139,26 +147,25 @@ test {corrupt payload: #3080 - ziplist} {
         verify_log_message 0 "*integrity check failed*" 0
     }
 }
-# #corrupt_ziplist.rdb type RDB_TYPE_HASH_ZIPLIST value is bad. 
-# test {corrupt payload: load corrupted rdb with no CRC - #3505} {
-#     set server_path [tmpdir "server.rdb-corruption-test"]
-#     exec cp tests/assets/corrupt_ziplist.rdb $server_path
-#     set srv [start_server [list overrides [list "dir" $server_path "dbfilename" "corrupt_ziplist.rdb" loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no sanitize-dump-payload no]]]
 
-#     # wait for termination
-#     wait_for_condition 100 5000 {
-#         ! [is_alive $srv]
-#     } else {
-#         fail "rdb loading didn't fail"
-#     }
+test {corrupt payload: load corrupted rdb with no CRC - #3505} {
+    set server_path [tmpdir "server.rdb-corruption-test"]
+    exec cp tests/assets/corrupt_ziplist.rdb $server_path
+    set srv [start_server [list overrides [list "dir" $server_path "dbfilename" "corrupt_ziplist.rdb" loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no sanitize-dump-payload no]]]
 
-#     set stdout [dict get $srv stdout]
-#     assert_equal [count_message_lines $stdout "Terminating server after rdb file reading failure."]  1
-#     assert_lessthan 1 [count_message_lines $stdout "integrity check failed"]
-#     kill_server $srv ;# let valgrind look for issues
-# }
+    # wait for termination
+    wait_for_condition 100 5000 {
+        ! [is_alive $srv]
+    } else {
+        fail "rdb loading didn't fail"
+    }
 
-# #no check so no skip
+    set stdout [dict get $srv stdout]
+    assert_equal [count_message_lines $stdout "Terminating server after rdb file reading failure."]  1
+    assert_lessthan 1 [count_message_lines $stdout "integrity check failed"]
+    kill_server $srv ;# let valgrind look for issues
+}
+
 foreach sanitize_dump {no yes} {
     test {corrupt payload: load corrupted rdb with empty keys} {
         set server_path [tmpdir "server.rdb-corruption-empty-keys-test"]

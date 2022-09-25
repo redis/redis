@@ -19,16 +19,14 @@ void lazyfreeFreeObject(void *args[]) {
  * database which was substituted with a fresh one in the main thread
  * when the database was logically deleted. */
 void lazyfreeFreeDatabase(void *args[]) {
-    dict *ht1 = (dict *) args[0];
-    dict *ht2 = (dict *) args[1];
-    dict *ht3 = (dict *) args[2];
-    dict *ht4 = (dict *) args[3];
+    dict *ht1 = (dict *) args[0]; /* dict */
+    dict *ht2 = (dict *) args[1]; /* expire */
+    dict *ht3 = (dict *) args[2]; /* meta */
 
-    size_t numkeys = dictSize(ht1)+dictSize(ht3);
+    size_t numkeys = dictSize(ht1);
     dictRelease(ht1);
     dictRelease(ht2);
     dictRelease(ht3);
-    dictRelease(ht4);
     atomicDecr(lazyfree_objects,numkeys);
     atomicIncr(lazyfreed_objects,numkeys);
 }
@@ -206,14 +204,12 @@ void freeObjAsync(robj *key, robj *obj) {
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
-    dict *oldht1 = db->dict, *oldht2 = db->expires,
-         *oldht3 = db->meta;
+    dict *oldht1 = db->dict, *oldht2 = db->expires, *oldht3 = db->meta;
     db->dict = dictCreate(&dbDictType,NULL);
     db->expires = dictCreate(&dbExpiresDictType,NULL);
     db->meta = dictCreate(&objectMetaDictType,NULL);
-    //FIXME handle cold
     atomicIncr(lazyfree_objects,dictSize(oldht1));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase,4,oldht1,oldht2,oldht3);
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase,3,oldht1,oldht2,oldht3);
 }
 
 /* Release the radix tree mapping Redis Cluster keys to slots asynchronously. */

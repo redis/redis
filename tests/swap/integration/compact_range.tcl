@@ -89,7 +89,7 @@ start_server {tags {"repl"}} {
             # assert {  > 0.0 }
         }
         after 4001
-        assert_equal [status $master {cumulative_writes_num\(K\)}] 200.000
-        assert_equal [status $master {cumulative_writes_keys\(K\)}] 200.000
+        assert_equal [status $master {cumulative_writes_num\(K\)}] 400.000
+        assert_equal [status $master {cumulative_writes_keys\(K\)}] 400.000
     }
 }

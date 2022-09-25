@@ -38,8 +38,6 @@ proc object_is_dirty {r key} {
 
 proc object_is_cold {r key} {
     set str [$r swap object $key]
-    # puts "str: $str"
-    # puts "value.at: [swap_object_property $str value at], cold_meta.object_type: [swap_object_property $str cold_meta object_type]"
     if { [swap_object_property $str value at] == "" && [swap_object_property $str cold_meta object_type] != "" } {
         set _ 1
     } else {
@@ -61,6 +59,22 @@ proc wait_key_cold {r key} {
         [object_is_cold $r $key]
     } else {
         fail "wait $key cold failed."
+    }
+}
+
+proc keyspace_is_cold {r} {
+    if {[get_info_property r keyspace db0 keys] == "0"} {
+        set _ 1
+    } else {
+        set _ 0
+    }
+}
+
+proc wait_keyspace_cold {r} {
+    wait_for_condition 50 40 {
+        [keyspace_is_cold $r]
+    } else {
+        fail "wait keyspace cold failed."
     }
 }
 

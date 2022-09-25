@@ -160,13 +160,13 @@ static void getSingleCmdKeyRequests(client *c, getKeyRequestsResult *result) {
         }
         getKeysFreeResult(&keys); 
     } else if (cmd->flags & CMD_MODULE) {
-        // TODO support module
+        /* TODO support module */
     } else {
         cmd->getkeyrequests_proc(c->db->id,cmd,c->argv,c->argc,result);
     }
 }
 
-//TODO support select in multi/exec
+/*TODO support select in multi/exec */
 void getKeyRequests(client *c, getKeyRequestsResult *result) {
     getKeyRequestsPrepareResult(result, MAX_KEYREQUESTS_BUFFER);
 

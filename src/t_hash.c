@@ -827,7 +827,6 @@ void hmgetCommand(client *c) {
     }
 }
 
-//TODO confirm
 size_t hashMetaLength(redisDb *db, robj *key) {
     objectMeta *om = lookupMeta(db, key);
     return om ? om->len : 0;

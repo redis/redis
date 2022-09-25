@@ -29,6 +29,13 @@ set swap_not_supported {
     unit/sort
 }
 
+set ::failed_disk_tests {
+    integration/corrupt-dump-fuzzer
+    integration/replication
+    integration/replication-psync
+    swap/integration/complex_data
+}
+
 set ::disk_tests {
     swap/integration/compact_range
     swap/integration/multi_bighash
@@ -101,7 +108,7 @@ set ::disk_tests {
     integration/corrupt-dump-fuzzer
     integration/convert-zipmap-hash-on-load
     integration/redis-benchmark
-    integration/rdb
+    swap/tmp_tests/rdb
     integration/psync2
 }
 

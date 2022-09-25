@@ -80,6 +80,98 @@ void clientReleaseRequestLocks(client *c, swapCtx *ctx) {
     }
 }
 
+/* Pause swap */
+typedef struct clientKeyRequests {
+    client *c;
+    clientKeyRequestFinished cb;
+    getKeyRequestsResult result[1];
+} clientKeyRequests;
+
+static void initKeyRequestsResult(getKeyRequestsResult *result) {
+    result->key_requests = result->buffer;
+    result->num = 0;
+    result->size = MAX_KEYREQUESTS_BUFFER;
+}
+
+static void dupKeyRequestsResult(getKeyRequestsResult *to,
+        getKeyRequestsResult *from) {
+    getKeyRequestsPrepareResult(to,from->size);
+    for (int i = 0; i < from->num; i++) {
+        keyRequest *from_kr = from->key_requests+i;
+        keyRequest *to_kr = to->key_requests+i;
+        copyKeyRequest(to_kr,from_kr);
+    }
+    to->num = from->num;
+}
+
+clientKeyRequests *createClientKeyRequests(client *c, getKeyRequestsResult *result,
+        clientKeyRequestFinished cb) {
+    clientKeyRequests *ckr = zcalloc(sizeof(clientKeyRequests));
+    ckr->c = c;
+    ckr->cb = cb;
+    initKeyRequestsResult(ckr->result);
+    dupKeyRequestsResult(ckr->result,result);
+    return ckr;
+}
+
+void freeClientKeyRequests(clientKeyRequests *ckr) {
+    releaseKeyRequests(ckr->result);
+    getKeyRequestsFreeResult(ckr->result);
+    zfree(ckr);
+}
+
+void pauseClientSwap(int pause_type) {
+    serverAssert(pause_type != CLIENT_PAUSE_OFF);
+    server.swap_pause_type = pause_type;
+    serverLog(LL_WARNING,"Pause client swap, type=%d", pause_type);
+}
+
+void resumeClientSwap() {
+    server.swap_pause_type = CLIENT_PAUSE_OFF;
+    listJoin(server.swap_resumed_keyrequests,server.swap_paused_keyrequests);
+    serverLog(LL_WARNING,"Resume client swap");
+}
+
+void processResumedClientKeyRequests(void) {
+    listNode *ln;
+    while (listLength(server.swap_resumed_keyrequests)) {
+        ln = listFirst(server.swap_resumed_keyrequests);
+        serverAssert(ln != NULL);
+        clientKeyRequests *ckr = listNodeValue(ln);
+        listDelNode(server.swap_resumed_keyrequests,ln);
+        submitClientKeyRequests(ckr->c,ckr->result,ckr->cb);
+        freeClientKeyRequests(ckr);
+    }
+}
+
+static void pauseClientSwapIfNeeded(client *c) {
+    if (c->cmd && c->cmd->proc == failoverCommand) {
+        pauseClientSwap(CLIENT_PAUSE_WRITE);
+    }
+}
+
+static void pauseClientKeyRequests(client *c, getKeyRequestsResult *result,
+        clientKeyRequestFinished cb) {
+    serverAssert(c->cmd);
+    clientKeyRequests *ckr = createClientKeyRequests(c,result,cb);
+    listAddNodeTail(server.swap_paused_keyrequests,ckr);
+}
+
+/* See processCommand for details. */
+static int pauseClientKeyRequestsIfNeeded(client *c, getKeyRequestsResult *result,
+        clientKeyRequestFinished cb) {
+    int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
+                                   (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
+    if (!(c->flags & CLIENT_SLAVE) && 
+        ((server.swap_pause_type == CLIENT_PAUSE_ALL) ||
+        (server.swap_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command))) {
+        pauseClientKeyRequests(c,result,cb);
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
 /* SwapCtx manages context and data for swapping specific key. Note that:
  * - key_request copy to swapCtx.key_request
  * - swapdata moved to swapCtx,
@@ -96,8 +188,10 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
 #ifdef SWAP_DEBUG
     char *key = key_request->key ? key_request->key->ptr : "(nil)";
     char identity[MAX_MSG];
-    snprintf(identity,MAX_MSG,"[%s:%s:%.*s]",
-            swapIntentionName(key_request->cmd_intention),c->cmd->name,MAX_MSG/2,key);
+    snprintf(identity,MAX_MSG,"[%s(%u):%s:%.*s]",
+            swapIntentionName(key_request->cmd_intention),
+            key_request->cmd_intention_flags,
+            c->cmd->name,MAX_MSG/2,key);
     swapDebugMsgsInit(&ctx->msgs, identity);
 #endif
     return ctx;
@@ -158,9 +252,10 @@ void continueProcessCommand(client *c) {
     /* post command */
     commandProcessed(c);
     clientReleaseRequestLocks(c,NULL/*ctx unused*/);
+
     /* pipelined command might already read into querybuf, if process not
      * restarted, pending commands would not be processed again. */
-    processInputBuffer(c);
+    if (!c->CLIENT_DEFERED_CLOSING) processInputBuffer(c);
 }
 
 void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
@@ -170,9 +265,11 @@ void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
             "key=%s, keyrequests_count=%d, errcode=%d",
             key?(sds)key->ptr:"<nil>", c->keyrequests_count, ctx->errcode);
     c->keyrequests_count--;
+    /* if (c->cmd->proc != evictCommand) */
+        /* serverLog(LL_WARNING,"< client:%ld, cmd:%s key:%s",c->id, c->cmd->name, key? (sds)key->ptr:"nil"); */
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
     if (c->keyrequests_count == 0) {
-        if (!c->CLIENT_DEFERED_CLOSING) continueProcessCommand(c);
+        continueProcessCommand(c);
     }
 }
 
@@ -259,6 +356,8 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
     data = createSwapData(db,key,value);
     swapCtxSetSwapData(ctx,data,datactx);
 
+    if (isExpireClientRequest(c)) swapDataMarkPropagateExpire(data);
+
     if (value == NULL) {
         submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
                 ctx,data,datactx,keyRequestSwapFinished,ctx,msgs,-1);
@@ -269,9 +368,15 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
 
     retval = swapDataSetupMeta(data,value->type,expire,&datactx);
     swapCtxSetSwapData(ctx,data,datactx);
-    if (retval == SWAP_DATA_UNSUPPORTED) {
-        reason = "data not support swap";
-        reason_num = NOSWAP_REASON_KEYNOTSUPPORT;
+    if (retval) {
+        if (retval == SWAP_ERR_SETUP_UNSUPPORTED) {
+            reason = "data not support swap";
+            reason_num = NOSWAP_REASON_KEYNOTSUPPORT;
+        } else {
+            ctx->errcode = retval;
+            reason = "setup meta failed";
+            reason_num = NOSWAP_REASON_UNEXPECTED;
+        }
         goto noswap;
     }
 
@@ -318,12 +423,20 @@ noswap:
 void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         clientKeyRequestFinished cb) {
     int64_t txid = server.swap_txid++;
+
+    if (pauseClientKeyRequestsIfNeeded(c,result,cb))
+        return;
+
+    pauseClientSwapIfNeeded(c);
+
     for (int i = 0; i < result->num; i++) {
         void *msgs = NULL;
         keyRequest *key_request = result->key_requests + i;
         redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
         robj *key = key_request->key;
         swapCtx *ctx = swapCtxCreate(c,key_request,cb); /*key_request moved.*/
+
+
         if (key) clientHoldKey(c,key,0);
 #ifdef SWAP_DEBUG
         msgs = &ctx->msgs;
@@ -331,6 +444,8 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         DEBUG_MSGS_APPEND(&ctx->msgs,"request-wait", "key=%s",
                 key ? (sds)key->ptr : "<nil>");
 
+        /* if (c->cmd->proc != evictCommand) */
+            /* serverLog(LL_WARNING,"> client:%ld cmd:%s key:%s",c->id, c->cmd->name,key?(sds)key->ptr:"nil"); */
         requestGetIOAndLock(txid,db,key,keyRequestProceed,c,ctx,
                 (freefunc)swapCtxFree,msgs);
     }
@@ -412,6 +527,15 @@ void swapInit() {
         c->cmd = lookupCommandByCString("scanexpire");
         c->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
         server.scan_expire_clients[i] = c;
+    }
+
+    server.ttl_clients = zmalloc(server.dbnum*sizeof(client*));
+    for (i = 0; i < server.dbnum; i++) {
+        client *c = createClient(NULL);
+        c->db = server.db+i;
+        c->cmd = lookupCommandByCString("ttl");
+        c->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
+        server.ttl_clients[i] = c;
     }
 
     server.repl_workers = 256;

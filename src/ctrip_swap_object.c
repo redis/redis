@@ -53,7 +53,7 @@ static inline objectMetaType *getObjectMetaType(int object_type) {
         omtype = &lenObjectMetaType;
         break;
     case OBJ_LIST:
-        omtype = NULL; //TODO impl
+        omtype = NULL;
         break;
     default:
         break;

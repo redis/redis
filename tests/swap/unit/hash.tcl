@@ -209,7 +209,6 @@ start_server {tags "bighash"} {
         r hmset hash13 a a b b c c 1 1 2 2 3 3 
         assert_equal [r evict hash13] 1
         wait_key_cold r hash13
-        assert [object_is_big r hash13]
         assert_equal [r hmget hash13 a b 1 2] {a b 1 2}
         assert_equal [object_meta_len r hash13] 2
         assert_equal [r hdel hash13 a 1 c 99] 3

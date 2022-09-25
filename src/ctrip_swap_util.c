@@ -31,6 +31,11 @@
 #include "endianconv.h"
 
 /* See keyIsExpired for more details */
+size_t ctripDbSize(redisDb *db) {
+    return dictSize(db->dict) + db->cold_keys;
+}
+
+/* See keyIsExpired for more details */
 int timestampIsExpired(mstime_t when) {
     mstime_t now;
 

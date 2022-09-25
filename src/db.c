@@ -407,7 +407,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
     }
 
     for (int j = startdb; j <= enddb; j++) {
-        removed += dictSize(dbarray[j].dict);
+        removed += dictSize(dbarray[j].dict)+dbarray[j].cold_keys;
         if (async) {
             emptyDbAsync(&dbarray[j]);
         } else {
@@ -418,6 +418,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
         dbarray[j].expires_cursor = 0;
+        dbarray[j].cold_keys = 0;
         scanExpireEmpty(dbarray[j].scan_expire);
     }
 
@@ -799,31 +800,25 @@ void keysCommand(client *c) {
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
     int plen = sdslen(pattern), allkeys;
-    unsigned long numkeys = 0, i;
+    unsigned long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
-    //handle cold
-    dict *dicts[2] = {c->db->dict};
 
+    di = dictGetSafeIterator(c->db->dict);
     allkeys = (pattern[0] == '*' && plen == 1);
-    for (i = 0; i < sizeof(dicts)/sizeof(dict*); i++) {
-        di = dictGetSafeIterator(dicts[i]);
-		while((de = dictNext(di)) != NULL) {
-			sds key = dictGetKey(de);
-			robj *keyobj;
+    while((de = dictNext(di)) != NULL) {
+        sds key = dictGetKey(de);
+        robj *keyobj;
 
-			if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
-				keyobj = createStringObject(key,sdslen(key));
-				if (!keyIsExpired(c->db,keyobj)) {
-					addReplyBulk(c,keyobj);
-					numkeys++;
-				}
-				decrRefCount(keyobj);
-			}
-		}
-        dictReleaseIterator(di);
-        di = NULL;
+        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+            keyobj = createStringObject(key,sdslen(key));
+            if (!keyIsExpired(c->db,keyobj)) {
+                addReplyBulk(c,keyobj);
+                numkeys++;
+            }
+            decrRefCount(keyobj);
+        }
     }
-    
+    dictReleaseIterator(di);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
@@ -1546,7 +1541,6 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
         dbAsyncDelete(db,keyobj);
     else
         dbSyncDelete(db,keyobj);
-    //FIXME handle cold key
     latencyEndMonitor(expire_latency);
     latencyAddSampleIfNeeded("expire-del",expire_latency);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,"expired",keyobj,db->id);

@@ -28,10 +28,6 @@
 
 #include "ctrip_swap.h"
 
-/* TODO currently rocks iter could scan obselete data that are already swapped
- * in, althouth it will be filtered when search db.dict, still it wastes io
- * and cpu cycle. delete those data in customized filter for those obseletes. */
-
 static int rocksIterWaitReady(rocksIter* it) {
     bufferedIterCompleteQueue *cq = it->buffered_cq;
     pthread_mutex_lock(&cq->buffer_lock);

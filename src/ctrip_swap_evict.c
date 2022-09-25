@@ -125,6 +125,7 @@ int keyIsHolded(redisDb *db, robj *key) {
 void evictClientKeyRequestFinished(client *c, swapCtx *ctx) {
     UNUSED(ctx);
     robj *key = ctx->key_request->key;
+    /* serverLog(LL_WARNING, "< client:%ld cmd:evict key:%s",c->id,(sds)key->ptr); */
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
     incrRefCount(key);
     c->keyrequests_count--;
@@ -166,13 +167,6 @@ int tryEvictKey(redisDb *db, robj *key, int *evict_result) {
         if (evict_result) *evict_result = EVICT_FAIL_HOLDED;
         return 0;
     }
-
-    /* transformt hash big property */
-    //TODO fixme
-    /* if (o->type == OBJ_HASH) { */
-        /* objectMeta *m = lookupMeta(db, key); */
-        /* hashTransformBig(o, m); */
-    /* } */
 
     dirty = o->dirty;
     old_keyrequests_count = evict_client->keyrequests_count;

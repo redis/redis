@@ -42,13 +42,16 @@ int swapDataAlreadySetup(swapData *data) {
     return data->type != NULL;
 }
 
-/* See keyIsExpired for more details */
-static int swapDataExpired(swapData *d) {
-    return timestampIsExpired(d->expire);
+void swapDataMarkPropagateExpire(swapData *data) {
+    data->propagate_expire = 1;
+}
+
+int swapDataMarkedPropagateExpire(swapData *data) {
+    return data->propagate_expire;
 }
 
 static int swapDataExpiredAndShouldDelete(swapData *data) {
-    if (!swapDataExpired(data)) return 0;
+    if (!timestampIsExpired(data->expire)) return 0;
     if (server.masterhost != NULL) return 0;
     if (checkClientPauseTimeoutAndReturnIfPaused()) return 0;
     return 1;
@@ -74,10 +77,9 @@ int swapDataAna(swapData *d, struct keyRequest *key_request,
 
     serverAssert(swapDataAlreadySetup(d));
 
-    if (swapDataExpiredAndShouldDelete(d)) {
+    if (swapDataMarkedPropagateExpire(d)) {
         key_request->cmd_intention = SWAP_DEL;
         key_request->cmd_intention_flags = 0;
-        d->propagate_expire = 1;
     }
 
     if (d->type->swapAna) {
@@ -199,6 +201,12 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
 
     d->expire = expire;
     d->object_type = object_type;
+
+    if (!swapDataMarkedPropagateExpire(d) &&
+            swapDataExpiredAndShouldDelete(d)) {
+        swapDataMarkPropagateExpire(d);
+    }
+
     if (datactx) *datactx = NULL;
 
     switch (d->object_type) {
@@ -211,10 +219,11 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
     case OBJ_LIST:
     case OBJ_SET:
     case OBJ_ZSET:
-        retval = SWAP_DATA_UNSUPPORTED;
+    case OBJ_STREAM:
+        retval = SWAP_ERR_SETUP_UNSUPPORTED;
         break;
     default:
-        retval = SWAP_DATA_ERR;
+        retval = SWAP_ERR_SETUP_FAIL;
         break;
     }
     return retval;
@@ -247,7 +256,7 @@ int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
     if (retval) return retval;
 
     retval = buildObjectMeta(object_type,extend,extend_len,&object_meta);
-    if (retval) return SWAP_ERR_META_DECODE_FAILED;
+    if (retval) return SWAP_ERR_DATA_DECODE_META_FAILED;
 
     swapDataSetColdObjectMeta(d,object_meta/*moved*/);
     return retval;

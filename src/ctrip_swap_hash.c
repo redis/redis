@@ -288,6 +288,8 @@ int hashDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
         const char *keystr, *subkeystr;
         size_t klen, slen;
         robj *subvalobj;
+        robj ssubkeyobj, ssubvalobj;
+        robj *argv[2];
 
         if (rawvals[i] == NULL)
             continue;
@@ -297,7 +299,6 @@ int hashDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
         if (!swapDataPersisted(data))
             continue;
         subkey = sdsnewlen(subkeystr,slen);
-        serverAssert(memcmp(data->key->ptr,keystr,klen) == 0); //TODO remove
 
         subvalobj = rocksDecodeValRdb(rawvals[i]);
         serverAssert(subvalobj->type == OBJ_STRING);
@@ -309,6 +310,11 @@ int hashDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
         subvalobj->ptr = NULL;
         decrRefCount(subvalobj);
 
+        initStaticStringObject(ssubkeyobj,subkey);
+        initStaticStringObject(ssubvalobj,subval);
+        argv[0] = &ssubkeyobj;
+        argv[1] = &ssubvalobj;
+        hashTypeTryConversion(decoded,argv,0,1);
         hashTypeSet(decoded,subkey,subval,
                 HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
     }
@@ -402,10 +408,16 @@ robj *hashCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) {
         }
     } else {
         hashTypeIterator *hi;
+        robj *argv[2], subkeyobj, subvalobj;
         hi = hashTypeInitIterator(decoded);
         while (hashTypeNext(hi) != C_ERR) {
             sds subkey = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
             sds subval = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+            initStaticStringObject(subkeyobj,subkey);
+            initStaticStringObject(subvalobj,subval);
+            argv[0] = &subkeyobj;
+            argv[1] = &subvalobj;
+            hashTypeTryConversion(data->value,argv,0,1);
             int updated = hashTypeSet(data->value, subkey, subval,
                     HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
             if (!updated) {
@@ -519,8 +531,6 @@ int hashSaveStart(rdbKeySaveData *save, rio *rdb) {
 /* return 1 if hash still need to consume more rawkey. */
 int hashSave(rdbKeySaveData *save, rio *rdb, decodedData *decoded) {
     robj *key = save->key;
-
-    /* TODO remove */
     serverAssert(!sdscmp(decoded->key, key->ptr));
 
     if (decoded->rdbtype != RDB_TYPE_STRING) {
@@ -599,6 +609,12 @@ void hashLoadStartHT(struct rdbKeyLoadData *load, rio *rdb, int *cf,
         return;
 	}
 
+    if (len == 0) {
+        sdsfree(hash_header);
+        *error = RDB_LOAD_ERR_EMPTY_KEY;
+        return;
+    }
+
     load->total_fields = len;
 
     extend = rocksEncodeObjectMetaLen(len);
@@ -608,8 +624,8 @@ void hashLoadStartHT(struct rdbKeyLoadData *load, rio *rdb, int *cf,
     *rawval = rocksEncodeMetaVal(load->object_type,load->expire,extend);
     *error = 0;
 
-    sdsfree(extend);
     sdsfree(hash_header);
+    sdsfree(extend);
 }
 
 void hashLoadStartZip(struct rdbKeyLoadData *load, rio *rdb, int *cf,
@@ -623,6 +639,11 @@ void hashLoadStartZip(struct rdbKeyLoadData *load, rio *rdb, int *cf,
         serverLog(LL_WARNING,"Load rdb with rdbtype(%d) got (%d)",
                 load->rdbtype, load->value->type);
         *error = RDB_LOAD_ERR_OTHER;
+        return;
+    }
+
+    if (hashTypeLength(load->value) == 0) {
+        *error = RDB_LOAD_ERR_EMPTY_KEY;
         return;
     }
 

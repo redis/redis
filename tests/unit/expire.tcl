@@ -230,13 +230,9 @@ start_server {tags {"expire"}} {
         r set s c
         r set foo b
         if {$::debug_evict_keys} {
-            wait_for_condition 100 20 {
-                [r dbsize] == 5
-            } else {
-                fail "wait evict fail"
-            }
+            wait_keyspace_cold r
         }
-        lsort [r keys *]
+        lsort [lindex [r scan 1] 1]
     } {a e foo s t}
 
     test {EXPIRE with empty string as TTL should report an error} {

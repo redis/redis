@@ -596,7 +596,6 @@ static void executeSwapDelRequest(swapRequest *req) {
         }
         DEBUG_MSGS_APPEND(req->msgs,"exec-write","numkeys=%d.",numkeys);
         RIOInitWrite(rio,wb);
-        //TODO confirm: rawkeys leak?
     } else if (action == ROCKS_DEL) {
         serverAssert(numkeys == 1 && rawkeys);
         DEBUG_MSGS_APPEND(req->msgs,"exec-del-del","rawkey=%s",rawkeys[0]);
@@ -622,6 +621,13 @@ static void executeSwapDelRequest(swapRequest *req) {
 
 end:
     doNotify(req,errcode);
+    if (cfs) zfree(cfs);
+    if (rawkeys) {
+        for (i = 0; i < numkeys; i++) {
+            sdsfree(rawkeys[i]);
+        }
+        zfree(rawkeys);
+    }
     RIODeinit(rio);
 }
 
@@ -748,7 +754,6 @@ static void executeSwapOutRequest(swapRequest *req) {
         }
         DEBUG_MSGS_APPEND(req->msgs,"exec-out-write","numkeys=%d",numkeys);
         RIOInitWrite(rio, wb);
-        // TODO confirm rawkeys leaked?
     } else {
         errcode = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
         goto end;
@@ -889,7 +894,7 @@ static void executeSwapInRequest(swapRequest *req) {
                 goto end;
             }
         }
-        /* rawkeys not moved, only rakeys[0] moved, free when done. */
+        /* rawkeys not moved, only rawkeys[0] moved, free when done. */
         zfree(cfs);
         zfree(rawkeys);
     } else if (action == ROCKS_SCAN) {
@@ -920,7 +925,7 @@ static void executeSwapInRequest(swapRequest *req) {
                 goto end;
             }
         }
-        /* rawkeys not moved, only rakeys[0] moved, free when done. */
+        /* rawkeys not moved, only rawkeys[0] moved, free when done. */
         zfree(cfs);
         zfree(rawkeys);
     } else if (action == ROCKS_ITERATE) {
@@ -1082,24 +1087,26 @@ end:
 }
 
 void swapDataTurnWarmOrHot(swapData *data) {
-    if (data->expire != -1)
+    if (data->expire != -1) {
         setExpire(NULL,data->db,data->key,data->expire);
+    }
     data->db->cold_keys--;
 }
 
 void swapDataTurnCold(swapData *data) {
-    if (data->expire != -1)
+    if (data->expire != -1) {
         removeExpire(data->db,data->key);
+    }
     data->db->cold_keys++;
 }
 
-void swapDataTurnDeleted(swapData *data) {
+void swapDataTurnDeleted(swapData *data, int del_skip) {
     if (swapDataIsCold(data)) {
         data->db->cold_keys--;
     } else {
         /* rocks-meta already deleted, only need to delete object_meta
          * from keyspace. */
-        if (data->expire != -1) {
+        if (!del_skip && data->expire != -1) {
             removeExpire(data->db,data->key);
         }
     }
@@ -1110,7 +1117,7 @@ void swapDataTurnDeleted(swapData *data) {
 void finishSwapRequest(swapRequest *req) {
     DEBUG_MSGS_APPEND(req->msgs,"exec-finish","intention=%s",
             swapIntentionName(req->intention));
-    int retval = 0;
+    int retval = 0, del_skip = 0;
     if (req->errcode) return;
 
     swapData *data = req->data;
@@ -1139,9 +1146,9 @@ void finishSwapRequest(swapRequest *req) {
         retval = swapDataSwapOut(data,datactx);
         break;
     case SWAP_DEL:
-        swapDataTurnDeleted(data);
-        retval = swapDataSwapDel(data,datactx,
-                req->intention_flags & SWAP_FIN_DEL_SKIP);
+        del_skip = req->intention_flags & SWAP_FIN_DEL_SKIP;
+        swapDataTurnDeleted(data,del_skip);
+        retval = swapDataSwapDel(data,datactx,del_skip);
         break;
     default:
         retval = SWAP_ERR_DATA_FIN_FAIL;

@@ -335,7 +335,7 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
     decodedResultInit(next);
     int iter_valid; /* true if current iter value is valid. */
 
-    //TODO rocksCreateIter Fail if open multiple time.
+    /* TODO rocksCreateIter Fail if open multiple time. */
     if (db->id != 0) return C_OK;
 
     if (!(it = rocksCreateIter(server.rocks,db))) {
@@ -608,7 +608,7 @@ void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
             ctripRdbLoadWriteFinished,NULL,msgs,-1);
 }
 
-void ctripRdbLoadCtxFeed(ctripRdbLoadCtx *ctx, int cf, sds rawkey, sds rawval) {
+void ctripRdbLoadCtxFeed(ctripRdbLoadCtx *ctx, int cf, MOVE sds rawkey, MOVE sds rawval) {
     ctx->batch.cfs[ctx->batch.index] = cf;
     ctx->batch.rawkeys[ctx->batch.index] = rawkey;
     ctx->batch.rawvals[ctx->batch.index] = rawval;
