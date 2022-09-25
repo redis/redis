@@ -7808,9 +7808,6 @@ void moduleReleaseGIL(void) {
  *                               Notice, when this event fires, the given key
  *                               can not be retained, use RM_CreateStringFromString
  *                               instead.
- *  - REDISMODULE_NOTIFY_REMOVED: A special notification available only for modules,
- *                                indicates that the key is about to be removed from
- *                                the keyspace.
  *
  * We do not distinguish between key events and keyspace events, and it is up
  * to the module to filter the actions taken based on the key.
@@ -10324,6 +10321,7 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_REPL_ASYNC_LOAD */
     -1, /* REDISMODULE_EVENT_EVENTLOOP */
     -1, /* REDISMODULE_EVENT_CONFIG */
+    REDISMODULE_KEYINFO_VERSION, /* REDISMODULE_EVENT_KEY */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -10677,6 +10675,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT;
     case REDISMODULE_EVENT_CONFIG:
         return subevent < _REDISMODULE_SUBEVENT_CONFIG_NEXT; 
+    case REDISMODULE_EVENT_KEY:
+        return subevent < _REDISMODULE_SUBEVENT_KEY_NEXT;
     default:
         break;
     }
@@ -10755,6 +10755,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_CONFIG) {
                 moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_KEY) {
+                moduledata = data;
             }
 
             el->module->in_hook++;
@@ -10804,12 +10806,9 @@ void processModuleLoadingProgressEvent(int is_aof) {
     }
 }
 
-/* When a key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it 
+/* When a module key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it 
 *  will be called to tell the module which key is about to be released. */
 void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
-    server.lazy_expire_disabled++;
-    moduleNotifyKeyspaceEvent(NOTIFY_REMOVED,"removed",key,dbid);
-    server.lazy_expire_disabled--;
     if (val->type == OBJ_MODULE) {
         moduleValue *mv = val->ptr;
         moduleType *mt = mv->type;

@@ -186,12 +186,11 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_LOADED (1<<12)     /* module only key space notification, indicate a key loaded from rdb */
 #define REDISMODULE_NOTIFY_MODULE (1<<13)     /* d, module key space notification */
 #define REDISMODULE_NOTIFY_NEW (1<<14)        /* n, new key notification */
-#define REDISMODULE_NOTIFY_REMOVED (1<<15)    /* module only key space notification, indicate a key is being removed from the db */
 
 /* Next notification flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetKeyspaceNotificationFlagsAll instead. */
-#define _REDISMODULE_NOTIFY_NEXT (1<<16)
+#define _REDISMODULE_NOTIFY_NEXT (1<<15)
 
 #define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE)      /* A */
 
@@ -444,7 +443,8 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_REPL_ASYNC_LOAD 14
 #define REDISMODULE_EVENT_EVENTLOOP 15
 #define REDISMODULE_EVENT_CONFIG 16
-#define _REDISMODULE_EVENT_NEXT 17 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_KEY 17
+#define _REDISMODULE_EVENT_NEXT 18 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -551,6 +551,10 @@ static const RedisModuleEvent
     RedisModuleEvent_Config = {
         REDISMODULE_EVENT_CONFIG,
         1
+    },
+    RedisModuleEvent_Key = {
+        REDISMODULE_EVENT_KEY,
+        1
     };
 
 /* Those are values that are used for the 'subevent' callback argument. */
@@ -618,6 +622,9 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP 0
 #define REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP 1
 #define _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT 2
+
+#define REDISMODULE_SUBEVENT_KEY_DELETED 0
+#define _REDISMODULE_SUBEVENT_KEY_NEXT 1
 
 #define _REDISMODULE_SUBEVENT_SHUTDOWN_NEXT 0
 #define _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT 0
@@ -741,6 +748,16 @@ typedef struct RedisModuleSwapDbInfo {
 } RedisModuleSwapDbInfoV1;
 
 #define RedisModuleSwapDbInfo RedisModuleSwapDbInfoV1
+
+#define REDISMODULE_KEYINFO_VERSION 1
+typedef struct RedisModuleKeyInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    const char *key;        /* key name */
+} RedisModuleKeyInfoV1;
+
+#define RedisModuleKeyInfo RedisModuleKeyInfoV1
 
 typedef enum {
     REDISMODULE_ACL_LOG_AUTH = 0, /* Authentication failure */

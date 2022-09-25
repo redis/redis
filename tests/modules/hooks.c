@@ -279,6 +279,19 @@ void configChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
     LogStringEvent(ctx, "config-change-first", ei->config_names[0]);
 }
 
+void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
+{
+    REDISMODULE_NOT_USED(e);
+    if (sub != REDISMODULE_SUBEVENT_KEY_DELETED) {
+        return;
+    }
+
+    RedisModuleKeyInfoV1 *ei = data;
+    RedisModuleString *keyname = RedisModule_CreateStringPrintf(ctx, "key-info-%s", ei->key);
+    LogStringEvent(ctx, RedisModule_StringPtrLen(keyname, NULL), ei->key);
+    RedisModule_FreeString(ctx, keyname);
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -331,6 +344,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_Config, configChangeCallback);
+
+    RedisModule_SubscribeToServerEvent(ctx,
+        RedisModuleEvent_Key, keyInfoCallback);
 
     event_log = RedisModule_CreateDict(ctx);
 

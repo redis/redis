@@ -309,6 +309,9 @@ robj *dbRandomKey(redisDb *db) {
 static int dbGenericDelete(redisDb *db, robj *key, int async) {
     dictEntry **plink;
     int table;
+    RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, key->ptr};
+
+    moduleFireServerEvent(REDISMODULE_EVENT_KEY, REDISMODULE_SUBEVENT_KEY_DELETED, &ki);
     dictEntry *de = dictTwoPhaseUnlinkFind(db->dict,key->ptr,&plink,&table);
     if (de) {
         robj *val = dictGetVal(de);

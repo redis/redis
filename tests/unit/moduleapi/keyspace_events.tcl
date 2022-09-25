@@ -94,60 +94,6 @@ tags "modules" {
             assert_equal [r get testkeyspace:expired] 1
         }
 
-        test {Test removed key space event} {
-            r set a abcd
-            r del a
-            # For String Type value is returned
-            assert_equal {1 abcd} [r keyspace.is_key_removed a]
-
-            r hset b f v
-            r hdel b f
-            assert_equal {1 b} [r keyspace.is_key_removed b]
-
-            r lpush c 1
-            r lpop c
-            assert_equal {1 c} [r keyspace.is_key_removed c]
-
-            r sadd d 1
-            r spop d
-            assert_equal {1 d} [r keyspace.is_key_removed d]
-
-            r zadd e 1 f
-            r zpopmin e
-            assert_equal {1 e} [r keyspace.is_key_removed e]
-
-            r xadd f 1-1 f v
-            r xdel f 1-1
-            # Stream does not delete object when del entry
-            assert_equal {0 {}} [r keyspace.is_key_removed f]
-            r del f
-            assert_equal {1 f} [r keyspace.is_key_removed f]
-
-            # delete key because of active expire
-            set size [r dbsize]
-            r set g abcd px 1
-            #ensure active expire
-            wait_for_condition 50 100 {
-                [r dbsize] == $size
-            } else {
-                fail "Active expire not trigger"
-            }
-            assert_equal {1 abcd} [r keyspace.is_key_removed g]
-
-            # delete key because of lazy expire
-            r debug set-active-expire 0
-            r set h abcd px 1
-            after 10
-            r get h
-            assert_equal {1 abcd} [r keyspace.is_key_removed h]
-            r debug set-active-expire 1
-
-            # delete key not yet expired
-            r set i abcd ex 100
-            r del i
-            assert_equal {1 abcd} [r keyspace.is_key_removed i]
-        } {} {needs:debug}
-
         test "Unload the module - testkeyspace" {
             assert_equal {OK} [r module unload testkeyspace]
         }

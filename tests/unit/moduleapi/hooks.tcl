@@ -72,6 +72,21 @@ tags "modules" {
             assert {[r hooks.event_count loading-rdb-start] == 1}
         }
 
+        test {Test key unlink hook} {
+            r set testkey1 hello
+            r del testkey1
+            assert {[r hooks.event_count key-info-testkey1] == 1}
+            assert_equal [r hooks.event_last key-info-testkey1] testkey1
+            r lpush testkey1 hello
+            r lpop testkey1
+            assert {[r hooks.event_count key-info-testkey1] == 2}
+            assert_equal [r hooks.event_last key-info-testkey1] testkey1
+            r set testkey2 world
+            r unlink testkey2
+            assert {[r hooks.event_count key-info-testkey2] == 1}
+            assert_equal [r hooks.event_last key-info-testkey2] testkey2
+        }
+
         test {Test flushdb hooks} {
             r flushdb
             assert_equal [r hooks.event_last flush-start] 9

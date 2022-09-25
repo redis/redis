@@ -44,8 +44,6 @@ ustime_t cached_time = 0;
 RedisModuleDict *loaded_event_log = NULL;
 /** stores all the keys on which we got 'module' keyspace notification **/
 RedisModuleDict *module_event_log = NULL;
-/** stores all the keys on which we got 'removed' keyspace notification **/
-RedisModuleDict *removed_event_log = NULL;
 
 static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
     REDISMODULE_NOT_USED(ctx);
@@ -137,33 +135,6 @@ static int KeySpace_NotificationModule(RedisModuleCtx *ctx, int type, const char
     return REDISMODULE_OK;
 }
 
-static int KeySpace_NotificationRemoved(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
-    REDISMODULE_NOT_USED(ctx);
-    REDISMODULE_NOT_USED(type);
-
-    /* Open Key to check key exists */
-    RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-    if(strcmp(event, "removed") == 0 && kp != NULL) {
-        const char* keyName = RedisModule_StringPtrLen(key, NULL);
-        int nokey;
-        RedisModule_DictGetC(removed_event_log, (void*)keyName, strlen(keyName), &nokey);
-        if(nokey){
-            RedisModuleString *v = RedisModule_HoldString(ctx, key);
-            /* For string type, we keep value instead of key */
-            if (RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_STRING) {
-                RedisModule_FreeString(ctx, v);
-                size_t len;
-                char *s = RedisModule_StringDMA(kp, &len, REDISMODULE_READ);
-                v = RedisModule_CreateString(ctx, s, len);
-            }
-            RedisModule_DictSetC(removed_event_log, (void*)keyName, strlen(keyName), v);
-        }
-        RedisModule_CloseKey(kp);
-    }
-
-    return REDISMODULE_OK;
-}
-
 static int cmdNotify(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     if(argc != 2){
         return RedisModule_WrongArity(ctx);
@@ -203,26 +174,6 @@ static int cmdIsKeyLoaded(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
     int nokey;
     RedisModuleString* keyStr = RedisModule_DictGetC(loaded_event_log, (void*)key, strlen(key), &nokey);
-
-    RedisModule_ReplyWithArray(ctx, 2);
-    RedisModule_ReplyWithLongLong(ctx, !nokey);
-    if(nokey){
-        RedisModule_ReplyWithNull(ctx);
-    }else{
-        RedisModule_ReplyWithString(ctx, keyStr);
-    }
-    return REDISMODULE_OK;
-}
-
-static int cmdIsKeyRemoved(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
-    if(argc != 2){
-        return RedisModule_WrongArity(ctx);
-    }
-
-    const char* key  = RedisModule_StringPtrLen(argv[1], NULL);
-
-    int nokey;
-    RedisModuleString* keyStr = RedisModule_DictGetC(removed_event_log, (void*)key, strlen(key), &nokey);
 
     RedisModule_ReplyWithArray(ctx, 2);
     RedisModule_ReplyWithLongLong(ctx, !nokey);
@@ -311,7 +262,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     loaded_event_log = RedisModule_CreateDict(ctx);
     module_event_log = RedisModule_CreateDict(ctx);
-    removed_event_log = RedisModule_CreateDict(ctx);
 
     int keySpaceAll = RedisModule_GetKeyspaceNotificationFlagsAll();
 
@@ -340,10 +290,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
-    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_REMOVED, KeySpace_NotificationRemoved) != REDISMODULE_OK){
-        return REDISMODULE_ERR;
-    }
-
     if (RedisModule_CreateCommand(ctx,"keyspace.notify", cmdNotify,"",0,0,0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
@@ -353,10 +299,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if (RedisModule_CreateCommand(ctx,"keyspace.is_key_loaded", cmdIsKeyLoaded,"",0,0,0) == REDISMODULE_ERR){
-        return REDISMODULE_ERR;
-    }
-
-    if (RedisModule_CreateCommand(ctx,"keyspace.is_key_removed", cmdIsKeyRemoved,"",0,0,0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 
@@ -384,27 +326,24 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
-    RedisModuleDictIter *iter;
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(loaded_event_log, "^", NULL, 0);
     char* key;
     size_t keyLen;
-    unsigned int j;
     RedisModuleString* val;
-    RedisModuleDict **tofree[3] = {
-        &loaded_event_log,
-        &module_event_log,
-        &removed_event_log
-    };
-
-    for (j = 0; j < sizeof(tofree) / sizeof(tofree[0]); j++) {
-        RedisModuleDict *event_log = *tofree[j];
-        iter = RedisModule_DictIteratorStartC(event_log, "^", NULL, 0);
-        while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
-            RedisModule_FreeString(ctx, val);
-        }
-        RedisModule_FreeDict(ctx, event_log);
-        RedisModule_DictIteratorStop(iter);
-        *tofree[j] = NULL;
+    while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
+        RedisModule_FreeString(ctx, val);
     }
+    RedisModule_FreeDict(ctx, loaded_event_log);
+    RedisModule_DictIteratorStop(iter);
+    loaded_event_log = NULL;
+
+    iter = RedisModule_DictIteratorStartC(module_event_log, "^", NULL, 0);
+    while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
+        RedisModule_FreeString(ctx, val);
+    }
+    RedisModule_FreeDict(ctx, module_event_log);
+    RedisModule_DictIteratorStop(iter);
+    module_event_log = NULL;
 
     return REDISMODULE_OK;
 }
