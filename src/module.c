@@ -7194,7 +7194,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
      * commands from Lua or MULTI. We actually create an already aborted
      * (client set to NULL) blocked client handle, and actually reply with
      * an error. */
-    mstime_t timeout = timeout_ms ? (commandTimeSnapshot()+timeout_ms) : 0;
+    mstime_t timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
     bc->client = (islua || ismulti) ? NULL : c;
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
