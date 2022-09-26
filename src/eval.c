@@ -587,7 +587,7 @@ void evalShaRoCommand(client *c) {
 }
 
 void scriptCommand(client *c) {
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+    if (!strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "DEBUG (YES|SYNC|NO)",
 "    Set the debug mode for subsequent scripts executed.",
@@ -606,7 +606,7 @@ void scriptCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"flush")) {
         int async = 0;
         if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"sync")) {
             async = 0;
@@ -620,7 +620,7 @@ NULL
         }
         scriptingReset(async);
         addReply(c,shared.ok);
-    } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"exists")) {
         int j;
 
         addReplyArrayLen(c, c->argc-2);
@@ -630,13 +630,13 @@ NULL
             else
                 addReply(c,shared.czero);
         }
-    } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"load")) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"load")) {
         sds sha = luaCreateFunction(c,c->argv[2]);
         if (sha == NULL) return; /* The error was sent by luaCreateFunction(). */
         addReplyBulkCBuffer(c,sha,40);
-    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"kill")) {
         scriptKill(c, 1);
-    } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"debug")) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"debug")) {
         if (clientHasPendingReplies(c)) {
             addReplyError(c,"SCRIPT DEBUG must be called outside a pipeline");
             return;

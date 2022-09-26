@@ -5263,7 +5263,7 @@ void clusterCommand(client *c) {
         return;
     }
 
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+    if (!strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "ADDSLOTS <slot> [<slot> ...]",
 "    Assign slots to current node.",
@@ -5349,7 +5349,7 @@ NULL
         } else {
             addReply(c,shared.ok);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"nodes")) {
         /* CLUSTER NODES */
         /* Report plaintext ports, only if cluster is TLS but client is known to
          * be non-TLS). */
@@ -5358,16 +5358,16 @@ NULL
         sds nodes = clusterGenNodesDescription(0, use_pport);
         addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
         sdsfree(nodes);
-    } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"myid")) {
         /* CLUSTER MYID */
         addReplyBulkCBuffer(c,myself->name, CLUSTER_NAMELEN);
-    } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"slots")) {
         /* CLUSTER SLOTS */
         clusterReplyMultiBulkSlots(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"shards") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"shards")) {
         /* CLUSTER SHARDS */
         clusterReplyShards(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"flushslots") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"flushslots")) {
         /* CLUSTER FLUSHSLOTS */
         if (dictSize(server.db[0].dict) != 0) {
             addReplyError(c,"DB must be empty to perform CLUSTER FLUSHSLOTS.");
@@ -5376,8 +5376,8 @@ NULL
         clusterDelNodeSlots(myself);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
-    } else if ((!strcasecmp(c->argv[1]->ptr,"addslots") ||
-               !strcasecmp(c->argv[1]->ptr,"delslots")) && c->argc >= 3)
+    } else if (!strcasecmp(c->argv[1]->ptr,"addslots") ||
+               !strcasecmp(c->argv[1]->ptr,"delslots"))
     {
         /* CLUSTER ADDSLOTS <slot> [slot] ... */
         /* CLUSTER DELSLOTS <slot> [slot] ... */
@@ -5405,8 +5405,9 @@ NULL
         zfree(slots);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
-    } else if ((!strcasecmp(c->argv[1]->ptr,"addslotsrange") ||
-               !strcasecmp(c->argv[1]->ptr,"delslotsrange")) && c->argc >= 4) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"addslotsrange") ||
+               !strcasecmp(c->argv[1]->ptr,"delslotsrange"))
+    {
         if (c->argc % 2 == 1) {
             addReplyErrorArity(c);
             return;
@@ -5444,7 +5445,7 @@ NULL
         zfree(slots);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"setslot") && c->argc >= 4) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"setslot")) {
         /* SETSLOT 10 MIGRATING <node ID> */
         /* SETSLOT 10 IMPORTING <node ID> */
         /* SETSLOT 10 STABLE */
@@ -5475,7 +5476,7 @@ NULL
                 return;
             }
             server.cluster->migrating_slots_to[slot] = n;
-        } else if (!strcasecmp(c->argv[3]->ptr,"importing") && c->argc == 5) {
+        } else if (!strcasecmp(c->argv[3]->ptr,"importing")) {
             if (server.cluster->slots[slot] == myself) {
                 addReplyErrorFormat(c,
                     "I'm already the owner of hash slot %u",slot);
@@ -5492,11 +5493,11 @@ NULL
                 return;
             }
             server.cluster->importing_slots_from[slot] = n;
-        } else if (!strcasecmp(c->argv[3]->ptr,"stable") && c->argc == 4) {
+        } else if (!strcasecmp(c->argv[3]->ptr,"stable")) {
             /* CLUSTER SETSLOT <SLOT> STABLE */
             server.cluster->importing_slots_from[slot] = NULL;
             server.cluster->migrating_slots_to[slot] = NULL;
-        } else if (!strcasecmp(c->argv[3]->ptr,"node") && c->argc == 5) {
+        } else if (!strcasecmp(c->argv[3]->ptr,"node")) {
             /* CLUSTER SETSLOT <SLOT> NODE <NODE ID> */
             n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
             if (!n) {
@@ -5575,14 +5576,14 @@ NULL
         }
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_UPDATE_STATE);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"bumpepoch") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"bumpepoch")) {
         /* CLUSTER BUMPEPOCH */
         int retval = clusterBumpConfigEpochWithoutConsensus();
         sds reply = sdscatprintf(sdsempty(),"+%s %llu\r\n",
                 (retval == C_OK) ? "BUMPED" : "STILL",
                 (unsigned long long) myself->configEpoch);
         addReplySds(c,reply);
-    } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"info")) {
         /* CLUSTER INFO */
         char *statestr[] = {"ok","fail"};
         int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;
@@ -5660,7 +5661,7 @@ NULL
         /* Produce the reply protocol. */
         addReplyVerbatim(c,info,sdslen(info),"txt");
         sdsfree(info);
-    } else if (!strcasecmp(c->argv[1]->ptr,"saveconfig") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"saveconfig")) {
         int retval = clusterSaveConfig(1);
 
         if (retval == 0)
@@ -5668,12 +5669,12 @@ NULL
         else
             addReplyErrorFormat(c,"error saving the cluster node config: %s",
                 strerror(errno));
-    } else if (!strcasecmp(c->argv[1]->ptr,"keyslot") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"keyslot")) {
         /* CLUSTER KEYSLOT <key> */
         sds key = c->argv[2]->ptr;
 
         addReplyLongLong(c,keyHashSlot(key,sdslen(key)));
-    } else if (!strcasecmp(c->argv[1]->ptr,"countkeysinslot") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"countkeysinslot")) {
         /* CLUSTER COUNTKEYSINSLOT <slot> */
         long long slot;
 
@@ -5684,7 +5685,7 @@ NULL
             return;
         }
         addReplyLongLong(c,countKeysInSlot(slot));
-    } else if (!strcasecmp(c->argv[1]->ptr,"getkeysinslot") && c->argc == 4) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"getkeysinslot")) {
         /* CLUSTER GETKEYSINSLOT <slot> <count> */
         long long maxkeys, slot;
 
@@ -5708,7 +5709,7 @@ NULL
             addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
             de = dictEntryNextInSlot(de);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"forget") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"forget")) {
         /* CLUSTER FORGET <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
         if (!n) {
@@ -5731,7 +5732,7 @@ NULL
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"replicate")) {
         /* CLUSTER REPLICATE <NODE ID> */
         /* Lookup the specified node in our table. */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
@@ -5767,8 +5768,9 @@ NULL
         clusterSetMaster(n);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
-    } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
-                !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"slaves") ||
+               !strcasecmp(c->argv[1]->ptr,"replicas"))
+    {
         /* CLUSTER SLAVES <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
         int j;
@@ -5793,9 +5795,7 @@ NULL
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"count-failure-reports") &&
-               c->argc == 3)
-    {
+    } else if (!strcasecmp(c->argv[1]->ptr,"count-failure-reports")) {
         /* CLUSTER COUNT-FAILURE-REPORTS <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
 
@@ -5860,8 +5860,7 @@ NULL
             clusterSendMFStart(myself->slaveof);
         }
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"set-config-epoch") && c->argc == 3)
-    {
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-config-epoch")) {
         /* CLUSTER SET-CONFIG-EPOCH <epoch>
          *
          * The user is allowed to set the config epoch only when a node is
@@ -5923,7 +5922,7 @@ NULL
         }
         clusterReset(hard);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"links") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"links")) {
         /* CLUSTER LINKS */
         addReplyClusterLinksDescription(c);
     } else {

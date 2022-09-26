@@ -2637,7 +2637,7 @@ void xgroupCommand(client *c) {
     }
 
     /* Dispatch the different subcommands. */
-    if (c->argc == 2 && !strcasecmp(opt,"HELP")) {
+    if (!strcasecmp(opt,"HELP")) {
         const char *help[] = {
 "CREATE <key> <groupname> <id|$> [option]",
 "    Create a new consumer group. Options are:",
@@ -2699,7 +2699,7 @@ NULL
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
-    } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
+    } else if (!strcasecmp(opt,"DESTROY")) {
         if (cg) {
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
             streamFreeCG(cg);
@@ -2712,11 +2712,11 @@ NULL
         } else {
             addReply(c,shared.czero);
         }
-    } else if (!strcasecmp(opt,"CREATECONSUMER") && c->argc == 5) {
+    } else if (!strcasecmp(opt,"CREATECONSUMER")) {
         streamConsumer *created = streamCreateConsumer(cg,c->argv[4]->ptr,c->argv[2],
                                                        c->db->id,SCC_DEFAULT);
         addReplyLongLong(c,created ? 1 : 0);
-    } else if (!strcasecmp(opt,"DELCONSUMER") && c->argc == 5) {
+    } else if (!strcasecmp(opt,"DELCONSUMER")) {
         long long pending = 0;
         streamConsumer *consumer = streamLookupConsumer(cg,c->argv[4]->ptr,SLC_NO_REFRESH);
         if (consumer) {
@@ -3838,11 +3838,6 @@ void xinfoCommand(client *c) {
 
     /* HELP is special. Handle it ASAP. */
     if (!strcasecmp(c->argv[1]->ptr,"HELP")) {
-        if (c->argc != 2) {
-            addReplySubcommandSyntaxError(c);
-            return;
-        }
-
         const char *help[] = {
 "CONSUMERS <key> <groupname>",
 "    Show consumers of <groupname>.",
@@ -3853,9 +3848,6 @@ void xinfoCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-        return;
-    } else if (c->argc < 3) {
-        addReplySubcommandSyntaxError(c);
         return;
     }
 
@@ -3870,7 +3862,7 @@ NULL
     s = o->ptr;
 
     /* Dispatch the different subcommands. */
-    if (!strcasecmp(opt,"CONSUMERS") && c->argc == 4) {
+    if (!strcasecmp(opt,"CONSUMERS")) {
         /* XINFO CONSUMERS <key> <group>. */
         streamCG *cg = streamLookupCG(s,c->argv[3]->ptr);
         if (cg == NULL) {
@@ -3899,7 +3891,7 @@ NULL
             addReplyLongLong(c,idle);
         }
         raxStop(&ri);
-    } else if (!strcasecmp(opt,"GROUPS") && c->argc == 3) {
+    } else if (!strcasecmp(opt,"GROUPS")) {
         /* XINFO GROUPS <key>. */
         if (s->cgroups == NULL) {
             addReplyArrayLen(c,0);

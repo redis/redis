@@ -11906,7 +11906,7 @@ int RM_LoadConfigs(RedisModuleCtx *ctx) {
 void moduleCommand(client *c) {
     char *subcmd = c->argv[1]->ptr;
 
-    if (c->argc == 2 && !strcasecmp(subcmd,"help")) {
+    if (!strcasecmp(subcmd,"help")) {
         const char *help[] = {
 "LIST",
 "    Return a list of loaded modules.",
@@ -11919,7 +11919,7 @@ void moduleCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else if (!strcasecmp(subcmd,"load") && c->argc >= 3) {
+    } else if (!strcasecmp(subcmd,"load")) {
         robj **argv = NULL;
         int argc = 0;
 
@@ -11933,7 +11933,7 @@ NULL
         else
             addReplyError(c,
                 "Error loading the extension. Please check the server logs.");
-    } else if (!strcasecmp(subcmd,"loadex") && c->argc >= 3) {
+    } else if (!strcasecmp(subcmd,"loadex")) {
         robj **argv = NULL;
         int argc = 0;
 
@@ -11952,7 +11952,7 @@ NULL
                 "Error loading the extension. Please check the server logs.");
         }
 
-    } else if (!strcasecmp(subcmd,"unload") && c->argc == 3) {
+    } else if (!strcasecmp(subcmd,"unload")) {
         if (moduleUnload(c->argv[2]->ptr) == C_OK)
             addReply(c,shared.ok);
         else {
@@ -11983,7 +11983,7 @@ NULL
             }
             addReplyErrorFormat(c,"Error unloading module: %s",errmsg);
         }
-    } else if (!strcasecmp(subcmd,"list") && c->argc == 2) {
+    } else if (!strcasecmp(subcmd,"list")) {
         addReplyLoadedModules(c);
     } else {
         addReplySubcommandSyntaxError(c);

@@ -599,7 +599,7 @@ void publishCommand(client *c) {
 
 /* PUBSUB command for Pub/Sub introspection. */
 void pubsubCommand(client *c) {
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+    if (!strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "CHANNELS [<pattern>]",
 "    Return the currently active channels matching a <pattern> (default: '*').",
@@ -621,7 +621,7 @@ NULL
         /* PUBSUB CHANNELS [<pattern>] */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
         channelList(c, pat, server.pubsub_channels);
-    } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc >= 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"numsub")) {
         /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
         int j;
 
@@ -632,7 +632,7 @@ NULL
             addReplyBulk(c,c->argv[j]);
             addReplyLongLong(c,l ? listLength(l) : 0);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"numpat")) {
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,dictSize(server.pubsub_patterns));
     } else if (!strcasecmp(c->argv[1]->ptr,"shardchannels") &&
@@ -641,7 +641,7 @@ NULL
         /* PUBSUB SHARDCHANNELS */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
         channelList(c,pat,server.pubsubshard_channels);
-    } else if (!strcasecmp(c->argv[1]->ptr,"shardnumsub") && c->argc >= 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"shardnumsub")) {
         /* PUBSUB SHARDNUMSUB [ShardChannel_1 ... ShardChannel_N] */
         int j;
 

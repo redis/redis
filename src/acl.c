@@ -2575,7 +2575,7 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s) {
  */
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
-    if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
+    if (!strcasecmp(sub,"setuser")) {
         /* Initially redact all of the arguments to not leak any information
          * about the user. */
         for (int j = 2; j < c->argc; j++) {
@@ -2635,7 +2635,7 @@ setuser_cleanup:
         for (int i = 0; i < merged_argc; i++) sdsfree(acl_args[i]);
         zfree(acl_args);
         return;
-    } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
+    } else if (!strcasecmp(sub,"deluser")) {
         int deleted = 0;
         for (int j = 2; j < c->argc; j++) {
             sds username = c->argv[j]->ptr;
@@ -2657,7 +2657,7 @@ setuser_cleanup:
             }
         }
         addReplyLongLong(c,deleted);
-    } else if (!strcasecmp(sub,"getuser") && c->argc == 3) {
+    } else if (!strcasecmp(sub,"getuser")) {
         user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
         if (u == NULL) {
             addReplyNull(c);
@@ -2703,9 +2703,7 @@ setuser_cleanup:
             setDeferredMapLen(c, slen, sfields);
         } 
         setDeferredMapLen(c, ufields, fields);
-    } else if ((!strcasecmp(sub,"list") || !strcasecmp(sub,"users")) &&
-               c->argc == 2)
-    {
+    } else if ((!strcasecmp(sub,"list") || !strcasecmp(sub,"users"))) {
         int justnames = !strcasecmp(sub,"users");
         addReplyArrayLen(c,raxSize(Users));
         raxIterator ri;
@@ -2727,7 +2725,7 @@ setuser_cleanup:
             }
         }
         raxStop(&ri);
-    } else if (!strcasecmp(sub,"whoami") && c->argc == 2) {
+    } else if (!strcasecmp(sub,"whoami")) {
         if (c->user != NULL) {
             addReplyBulkCBuffer(c,c->user->name,sdslen(c->user->name));
         } else {
@@ -2738,7 +2736,7 @@ setuser_cleanup:
     {
         addReplyError(c,"This Redis instance is not configured to use an ACL file. You may want to specify users via the ACL SETUSER command and then issue a CONFIG REWRITE (assuming you have a Redis configuration file set) in order to store users in the Redis configuration.");
         return;
-    } else if (!strcasecmp(sub,"load") && c->argc == 2) {
+    } else if (!strcasecmp(sub,"load")) {
         sds errors = ACLLoadFromFile(server.acl_filename);
         if (errors == NULL) {
             addReply(c,shared.ok);
@@ -2746,7 +2744,7 @@ setuser_cleanup:
             addReplyError(c,errors);
             sdsfree(errors);
         }
-    } else if (!strcasecmp(sub,"save") && c->argc == 2) {
+    } else if (!strcasecmp(sub,"save")) {
         if (ACLSaveToFile(server.acl_filename) == C_OK) {
             addReply(c,shared.ok);
         } else {
@@ -2754,13 +2752,13 @@ setuser_cleanup:
                             "Please check the server logs for more "
                             "information");
         }
-    } else if (!strcasecmp(sub,"cat") && c->argc == 2) {
+    } else if (!strcasecmp(sub,"cat")) {
         void *dl = addReplyDeferredLen(c);
         int j;
         for (j = 0; ACLCommandCategories[j].flag != 0; j++)
             addReplyBulkCString(c,ACLCommandCategories[j].name);
         setDeferredArrayLen(c,dl,j);
-    } else if (!strcasecmp(sub,"cat") && c->argc == 3) {
+    } else if (!strcasecmp(sub,"cat")) {
         uint64_t cflag = ACLGetCommandCategoryFlagByName(c->argv[2]->ptr);
         if (cflag == 0) {
             addReplyErrorFormat(c, "Unknown category '%.128s'", (char*)c->argv[2]->ptr);
@@ -2857,7 +2855,7 @@ setuser_cleanup:
             addReplyBulkCString(c,"client-info");
             addReplyBulkCBuffer(c,le->cinfo,sdslen(le->cinfo));
         }
-    } else if (!strcasecmp(sub,"dryrun") && c->argc >= 4) {
+    } else if (!strcasecmp(sub,"dryrun")) {
         struct redisCommand *cmd;
         user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
         if (u == NULL) {
@@ -2900,7 +2898,7 @@ setuser_cleanup:
         }
 
         addReply(c,shared.ok);
-    } else if (c->argc == 2 && !strcasecmp(sub,"help")) {
+    } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
 "CAT [<category>]",
 "    List all commands that belong to <category>, or all command categories",

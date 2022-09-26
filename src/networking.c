@@ -2864,7 +2864,7 @@ void clientCommand(client *c) {
     listNode *ln;
     listIter li;
 
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+    if (!strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "CACHING (YES|NO)",
 "    Enable/disable tracking of the keys for next command in OPTIN/OPTOUT modes.",
@@ -2914,10 +2914,10 @@ void clientCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"id") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"id")) {
         /* CLIENT ID */
         addReplyLongLong(c,c->id);
-    } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"info")) {
         /* CLIENT INFO */
         sds o = catClientInfoString(sdsempty(), c);
         o = sdscatlen(o,"\n",1);
@@ -2959,7 +2959,7 @@ NULL
             o = getAllClientsInfoString(type);
         addReplyVerbatim(c,o,sdslen(o),"txt");
         sdsfree(o);
-    } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"reply")) {
         /* CLIENT REPLY ON|OFF|SKIP */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
             c->flags &= ~(CLIENT_REPLY_SKIP|CLIENT_REPLY_OFF);
@@ -2973,7 +2973,7 @@ NULL
             addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"no-evict") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"no-evict")) {
         /* CLIENT NO-EVICT ON|OFF */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
             c->flags |= CLIENT_NO_EVICT;
@@ -3000,7 +3000,7 @@ NULL
             /* Old style syntax: CLIENT KILL <addr> */
             addr = c->argv[2]->ptr;
             skipme = 0; /* With the old form, you can kill yourself. */
-        } else if (c->argc > 3) {
+        } else {
             int i = 2; /* Next option index. */
 
             /* New style syntax: parse options. */
@@ -3048,9 +3048,6 @@ NULL
                 }
                 i += 2;
             }
-        } else {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return;
         }
 
         /* Iterate clients killing all the matching clients. */
@@ -3123,17 +3120,17 @@ NULL
         } else {
             addReply(c,shared.czero);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"setname")) {
         /* CLIENT SETNAME */
         if (clientSetNameOrReply(c,c->argv[2]) == C_OK)
             addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"getname")) {
         /* CLIENT GETNAME */
         if (c->name)
             addReplyBulk(c,c->name);
         else
             addReplyNull(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"unpause")) {
         /* CLIENT UNPAUSE */
         unpauseClients(PAUSE_BY_CLIENT_COMMAND);
         addReply(c,shared.ok);
@@ -3159,7 +3156,7 @@ NULL
             UNIT_MILLISECONDS) != C_OK) return;
         pauseClients(PAUSE_BY_CLIENT_COMMAND, end, type);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"tracking")) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
          *                          [PREFIX second] [OPTIN] [OPTOUT] [NOLOOP]... */
         long long redir = 0;
@@ -3283,7 +3280,7 @@ NULL
         }
         zfree(prefix);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"caching") && c->argc >= 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"caching")) {
         if (!(c->flags & CLIENT_TRACKING)) {
             addReplyError(c,"CLIENT CACHING can be called only when the "
                             "client is in tracking mode with OPTIN or "
@@ -3313,14 +3310,14 @@ NULL
 
         /* Common reply for when we succeeded. */
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"getredir") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"getredir")) {
         /* CLIENT GETREDIR */
         if (c->flags & CLIENT_TRACKING) {
             addReplyLongLong(c,c->client_tracking_redirection);
         } else {
             addReplyLongLong(c,-1);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"trackinginfo") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"trackinginfo")) {
         addReplyMapLen(c,3);
 
         /* Flags */

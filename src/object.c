@@ -1426,7 +1426,7 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
 void objectCommand(client *c) {
     robj *o;
 
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+    if (!strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "ENCODING <key>",
 "    Return the kind of internal representation used in order to store the value",
@@ -1443,15 +1443,15 @@ void objectCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"refcount")) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         addReplyLongLong(c,o->refcount);
-    } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"encoding")) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         addReplyBulkCString(c,strEncoding(o->encoding));
-    } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"idletime")) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
@@ -1459,7 +1459,7 @@ NULL
             return;
         }
         addReplyLongLong(c,estimateObjectIdleTime(o)/1000);
-    } else if (!strcasecmp(c->argv[1]->ptr,"freq") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"freq")) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LFU)) {
@@ -1481,7 +1481,7 @@ NULL
  *
  * Usage: MEMORY usage <key> */
 void memoryCommand(client *c) {
-    if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
+    if (!strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "DOCTOR",
 "    Return memory problems reports.",
@@ -1497,25 +1497,22 @@ void memoryCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"usage") && c->argc >= 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"usage") && (c->argc == 3 || c->argc == 5)) {
         dictEntry *de;
         long long samples = OBJ_COMPUTE_SIZE_DEF_SAMPLES;
-        for (int j = 3; j < c->argc; j++) {
-            if (!strcasecmp(c->argv[j]->ptr,"samples") &&
-                j+1 < c->argc)
-            {
-                if (getLongLongFromObjectOrReply(c,c->argv[j+1],&samples,NULL)
-                     == C_ERR) return;
-                if (samples < 0) {
-                    addReplyErrorObject(c,shared.syntaxerr);
-                    return;
-                }
-                if (samples == 0) samples = LLONG_MAX;
-                j++; /* skip option argument. */
-            } else {
+        if (c->argc == 5) {
+            if (strcasecmp(c->argv[3]->ptr, "samples")) {
                 addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
+            if (getLongLongFromObjectOrReply(c,c->argv[4],&samples,NULL) == C_ERR)
+                return;
+            if (samples < 0) {
+                addReplyErrorObject(c,shared.syntaxerr);
+                return;
+            }
+            if (samples == 0)
+                samples = LLONG_MAX;
         }
         if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
             addReplyNull(c);
@@ -1526,7 +1523,7 @@ NULL
         usage += sizeof(dictEntry);
         usage += dictMetadataSize(c->db->dict);
         addReplyLongLong(c,usage);
-    } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"stats")) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
         addReplyMapLen(c,27+mh->num_dbs);
@@ -1630,7 +1627,7 @@ NULL
         addReplyLongLong(c,mh->total_frag_bytes);
 
         freeMemoryOverheadData(mh);
-    } else if (!strcasecmp(c->argv[1]->ptr,"malloc-stats") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"malloc-stats")) {
 #if defined(USE_JEMALLOC)
         sds info = sdsempty();
         je_malloc_stats_print(inputCatSds, &info, NULL);
@@ -1639,7 +1636,7 @@ NULL
 #else
         addReplyBulkCString(c,"Stats not supported for the current allocator");
 #endif
-    } else if (!strcasecmp(c->argv[1]->ptr,"doctor") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"doctor")) {
         sds report = getMemoryDoctorReport();
         addReplyVerbatim(c,report,sdslen(report),"txt");
         sdsfree(report);

@@ -3751,7 +3751,7 @@ int sentinelIsQuorumReachable(sentinelRedisInstance *master, int *usableptr) {
 }
 
 void sentinelCommand(client *c) {
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+    if (!strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "CKQUORUM <master-name>",
 "    Check if the current Sentinel configuration is able to reach the quorum",
@@ -3804,13 +3804,11 @@ NULL
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"masters")) {
         /* SENTINEL MASTERS */
-        if (c->argc != 2) goto numargserr;
         addReplyDictOfRedisInstances(c,sentinel.masters);
     } else if (!strcasecmp(c->argv[1]->ptr,"master")) {
         /* SENTINEL MASTER <name> */
         sentinelRedisInstance *ri;
 
-        if (c->argc != 3) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2]))
             == NULL) return;
         addReplySentinelRedisInstance(c,ri);
@@ -3820,7 +3818,6 @@ NULL
         /* SENTINEL REPLICAS <master-name> */
         sentinelRedisInstance *ri;
 
-        if (c->argc != 3) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2])) == NULL)
             return;
         addReplyDictOfRedisInstances(c,ri->slaves);
@@ -3828,7 +3825,6 @@ NULL
         /* SENTINEL SENTINELS <master-name> */
         sentinelRedisInstance *ri;
 
-        if (c->argc != 3) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2])) == NULL)
             return;
         addReplyDictOfRedisInstances(c,ri->sentinels);
@@ -3860,7 +3856,6 @@ NULL
         long port;
         int isdown = 0;
 
-        if (c->argc != 6) goto numargserr;
         if (getLongFromObjectOrReply(c,c->argv[3],&port,NULL) != C_OK ||
             getLongLongFromObjectOrReply(c,c->argv[4],&req_epoch,NULL)
                                                               != C_OK)
@@ -3891,13 +3886,11 @@ NULL
         if (leader) sdsfree(leader);
     } else if (!strcasecmp(c->argv[1]->ptr,"reset")) {
         /* SENTINEL RESET <pattern> */
-        if (c->argc != 3) goto numargserr;
         addReplyLongLong(c,sentinelResetMastersByPattern(c->argv[2]->ptr,SENTINEL_GENERATE_EVENT));
     } else if (!strcasecmp(c->argv[1]->ptr,"get-master-addr-by-name")) {
         /* SENTINEL GET-MASTER-ADDR-BY-NAME <master-name> */
         sentinelRedisInstance *ri;
 
-        if (c->argc != 3) goto numargserr;
         ri = sentinelGetMasterByName(c->argv[2]->ptr);
         if (ri == NULL) {
             addReplyNullArray(c);
@@ -3912,7 +3905,6 @@ NULL
         /* SENTINEL FAILOVER <master-name> */
         sentinelRedisInstance *ri;
 
-        if (c->argc != 3) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2])) == NULL)
             return;
         if (ri->flags & SRI_FAILOVER_IN_PROGRESS) {
@@ -3931,7 +3923,6 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"pending-scripts")) {
         /* SENTINEL PENDING-SCRIPTS */
 
-        if (c->argc != 2) goto numargserr;
         sentinelPendingScriptsCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"monitor")) {
         /* SENTINEL MONITOR <name> <ip> <port> <quorum> */
@@ -3939,7 +3930,6 @@ NULL
         long quorum, port;
         char ip[NET_IP_STR_LEN];
 
-        if (c->argc != 6) goto numargserr;
         if (getLongFromObjectOrReply(c,c->argv[5],&quorum,"Invalid quorum")
             != C_OK) return;
         if (getLongFromObjectOrReply(c,c->argv[4],&port,"Invalid port")
@@ -3969,14 +3959,12 @@ NULL
             sentinelEvent(LL_WARNING,"+monitor",ri,"%@ quorum %d",ri->quorum);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"flushconfig")) {
-        if (c->argc != 2) goto numargserr;
         sentinelFlushConfigAndReply(c);
         return;
     } else if (!strcasecmp(c->argv[1]->ptr,"remove")) {
         /* SENTINEL REMOVE <name> */
         sentinelRedisInstance *ri;
 
-        if (c->argc != 3) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2]))
             == NULL) return;
         sentinelEvent(LL_WARNING,"-monitor",ri,"%@");
@@ -3987,7 +3975,6 @@ NULL
         sentinelRedisInstance *ri;
         int usable;
 
-        if (c->argc != 3) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2]))
             == NULL) return;
         int result = sentinelIsQuorumReachable(ri,&usable);
@@ -4011,7 +3998,6 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"set")) {
         sentinelSetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"config")) {
-        if (c->argc < 3) goto numargserr;
         if (!strcasecmp(c->argv[2]->ptr,"set") && c->argc == 5)
             sentinelConfigSetCommand(c);
         else if (!strcasecmp(c->argv[2]->ptr,"get") && c->argc == 4)
@@ -4020,7 +4006,6 @@ NULL
             addReplyError(c, "Only SENTINEL CONFIG GET <option> / SET <option> <value> are supported.");
     } else if (!strcasecmp(c->argv[1]->ptr,"info-cache")) {
         /* SENTINEL INFO-CACHE <name> */
-        if (c->argc < 2) goto numargserr;
         mstime_t now = mstime();
 
         /* Create an ad-hoc dictionary type so that we can iterate
@@ -4119,10 +4104,6 @@ NULL
     else {
         addReplySubcommandSyntaxError(c);
     }
-    return;
-
-numargserr:
-    addReplyErrorArity(c);
 }
 
 void addInfoSectionsToDict(dict *section_dict, char **sections);

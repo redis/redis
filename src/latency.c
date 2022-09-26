@@ -642,7 +642,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
 void latencyCommand(client *c) {
     struct latencyTimeSeries *ts;
 
-    if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {
+    if (!strcasecmp(c->argv[1]->ptr,"history")) {
         /* LATENCY HISTORY <event> */
         ts = dictFetchValue(server.latency_events,c->argv[2]->ptr);
         if (ts == NULL) {
@@ -650,7 +650,7 @@ void latencyCommand(client *c) {
         } else {
             latencyCommandReplyWithSamples(c,ts);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"graph") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"graph")) {
         /* LATENCY GRAPH <event> */
         sds graph;
         dictEntry *de;
@@ -664,16 +664,16 @@ void latencyCommand(client *c) {
         graph = latencyCommandGenSparkeline(event,ts);
         addReplyVerbatim(c,graph,sdslen(graph),"txt");
         sdsfree(graph);
-    } else if (!strcasecmp(c->argv[1]->ptr,"latest") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"latest")) {
         /* LATENCY LATEST */
         latencyCommandReplyWithLatestEvents(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"doctor") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"doctor")) {
         /* LATENCY DOCTOR */
         sds report = createLatencyReport();
 
         addReplyVerbatim(c,report,sdslen(report),"txt");
         sdsfree(report);
-    } else if (!strcasecmp(c->argv[1]->ptr,"reset") && c->argc >= 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"reset")) {
         /* LATENCY RESET */
         if (c->argc == 2) {
             addReplyLongLong(c,latencyResetEvent(NULL));
@@ -684,7 +684,7 @@ void latencyCommand(client *c) {
                 resets += latencyResetEvent(c->argv[j]->ptr);
             addReplyLongLong(c,resets);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"histogram") && c->argc >= 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"histogram")) {
         /* LATENCY HISTOGRAM*/
         if (c->argc == 2) {
             int command_with_data = 0;
@@ -694,7 +694,7 @@ void latencyCommand(client *c) {
         } else {
             latencySpecificCommandsFillCDF(c);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "DOCTOR",
 "    Return a human readable latency analysis report.",
