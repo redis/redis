@@ -5903,7 +5903,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
     }
 
-    if (flags & REDISMODULE_ARGV_RESPECT_DENY_OOM) {
+    if (flags & REDISMODULE_ARGV_RESPECT_DENY_OOM && server.maxmemory) {
         if (cmd_flags & CMD_DENYOOM) {
             int oom_state;
             if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
