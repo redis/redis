@@ -434,7 +434,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
             bkinfo *bki = dictFetchValue(receiver->bpop.keys,rl->key);
             streamID *gt = &bki->stream_id;
 
-            if (!receiver->bpop.xread_group || (!o || o->type != OBJ_STREAM)) {
+            if (!receiver->bpop.xread_group && (!o || o->type != OBJ_STREAM)) {
                  /* If it's a blocking XREAD and the stream was either deleted
                  * or replaced with another key, we don't do anything (it's ok
                  * the the client blocks on a non-existing key). */
