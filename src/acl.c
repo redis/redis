@@ -2751,23 +2751,25 @@ setuser_cleanup:
             addReplyError(c,"There was an error trying to save the ACLs. "
                             "Please check the server logs for more "
                             "information");
+        }        
+    } else if (!strcasecmp(sub,"cat") && (c->argc == 2 || c->argc == 3)) {
+        if (c->argc == 2) {
+            void *dl = addReplyDeferredLen(c);
+            int j;
+            for (j = 0; ACLCommandCategories[j].flag != 0; j++)
+                addReplyBulkCString(c,ACLCommandCategories[j].name);
+            setDeferredArrayLen(c,dl,j);
+        } else if (c->argc == 3){
+            uint64_t cflag = ACLGetCommandCategoryFlagByName(c->argv[2]->ptr);
+            if (cflag == 0) {
+                addReplyErrorFormat(c, "Unknown category '%.128s'", (char*)c->argv[2]->ptr);
+                return;
+            }
+            int arraylen = 0;
+            void *dl = addReplyDeferredLen(c);
+            aclCatWithFlags(c, server.orig_commands, cflag, &arraylen);
+            setDeferredArrayLen(c,dl,arraylen);
         }
-    } else if (!strcasecmp(sub,"cat")) {
-        void *dl = addReplyDeferredLen(c);
-        int j;
-        for (j = 0; ACLCommandCategories[j].flag != 0; j++)
-            addReplyBulkCString(c,ACLCommandCategories[j].name);
-        setDeferredArrayLen(c,dl,j);
-    } else if (!strcasecmp(sub,"cat")) {
-        uint64_t cflag = ACLGetCommandCategoryFlagByName(c->argv[2]->ptr);
-        if (cflag == 0) {
-            addReplyErrorFormat(c, "Unknown category '%.128s'", (char*)c->argv[2]->ptr);
-            return;
-        }
-        int arraylen = 0;
-        void *dl = addReplyDeferredLen(c);
-        aclCatWithFlags(c, server.orig_commands, cflag, &arraylen);
-        setDeferredArrayLen(c,dl,arraylen);
     } else if (!strcasecmp(sub,"genpass") && (c->argc == 2 || c->argc == 3)) {
         #define GENPASS_MAX_BITS 4096
         char pass[GENPASS_MAX_BITS/8*2]; /* Hex representation. */
