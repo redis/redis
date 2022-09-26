@@ -644,25 +644,31 @@ void handleClientsBlockedOnKeys(void) {
                 /* Edge case: If lookupKeyReadWithFlags decides to expire the key we have to
                  * take care of the propagation here, because afterCommand wasn't called */
                 propagatePendingCommands();
-            }
-            /* We need to try to serve stream clients even if the key
-             * no longer exists because XREADGROUP clients need to be
-             * unblocked in case the key is missing, either deleted
-             * or replaced by SET or something like
-             * (MULTI, DEL key, SADD key e, EXEC).
-             * In this case we need to unblock all these clients. */
-            serveClientsBlockedOnStreamKey(o,rl);
-            /* We want to serve clients blocked on module keys
-             * regardless of the object type, or whether the
-             * object exists or not: we don't know what the
-             * module is trying to accomplish right now. */
-            serveClientsBlockedOnKeyByModule(rl);
-            if (o != NULL) {
+            } else {
                 if (o->type == OBJ_LIST)
                     serveClientsBlockedOnListKey(o,rl);
                 else if (o->type == OBJ_ZSET)
                     serveClientsBlockedOnSortedSetKey(o,rl);
             }
+            /* We need to try to serve stream clients even if the key no longer exists because
+             * XREADGROUP clients need to be unblocked in case the key is missing, either deleted
+             * or replaced by SET or something like {MULTI, DEL key, SADD key e, EXEC}.
+             * In this case we need to unblock all these clients. */
+            serveClientsBlockedOnStreamKey(o,rl);
+            /* We want to serve clients blocked on module keys regardless of the object type, or
+             * whether the object exists or not: we don't know what the module is trying to
+             * accomplish right now.
+             * Please note that this function must be called only after handling non-module
+             * clients, since moduleTryServeClientBlockedOnKey may delete the key, causing `o`
+             * to be stale.
+             * The scenario is that we have one client blocked on BLPOP while another module
+             * client is blocked by MODULE.SAME-AS-BLPOP on the same key.
+             * Of course we can call lookupKeyReadWithFlags again, but:
+             * 1) It takes CPU
+             * 2) It makes more sense to give priority to "native" blocking clients rather
+             *    than module blocking clients
+             * */
+            serveClientsBlockedOnKeyByModule(rl);
             server.fixed_time_expire--;
 
             /* Free this item. */
