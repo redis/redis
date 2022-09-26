@@ -303,7 +303,8 @@ unsigned long setTypeSize(const robj *subject) {
  * set. */
 void setTypeConvert(robj *setobj, int enc) {
     setTypeIterator *si;
-    serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET);
+    serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
+                             setobj->encoding != enc);
 
     if (enc == OBJ_ENCODING_HT) {
         dict *d = dictCreate(&setDictType);
