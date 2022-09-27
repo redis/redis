@@ -433,7 +433,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"zadd",zaddCommand,-4,
      "write use-memory fast @sortedset",
-     0,NULL,getKeyRequestsZAdd,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsZAdd,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zincrby",zincrbyCommand,4,
      "write use-memory fast @sortedset",
@@ -445,7 +445,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"zremrangebyscore",zremrangebyscoreCommand,4,
      "write @sortedset",
-     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsZremRangeByScore,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zremrangebyrank",zremrangebyrankCommand,4,
      "write @sortedset",
@@ -453,7 +453,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"zremrangebylex",zremrangebylexCommand,4,
      "write @sortedset",
-     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsZremRangeByLex,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset",
@@ -481,7 +481,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"zrange",zrangeCommand,-4,
      "read-only @sortedset",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsZrange,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrangestore",zrangestoreCommand,-5,
      "write use-memory @sortedset",
@@ -489,19 +489,19 @@ struct redisCommand redisCommandTable[] = {
 
     {"zrangebyscore",zrangebyscoreCommand,-4,
      "read-only @sortedset",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsZrangeByScore,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrevrangebyscore",zrevrangebyscoreCommand,-4,
      "read-only @sortedset",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsZrevrangeByScore,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrangebylex",zrangebylexCommand,-4,
      "read-only @sortedset",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsZrangeByLex,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrevrangebylex",zrevrangebylexCommand,-4,
      "read-only @sortedset",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsZrevrangeByLex,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zcount",zcountCommand,4,
      "read-only fast @sortedset",
@@ -509,7 +509,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"zlexcount",zlexcountCommand,4,
      "read-only fast @sortedset",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsZlexCount,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrevrange",zrevrangeCommand,-4,
      "read-only @sortedset",
@@ -4105,16 +4105,7 @@ int processCommand(client *c) {
         serverAssert(!server.in_exec);
         serverAssert(!server.in_eval);
     }
-
     moduleCallCommandFilters(c);
-    { //DEBUG  
-        sds cmds = sdsempty();
-        for(int i = 0 ; i < c->argc; i++) {
-            cmds = sdscatfmt(cmds, "%S,", c->argv[i]->ptr);
-        }
-        serverLog(LL_WARNING, "[process cmd] [%s]", cmds);
-        sdsfree(cmds);
-    }
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in

@@ -61,6 +61,8 @@ set ::disk_tests {
     swap/unit/swap_out+del
     swap/unit/swap_out+in
     swap/unit/hash
+    swap/unit/zset
+    swap/unit/geo
     swap/unit/big_hash
     swap/unit/big_set
     swap/unit/latency-monitor
@@ -80,7 +82,6 @@ set ::disk_tests {
     unit/type/list
     unit/type/list-2
     unit/type/list-3
-    unit/type/zset
     unit/type/hash
     unit/expire
     unit/quit

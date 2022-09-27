@@ -55,7 +55,7 @@ int setSwapAna(swapData *data, struct keyRequest *req,
             } else if (req->num_subkeys == 0) {
                 if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
                     /* DEL/GETDEL: Lazy delete current key. */
-                    createFakeSetForDeleteIfCold(data);
+                    datactx->ctx.ctx_flag |= BIG_DATA_CTX_FLAG_MOCK_VALUE;
                     *intention = SWAP_DEL;
                     *intention_flags = SWAP_FIN_DEL_SKIP;
                 } else if (cmd_intention_flags & SWAP_IN_DEL
@@ -226,7 +226,7 @@ int setEncodeKeys(swapData *data, int intention, void *datactx_,
                 *numkeys = 2;
                 *pcfs = cfs;
                 *prawkeys = rawkeys;
-                *action = ROCKS_DELETERANGE;
+                *action = ROCKS_MULTI_DELETERANGE;
             } else {
                 *action = 0;
                 *numkeys = 0;
@@ -366,8 +366,11 @@ int setSwapOut(swapData *data, void *datactx) {
     return 0;
 }
 
-int setSwapDel(swapData *data, void *datactx, int del_skip) {
-    UNUSED(datactx);
+int setSwapDel(swapData *data, void *datactx_, int del_skip) {
+    setDataCtx* datactx = (setDataCtx*)datactx_;
+    if (datactx->ctx.ctx_flag & BIG_DATA_CTX_FLAG_MOCK_VALUE) {
+        createFakeSetForDeleteIfCold(data);
+    }
     if (del_skip) {
         if (!swapDataIsCold(data))
             dbDeleteMeta(data->db,data->key);
@@ -453,6 +456,7 @@ int swapDataSetupSet(swapData *d, OUT void **pdatactx) {
     d->omtype = &setObjectMetaType;
     setDataCtx *datactx = zmalloc(sizeof(setDataCtx));
     datactx->ctx.num = 0;
+    datactx->ctx.ctx_flag = BIG_DATA_CTX_FLAG_NONE;
     datactx->ctx.subkeys = NULL;
     *pdatactx = datactx;
     return 0;
@@ -732,7 +736,6 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         set1_ctx->ctx.num = 2;
         set1_ctx->ctx.subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
         set1_data->object_meta = createSetObjectMeta(2);
-
         // encodeKeys - swap in subkeys
         setEncodeKeys(set1_data, SWAP_IN, set1_ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(2 == numkeys);
@@ -752,7 +755,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
 
         // encodeKeys - swap del
         setEncodeKeys(set1_data, SWAP_DEL, set1_ctx, &action, &numkeys, &cfs, &rawkeys);
-        test_assert(ROCKS_DELETERANGE == action);
+        test_assert(ROCKS_MULTI_DELETERANGE == action);
         test_assert(DATA_CF == cfs[0] && DATA_CF == cfs[1]);
 
         // encodeData - swap out

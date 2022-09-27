@@ -516,7 +516,7 @@ zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
 }
 
 /* Populate the rangespec according to the objects min and max. */
-static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
+int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     char *eptr;
     spec->minex = spec->maxex = 0;
 
@@ -1190,26 +1190,27 @@ void zsetConvert(robj *zobj, int encoding) {
         zs = zmalloc(sizeof(*zs));
         zs->dict = dictCreate(&zsetDictType,NULL);
         zs->zsl = zslCreate();
-        if (zsetLength(zobj) != 0) {
-            eptr = ziplistIndex(zl,0);
-            serverAssertWithInfo(NULL,zobj,eptr != NULL);
-            sptr = ziplistNext(zl,eptr);
-            serverAssertWithInfo(NULL,zobj,sptr != NULL);
 
-            while (eptr != NULL) {
-                score = zzlGetScore(sptr);
-                serverAssertWithInfo(NULL,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
-                if (vstr == NULL)
-                    ele = sdsfromlonglong(vlong);
-                else
-                    ele = sdsnewlen((char*)vstr,vlen);
+        if (zsetLength(zobj) == 0) { goto ziplist_scan_end;}
+        eptr = ziplistIndex(zl,0);
+        serverAssertWithInfo(NULL,zobj,eptr != NULL);
+        sptr = ziplistNext(zl,eptr);
+        serverAssertWithInfo(NULL,zobj,sptr != NULL);
 
-                node = zslInsert(zs->zsl,score,ele);
-                serverAssert(dictAdd(zs->dict,ele,&node->score) == DICT_OK);
-                zzlNext(zl,&eptr,&sptr);
-            }
+        while (eptr != NULL) {
+            score = zzlGetScore(sptr);
+            serverAssertWithInfo(NULL,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+            if (vstr == NULL)
+                ele = sdsfromlonglong(vlong);
+            else
+                ele = sdsnewlen((char*)vstr,vlen);
+
+            node = zslInsert(zs->zsl,score,ele);
+            serverAssert(dictAdd(zs->dict,ele,&node->score) == DICT_OK);
+            zzlNext(zl,&eptr,&sptr);
         }
 
+ziplist_scan_end:
         zfree(zobj->ptr);
         zobj->ptr = zs;
         zobj->encoding = OBJ_ENCODING_SKIPLIST;

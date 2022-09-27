@@ -68,7 +68,6 @@ extern const char *swap_cf_names[CF_COUNT];
  * if current role is slave. */
 #define SWAP_EXPIRE_FORCE (1U<<7)
 
-
 /* Delete rocksdb data key */
 #define SWAP_EXEC_IN_DEL (1U<<0)
 /* Put rocksdb meta key */
@@ -131,6 +130,7 @@ typedef struct range {
 #define KEYREQUEST_TYPE_SUBKEY 1
 #define KEYREQUEST_TYPE_RANGE  2
 #define KEYREQUEST_TYPE_SCORE  3
+#define KEYREQUEST_TYPE_LEX 4
 
 typedef struct argRewriteRequest {
   int mstate_idx; /* >=0 if current command is a exec, means index in mstate; -1 means req not in multi/exec */
@@ -162,13 +162,15 @@ typedef struct keyRequest{
       range *ranges;
     } l; /* range: list */
     struct {
-      unsigned minex:1;
-      unsigned maxex:1;
-      unsigned reverse:1;
-      unsigned reserved:5;
-      double min;
-      double max;
-    } z; /* score: zset */
+      zrangespec* rangespec;
+      int reverse;
+      int limit;
+    } zs; /* zset score*/
+    struct {
+      zlexrangespec* rangespec;
+      int reverse;
+      int limit;
+    } zl; /* zset lex */
   };
   argRewriteRequest list_arg_rewrite[2];
 } keyRequest;
@@ -224,13 +226,19 @@ int getKeyRequestsLtrim(int dbid, struct redisCommand *cmd, robj **argv, int arg
 int getKeyRequestsZAdd(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsZScore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsZincrby(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
-// int getKeyRequestsZunionstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
-// int getKeyRequestsZinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
-// int getKeyRequestsZdiffstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZrange(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsZrangestore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsSinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsZpopMin(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsZpopMax(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZrangeByScore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZrevrangeByScore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZremRangeByScore1(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+#define getKeyRequestsZremRangeByScore getKeyRequestsZrangeByScore
+int getKeyRequestsZrevrangeByLex(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZrangeByLex(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZremRangeByLex(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZlexCount(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
 #define getKeyRequestsSdiffstore getKeyRequestsSinterstore
 #define getKeyRequestsSunionstore getKeyRequestsSinterstore
@@ -381,6 +389,7 @@ typedef struct swapDataType {
   int (*cleanObject)(struct swapData *data, void *datactx);
   int (*beforeCall)(struct swapData *data, client *c, void *datactx);
   void (*free)(struct swapData *data, void *datactx);
+  int (*rocksDel)(struct swapData *data_,  void *datactx_, int inaction, int num, int* cfs, sds *rawkeys, sds *rawvals, OUT int *outaction, OUT int *outnum, OUT int** outcfs,OUT sds **outrawkeys);
 } swapDataType;
 
 swapData *createSwapData(redisDb *db, robj *key, robj *value);
@@ -444,6 +453,7 @@ static inline void swapDataObjectMetaSetPtr(swapData *d, void *ptr) {
 void swapDataTurnWarmOrHot(swapData *data);
 void swapDataTurnCold(swapData *data);
 void swapDataTurnDeleted(swapData *data,int del_skip);
+
 
 /* Debug msgs */
 #ifdef SWAP_DEBUG
@@ -536,9 +546,12 @@ typedef struct hashSwapData {
   swapData d;
 } hashSwapData;
 
+#define BIG_DATA_CTX_FLAG_NONE 0
+#define BIG_DATA_CTX_FLAG_MOCK_VALUE (1U<<0)
 typedef struct baseBigDataCtx {
     int num;
     robj **subkeys;
+    int ctx_flag;
 } baseBigDataCtx;
 
 typedef struct hashDataCtx {
@@ -546,7 +559,7 @@ typedef struct hashDataCtx {
 } hashDataCtx;
 
 int swapDataSetupHash(swapData *d, OUT void **datactx);
-extern swapDataType hashSwapDataType;
+
 #define hashObjectMetaType lenObjectMetaType
 #define createHashObjectMeta(len) createLenObjectMeta(OBJ_HASH, len)
 
@@ -603,9 +616,26 @@ void ctripListMetaDelRange(redisDb *db, robj *key, long ltrim, long rtrim);
 typedef struct zsetSwapData {
   swapData sd;
 } zsetSwapData;
+#define TYPE_NONE 0
+#define TYPE_ZS 1
+#define TYPE_ZL 2
 
 typedef struct zsetDataCtx {
 	baseBigDataCtx bdc;
+  int type;
+  union {
+    struct {
+      zrangespec* rangespec;
+      int reverse;
+      int limit;
+    } zs;
+    struct {
+      zlexrangespec* rangespec;
+      int reverse;
+      int limit;
+    } zl;
+  };
+
 } zsetDataCtx;
 int swapDataSetupZSet(swapData *d, OUT void **datactx);
 #define createZsetObjectMeta(len) createLenObjectMeta(OBJ_ZSET, len)
@@ -757,9 +787,10 @@ int swapThreadsDrained();
 #define ROCKS_WRITE             4
 #define ROCKS_MULTIGET          5
 #define ROCKS_SCAN              6
-#define ROCKS_DELETERANGE       7
+#define ROCKS_MULTI_DELETERANGE       7
 #define ROCKS_ITERATE           8
-#define ROCKS_TYPES             9
+#define ROCKS_RANGE             9
+#define ROCKS_TYPES             10
 
 static inline const char *rocksActionName(int action) {
   const char *name = "?";
@@ -815,6 +846,25 @@ typedef struct RIO {
       sds *rawkeys;
       sds *rawvals;
     } iterate;
+    struct {
+      rocksdb_writebatch_t *wb;
+    } multidel;
+    struct {
+      int num;
+      int* cf;
+      sds* rawkeys;
+    } multidel_range;
+
+    struct {
+      sds start;
+      sds end;
+      int reverse;
+      size_t limit;
+      int cf;
+      int numkeys;
+      sds *rawkeys;
+      sds *rawvals;
+    } range;
 	};
   sds err;
 } RIO;
@@ -825,7 +875,7 @@ void RIOInitDel(RIO *rio, int cf, sds rawkey);
 void RIOInitWrite(RIO *rio, rocksdb_writebatch_t *wb);
 void RIOInitMultiGet(RIO *rio, int numkeys, int *cfs, sds *rawkeys);
 void RIOInitScan(RIO *rio, int cf, sds prefix);
-void RIOInitDeleteRange(RIO *rio, int cf, sds start_key, sds end_key);
+void RIOInitMultiDeleteRange(RIO* rio, int num, int* cf , sds* rawkeys);
 void RIOInitIterate(RIO *rio, int cf, sds seek, int limit);
 void RIODeinit(RIO *rio);
 
@@ -1276,6 +1326,14 @@ sds rocksGenerateEndKey(sds start_key);
 sds encodeMetaScanKey(unsigned long cursor, int limit, sds seek);
 int decodeMetaScanKey(sds meta_scan_key, unsigned long *cursor, int *limit, const char **seek, size_t *seeklen);
 
+#define sizeOfDouble (BYTE_ORDER == BIG_ENDIAN? sizeof(double):8)
+int encodeDouble(char* buf, double value);
+int decodeDouble(char* val, double* score);
+int decodeScoreKey(char* raw, int rawlen, int* dbid, char** key, size_t* keylen, char** subkey, size_t* subkeylen, double* score);
+sds encodeScoreKey(redisDb* db ,sds key, sds subkey, double score);
+sds encodeIntervalSds(int ex, MOVE IN sds data);
+int decodeIntervalSds(sds data, int* ex, char** raw, size_t* rawlen);
+sds encodeScorePriex(redisDb* db, sds key);
 
 robj *unshareStringValue(robj *value);
 size_t objectEstimateSize(robj *o);

@@ -133,6 +133,10 @@ void rdbKeySaveDataDeinit(rdbKeySaveData *save) {
         decrRefCount(save->key);
         save->key = NULL;
     }
+    if (save->object_meta) {
+        freeObjectMeta(save->object_meta);
+        save->object_meta = NULL;
+    }
 
     if (save->object_meta){
         freeObjectMeta(save->object_meta);
@@ -246,7 +250,6 @@ static int rdbKeySaveDataInitCold(rdbKeySaveData *save, redisDb *db,
 int rdbKeySaveDataInit(rdbKeySaveData *save, redisDb *db, decodedResult *dr) {
     robj *value, *key;
     objectMeta *object_meta;
-
     serverAssert(db->id == dr->dbid);
 
     key = createStringObject(dr->key, sdslen(dr->key));
@@ -402,6 +405,7 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
         if (init_result == INIT_SAVE_SKIP) {
             stats->init_save_skip++;
             decodedResultDeinit(cur);
+            // rdbKeySaveDataDeinit(save);
             continue;
         } else if (init_result == INIT_SAVE_ERR) {
             if (stats->init_save_err++ < 10) {
@@ -410,6 +414,7 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
                 sdsfree(repr);
             }
             decodedResultDeinit(cur);
+            // rdbKeySaveDataDeinit(save);
             continue;
         } else {
             stats->init_save_ok++;

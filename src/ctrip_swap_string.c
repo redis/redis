@@ -216,7 +216,8 @@ int wholeKeySwapOut(swapData *data, void *datactx) {
     redisDb *db = data->db;
     robj *key = data->key;
     /* TODO opt lazyfree_lazy_swap_del */
-    if (dictSize(db->dict) > 0) dictDelete(db->dict,key->ptr);
+    // if (dictSize(db->dict) > 0) dictDelete(db->dict,key->ptr);
+    if (dictSize(db->dict) > 0) dbDelete(db, key);
     return 0;
 }
 
@@ -225,6 +226,7 @@ int wholeKeySwapDel(swapData *data, void *datactx, int async) {
     redisDb *db = data->db;
     robj *key = data->key;
     if (async) return 0;
+    //TODO remove
     if (data->value) dictDelete(db->dict,key->ptr);
     return 0;
 }

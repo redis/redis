@@ -1705,6 +1705,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int *error) {
             /* Don't care about integer-encoded strings. */
             if (sdslen(sdsele) > maxelelen) maxelelen = sdslen(sdsele);
             totelelen += sdslen(sdsele);
+
             znode = zslInsert(zs->zsl,score,sdsele);
             if (dictAdd(zs->dict,sdsele,&znode->score) != DICT_OK) {
                 rdbReportCorruptRDB("Duplicate zset fields detected");

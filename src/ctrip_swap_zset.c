@@ -27,13 +27,14 @@
  */
 
 #include "ctrip_swap.h"
-
+#include <math.h>
 static void createFakeZsetForDeleteIfCold(swapData *data) {
 	if (swapDataIsCold(data)) {
         /* empty zset allowed */
 		dbAdd(data->db,data->key,createZsetObject());
 	}
 }
+
 int zsetSwapAna(swapData *data, struct keyRequest *req,
         int *intention, uint32_t *intention_flags, void *datactx_) {
     zsetDataCtx *datactx = datactx_;
@@ -51,8 +52,39 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
             /* No need to swap for pure hot key */
             *intention = SWAP_NOP;
             *intention_flags = 0;
+        } else if(req->type == KEYREQUEST_TYPE_SCORE || req->type == KEYREQUEST_TYPE_LEX) {
+            if (req->type == KEYREQUEST_TYPE_SCORE) {
+                datactx->type = TYPE_ZS;
+                datactx->zs.reverse = req->zs.reverse;
+                datactx->zs.limit = req->zs.limit;
+                datactx->zs.rangespec = req->zs.rangespec;
+                req->zs.rangespec = NULL;
+            } else if(req->type == KEYREQUEST_TYPE_LEX) {
+                datactx->type = TYPE_ZL;
+                datactx->zl.reverse = req->zl.reverse;
+                datactx->zl.limit = req->zl.limit;
+                datactx->zl.rangespec = req->zl.rangespec;
+                req->zl.rangespec = NULL;
+            } else {
+                serverAssert(0);
+            }
+            
+            *intention = SWAP_IN;
+            *intention_flags = 0;
+            if (cmd_intention_flags == SWAP_IN_DEL 
+                || cmd_intention_flags & SWAP_IN_OVERWRITE) {
+                if ((data->cold_meta != NULL && data->cold_meta->len == 0) ||
+                    (data->object_meta != NULL && data->object_meta->len == 0)) {
+                    *intention = SWAP_DEL;
+                    *intention_flags = SWAP_FIN_DEL_SKIP;
+                } else {
+                    *intention = SWAP_IN;
+                    *intention_flags = SWAP_EXEC_IN_DEL;
+                } 
+            } 
         } else if (req->num_subkeys == 0) {
-            if (cmd_intention_flags == SWAP_IN_DEL) {
+            if (cmd_intention_flags == SWAP_IN_DEL
+                || cmd_intention_flags & SWAP_IN_OVERWRITE) {
                 if ((data->cold_meta != NULL && data->cold_meta->len == 0) ||
                     (data->object_meta != NULL && data->object_meta->len == 0)) {
                     *intention = SWAP_DEL;
@@ -63,7 +95,8 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
                 } 
             } else if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
                 /* DEL/GETDEL: Lazy delete current key. */
-                createFakeZsetForDeleteIfCold(data);
+                datactx->bdc.ctx_flag |= BIG_DATA_CTX_FLAG_MOCK_VALUE;
+                
                 *intention = SWAP_DEL;
                 *intention_flags = SWAP_FIN_DEL_SKIP;
             }  else if (cmd_intention_flags == SWAP_IN_META) {
@@ -89,7 +122,8 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
                 /* HDEL: even if field is hot (exists in value), we still
                  * need to do ROCKS_DEL on those fields. */
                 double score;
-                if (cmd_intention_flags == SWAP_IN_DEL ||
+                if (cmd_intention_flags == SWAP_IN_DEL
+                    || cmd_intention_flags & SWAP_IN_OVERWRITE ||
                         data->value == NULL || 
                     zsetScore(data->value, subkey->ptr, &score) == C_ERR) {
                     incrRefCount(subkey);
@@ -97,10 +131,11 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
                 }
             }
             *intention = datactx->bdc.num > 0 ? SWAP_IN : SWAP_NOP;
-            if (cmd_intention_flags == SWAP_IN_DEL)
+            if (cmd_intention_flags == SWAP_IN_DEL) {
                 *intention_flags = SWAP_EXEC_IN_DEL;
-            else
+            } else {
                 *intention_flags = 0;
+            }
         }
         break;
     case SWAP_OUT:
@@ -194,6 +229,33 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
 
     return 0;
 }
+
+sds zsetEncodeScoreKey(redisDb* db, sds key, sds subkey, double score) {
+    return encodeScoreKey(db, key, subkey, score);
+}
+
+sds zsetEncodeIntervalScoreKey(redisDb* db, int ex, sds key, sds subkey, double score) {
+    return encodeIntervalSds(ex, zsetEncodeScoreKey(db, key, subkey, score));
+}
+
+sds zsetEncodeIntervalKey(redisDb* db, int ex, sds key, sds subkey) {
+    return encodeIntervalSds(ex, rocksEncodeDataKey(db, key, subkey));
+}
+
+int zsetDecodeScoreKey(char* raw, int rawlen, int* dbid, char** key, size_t* keylen, char** subkey, size_t* subkeylen, double* score) {
+    return decodeScoreKey(raw, rawlen, dbid, key, keylen, subkey, subkeylen, score);
+}
+
+#define SCORE_DEVIATION 0.001
+double nextDouble(double value, uint64_t offset) {
+    uint64_t u64;
+    memcpy(&u64, &value, sizeof(value));
+    u64 += offset;
+    double next;
+    memcpy(&next, &u64, sizeof(next));
+    return next;
+}
+
 int zsetEncodeKeys(swapData *data, int intention, void *datactx_,
         int *action, int *numkeys, int **pcfs, sds **prawkeys) {
     zsetDataCtx *datactx = datactx_;
@@ -201,7 +263,60 @@ int zsetEncodeKeys(swapData *data, int intention, void *datactx_,
     int *cfs = NULL;
     switch (intention) {
     case SWAP_IN:
-        if (datactx->bdc.num) { /* Swap in specific fields */
+        if (datactx->type != TYPE_NONE) {
+            *numkeys = 1;
+            if (datactx->type == TYPE_ZS) {
+                *action = ROCKS_RANGE;
+                *numkeys = datactx->zs.limit;
+                cfs = zmalloc(sizeof(int)*2);
+                cfs[0] = SCORE_CF;
+                cfs[1] = datactx->zs.reverse;
+                rawkeys = zmalloc(sizeof(sds) * 2);
+                if (datactx->zs.rangespec->minex) {
+                    rawkeys[0] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->minex,
+                        data->key->ptr, NULL, datactx->zs.rangespec->min);
+                } else {
+                    rawkeys[0] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->minex,
+                        data->key->ptr, NULL, datactx->zs.rangespec->min - SCORE_DEVIATION);
+                }
+                
+                if (datactx->zs.rangespec->maxex) {
+                    rawkeys[1] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->maxex,
+                        data->key->ptr, NULL, datactx->zs.rangespec->max);
+                } else {
+                    rawkeys[1] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->maxex,
+                        data->key->ptr, NULL, datactx->zs.rangespec->max + SCORE_DEVIATION);
+                }
+                
+            } else if(datactx->type == TYPE_ZL) {
+                *action = ROCKS_RANGE;
+                *numkeys = datactx->zl.limit;
+                cfs = zmalloc(sizeof(int)*2);
+                cfs[0] = DATA_CF;
+                cfs[1] = datactx->zl.reverse;
+                rawkeys = zmalloc(sizeof(sds) * 2);
+                serverLog(LL_WARNING, "min(%s) max(%s)", datactx->zl.rangespec->min, datactx->zl.rangespec->max);
+                if (datactx->zl.rangespec->min == shared.minstring) {
+                    rawkeys[0] = zsetEncodeIntervalKey(data->db, datactx->zl.rangespec->minex,
+                        data->key->ptr, NULL);
+                } else {
+                    rawkeys[0] = zsetEncodeIntervalKey(data->db, datactx->zl.rangespec->minex,
+                        data->key->ptr, datactx->zl.rangespec->min);
+                }
+                if (datactx->zl.rangespec->max == shared.maxstring) {
+                    rocksEncodeDataKey(data->db,data->key->ptr,shared.emptystring->ptr);
+                    serverAssert(datactx->zl.rangespec->maxex == 0);
+                    sds raw1 = rocksEncodeDataKey(data->db, data->key->ptr,shared.emptystring->ptr);
+                    rawkeys[1] = encodeIntervalSds(datactx->zl.rangespec->maxex, rocksGenerateEndKey(raw1));
+                } else {
+                    rawkeys[1] = zsetEncodeIntervalKey(data->db, datactx->zl.rangespec->maxex,
+                        data->key->ptr, datactx->zl.rangespec->max);
+                }
+                
+            }
+            *pcfs = cfs;
+            *prawkeys = rawkeys;
+        } else if (datactx->bdc.num) { /* Swap in specific fields */
             int i;
             cfs = zmalloc(sizeof(int)*datactx->bdc.num);
             rawkeys = zmalloc(sizeof(sds)*datactx->bdc.num);
@@ -219,28 +334,35 @@ int zsetEncodeKeys(swapData *data, int intention, void *datactx_,
             cfs = zmalloc(sizeof(int));
             rawkeys = zmalloc(sizeof(sds));
             cfs[0] = DATA_CF;
-            rawkeys[0] = rocksEncodeDataKey(data->db,
-                    data->key->ptr,NULL);
+            sds empty = sdsnewlen("", 0);
+            rawkeys[0] = rocksEncodeDataKey(data->db,data->key->ptr,empty);
+            sdsfree(empty);
             *numkeys = 1;
             *pcfs = cfs;
             *prawkeys = rawkeys;
             *action = ROCKS_SCAN;
         }
         return 0;
-    // case SWAP_IN_BY_SCORE:
 
     case SWAP_DEL:
         if (swapDataPersisted(data)) {
-            int *cfs = zmalloc(sizeof(int)*2);
-            rawkeys = zmalloc(sizeof(sds)*2);
+            int *cfs = zmalloc(sizeof(int)*4);
+            rawkeys = zmalloc(sizeof(sds)*4);
             cfs[0] = cfs[1] = DATA_CF;
-            rawkeys[0] = rocksEncodeDataKey(data->db,data->key->ptr,NULL);
+            rawkeys[0] = rocksEncodeDataKey(data->db,data->key->ptr,shared.emptystring->ptr);
             rawkeys[1] = rocksGenerateEndKey(rawkeys[0]);
             serverAssert(rawkeys[1] != NULL);
-            *numkeys = 2;
+            cfs[2] = cfs[3] = SCORE_CF;
+            rawkeys[2] = zsetEncodeScoreKey(data->db,data->key->ptr,NULL, -INFINITY);
+            serverAssert(rawkeys[2] != NULL);
+            sds priex = encodeScorePriex(data->db, data->key->ptr);
+            rawkeys[3] = rocksGenerateEndKey(priex);
+            sdsfree(priex);
+            serverAssert(rawkeys[3] != NULL);
+            *numkeys = 4;
             *pcfs = cfs;
             *prawkeys = rawkeys;
-            *action = ROCKS_DELETERANGE;
+            *action = ROCKS_MULTI_DELETERANGE;
         } else {
             *action = 0;
             *numkeys = 0;
@@ -269,54 +391,21 @@ static sds zsetEncodeSubval(double score) {
     return sdsrdb.io.buffer.ptr;
 }
 
-int encodeFixed64(char* buf, uint64_t value) {
-    if (BYTE_ORDER == BIG_ENDIAN) {
-        memcpy(buf, &value, sizeof(value));
-        return sizeof(value);
-    } else {
-        buf[0] = (uint8_t)((value >> 56) & 0xff);
-        buf[1] = (uint8_t)((value >> 48) & 0xff);
-        buf[2] = (uint8_t)((value >> 40) & 0xff);
-        buf[3] = (uint8_t)((value >> 32) & 0xff);
-        buf[4] = (uint8_t)((value >> 24) & 0xff);
-        buf[5] = (uint8_t)((value >> 16) & 0xff);
-        buf[6] = (uint8_t)((value >> 8) & 0xff);
-        buf[7] = (uint8_t)(value & 0xff);
-        return 8;
-    }
-}
 
-int encodeDouble(char* buf, double value) {
-    uint64_t u64;
-    memcpy(&u64, &value, sizeof(value));
-    uint64_t* ptr = &u64;
-    if ((*ptr >> 63) == 1) {
-        // signed bit would be zero
-        *ptr ^= 0xffffffffffffffff;
-    } else {
-        // signed bit would be one
-        *ptr |= 0x8000000000000000;
-    }
-    return encodeFixed64(buf, *ptr);
-}
-sds zsetEncodeScoreKey(redisDb* db, sds key, sds subkey, double score) {
-    int dbid = db->id;
-    size_t keylen = key ? sdslen(key) : 0;
-    size_t subkeylen = subkey ? sdslen(subkey) : 0;
-    size_t rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen+sizeof(score)+subkeylen;
-    sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen), ptr = rawkey;
-    memcpy(ptr, &dbid, sizeof(dbid)), ptr += sizeof(dbid);
-    memcpy(ptr, &keylen, sizeof(size_t)), ptr += sizeof(size_t);
-    memcpy(ptr, key, keylen), ptr += keylen;
-    ptr += encodeDouble(ptr, score);
-    // memcpy(ptr, &score, sizeof(score)), ptr += sizeof(score);
-    if (subkey) memcpy(ptr, subkey, subkeylen), ptr += subkeylen;
-    return rawkey;
-}
 
-sds zsetEncodeScoreValue(sds subkey) {
+
+sds zsetEncodeScoreValue(sds subkey, double score) {
     UNUSED(subkey);
-    return sdsempty();
+    sds scoresds = sdsnewlen(SDS_NOINIT, sizeOfDouble);
+    encodeDouble(scoresds, score);
+    return scoresds;
+}
+
+int zsetDecodeScoreValue(sds rawval, int rawlen, double* score) {
+    if (rawlen < sizeOfDouble) {
+        return 0;
+    }
+    return decodeDouble(rawval, score);
 }
 
 int zsetEncodeData(swapData *data, int intention, void *datactx_,
@@ -345,7 +434,7 @@ int zsetEncodeData(swapData *data, int intention, void *datactx_,
         cfs[i*2 + 1] = SCORE_CF;
         rawkeys[i * 2 + 1] = zsetEncodeScoreKey(data->db, data->key->ptr, 
                 datactx->bdc.subkeys[i]->ptr, score);
-        rawvals[i * 2 + 1] = zsetEncodeScoreValue(datactx->bdc.subkeys[i]->ptr);
+        rawvals[i * 2 + 1] = zsetEncodeScoreValue(datactx->bdc.subkeys[i]->ptr, score);
     }
     *action = ROCKS_WRITE;
     *numkeys = datactx->bdc.num*2;
@@ -364,17 +453,10 @@ static double zsetDecodeSubval(sds subval) {
     return score;
 }
 
-/* decoded object move to exec module */
-int zsetDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
+int zsetDecodeBigData(swapData *data, int num, sds *rawkeys,
         sds *rawvals, robj **pdecoded) {
     int i;
     robj *decoded;
-    serverAssert(num >= 0);
-    UNUSED(cfs);
-    if (num == 0) {
-        *pdecoded = NULL;
-        return 0;
-    }
     /* Note that event if all subkeys are not found, still an empty zset
      * object will be returned: empty *warm* zset could can meta in memory,
      * so that we don't need to update rocks-meta right after call(). */
@@ -409,18 +491,77 @@ int zsetDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
     return 0;
 }
 
+
+int zsetDecodeScoreData(swapData *data, int num, sds *rawkeys,
+        sds *rawvals, robj **pdecoded) {
+    int i;
+    robj *decoded;
+    /* Note that event if all subkeys are not found, still an empty zset
+     * object will be returned: empty *warm* zset could can meta in memory,
+     * so that we don't need to update rocks-meta right after call(). */
+    decoded = createZsetZiplistObject();
+
+    for (i = 0; i < num; i++) {
+        sds subkey;
+        char *keystr, *subkeystr;
+        size_t klen, slen;
+        int dbid;
+        double score;
+
+        if (rawvals[i] == NULL || sdslen(rawvals[i]) == 0)
+            continue;
+        if (zsetDecodeScoreKey(rawkeys[i],sdslen(rawkeys[i]),
+                &dbid,&keystr,&klen,&subkeystr,&slen, &score) < 0)
+            continue;
+        if (!swapDataPersisted(data))
+            continue;
+        subkey = sdsnewlen(subkeystr,slen);
+        serverAssert(strncmp(data->key->ptr,keystr,klen) == 0); //TODO remove
+        if (!swapDataPersisted(data))
+            continue;
+        int flag = ZADD_IN_NX;
+        int retflags = 0;
+        double newscore;
+        serverAssert(zsetAdd(decoded,score, subkey, flag, &retflags, &newscore) == 1);
+        sdsfree(subkey);
+    }
+
+    *pdecoded = decoded;
+    return 0;
+}
+
+/* decoded object move to exec module */
+int zsetDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
+        sds *rawvals, robj **pdecoded) {
+    int i;
+    
+    serverAssert(num >= 0);
+    if (num == 0) {
+        *pdecoded = NULL;
+        return 0;
+    }
+
+    if(cfs[0] == DATA_CF) {
+        zsetDecodeBigData(data, num, rawkeys, rawvals, pdecoded);
+    } else if (cfs[0] == SCORE_CF) {
+        zsetDecodeScoreData(data, num, rawkeys, rawvals, pdecoded);
+    } else {
+        *pdecoded = NULL;
+    }
+    return 0;
+}
+
 static inline robj *createSwapInObject(robj *newval) {
     robj *swapin = newval;
     serverAssert(newval && newval->type == OBJ_ZSET);
     incrRefCount(newval);
-    // swapin->dirty = 0;
+    swapin->dirty = 0;
     return swapin;
 }
 
 int zsetSwapIn(swapData *data_, robj *result, void *datactx_) {    
     zsetSwapData *data = (zsetSwapData*)data_;
     UNUSED(datactx_);
-    // zsetDataCtx *datactx = (zsetDataCtx*)datactx_;
     /* hot key no need to swap in, this must be a warm or cold key. */
     serverAssert(swapDataPersisted(data_));
 
@@ -466,8 +607,11 @@ int zsetSwapOut(swapData *data, void *datactx) {
     return 0;
 }
 
-int zsetSwapDel(swapData *data, void *datactx, int del_skip) {
-    UNUSED(datactx);
+int zsetSwapDel(swapData *data, void *datactx_, int del_skip) {
+    zsetDataCtx *datactx = datactx_;
+    if (datactx->bdc.ctx_flag & BIG_DATA_CTX_FLAG_MOCK_VALUE) {
+        createFakeZsetForDeleteIfCold(data);
+    }
     if (del_skip) {
         if (!swapDataIsCold(data))
             dbDeleteMeta(data->db,data->key);
@@ -564,13 +708,96 @@ int zsetCleanObject(swapData *data, void *datactx_) {
 /* Only free extend fields here, base fields (key/value/object_meta) freed
  * in swapDataFree */
 void freeZsetSwapData(swapData *data_, void *datactx_) {
-    UNUSED(data_);
+    zsetSwapData *data = (zsetSwapData*)data_;
     zsetDataCtx *datactx = datactx_;
     for (int i = 0; i < datactx->bdc.num; i++) {
+        serverAssert(datactx->bdc.subkeys[i] != NULL);
         decrRefCount(datactx->bdc.subkeys[i]);
     }
     zfree(datactx->bdc.subkeys);
+    switch(datactx->type) {
+        case TYPE_ZS:
+            if (datactx->zs.rangespec != NULL) {
+                zfree(datactx->zs.rangespec);
+                datactx->zs.rangespec = NULL;
+            }
+        break;
+        case TYPE_ZL:
+            if (datactx->zl.rangespec != NULL) {
+                zslFreeLexRange(datactx->zl.rangespec);
+                zfree(datactx->zl.rangespec);
+                datactx->zl.rangespec = NULL;
+            }
+        break;
+        
+    }
+    if (datactx->type == TYPE_ZL) {
+
+    } else if (datactx->type == TYPE_ZL) {
+        
+    }
     zfree(datactx);
+}
+
+int zsetRocksDel(struct swapData *data_,  void *datactx_, int inaction, int num, int* cfs, sds *rawkeys, sds *rawvals, OUT int *outaction, OUT int *outnum, OUT int** outcfs,OUT sds **outrawkeys) {
+    zsetSwapData *data = (zsetSwapData*)data_;
+    sds* orawkeys = NULL;
+    int* ocfs = NULL;
+    int oindex = 0;
+    int onum = 0;
+    int multi = 2;
+    *outaction = ROCKS_WRITE;
+    if (num > 0) {
+        int dbid;
+        size_t keylen, subkeylen;
+        char* keystr, *subkeystr;
+        sds subkey;
+        double score;
+        onum = multi * num;
+        orawkeys = zmalloc(sizeof(sds) * onum);
+        ocfs = zmalloc(sizeof(int) * onum);
+        for(int i = 0; i < num; i++) {
+            if (cfs[0] == SCORE_CF) {
+                serverAssert(zsetDecodeScoreKey(rawkeys[i], sdslen(rawkeys[i]), &dbid, &keystr, &keylen, &subkeystr, &subkeylen, &score) == 0);
+                subkey = sdsnewlen(subkeystr, subkeylen);
+
+                orawkeys[oindex] = rocksEncodeDataKey(data->sd.db, data->sd.key->ptr, subkey);
+                ocfs[oindex++] = DATA_CF;
+                
+                
+                orawkeys[oindex] = sdsdup(rawkeys[i]);
+                ocfs[oindex++] = SCORE_CF;
+                
+                sdsfree(subkey);
+
+            } else if (cfs[0] == DATA_CF) {
+                if (rawvals[i] != NULL) {
+                    serverAssert(rocksDecodeDataKey(rawkeys[i], sdslen(rawkeys[i]), &dbid, &keystr, &keylen, &subkeystr, &subkeylen) == 0);
+                    serverAssert(sdslen(data->sd.key->ptr) == keylen);
+                    serverAssert(memcmp(data->sd.key->ptr, keystr, keylen) == 0);
+                    double score = zsetDecodeSubval(rawvals[i]);
+                    subkey = sdsnewlen(subkeystr, subkeylen);
+                    
+                    
+                    orawkeys[oindex] = sdsdup(rawkeys[i]);
+                    ocfs[oindex++] = DATA_CF;
+                    
+                    
+                    orawkeys[oindex] = zsetEncodeScoreKey(data->sd.db, data->sd.key->ptr, subkey, score);
+                    ocfs[oindex++] = SCORE_CF;
+                    
+                    sdsfree(subkey);
+                }
+            } else {
+                serverAssert(0);
+            }
+        }
+        serverAssert(onum >= oindex);
+    }
+    *outnum = oindex;
+    *outcfs = ocfs;
+    *outrawkeys = orawkeys;
+    return 0;
 }
 
 swapDataType zsetSwapDataType = {
@@ -584,6 +811,7 @@ swapDataType zsetSwapDataType = {
     .swapDel = zsetSwapDel,
     .createOrMergeObject = zsetCreateOrMergeObject,
     .cleanObject = zsetCleanObject,
+    .rocksDel = zsetRocksDel,
     .free = freeZsetSwapData,
 };
 
@@ -607,7 +835,9 @@ int swapDataSetupZSet(swapData *d, void **pdatactx) {
     d->omtype = &zsetObjectMetaType;
     zsetDataCtx *datactx = zmalloc(sizeof(zsetDataCtx));
     datactx->bdc.num = 0;
+    datactx->bdc.ctx_flag = BIG_DATA_CTX_FLAG_NONE;
     datactx->bdc.subkeys = NULL;
+    datactx->type = TYPE_NONE;
     *pdatactx = datactx;
     return 0;
 }
@@ -617,7 +847,6 @@ int swapDataSetupZSet(swapData *d, void **pdatactx) {
 int zsetSaveStart(rdbKeySaveData *save, rio *rdb) {
     robj *key = save->key;
     size_t nfields = 0;
-    // int ret = 0;
 
     if (rdbSaveKeyHeader(rdb,key,key,RDB_TYPE_ZSET_2,
                 save->expire) == -1)
@@ -629,7 +858,7 @@ int zsetSaveStart(rdbKeySaveData *save, rio *rdb) {
     if (rdbSaveLen(rdb, nfields) == -1)
         return -1;
 
-    if (!save->value)
+    if (!save->value || zsetLength(save->value) == 0)
         return 0;
     if (save->value->encoding == OBJ_ENCODING_ZIPLIST) {
         int len = zsetLength(save->value);
@@ -643,7 +872,6 @@ int zsetSaveStart(rdbKeySaveData *save, rio *rdb) {
         while(len > 0) {
             vlong = 0;
             ziplistGet(eptr, &vstr, &vlen, &vlong);
-            // sds subkey = sdsnewlen(vstr, vlen);
             double score = zzlGetScore(sptr);
             if (vstr != NULL) {
                 if ((rdbSaveRawString(rdb,
@@ -660,7 +888,6 @@ int zsetSaveStart(rdbKeySaveData *save, rio *rdb) {
             
             if ((rdbSaveBinaryDoubleValue(rdb,score)) == -1)
                 return -1;
-            // sdsfree(subkey);
             zzlNext(zl, &eptr, &sptr);
             len--;
         }
@@ -688,10 +915,6 @@ int zsetSave(rdbKeySaveData *save, rio *rdb, decodedData *decoded) {
     robj *key = save->key;
     
     serverAssert(!sdscmp(decoded->key, key->ptr));
-    // if (decoded-> != ENC_TYPE_ZSET_SUB || decoded->rdbtype != RDB_TYPE_STRING) {
-    //     /* check failed, skip this key */
-    //     return 0;
-    // }
     double score;
     if (save->value != NULL) {
         if (zsetScore(save->value,
@@ -901,7 +1124,7 @@ int zsetLoadZip(struct rdbKeyLoadData *load, rio *rdb, int *cf, sds *rawkey,
     if (iter->subkey != NULL) {
         *cf = SCORE_CF;
         *rawkey = zsetEncodeScoreKey(load->db,load->key,iter->subkey, iter->score);
-        *rawval = zsetEncodeScoreValue(iter->subkey);
+        *rawval = zsetEncodeScoreValue(iter->subkey, iter->score);
         *error = 0;
         sdsfree(iter->subkey);
         iter->subkey = NULL;
@@ -929,7 +1152,7 @@ int zsetLoadHT(struct rdbKeyLoadData *load, rio *rdb, int *cf, sds *rawkey,
     if (iter->subkey != NULL ) {
         *cf = SCORE_CF;
         *rawkey = zsetEncodeScoreKey(load->db,load->key,iter->subkey, iter->score);
-        *rawval = zsetEncodeScoreValue(iter->subkey);
+        *rawval = zsetEncodeScoreValue(iter->subkey, iter->score);
         *error = 0;
         sdsfree(iter->subkey);
         iter->subkey = NULL;
@@ -1019,86 +1242,6 @@ void zsetLoadInit(rdbKeyLoadData *load) {
 #define SWAP_EVICT_STEP 2
 #define SWAP_EVICT_MEM  (1*1024*1024)
 
-// int swapDataZsetTest(int argc, char **argv, int accurate) {
-//     UNUSED(argc), UNUSED(argv), UNUSED(accurate);
-
-//     initTestRedisServer();
-//     redisDb* db = server.db + 0;
-//     int error = 0;
-//     swapData *zset1_data, *zset2_data, *cold1_data, *colod2_data;
-//     zsetDataCtx *zset1_ctx, *zset2_ctx, *cold1_ctx = NULL, *cold2_ctx = NULL;
-//     robj *key1, *zset1, *cold1, *key2, *zset2, *cold2;
-//     objectMeta *cold1_meta, *cold2_meta;
-//     keyRequest _kr1, *kr1 = &_kr1, _cold_kr1, *cold_kr1 = &_cold_kr1;
-//     keyRequest _kr2, *kr2 = &_kr2, _cold_kr2, *cold_kr2 = &_cold_kr2;
-//     int intention;
-//     uint32_t intention_flags;
-//     robj *subkeys1[4];
-//     sds f1,f2,f3,f4;
-//     int action, numkeys, *cfs;
-//     sds *rawkeys, *rawvals;
-//     server.child_pid = -1;
-//     TEST("zset - init") {
-//         server.swap_evict_step_max_subkeys = SWAP_EVICT_STEP;
-//         server.swap_evict_step_max_memory = SWAP_EVICT_MEM;
-
-//         zset1 = createZsetObject();
-//         key1 = createStringObject("key1",4);
-//         cold1 = createStringObject("cold1",5);
-//         cold1_meta = createZsetObjectMeta(4);
-//         kr1->key = key1;
-//         kr1->level = REQUEST_LEVEL_KEY;
-//         kr1->num_subkeys = 0;
-//         kr1->subkeys = NULL;
-//         incrRefCount(key1);
-//         zset1_data = createSwapData(db,key1,zset1);
-//         long expire = -1;
-//         swapDataSetupMeta(zset1_data,zset1->type,expire,(void**)&zset1_ctx);
-//         swapDataSetObjectMeta(zset1_data, NULL);
-
-//         zset2 = createZsetZiplistObject();
-//         key2 = createStringObject("key2",4);
-//         cold2 = createStringObject("cold2",5);
-//         cold2_meta = createZsetObjectMeta(4);
-//         kr2->key = key2;
-//         kr2->level = REQUEST_LEVEL_KEY;
-//         kr2->num_subkeys = 0;
-//         kr2->subkeys = NULL;
-//         incrRefCount(key2);
-
-        
-
-//     }
-
-//     TEST("zset - swapAna") {
-//         kr1->cmd_intention = SWAP_NOP, kr1->cmd_intention_flags = 0;
-//         swapDataAna(zset1_data,kr1,&intention,&intention_flags,zset1_ctx);
-//         test_assert(intention == SWAP_NOP && intention_flags == 0);
-        
-//         kr1->cmd_intention = SWAP_IN, kr1->cmd_intention_flags = SWAP_IN_META;
-//         swapDataAna(zset1_data,kr1,&intention,&intention_flags,zset1_ctx);
-//         test_assert(intention == SWAP_NOP && intention_flags == 0);
-
-//         kr1->cmd_intention = SWAP_IN, kr1->cmd_intention_flags = SWAP_IN_DEL;
-//         swapDataAna(zset1_data,kr1,&intention,&intention_flags,zset1_ctx);
-//         test_assert(intention == SWAP_NOP && intention_flags == 0);
-//     }   
-//     return error;
-// }
-
-// robj **mockSubKeys(int num,...) {
-//     int i;
-//     va_list valist;
-//     robj **subkeys = zmalloc(num * sizeof(robj*));
-
-//     va_start(valist, num);
-//     for (i = 0; i < num; i++) {
-//         subkeys[i] = createObject(OBJ_STRING, va_arg(valist, sds));
-//     }
-//     va_end(valist);
-
-//     return subkeys;
-// }
 
 int swapDataZsetTest(int argc, char **argv, int accurate) {
     UNUSED(argc);
@@ -1116,6 +1259,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
     sds f1, f2, f3, f4;
     int action, numkeys;
     int oldEvictStep = server.swap_evict_step_max_subkeys;
+    sds zlmin, zlmax;
 
     TEST("zset - init") {
         key1 = createStringObject("key1",4);
@@ -1143,7 +1287,8 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zset1_ctx->bdc.num = 2;
         zset1_ctx->bdc.subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
         zset1_data->object_meta = createZsetObjectMeta(2);
-
+        int reverse, minex, maxex, limit;
+        double min, max;
         // encodeKeys - swap in subkeys
         zsetEncodeKeys(zset1_data, SWAP_IN, zset1_ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(2 == numkeys);
@@ -1152,18 +1297,18 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         sds expectEncodedKey = rocksEncodeDataKey(db, key1->ptr, f1);
         test_assert(memcmp(expectEncodedKey,rawkeys[0],sdslen(rawkeys[0])) == 0
             || memcmp(expectEncodedKey,rawkeys[1],sdslen(rawkeys[1])) == 0);
-
+        
         // encodeKeys - swap in whole key
         zset1_ctx->bdc.num = 0;
         zsetEncodeKeys(zset1_data, SWAP_IN, zset1_ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_SCAN == action);
         test_assert(DATA_CF == cfs[0]);
-        expectEncodedKey = rocksEncodeDataKey(db, key1->ptr, NULL);
+        sds empty = sdsnewlen("", 0);
+        expectEncodedKey = rocksEncodeDataKey(db, key1->ptr, empty);
         test_assert(memcmp(expectEncodedKey, rawkeys[0], sdslen(rawkeys[0])) == 0);
-
         // encodeKeys - swap del
         zsetEncodeKeys(zset1_data, SWAP_DEL, zset1_ctx, &action, &numkeys, &cfs, &rawkeys);
-        test_assert(ROCKS_DELETERANGE == action);
+        test_assert(ROCKS_MULTI_DELETERANGE == action);
         test_assert(DATA_CF == cfs[0] && DATA_CF == cfs[1]);
 
         // encodeData - swap out
@@ -1366,8 +1511,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         int out_flags = 0;
         zsetAdd(decoded,1.0,f1,ZADD_IN_NONE,&out_flags,NULL);
         zsetAdd(decoded,2.0,f2,ZADD_IN_NONE,&out_flags,NULL);
-        // setTypeAdd(decoded, f1);
-        // setTypeAdd(decoded, f2);
+
         zset1_data->object_meta = NULL;
         zset1_data->cold_meta = createZsetObjectMeta(4);
         zset1_data->value = NULL;
@@ -1380,8 +1524,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         decoded = createZsetObject();
         zsetAdd(decoded,3.0,f3,ZADD_IN_NONE,&out_flags,NULL);
         zsetAdd(decoded,4.0,f4,ZADD_IN_NONE,&out_flags,NULL);
-        // setTypeAdd(decoded,f3);
-        // setTypeAdd(decoded,f4);
+
         zset1_data->cold_meta = NULL;
         zset1_data->object_meta = m;
         zset1_data->value = s;
@@ -1407,10 +1550,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zsetAdd(decoded,2.0,f2,ZADD_IN_NONE,&out_flags,NULL);
         zsetAdd(decoded,3.0,f3,ZADD_IN_NONE,&out_flags,NULL);
         zsetAdd(decoded,4.0,f4,ZADD_IN_NONE,&out_flags,NULL);
-        // setTypeAdd(decoded, f1);
-        // setTypeAdd(decoded, f2);
-        // setTypeAdd(decoded, f3);
-        // setTypeAdd(decoded, f4);
+
         zset1_data->object_meta = NULL;
         zset1_data->cold_meta = createZsetObjectMeta(4);
         zset1_data->value = NULL;
@@ -1440,10 +1580,6 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zsetAdd(zset1,3.0,f3,ZADD_IN_NONE,&out_flags,NULL);
         zsetAdd(zset1,4.0,f4,ZADD_IN_NONE,&out_flags,NULL);
         test_assert(zsetLength(zset1) == 4);
-        // setTypeAdd(set1, f1);
-        // setTypeAdd(set1, f2);
-        // setTypeAdd(set1, f3);
-        // setTypeAdd(set1, f4);
 
         rio sdsrdb;
         sds rawval = rocksEncodeValRdb(zset1);
@@ -1569,8 +1705,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         robj *wholeset = createZsetObject();
         zsetAdd(wholeset,1.0,f1,ZADD_IN_NONE,&out_flags,NULL);
         zsetAdd(wholeset,2.0,f2,ZADD_IN_NONE,&out_flags,NULL);
-        // setTypeAdd(wholeset,f1);
-        // setTypeAdd(wholeset,f2);
+
         rioInitWithBuffer(&rdbhot,sdsempty());
         initStaticStringObject(keyobj,key1->ptr);
         test_assert(rdbSaveKeyValuePair(&rdbhot,&keyobj,wholeset,-1) != -1);
@@ -1579,6 +1714,27 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         test_assert(!sdscmp(hotraw,coldraw));
         test_assert(!sdscmp(hotraw,warmraw));
         test_assert(!sdscmp(hotraw,hotraw));
+
+    }
+
+    TEST("encode/decode scorekey/scoreval") {
+        sds raw = zsetEncodeScoreKey(db, key1->ptr, f1, 1.0);
+        int dbid;
+        size_t dkeylen, dsubkeylen;
+        char* dkey, *dsubkey;
+        double score;
+        test_assert(0 == zsetDecodeScoreKey(raw, sdslen(raw), &dbid, &dkey, &dkeylen, &dsubkey, &dsubkeylen, &score));
+        test_assert(db->id == dbid);
+        test_assert(dkeylen == sdslen(key1->ptr));
+        test_assert(strncmp(dkey, key1->ptr, dkeylen) == 0);
+        test_assert(dsubkeylen == sdslen(f1));
+        test_assert(strncmp(dsubkey, f1, dsubkeylen) == 0);
+        test_assert(score == 1.0);
+
+        //decode score val
+        raw = zsetEncodeScoreValue(f1, 2.0);
+        test_assert(zsetDecodeScoreValue(raw, sdslen(raw), &score) == sizeOfDouble);
+        test_assert(score == 2.0);
 
     }
 

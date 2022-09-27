@@ -55,7 +55,7 @@ int hashSwapAna(swapData *data, struct keyRequest *req,
         } else if (req->num_subkeys == 0) {
             if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
                 /* DEL/GETDEL: Lazy delete current key. */
-                createFakeHashForDeleteIfCold(data);
+                datactx->ctx.ctx_flag |= BIG_DATA_CTX_FLAG_MOCK_VALUE;
                 *intention = SWAP_DEL;
                 *intention_flags = SWAP_FIN_DEL_SKIP;
             } else if (cmd_intention_flags & SWAP_IN_DEL
@@ -228,7 +228,7 @@ int hashEncodeKeys(swapData *data, int intention, void *datactx_,
             *numkeys = 2;
             *pcfs = cfs;
             *prawkeys = rawkeys;
-            *action = ROCKS_DELETERANGE;
+            *action = ROCKS_MULTI_DELETERANGE;
         } else {
             *action = 0;
             *numkeys = 0;
@@ -389,8 +389,11 @@ int hashSwapOut(swapData *data, void *datactx) {
     return 0;
 }
 
-int hashSwapDel(swapData *data, void *datactx, int del_skip) {
-    UNUSED(datactx);
+int hashSwapDel(swapData *data, void *datactx_, int del_skip) {
+    hashDataCtx* datactx = (hashDataCtx*)datactx_;
+    if (datactx->ctx.ctx_flag & BIG_DATA_CTX_FLAG_MOCK_VALUE) {
+        createFakeHashForDeleteIfCold(data);
+    }
     if (del_skip) {
         if (!swapDataIsCold(data))
             dbDeleteMeta(data->db,data->key);

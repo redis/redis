@@ -566,7 +566,6 @@ int metaScanTest(int argc, char *argv[], int accurate) {
         test_assert(retval == 0);
         test_assert(datactx->limit == 3);
         test_assert(scanctx->cursor == 0);
-
         swapDataEncodeKeys(data,SWAP_IN,datactx,&action,&numkeys,&cfs,&rawkeys);
         test_assert(action == ROCKS_ITERATE);
         test_assert(numkeys == 3);

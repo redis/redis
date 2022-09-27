@@ -141,7 +141,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define STATS_METRIC_NET_INPUT 1    /* Bytes read to network .*/
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
 #define STATS_METRIC_COUNT_MEM 3
-#define STATS_METRIC_COUNT_SWAP 28 /* define directly here to avoid dependcy cycle, will be checked later. */
+#define STATS_METRIC_COUNT_SWAP 30 /* define directly here to avoid dependcy cycle, will be checked later. */
 #define STATS_METRIC_COUNT (STATS_METRIC_COUNT_SWAP + STATS_METRIC_COUNT_MEM)
 
 /* Protocol and I/O related defines */
@@ -2301,7 +2301,7 @@ typedef struct {
     sds min, max;     /* May be set to shared.(minstring|maxstring) */
     int minex, maxex; /* are min or max exclusive? */
 } zlexrangespec;
-
+int zslParseRange(robj *min, robj *max, zrangespec *spec);
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele);

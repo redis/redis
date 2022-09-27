@@ -27,7 +27,7 @@
  */
 
 #include "ctrip_swap.h"
-
+#include <math.h>
 /* ----------------------------- swaps result ----------------------------- */
 /* Prepare the getKeyRequestsResult struct to hold numswaps, either by using
  * the pre-allocated swaps or by allocating a new array on the heap.
@@ -35,6 +35,34 @@
  * This function must be called at least once before starting to populate
  * the result, and can be called repeatedly to enlarge the result array.
  */
+zrangespec* zrangespecdup(zrangespec* src) {
+    zrangespec* dst = zmalloc(sizeof(zrangespec));
+    dst->minex = src->minex;
+    dst->min = src->min;
+    dst->maxex = src->maxex;
+    dst->max = src->max;
+    return dst;
+}
+
+zlexrangespec* zlexrangespecdup(zlexrangespec* src) {
+    zlexrangespec* dst = zmalloc(sizeof(zlexrangespec));
+    dst->minex = src->minex;
+    if (src->min != shared.minstring &&
+        src->min != shared.maxstring) {
+        dst->min = sdsdup(src->min);
+    } else {
+        dst->min = src->min;
+    }
+
+    dst->maxex = src->maxex;
+    if (src->max != shared.minstring &&
+        src->max != shared.maxstring) {
+        dst->max = sdsdup(src->max);
+    } else {
+        dst->max = src->max;
+    }
+    return dst;
+}
 
 void copyKeyRequest(keyRequest *dst, keyRequest *src) {
     if (src->key) incrRefCount(src->key);
@@ -51,7 +79,6 @@ void copyKeyRequest(keyRequest *dst, keyRequest *src) {
     dst->cmd_intention = src->cmd_intention;
     dst->cmd_intention_flags = src->cmd_intention_flags;
     dst->dbid = src->dbid;
-
     dst->type = src->type;
     switch (src->type) {
     case KEYREQUEST_TYPE_KEY:
@@ -67,6 +94,14 @@ void copyKeyRequest(keyRequest *dst, keyRequest *src) {
         break;
     case KEYREQUEST_TYPE_SCORE:
         //TODO impl
+        dst->zs.rangespec = zrangespecdup(src->zs.rangespec);
+        dst->zs.reverse = src->zs.reverse;
+        dst->zs.limit = src->zs.limit;
+        break;
+    case KEYREQUEST_TYPE_LEX:
+        dst->zl.rangespec = zlexrangespecdup(src->zl.rangespec);
+        dst->zl.reverse = src->zl.reverse;
+        dst->zl.limit = src->zl.limit;
         break;
     default:
         break;
@@ -87,7 +122,6 @@ void moveKeyRequest(keyRequest *dst, keyRequest *src) {
     dst->cmd_intention = src->cmd_intention;
     dst->cmd_intention_flags = src->cmd_intention_flags;
     dst->dbid = src->dbid;
-
     dst->type = src->type;
     switch (src->type) {
     case KEYREQUEST_TYPE_KEY:
@@ -103,6 +137,16 @@ void moveKeyRequest(keyRequest *dst, keyRequest *src) {
         break;
     case KEYREQUEST_TYPE_SCORE:
         //TODO impl
+        dst->zs.rangespec = src->zs.rangespec;
+        src->zs.rangespec = NULL;
+        dst->zs.reverse = src->zs.reverse;
+        dst->zs.limit = src->zs.limit;
+        break;
+    case KEYREQUEST_TYPE_LEX:
+        dst->zl.rangespec = src->zl.rangespec;
+        src->zl.rangespec = NULL;
+        dst->zl.reverse = src->zl.reverse;
+        dst->zl.limit = src->zl.limit;
         break;
     default:
         break;
@@ -139,6 +183,17 @@ void keyRequestDeinit(keyRequest *key_request) {
         break;
     case KEYREQUEST_TYPE_SCORE:
         //TODO impl
+        if (key_request->zs.rangespec != NULL) {
+            zfree(key_request->zs.rangespec);
+            key_request->zs.rangespec = NULL;
+        }
+        break;
+    case KEYREQUEST_TYPE_LEX:
+        if (key_request->zl.rangespec != NULL) {
+            zslFreeLexRange(key_request->zl.rangespec);
+            zfree(key_request->zl.rangespec);
+            key_request->zl.rangespec= NULL;
+        }
         break;
     default:
         break;
@@ -171,6 +226,16 @@ void getKeyRequestsPrepareResult(getKeyRequestsResult *result, int num) {
 	}
 }
 
+int expandKeyRequests(getKeyRequestsResult* result) {
+    if (result->num == result->size) {
+        int newsize = result->size + 
+            (result->size > 8192 ? 8192 : result->size);
+        getKeyRequestsPrepareResult(result, newsize);
+        return 1;
+    }
+    return 0;
+}
+
 keyRequest *getKeyRequestsAppendCommonResult(getKeyRequestsResult *result,
         int level, robj *key, int cmd_intention, int cmd_intention_flags,
         int dbid) {
@@ -190,6 +255,42 @@ keyRequest *getKeyRequestsAppendCommonResult(getKeyRequestsResult *result,
     argRewriteRequestInit(key_request->list_arg_rewrite+1);
     return key_request;
 }
+
+
+
+
+void getKeyRequestsAppendScoreResult(getKeyRequestsResult *result, int level,
+        robj *key, int reverse, zrangespec* rangespec, int limit, int cmd_intention,
+        int cmd_intention_flags, int dbid) {
+    expandKeyRequests(result);    
+    keyRequest *key_request = &result->key_requests[result->num++];
+    key_request->level = level;
+    key_request->key = key;
+    key_request->type = KEYREQUEST_TYPE_SCORE;
+    key_request->zs.reverse = reverse;
+    key_request->zs.rangespec = rangespec;
+    key_request->zs.limit = limit;
+    key_request->cmd_intention = cmd_intention;
+    key_request->cmd_intention_flags = cmd_intention_flags;
+    key_request->dbid = dbid;
+}
+
+void getKeyRequestsAppendLexeResult(getKeyRequestsResult *result, int level,
+        robj *key, int reverse, zlexrangespec* rangespec, int limit, int cmd_intention,
+        int cmd_intention_flags, int dbid) {
+    expandKeyRequests(result);    
+    keyRequest *key_request = &result->key_requests[result->num++];
+    key_request->level = level;
+    key_request->key = key;
+    key_request->type = KEYREQUEST_TYPE_LEX;
+    key_request->zl.reverse = reverse;
+    key_request->zl.rangespec = rangespec; 
+    key_request->zl.limit = limit;
+    key_request->cmd_intention = cmd_intention;
+    key_request->cmd_intention_flags = cmd_intention_flags;
+    key_request->dbid = dbid;
+}
+
 
 /* Note that key&subkeys ownership moved */
 void getKeyRequestsAppendSubkeyResult(getKeyRequestsResult *result, int level,
@@ -710,6 +811,150 @@ int getKeyRequestsZrangestore(int dbid, struct redisCommand *cmd, robj **argv, i
     return C_OK;
 }
 
+
+typedef enum {
+    ZRANGE_DIRECTION_AUTO = 0,
+    ZRANGE_DIRECTION_FORWARD,
+    ZRANGE_DIRECTION_REVERSE
+} zrange_direction;
+typedef enum {
+    ZRANGE_AUTO = 0,
+    ZRANGE_RANK,
+    ZRANGE_SCORE,
+    ZRANGE_LEX,
+} zrange_type;
+
+int getKeyRequestsZrangeGeneric(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result, zrange_type rangetype, zrange_direction direction) {
+    if (argc < 4) return C_ERR;
+    robj *minobj ,*maxobj; 
+    int reverse;
+    char *eptr;
+    int argc_start = 1;
+    long long opt_offset = 0, opt_limit = 0;
+    int opt_withscores = 0;
+    /* Step 1: Skip the <src> <min> <max> args and parse remaining optional arguments. */
+    for (int j=argc_start + 3; j < argc; j++) {
+        int leftargs = argc-j-1;
+        if (!strcasecmp(argv[j]->ptr,"withscores")) {
+            opt_withscores = 1;
+        } else if (!strcasecmp(argv[j]->ptr,"limit") && leftargs >= 2) {
+            
+            if (getLongLongFromObject(argv[j+1], &opt_offset) != C_OK
+            || getLongLongFromObject(argv[j+2], &opt_limit) != C_OK) {
+                return C_ERR;
+            }
+            j += 2;
+        } else if (direction == ZRANGE_DIRECTION_AUTO &&
+                   !strcasecmp(argv[j]->ptr,"rev"))
+        {
+            direction = ZRANGE_DIRECTION_REVERSE;
+        } else if (rangetype == ZRANGE_AUTO &&
+                   !strcasecmp(argv[j]->ptr,"bylex"))
+        {
+            rangetype = ZRANGE_LEX;
+        } else if (rangetype == ZRANGE_AUTO &&
+                   !strcasecmp(argv[j]->ptr,"byscore"))
+        {
+            rangetype = ZRANGE_SCORE;
+        } else {
+            
+            return C_ERR;
+        }
+    }
+    if (direction == ZRANGE_DIRECTION_REVERSE) {
+        minobj = argv[3];
+        maxobj = argv[2];
+    } else {
+        minobj = argv[2];
+        maxobj = argv[3];
+    } 
+    robj* key = argv[1];
+    incrRefCount(key);
+    switch (rangetype)
+    {
+    case ZRANGE_SCORE:
+        {
+            zrangespec* spec = zmalloc(sizeof(zrangespec));
+            /* code */
+            if (zslParseRange(minobj, maxobj, spec) != C_OK) {
+                zfree(spec);
+                return C_ERR;
+            }
+            getKeyRequestsAppendScoreResult(result, REQUEST_LEVEL_KEY, key, direction == ZRANGE_DIRECTION_REVERSE, spec, opt_offset + opt_limit,cmd->intention, cmd->intention_flags, dbid);
+        }
+        break;
+    case ZRANGE_LEX:
+        {
+            zlexrangespec* lexrange = zmalloc(sizeof(zlexrangespec));
+            if (zslParseLexRange(minobj, maxobj, lexrange) != C_OK) {
+                zfree(lexrange);
+                return C_ERR;
+            }
+            getKeyRequestsAppendLexeResult(result, REQUEST_LEVEL_KEY, key, direction == ZRANGE_DIRECTION_REVERSE, lexrange, opt_offset + opt_limit, cmd->intention, cmd->intention_flags, dbid);
+        }
+        break;
+    default:
+        getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, key, 0, NULL, cmd->intention, cmd->intention_flags, dbid);
+        break;
+    }
+    
+    return C_OK;
+}
+
+int getKeyRequestsZrange(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    return getKeyRequestsZrangeGeneric(dbid, cmd, argv, argc, result, ZRANGE_AUTO, ZRANGE_DIRECTION_AUTO); 
+}
+
+int getKeyRequestsZrangeByScore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    return getKeyRequestsZrangeGeneric(dbid, cmd, argv, argc, result, ZRANGE_SCORE, ZRANGE_DIRECTION_FORWARD);
+}
+
+int getKeyRequestsZrevrangeByScore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) { 
+    return getKeyRequestsZrangeGeneric(dbid, cmd, argv, argc, result, ZRANGE_SCORE, ZRANGE_DIRECTION_REVERSE);
+}
+
+int getKeyRequestsZremRangeByScore1(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    if (argc < 4) return C_ERR;
+    robj* minobj = argv[2];
+    robj* maxobj = argv[3];
+    zrangespec* spec = zmalloc(sizeof(zrangespec));
+    if (zslParseRange(minobj, maxobj, spec) != C_OK) {
+        zfree(spec);
+        return C_ERR;
+    }
+    robj* key = argv[1];
+    incrRefCount(key);
+    getKeyRequestsAppendScoreResult(result, REQUEST_LEVEL_KEY, key, 0, spec, 0, cmd->intention, cmd->intention_flags, dbid);
+    return C_OK;
+}
+
+int getKeyRequestsZrangeByLexGeneric(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result, zrange_direction direction) {
+    if (argc < 4) return C_ERR;
+    zlexrangespec* lexrange = zmalloc(sizeof(zlexrangespec));
+    if (zslParseLexRange(argv[2],argv[3], lexrange) != C_OK) {
+        zfree(lexrange);
+        return C_ERR;
+    }
+    robj* key = argv[1];
+    incrRefCount(key);
+    getKeyRequestsAppendLexeResult(result, REQUEST_LEVEL_KEY, key, direction == ZRANGE_DIRECTION_REVERSE, lexrange, 0, cmd->intention, cmd->intention_flags, dbid);
+    return C_OK;
+}
+int getKeyRequestsZrevrangeByLex(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    return getKeyRequestsZrangeGeneric(dbid, cmd, argv, argc, result, ZRANGE_LEX, ZRANGE_DIRECTION_REVERSE);
+}
+
+int getKeyRequestsZrangeByLex(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    return getKeyRequestsZrangeGeneric(dbid, cmd, argv, argc, result, ZRANGE_LEX, ZRANGE_DIRECTION_FORWARD);
+}
+
+int getKeyRequestsZlexCount(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    return getKeyRequestsZrangeGeneric(dbid, cmd, argv, argc, result, ZRANGE_LEX, ZRANGE_DIRECTION_FORWARD);
+}
+
+int getKeyRequestsZremRangeByLex(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    return getKeyRequestsZrangeGeneric(dbid, cmd, argv, argc, result, ZRANGE_LEX, ZRANGE_DIRECTION_FORWARD);
+}
 /** geo **/
 int getKeyRequestsGeoAdd(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
     int first_score = 2;
@@ -991,6 +1236,10 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
+    }
+
+    TEST("encode/decode Scorekey") {
+
     }
 
 

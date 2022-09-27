@@ -1473,7 +1473,7 @@ int listEncodeKeys(swapData *data, int intention, void *datactx_,
             *numkeys = 2;
             *pcfs = cfs;
             *prawkeys = rawkeys;
-            *action = ROCKS_DELETERANGE;
+            *action = ROCKS_MULTI_DELETERANGE;
         } else {
             *action = 0;
             *numkeys = 0;

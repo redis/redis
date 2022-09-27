@@ -51,7 +51,6 @@ int timestampIsExpired(mstime_t when) {
     return now > when;
 }
 
-typedef unsigned int keylen_t;
 
 sds objectDump(robj *o) {
     sds repr = sdsempty();
@@ -171,7 +170,7 @@ int rocksDecodeMetaVal(const char *raw, size_t rawlen, int *pobject_type,
 
     return 0;
 }
-
+typedef unsigned int keylen_t;
 sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey) {
     int dbid = db->id;
     keylen_t keylen = key ? sdslen(key) : 0;
@@ -266,6 +265,163 @@ int decodeMetaScanKey(sds meta_scan_key, unsigned long *cursor, int *limit,
     if (seek) *seek = ptr;
     if (seeklen) *seeklen = sdslen(meta_scan_key) - len;
     return 0;
+}
+
+int encodeFixed64(char* buf, uint64_t value) {
+    if (BYTE_ORDER == BIG_ENDIAN) {
+        memcpy(buf, &value, sizeof(value));
+        return sizeof(value);
+    } else {
+        buf[0] = (uint8_t)((value >> 56) & 0xff);
+        buf[1] = (uint8_t)((value >> 48) & 0xff);
+        buf[2] = (uint8_t)((value >> 40) & 0xff);
+        buf[3] = (uint8_t)((value >> 32) & 0xff);
+        buf[4] = (uint8_t)((value >> 24) & 0xff);
+        buf[5] = (uint8_t)((value >> 16) & 0xff);
+        buf[6] = (uint8_t)((value >> 8) & 0xff);
+        buf[7] = (uint8_t)(value & 0xff);
+        return 8;
+    }
+}
+
+int encodeDouble(char* buf, double value) {
+    uint64_t u64;
+    memcpy(&u64, &value, sizeof(value));
+    uint64_t* ptr = &u64;
+    if ((*ptr >> 63) == 1) {
+        // signed bit would be zero
+        *ptr ^= 0xffffffffffffffff;
+    } else {
+        // signed bit would be one
+        *ptr |= 0x8000000000000000;
+    }
+    return encodeFixed64(buf, *ptr);
+}
+
+uint32_t decodeFixed32(const char *ptr) {
+  if (BYTE_ORDER == BIG_ENDIAN) {
+    uint32_t value;
+    memcpy(&value, ptr, sizeof(value));
+    return value;
+  } else {
+    return (((uint32_t)((uint8_t)(ptr[3])))
+        | ((uint32_t)((uint8_t)(ptr[2])) << 8)
+        | ((uint32_t)((uint8_t)(ptr[1])) << 16)
+        | ((uint32_t)((uint8_t)(ptr[0])) << 24));
+  }
+}
+
+
+uint64_t decodeFixed64(const char *ptr) {
+  if (BYTE_ORDER == BIG_ENDIAN) {
+    uint64_t value;
+    memcpy(&value, ptr, sizeof(value));
+    return value;
+  } else {
+    uint64_t hi = decodeFixed32(ptr);
+    uint64_t lo = decodeFixed32(ptr+4);
+    return (hi << 32) | lo;
+  }
+}
+
+int decodeDouble(char* val, double* score) {
+    uint64_t decoded = decodeFixed64(val);
+    if ((decoded >> 63) == 0) {
+        decoded ^= 0xffffffffffffffff;
+    } else {
+        decoded &= 0x7fffffffffffffff;
+    }
+    double value;
+    memcpy(&value, &decoded, sizeof(value));
+    *score = value;
+    return sizeof(value);
+}
+
+sds encodeScoreHead(sds rawkey, int dbid, sds key, keylen_t keylen) {
+    sds ptr = rawkey;
+    memcpy(ptr, &dbid, sizeof(dbid)), ptr += sizeof(dbid);
+    memcpy(ptr, &keylen, sizeof(keylen_t)), ptr += sizeof(keylen_t);
+    memcpy(ptr, key, keylen), ptr += keylen;
+    return ptr;
+}
+
+sds encodeScorePriex(redisDb* db, sds key) {
+    int dbid = db->id;
+    keylen_t keylen = key ? sdslen(key) : 0;
+    keylen_t rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen;
+    sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen),
+        ptr = encodeScoreHead(rawkey, dbid, key, keylen);
+    return rawkey;
+}
+
+sds encodeScoreKey(redisDb* db ,sds key, sds subkey, double score) {
+    int dbid = db->id;
+    keylen_t keylen = key ? sdslen(key) : 0;
+    keylen_t subkeylen = subkey ? sdslen(subkey): 0;
+    keylen_t rawkeylen =  sizeof(dbid)+sizeof(keylen)+keylen+sizeOfDouble+subkeylen;
+    sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen), 
+        ptr = encodeScoreHead(rawkey, dbid, key, keylen);
+    ptr += encodeDouble(ptr, score);
+    if (subkey) {
+        memcpy(ptr, subkey, subkeylen), ptr += subkeylen;
+    }
+    return rawkey;
+}
+
+
+
+int decodeScoreKey(char* raw, int rawlen, int* dbid, char** key, size_t* keylen, char** subkey, size_t* subkeylen, double* score) {
+    keylen_t keylen_;
+    if (raw == NULL || rawlen < sizeof(int)+sizeof(keylen_t)) return -1;
+    if (dbid) *dbid = *(int*)raw;
+    raw += sizeof(int), rawlen -= sizeof(int);
+    keylen_ = *(keylen_t*)raw;
+    if (keylen) *keylen = keylen_;
+    raw += sizeof(keylen_t), rawlen -= sizeof(keylen_t);
+    if (key) *key = raw;
+    if (rawlen < keylen_) return -1;
+    raw += keylen_, rawlen -= keylen_;
+    int double_offset = decodeDouble(raw, score);
+    raw += double_offset;
+    rawlen -= double_offset;
+    if (subkeylen) *subkeylen = rawlen;
+    if (subkey) {
+        *subkey = rawlen > 0 ? raw : NULL;
+    }
+    return 0;
+}
+
+
+sds encodeIntervalSds(int ex, MOVE IN sds data) {
+    sds result;
+    if (ex) {
+        result = sdscatsds(sdsnewlen("(", 1), data);
+    } else {
+        result = sdscatsds(sdsnewlen("[", 1), data);
+    }
+    sdsfree(data);
+    return result;
+}
+
+int decodeIntervalSds(sds data, int* ex, char** raw, size_t* rawlen) {
+    if (sdslen(data) == 0) {
+        return C_ERR;
+    }
+    switch (data[0])
+    {
+        case '(':
+            *ex = 1;
+            break;
+        case '[':
+            *ex = 0;
+            break;
+        default:
+            return C_ERR;
+            break;
+    }
+    *raw = data + 1;
+    *rawlen = sdslen(data) - 1;
+    return C_OK;
 }
 
 #ifdef REDIS_TEST
