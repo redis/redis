@@ -40,8 +40,6 @@ start_server {tags {"string"}} {
         test {SET 10000 numeric keys and access all them in reverse order} {
             r flushdb
             set err {}
-            r set 0 0
-
             for {set x 0} {$x < 10000} {incr x} {
                 r set $x $x
             }

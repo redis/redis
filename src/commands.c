@@ -2520,7 +2520,7 @@ struct redisCommandArg HSET_Args[] = {
 
 /* HSET_ReplySchema reply schema */
 struct commandReplySchemaElement HSET_ReplySchema_elements[] = {
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
 struct commandReplySchema HSET_ReplySchema = {HSET_ReplySchema_elements,.length=1};

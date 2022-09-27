@@ -14,9 +14,6 @@
             "SENTINEL"
         ],
         "reply_schema": {
-
-        },
-        "reply_schema": {
             "anyOf": [
                 {
                     "type": "array",

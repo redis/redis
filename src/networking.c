@@ -1751,7 +1751,7 @@ void reqresAppendBuffer(client *c, void *buf, size_t len) {
     if (!server.req_res_logfile)
         return;
 
-    if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE))
+    if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE|CLIENT_MULTI))
         return;
 
     if (!c->req_res_buf) {
@@ -1995,13 +1995,12 @@ int writeToClient(client *c, int handler_installed) {
     if (!clientHasPendingReplies(c)) {
         if (server.req_res_logfile) {
             FILE *fp = fopen(server.req_res_logfile, "a");
-            if (!fp) {
-                serverLog(LL_WARNING, "GUYBE cant open");
-            } else {
-                fwrite(c->req_res_buf, c->req_res_buf_used, 1, fp);
-                fflush(fp);
-                fclose(fp);
-            }
+            serverAssert(fp);
+           
+            fwrite(c->req_res_buf, c->req_res_buf_used, 1, fp);
+            fflush(fp);
+            fclose(fp);
+
             zfree(c->req_res_buf);
             c->req_res_buf = NULL;
             c->req_res_buf_used = c->req_res_buf_capacity = 0;

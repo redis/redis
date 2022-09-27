@@ -1717,7 +1717,7 @@ struct redisServer {
     int replication_allowed;        /* Are we allowed to replicate? */
     /* Logging */
     char *logfile;                  /* Path of log file */
-    char *req_res_logfile;                  /* Path of log file */
+    char *req_res_logfile;          /* Path of log file for logging all requests and their replies. If NULL, no logging will be performed */
     int syslog_enabled;             /* Is syslog enabled? */
     char *syslog_ident;             /* Syslog ident */
     int syslog_facility;            /* Syslog facility */
