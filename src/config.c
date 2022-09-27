@@ -3040,7 +3040,7 @@ standardConfig static_configs[] = {
     createStringConfig("proc-title-template", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.proc_title_template, CONFIG_DEFAULT_PROC_TITLE_TEMPLATE, isValidProcTitleTemplate, updateProcTitleTemplate),
     createStringConfig("bind-source-addr", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bind_source_addr, NULL, NULL, NULL),
     createStringConfig("logfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.logfile, "", NULL, NULL),
-    createStringConfig("req-res-logfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.req_res_logfile, "", NULL, NULL),
+    createStringConfig("req-res-logfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.req_res_logfile, NULL, NULL, NULL),
     createStringConfig("locale-collate", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.locale_collate, "", NULL, updateLocaleCollate),
 
     /* SDS Configs */

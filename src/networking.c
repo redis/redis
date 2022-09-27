@@ -143,6 +143,9 @@ client *createClient(connection *conn) {
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
     c->buf_peak_last_reset_time = server.unixtime;
+    c->req_res_buf = NULL;
+    c->req_res_buf_used = 0;
+    c->req_res_buf_capacity = 0;
     c->ref_repl_buf_node = NULL;
     c->ref_block_pos = 0;
     c->qb_pos = 0;
@@ -1744,43 +1747,58 @@ client *lookupClientByID(uint64_t id) {
     return (c == raxNotFound) ? NULL : c;
 }
 
-void reqresAppendBuffer(void *buf, size_t len) {
-    serverLog(LL_WARNING, "GUYBE %s", server.req_res_logfile);
+void reqresAppendBuffer(client *c, void *buf, size_t len) {
     if (!server.req_res_logfile)
         return;
 
-    FILE *fp = fopen(server.req_res_logfile, "a");
-    if (!fp) {
-        serverLog(LL_WARNING, "GUYBE cant open");
+    if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE))
         return;
 
+    if (!c->req_res_buf) {
+        c->req_res_buf_capacity = max(len, 1024);
+        c->req_res_buf = zmalloc(c->req_res_buf_capacity);
+    } else if (c->req_res_buf_capacity - c->req_res_buf_used < len) {
+        c->req_res_buf_capacity += len;
+        c->req_res_buf = zrealloc(c->req_res_buf, c->req_res_buf_capacity);
     }
 
-    fwrite(buf, len, 1, fp);
-    fflush(fp);
-    fclose(fp);
+    memcpy(c->req_res_buf + c->req_res_buf_used, buf, len);
+    c->req_res_buf_used += len;
 }
 
-static void reqresAppendIov(struct iovec *iov, int iovcnt) {
+static void reqresAppendIov(client *c, struct iovec *iov, int iovcnt) {
     for (int i = 0; i < iovcnt; i++)
-        reqresAppendBuffer(iov[i].iov_base, iov[i].iov_len);
+        reqresAppendBuffer(c, iov[i].iov_base, iov[i].iov_len);
+}
+
+static void reqresAppendArg(client *c, char *arg, size_t arg_len) {
+    char argv_len_buf[32];
+    size_t argv_len_buf_len = ll2string(argv_len_buf,sizeof(argv_len_buf),(long)arg_len);
+    reqresAppendBuffer(c, argv_len_buf, argv_len_buf_len);
+    reqresAppendBuffer(c, "\r\n", 2);
+    reqresAppendBuffer(c, arg, arg_len);
+    reqresAppendBuffer(c, "\r\n", 2);
 }
 
 static void reqresAppendArgv(client *c) {
     robj **argv = c->original_argv ? c->original_argv : c->argv;
-    for (int i = 0; i < c->argc; i++) {
+    int argc = c->original_argv ? c->original_argc : c->argc;
+
+    if (argc == 0)
+        return;
+
+    for (int i = 0; i < argc; i++) {
         if (sdsEncodedObject(argv[i])) {
-            reqresAppendBuffer(argv[i]->ptr, sdslen(argv[i]->ptr));
+            reqresAppendArg(c, argv[i]->ptr, sdslen(argv[i]->ptr));
         } else if (argv[i]->encoding == OBJ_ENCODING_INT) {
             char buf[32];
             size_t len = ll2string(buf,sizeof(buf),(long)argv[i]->ptr);
-            reqresAppendBuffer(buf, len);
+            reqresAppendArg(c, buf, len);
         } else {
             serverPanic("Wrong encoding in reqresAppendArgv()");
         }
-        reqresAppendBuffer("\r\n", 2);
     }
-    reqresAppendBuffer("__argv_end\r\n", 12);
+    reqresAppendArg(c, "__argv_end__", 12);
 }
 
 /* This function should be called from _writeToClient when the reply list is not empty,
@@ -1824,7 +1842,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
     *nwritten = connWritev(c->conn, iov, iovcnt);
     if (*nwritten <= 0) return C_ERR;
 
-    reqresAppendIov(iov, iovcnt);
+    reqresAppendIov(c, iov, iovcnt);
 
     /* Locate the new node which has leftover data and
      * release all nodes in front of it. */
@@ -1874,7 +1892,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             *nwritten = connWrite(c->conn, o->buf+c->ref_block_pos,
                                   o->used-c->ref_block_pos);
             if (*nwritten <= 0) return C_ERR;
-            reqresAppendBuffer(o->buf+c->ref_block_pos, o->used-c->ref_block_pos);
+            reqresAppendBuffer(c, o->buf+c->ref_block_pos, o->used-c->ref_block_pos);
             c->ref_block_pos += *nwritten;
         }
 
@@ -1903,7 +1921,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
     } else if (c->bufpos > 0) {
         *nwritten = connWrite(c->conn, c->buf + c->sentlen, c->bufpos - c->sentlen);
         if (*nwritten <= 0) return C_ERR;
-        reqresAppendBuffer(c->buf + c->sentlen, c->bufpos - c->sentlen);
+        reqresAppendBuffer(c, c->buf + c->sentlen, c->bufpos - c->sentlen);
         c->sentlen += *nwritten;
 
         /* If the buffer was sent, set bufpos to zero to continue with
@@ -1975,6 +1993,20 @@ int writeToClient(client *c, int handler_installed) {
         if (!(c->flags & CLIENT_MASTER)) c->lastinteraction = server.unixtime;
     }
     if (!clientHasPendingReplies(c)) {
+        if (server.req_res_logfile) {
+            FILE *fp = fopen(server.req_res_logfile, "a");
+            if (!fp) {
+                serverLog(LL_WARNING, "GUYBE cant open");
+            } else {
+                fwrite(c->req_res_buf, c->req_res_buf_used, 1, fp);
+                fflush(fp);
+                fclose(fp);
+            }
+            zfree(c->req_res_buf);
+            c->req_res_buf = NULL;
+            c->req_res_buf_used = c->req_res_buf_capacity = 0;
+        }
+
         c->sentlen = 0;
         /* Note that writeToClient() is called in a threaded way, but
          * aeDeleteFileEvent() is not thread safe: however writeToClient()
@@ -2043,7 +2075,12 @@ int handleClientsWithPendingWrites(void) {
 void resetClient(client *c) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
+    reqresAppendArgv(c);
     freeClientArgv(c);
+    /* Clear the original argv.
+     * If the client is blocked we will handle slowlog when it is unblocked. */
+    if (!(c->flags & CLIENT_BLOCKED))
+        freeClientOriginalArgv(c);
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
@@ -2405,7 +2442,6 @@ void commandProcessed(client *c) {
      *    since we have not applied the command. */
     if (c->flags & CLIENT_BLOCKED) return;
 
-    reqresAppendArgv(c);
     resetClient(c);
 
     long long prev_offset = c->reploff;

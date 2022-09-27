@@ -3409,11 +3409,6 @@ void call(client *c, int flags) {
         replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
     }
 
-    /* Clear the original argv.
-     * If the client is blocked we will handle slowlog when it is unblocked. */
-    if (!(c->flags & CLIENT_BLOCKED))
-        freeClientOriginalArgv(c);
-
     /* populate the per-command statistics that we show in INFO commandstats. */
     if (flags & CMD_CALL_STATS) {
         real_cmd->microseconds += duration;

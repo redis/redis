@@ -2518,6 +2518,13 @@ struct redisCommandArg HSET_Args[] = {
 {0}
 };
 
+/* HSET_ReplySchema reply schema */
+struct commandReplySchemaElement HSET_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number"},
+};
+
+struct commandReplySchema HSET_ReplySchema = {HSET_ReplySchema_elements,.length=1};
+
 /********** HSETNX ********************/
 
 /* HSETNX history */
@@ -8803,7 +8810,7 @@ struct redisCommand redisCommandTable[] = {
 {"hmset","Set multiple hash fields to multiple values","O(N) where N is the number of fields being set.","2.0.0",CMD_DOC_DEPRECATED,"`HSET` with multiple field-value pairs","4.0.0",COMMAND_GROUP_HASH,HMSET_History,HMSET_tips,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HMSET_Args},
 {"hrandfield","Get one or multiple random fields from a hash","O(N) where N is the number of fields returned","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HRANDFIELD_History,HRANDFIELD_tips,hrandfieldCommand,-2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HRANDFIELD_Args},
 {"hscan","Incrementally iterate hash fields and associated values","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection..","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSCAN_History,HSCAN_tips,hscanCommand,-3,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSCAN_Args},
-{"hset","Set the string value of a hash field","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSET_History,HSET_tips,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSET_Args},
+{"hset","Set the string value of a hash field","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSET_History,HSET_tips,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSET_Args,.reply_schema=&HSET_ReplySchema},
 {"hsetnx","Set the value of a hash field, only if the field does not exist","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSETNX_History,HSETNX_tips,hsetnxCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSETNX_Args},
 {"hstrlen","Get the length of the value of a hash field","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSTRLEN_History,HSTRLEN_tips,hstrlenCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSTRLEN_Args},
 {"hvals","Get all the values in a hash","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HVALS_History,HVALS_tips,hvalsCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HVALS_Args},

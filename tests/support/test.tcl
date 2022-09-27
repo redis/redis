@@ -7,27 +7,27 @@ set ::tests_failed {}
 set ::cur_test ""
 
 proc fail {msg} {
-    error "assertion:$msg"
+    puts "assertion:$msg"
 }
 
 proc assert {condition} {
     if {![uplevel 1 [list expr $condition]]} {
         set context "(context: [info frame -1])"
-        error "assertion:Expected [uplevel 1 [list subst -nocommands $condition]] $context"
+        puts "assertion:Expected [uplevel 1 [list subst -nocommands $condition]] $context"
     }
 }
 
 proc assert_no_match {pattern value} {
     if {[string match $pattern $value]} {
         set context "(context: [info frame -1])"
-        error "assertion:Expected '$value' to not match '$pattern' $context"
+        puts "assertion:Expected '$value' to not match '$pattern' $context"
     }
 }
 
 proc assert_match {pattern value {detail ""}} {
     if {![string match $pattern $value]} {
         set context "(context: [info frame -1])"
-        error "assertion:Expected '$value' to match '$pattern' $context $detail"
+        puts "assertion:Expected '$value' to match '$pattern' $context $detail"
     }
 }
 
@@ -37,7 +37,7 @@ proc assert_failed {expected_err detail} {
      } else {
         set detail "(context: [info frame -2])"
      }
-     error "assertion:$expected_err $detail"
+     puts "assertion:$expected_err $detail"
 }
 
 proc assert_not_equal {value expected {detail ""}} {

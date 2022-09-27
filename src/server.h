@@ -1182,6 +1182,10 @@ typedef struct client {
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
+
+    unsigned char *req_res_buf;
+    size_t req_res_buf_used;
+    size_t req_res_buf_capacity;
 } client;
 
 struct saveparam {
