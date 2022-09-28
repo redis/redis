@@ -2971,6 +2971,7 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(standardConfig *con
 }
 
 static int applyClientMemoryUsage(const char **err) {
+    UNUSED(err);
     if (server.maxmemory_clients != 0) {
         return 1;
     }
