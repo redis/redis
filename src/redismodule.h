@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+
+typedef struct RedisModuleString RedisModuleString;
+
 /* ---------------- Defines common between core and modules --------------- */
 
 /* Error status return values. */
@@ -754,7 +757,8 @@ typedef struct RedisModuleKeyInfo {
     uint64_t version;       /* Not used since this structure is never passed
                                from the module to the core right now. Here
                                for future compatibility. */
-    const char *key;        /* key name */
+    int32_t dbnum;          /* The key dbnum. */
+    RedisModuleString *key; /* Key name. */
 } RedisModuleKeyInfoV1;
 
 #define RedisModuleKeyInfo RedisModuleKeyInfoV1
@@ -802,7 +806,6 @@ typedef long long ustime_t;
 typedef struct RedisModuleCtx RedisModuleCtx;
 typedef struct RedisModuleCommand RedisModuleCommand;
 typedef struct RedisModuleKey RedisModuleKey;
-typedef struct RedisModuleString RedisModuleString;
 typedef struct RedisModuleCallReply RedisModuleCallReply;
 typedef struct RedisModuleIO RedisModuleIO;
 typedef struct RedisModuleType RedisModuleType;
