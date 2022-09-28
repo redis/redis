@@ -53,11 +53,21 @@ int hashSwapAna(swapData *data, struct keyRequest *req,
             *intention = SWAP_NOP;
             *intention_flags = 0;
         } else if (req->num_subkeys == 0) {
-            if (cmd_intention_flags == SWAP_IN_DEL) {
+            if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
                 /* DEL/GETDEL: Lazy delete current key. */
                 createFakeHashForDeleteIfCold(data);
                 *intention = SWAP_DEL;
                 *intention_flags = SWAP_FIN_DEL_SKIP;
+            } else if (cmd_intention_flags & SWAP_IN_DEL
+                || cmd_intention_flags & SWAP_IN_OVERWRITE) {
+                objectMeta *meta = swapDataObjectMeta(data);
+                if (meta->len == 0) {
+                    *intention = SWAP_DEL;
+                    *intention_flags = SWAP_FIN_DEL_SKIP;
+                } else {
+                    *intention = SWAP_IN;
+                    *intention_flags = SWAP_EXEC_IN_DEL;
+                }
             } else if (swapDataIsHot(data)) {
                 /* No need to do swap for hot key(execept for SWAP_IN_DEl). */
                 *intention = SWAP_NOP;
@@ -174,8 +184,7 @@ static inline sds hashEncodeSubkey(redisDb *db, sds key, sds subkey) {
 
 static void hashEncodeDeleteRange(swapData *data, sds *start, sds *end) {
     *start = rocksEncodeDataKey(data->db,data->key->ptr,NULL);
-    *end = rocksCalculateNextKey(*start);
-    serverAssert(NULL != *end);
+    *end = rocksGenerateEndKey(*start);
 }
 
 int hashEncodeKeys(swapData *data, int intention, void *datactx_,
@@ -203,7 +212,7 @@ int hashEncodeKeys(swapData *data, int intention, void *datactx_,
             cfs = zmalloc(sizeof(int));
             rawkeys = zmalloc(sizeof(sds));
             cfs[0] = DATA_CF;
-            rawkeys[0] = hashEncodeSubkey(data->db,data->key->ptr,NULL);
+            rawkeys[0] = hashEncodeSubkey(data->db,data->key->ptr,"");
             *numkeys = datactx->ctx.num;
             *pcfs = cfs;
             *prawkeys = rawkeys;

@@ -265,6 +265,7 @@ int wholekeySave(rdbKeySaveData *keydata, rio *rdb, decodedData *decoded) {
     robj keyobj = {0};
 
     serverAssert(decoded->cf == DATA_CF); 
+    serverAssert((NULL == decoded->subkey));
     initStaticStringObject(keyobj,decoded->key);
 
     if (rdbSaveKeyHeader(rdb,&keyobj,&keyobj,

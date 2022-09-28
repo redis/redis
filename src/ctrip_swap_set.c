@@ -58,7 +58,8 @@ int setSwapAna(swapData *data, struct keyRequest *req,
                     createFakeSetForDeleteIfCold(data);
                     *intention = SWAP_DEL;
                     *intention_flags = SWAP_FIN_DEL_SKIP;
-                } else if (cmd_intention_flags == SWAP_IN_DEL) {
+                } else if (cmd_intention_flags & SWAP_IN_DEL
+                    || cmd_intention_flags & SWAP_IN_OVERWRITE) {
                     objectMeta *meta = swapDataObjectMeta(data);
                     if (meta->len == 0) {
                         *intention = SWAP_DEL;
@@ -67,6 +68,10 @@ int setSwapAna(swapData *data, struct keyRequest *req,
                         *intention = SWAP_IN;
                         *intention_flags = SWAP_EXEC_IN_DEL;
                     }
+                } else if (swapDataIsHot(data)) {
+                    /* No need to do swap for hot key(execept for SWAP_IN_DEl). */
+                    *intention = SWAP_NOP;
+                    *intention_flags = 0;
                 } else if (cmd_intention_flags == SWAP_IN_META) {
                     /* SCARD: swap in meta (with random field gets empty set)
                      * also SCARD command will be modified like dbsize. */
@@ -176,8 +181,7 @@ static inline sds setEncodeSubkey(redisDb *db, sds key, sds subkey) {
 
 static void setEncodeDeleteRange(swapData *data, sds *start, sds *end) {
     *start = rocksEncodeDataKey(data->db,data->key->ptr,NULL);
-    *end = rocksCalculateNextKey(*start);
-    serverAssert(NULL != *end);
+    *end = rocksGenerateEndKey(*start);
 }
 
 int setEncodeKeys(swapData *data, int intention, void *datactx_,
@@ -205,7 +209,7 @@ int setEncodeKeys(swapData *data, int intention, void *datactx_,
                 cfs = zmalloc(sizeof(int));
                 rawkeys = zmalloc(sizeof(sds));
                 cfs[0] = DATA_CF;
-                rawkeys[0] = setEncodeSubkey(data->db,data->key->ptr,NULL);
+                rawkeys[0] = setEncodeSubkey(data->db,data->key->ptr,"");
                 *numkeys = datactx->ctx.num;
                 *pcfs = cfs;
                 *prawkeys = rawkeys;
@@ -745,7 +749,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         setEncodeKeys(set1_data, SWAP_IN, set1_ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_SCAN == action);
         test_assert(DATA_CF == cfs[0]);
-        expectEncodedKey = setEncodeSubkey(db, key1->ptr, NULL);
+        expectEncodedKey = setEncodeSubkey(db, key1->ptr, "");
         test_assert(memcmp(expectEncodedKey, rawkeys[0], sdslen(rawkeys[0])) == 0);
 
         // encodeKeys - swap del
@@ -802,15 +806,17 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         // swap in meta
         kr1->cmd_intention = SWAP_IN;
         kr1->cmd_intention_flags = SWAP_IN_META;
+        set1_data->value = NULL;
         set1_data->object_meta = NULL;
         set1_data->cold_meta = set1_meta;
+        set1_meta->len=4;
         setSwapAna(set1_data,kr1,&intention,&intention_flags,set1_ctx);
         test_assert(intention == SWAP_IN && intention_flags == 0);
         test_assert(set1_ctx->ctx.num > 0);
 
         // swap in del mock value
         kr1->cmd_intention = SWAP_IN;
-        kr1->cmd_intention_flags = SWAP_IN_DEL;
+        kr1->cmd_intention_flags = SWAP_IN_DEL_MOCK_VALUE;
         set1_data->value = set1;
         setSwapAna(set1_data, kr1, &intention, &intention_flags, set1_ctx);
         test_assert(intention == SWAP_DEL && intention_flags == SWAP_FIN_DEL_SKIP);
@@ -818,6 +824,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         // swap in del - all subkeys in memory
         kr1->cmd_intention = SWAP_IN;
         kr1->cmd_intention_flags = SWAP_IN_DEL;
+        set1_data->value = set1;
         set1_data->object_meta = NULL;
         set1_data->cold_meta = set1_meta;
         set1_meta->len = 0;
@@ -832,6 +839,8 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         // swap in whole key
         kr1->cmd_intention = SWAP_IN;
         kr1->cmd_intention_flags = 0;
+        set1_data->value = NULL;
+        set1_meta->len = 4;
         setSwapAna(set1_data,kr1,&intention,&intention_flags,set1_ctx);
         test_assert(intention == SWAP_IN && intention_flags == 0);
 
@@ -905,7 +914,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         freeSetSwapData(set1_data, set1_ctx);
     }
 
-    TEST("big - swapIn/swapOut") {
+    TEST("set - swapIn/swapOut") {
         robj *s, *e, *result;
         objectMeta *m;
         set1_data = createSwapData(db, key1,set1);
@@ -985,7 +994,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         freeSetSwapData(set1_data, set1_ctx);
     }
 
-    TEST("bigset - rdbLoad & rdbSave") {
+    TEST("set - rdbLoad & rdbSave") {
         int err = 0;
         int cf;
         robj *myset = createSetObject();

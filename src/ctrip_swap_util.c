@@ -176,12 +176,17 @@ sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey) {
     int dbid = db->id;
     keylen_t keylen = key ? sdslen(key) : 0;
     keylen_t subkeylen = subkey ? sdslen(subkey) : 0;
-    size_t rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen+subkeylen;
+    size_t rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen+1+subkeylen;
     sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen), ptr = rawkey;
     memcpy(ptr, &dbid, sizeof(dbid)), ptr += sizeof(dbid);
     memcpy(ptr, &keylen, sizeof(keylen_t)), ptr += sizeof(keylen_t);
     memcpy(ptr, key, keylen), ptr += keylen;
-    if (subkey) memcpy(ptr, subkey, subkeylen), ptr += subkeylen;
+    if (subkey) {
+        memset(ptr,ROCKS_KEY_FLAG_SUBKEY,1), ptr += 1;
+        memcpy(ptr, subkey, subkeylen), ptr += subkeylen;
+    } else {
+        memset(ptr,ROCKS_KEY_FLAG_NONE,1), ptr += 1;
+    }
     return rawkey;
 }
 
@@ -189,7 +194,7 @@ int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid,
         const char **key, size_t *keylen,
         const char **subkey, size_t *subkeylen) {
     keylen_t keylen_;
-    if (raw == NULL || rawlen < sizeof(int)+sizeof(keylen_t)) return -1;
+    if (raw == NULL || rawlen < sizeof(int)+sizeof(keylen_t)+1) return -1;
     if (dbid) *dbid = *(int*)raw;
     raw += sizeof(int), rawlen -= sizeof(int);
     keylen_ = *(keylen_t*)raw;
@@ -198,9 +203,9 @@ int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid,
     if (key) *key = raw;
     if (rawlen < keylen_) return -1;
     raw += keylen_, rawlen -= keylen_;
-    if (subkeylen) *subkeylen = rawlen;
+    if (subkeylen) *subkeylen = rawlen - 1;
     if (subkey) {
-        *subkey = rawlen > 0 ? raw : NULL;
+        *subkey = raw[0] == ROCKS_KEY_FLAG_SUBKEY ? raw + 1 : NULL;
     }
     return 0;
 }
@@ -232,21 +237,10 @@ long rocksDecodeObjectMetaLen(const char *raw, size_t rawlen) {
     return *(long*)raw;
 }
 
-sds rocksCalculateNextKey(sds current) {
-	sds next = NULL;
-	size_t nextlen = sdslen(current);
-
-	do {
-		if (current[nextlen - 1] != (char)0xff) break;
-		nextlen--;
-	} while(nextlen > 0); 
-
-	if (0 == nextlen) return NULL;
-
-	next = sdsnewlen(current, nextlen);
-	next[nextlen - 1]++;
-
-	return next;
+sds rocksGenerateEndKey(sds start_key) {
+    sds end_key = sdsdup(start_key);
+    end_key[sdslen(end_key) - 1] = ROCKS_KEY_FLAG_DELETE;
+    return end_key;
 }
 
 sds encodeMetaScanKey(unsigned long cursor, int limit, sds seek) {
@@ -281,6 +275,7 @@ int swapUtilTest(int argc, char **argv, int accurate) {
     UNUSED(argv);
     UNUSED(accurate);
     int error = 0;
+    redisDb* db = server.db + 0;
 
     TEST("util - encode & decode object meta len") {
         sds raw;
@@ -298,57 +293,41 @@ int swapUtilTest(int argc, char **argv, int accurate) {
         sdsfree(raw);
     }
 
-    return error;
-}
+    TEST("util - encode & decode key") {
+        sds key = sdsnew("key1");
+        sds f1 = sdsnew("f1");
+        int dbId;
+        const char *keystr, *subkeystr;
+        size_t klen, slen;
 
-int testRocksCalculateNextKey(int argc, char **argv, int accurate) {
-    UNUSED(argc);
-    UNUSED(argv);
-    UNUSED(accurate);
-    sds current = NULL, next = NULL;
-    int error = 0;
-
-    TEST("claculate-next-key: empty string") {
-        current = next = NULL;
-        current = sdsempty();
-        next = rocksCalculateNextKey(current);
-        test_assert(NULL == next);
-        sdsfree(current);
-        sdsfree(next);
-    }
-
-    TEST("claculate-next-key: string full with 0xff") {
-        current = next = NULL;
-        char str[10] = {0};
-        memset(str, (char)0xff, 9);
-        current = sdsnew(str);
-        next = rocksCalculateNextKey(current);
-        test_assert(NULL == next);
-        sdsfree(current);
-        sdsfree(next);
-    }
-
-    TEST("claculate-next-key: end with 0xff") {
-        current = next = NULL;
-        char str[] = {'t', 'e', 's', 't', (char)0xff, (char)0xff, 0};
-        current = sdsnew(str);
-        next = rocksCalculateNextKey(current);
-        test_assert(NULL != next);
-        test_assert(4 == sdslen(next));
-        test_assert(0 == memcmp("tesu", next, 4));
-        sdsfree(current);
-        sdsfree(next);
-    }
-
-    TEST("claculate-next-key: normal string") {
-        current = next = NULL;
-        current = sdsnew("normal string");
-        next = rocksCalculateNextKey(current);
-        test_assert(NULL != next);
-        test_assert(13 == sdslen(next));
-        test_assert(0 == memcmp("normal strinh", next, 13));
-        sdsfree(current);
-        sdsfree(next);
+        // util - encode & decode no subkey
+        sds rocksKey = rocksEncodeDataKey(db,key,NULL);
+        rocksDecodeDataKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&subkeystr,&slen);
+        test_assert(dbId == db->id);
+        test_assert(memcmp(key,keystr,klen) == 0);
+        test_assert(subkeystr == NULL);
+        // util - encode & decode with subkey
+        rocksKey = rocksEncodeDataKey(db,key,f1);
+        rocksDecodeDataKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&subkeystr,&slen);
+        test_assert(dbId == db->id);
+        test_assert(memcmp(key,keystr,klen) == 0);
+        test_assert(memcmp(f1,subkeystr,slen) == 0);
+        test_assert(sdslen(f1) == slen);
+        // util - encode & decode with empty subkey
+        rocksKey = rocksEncodeDataKey(db,key,"");
+        rocksDecodeDataKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&subkeystr,&slen);
+        test_assert(dbId == db->id);
+        test_assert(memcmp(key,keystr,klen) == 0);
+        test_assert(memcmp("",subkeystr,slen) == 0);
+        test_assert(slen == 0);
+        // util - encode end key
+        sds start_key = rocksEncodeDataKey(db,key,NULL);
+        sds end_key = rocksGenerateEndKey(start_key);
+        test_assert(sdscmp(start_key, end_key) < 0);
+        rocksKey = rocksEncodeDataKey(db,key,"");
+        test_assert(sdscmp(rocksKey, start_key) > 0 && sdscmp(rocksKey, end_key) < 0);
+        rocksKey = rocksEncodeDataKey(db,key,f1);
+        test_assert(sdscmp(rocksKey, start_key) > 0 && sdscmp(rocksKey, end_key) < 0);
     }
 
     return error;

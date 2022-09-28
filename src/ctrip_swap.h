@@ -60,6 +60,9 @@ extern const char *swap_cf_names[CF_COUNT];
 #define SWAP_METASCAN_RANDOMKEY (1U<<4)
 /* This is a metascan request for active-expire. */
 #define SWAP_METASCAN_EXPIRE (1U<<5)
+/* Data swap in will be overwritten by fun dbOverwrite
+ * same as SWAP_IN_DEL for collection type(SET, ZSET, LISH, HASH...), same as SWAP_IN for STRING */
+#define SWAP_IN_OVERWRITE (1U<<6)
 
 /* Delete rocksdb data key */
 #define SWAP_EXEC_IN_DEL (1U<<0)
@@ -129,6 +132,9 @@ int getKeyRequestsNone(int dbid, struct redisCommand *cmd, robj **argv, int argc
 int getKeyRequestsGlobal(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsMetaScan(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
+int getKeyRequestsBitop(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsSort(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+
 #define getKeyRequestsHsetnx getKeyRequestsHset
 #define getKeyRequestsHget getKeyRequestsHmget
 #define getKeyRequestsHdel getKeyRequestsHmget
@@ -147,6 +153,10 @@ int getKeyRequestsHlen(int dbid, struct redisCommand *cmd, robj **argv, int argc
 int getKeyRequestSmembers(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestSmove(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsSinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+
+int getKeyRequestsZunionstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsZdiffstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
 #define MAX_KEYREQUESTS_BUFFER 32
 #define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYREQUESTS_BUFFER}
@@ -249,7 +259,8 @@ typedef struct swapData {
   int object_type;
   unsigned propagate_expire:1;
   unsigned set_dirty:1;
-  unsigned reserved:30;
+  unsigned del_meta:1;
+  unsigned reserved:29;
   void *extends[3];
 } swapData;
 
@@ -1073,6 +1084,9 @@ void setLoadInit(rdbKeyLoadData *load);
 int rdbLoadLenVerbatim(rio *rdb, sds *verbatim, int *isencoded, unsigned long long *lenptr);
 
 /* Util */
+#define ROCKS_KEY_FLAG_NONE 0x0
+#define ROCKS_KEY_FLAG_SUBKEY 0x1
+#define ROCKS_KEY_FLAG_DELETE 0xff
 #define rocksEncodeMetaKey(db,key)  rocksEncodeDataKey(db,key,NULL)
 #define rocksDecodeMetaKey(raw,rawlen,dbid,key,keylen)  rocksDecodeDataKey(raw,rawlen,dbid,key,keylen,NULL,NULL)
 sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey);
@@ -1083,7 +1097,7 @@ sds rocksEncodeValRdb(robj *value);
 robj *rocksDecodeValRdb(sds raw);
 sds rocksEncodeObjectMetaLen(unsigned long len);
 long rocksDecodeObjectMetaLen(const char *raw, size_t rawlen);
-sds rocksCalculateNextKey(sds current);
+sds rocksGenerateEndKey(sds start_key);
 sds encodeMetaScanKey(unsigned long cursor, int limit, sds seek);
 int decodeMetaScanKey(sds meta_scan_key, unsigned long *cursor, int *limit, const char **seek, size_t *seeklen);
 
@@ -1151,9 +1165,9 @@ int swapExecTest(int argc, char **argv, int accurate);
 int swapRdbTest(int argc, char **argv, int accurate);
 int swapObjectTest(int argc, char *argv[], int accurate);
 int swapIterTest(int argc, char *argv[], int accurate);
-int testRocksCalculateNextKey(int argc, char **argv, int accurate);
 int metaScanTest(int argc, char *argv[], int accurate);
 int swapExpireTest(int argc, char *argv[], int accurate);
+int swapUtilTest(int argc, char **argv, int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 

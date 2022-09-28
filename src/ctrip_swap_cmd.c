@@ -230,6 +230,98 @@ int getKeyRequestsMetaScan(int dbid, struct redisCommand *cmd, robj **argv,
     return 0;
 }
 
+int getKeyRequestsOneDestKeyMultiSrcKeys(int dbid, struct redisCommand *cmd, robj **argv,
+                                         int argc, struct getKeyRequestsResult *result, int dest_key_Index,
+                                                 int first_src_key, int last_src_key) {
+    UNUSED(cmd);
+    if (last_src_key < 0) last_src_key += argc;
+    getKeyRequestsPrepareResult(result, result->num + 1 + last_src_key - first_src_key + 1);
+
+    incrRefCount(argv[dest_key_Index]);
+    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[dest_key_Index], 0, NULL,
+                               SWAP_IN, SWAP_IN_DEL, dbid);
+    for(int i = first_src_key; i <= last_src_key; i++) {
+        incrRefCount(argv[i]);
+        getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[i], 0, NULL,
+                                   SWAP_IN,0, dbid);
+    }
+
+    return 0;
+}
+
+int getKeyRequestsBitop(int dbid, struct redisCommand *cmd, robj **argv,
+        int argc, struct getKeyRequestsResult *result) {
+    return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, 2, 3, -1);
+}
+
+int getKeyRequestsSort(int dbid, struct redisCommand *cmd, robj **argv,
+        int argc, struct getKeyRequestsResult *result) {
+    int i, j;
+    robj *storekey = NULL;
+
+    struct {
+        char *name;
+        int skip;
+    } skiplist[] = {
+            {"limit", 2},
+            {"get", 1},
+            {"by", 1},
+            {NULL, 0} /* End of elements. */
+    };
+
+    for (i = 2; i < argc; i++) {
+        if (!strcasecmp(argv[i]->ptr,"store") && i+1 < argc) {
+            /* we don't break after store key found to be sure
+             * to process the *last* "STORE" option if multiple
+             * ones are provided. This is same behavior as SORT. */
+            storekey = argv[i+1];
+        }
+        for (j = 0; skiplist[j].name != NULL; j++) {
+            if (!strcasecmp(argv[i]->ptr,skiplist[j].name)) {
+                i += skiplist[j].skip;
+                break;
+            }
+        }
+    }
+
+    getKeyRequestsPrepareResult(result,result->num + (storekey ? 2 : 1));
+    incrRefCount(argv[1]);
+    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[1],0,NULL,
+                               SWAP_IN, 0, dbid);
+    if (storekey) {
+        incrRefCount(storekey);
+        getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,storekey,0,NULL,
+                                   SWAP_IN, SWAP_IN_DEL, dbid);
+    }
+
+    return C_OK;
+}
+
+int getKeyRequestsZunionInterDiffGeneric(int dbid, struct redisCommand *cmd, robj **argv, int argc,
+        struct getKeyRequestsResult *result, int op) {
+    UNUSED(op);
+    long long setnum;
+    if (getLongLongFromObject(argv[2], &setnum) != C_OK) {
+        return C_ERR;
+    }
+    if (setnum < 1 || setnum + 3 > argc) {
+        return C_ERR;
+    }
+
+    return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, 1, 3, 2 + setnum);
+}
+
+int getKeyRequestsZunionstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    return getKeyRequestsZunionInterDiffGeneric(dbid, cmd, argv, argc, result, SET_OP_UNION);
+}
+
+int getKeyRequestsZinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    return getKeyRequestsZunionInterDiffGeneric(dbid, cmd, argv, argc, result, SET_OP_INTER);
+}
+int getKeyRequestsZdiffstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    return getKeyRequestsZunionInterDiffGeneric(dbid, cmd, argv, argc, result, SET_OP_DIFF);
+}
+
 #define GETKEYS_RESULT_SUBKEYS_INIT_LEN 8
 #define GETKEYS_RESULT_SUBKEYS_LINER_LEN 1024
 
@@ -304,17 +396,7 @@ int getKeyRequestSmove(int dbid, struct redisCommand *cmd, robj **argv, int argc
 }
 
 int getKeyRequestsSinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    getKeyRequestsPrepareResult(result, result->num + argc);
-    incrRefCount(argv[1]);
-    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[1], 0, NULL,
-                               SWAP_IN, SWAP_IN_DEL, dbid);
-    for(int i = 2; i < argc; i++) {
-        incrRefCount(argv[i]);
-        getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[i], 0, NULL,
-                                   SWAP_IN,0, dbid);
-    }
-
-    return 0;
+    return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, 1, 2, -1);
 }
 
 #ifdef REDIS_TEST
@@ -401,7 +483,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(!strcmp(result.key_requests[2].key->ptr, "KEY3"));
         test_assert(result.key_requests[2].subkeys == NULL);
         test_assert(result.key_requests[2].cmd_intention == SWAP_IN);
-        test_assert(result.key_requests[2].cmd_intention_flags == 0);
+        test_assert(result.key_requests[2].cmd_intention_flags == SWAP_IN_OVERWRITE);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
@@ -478,7 +560,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(!strcmp(result.key_requests[1].key->ptr, "HASH"));
         test_assert(result.key_requests[1].subkeys == NULL);
         test_assert(result.key_requests[1].cmd_intention == SWAP_IN);
-        test_assert(result.key_requests[1].cmd_intention_flags == SWAP_IN_DEL);
+        test_assert(result.key_requests[1].cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);

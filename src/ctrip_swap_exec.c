@@ -926,7 +926,7 @@ static void executeSwapInRequest(swapRequest *req) {
 
         if (req->intention_flags & SWAP_EXEC_IN_DEL) {
             if ((errcode = doSwapIntentionDelRange(req, cfs[0], sdsdup(rawkeys[0]),
-                                                  rocksCalculateNextKey(rawkeys[0])))) {
+                                                   rocksGenerateEndKey(rawkeys[0])))) {
                 goto end;
             }
 
@@ -934,6 +934,8 @@ static void executeSwapInRequest(swapRequest *req) {
             if ((errcode = doSwapDelMeta(data))) {
                 goto end;
             }
+
+            data->del_meta = 1;
         }
         /* rawkeys not moved, only rawkeys[0] moved, free when done. */
         zfree(cfs);

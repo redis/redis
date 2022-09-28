@@ -246,7 +246,7 @@ int rocksDecodeDataCF(sds rawkey, unsigned char rdbtype, sds rdbraw,
     decoded->cf = DATA_CF;
     decoded->dbid = dbid;
     decoded->key = sdsnewlen(key,keylen);
-    decoded->subkey = subkeylen > 0 ? sdsnewlen(subkey,subkeylen) : NULL;
+    decoded->subkey = NULL == subkey ? NULL : sdsnewlen(subkey,subkeylen);
     decoded->rdbtype = rdbtype;
     decoded->rdbraw = rdbraw;
 

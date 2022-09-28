@@ -65,6 +65,13 @@ int swapDataKeyRequestFinished(swapData *data) {
     if (data->set_dirty) {
         dbSetDirty(data->db,data->key);
     }
+
+    objectMeta *meta;
+    if (data->del_meta && (meta = lookupMeta(data->db, data->key)) != NULL) {
+        robj *val = lookupKey(data->db, data->key, LOOKUP_NOTOUCH);
+        serverAssert(keyIsHot(meta, val));
+        dbDeleteMeta(data->db, data->key);
+    }
     return 0;
 }
 

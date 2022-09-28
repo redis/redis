@@ -42,6 +42,7 @@ set ::disk_tests {
     swap/integration/concurrent
     swap/integration/expire_evict
     swap/integration/pipeline
+    swap/integration/overwrite
     swap/unit/dirty
     swap/unit/expire
     swap/unit/rdb

@@ -213,7 +213,7 @@ struct redisCommand redisCommandTable[] = {
      * implicit DEL of a large key. */
     {"set",setCommand,-3,
      "write use-memory @string",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_OVERWRITE,1,1,1,0,0,0},
 
     {"setnx",setnxCommand,3,
      "write use-memory fast @string",
@@ -221,11 +221,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"setex",setexCommand,4,
      "write use-memory @string",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_OVERWRITE,1,1,1,0,0,0},
 
     {"psetex",psetexCommand,4,
      "write use-memory @string",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_OVERWRITE,1,1,1,0,0,0},
 
     {"append",appendCommand,3,
      "write use-memory fast @string",
@@ -457,15 +457,15 @@ struct redisCommand redisCommandTable[] = {
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,getKeyRequestsZunionstore,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zinterstore",zinterstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,getKeyRequestsZinterstore,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zdiffstore",zdiffstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,getKeyRequestsZdiffstore,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zunion",zunionCommand,-3,
      "read-only @sortedset",
@@ -641,7 +641,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"mset",msetCommand,-3,
      "write use-memory @string",
-     0,NULL,NULL,SWAP_IN,0,1,-1,2,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_OVERWRITE,1,-1,2,0,0,0},
 
     {"msetnx",msetnxCommand,-3,
      "write use-memory @string",
@@ -782,7 +782,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"sort",sortCommand,-2,
      "write use-memory @list @set @sortedset @dangerous",
-     0,sortGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,sortGetKeys,getKeyRequestsSort,SWAP_IN,0,1,1,1,0,0,0},
 
     {"info",infoCommand,-1,
      "ok-loading ok-stale random @dangerous",
@@ -940,7 +940,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"bitop",bitopCommand,-4,
      "write use-memory @bitmap",
-     0,NULL,NULL,SWAP_IN,0,2,-1,1,0,0,0},
+     0,NULL,getKeyRequestsBitop,SWAP_IN,0,2,-1,1,0,0,0},
 
     {"bitcount",bitcountCommand,-2,
      "read-only @bitmap",
