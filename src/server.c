@@ -827,6 +827,9 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  * free them in case we reach maxmemory-clients (client eviction).
  */
 int updateClientMemUsage(client *c) {
+    if (server.maxmemory_clients == 0) {
+        return 0;
+    }
     serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
     size_t mem = getClientMemoryUsage(c, NULL);
     int type = getClientType(c);
