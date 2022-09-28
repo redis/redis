@@ -1915,6 +1915,27 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r ping
     } {PONG}
 
+    test "BLPOP/BLMOVE should increase dirty" {
+        r del lst{t} lst1{t}
+        set rd [redis_deferring_client]
+
+        set dirty [s rdb_changes_since_last_save]
+        $rd blpop lst{t} 0
+        r lpush lst{t} a
+        assert_equal {lst{t} a} [$rd read]
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 2}
+
+        set dirty [s rdb_changes_since_last_save]
+        $rd blmove lst{t} lst1{t} left left 0
+        r lpush lst{t} a
+        assert_equal {a} [$rd read]
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 2}
+
+        $rd close
+    }
+
 foreach {pop} {BLPOP BLMPOP_RIGHT} {
     test "client unblock tests" {
         r del l
