@@ -3662,8 +3662,8 @@ struct redisCommandArg SENTINEL_CONFIG_action_set_Subargs[] = {
 
 /* SENTINEL CONFIG action argument table */
 struct redisCommandArg SENTINEL_CONFIG_action_Subargs[] = {
-{"set",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_CONFIG_action_set_Subargs},
-{"get",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,.display_text="parameter"},
+{"set",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,.subargs=SENTINEL_CONFIG_action_set_Subargs},
+{"parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
