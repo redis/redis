@@ -1123,73 +1123,88 @@ void bugReportStart(void) {
 }
 
 #ifdef HAVE_BACKTRACE
-static void *getMcontextEip(ucontext_t *uc) {
+
+/* Returns the current eip and set it to the given new value (if its not NULL) */
+static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
 #define NOT_SUPPORTED() do {\
     UNUSED(uc);\
+    UNUSED(eip);\
     return NULL;\
+} while(0)
+#define GET_SET_RETURN(target_var, new_val) do {\
+    void *old_val = (void*)target_var; \
+    if (new_val) { \
+        void **temp = (void**)&target_var; \
+        *temp = new_val; \
+    } \
+    return old_val; \
 } while(0)
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
     /* OSX < 10.6 */
     #if defined(__x86_64__)
-    return (void*) uc->uc_mcontext->__ss.__rip;
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__rip, eip);
     #elif defined(__i386__)
-    return (void*) uc->uc_mcontext->__ss.__eip;
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__eip, eip);
     #else
-    return (void*) uc->uc_mcontext->__ss.__srr0;
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__srr0, eip);
     #endif
 #elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
     /* OSX >= 10.6 */
     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
-    return (void*) uc->uc_mcontext->__ss.__rip;
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__rip, eip);
     #elif defined(__i386__)
-    return (void*) uc->uc_mcontext->__ss.__eip;
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__eip, eip);
     #else
     /* OSX ARM64 */
-    return (void*) arm_thread_state64_get_pc(uc->uc_mcontext->__ss);
+    void *old_val = (void*)arm_thread_state64_get_pc(uc->uc_mcontext->__ss);
+    if (eip) {
+        arm_thread_state64_set_pc_fptr(uc->uc_mcontext->__ss, eip);
+    }
+    return old_val;
     #endif
 #elif defined(__linux__)
     /* Linux */
     #if defined(__i386__) || ((defined(__X86_64__) || defined(__x86_64__)) && defined(__ILP32__))
-    return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
+    GET_SET_RETURN(uc->uc_mcontext.gregs[14], eip);
     #elif defined(__X86_64__) || defined(__x86_64__)
-    return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
+    GET_SET_RETURN(uc->uc_mcontext.gregs[16], eip);
     #elif defined(__ia64__) /* Linux IA64 */
-    return (void*) uc->uc_mcontext.sc_ip;
+    GET_SET_RETURN(uc->uc_mcontext.sc_ip, eip);
     #elif defined(__arm__) /* Linux ARM */
-    return (void*) uc->uc_mcontext.arm_pc;
+    GET_SET_RETURN(uc->uc_mcontext.arm_pc, eip);
     #elif defined(__aarch64__) /* Linux AArch64 */
-    return (void*) uc->uc_mcontext.pc;
+    GET_SET_RETURN(uc->uc_mcontext.pc, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__FreeBSD__)
     /* FreeBSD */
     #if defined(__i386__)
-    return (void*) uc->uc_mcontext.mc_eip;
+    GET_SET_RETURN(uc->uc_mcontext.mc_eip, eip);
     #elif defined(__x86_64__)
-    return (void*) uc->uc_mcontext.mc_rip;
+    GET_SET_RETURN(uc->uc_mcontext.mc_rip, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__OpenBSD__)
     /* OpenBSD */
     #if defined(__i386__)
-    return (void*) uc->sc_eip;
+    GET_SET_RETURN(uc->sc_eip, eip);
     #elif defined(__x86_64__)
-    return (void*) uc->sc_rip;
+    GET_SET_RETURN(uc->sc_rip, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__NetBSD__)
     #if defined(__i386__)
-    return (void*) uc->uc_mcontext.__gregs[_REG_EIP];
+    GET_SET_RETURN(uc->uc_mcontext.__gregs[_REG_EIP], eip);
     #elif defined(__x86_64__)
-    return (void*) uc->uc_mcontext.__gregs[_REG_RIP];
+    GET_SET_RETURN(uc->uc_mcontext.__gregs[_REG_RIP], eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__DragonFly__)
-    return (void*) uc->uc_mcontext.mc_rip;
+    GET_SET_RETURN(uc->uc_mcontext.mc_rip, eip);
 #else
     NOT_SUPPORTED();
 #endif
@@ -1951,6 +1966,10 @@ void dumpCodeAroundEIP(void *eip) {
     }
 }
 
+void invalidFunctionWasCalled() {}
+
+typedef void (*invalidFunctionWasCalledType)();
+
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
     UNUSED(info);
@@ -1968,13 +1987,30 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
-    void *eip = getMcontextEip(uc);
+    void *eip = getAndSetMcontextEip(uc, NULL);
     if (eip != NULL) {
         serverLog(LL_WARNING,
         "Crashed running the instruction at: %p", eip);
     }
 
-    logStackTrace(getMcontextEip(uc), 1);
+    if (eip == info->si_addr) {
+        /* When eip matches the bad address, it's an indication that we crashed when calling a non-mapped
+         * function pointer. In that case the call to backtrace will crash trying to access that address and we
+         * won't get a crash report logged. Set it to a valid point to avoid that crash. */
+
+        /* This trick allow to avoid compiler warning */
+        void *ptr;
+        invalidFunctionWasCalledType *ptr_ptr = (invalidFunctionWasCalledType*)&ptr;
+        *ptr_ptr = invalidFunctionWasCalled;
+        getAndSetMcontextEip(uc, ptr);
+    }
+
+    logStackTrace(eip, 1);
+
+    if (eip == info->si_addr) {
+        /* Restore old eip */
+        getAndSetMcontextEip(uc, eip);
+    }
 
     logRegisters(uc);
 #endif
@@ -2079,7 +2115,7 @@ void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
 
     serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
 #ifdef HAVE_BACKTRACE
-    logStackTrace(getMcontextEip(uc), 1);
+    logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
 #else
     serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif
