@@ -18,7 +18,15 @@ start_server {} {
             fail "Replication not started."
         }
     }
-
+    
+    test {WAIT out of range timeout (milliseconds)} {
+        # Timeout is parsed as milliseconds by getLongLongFromObjectOrReply().
+        # Verify we get out of range message if value is behind LLONG_MAX
+         catch {$master wait 2 0x8000000000000000} err
+         assert_match "*timeout is not an integer or out of range*" $err
+         
+    }
+    
     test {WAIT should acknowledge 1 additional copy of the data} {
         $master set foo 0
         $master incr foo

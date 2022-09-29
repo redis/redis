@@ -1190,7 +1190,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             # (Even though given timeout is smaller than LLONG_MAX, the result
             # will be bigger)
             set rd [redis_deferring_client]
-            bpop_command $rd $pop blist1 36028797018963967
+            bpop_command $rd $pop blist1 0x7FFFFFFFFFFFFF
             assert_error "ERR *is out of range*" {$rd read}
             $rd close
         }        
