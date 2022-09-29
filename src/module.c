@@ -10658,7 +10658,7 @@ static uint64_t moduleEventVersions[] = {
  *
  * * RedisModuleEvent_ForkChild
  *
- *     Called when a fork child (AOFRW, RDBSAVE, module fork...) is born/dies
+ *     Called when a fork child (AOFRW, RDBSAVE, module fork...) is before/born/dies
  *     The following sub events are available:
  *
  *     * `REDISMODULE_SUBEVENT_FORK_CHILD_BEFORE`
