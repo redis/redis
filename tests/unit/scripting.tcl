@@ -1376,6 +1376,16 @@ start_server {tags {"scripting needs:debug"}} {
         r DEBUG set-active-expire 1
     }
 
+    test "TIME command using cached time" {
+        set res [run_script {
+            local result1 = {redis.call("TIME")}
+            redis.call("DEBUG", "SLEEP", 0.01)
+            local result2 = {redis.call("TIME")}
+            return {result1, result2}
+         } 0]
+         assert_equal [lindex $res 0] [lindex $res 1]
+     }
+
     test "Script block the time in some expiration related commands" {
         # The test uses different commands to set the "same" expiration time for different keys,
         # and interspersed with "DEBUG SLEEP", to verify that time is frozen in script.
@@ -1446,7 +1456,7 @@ start_server {tags {"scripting needs:debug"}} {
                                          redis.call("PEXPIRETIME", "key8{t}")}
 
             return {ttl_results, pttl_results, expiretime_results, pexpiretime_results}
-        } 0]
+        } 8 key1{t} key2{t} key3{t} key4{t} key5{t} key6{t} key7{t} key8{t}]
 
         # The elements in each list are equal.
         assert_equal 1 [llength [lsort -unique [lindex $res 0]]]
@@ -1471,7 +1481,7 @@ start_server {tags {"scripting needs:debug"}} {
             redis.call("RESTORE", "key3{t}", 1, encoded, "REPLACE")
 
             return {redis.call("PEXPIRETIME", "key2{t}"), redis.call("PEXPIRETIME", "key3{t}")}
-        } 0]
+        } 3 key1{t} key2{t} key3{t}]
 
         # Can get the expiration time and they are all equal.
         assert_morethan [lindex $res 0] 0

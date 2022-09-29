@@ -4372,14 +4372,9 @@ void echoCommand(client *c) {
 }
 
 void timeCommand(client *c) {
-    struct timeval tv;
-
-    /* gettimeofday() can only fail if &tv is a bad address so we
-     * don't check for errors. */
-    gettimeofday(&tv,NULL);
     addReplyArrayLen(c,2);
-    addReplyBulkLongLong(c,tv.tv_sec);
-    addReplyBulkLongLong(c,tv.tv_usec);
+    addReplyBulkLongLong(c, server.unixtime);
+    addReplyBulkLongLong(c, server.ustime-server.unixtime*1000000);
 }
 
 typedef struct replyFlagNames {
