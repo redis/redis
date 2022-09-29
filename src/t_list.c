@@ -156,9 +156,11 @@ robj *listTypePop(robj *subject, int where) {
         unsigned char intbuf[LP_INTBUF_SIZE];
 
         p = (where == LIST_HEAD) ? lpFirst(subject->ptr) : lpLast(subject->ptr);
-        vstr = lpGet(p, &vlen, intbuf);
-        value = createStringObject((char*)vstr, vlen);
-        subject->ptr = lpDelete(subject->ptr, p, NULL);
+        if (p) {
+            vstr = lpGet(p, &vlen, intbuf);
+            value = createStringObject((char*)vstr, vlen);
+            subject->ptr = lpDelete(subject->ptr, p, NULL);
+        }
     } else if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         long long vlong;
         int ql_where = where == LIST_HEAD ? QUICKLIST_HEAD : QUICKLIST_TAIL;
