@@ -1183,6 +1183,17 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             assert_error "ERR *is negative*" {$rd read}
             $rd close
         }
+        
+        test "$pop: out of range timeout" {
+            # Timeout is parsed as float and multiplied by 1000, added mstime()
+            # and stored in long-long which might lead to out-of-range value.
+            # (Even though given timeout is smaller than LLONG_MAX, the result
+            # will be bigger)
+            set rd [redis_deferring_client]
+            bpop_command $rd $pop blist1 36028797018963967
+            assert_error "ERR *is out of range*" {$rd read}
+            $rd close
+        }        
 
         test "$pop: with non-integer timeout" {
             set rd [redis_deferring_client]
