@@ -5176,10 +5176,10 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
 /* Writes the ACL metrics to the info */
 sds genRedisInfoStringACLStats(sds info) {
     info = sdscatprintf(info,
-         "acl_deny_access_auth:%ld\r\n"
-         "acl_deny_access_cmd:%ld\r\n"
-         "acl_deny_access_key:%ld\r\n"
-         "acl_deny_access_channel:%ld\r\n",
+         "acl_access_denied_auth:%ld\r\n"
+         "acl_access_denied_cmd:%ld\r\n"
+         "acl_access_denied_key:%ld\r\n"
+         "acl_access_denied_channel:%ld\r\n",
          server.acl_info.user_auth_failures,
          server.acl_info.invalid_cmd_accesses,
          server.acl_info.invalid_key_accesses,
