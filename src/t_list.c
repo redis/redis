@@ -331,18 +331,27 @@ void listTypeReplace(listTypeEntry *entry, robj *value) {
     decrRefCount(value);
 }
 
-int listTypeReplaceIndex(robj *o, int index, unsigned char *vstr, size_t vlen) {
+int listTypeReplaceIndex(robj *o, int index, robj *value) {
+    value = getDecodedObject(value);
+    sds vstr = value->ptr;
+    size_t vlen = sdslen(vstr);
+    int replaced = 0;
+
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *p = lpSeek(o->ptr,index);
-        if (!p) return 0;
-        o->ptr = lpReplace(o->ptr, &p, vstr, vlen);
-        return 1;
+        if (p) {
+            o->ptr = lpReplace(o->ptr, &p, (unsigned char *)vstr, vlen);
+            replaced = 1;
+        }
     } else if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklist *ql = o->ptr;
-        return quicklistReplaceAtIndex(ql, index, vstr, vlen);
+        replaced = quicklistReplaceAtIndex(ql, index, vstr, vlen);
     } else {
         serverPanic("Unknown list encoding");
     }
+
+    decrRefCount(value);
+    return replaced;
 }
 
 /* Compare the given object with the entry at the current position. */
@@ -573,7 +582,7 @@ void lsetCommand(client *c) {
         return;
 
     listTypeTryConvertListpack(o,c->argv,3,3);
-    if (listTypeReplaceIndex(o,index,value->ptr,sdslen(value->ptr))) {
+    if (listTypeReplaceIndex(o,index,value)) {
         addReply(c,shared.ok);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
