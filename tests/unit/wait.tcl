@@ -22,9 +22,17 @@ start_server {} {
     test {WAIT out of range timeout (milliseconds)} {
         # Timeout is parsed as milliseconds by getLongLongFromObjectOrReply().
         # Verify we get out of range message if value is behind LLONG_MAX
-         catch {$master wait 2 0x8000000000000000} err
+        # (decimal value equals to 0x8000000000000000)
+         catch {$master wait 2 9223372036854775808} err
          assert_match "*timeout is not an integer or out of range*" $err
+                  
+         # expected to fail by later overflow condition after addition
+         # of mstime(). (decimal value equals to 0x7FFFFFFFFFFFFFFF)
+         catch {$master wait 2 9223372036854775807} err
+         assert_match "*timeout is out of range*" $err
          
+         catch {$master wait 2 -1} err
+         assert_match "*timeout is negative*" $err         
     }
     
     test {WAIT should acknowledge 1 additional copy of the data} {
