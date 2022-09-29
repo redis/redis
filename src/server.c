@@ -207,15 +207,13 @@ mstime_t mstime(void) {
  * reflect the same time.
  * More details can be found in the comments below. */
 mstime_t commandTimeSnapshot(void) {
-    mstime_t now;
-
     /* If we are in the context of a Lua script, we pretend that time is
      * blocked to when the Lua script started. This way a key can expire
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
     if (server.script_caller) {
-        now = scriptTimeSnapshot();
+        return scriptTimeSnapshot();
     }
     /* If we are in the middle of a command execution, we still want to use
      * a reference time that does not change: in that case we just use the
@@ -224,14 +222,9 @@ mstime_t commandTimeSnapshot(void) {
      * may re-open the same key multiple times, can invalidate an already
      * open object in a next call, if the next call will see the key expired,
      * while the first did not. */
-    else if (server.fixed_time_expire > 0) {
-        now = server.mstime;
-    }
-    /* For the other cases, we want to use the most fresh time we have. */
     else {
-        now = mstime();
+        return server.mstime;
     }
-    return now;
 }
 
 /* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
@@ -2441,7 +2434,7 @@ void initServer(void) {
     server.main_thread_id = pthread_self();
     server.current_client = NULL;
     server.errors = raxNew();
-    server.fixed_time_expire = 0;
+    server.call_depth = 0;
     server.in_nested_call = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
@@ -3360,7 +3353,7 @@ void call(client *c, int flags) {
 
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call*/
-    if (server.fixed_time_expire++ == 0) {
+    if (server.call_depth++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
     }
 
@@ -3514,7 +3507,7 @@ void call(client *c, int flags) {
         }
     }
 
-    server.fixed_time_expire--;
+    server.call_depth--;
     server.stat_numcommands++;
 
     /* Record peak memory after each command and before the eviction that runs
