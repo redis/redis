@@ -6364,6 +6364,10 @@ int redisFork(int purpose) {
         openChildInfoPipe();
     }
 
+    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                          REDISMODULE_SUBEVENT_FORK_CHILD_BEFORE,
+                          NULL);
+
     int childpid;
     long long start = ustime();
     if ((childpid = fork()) == 0) {

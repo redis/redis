@@ -10661,6 +10661,7 @@ static uint64_t moduleEventVersions[] = {
  *     Called when a fork child (AOFRW, RDBSAVE, module fork...) is born/dies
  *     The following sub events are available:
  *
+ *     * `REDISMODULE_SUBEVENT_FORK_CHILD_BEFORE`
  *     * `REDISMODULE_SUBEVENT_FORK_CHILD_BORN`
  *     * `REDISMODULE_SUBEVENT_FORK_CHILD_DIED`
  *
