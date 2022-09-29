@@ -7,6 +7,15 @@
 int kspec_impl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
     UNUSED(argc);
+
+    /* Handle getkeys-api introspection (for "kspec.nonewithgetkeys")  */
+    if (RedisModule_IsKeysPositionRequest(ctx)) {
+        for (int i = 1; i < argc; i += 2)
+            RedisModule_KeyAtPosWithFlags(ctx, i, REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_ACCESS);
+
+        return REDISMODULE_OK;
+    }
+
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }

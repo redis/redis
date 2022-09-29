@@ -2061,7 +2061,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--memkeys")) {
             config.memkeys = 1;
             config.memkeys_samples = 0; /* use redis default */
-        } else if (!strcmp(argv[i],"--memkeys-samples")) {
+        } else if (!strcmp(argv[i],"--memkeys-samples") && !lastarg) {
             config.memkeys = 1;
             config.memkeys_samples = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--hotkeys")) {
@@ -6341,10 +6341,10 @@ assign_replicas:
                  * So if (bus_port == 0) or (bus_port == port + CLUSTER_MANAGER_PORT_INCR),
                  * we just call CLUSTER MEET with 2 arguments, using the old form. */
                 reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d",
-                                                first->ip, first->port);
+                                                first_ip, first->port);
             } else {
                 reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d %d",
-                                                first->ip, first->port, first->bus_port);
+                                                first_ip, first->port, first->bus_port);
             }
             int is_err = 0;
             if (reply != NULL) {
@@ -6535,7 +6535,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
                                         first_ip, first->port);
     } else {
         reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d %d",
-                                        first->ip, first->port, first->bus_port);
+                                        first_ip, first->port, first->bus_port);
     }
 
     if (!(success = clusterManagerCheckRedisReply(new_node, reply, NULL)))
