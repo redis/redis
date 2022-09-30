@@ -5301,7 +5301,7 @@ void clusterCommand(client *c) {
 "    Return the node id.",
 "NODES",
 "    Return cluster configuration seen by node. Output format:",
-"    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ...",
+"    <id> <ip:port@bus-port[,hostname]> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ...",
 "REPLICATE <node-id>",
 "    Configure current node as replica to <node-id>.",
 "RESET [HARD|SOFT]",
