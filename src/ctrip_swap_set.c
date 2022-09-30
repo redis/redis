@@ -151,6 +151,7 @@ int setSwapAna(swapData *data, struct keyRequest *req,
 
                 if (!data->value->dirty) {
                     /* directly evict value from db.dict if not dirty. */
+                    swapDataTurnCold(data);
                     swapDataCleanObject(data, datactx);
                     swapDataSwapOut(data,datactx);
                     *intention = SWAP_NOP;
@@ -893,10 +894,12 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         set1_ctx->ctx.num = 0;
         set1_data->object_meta = createSetObjectMeta(0);
         set1_data->new_meta = NULL;
+        int expectColdKey = db->cold_keys + 1;
         setSwapAna(set1_data,kr1,&intention,&intention_flags,set1_ctx);
         test_assert(intention == SWAP_NOP && intention_flags == 0);
         test_assert(0 == setTypeSize(set1));
         test_assert(4 == set1_data->object_meta->len);
+        test_assert(expectColdKey == db->cold_keys);
 
         // recover data in set1
         setTypeAdd(set1, f1);
