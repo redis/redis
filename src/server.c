@@ -2434,7 +2434,6 @@ void initServer(void) {
     server.main_thread_id = pthread_self();
     server.current_client = NULL;
     server.errors = raxNew();
-    server.call_depth = 0;
     server.in_nested_call = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
@@ -3353,7 +3352,7 @@ void call(client *c, int flags) {
 
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call*/
-    if (server.call_depth++ == 0) {
+    if (server.in_nested_call++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
     }
 
@@ -3361,7 +3360,6 @@ void call(client *c, int flags) {
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
 
-    server.in_nested_call++;
     c->cmd->proc(c);
     server.in_nested_call--;
 
@@ -3507,7 +3505,6 @@ void call(client *c, int flags) {
         }
     }
 
-    server.call_depth--;
     server.stat_numcommands++;
 
     /* Record peak memory after each command and before the eviction that runs
