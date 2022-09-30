@@ -752,7 +752,7 @@ start_server {tags {"acl external:skip"}} {
        set err
     } {*Redis instance is not configured to use an ACL file*}
 
-    # If there is an AUTH failure the matric increases
+    # If there is an AUTH failure the metric increases
     test {ACL-Metrics user AUTH failure} {
         set current_auth_failures [s acl_access_denied_auth]
         set current_invalid_cmd_accesses [s acl_access_denied_cmd]
@@ -769,7 +769,7 @@ start_server {tags {"acl external:skip"}} {
         assert {[s acl_access_denied_channel] eq $current_invalid_channel_accesses}
     }
 
-    # If a user try to access an unauthorized  command the metric increases
+    # If a user try to access an unauthorized command the metric increases
     test {ACL-Metrics invalid command accesses} {
         set current_auth_failures [s acl_access_denied_auth]
         set current_invalid_cmd_accesses [s acl_access_denied_cmd]
@@ -785,7 +785,7 @@ start_server {tags {"acl external:skip"}} {
         assert {[s acl_access_denied_channel] eq $current_invalid_channel_accesses}
     }
 
-    # If a user try to access an unauthorized  key the metric increases
+    # If a user try to access an unauthorized key the metric increases
     test {ACL-Metrics invalid key accesses} {
         set current_auth_failures [s acl_access_denied_auth]
         set current_invalid_cmd_accesses [s acl_access_denied_cmd]
@@ -801,7 +801,7 @@ start_server {tags {"acl external:skip"}} {
         assert {[s acl_access_denied_channel] eq $current_invalid_channel_accesses}
     }   
 
-    # If a user try to access an unauthorized  channel the metric increases
+    # If a user try to access an unauthorized channel the metric increases
     test {ACL-Metrics invalid channels accesses} {
         set current_auth_failures [s acl_access_denied_auth]
         set current_invalid_cmd_accesses [s acl_access_denied_cmd]
