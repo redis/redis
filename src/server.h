@@ -1191,10 +1191,10 @@ typedef struct client {
 
 /* ACL information */
 typedef struct aclInfo {
-    long user_auth_failures; /* Auth failure counts on user level */
-    long invalid_cmd_accesses; /* Invalid command accesses that user doesn't have permission to */
-    long invalid_key_accesses; /* Invalid key accesses that user doesn't have permission to */
-    long invalid_channel_accesses; /* Invalid channel accesses that user doesn't have permission to */
+    long long user_auth_failures; /* Auth failure counts on user level */
+    long long invalid_cmd_accesses; /* Invalid command accesses that user doesn't have permission to */
+    long long invalid_key_accesses; /* Invalid key accesses that user doesn't have permission to */
+    long long invalid_channel_accesses; /* Invalid channel accesses that user doesn't have permission to */
 } aclInfo;
 
 struct saveparam {
