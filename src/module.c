@@ -10813,7 +10813,7 @@ void processModuleLoadingProgressEvent(int is_aof) {
 *  will be called to tell the module which key is about to be released. */
 void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
     server.lazy_expire_disabled++;
-    RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, dbid, key};
+    RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, dbid, (RedisModuleString *) key};
     moduleFireServerEvent(REDISMODULE_EVENT_KEY, REDISMODULE_SUBEVENT_KEY_DELETED, &ki);
     server.lazy_expire_disabled--;
 
