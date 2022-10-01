@@ -18,7 +18,6 @@ def redisSha1(opts={})
     r.keys('*').sort.each{|k|
         vtype = r.type?(k)
         if vtype == "string"
-            len = 1
             sha1 = Digest::SHA1.hexdigest(sha1+k)
             sha1 = Digest::SHA1.hexdigest(sha1+r.get(k))
         elsif vtype == "list"
