@@ -146,7 +146,7 @@ class KeySpec(object):
                 return "KSPEC_BS_UNKNOWN,{{0}}"
             else:
                 print("Invalid begin_search! value=%s" % self.spec["begin_search"])
-                exit(1)
+                sys.exit(1)
 
         def _find_keys_code():
             if self.spec["find_keys"].get("range"):
@@ -165,7 +165,7 @@ class KeySpec(object):
                 return "KSPEC_FK_UNKNOWN,{{0}}"
             else:
                 print("Invalid find_keys! value=%s" % self.spec["find_keys"])
-                exit(1)
+                sys.exit(1)
 
         return "%s,%s,%s,%s" % (
             get_optional_desc_string(self.spec, "notes"),
@@ -180,7 +180,7 @@ def verify_no_dup_names(container_fullname, args):
     name_set = set(name_list)
     if len(name_list) != len(name_set):
         print("{}: Dup argument names: {}".format(container_fullname, name_list))
-        exit(1)
+        sys.exit(1)
 
 
 class Argument(object):
@@ -190,7 +190,7 @@ class Argument(object):
         self.name = self.desc["name"].lower()
         if "_" in self.name:
             print("{}: name ({}) should not contain underscores".format(self.fullname(), self.name))
-            exit(1)
+            sys.exit(1)
         self.type = self.desc["type"]
         self.key_spec_index = self.desc.get("key_spec_index", None)
         self.subargs = []
@@ -201,7 +201,7 @@ class Argument(object):
                 self.subargs.append(Argument(self.fullname(), subdesc))
             if len(self.subargs) < 2:
                 print("{}: oneof or block arg contains less than two subargs".format(self.fullname()))
-                exit(1)
+                sys.exit(1)
             verify_no_dup_names(self.fullname(), self.subargs)
         else:
             self.display = self.desc.get("display")
@@ -457,7 +457,7 @@ for filename in glob.glob('%s/commands/*.json' % srcdir):
                 create_command(name, desc)
         except json.decoder.JSONDecodeError as err:
             print("Error processing %s: %s" % (filename, err))
-            exit(1)
+            sys.exit(1)
 
 # Link subcommands to containers
 print("Linking container command to subcommands...")
@@ -479,7 +479,7 @@ for command in commands.values():
 
 if check_command_error_counter != 0:
     print("Error: There are errors in the commands check, please check the above logs.")
-    exit(1)
+    sys.exit(1)
 
 print("Generating commands.c...")
 with open("%s/commands.c" % srcdir, "w") as f:
