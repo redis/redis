@@ -82,7 +82,7 @@ typedef struct ConnectionType {
 
     /* create/close connection */
     connection* (*conn_create)(void);
-    connection* (*conn_create_accepted)(int fd, void *priv);
+    connection* (*conn_create_accepted)(connListener *listener, int fd, void *priv);
     void (*close)(struct connection *conn);
 
     /* connect & accept */
@@ -390,8 +390,8 @@ static inline connection *connCreate(ConnectionType *ct) {
 
 /* Create an accepted connection of specified type.
  * priv is connection type specified argument */
-static inline connection *connCreateAccepted(ConnectionType *ct, int fd, void *priv) {
-    return ct->conn_create_accepted(fd, priv);
+static inline connection *connCreateAccepted(ConnectionType *ct, connListener *listener, int fd, void *priv) {
+    return ct->conn_create_accepted(listener, fd, priv);
 }
 
 /* Configure a connection type. A typical case is to configure TLS.

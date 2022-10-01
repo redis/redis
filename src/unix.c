@@ -76,30 +76,39 @@ static connection *connCreateUnix(void) {
     return conn;
 }
 
-static connection *connCreateAcceptedUnix(int fd, void *priv) {
+static connection *connCreateAcceptedUnix(connListener *listener, int fd, void *priv) {
+    UNUSED(listener);
     UNUSED(priv);
+    int cfd = anetUnixAccept(server.neterr, fd);
+    if (cfd == ANET_ERR) {
+        if (errno != EWOULDBLOCK)
+            serverLog(LL_WARNING,
+                "Accepting client connection: %s", server.neterr);
+        return NULL;
+    }
+
+    serverLog(LL_VERBOSE,"%s: Accepted connection to %s", CONN_TYPE_UNIX, server.unixsocket);
     connection *conn = connCreateUnix();
-    conn->fd = fd;
+    conn->fd = cfd;
     conn->state = CONN_STATE_ACCEPTING;
+
+    if (acceptConnOK(conn, 0) != C_OK)
+        return NULL;
     return conn;
 }
 
 static void connUnixAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cfd, max = MAX_ACCEPTS_PER_CALL;
+    int max = MAX_ACCEPTS_PER_CALL;
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);
 
     while(max--) {
-        cfd = anetUnixAccept(server.neterr, fd);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
+        connection *conn = connCreateAcceptedUnix((connListener *)privdata, fd, NULL);
+        if (!conn)
             return;
-        }
-        serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
-        acceptCommonHandler(connCreateAcceptedUnix(cfd, NULL),CLIENT_UNIX_SOCKET,NULL);
+
+        acceptCommonHandler(conn, CLIENT_UNIX_SOCKET, NULL);
     }
 }
 

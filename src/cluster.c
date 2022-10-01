@@ -883,37 +883,21 @@ static void clusterConnAcceptHandler(connection *conn) {
 
 #define MAX_CLUSTER_ACCEPTS_PER_CALL 1000
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd;
     int max = MAX_CLUSTER_ACCEPTS_PER_CALL;
-    char cip[NET_IP_STR_LEN];
     int require_auth = TLS_CLIENT_AUTH_YES;
     UNUSED(el);
     UNUSED(mask);
-    UNUSED(privdata);
 
     /* If the server is starting up, don't accept cluster connections:
      * UPDATE messages may interact with the database content. */
     if (server.masterhost == NULL && server.loading) return;
 
     while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_VERBOSE,
-                    "Error accepting cluster node: %s", server.neterr);
+        connection *conn = connCreateAccepted(connTypeOfCluster(), (connListener *)privdata, fd, &require_auth);
+
+        if (!conn) {
             return;
         }
-
-        connection *conn = connCreateAccepted(connTypeOfCluster(), cfd, &require_auth);
-
-        if (acceptConnOK(conn, 1) != C_OK) {
-            return;
-        }
-        connEnableTcpNoDelay(conn);
-        connKeepAlive(conn,server.cluster_node_timeout * 2);
-
-        /* Use non-blocking I/O for cluster messages. */
-        serverLog(LL_VERBOSE,"Accepting cluster node connection from %s:%d", cip, cport);
 
         /* Accept the connection now.  connAccept() may call our handler directly
          * or schedule it for later depending on connection implementation.

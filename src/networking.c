@@ -125,9 +125,6 @@ client *createClient(connection *conn) {
      * in the context of a client. When commands are executed in other
      * contexts (for instance a Lua script) we need a non connected client. */
     if (conn) {
-        connEnableTcpNoDelay(conn);
-        if (server.tcpkeepalive)
-            connKeepAlive(conn,server.tcpkeepalive);
         connSetReadHandler(conn, readQueryFromClient);
         connSetPrivateData(conn, c);
     }
@@ -1325,9 +1322,6 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
     char conninfo[100];
     UNUSED(ip);
-
-    if (acceptConnOK(conn, 0) != C_OK)
-        return;
 
     /* Create connection and client */
     if ((c = createClient(conn)) == NULL) {

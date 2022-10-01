@@ -82,8 +82,7 @@ static connection *connCreateSocket(void) {
     return conn;
 }
 
-/* Create a new socket-type connection that is already associated with
- * an accepted connection.
+/* Create a new socket-type connection.
  *
  * The socket is not ready for I/O until connAccept() was called and
  * invoked the connection-level accept handler.
@@ -92,11 +91,32 @@ static connection *connCreateSocket(void) {
  * is not in an error state (which is not possible for a socket connection,
  * but could but possible with other protocols).
  */
-static connection *connCreateAcceptedSocket(int fd, void *priv) {
+static connection *connCreateAcceptedSocket(connListener *listener, int fd, void *priv) {
+    int cport, cfd;
+    char cip[NET_IP_STR_LEN];
+    int is_cluster = listener == &server.clistener;
+    int tcp_keepalive = is_cluster ? server.cluster_node_timeout * 2 : server.tcpkeepalive;
+    const char *node = is_cluster ? "cluster" : "client";
     UNUSED(priv);
+
+    cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+    if (cfd == ANET_ERR) {
+        if (errno != EWOULDBLOCK)
+            serverLog(LL_WARNING, "%s: Accepting %s connection: %s", CONN_TYPE_SOCKET, node, server.neterr);
+        return NULL;
+    }
+
+    serverLog(LL_VERBOSE,"%s: Accepted %s %s:%d", CONN_TYPE_SOCKET, node, cip, cport);
     connection *conn = connCreateSocket();
-    conn->fd = fd;
+    conn->fd = cfd;
     conn->state = CONN_STATE_ACCEPTING;
+
+    if (acceptConnOK(conn, is_cluster) != C_OK)
+        return NULL;
+
+    connEnableTcpNoDelay(conn);
+    if (tcp_keepalive)
+        connKeepAlive(conn, tcp_keepalive);
     return conn;
 }
 
@@ -302,22 +322,17 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
 }
 
 static void connSocketAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
-    char cip[NET_IP_STR_LEN];
+    int max = MAX_ACCEPTS_PER_CALL;
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);
 
     while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
+        connection *conn = connCreateAcceptedSocket((connListener *)privdata, fd, NULL);
+        if (!conn)
             return;
-        }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAcceptedSocket(cfd, NULL),0,cip);
+
+        acceptCommonHandler(conn, 0, NULL);
     }
 }
 

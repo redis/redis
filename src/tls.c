@@ -477,8 +477,7 @@ static void updateTLSError(tls_connection *conn) {
     ERR_error_string_n(ERR_get_error(), conn->ssl_error, 512);
 }
 
-/* Create a new TLS connection that is already associated with
- * an accepted underlying file descriptor.
+/* Create a new TLS connection.
  *
  * The socket is not ready for I/O until connAccept() was called and
  * invoked the connection-level accept handler.
@@ -486,11 +485,32 @@ static void updateTLSError(tls_connection *conn) {
  * Callers should use connGetState() and verify the created connection
  * is not in an error state.
  */
-static connection *connCreateAcceptedTLS(int fd, void *priv) {
+static connection *connCreateAcceptedTLS(connListener *listener, int fd, void *priv) {
+    int cport, cfd;
+    char cip[NET_IP_STR_LEN];
     int require_auth = *(int *)priv;
+    int is_cluster = listener == &server.clistener;
+    int tcp_keepalive = is_cluster ? server.cluster_node_timeout * 2 : server.tcpkeepalive;
+    const char *node = is_cluster ? "cluster" : "client";
+
+    cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+    if (cfd == ANET_ERR) {
+        if (errno != EWOULDBLOCK)
+            serverLog(LL_WARNING,
+                "%s: Accepting client connection: %s", CONN_TYPE_TLS, server.neterr);
+        return NULL;
+    }
+    serverLog(LL_VERBOSE,"%s: Accepted %s connection %s:%d", CONN_TYPE_TLS, node, cip, cport);
+
     tls_connection *conn = (tls_connection *) createTLSConnection(0);
-    conn->c.fd = fd;
+    conn->c.fd = cfd;
     conn->c.state = CONN_STATE_ACCEPTING;
+    if (acceptConnOK((connection *)conn, is_cluster) != C_OK)
+        return NULL;
+
+    connEnableTcpNoDelay((connection *)conn);
+    if (tcp_keepalive)
+        connKeepAlive((connection *)conn, tcp_keepalive);
 
     if (!conn->ssl) {
         updateTLSError(conn);
@@ -721,22 +741,16 @@ static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, in
 }
 
 static void tlsAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
-    char cip[NET_IP_STR_LEN];
+    int max = MAX_ACCEPTS_PER_CALL;
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);
 
     while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
+        connection *conn = connCreateAcceptedTLS((connListener *)privdata, fd, &server.tls_auth_clients);
+        if (!conn)
             return;
-        }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAcceptedTLS(cfd, &server.tls_auth_clients),0,cip);
+        acceptCommonHandler(conn, 0, NULL);
     }
 }
 
