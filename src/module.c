@@ -10757,6 +10757,9 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_KEY) {
                 moduledata = data;
+                RedisModuleKeyInfoV1 *ki = data;
+                if (ki->dbnum != -1)
+                    selectDb(ctx.client, ki->dbnum);
             }
 
             el->module->in_hook++;
@@ -10810,7 +10813,7 @@ void processModuleLoadingProgressEvent(int is_aof) {
 *  will be called to tell the module which key is about to be released. */
 void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
     server.lazy_expire_disabled++;
-    RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, dbid, key->ptr};
+    RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, dbid, key};
     moduleFireServerEvent(REDISMODULE_EVENT_KEY, REDISMODULE_SUBEVENT_KEY_DELETED, &ki);
     server.lazy_expire_disabled--;
 

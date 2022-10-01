@@ -38,6 +38,8 @@
  * store them in the key-space since that would mess up rdb loading (duplicates)
  * and be lost of flushdb. */
 RedisModuleDict *event_log = NULL;
+/** stores all the keys on which we got 'removed' event **/
+RedisModuleDict *removed_event_log = NULL;
 
 typedef struct EventElement {
     long count;
@@ -287,9 +289,51 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
     }
 
     RedisModuleKeyInfoV1 *ei = data;
-    RedisModuleString *keyname = RedisModule_CreateStringPrintf(ctx, "key-info-%s", ei->key);
-    LogStringEvent(ctx, RedisModule_StringPtrLen(keyname, NULL), ei->key);
-    RedisModule_FreeString(ctx, keyname);
+    RedisModuleString *key = ei->key;
+    const char* keyname = RedisModule_StringPtrLen(key, NULL);
+    RedisModuleString *event_keyname = RedisModule_CreateStringPrintf(ctx, "key-info-%s", keyname);
+    LogStringEvent(ctx, RedisModule_StringPtrLen(event_keyname, NULL), keyname);
+    RedisModule_FreeString(ctx, event_keyname);
+
+    /* Open Key to check key exists */
+    RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    if(kp != NULL) {
+        int nokey;
+        RedisModule_DictGetC(removed_event_log, (void*)keyname, strlen(keyname), &nokey);
+        if(nokey){
+            RedisModuleString *v = RedisModule_HoldString(ctx, key);
+            /* For string type, we keep value instead of key */
+            if (RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_STRING) {
+                RedisModule_FreeString(ctx, v);
+                size_t len;
+                char *s = RedisModule_StringDMA(kp, &len, REDISMODULE_READ);
+                v = RedisModule_CreateString(ctx, s, len);
+            }
+            RedisModule_DictSetC(removed_event_log, (void*)keyname, strlen(keyname), v);
+        }
+        RedisModule_CloseKey(kp);
+    }
+}
+
+
+static int cmdIsKeyRemoved(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc != 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char* key  = RedisModule_StringPtrLen(argv[1], NULL);
+
+    int nokey;
+    RedisModuleString* keyStr = RedisModule_DictGetC(removed_event_log, (void*)key, strlen(key), &nokey);
+
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithLongLong(ctx, !nokey);
+    if(nokey){
+        RedisModule_ReplyWithNull(ctx);
+    }else{
+        RedisModule_ReplyWithString(ctx, keyStr);
+    }
+    return REDISMODULE_OK;
 }
 
 /* This function must be present on each Redis module. It is used in order to
@@ -349,6 +393,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         RedisModuleEvent_Key, keyInfoCallback);
 
     event_log = RedisModule_CreateDict(ctx);
+    removed_event_log = RedisModule_CreateDict(ctx);
 
     if (RedisModule_CreateCommand(ctx,"hooks.event_count", cmdEventCount,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -356,6 +401,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"hooks.clear", cmdEventsClear,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"hooks.is_key_removed", cmdIsKeyRemoved,"",0,0,0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
 
     return REDISMODULE_OK;
 }
@@ -364,6 +412,18 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     clearEvents(ctx);
     RedisModule_FreeDict(ctx, event_log);
     event_log = NULL;
+
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(removed_event_log, "^", NULL, 0);
+    char* key;
+    size_t keyLen;
+    RedisModuleString* val;
+    while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
+        RedisModule_FreeString(ctx, val);
+    }
+    RedisModule_FreeDict(ctx, removed_event_log);
+    RedisModule_DictIteratorStop(iter);
+    removed_event_log = NULL;
+
     return REDISMODULE_OK;
 }
 
