@@ -117,7 +117,6 @@ EOF
     # more the access pattern.
 
     errors = 0
-    e = 1
     error_per_key = 100000.0/first_set_max_id
     half_set_size = first_set_max_id/2
     maxerr = 0
