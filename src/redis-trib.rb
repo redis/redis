@@ -43,7 +43,6 @@ ALLOWED_OPTIONS={
 
 def parse_options(cmd)
     cmd = cmd.downcase
-    idx = 0
     options = {}
     args = []
     while (arg = ARGV.shift)
