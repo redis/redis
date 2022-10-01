@@ -2,6 +2,7 @@
 import glob
 import json
 import os
+import sys
 
 ARG_TYPES = {
     "string": "ARG_TYPE_STRING",
