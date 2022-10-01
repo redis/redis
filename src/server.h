@@ -3076,6 +3076,7 @@ int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void propagateDeletion(redisDb *db, robj *key, int lazy);
+int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(client *c, redisDb *db, robj *key, long long when);

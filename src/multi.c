@@ -272,7 +272,6 @@ typedef struct watchedKey {
     robj *key;
     redisDb *db;
     client *client;
-    unsigned expired:1; /* Flag that we're watching an already expired key. */
 } watchedKey;
 
 /* Watch for the specified key */
@@ -296,12 +295,12 @@ void watchForKey(client *c, robj *key) {
         dictAdd(c->db->watched_keys,key,clients);
         incrRefCount(key);
     }
+    expireIfNeeded(c->db, key, 0);
     /* Add the new key to the list of keys watched by this client */
     wk = zmalloc(sizeof(*wk));
     wk->key = key;
     wk->client = c;
     wk->db = c->db;
-    wk->expired = keyIsExpired(c->db, key);
     incrRefCount(key);
     listAddNodeTail(c->watched_keys,wk);
     listAddNodeTail(clients,wk);
@@ -345,7 +344,6 @@ int isWatchedKeyExpired(client *c) {
     listRewind(c->watched_keys,&li);
     while ((ln = listNext(&li))) {
         wk = listNodeValue(ln);
-        if (wk->expired) continue; /* was expired when WATCH was called */
         if (keyIsExpired(wk->db, wk->key)) return 1;
     }
 
@@ -370,28 +368,11 @@ void touchWatchedKey(redisDb *db, robj *key) {
         watchedKey *wk = listNodeValue(ln);
         client *c = wk->client;
 
-        if (wk->expired) {
-            /* The key was already expired when WATCH was called. */
-            if (db == wk->db &&
-                equalStringObjects(key, wk->key) &&
-                dictFind(db->dict, key->ptr) == NULL)
-            {
-                /* Already expired key is deleted, so logically no change. Clear
-                 * the flag. Deleted keys are not flagged as expired. */
-                wk->expired = 0;
-                goto skip_client;
-            }
-            break;
-        }
-
         c->flags |= CLIENT_DIRTY_CAS;
         /* As the client is marked as dirty, there is no point in getting here
          * again in case that key (or others) are modified again (or keep the
          * memory overhead till EXEC). */
         unwatchAllKeys(c);
-
-    skip_client:
-        continue;
     }
 }
 
@@ -412,6 +393,9 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
     dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
+        expireIfNeeded(emptied, key, 0);
+        if (replaced_with)
+            expireIfNeeded(replaced_with, key, 0);
         int exists_in_emptied = dictFind(emptied->dict, key->ptr) != NULL;
         if (exists_in_emptied ||
             (replaced_with && dictFind(replaced_with->dict, key->ptr)))
@@ -421,21 +405,6 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             listRewind(clients,&li);
             while((ln = listNext(&li))) {
                 watchedKey *wk = listNodeValue(ln);
-                if (wk->expired) {
-                    if (!replaced_with || !dictFind(replaced_with->dict, key->ptr)) {
-                        /* Expired key now deleted. No logical change. Clear the
-                         * flag. Deleted keys are not flagged as expired. */
-                        wk->expired = 0;
-                        continue;
-                    } else if (keyIsExpired(replaced_with, key)) {
-                        /* Expired key remains expired. */
-                        continue;
-                    }
-                } else if (!exists_in_emptied && keyIsExpired(replaced_with, key)) {
-                    /* Non-existing key is replaced with an expired key. */
-                    wk->expired = 1;
-                    continue;
-                }
                 client *c = wk->client;
                 c->flags |= CLIENT_DIRTY_CAS;
                 /* As the client is marked as dirty, there is no point in getting here
