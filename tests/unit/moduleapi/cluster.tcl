@@ -163,3 +163,17 @@ start_cluster 3 0 [list config_lines $modules] {
     $node2_rd close
 }
 }
+
+set testmodule [file normalize tests/modules/basics.so]
+set modules [list loadmodule $testmodule]
+start_cluster 3 0 [list config_lines $modules] {
+    set node1 [srv 0 client]
+    set node2 [srv -1 client]
+    set node3 [srv -2 client]
+
+    test "Verify RM_Call inside module load function on cluster mode" {
+        assert_equal {PONG} [$node1 PING]
+        assert_equal {PONG} [$node2 PING]
+        assert_equal {PONG} [$node3 PING]
+    }
+}
