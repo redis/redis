@@ -65,20 +65,6 @@
 #include "latency.h"
 #include "monotonic.h"
 
-/* This structure represents the blocked key information that we store
- * in the client structure. Each client blocked on keys, has a
- * client->bstate.keys hash table. The keys of the hash table are Redis
- * keys pointers to 'robj' structures. The value is this structure.
- * The structure has two goals: firstly we store the list node that this
- * client uses to be listed in the database "blocked clients for this key"
- * list, so we can later unblock in O(1) without a list scan.
- * Secondly for certain blocking types, we have additional info. Right now
- * the only use for additional info we have is when clients are blocked
- * on streams, as we have to remember the ID it blocked for. */
-typedef struct bkinfo {
-    listNode *listnode;     /* List node for db->blocking_keys[key] list. */
-} bkinfo;
-
 /* The following structure represents a node in the server.ready_keys list,
  * where we accumulate all the keys that had clients blocked with a blocking
  * operation such as B[LR]POP, but received new data in the context of the
@@ -95,7 +81,7 @@ typedef struct readyList {
     robj *key;
 } readyList;
 
-static int getBlockedTypeByType(int type) {
+static blocking_type getBlockedTypeByType(int type) {
     switch (type) {
         case OBJ_LIST: return BLOCKED_LIST;
         case OBJ_ZSET: return BLOCKED_ZSET;
@@ -214,7 +200,7 @@ static void unblockClientWaitingData(client *c) {
     dictEntry *de;
     dictIterator *di;
     list *l;
-    bkinfo *bki;
+    listNode *pos;
 
     if (dictSize(c->bstate.keys) == 0)
         return;
@@ -223,11 +209,11 @@ static void unblockClientWaitingData(client *c) {
     /* The client may wait for multiple keys, so unblock it for every key. */
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        bki = dictFetchValue(c->bstate.keys, key);
+        pos = dictFetchValue(c->bstate.keys, key);
         /* Remove this client from the list of clients waiting for this key. */
         l = dictFetchValue(c->db->blocking_keys,key);
         serverAssertWithInfo(c,key,l != NULL);
-        listDelNode(l,bki->listnode);
+        listUnlinkNode(l,pos);
         /* If the list is empty we need to remove it to avoid wasting memory */
         if (listLength(l) == 0)
             dictDelete(c->db->blocking_keys,key);
@@ -280,13 +266,13 @@ void unblockClient(client *c) {
  * in case the client has a command pending it will process it immediately.  */
 void unblockClientOnKey(client *c, robj *key) {
     list *l;
-    bkinfo *bki;
+    listNode *pos;
 
-    bki = dictFetchValue(c->bstate.keys, key);
+    pos = dictFetchValue(c->bstate.keys, key);
     /* Remove this client from the list of clients waiting for this key. */
     l = dictFetchValue(c->db->blocking_keys,key);
     serverAssertWithInfo(c,key,l != NULL);
-    listDelNode(l,bki->listnode);
+    listUnlinkNode(l,pos);
     /* If the list is empty we need to remove it to avoid wasting memory */
     if (listLength(l) == 0)
         dictDelete(c->db->blocking_keys,key);
@@ -545,13 +531,8 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
 
     c->bstate.timeout = timeout;
     for (j = 0; j < numkeys; j++) {
-        /* Allocate our bkinfo structure, associated to each key the client
-         * is blocked for. */
-        bkinfo *bki = zmalloc(sizeof(*bki));
-
         /* If the key already exists in the dictionary ignore it. */
-        if (dictAdd(c->bstate.keys,keys[j],bki) != DICT_OK) {
-            zfree(bki);
+        if (dictFetchValue(c->bstate.keys,keys[j])) {
             continue;
         }
         incrRefCount(keys[j]);
@@ -570,7 +551,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
             l = dictGetVal(de);
         }
         listAddNodeTail(l,c);
-        bki->listnode = listLast(l);
+        dictAdd(c->bstate.keys,keys[j],listLast(l));
     }
     c->flags |= CLIENT_PENDING_COMMAND;
     blockClient(c,btype);
