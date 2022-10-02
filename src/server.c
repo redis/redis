@@ -815,19 +815,20 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
     return &server.client_mem_usage_buckets[bucket_idx];
 }
 
-void removeOldClientMemUsageData(client *c, int *allow_eviction) {
-    int type = getClientType(c);
-    /* server.maxmemory_clients set to zero represents no eviction. */
-    *allow_eviction = server.maxmemory_clients != 0;
-    if (*allow_eviction) {
-        *allow_eviction = (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
-            !(c->flags & CLIENT_NO_EVICT);
-    }
 
+/* This function is used to cleanup the client's previously tracked memory usage.
+ * This is called during incremental client memory usage tracking as well as
+ * used to reset when client to bucket allocation is not required when 
+ * client eviction is disabled.  */
+void removeClientFromMemUsageBucket(client *c, int *allow_eviction) {
+    *allow_eviction = (server.maxmemory_clients != 0);
+    if (*allow_eviction) {
+        int type = getClientType(c);
+        *allow_eviction = (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
+                        (!(c->flags & CLIENT_NO_EVICT));
+    }
     if (c->mem_usage_bucket) {
         c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
-        /* If this client can't be evicted then remove it from the mem usage
-            * buckets */
         if (!*allow_eviction) {
             listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
             c->mem_usage_bucket = NULL;
@@ -864,7 +865,7 @@ int updateClientMemUsage(client *c) {
 
     int allow_eviction;
     /* Update the client in the mem usage buckets */
-    removeOldClientMemUsageData(c, &allow_eviction);
+    removeClientFromMemUsageBucket(c, &allow_eviction);
     if (allow_eviction) {
         clientMemUsageBucket *bucket = getMemUsageBucket(mem);
         bucket->mem_usage_sum += mem;

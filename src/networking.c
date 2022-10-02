@@ -2984,6 +2984,8 @@ NULL
         /* CLIENT NO-EVICT ON|OFF */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
             c->flags |= CLIENT_NO_EVICT;
+            int allow_eviction = 0;
+            removeClientFromMemUsageBucket(c, &allow_eviction);
             addReply(c,shared.ok);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             c->flags &= ~CLIENT_NO_EVICT;

@@ -2972,15 +2972,17 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(standardConfig *con
 
 static int applyClientMemoryUsage(const char **err) {
     UNUSED(err);
-    /* Update each client(s) memory usage and add to appropriate bucket. */
     listIter li;
     listNode *ln;
     listRewind(server.clients, &li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
         if (server.maxmemory_clients == 0) {
-            removeOldClientMemUsageData(c, 0);
+            /* Remove client from memory usage bucket. */
+            int allow_eviction = 0;
+            removeClientFromMemUsageBucket(c, &allow_eviction);
         } else {
+            /* Update each client(s) memory usage and add to appropriate bucket. */
             updateClientMemUsage(c);
         }
     }

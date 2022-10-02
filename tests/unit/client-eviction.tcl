@@ -531,5 +531,87 @@ start_server {} {
     } {} {needs:debug}
 }
 
+start_server {} {
+    test "client total memory grows during client no-evict on" {
+        r client no-evict on
+
+        r setrange k [mb 1] v
+        set rr [redis_deferring_client]
+        set cname "test_client"
+        $rr client setname $cname
+        $rr client no-evict on
+        $rr flush
+
+        assert {[$rr read] == "OK"}
+
+        set maxmemory_clients 1
+        r config set maxmemory-clients $maxmemory_clients
+
+        # Fill output buffer in loop without reading it and make sure 
+        # the tot-mem of client has increased and eviction not occuring.
+        set old_client_mem [client_field test_client tot-mem]
+        set retry 10
+        while {$retry} {
+            $rr get k
+            incr retry -1
+        }
+        set mem [client_field test_client tot-mem]
+        assert {$mem > $old_client_mem}
+
+        # Trigger the client eviction, by flipping the no-evict flag to off
+        $rr client no-evict off
+        while true {
+            if { [catch {
+                $rr get k
+                $rr flush
+               } e]} {
+                assert {![client_exists test_client]}
+                break
+            }
+        }
+        $rr close
+    }
+
+        test "client total memory grows during config maxmemory-clients" {
+        set maxmemory_clients 0
+        r client no-evict on
+        r config set maxmemory-clients $maxmemory_clients
+        r flushdb
+
+        r setrange k [mb 1] v
+        set rr [redis_deferring_client]
+        set cname "test_client"
+        $rr client setname $cname
+        $rr flush
+        assert {[$rr read] == "OK"}
+
+        # Fill output buffer in loop without reading it and make sure 
+        # the tot-mem of client has increased and eviction not occuring.
+        set old_client_mem [client_field test_client tot-mem]
+        set retry 10
+        while {$retry} {
+            $rr get k
+            incr retry -1
+        }
+        set mem [client_field test_client tot-mem]
+        assert {$mem > $old_client_mem}
+
+        # Trigger the client eviction
+        set maxmemory_clients 1
+        r config set maxmemory-clients $maxmemory_clients
+        
+        while true {
+            if { [catch {
+                $rr get k
+                $rr flush
+               } e]} {
+                assert {![client_exists test_client]}
+                break
+            }
+        }
+        $rr close
+
+    }
+}
 }
 
