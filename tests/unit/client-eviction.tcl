@@ -548,7 +548,7 @@ start_server {} {
         r config set maxmemory-clients $maxmemory_clients
 
         # Fill output buffer in loop without reading it and make sure 
-        # the tot-mem of client has increased and eviction not occuring.
+        # the tot-mem of client has increased and eviction not occurring.
         set old_client_mem [client_field test_client tot-mem]
         set retry 10
         while {$retry} {
@@ -586,7 +586,7 @@ start_server {} {
         assert {[$rr read] == "OK"}
 
         # Fill output buffer in loop without reading it and make sure 
-        # the tot-mem of client has increased and eviction not occuring.
+        # the tot-mem of client has increased and eviction not occurring.
         set old_client_mem [client_field test_client tot-mem]
         set retry 10
         while {$retry} {
