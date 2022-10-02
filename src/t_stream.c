@@ -747,7 +747,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             streamDecodeID(ri.key, &master_id);
 
             /* Read last ID. */
-            streamID last_id;
+            streamID last_id = {0,0};
             lpGetEdgeStreamID(lp, 0, &master_id, &last_id);
 
             /* We can remove the entire node id its last ID < 'id' */
