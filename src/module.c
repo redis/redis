@@ -7720,6 +7720,7 @@ void moduleGILAfterLock() {
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
     server.module_ctx_nesting++;
+    updateCachedTime(0);
 }
 
 /* Acquire the server lock before executing a thread safe API call.
