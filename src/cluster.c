@@ -848,7 +848,7 @@ void setClusterNodeToInboundClusterLink(clusterNode *node, clusterLink *link) {
          * one inbound link from the same node at the same time. Our cleanup logic assumes
          * a one to one relationship between nodes and inbound links, so we need to kill
          * one of the links. The existing link is more likely the outdated one, but it's
-         * possible the the other node may need to open another link. */
+         * possible the other node may need to open another link. */
         serverLog(LL_DEBUG, "Replacing inbound link fd %d from node %.40s with fd %d",
                 node->inbound_link->conn->fd, node->name, link->conn->fd);
         freeClusterLink(node->inbound_link);
@@ -5216,7 +5216,7 @@ void clusterReplyShards(client *c) {
             continue;
         }
         shard_count++;
-        /* n->slot_info_pairs is set to NULL when the the node owns no slots. */
+        /* n->slot_info_pairs is set to NULL when the node owns no slots. */
         addShardReplyForClusterShards(c, n, n->slot_info_pairs, n->slot_info_pairs_count);
         clusterFreeNodesSlotsInfo(n);
     }
@@ -6652,7 +6652,7 @@ void readwriteCommand(client *c) {
 /* Return the pointer to the cluster node that is able to serve the command.
  * For the function to succeed the command should only target either:
  *
- * 1) A single key (even multiple times like LPOPRPUSH mylist mylist).
+ * 1) A single key (even multiple times like RPOPLPUSH mylist mylist).
  * 2) Multiple keys in the same hash slot, while the slot is stable (no
  *    resharding in progress).
  *
