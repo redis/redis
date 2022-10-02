@@ -139,6 +139,9 @@ ifeq ($(uname_S),SunOS)
 	INSTALL=cp -pf
 	FINAL_CFLAGS+= -D__EXTENSIONS__ -D_XPG6
 	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread -lrt
+	ifeq ($(USE_BACKTRACE),yes)
+	    FINAL_CFLAGS+= -DUSE_BACKTRACE
+	endif
 else
 ifeq ($(uname_S),Darwin)
 	# Darwin
