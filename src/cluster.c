@@ -698,7 +698,10 @@ void clusterInit(void) {
         serverLog(LL_WARNING, "Missing connection type %s, but it is required for the Cluster bus.", connTypeOfCluster()->get_type(NULL));
         exit(1);
     }
+}
 
+void clusterInitLast(void) {
+    int port = server.tls_cluster ? server.tls_port : server.port;
     connListener *listener = &server.clistener;
     listener->count = 0;
     listener->bindaddr = server.bindaddr;
