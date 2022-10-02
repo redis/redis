@@ -815,6 +815,27 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
     return &server.client_mem_usage_buckets[bucket_idx];
 }
 
+void removeOldClientMemUsageData(client *c, int *allow_eviction) {
+    int type = getClientType(c);
+    /* server.maxmemory_clients set to zero represents no eviction. */
+    *allow_eviction = server.maxmemory_clients != 0;
+    if (*allow_eviction) {
+        *allow_eviction = (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
+            !(c->flags & CLIENT_NO_EVICT);
+    }
+
+    if (c->mem_usage_bucket) {
+        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
+        /* If this client can't be evicted then remove it from the mem usage
+            * buckets */
+        if (!*allow_eviction) {
+            listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
+            c->mem_usage_bucket = NULL;
+            c->mem_usage_bucket_node = NULL;
+        }
+    }
+}
+
 /* This is called both on explicit clients when something changed their buffers,
  * so we can track clients' memory and enforce clients' maxmemory in real time,
  * and also from the clientsCron. We call it from the cron so we have updated
@@ -827,9 +848,6 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  * free them in case we reach maxmemory-clients (client eviction).
  */
 int updateClientMemUsage(client *c) {
-    if (server.maxmemory_clients == 0) {
-        return 0;
-    }
     serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
     size_t mem = getClientMemoryUsage(c, NULL);
     int type = getClientType(c);
@@ -844,21 +862,9 @@ int updateClientMemUsage(client *c) {
         server.stat_clients_type_memory[type] += mem - c->last_memory_usage;
     }
 
-    int allow_eviction =
-            (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
-            !(c->flags & CLIENT_NO_EVICT);
-
+    int allow_eviction;
     /* Update the client in the mem usage buckets */
-    if (c->mem_usage_bucket) {
-        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
-        /* If this client can't be evicted then remove it from the mem usage
-         * buckets */
-        if (!allow_eviction) {
-            listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
-            c->mem_usage_bucket = NULL;
-            c->mem_usage_bucket_node = NULL;
-        }
-    }
+    removeOldClientMemUsageData(c, &allow_eviction);
     if (allow_eviction) {
         clientMemUsageBucket *bucket = getMemUsageBucket(mem);
         bucket->mem_usage_sum += mem;

@@ -2526,6 +2526,7 @@ int clientHasPendingReplies(client *c);
 int islocalClient(client *c);
 int updateClientMemUsage(client *c);
 void updateClientMemUsageBucket(client *c);
+void removeOldClientMemUsageData(client *c, int *allow_eviction);
 void unlinkClient(client *c);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
