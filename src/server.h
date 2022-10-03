@@ -2796,7 +2796,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser();
 void ACLFreeUserAndKillClients(user *u);
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object);
-sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val, bool verbose);
+sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val, int verbose);
 void ACLUpdateDefaultUserPassword(sds password);
 
 /* Sorted sets data type */
