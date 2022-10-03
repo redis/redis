@@ -20,7 +20,6 @@ ifeq ($(OPTIMIZATION),-O3)
 	REDIS_CFLAGS+=-flto
 	REDIS_LDFLAGS+=-flto
 endif
-
 DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram
 NODEPS:=clean distclean
 
@@ -97,10 +96,6 @@ ifeq ($(USE_JEMALLOC),no)
 endif
 
 ifdef SANITIZER
-# Remove -flto from Clang sanitizer build as it fails to compile with -flto.
-ifneq (,$(findstring clang,$(CC)))
-	OPT := $(patsubst %-flto,%,$(OPT))
-endif
 ifeq ($(SANITIZER),address)
 	MALLOC=libc
 	CFLAGS+=-fsanitize=address -fno-sanitize-recover=all -fno-omit-frame-pointer
