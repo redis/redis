@@ -42,8 +42,9 @@ proc get_slot_field {slot_output shard_id node_id attrib_id} {
     return [lindex [lindex [lindex $slot_output $shard_id] $node_id] $attrib_id]
 }
 
-# Start a cluster with 3 masters and 4 replicas. 
-start_cluster 3 4 {tags {external:skip cluster}} {
+# Start a cluster with 3 masters and 4 replicas.
+# These tests rely on specific node ordering, so make sure no node fails over.
+start_cluster 3 4 {tags {external:skip cluster} overrides {cluster-replica-no-failover yes}} {
 test "Set cluster hostnames and verify they are propagated" {
     for {set j 0} {$j < [llength $::servers]} {incr j} {
         R $j config set cluster-announce-hostname "host-$j.com"
@@ -202,7 +203,9 @@ test "Verify the nodes configured with prefer hostname only show hostname for ne
     R 0 DEBUG DROP-CLUSTER-PACKET-FILTER -1
     R 6 DEBUG DROP-CLUSTER-PACKET-FILTER -1
 
-    wait_for_condition 50 100 {
+    # This operation sometimes spikes to around 5 seconds to resolve the state,
+    # so it has a higher timeout. 
+    wait_for_condition 50 500 {
         [llength [R 6 CLUSTER SLOTS]] eq 3
     } else {
         fail "Node did not learn about the 2 shards it can talk to"
@@ -219,10 +222,6 @@ test "Test restart will keep hostname information" {
     
     # Store the hostname in the config
     R 0 config rewrite
-
-    # If the primary is slow to reboot it might get demoted, so prevent the replica
-    # from nominating itself.
-    R 3 config set cluster-replica-no-failover yes
 
     restart_server 0 true false
     set slot_result [R 0 CLUSTER SLOTS]
