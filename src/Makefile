@@ -92,6 +92,10 @@ ifeq ($(USE_JEMALLOC),no)
 endif
 
 ifdef SANITIZER
+# Remove -flto from Clang sanitizer build as it fails to compile with -flto.
+ifneq (,$(findstring clang,$(CC)))
+	OPT := $(patsubst %-flto,%,$(OPT))
+endif
 ifeq ($(SANITIZER),address)
 	MALLOC=libc
 	CFLAGS+=-fsanitize=address -fno-sanitize-recover=all -fno-omit-frame-pointer
