@@ -12,9 +12,6 @@
             "STALE",
             "NOSCRIPT"
         ],
-        "command_tips": [
-            "NONDETERMINISTIC_OUTPUT"
-        ],
         "arguments": [
             {
                 "name": "reset-type",
