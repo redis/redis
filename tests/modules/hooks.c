@@ -38,8 +38,10 @@
  * store them in the key-space since that would mess up rdb loading (duplicates)
  * and be lost of flushdb. */
 RedisModuleDict *event_log = NULL;
-/** stores all the keys on which we got 'removed' event **/
+/* stores all the keys on which we got 'removed' event */
 RedisModuleDict *removed_event_log = NULL;
+/* stores all the keys on which we got 'removed' event with expiry information */
+RedisModuleDict *removed_expiry_log = NULL;
 
 typedef struct EventElement {
     long count;
@@ -295,26 +297,30 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
     LogStringEvent(ctx, RedisModule_StringPtrLen(event_keyname, NULL), keyname);
     RedisModule_FreeString(ctx, event_keyname);
 
-    /* Open Key to check key exists */
     RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-    if(kp != NULL) {
-        int nokey;
-        RedisModule_DictGetC(removed_event_log, (void*)keyname, strlen(keyname), &nokey);
-        if(nokey){
-            RedisModuleString *v = RedisModule_HoldString(ctx, key);
-            /* For string type, we keep value instead of key */
-            if (RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_STRING) {
-                RedisModule_FreeString(ctx, v);
-                size_t len;
-                char *s = RedisModule_StringDMA(kp, &len, REDISMODULE_READ);
-                v = RedisModule_CreateString(ctx, s, len);
-            }
-            RedisModule_DictSetC(removed_event_log, (void*)keyname, strlen(keyname), v);
-        }
-        RedisModule_CloseKey(kp);
+    RedisModuleString *prev = RedisModule_DictGetC(removed_event_log, (void*)keyname, strlen(keyname), NULL);
+    /* We keep object length */
+    RedisModuleString *v = RedisModule_CreateStringPrintf(ctx, "%zd", RedisModule_ValueLength(kp));
+    /* For string type, we keep value instead of length */
+    if (RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_STRING) {
+        RedisModule_FreeString(ctx, v);
+        size_t len;
+        /* We need to access the string value with RedisModule_StringDMA.
+         * RedisModule_StringDMA may call dbUnshareStringValue to free the origin object,
+         * so we also can test it. */
+        char *s = RedisModule_StringDMA(kp, &len, REDISMODULE_READ);
+        v = RedisModule_CreateString(ctx, s, len);
     }
-}
+    RedisModule_DictReplaceC(removed_event_log, (void*)keyname, strlen(keyname), v);
+    if (prev != NULL) {
+        RedisModule_FreeString(ctx, prev);
+    }
 
+    mstime_t expire = RedisModule_GetAbsExpire(kp);
+    RedisModule_DictReplaceC(removed_expiry_log, (void*)keyname, strlen(keyname), (void *)expire);
+
+    RedisModule_CloseKey(kp);
+}
 
 static int cmdIsKeyRemoved(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     if(argc != 2){
@@ -333,6 +339,17 @@ static int cmdIsKeyRemoved(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     }else{
         RedisModule_ReplyWithString(ctx, keyStr);
     }
+    return REDISMODULE_OK;
+}
+
+static int cmdKeyExpiry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc != 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char* key  = RedisModule_StringPtrLen(argv[1], NULL);
+    long long expire = (long long)RedisModule_DictGetC(removed_expiry_log, (void*)key, strlen(key), NULL);
+    RedisModule_ReplyWithLongLong(ctx, expire);
     return REDISMODULE_OK;
 }
 
@@ -394,6 +411,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     event_log = RedisModule_CreateDict(ctx);
     removed_event_log = RedisModule_CreateDict(ctx);
+    removed_expiry_log = RedisModule_CreateDict(ctx);
 
     if (RedisModule_CreateCommand(ctx,"hooks.event_count", cmdEventCount,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -401,9 +419,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"hooks.clear", cmdEventsClear,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_CreateCommand(ctx,"hooks.is_key_removed", cmdIsKeyRemoved,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx,"hooks.is_key_removed", cmdIsKeyRemoved,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    }
+    if (RedisModule_CreateCommand(ctx,"hooks.pexpireat", cmdKeyExpiry,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
 }
@@ -423,6 +442,9 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeDict(ctx, removed_event_log);
     RedisModule_DictIteratorStop(iter);
     removed_event_log = NULL;
+
+    RedisModule_FreeDict(ctx, removed_expiry_log);
+    removed_expiry_log = NULL;
 
     return REDISMODULE_OK;
 }

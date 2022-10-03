@@ -92,29 +92,34 @@ tags "modules" {
             r del a
             # For String Type value is returned
             assert_equal {1 abcd} [r hooks.is_key_removed a]
+            assert_equal -1 [r hooks.pexpireat a]
 
             r hset b f v
             r hdel b f
-            assert_equal {1 b} [r hooks.is_key_removed b]
+            assert_equal {1 0} [r hooks.is_key_removed b]
 
             r lpush c 1
             r lpop c
-            assert_equal {1 c} [r hooks.is_key_removed c]
+            assert_equal {1 0} [r hooks.is_key_removed c]
+
+            r lpush c 1 2 3
+            r del c
+            assert_equal {1 3} [r hooks.is_key_removed c]
 
             r sadd d 1
             r spop d
-            assert_equal {1 d} [r hooks.is_key_removed d]
+            assert_equal {1 0} [r hooks.is_key_removed d]
 
             r zadd e 1 f
             r zpopmin e
-            assert_equal {1 e} [r hooks.is_key_removed e]
+            assert_equal {1 0} [r hooks.is_key_removed e]
 
             r xadd f 1-1 f v
             r xdel f 1-1
             # Stream does not delete object when del entry
             assert_equal {0 {}} [r hooks.is_key_removed f]
             r del f
-            assert_equal {1 f} [r hooks.is_key_removed f]
+            assert_equal {1 0} [r hooks.is_key_removed f]
 
             # delete key because of active expire
             set size [r dbsize]
@@ -126,6 +131,10 @@ tags "modules" {
                 fail "Active expire not trigger"
             }
             assert_equal {1 abcd} [r hooks.is_key_removed g]
+            # current time is greater than pexpireat
+            set now [r time]
+            set mill [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)]
+            assert {$mill >= [r hooks.pexpireat g]}
 
             # delete key because of lazy expire
             r debug set-active-expire 0
@@ -133,13 +142,41 @@ tags "modules" {
             after 10
             r get h
             assert_equal {1 abcd} [r hooks.is_key_removed h]
+            set now [r time]
+            set mill [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)]
+            assert {$mill >= [r hooks.pexpireat h]}
             r debug set-active-expire 1
 
             # delete key not yet expired
-            r set i abcd ex 100
+            set now [r time]
+            set expireat [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)+1000000]
+            r set i abcd pxat $expireat
             r del i
             assert_equal {1 abcd} [r hooks.is_key_removed i]
-        } {} {needs:debug}
+            assert_equal $expireat [r hooks.pexpireat i]
+
+            # test int encoded string
+            r set j 12345678
+            r del j
+            assert_equal {1 12345678} [r hooks.is_key_removed j]
+
+            # Test key evict
+            set used [expr {[s used_memory] - [s mem_not_counted_for_evict]}]
+            set limit [expr {$used+100*1024}]
+            set old_policy [lindex [r config get maxmemory-policy] 1]
+            r config set maxmemory $limit
+            # We set policy volatile-random, so only keys with ttl will be evicted
+            r config set maxmemory-policy volatile-random
+            r setex volatile-key 10000 x
+            # We use SETBIT here, so we can set a big key and get the used_memory
+            # bigger than maxmemory. Next command will evict volatile keys. We
+            # can't use SET, as SET uses big input buffer, so it will fail.
+            r setbit big-key 1600000 0 ;# this will consume 200kb
+            r getbit big-key 0
+            assert_equal {1 x} [r hooks.is_key_removed volatile-key]
+            r config set maxmemory-policy $old_policy
+            r config set maxmemory 0
+        } {OK} {needs:debug}
 
         test {Test flushdb hooks} {
             r flushdb
