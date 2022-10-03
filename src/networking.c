@@ -181,7 +181,7 @@ client *createClient(connection *conn) {
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
-    resetClientBlockingState(c);
+    initClientBlockingState(c);
     c->woff = 0;
     c->watched_keys = listCreate();
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);

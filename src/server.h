@@ -3148,7 +3148,7 @@ typedef struct luaScript {
 
 /* Blocked clients API */
 void processUnblockedClients(void);
-void resetClientBlockingState(client *c);
+void initClientBlockingState(client *c);
 void blockClient(client *c, int btype);
 void unblockClient(client *c);
 void unblockClientOnTimeout(client *c);

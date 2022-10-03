@@ -91,7 +91,7 @@ static blocking_type getBlockedTypeByType(int type) {
     }
 }
 
-void resetClientBlockingState(client *c) {
+void initClientBlockingState(client *c) {
     c->bstate.btype = BLOCKED_NONE;
     c->bstate.timeout = 0;
     c->bstate.keys = dictCreate(&objectKeyHeapPointerValueDictType);
@@ -195,7 +195,7 @@ void unblockClientOnTimeout(client *c) {
 }
 
 /* Helper function to unblock a client that's waiting in a blocking operation such as BLPOP.
- * You should never call this function directly, but unblockClient() instead. */
+ * Internal function for unblockClient() */
 static void unblockClientWaitingData(client *c) {
     dictEntry *de;
     dictIterator *di;
@@ -209,7 +209,7 @@ static void unblockClientWaitingData(client *c) {
     /* The client may wait for multiple keys, so unblock it for every key. */
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        pos = dictFetchValue(c->bstate.keys, key);
+        pos = dictGetVal(de);
         /* Remove this client from the list of clients waiting for this key. */
         l = dictFetchValue(c->db->blocking_keys,key);
         serverAssertWithInfo(c,key,l != NULL);
@@ -270,31 +270,27 @@ void unblockClientOnKey(client *c, robj *key) {
 
     pos = dictFetchValue(c->bstate.keys, key);
     /* Remove this client from the list of clients waiting for this key. */
-    l = dictFetchValue(c->db->blocking_keys,key);
+    l = dictFetchValue(c->db->blocking_keys, key);
     serverAssertWithInfo(c,key,l != NULL);
     listUnlinkNode(l,pos);
     /* If the list is empty we need to remove it to avoid wasting memory */
     if (listLength(l) == 0)
-        dictDelete(c->db->blocking_keys,key);
-    dictDelete(c->bstate.keys,key);
+        dictDelete(c->db->blocking_keys, key);
+    dictDelete(c->bstate.keys, key);
 
+    /* Only in case of blocking API calls, we might be blocked on several keys.
+       however we should force unblock the entire blocking keys */
+    serverAssert(c->bstate.btype == BLOCKED_STREAM ||
+                c->bstate.btype == BLOCKED_LIST   ||
+                c->bstate.btype == BLOCKED_ZSET);
 
-    /* Client is no more blocked on keys */
-    if (dictSize(c->bstate.keys) == 0 ||
-        // in case of blocking API calls, we might be blocked on several keys.
-        // however we should force unblock the entire blocking keys
-        c->bstate.btype == BLOCKED_STREAM ||
-        c->bstate.btype == BLOCKED_LIST ||
-        c->bstate.btype == BLOCKED_ZSET) {
-
-        unblockClient(c);
-        /* In case this client was blocked on keys during command
-         * we need to
-         */
-        if (c->flags & CLIENT_PENDING_COMMAND) {
-            c->flags &= ~CLIENT_PENDING_COMMAND;
-            processCommandAndResetClient(c);
-        }
+    unblockClient(c);
+    /* In case this client was blocked on keys during command
+     * we need to
+     */
+    if (c->flags & CLIENT_PENDING_COMMAND) {
+        c->flags &= ~CLIENT_PENDING_COMMAND;
+        processCommandAndResetClient(c);
     }
 }
 
@@ -303,13 +299,6 @@ void unblockClientOnKey(client *c, robj *key) {
  * it will add the client to the list of module unblocked clients which will
  * be processed in moduleHandleBlockedClients. */
 void moduleUnblockClientOnKey(client *c, robj *key) {
-
-    /* Note that if *this* client cannot be served by this key,
-     * it does not mean that another client that is next into the
-     * list cannot be served as well: they may be blocked by
-     * different modules with different triggers to consider if a key
-     * is ready or not. This means we can't exit the loop but need
-     * to continue after the first failure. */
     long long prev_error_replies = server.stat_total_error_replies;
     client *old_client = server.current_client;
     server.current_client = c;
@@ -406,7 +395,7 @@ void handleClientsBlockedOnKey(readyList *rl) {
 
         while((ln = listNext(&li))) {
             client *receiver = listNodeValue(ln);
-            robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NONOTIFY | LOOKUP_NOSTATS);
+            robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH);
             /* 1. In case new key was added/touched we need to verify it satisfy the
              *    blocked type, since we might process the wrong key type.
              * 2. We want to serve clients blocked on module keys
@@ -423,7 +412,6 @@ void handleClientsBlockedOnKey(readyList *rl) {
                     else
                         moduleUnblockClientOnKey(receiver, rl->key);
             }
-
             /* Edge case: If lookupKeyReadWithFlags decides to expire the key we have to
              * take care of the propagation here, because afterCommand might not have been called */
             if (server.also_propagate.numops > 0)

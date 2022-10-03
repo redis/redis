@@ -2287,13 +2287,6 @@ void xreadCommand(client *c) {
                 ids[id_idx].ms = 0;
                 ids[id_idx].seq = 0;
             }
-            /* We change the '$' to the current last ID for this stream. this is
-             * Since later on when we unblock on arriving data - we would like to
-             * re-process the command and in case '$' stays we will spin-block forever.
-             */
-            robj *argv_streamid = createObjectFromStreamID(&ids[id_idx]);
-            decrRefCount(c->argv[i]);
-            c->argv[i] = argv_streamid;
             continue;
         } else if (strcmp(c->argv[i]->ptr,">") == 0) {
             if (!xreadgroup) {
@@ -2409,6 +2402,18 @@ void xreadCommand(client *c) {
         if (c->flags & CLIENT_DENY_BLOCKING) {
             addReplyNullArray(c);
             goto cleanup;
+        }
+        /* We change the '$' to the current last ID for this stream. this is
+         * Since later on when we unblock on arriving data - we would like to
+         * re-process the command and in case '$' stays we will spin-block forever.
+         */
+        for (int id_idx = 0; id_idx < streams_count; id_idx++) {
+            int arg_idx = id_idx + streams_arg + streams_count;
+            if (strcmp(c->argv[arg_idx]->ptr,"$") == 0) {
+                robj *argv_streamid = createObjectFromStreamID(&ids[id_idx]);
+                rewriteClientCommandArgument(c, arg_idx, argv_streamid);
+                decrRefCount(argv_streamid);
+            }
         }
         blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count, timeout);
         goto cleanup;
