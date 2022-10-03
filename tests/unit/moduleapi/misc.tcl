@@ -173,6 +173,21 @@ start_server {tags {"modules"}} {
         r config set maxmemory 0
     } {OK} {needs:config-maxmemory}
 
+    test {rm_call clear OOM} {
+        r config set maxmemory 1
+
+        # verify rm_call fails with OOM
+        assert_error {OOM *} {
+            r test.rm_call_flags M set x 1
+        }
+
+        # clear OOM state
+        r config set maxmemory 0
+
+        # test set command is allowed
+        r test.rm_call_flags M set x 1
+    } {OK} {needs:config-maxmemory}
+
     test {rm_call OOM Eval} {
         r config set maxmemory 1
         r config set maxmemory-policy volatile-lru

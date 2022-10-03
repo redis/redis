@@ -172,6 +172,8 @@ start_multiple_servers 5 [list overrides $base_conf] {
                        127.0.0.1:[srv -3 port] \
                        127.0.0.1:[srv 0 port]
 
+        wait_for_cluster_size 4
+
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&
             [CI 1 cluster_state] eq {ok} &&
@@ -230,7 +232,7 @@ test {Migrate the last slot away from a node using redis-cli} {
                      127.0.0.1:[srv -3 port] \
                      127.0.0.1:[srv 0 port]
         
-        # First we wait for new node to be recognized by entire cluster 
+        # First we wait for new node to be recognized by entire cluster
         wait_for_cluster_size 4
         
         wait_for_condition 1000 50 {
@@ -350,6 +352,8 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
                            127.0.0.1:[srv -3 port] \
                            127.0.0.1:[srv 0 port]
 
+        wait_for_cluster_size 4
+
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&
             [CI 1 cluster_state] eq {ok} &&
@@ -363,6 +367,8 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
         exec src/redis-cli --cluster-yes --cluster add-node \
                            127.0.0.1:[srv -4 port] \
                            127.0.0.1:[srv 0 port]
+
+        wait_for_cluster_size 5
 
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&

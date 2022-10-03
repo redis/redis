@@ -845,10 +845,15 @@ void setClusterNodeToInboundClusterLink(clusterNode *node, clusterLink *link) {
         /* A peer may disconnect and then reconnect with us, and it's not guaranteed that
          * we would always process the disconnection of the existing inbound link before
          * accepting a new existing inbound link. Therefore, it's possible to have more than
-         * one inbound link from the same node at the same time. */
+         * one inbound link from the same node at the same time. Our cleanup logic assumes
+         * a one to one relationship between nodes and inbound links, so we need to kill
+         * one of the links. The existing link is more likely the outdated one, but it's
+         * possible the other node may need to open another link. */
         serverLog(LL_DEBUG, "Replacing inbound link fd %d from node %.40s with fd %d",
                 node->inbound_link->conn->fd, node->name, link->conn->fd);
+        freeClusterLink(node->inbound_link);
     }
+    serverAssert(!node->inbound_link);
     node->inbound_link = link;
     link->node = node;
 }
@@ -1972,7 +1977,13 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG);
-    } else if (myself->slaveof && myself->slaveof->slaveof) {
+    } else if (myself->slaveof && myself->slaveof->slaveof &&
+               /* In some rare case when CLUSTER FAILOVER TAKEOVER is used, it
+                * can happen that myself is a replica of a replica of myself. If
+                * this happens, we do nothing to avoid a crash and wait for the
+                * admin to repair the cluster. */
+               myself->slaveof->slaveof != myself)
+    {
         /* Safeguard against sub-replicas. A replica's master can turn itself
          * into a replica if its last slot is removed. If no other node takes
          * over the slot, there is nothing else to trigger replica migration. */
@@ -4187,9 +4198,11 @@ void clusterCron(void) {
          * received PONG is older than half the cluster timeout, send
          * a new ping now, to ensure all the nodes are pinged without
          * a too big delay. */
+        mstime_t ping_interval = server.cluster_ping_interval ? 
+            server.cluster_ping_interval : server.cluster_node_timeout/2;
         if (node->link &&
             node->ping_sent == 0 &&
-            (now - node->pong_received) > server.cluster_node_timeout/2)
+            (now - node->pong_received) > ping_interval)
         {
             clusterSendPing(node->link, CLUSTERMSG_TYPE_PING);
             continue;
@@ -5029,7 +5042,11 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_IP) {
         addReplyBulkCString(c, node->ip);
     } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_HOSTNAME) {
-        addReplyBulkCString(c, sdslen(node->hostname) != 0 ? node->hostname : "?");
+        if (sdslen(node->hostname) != 0) {
+            addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
+        } else {
+            addReplyBulkCString(c, "?");
+        }
     } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT) {
         addReplyNull(c);
     } else {
@@ -5055,7 +5072,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
         && sdslen(node->hostname) != 0)
     {
         addReplyBulkCString(c, "hostname");
-        addReplyBulkCString(c, node->hostname);
+        addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
         length++;
     }
     setDeferredMapLen(c, deflen, length);
@@ -5111,9 +5128,9 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     addReplyBulkCString(c, getPreferredEndpoint(node));
     reply_count++;
 
-    if (node->hostname) {
+    if (sdslen(node->hostname) != 0) {
         addReplyBulkCString(c, "hostname");
-        addReplyBulkCString(c, node->hostname);
+        addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
         reply_count++;
     }
 
@@ -5201,7 +5218,7 @@ void clusterReplyShards(client *c) {
             continue;
         }
         shard_count++;
-        /* n->slot_info_pairs is set to NULL when the the node owns no slots. */
+        /* n->slot_info_pairs is set to NULL when the node owns no slots. */
         addShardReplyForClusterShards(c, n, n->slot_info_pairs, n->slot_info_pairs_count);
         clusterFreeNodesSlotsInfo(n);
     }
@@ -5286,7 +5303,7 @@ void clusterCommand(client *c) {
 "    Return the node id.",
 "NODES",
 "    Return cluster configuration seen by node. Output format:",
-"    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ...",
+"    <id> <ip:port@bus-port[,hostname]> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ...",
 "REPLICATE <node-id>",
 "    Configure current node as replica to <node-id>.",
 "RESET [HARD|SOFT]",
@@ -6637,7 +6654,7 @@ void readwriteCommand(client *c) {
 /* Return the pointer to the cluster node that is able to serve the command.
  * For the function to succeed the command should only target either:
  *
- * 1) A single key (even multiple times like LPOPRPUSH mylist mylist).
+ * 1) A single key (even multiple times like RPOPLPUSH mylist mylist).
  * 2) Multiple keys in the same hash slot, while the slot is stable (no
  *    resharding in progress).
  *
