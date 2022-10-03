@@ -2473,7 +2473,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     }
 }
 
-sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val, bool verbose) {
+sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val, int verbose) {
     switch (acl_res) {
     case ACL_DENIED_CMD:
         return sdscatfmt(sdsempty(), "User %S has no permissions to run "
@@ -2888,7 +2888,7 @@ setuser_cleanup:
         int idx;
         int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
         if (result != ACL_OK) {
-            sds err = getAclErrorMessage(result, u, cmd,  c->argv[idx+3]->ptr, true);
+            sds err = getAclErrorMessage(result, u, cmd,  c->argv[idx+3]->ptr, 1);
             addReplyBulkSds(c, err);
             return;
         }
