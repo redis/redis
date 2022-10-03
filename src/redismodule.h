@@ -9,6 +9,24 @@
 
 typedef struct RedisModuleString RedisModuleString;
 
+/* -------------- Defines NOT common between core and modules ------------- */
+
+#if defined REDISMODULE_CORE
+/* Things only defined for the modules core (server), not exported to modules
+ * that include this file. */
+
+#define RedisModuleString robj
+
+#endif /* defined REDISMODULE_CORE */
+
+#if !defined REDISMODULE_CORE && !defined REDISMODULE_CORE_MODULE
+/* Things defined for modules, but not for core-modules. */
+
+typedef long long mstime_t;
+typedef long long ustime_t;
+
+#endif /* !defined REDISMODULE_CORE && !defined REDISMODULE_CORE_MODULE */
+
 /* ---------------- Defines common between core and modules --------------- */
 
 /* Error status return values. */
@@ -773,7 +791,6 @@ typedef enum {
 } RedisModuleACLLogEntryReason;
 
 /* Incomplete structures needed by both the core and modules. */
-typedef struct RedisModuleString RedisModuleString;
 typedef struct RedisModuleIO RedisModuleIO;
 typedef struct RedisModuleDigest RedisModuleDigest;
 typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
@@ -786,22 +803,6 @@ typedef void (*RedisModuleDefragFunc)(RedisModuleDefragCtx *ctx);
 typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
 
 /* ------------------------- End of common defines ------------------------ */
-
-#if defined REDISMODULE_CORE
-/* Things only defined for the modules core (server), not exported to modules
- * that include this file. */
-
-#define RedisModuleString robj
-
-#endif /* defined REDISMODULE_CORE */
-
-#if !defined REDISMODULE_CORE && !defined REDISMODULE_CORE_MODULE
-/* Things defined for modules, but not for core-modules. */
-
-typedef long long mstime_t;
-typedef long long ustime_t;
-
-#endif /* !defined REDISMODULE_CORE && !defined REDISMODULE_CORE_MODULE */
 
 /* ----------- The rest of the defines are only for modules ----------------- */
 #if !defined REDISMODULE_CORE || defined REDISMODULE_CORE_MODULE
