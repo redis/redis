@@ -829,6 +829,7 @@ void removeClientFromMemUsageBucket(client *c, int *allow_eviction) {
     }
     if (c->mem_usage_bucket) {
         c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
+        c->last_memory_usage = 0;
         if (!*allow_eviction) {
             listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
             c->mem_usage_bucket = NULL;
