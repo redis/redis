@@ -329,17 +329,12 @@ static int cmdIsKeyRemoved(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     const char* key  = RedisModule_StringPtrLen(argv[1], NULL);
 
-    int nokey;
-    RedisModuleString* keyStr = RedisModule_DictGetC(removed_event_log, (void*)key, strlen(key), &nokey);
+    RedisModuleString* keyStr = RedisModule_DictGetC(removed_event_log, (void*)key, strlen(key), NULL);
 
-    RedisModule_ReplyWithArray(ctx, 2);
-    RedisModule_ReplyWithLongLong(ctx, !nokey);
-    if(nokey){
-        RedisModule_ReplyWithNull(ctx);
-    }else{
-        RedisModule_ReplyWithString(ctx, keyStr);
+    if (keyStr == NULL) {
+        return RedisModule_ReplyWithError(ctx, "ERR Key was not removed");
     }
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithString(ctx, keyStr);
 }
 
 static int cmdKeyExpiry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
