@@ -64,7 +64,6 @@ static inline objectMetaType *getObjectMetaType(int object_type) {
 objectMeta *createObjectMeta(int object_type) {
 	objectMeta *m = zmalloc(sizeof(objectMeta));
     m->object_type = object_type;
-    m->reserved = 0;
     return m;
 }
 

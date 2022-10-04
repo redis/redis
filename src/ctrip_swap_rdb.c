@@ -852,6 +852,7 @@ int rdbKeyLoadDataInit(rdbKeyLoadData *load, int rdbtype,
     case RDB_TYPE_SET:
     case RDB_TYPE_SET_INTSET:
         setLoadInit(load);
+        break;
     default:
         retval = SWAP_ERR_RDB_LOAD_UNSUPPORTED;
         break;

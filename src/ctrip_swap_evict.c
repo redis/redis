@@ -139,7 +139,7 @@ int submitEvictClientRequest(client *c, robj *key) {
     getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
     getKeyRequestsPrepareResult(&result,1);
     incrRefCount(key);
-    getKeyRequestsAppendResult(&result,REQUEST_LEVEL_KEY,key,0,NULL,
+    getKeyRequestsAppendSubkeyResult(&result,REQUEST_LEVEL_KEY,key,0,NULL,
             c->cmd->intention,c->cmd->intention_flags,c->db->id);
     c->keyrequests_count++;
     submitClientKeyRequests(c,&result,evictClientKeyRequestFinished);

@@ -611,6 +611,7 @@ int swapTest(int argc, char **argv, int accurate) {
   result += metaScanTest(argc, argv, accurate);
   result += swapUtilTest(argc, argv, accurate);
   result += swapExpireTest(argc, argv, accurate);
+  result += swapListTest(argc, argv, accurate);
   return result;
 }
 #endif

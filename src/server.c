@@ -289,19 +289,19 @@ struct redisCommand redisCommandTable[] = {
 
     {"rpush",rpushCommand,-3,
      "write use-memory fast @list",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"lpush",lpushCommand,-3,
      "write use-memory fast @list",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"rpushx",rpushxCommand,-3,
      "write use-memory fast @list",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"lpushx",lpushxCommand,-3,
      "write use-memory fast @list",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"linsert",linsertCommand,5,
      "write use-memory @list",
@@ -309,47 +309,47 @@ struct redisCommand redisCommandTable[] = {
 
     {"rpop",rpopCommand,-2,
      "write fast @list",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsRpop,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lpop",lpopCommand,-2,
      "write fast @list",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsLpop,SWAP_IN,0,1,1,1,0,0,0},
 
     {"brpop",brpopCommand,-3,
      "write no-script @list @blocking",
-     0,NULL,NULL,SWAP_IN,0,1,-2,1,0,0,0},
+     0,NULL,getKeyRequestsBrpop,SWAP_IN,0,1,-2,1,0,0,0},
 
     {"brpoplpush",brpoplpushCommand,4,
      "write use-memory no-script @list @blocking",
-     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,getKeyRequestsRpoplpush,SWAP_IN,0,1,2,1,0,0,0},
 
     {"blmove",blmoveCommand,6,
      "write use-memory no-script @list @blocking",
-     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,getKeyRequestsLmove,SWAP_IN,0,1,2,1,0,0,0},
 
     {"blpop",blpopCommand,-3,
      "write no-script @list @blocking",
-     0,NULL,NULL,SWAP_IN,0,1,-2,1,0,0,0},
+     0,NULL,getKeyRequestsBlpop,SWAP_IN,0,1,-2,1,0,0,0},
 
     {"llen",llenCommand,2,
      "read-only fast @list",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_META,1,1,1,0,0,0},
 
     {"lindex",lindexCommand,3,
      "read-only @list",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsLindex,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lset",lsetCommand,4,
      "write use-memory @list",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsLset,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lrange",lrangeCommand,4,
      "read-only @list",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsLrange,SWAP_IN,0,1,1,1,0,0,0},
 
     {"ltrim",ltrimCommand,4,
      "write @list",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsLtrim,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lpos",lposCommand,-3,
      "read-only @list",
@@ -361,11 +361,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"rpoplpush",rpoplpushCommand,3,
      "write use-memory @list",
-     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,getKeyRequestsRpoplpush,SWAP_IN,0,1,2,1,0,0,0},
 
     {"lmove",lmoveCommand,5,
      "write use-memory @list",
-     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,getKeyRequestsLmove,SWAP_IN,0,1,2,1,0,0,0},
 
     {"sadd",saddCommand,-3,
      "write use-memory fast @set",

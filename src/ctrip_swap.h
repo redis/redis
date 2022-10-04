@@ -113,14 +113,55 @@ static inline const char *requestLevelName(int level) {
   return name;
 }
 
+#define SEGMENT_TYPE_HOT 0
+#define SEGMENT_TYPE_COLD 1
+#define SEGMENT_TYPE_BOTH 2
+
+/* Both start and end are inclusive, see addListRangeReply for details. */
+typedef struct range {
+  long start;
+  long end;
+} range;
+
+typedef struct arg_rewrite {
+    int argv_idx;
+    int list_idx;
+} arg_rewrite;
+
+#define KEYREQUEST_TYPE_KEY   0
+#define KEYREQUEST_TYPE_SUBKEY   1
+#define KEYREQUEST_TYPE_SEGMENT  2
+#define KEYREQUEST_TYPE_SCORE  3
+
 typedef struct keyRequest{
+  int dbid;
   int level;
-	int num_subkeys;
-	robj *key;
-	robj **subkeys;
   int cmd_intention;
   int cmd_intention_flags;
-  int dbid;
+  int type;
+  robj *key;
+  //TODO refactor
+  int num_subkeys;
+  robj **subkeys;
+  union {
+    struct {
+      int num_subkeys;
+      robj **subkeys;
+    } b; /* subkey: hash, set */
+    struct {
+      int num_ranges;
+      range *ranges;
+    } l; /* range: list */
+    struct {
+      unsigned minex:1;
+      unsigned maxex:1;
+      unsigned reverse:1;
+      unsigned reserved:5;
+      double min;
+      double max;
+    } z; /* score: zset */
+  };
+  arg_rewrite list_arg_rewrite[2];
 } keyRequest;
 
 void copyKeyRequest(keyRequest *dst, keyRequest *src);
@@ -158,6 +199,17 @@ int getKeyRequestsZunionstore(int dbid, struct redisCommand *cmd, robj **argv, i
 int getKeyRequestsZinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsZdiffstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
+int getKeyRequestsRpop(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsBrpop(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsLpop(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsBlpop(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsRpoplpush(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsLmove(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsLindex(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+#define getKeyRequestsLset getKeyRequestsLindex
+int getKeyRequestsLrange(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsLtrim(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+
 #define MAX_KEYREQUESTS_BUFFER 32
 #define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYREQUESTS_BUFFER}
 
@@ -169,8 +221,10 @@ typedef struct getKeyRequestsResult {
 } getKeyRequestsResult;
 
 void getKeyRequestsPrepareResult(getKeyRequestsResult *result, int numswaps);
-void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level, MOVE robj *key, int num_subkeys, MOVE robj **subkeys, int cmd_intention, int cmd_intention_flags, int dbid);
+void getKeyRequestsAppendSubkeyResult(getKeyRequestsResult *result, int level, MOVE robj *key, int num_subkeys, MOVE robj **subkeys, int cmd_intention, int cmd_intention_flags, int dbid);
 void getKeyRequestsFreeResult(getKeyRequestsResult *result);
+
+void getKeyRequestsAppendRangeResult(getKeyRequestsResult *result, int level, MOVE robj *key, int num_ranges, MOVE range *ranges, int cmd_intention, int cmd_intention_flags, int dbid);
 
 #define setObjectDirty(o) do { \
     if (o) o->dirty = 1; \
@@ -193,7 +247,6 @@ typedef struct objectMetaType {
 
 typedef struct objectMeta {
   unsigned object_type:4;
-  unsigned reserved:4;
   union {
     long long len:60;
     unsigned long ptr:60;
@@ -938,6 +991,7 @@ void rocksIterGetError(rocksIter *it, char **error);
 
 /* Rdb save */
 #define DEFAULT_HASH_FIELD_SIZE 256
+#define DEFAULT_LIST_FIELD_SIZE 128
 
 /* result that decoded from current rocksIter value */
 typedef struct decodedResult {
@@ -1168,6 +1222,7 @@ int swapIterTest(int argc, char *argv[], int accurate);
 int metaScanTest(int argc, char *argv[], int accurate);
 int swapExpireTest(int argc, char *argv[], int accurate);
 int swapUtilTest(int argc, char **argv, int accurate);
+int swapListTest(int argc, char *argv[], int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 
