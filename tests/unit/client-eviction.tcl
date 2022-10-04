@@ -572,7 +572,7 @@ start_server {} {
         $rr close
     }
 
-        test "client total memory grows while config maxmemory-clients set to zero" {
+    test "client total memory grows while config maxmemory-clients set to zero" {
         set maxmemory_clients 0
         r client no-evict on
         r config set maxmemory-clients $maxmemory_clients

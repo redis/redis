@@ -2979,7 +2979,7 @@ static int applyClientMaxMemoryUsage(const char **err) {
         client *c = listNodeValue(ln);
         if (server.maxmemory_clients == 0) {
             /* Remove client from memory usage bucket. */
-            removeClientFromMemUsageBucket(c, c->last_memory_usage, 0);
+            removeClientFromMemUsageBucket(c, 0);
         } else {
             /* Update each client(s) memory usage and add to appropriate bucket. */
             updateClientMemUsageAndBucket(c);

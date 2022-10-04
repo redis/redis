@@ -828,9 +828,11 @@ int clientEvictionAllowed(client *c) {
  * This is called during incremental client memory usage tracking as well as
  * used to reset when client to bucket allocation is not required when 
  * client eviction is disabled.  */
-void removeClientFromMemUsageBucket(client *c, size_t last_memory_usage, int allow_eviction) {
+void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
     if (c->mem_usage_bucket) {
-        c->mem_usage_bucket->mem_usage_sum -= last_memory_usage;
+        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
+        /* If this client can't be evicted then remove it from the mem usage
+         * buckets */
         if (!allow_eviction) {
             listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
             c->mem_usage_bucket = NULL;
@@ -876,12 +878,12 @@ int updateClientMemUsageAndBucket(client *c) {
     serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
     int allow_eviction = clientEvictionAllowed(c);
     if (allow_eviction) {        
-        size_t old_memory_usage = c->last_memory_usage;
+        removeClientFromMemUsageBucket(c, allow_eviction);
+
         /* Update client memory usage. */
         updateClientMemUsage(c);
 
         /* Update the client in the mem usage buckets */
-        removeClientFromMemUsageBucket(c, old_memory_usage, allow_eviction);
         clientMemUsageBucket *bucket = getMemUsageBucket(c->last_memory_usage);
         bucket->mem_usage_sum += c->last_memory_usage;
         if (bucket != c->mem_usage_bucket) {

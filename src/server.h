@@ -2525,7 +2525,7 @@ int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
 int islocalClient(client *c);
 int updateClientMemUsageAndBucket(client *c);
-void removeClientFromMemUsageBucket(client *c, size_t last_memory_usage, int allow_eviction);
+void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
