@@ -140,7 +140,7 @@ start_server {} {
         set temp_maxmemory_clients 200000
         r config set maxmemory-clients $temp_maxmemory_clients
         
-        # Append watched keys until list maxes out maxmemroy clients and causes client eviction
+        # Append watched keys until list maxes out maxmemory clients and causes client eviction
         catch { 
             for {set j 0} {$j < $temp_maxmemory_clients} {incr j} {
                 $rr watch $j
@@ -467,7 +467,7 @@ start_server {} {
 start_server {} {
     test "evict clients in right order (large to small)" {
         # Note that each size step needs to be at least x2 larger than previous step 
-        # because of how the client-eviction size bucktting works
+        # because of how the client-eviction size bucketing works
         set sizes [list [kb 128] [mb 1] [mb 3]]
         set clients_per_size 3
         r client setname control

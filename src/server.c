@@ -815,22 +815,23 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
     return &server.client_mem_usage_buckets[bucket_idx];
 }
 
+int clientEvictionAllowed(client *c) {
+    if (server.maxmemory_clients == 0 || c->flags & CLIENT_NO_EVICT) {
+        return 0;
+    }
+    int type = getClientType(c);
+    return (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB);
+}
+
 
 /* This function is used to cleanup the client's previously tracked memory usage.
  * This is called during incremental client memory usage tracking as well as
  * used to reset when client to bucket allocation is not required when 
  * client eviction is disabled.  */
-void removeClientFromMemUsageBucket(client *c, int *allow_eviction) {
-    *allow_eviction = (server.maxmemory_clients != 0);
-    if (*allow_eviction) {
-        int type = getClientType(c);
-        *allow_eviction = (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
-                        (!(c->flags & CLIENT_NO_EVICT));
-    }
+void removeClientFromMemUsageBucket(client *c, size_t last_memory_usage, int allow_eviction) {
     if (c->mem_usage_bucket) {
-        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
-        c->last_memory_usage = 0;
-        if (!*allow_eviction) {
+        c->mem_usage_bucket->mem_usage_sum -= last_memory_usage;
+        if (!allow_eviction) {
             listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
             c->mem_usage_bucket = NULL;
             c->mem_usage_bucket_node = NULL;
@@ -838,38 +839,51 @@ void removeClientFromMemUsageBucket(client *c, int *allow_eviction) {
     }
 }
 
-/* This is called both on explicit clients when something changed their buffers,
- * so we can track clients' memory and enforce clients' maxmemory in real time,
- * and also from the clientsCron. We call it from the cron so we have updated
- * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients and in case a configuration
- * change requires us to evict a non-active client.
+/*
+ * This method updates the client memory usage and update the
+ * server stats for client type.
+ *
+ * This method is called from the clientsCron to have updated
+ * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients to accurately
+ * provide information around clients memory usage.
+ *
+ * It is also used in updateClientMemUsageAndBucket to have latest
+ * client memory usage information to place it into appropriate client memory
+ * usage bucket.
+ */
+int updateClientMemUsage(client *c) {
+    size_t mem = getClientMemoryUsage(c, NULL);
+    int type = getClientType(c);
+    /* Now that we have the memory used by the client, remove the old
+     * value from the old category, and add it back. */
+    server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
+    server.stat_clients_type_memory[type] += mem;
+    /* Remember what we added and where, to remove it next time. */
+    c->last_memory_type = type;
+    c->last_memory_usage = mem;
+    return 0;
+}
+
+/* This is called only if explicit clients when something changed their buffers,
+ * so we can track clients' memory and enforce clients' maxmemory in real time.
  *
  * This also adds the client to the correct memory usage bucket. Each bucket contains
  * all clients with roughly the same amount of memory. This way we group
  * together clients consuming about the same amount of memory and can quickly
  * free them in case we reach maxmemory-clients (client eviction).
  */
-int updateClientMemUsage(client *c) {
+int updateClientMemUsageAndBucket(client *c) {
     serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
-    size_t mem = getClientMemoryUsage(c, NULL);
-    int type = getClientType(c);
+    int allow_eviction = clientEvictionAllowed(c);
+    if (allow_eviction) {        
+        size_t old_memory_usage = c->last_memory_usage;
+        /* Update client memory usage. */
+        updateClientMemUsage(c);
 
-    /* Remove the old value of the memory used by the client from the old
-     * category, and add it back. */
-    if (type != c->last_memory_type) {
-        server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
-        server.stat_clients_type_memory[type] += mem;
-        c->last_memory_type = type;
-    } else {
-        server.stat_clients_type_memory[type] += mem - c->last_memory_usage;
-    }
-
-    int allow_eviction;
-    /* Update the client in the mem usage buckets */
-    removeClientFromMemUsageBucket(c, &allow_eviction);
-    if (allow_eviction) {
-        clientMemUsageBucket *bucket = getMemUsageBucket(mem);
-        bucket->mem_usage_sum += mem;
+        /* Update the client in the mem usage buckets */
+        removeClientFromMemUsageBucket(c, old_memory_usage, allow_eviction);
+        clientMemUsageBucket *bucket = getMemUsageBucket(c->last_memory_usage);
+        bucket->mem_usage_sum += c->last_memory_usage;
         if (bucket != c->mem_usage_bucket) {
             if (c->mem_usage_bucket)
                 listDelNode(c->mem_usage_bucket->clients,
@@ -879,10 +893,6 @@ int updateClientMemUsage(client *c) {
             c->mem_usage_bucket_node = listLast(bucket->clients);
         }
     }
-
-    /* Remember what we added, to remove it next time. */
-    c->last_memory_usage = mem;
-
     return 0;
 }
 
