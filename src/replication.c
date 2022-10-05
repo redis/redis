@@ -3467,8 +3467,16 @@ void waitCommand(client *c) {
     }
 
     /* Argument parsing. */
-    if (getLongFromObjectOrReply(c,c->argv[1],&numreplicas,NULL) != C_OK)
+    if (!strcasecmp(c->argv[1]->ptr,"majority")) {
+        numreplicas = listLength(server.slaves)/2 + 1;
+    } else if (!strcasecmp(c->argv[1]->ptr,"all")) {
+        numreplicas = listLength(server.slaves);
+    } else if (getPositiveLongFromObjectOrReply(c,c->argv[1],&numreplicas,
+        "replicas number should be a number, 'majority', or 'all'") != C_OK)
+    {
         return;
+    }
+
     if (getTimeoutFromObjectOrReply(c,c->argv[2],&timeout,UNIT_MILLISECONDS)
         != C_OK) return;
 

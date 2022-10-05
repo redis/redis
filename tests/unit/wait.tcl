@@ -19,6 +19,18 @@ start_server {} {
         }
     }
 
+    test {WAIT replicas number should be a number, 'majority', 'all'} {
+        assert {[$master wait 1 5000] == 1}
+        assert {[$master wait majority 5000] == 1}
+        assert {[$master wait all 5000] == 1}
+
+        set err "*replicas*number*majority*all*"
+        catch {[$master wait -1 5000]} e
+        assert_match $err $e
+        catch {[$master wait less 5000]} e
+        assert_match $err $e
+    }
+
     test {WAIT should acknowledge 1 additional copy of the data} {
         $master set foo 0
         $master incr foo
