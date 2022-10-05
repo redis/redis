@@ -515,6 +515,10 @@ proc start_server {options {code undefined}} {
         dict set config "req-res-logfile" "stdout.reqres"
     }
 
+    if {$::use_resp3} {
+        dict set config "client-default-resp" "3"
+    }
+
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
     create_server_config_file $config_file $config $config_lines

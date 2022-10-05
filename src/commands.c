@@ -2473,6 +2473,95 @@ struct redisCommandArg HRANDFIELD_Args[] = {
 {0}
 };
 
+/* HRANDFIELD_ReplySchema_anyOf_0 reply schema */
+struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Key doesn't exist"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_0 = {HRANDFIELD_ReplySchema_anyOf_0_elements,.length=2};
+
+/* HRANDFIELD_ReplySchema_anyOf_1 reply schema */
+struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="A single random field. Returned in case `COUNT` was used."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_1 = {HRANDFIELD_ReplySchema_anyOf_1_elements,.length=2};
+
+/* HRANDFIELD_ReplySchema_anyOf_2_items reply schema */
+struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_2_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_2_items = {HRANDFIELD_ReplySchema_anyOf_2_items_elements,.length=1};
+
+/* HRANDFIELD_ReplySchema_anyOf_2 reply schema */
+struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_2_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="A list of fields. Returned in case `COUNT` was used."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&HRANDFIELD_ReplySchema_anyOf_2_items},
+};
+
+struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_2 = {HRANDFIELD_ReplySchema_anyOf_2_elements,.length=3};
+
+/* HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_0 reply schema */
+struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Field"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_0 = {HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_0_elements,.length=2};
+
+/* HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_1 reply schema */
+struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Value"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_1 = {HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_1_elements,.length=2};
+
+/* HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems array reply schema */
+struct commandReplySchema *HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems[] = {
+&HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_0,
+&HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_1,
+};
+
+/* HRANDFIELD_ReplySchema_anyOf_3_items reply schema */
+struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_3_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"prefixItems",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems,.length=2}},
+};
+
+struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_3_items = {HRANDFIELD_ReplySchema_anyOf_3_items_elements,.length=4};
+
+/* HRANDFIELD_ReplySchema_anyOf_3 reply schema */
+struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_3_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Fields and their values. Returned in case `COUNT` and `WITHVALUES` were used."},
+{"notes",SCHEMA_VAL_TYPE_STRING,.value.string="In RESP2 this is returned as a flat array"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&HRANDFIELD_ReplySchema_anyOf_3_items},
+};
+
+struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_3 = {HRANDFIELD_ReplySchema_anyOf_3_elements,.length=4};
+
+/* HRANDFIELD_ReplySchema_anyOf array reply schema */
+struct commandReplySchema *HRANDFIELD_ReplySchema_anyOf[] = {
+&HRANDFIELD_ReplySchema_anyOf_0,
+&HRANDFIELD_ReplySchema_anyOf_1,
+&HRANDFIELD_ReplySchema_anyOf_2,
+&HRANDFIELD_ReplySchema_anyOf_3,
+};
+
+/* HRANDFIELD_ReplySchema reply schema */
+struct commandReplySchemaElement HRANDFIELD_ReplySchema_elements[] = {
+{"anyOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=HRANDFIELD_ReplySchema_anyOf,.length=4}},
+};
+
+struct commandReplySchema HRANDFIELD_ReplySchema = {HRANDFIELD_ReplySchema_elements,.length=1};
+
 /********** HSCAN ********************/
 
 /* HSCAN history */
@@ -6288,75 +6377,75 @@ struct redisCommandArg ZRANGE_Args[] = {
 {0}
 };
 
-/* ZRANGE_ReplySchema_anyOf_0_items reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_0_items_elements[] = {
+/* ZRANGE_ReplySchema_oneOf_0_items reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_0_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_0_items = {ZRANGE_ReplySchema_anyOf_0_items_elements,.length=1};
+struct commandReplySchema ZRANGE_ReplySchema_oneOf_0_items = {ZRANGE_ReplySchema_oneOf_0_items_elements,.length=1};
 
-/* ZRANGE_ReplySchema_anyOf_0 reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_0_elements[] = {
+/* ZRANGE_ReplySchema_oneOf_0 reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_0_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="A list of member elements"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZRANGE_ReplySchema_anyOf_0_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZRANGE_ReplySchema_oneOf_0_items},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_0 = {ZRANGE_ReplySchema_anyOf_0_elements,.length=4};
+struct commandReplySchema ZRANGE_ReplySchema_oneOf_0 = {ZRANGE_ReplySchema_oneOf_0_elements,.length=4};
 
-/* ZRANGE_ReplySchema_anyOf_1_items_items_0 reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_items_items_0_elements[] = {
+/* ZRANGE_ReplySchema_oneOf_1_items_items_0 reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_1_items_items_0_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Member"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items_items_0 = {ZRANGE_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
+struct commandReplySchema ZRANGE_ReplySchema_oneOf_1_items_items_0 = {ZRANGE_ReplySchema_oneOf_1_items_items_0_elements,.length=2};
 
-/* ZRANGE_ReplySchema_anyOf_1_items_items_1 reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_items_items_1_elements[] = {
+/* ZRANGE_ReplySchema_oneOf_1_items_items_1 reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_1_items_items_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Score"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="number"},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items_items_1 = {ZRANGE_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
+struct commandReplySchema ZRANGE_ReplySchema_oneOf_1_items_items_1 = {ZRANGE_ReplySchema_oneOf_1_items_items_1_elements,.length=2};
 
-/* ZRANGE_ReplySchema_anyOf_1_items_items array reply schema */
-struct commandReplySchema *ZRANGE_ReplySchema_anyOf_1_items_items[] = {
-&ZRANGE_ReplySchema_anyOf_1_items_items_0,
-&ZRANGE_ReplySchema_anyOf_1_items_items_1,
+/* ZRANGE_ReplySchema_oneOf_1_items_items array reply schema */
+struct commandReplySchema *ZRANGE_ReplySchema_oneOf_1_items_items[] = {
+&ZRANGE_ReplySchema_oneOf_1_items_items_0,
+&ZRANGE_ReplySchema_oneOf_1_items_items_1,
 };
 
-/* ZRANGE_ReplySchema_anyOf_1_items reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_items_elements[] = {
+/* ZRANGE_ReplySchema_oneOf_1_items reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_1_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
 {"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZRANGE_ReplySchema_anyOf_1_items_items,.length=2}},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZRANGE_ReplySchema_oneOf_1_items_items,.length=2}},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items = {ZRANGE_ReplySchema_anyOf_1_items_elements,.length=4};
+struct commandReplySchema ZRANGE_ReplySchema_oneOf_1_items = {ZRANGE_ReplySchema_oneOf_1_items_elements,.length=4};
 
-/* ZRANGE_ReplySchema_anyOf_1 reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_elements[] = {
+/* ZRANGE_ReplySchema_oneOf_1 reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Members and their scores. Returned in case `WITHSCORES` was used."},
 {"notes",SCHEMA_VAL_TYPE_STRING,.value.string="In RESP2 this is returned as a flat array"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZRANGE_ReplySchema_anyOf_1_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZRANGE_ReplySchema_oneOf_1_items},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_1 = {ZRANGE_ReplySchema_anyOf_1_elements,.length=5};
+struct commandReplySchema ZRANGE_ReplySchema_oneOf_1 = {ZRANGE_ReplySchema_oneOf_1_elements,.length=5};
 
-/* ZRANGE_ReplySchema_anyOf array reply schema */
-struct commandReplySchema *ZRANGE_ReplySchema_anyOf[] = {
-&ZRANGE_ReplySchema_anyOf_0,
-&ZRANGE_ReplySchema_anyOf_1,
+/* ZRANGE_ReplySchema_oneOf array reply schema */
+struct commandReplySchema *ZRANGE_ReplySchema_oneOf[] = {
+&ZRANGE_ReplySchema_oneOf_0,
+&ZRANGE_ReplySchema_oneOf_1,
 };
 
 /* ZRANGE_ReplySchema reply schema */
 struct commandReplySchemaElement ZRANGE_ReplySchema_elements[] = {
-{"anyOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZRANGE_ReplySchema_anyOf,.length=2}},
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZRANGE_ReplySchema_oneOf,.length=2}},
 };
 
 struct commandReplySchema ZRANGE_ReplySchema = {ZRANGE_ReplySchema_elements,.length=1};
@@ -8808,7 +8897,7 @@ struct redisCommand redisCommandTable[] = {
 {"hlen","Get the number of fields in a hash","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HLEN_History,HLEN_tips,hlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HLEN_Args},
 {"hmget","Get the values of all the given hash fields","O(N) where N is the number of fields being requested.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HMGET_History,HMGET_tips,hmgetCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HMGET_Args},
 {"hmset","Set multiple hash fields to multiple values","O(N) where N is the number of fields being set.","2.0.0",CMD_DOC_DEPRECATED,"`HSET` with multiple field-value pairs","4.0.0",COMMAND_GROUP_HASH,HMSET_History,HMSET_tips,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HMSET_Args},
-{"hrandfield","Get one or multiple random fields from a hash","O(N) where N is the number of fields returned","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HRANDFIELD_History,HRANDFIELD_tips,hrandfieldCommand,-2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HRANDFIELD_Args},
+{"hrandfield","Get one or multiple random fields from a hash","O(N) where N is the number of fields returned","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HRANDFIELD_History,HRANDFIELD_tips,hrandfieldCommand,-2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HRANDFIELD_Args,.reply_schema=&HRANDFIELD_ReplySchema},
 {"hscan","Incrementally iterate hash fields and associated values","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection..","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSCAN_History,HSCAN_tips,hscanCommand,-3,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSCAN_Args},
 {"hset","Set the string value of a hash field","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSET_History,HSET_tips,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSET_Args,.reply_schema=&HSET_ReplySchema},
 {"hsetnx","Set the value of a hash field, only if the field does not exist","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSETNX_History,HSETNX_tips,hsetnxCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSETNX_Args},

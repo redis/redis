@@ -56,7 +56,9 @@ start_server {tags {"hash"}} {
     }
 
     test "HRANDFIELD with RESP3" {
-        r hello 3
+        if {$::use_resp3 eq 0} {
+            r hello 3
+        }
         set res [r hrandfield myhash 3 withvalues]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 2
@@ -64,7 +66,9 @@ start_server {tags {"hash"}} {
         set res [r hrandfield myhash 3]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 1
-        r hello 3
+        if {$::use_resp3 eq 0} {
+            r hello 2
+        }
     }
 
     test "HRANDFIELD count of 0 is handled correctly" {
@@ -112,10 +116,19 @@ start_server {tags {"hash"}} {
             set res [r hrandfield myhash -1001]
             assert_equal [llength $res] 1001
             # again with WITHVALUES
-            set res [r hrandfield myhash -20 withvalues]
-            assert_equal [llength $res] 40
-            set res [r hrandfield myhash -1001 withvalues]
-            assert_equal [llength $res] 2002
+            if {$::use_resp3} {
+                set res [r hrandfield myhash -20 withvalues]
+                assert_equal [llength $res] 20
+                assert_equal [llength [lindex $res 0]] 2
+                set res [r hrandfield myhash -1001 withvalues]
+                assert_equal [llength $res] 1001
+                assert_equal [llength [lindex $res 0]] 2
+            } else {
+                set res [r hrandfield myhash -20 withvalues]
+                assert_equal [llength $res] 40
+                set res [r hrandfield myhash -1001 withvalues]
+                assert_equal [llength $res] 2002
+            }
 
             # Test random uniform distribution
             # df = 9, 40 means 0.00001 probability
@@ -123,7 +136,7 @@ start_server {tags {"hash"}} {
             assert_lessthan [chi_square_value $res] 40
 
             # 2) Check that all the elements actually belong to the original hash.
-            foreach {key val} $res {
+            foreach key $res {
                 assert {[dict exists $mydict $key]}
             }
 
@@ -135,13 +148,19 @@ start_server {tags {"hash"}} {
                 incr iterations -1
                 if {[expr {$iterations % 2}] == 0} {
                     set res [r hrandfield myhash -3 withvalues]
-                    foreach {key val} $res {
-                        dict append auxset $key $val
+                    if {$::use_resp3} {
+                        foreach pair $res {
+                            dict incr auxset [lindex $pair 0] 1
+                        }
+                    } else {
+                        foreach {key val} $res {
+                            dict incr auxset $key 1
+                        }
                     }
                 } else {
                     set res [r hrandfield myhash -3]
                     foreach key $res {
-                        dict append auxset $key $val
+                        dict append auxset $key 1
                     }
                 }
                 if {[lsort [dict keys $mydict]] eq
@@ -149,19 +168,29 @@ start_server {tags {"hash"}} {
                     break;
                 }
             }
-            assert {$iterations != 0}
+            assert_not_equal $iterations 0
 
             # PATH 2: positive count (unique behavior) with requested size
             # equal or greater than set size.
             foreach size {10 20} {
+                unset -nocomplain keys_values
                 set res [r hrandfield myhash $size]
                 assert_equal [llength $res] 10
                 assert_equal [lsort $res] [lsort [dict keys $mydict]]
 
                 # again with WITHVALUES
                 set res [r hrandfield myhash $size withvalues]
-                assert_equal [llength $res] 20
-                assert_equal [lsort $res] [lsort $mydict]
+
+                if {$::use_resp3} {
+                    assert_equal [llength $res] 10
+                    foreach pair $res {
+                        lappend keys_values {*}$pair
+                    }
+                    assert_equal [lsort $keys_values] [lsort $mydict]
+                } else {
+                    assert_equal [llength $res] 20
+                    assert_equal [lsort $res] [lsort $mydict]
+                }
             }
 
             # PATH 3: Ask almost as elements as there are in the set.
@@ -174,15 +203,27 @@ start_server {tags {"hash"}} {
             # We can test both the code paths just changing the size but
             # using the same code.
             foreach size {8 2} {
+                unset -nocomplain keys_values
                 set res [r hrandfield myhash $size]
                 assert_equal [llength $res] $size
                 # again with WITHVALUES
                 set res [r hrandfield myhash $size withvalues]
-                assert_equal [llength $res] [expr {$size * 2}]
+                if {$::use_resp3} {
+                    assert_equal [llength $res] $size
+                } else {
+                    assert_equal [llength $res] [expr {$size * 2}]
+                }
 
                 # 1) Check that all the elements actually belong to the
                 # original set.
-                foreach ele [dict keys $res] {
+                if {$::use_resp3} {
+                    foreach pair $res {
+                        lappend keys_values {*}$pair
+                    }
+                } else {
+                    lappend keys_values {*}$res
+                }
+                foreach ele [dict keys $keys_values] {
                     assert {[dict exists $mydict $ele]}
                 }
 
@@ -196,14 +237,21 @@ start_server {tags {"hash"}} {
                     incr iterations -1
                     if {[expr {$iterations % 2}] == 0} {
                         set res [r hrandfield myhash $size withvalues]
-                        foreach {key value} $res {
-                            dict append auxset $key $value
-                            lappend allkey $key
+                        if {$::use_resp3} {
+                            foreach pair $res {
+                                dict incr auxset [lindex $pair 0] 1
+                                lappend allkey [lindex $pair 0]
+                            }
+                        } else {
+                            foreach {key val} $res {
+                                dict incr auxset $key 1
+                                lappend allkey $key
+                            }
                         }
                     } else {
                         set res [r hrandfield myhash $size]
                         foreach key $res {
-                            dict append auxset $key
+                            dict incr auxset $key 1
                             lappend allkey $key
                         }
                     }

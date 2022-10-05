@@ -39,7 +39,7 @@
             }
         ],
         "reply_schema": {
-            "anyOf": [
+            "oneOf": [
                 {
                     "description": "A list of member elements",
                     "type": "array",
