@@ -189,13 +189,11 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
     }
 
     if (tval > 0) {
-        tval += now;
-        
-        /* if addition of `now` caused to overflow */
-        if (tval < 0) {
-            addReplyError(c,"timeout is out of range");
+        if  (tval > LLONG_MAX - now) {
+            addReplyError(c,"timeout is out of range"); /* 'tval+now' would overflow */
             return C_ERR;
         }
+        tval += now;
     }
     *timeout = tval;
 
