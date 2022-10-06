@@ -1190,7 +1190,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             bpop_command $rd $pop blist1 -1
             assert_error "ERR *is negative*" {$rd read}
             $rd close
-        } 
+        }
 
         test "$pop: with non-integer timeout" {
             set rd [redis_deferring_client]
