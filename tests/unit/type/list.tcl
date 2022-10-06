@@ -1215,6 +1215,14 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     } {foo{t} aguacate}
 }
 
+    test "BLPOP: timeout value out of range" {
+        # Timeout is parsed as float and multiplied by 1000, added mstime()
+        # and stored in long-long which might lead to out-of-range value.
+        # (Even though given timeout is smaller than LLONG_MAX, the result
+        # will be bigger)            
+        assert_error "ERR *is out of range*" {r BLPOP blist1 0x7FFFFFFFFFFFFF}
+    }  
+        
     foreach {pop} {BLPOP BRPOP BLMPOP_LEFT BLMPOP_RIGHT} {
         test "$pop: with single empty list argument" {
             set rd [redis_deferring_client]
