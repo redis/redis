@@ -248,7 +248,7 @@ void pushGenericCommand(client *c, int where, int xx) {
     }
 
     for (j = 2; j < c->argc; j++) {
-        listTypePush(lobj,c->argv[j],where);
+        ctripListTypePush(lobj,c->argv[j],where,c->db,c->argv[1]);
         server.dirty++;
     }
 
@@ -481,7 +481,7 @@ void popGenericCommand(client *c, int where) {
     if (!count) {
         /* Pop a single element. This is POP's original behavior that replies
          * with a bulk string. */
-        value = listTypePop(o,where);
+        value = ctripListTypePop(o,where,c->db,c->argv[1]);
         serverAssert(value != NULL);
         addReplyBulk(c,value);
         decrRefCount(value);
@@ -497,6 +497,10 @@ void popGenericCommand(client *c, int where) {
 
         addListRangeReply(c,o,rangestart,rangeend,reverse);
         quicklistDelRange(o->ptr,rangestart,rangelen);
+        if (where == LIST_HEAD)
+            ctripListMetaDelRange(c->db,c->argv[1],-rangelen,0);
+        else
+            ctripListMetaDelRange(c->db,c->argv[1],0,-rangelen);
         listElementsRemoved(c,c->argv[1],where,o,rangelen);
     }
 }
@@ -558,6 +562,7 @@ void ltrimCommand(client *c) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistDelRange(o->ptr,0,ltrim);
         quicklistDelRange(o->ptr,-rtrim,rtrim);
+        ctripListMetaDelRange(c->db,c->argv[1],ltrim,rtrim);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -748,7 +753,7 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
         dbAdd(c->db,dstkey,dstobj);
     }
     signalModifiedKey(c,c->db,dstkey);
-    listTypePush(dstobj,value,where);
+    ctripListTypePush(dstobj,value,where,c->db,dstkey);
     notifyKeyspaceEvent(NOTIFY_LIST,
                         where == LIST_HEAD ? "lpush" : "rpush",
                         dstkey,
@@ -792,7 +797,7 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
         robj *touchedkey = c->argv[1];
 
         if (checkType(c,dobj,OBJ_LIST)) return;
-        value = listTypePop(sobj,wherefrom);
+        value = ctripListTypePop(sobj,wherefrom,c->db,c->argv[1]);
         serverAssert(value); /* assertion for valgrind (avoid NPD) */
         lmoveHandlePush(c,c->argv[2],dobj,value,whereto);
 
@@ -947,7 +952,7 @@ void blockingPopGenericCommand(client *c, int where) {
             } else {
                 if (listTypeLength(o) != 0) {
                     /* Non empty list, this is like a normal [LR]POP. */
-                    robj *value = listTypePop(o,where);
+                    robj *value = ctripListTypePop(o,where,c->db,c->argv[j]);
                     serverAssert(value != NULL);
 
                     addReplyArrayLen(c,2);

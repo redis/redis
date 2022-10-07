@@ -547,6 +547,7 @@ swapDataType rdbLoadSwapDataType = {
     .swapDel = NULL,
     .createOrMergeObject = NULL,
     .cleanObject = NULL,
+    .beforeCall = NULL,
     .free = rdbLoadSwapDataFree,
 };
 

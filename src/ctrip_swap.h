@@ -123,11 +123,6 @@ typedef struct range {
   long end;
 } range;
 
-typedef struct arg_rewrite {
-    int argv_idx;
-    int list_idx;
-} arg_rewrite;
-
 #define KEYREQUEST_TYPE_KEY   0
 #define KEYREQUEST_TYPE_SUBKEY   1
 #define KEYREQUEST_TYPE_SEGMENT  2
@@ -161,7 +156,7 @@ typedef struct keyRequest{
       double max;
     } z; /* score: zset */
   };
-  arg_rewrite list_arg_rewrite[2];
+  int list_arg_rewrite[2];
 } keyRequest;
 
 void copyKeyRequest(keyRequest *dst, keyRequest *src);
@@ -224,7 +219,7 @@ void getKeyRequestsPrepareResult(getKeyRequestsResult *result, int numswaps);
 void getKeyRequestsAppendSubkeyResult(getKeyRequestsResult *result, int level, MOVE robj *key, int num_subkeys, MOVE robj **subkeys, int cmd_intention, int cmd_intention_flags, int dbid);
 void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 
-void getKeyRequestsAppendRangeResult(getKeyRequestsResult *result, int level, MOVE robj *key, int num_ranges, MOVE range *ranges, int cmd_intention, int cmd_intention_flags, int dbid);
+void getKeyRequestsAppendRangeResult(getKeyRequestsResult *result, int level, MOVE robj *key, int arg_rewrite0, int arg_rewrite1, int num_ranges, MOVE range *ranges, int cmd_intention, int cmd_intention_flags, int dbid);
 
 #define setObjectDirty(o) do { \
     if (o) o->dirty = 1; \
@@ -249,7 +244,7 @@ typedef struct objectMeta {
   unsigned object_type:4;
   union {
     long long len:60;
-    unsigned long ptr:60;
+    unsigned long long ptr:60;
   };
 } objectMeta;
 
@@ -259,6 +254,14 @@ extern objectMetaType listObjectMetaType;
 int buildObjectMeta(int object_type, const char *extend, size_t extlen, OUT objectMeta **pobject_meta);
 objectMeta *dupObjectMeta(objectMeta *object_meta);
 void freeObjectMeta(objectMeta *object_meta);
+static inline void *objectMetaGetPtr(objectMeta *object_meta) {
+  return (void*)(long)object_meta->ptr;
+}
+static inline void objectMetaSetPtr(objectMeta *object_meta, void *ptr) {
+  object_meta->ptr = (unsigned long long)ptr;
+}
+
+objectMeta *createObjectMeta(int object_type);
 
 objectMeta *createLenObjectMeta(int object_type, size_t len);
 sds encodeLenObjectMeta(struct objectMeta *object_meta);
@@ -303,8 +306,8 @@ typedef struct swapData {
   struct swapDataType *type;
   struct objectMetaType *omtype;
   redisDb *db;
-  robj *key;
-  robj *value;
+  robj *key; /*own*/
+  robj *value; /*own*/
   long long expire;
   objectMeta *object_meta; /* ref */
   objectMeta *cold_meta; /* own, moved from exec */
@@ -325,18 +328,18 @@ typedef struct swapDataType {
   int (*swapAna)(struct swapData *data, struct keyRequest *key_request, OUT int *intention, OUT uint32_t *intention_flags, void *datactx);
   int (*encodeKeys)(struct swapData *data, int intention, void *datactx, OUT int *action, OUT int *num, OUT int **cfs, OUT sds **rawkeys);
   int (*encodeData)(struct swapData *data, int intention, void *datactx, OUT int *action, OUT int *num, OUT int **cfs, OUT sds **rawkeys, OUT sds **rawvals);
-  int (*decodeData)(struct swapData *data, int num, int *cfs, sds *rawkeys, sds *rawvals, OUT robj **decoded);
-  int (*swapIn)(struct swapData *data, robj *result, void *datactx);
+  int (*decodeData)(struct swapData *data, int num, int *cfs, sds *rawkeys, sds *rawvals, OUT void **decoded);
+  int (*swapIn)(struct swapData *data, MOVE void *result, void *datactx);
   int (*swapOut)(struct swapData *data, void *datactx);
   int (*swapDel)(struct swapData *data, void *datactx, int async);
-  robj *(*createOrMergeObject)(struct swapData *data, robj *decoded, void *datactx);
+  void *(*createOrMergeObject)(struct swapData *data, MOVE void *decoded, void *datactx);
   int (*cleanObject)(struct swapData *data, void *datactx);
+  int (*beforeCall)(struct swapData *data, client *c, void *datactx);
   void (*free)(struct swapData *data, void *datactx);
 } swapDataType;
 
 swapData *createSwapData(redisDb *db, robj *key, robj *value);
 int swapDataSetupMeta(swapData *d, int object_type, long long expire, OUT void **datactx);
-void swapDataSetObjectMeta(swapData *d, MOVE objectMeta *object_meta);
 int swapDataAlreadySetup(swapData *d);
 void swapDataMarkPropagateExpire(swapData *data);
 int swapDataAna(swapData *d, struct keyRequest *key_request, int *intention, uint32_t *intention_flag, void *datactx);
@@ -345,15 +348,25 @@ sds swapDataEncodeMetaVal(swapData *d);
 int swapDataEncodeKeys(swapData *d, int intention, void *datactx, int *action, int *num, int **cfs, sds **rawkeys);
 int swapDataEncodeData(swapData *d, int intention, void *datactx, int *action, int *num, int **cfs, sds **rawkeys, sds **rawvals);
 int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, OUT void **datactx);
-int swapDataDecodeData(swapData *d, int num, int *cfs, sds *rawkeys, sds *rawvals, robj **decoded);
-int swapDataSwapIn(swapData *d, robj *result, void *datactx);
+int swapDataDecodeData(swapData *d, int num, int *cfs, sds *rawkeys, sds *rawvals, void **decoded);
+int swapDataSwapIn(swapData *d, void *result, void *datactx);
 int swapDataSwapOut(swapData *d, void *datactx);
 int swapDataSwapDel(swapData *d, void *datactx, int async);
-robj *swapDataCreateOrMergeObject(swapData *d, robj *decoded, void *datactx);
+void *swapDataCreateOrMergeObject(swapData *d, MOVE void *decoded, void *datactx);
 int swapDataCleanObject(swapData *d, void *datactx);
+int swapDataBeforeCall(swapData *d, client *c, void *datactx);
 int swapDataKeyRequestFinished(swapData *data);
 char swapDataGetObjectAbbrev(robj *value);
 void swapDataFree(swapData *data, void *datactx);
+static inline void swapDataSetObjectMeta(swapData *d, objectMeta *object_meta) {
+    d->object_meta = object_meta;
+}
+static inline void swapDataSetColdObjectMeta(swapData *d, MOVE objectMeta *cold_meta) {
+    d->cold_meta = cold_meta;
+}
+static inline void swapDataSetNewObjectMeta(swapData *d, MOVE objectMeta *new_meta) {
+    d->new_meta = new_meta;
+}
 static inline int swapDataIsCold(swapData *data) {
   return data->value == NULL;
 }
@@ -375,10 +388,13 @@ static inline objectMeta *swapDataObjectMeta(swapData *d) {
 static inline int swapDataPersisted(swapData *d) {
     return d->object_meta || d->cold_meta;
 }
-
 static inline void swapDataObjectMetaModifyLen(swapData *d, int delta) {
     objectMeta *object_meta = swapDataObjectMeta(d);
     object_meta->len += delta;
+}
+static inline void swapDataObjectMetaSetPtr(swapData *d, void *ptr) {
+    objectMeta *object_meta = swapDataObjectMeta(d);
+    object_meta->ptr = (unsigned long long)(long)ptr;
 }
 void swapDataTurnWarmOrHot(swapData *data);
 void swapDataTurnCold(swapData *data);
@@ -495,10 +511,43 @@ typedef struct setDataCtx {
 
 int swapDataSetupSet(swapData *d, OUT void **datactx);
 
-extern swapDataType setSwapDataType;
 #define setObjectMetaType lenObjectMetaType
-
 #define createSetObjectMeta(len) createLenObjectMeta(OBJ_SET, len)
+
+/* List */
+typedef struct listSwapData {
+  swapData d;
+} listSwapData;
+
+typedef struct listDataCtx {
+  struct listMeta *swap_meta;
+  int arg_rewrite[2];
+} listDataCtx;
+
+objectMeta *createListObjectMeta(MOVE struct listMeta *list_meta);
+int swapDataSetupList(swapData *d, void **pdatactx);
+
+typedef struct argRewrite {
+  int arg_idx;
+  robj *orig_arg; /* own */
+} argRewrite;
+
+#define ARG_REWRITES_MAX 2
+typedef struct argRewrites {
+  int num;
+  argRewrite rewrites[ARG_REWRITES_MAX];
+} argRewrites;
+
+argRewrites *argRewritesCreate();
+void argRewritesAdd(argRewrites *arg_rewrites, int arg_idx, MOVE robj *orig_arg);
+void argRewritesReset(argRewrites *arg_rewrites);
+void argRewritesFree(argRewrites *arg_rewrites);
+
+void clientArgRewritesRestore(client *c);
+
+void ctripListTypePush(robj *subject, robj *value, int where, redisDb *db, robj *key);
+robj *ctripListTypePop(robj *subject, int where, redisDb *db, robj *key);
+void ctripListMetaDelRange(redisDb *db, robj *key, long ltrim, long rtrim);
 
 /* MetaScan */
 #define DEFAULT_SCANMETA_BUFFER 16
@@ -542,7 +591,6 @@ typedef struct metaScanDataCtx {
     client *c;
     int limit;
     sds seek;
-    metaScanResult *result; /* ref */
     void *extend;
 } metaScanDataCtx;
 
@@ -603,7 +651,7 @@ typedef struct swapRequest {
   swapCtx *swapCtx;
   swapData *data;
   void *datactx;
-  robj *result;
+  void *result; /* ref (create in decodeData, moved to swapIn) */
   swapRequestNotifyCallback notify_cb;
   void *notify_pd;
   swapRequestFinishedCallback finish_cb;
@@ -1221,8 +1269,13 @@ int swapObjectTest(int argc, char *argv[], int accurate);
 int swapIterTest(int argc, char *argv[], int accurate);
 int metaScanTest(int argc, char *argv[], int accurate);
 int swapExpireTest(int argc, char *argv[], int accurate);
+
 int swapUtilTest(int argc, char **argv, int accurate);
 int swapListTest(int argc, char *argv[], int accurate);
+int swapListMetaTest(int argc, char *argv[], int accurate);
+int swapListDataTest(int argc, char *argv[], int accurate);
+int swapListUtilsTest(int argc, char *argv[], int accurate);
+int swapListRdbTest(int argc, char *argv[], int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 

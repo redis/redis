@@ -383,7 +383,7 @@ int metaScanEncodeKeys(swapData *data, int intention, void *datactx_,
 }
 
 int metaScanDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
-        sds *rawvals, robj **pdecoded) {
+        sds *rawvals, void **pdecoded) {
     int i, retval = 0;
     metaScanResult *result = metaScanResultCreate();
     sds nextseek_rawkey = rawkeys[num];
@@ -426,21 +426,16 @@ int metaScanDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
     return retval;
 }
 
-robj *metaScanCreateOrMergeObject(swapData *data, robj *decoded, void *datactx_) {
-    metaScanDataCtx *datactx = datactx_;
-    UNUSED(data);
-    /* metaScanResult is not robj, exec will decrRefcount if returned. so
-     * we move metaScanResult to datactx instead. */
-    serverAssert(datactx->result == NULL);
-    datactx->result = (metaScanResult*)decoded;
-    return NULL;
+void *metaScanCreateOrMergeObject(swapData *data, void *decoded, void *datactx) {
+    UNUSED(data), UNUSED(datactx);
+    return decoded;
 }
 
-int metaScanSwapIn(swapData *data, robj *result_, void *datactx_) {
+int metaScanSwapIn(swapData *data, void *result_, void *datactx_) {
     metaScanDataCtx *datactx = datactx_;
-    metaScanResult *result = datactx->result;
+    metaScanResult *result = result_;
     client *c = datactx->c;
-    UNUSED(data), UNUSED(result_);
+    UNUSED(data);
     if (c->swap_metas) freeScanMetaResult(c->swap_metas);
     c->swap_metas = result;
     metaScanDataCtxSwapIn(datactx,result);
@@ -476,6 +471,7 @@ swapDataType metaScanSwapDataType = {
     .swapDel = NULL,
     .createOrMergeObject = metaScanCreateOrMergeObject,
     .cleanObject = NULL,
+    .beforeCall = NULL,
     .free = freeMetaScanSwapData,
 };
 
@@ -498,7 +494,6 @@ int swapDataSetupMetaScan(swapData *data, uint32_t intention_flags,
     datactx->c = c;
     datactx->limit = METASCAN_DEFAULT_LIMIT;
     datactx->seek = NULL;
-    datactx->result = NULL;
     datactx->extend = NULL;
 
     if (c == NULL) {
@@ -558,7 +553,7 @@ int metaScanTest(int argc, char *argv[], int accurate) {
         sds *rawkeys, *orawkeys, *orawvals;
         metaScanDataCtx *datactx;
         metaScanDataCtxScan *scanctx;
-        robj *decoded;
+        void *decoded;
         swapData *data;
         metaScanResult *result;
 
@@ -611,7 +606,6 @@ int metaScanTest(int argc, char *argv[], int accurate) {
         zfree(orawvals);
 
         swapDataCreateOrMergeObject(data,decoded,datactx);
-        test_assert((void*)datactx->result == (void*)decoded);
 
         retval = swapDataSwapIn(data,(robj*)result,datactx);
         test_assert(retval == 0);

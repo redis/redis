@@ -268,6 +268,7 @@ void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
     /* if (c->cmd->proc != evictCommand) */
         /* serverLog(LL_WARNING,"< client:%ld, cmd:%s key:%s",c->id, c->cmd->name, key? (sds)key->ptr:"nil"); */
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
+    swapDataBeforeCall(ctx->data,c,ctx->datactx);
     if (c->keyrequests_count == 0) {
         continueProcessCommand(c);
     }
@@ -436,7 +437,6 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         robj *key = key_request->key;
         swapCtx *ctx = swapCtxCreate(c,key_request,cb); /*key_request moved.*/
 
-
         if (key) clientHoldKey(c,key,0);
 #ifdef SWAP_DEBUG
         msgs = &ctx->msgs;
@@ -596,6 +596,7 @@ int clearTestRedisServer() {
 }
 int swapTest(int argc, char **argv, int accurate) {
   int result = 0;
+<<<<<<< HEAD
   result += swapWaitTest(argc, argv, accurate);
   result += swapWaitReentrantTest(argc, argv, accurate);
   result += swapWaitAckTest(argc, argv, accurate);
@@ -611,7 +612,7 @@ int swapTest(int argc, char **argv, int accurate) {
   result += metaScanTest(argc, argv, accurate);
   result += swapUtilTest(argc, argv, accurate);
   result += swapExpireTest(argc, argv, accurate);
-  result += swapListTest(argc, argv, accurate);
+  result += swapListDataTest(argc, argv, accurate);
   return result;
 }
 #endif

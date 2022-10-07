@@ -30,6 +30,8 @@
 
 /* List meta */
 
+#define LIST_INITIAL_INDEX (LONG_MAX>>1)
+
 #define SEGMENT_TYPE_HOT 0
 #define SEGMENT_TYPE_COLD 1
 #define SEGMENT_TYPE_BOTH 2
@@ -60,6 +62,8 @@ typedef struct listMetaIterator {
     listMeta *meta; /* ref to meta */
 } listMetaIterator;
 
+typedef void (*selectElementCallback)(long ridx, robj *ele, void *pd);
+
 static inline int segmentTypeMatch(int segtypes, int segtype) {
     return segtype == segtypes || segtypes == SEGMENT_TYPE_BOTH;
 }
@@ -78,7 +82,7 @@ void listMetaIteratorInitWithType(listMetaIterator *iter, listMeta *meta, int se
     
     serverAssert(meta->num > 0);
 
-    /* skip leading empty segments or unma */
+    /* skip leading empty segments or unmatched */
     while (segidx < meta->num) {
         seg = meta->segments + segidx;
         if (seg->len > 0 && segmentTypeMatch(segtypes,seg->type)) {
@@ -90,6 +94,8 @@ void listMetaIteratorInitWithType(listMetaIterator *iter, listMeta *meta, int se
             segidx++;
         }
     }
+    if (segidx == meta->num)
+        iter->ridx = LIST_META_ITER_FINISHED;
 }
 
 void listMetaIteratorInit(listMetaIterator *iter, listMeta *meta) {
@@ -351,12 +357,13 @@ static int insegment(segment *seg, long index) {
     return seg->index <= index && index < seg->index + seg->len;
 }
 
+// TODO use 32
 // #define SEGMENT_MAX_PADDING 32
 #define SEGMENT_MAX_PADDING 0
 listMeta *listMetaCalculateSwapInMeta(listMeta *list_meta, listMeta *req_meta) {
     listMeta *swap_meta = listMetaCreate();
 
-    //TODO remove when production ready
+    //TODO remove
     serverAssert(listMetaIsValid(list_meta,1));
     serverAssert(listMetaIsValid(req_meta,0));
 
@@ -388,7 +395,7 @@ listMeta *listMetaCalculateSwapInMeta(listMeta *list_meta, listMeta *req_meta) {
                 right_index = req_seg->index + req_seg->len;
             }
 
-            listMetaAppendSegment(swap_meta,SEGMENT_TYPE_COLD,
+            listMetaAppendSegment(swap_meta,SEGMENT_TYPE_HOT,
                     left_index,right_index-left_index);
         }
     }
@@ -439,7 +446,7 @@ listMeta *listMetaCalculateSwapOutMeta(listMeta *list_meta) {
             index = seg->index + seg->len - len;
         }
 
-        listMetaAppendSegmentWithoutCheck(swap_meta,SEGMENT_TYPE_HOT,index,len);
+        listMetaAppendSegmentWithoutCheck(swap_meta,SEGMENT_TYPE_COLD,index,len);
     }
 
     /* By now, segments are ordered in zig-zag style, sort to normalize it. */
@@ -607,6 +614,94 @@ static int listMetaUpdate(listMeta *list_meta, long index, int type) {
     }
 
     return 1;
+}
+
+long listMetaLength(listMeta *list_meta, int type) {
+    segment *seg;
+    long len = 0;
+
+    serverAssert(list_meta);
+
+    switch (type) {
+    case SEGMENT_TYPE_BOTH:
+        return list_meta->len;
+    case SEGMENT_TYPE_COLD:
+    case SEGMENT_TYPE_HOT:
+        for (int i = 0; i < list_meta->num; i++) {
+            seg = list_meta->segments+i;
+            if (seg->type == type) {
+                len += seg->len;
+            }
+        }
+        return len;
+    default:
+        serverPanic("unexpected list meta type");
+        break;
+    }
+    return 0;
+}
+
+void listMetaExtend(listMeta *list_meta, long head, long tail) {
+    segment *seg;
+    serverAssert(list_meta);
+
+    long len = list_meta->len;
+    if (head < 0) len += head;
+    if (tail < 0) len += tail;
+    serverAssert(len>=0);
+
+    /* head */
+    if (head > 0) {
+        seg = listMetaFirstSegment(list_meta);
+        seg->index -= head;
+        seg->len += head;
+    } else if (head == 0) {
+        /* nop */
+    } else {
+        head = -head;
+        while (head) {
+            seg = listMetaFirstSegment(list_meta);
+            if (head < seg->len) {
+                seg->index += head;
+                seg->len -= head;
+                head = 0;
+            } else {
+                head -= seg->len;
+                memmove(list_meta->segments,list_meta->segments+1,list_meta->num-1);
+                list_meta->num--;
+            }
+        }
+    }
+
+    /* tail */
+    if (tail > 0) {
+        seg = listMetaLastSegment(list_meta);
+        seg->len += tail;
+    } else if (tail == 0) {
+        /* nop */
+    } else {
+        tail = -tail;
+        while (tail) {
+            seg = listMetaLastSegment(list_meta);
+            if (tail < seg->len) {
+                seg->len -= tail;
+                tail = 0;
+            } else {
+                tail -= seg->len;
+                list_meta->num--;
+            }
+        }
+    }
+}
+
+listMeta *listMetaDup(listMeta *list_meta) {
+    listMeta *lm = zmalloc(sizeof(listMeta));
+    lm->len = list_meta->len;
+    lm->num = list_meta->num;
+    lm->capacity = list_meta->capacity;
+    lm->segments = zmalloc(sizeof(segment)*lm->len);
+    memcpy(lm->segments,list_meta->segments,sizeof(segment)*lm->num);
+    return lm;
 }
 
 sds listMetaDump(sds result, listMeta *lm) {
@@ -916,6 +1011,43 @@ long metaListMerge(metaList *main, metaList *delta) {
     return merged;
 }
 
+int metaListSelect(metaList *main, listMeta *delta, selectElementCallback cb, void *pd) {
+    long selected = 0;
+    metaListIterator main_iter;
+    listMetaIterator delta_iter;
+
+    metaListIterInit(&main_iter,main);
+    listMetaIteratorInit(&delta_iter,delta);
+
+    while (!listMetaIterFinished(&delta_iter) && !metaListIterFinished(&main_iter)) {
+        int delta_type, main_type;
+        long delta_ridx, main_ridx;
+
+        delta_ridx = listMetaIterCur(&delta_iter,&delta_type);
+        serverAssert(delta_type == SEGMENT_TYPE_COLD);
+
+        main_ridx = metaListIterCur(&main_iter,&main_type,NULL);
+        serverAssert(main_type == SEGMENT_TYPE_HOT);
+
+        if (delta_ridx < main_ridx) {
+            listMetaIterNext(&delta_iter);
+        } else if (delta_ridx == main_ridx) {
+            robj *ele = NULL;
+            metaListIterCur(&main_iter,&main_type,&ele);
+            cb(main_ridx,ele,pd);
+            listMetaIterNext(&delta_iter);
+            metaListIterNext(&main_iter);
+            selected++;
+        } else {
+            metaListIterNext(&main_iter);
+        }
+    }
+    listMetaIteratorDeinit(&delta_iter);
+    metaListIterDeinit(&main_iter);
+
+    return selected;
+}
+
 int metaListExclude(metaList *main, listMeta *delta) {
     long excluded = 0;
     listMetaIterator delta_iter;
@@ -942,7 +1074,652 @@ int metaListExclude(metaList *main, listMeta *delta) {
     return excluded;
 }
 
+/* List object meta */
+objectMeta *createListObjectMeta(listMeta *list_meta) {
+    objectMeta *object_meta = createObjectMeta(OBJ_LIST);
+    objectMetaSetPtr(object_meta,list_meta);
+	return object_meta;
+}
+
+#define LIST_META_ENCODED_INITAL_LEN 32
+/*  len(# of elements) | num (# of segments) | (ridx,len) ... */
+
+static sds encodeListMeta(listMeta *lm) {
+    sds result;
+
+    if (lm == NULL) return NULL;
+
+    result = sdsnewlen(SDS_NOINIT,LIST_META_ENCODED_INITAL_LEN);
+    result = sdscatlen(result,&lm->len,sizeof(lm->len));
+    result = sdscatlen(result,&lm->num,sizeof(lm->num));
+
+    for (int i = 0; i < lm->len; i++) {
+        segment *seg = lm->segments+i;
+        long ridx = seg->index;
+        result = sdscatlen(result,&ridx,sizeof(ridx));
+        result = sdscatlen(result,&seg->len,sizeof(seg->len));
+    }
+
+    return result;
+}
+
+sds encodeListObjectMeta(struct objectMeta *object_meta) {
+    if (object_meta == NULL) return NULL;
+    serverAssert(object_meta->object_type == OBJ_LIST);
+    return encodeListMeta(objectMetaGetPtr(object_meta));
+}
+
+static listMeta *decodeListMeta(const char *extend, size_t extlen) {
+    listMeta *lm = listMetaCreate();
+
+    if (extlen < sizeof(lm->len)) goto err;
+    memcpy(&lm->len,extend,sizeof(lm->len));
+    extend += sizeof(lm->len), extlen -= sizeof(lm->len);
+
+    if (extlen < sizeof(lm->num)) goto err;
+    memcpy(&lm->num,extend,sizeof(lm->num));
+    extend += sizeof(lm->num), extlen -= sizeof(lm->num);
+
+    for (int i = 0; i < lm->num; i++) {
+        long ridx, len;
+        if (extlen < sizeof(ridx) + sizeof(len)) goto err;
+        memcpy(&ridx,extend,sizeof(ridx));
+        extend += sizeof(ridx), extlen -= sizeof(ridx);
+        memcpy(&len,extend,sizeof(len));
+        extend += sizeof(len), extlen -= sizeof(len);
+    }
+
+    return lm;
+
+err:
+    listMetaFree(lm);
+    return NULL;
+}
+
+int decodeListObjectMeta(struct objectMeta *object_meta, const char *extend, size_t extlen) {
+    serverAssert(object_meta->object_type == OBJ_LIST);
+    serverAssert(objectMetaGetPtr(object_meta) == NULL);
+    objectMetaSetPtr(object_meta,decodeListMeta(extend,extlen));
+    return objectMetaGetPtr(object_meta) != NULL;
+}
+
+
+int listObjectMetaIsHot(objectMeta *object_meta, robj *value) {
+    serverAssert(value && object_meta && object_meta->object_type == OBJ_LIST);
+    listMeta *lm = objectMetaGetPtr(object_meta);
+    if (lm == NULL) {
+        return 1;
+    } else {
+        return listMetaLength(lm,SEGMENT_TYPE_BOTH) ==
+            listMetaLength(lm,SEGMENT_TYPE_HOT);
+    }
+}
+
+void listObjectMetaFree(objectMeta *object_meta) {
+    if (object_meta == NULL) return;
+    listMetaFree(objectMetaGetPtr(object_meta));
+}
+
+void listObjectMetaDup(struct objectMeta *dup_meta, struct objectMeta *object_meta) {
+    if (object_meta == NULL) return;
+    serverAssert(dup_meta->object_type == OBJ_LIST);
+    serverAssert(objectMetaGetPtr(dup_meta) == NULL);
+    if (objectMetaGetPtr(object_meta) == NULL) return;
+    objectMetaSetPtr(dup_meta,listMetaDup(objectMetaGetPtr(object_meta)));
+}
+
+objectMetaType listObjectMetaType = {
+    .encodeObjectMeta = encodeListObjectMeta,
+    .decodeObjectMeta = decodeListObjectMeta,
+    .objectIsHot = listObjectMetaIsHot,
+    .free = listObjectMetaFree,
+    .duplicate = listObjectMetaDup,
+};
+
+
 /* List swap data */
+long ctripListLength(robj *list, objectMeta *object_meta) {
+    serverAssert(list || object_meta);
+    if (object_meta == NULL) return listTypeLength(list);
+    listMeta *lm = objectMetaGetPtr(object_meta);
+    return lm->len;
+}
+
+static void mockListForDeleteIfCold(swapData *data) {
+	if (swapDataIsCold(data)) {
+        /* empty list allowed */
+		dbAdd(data->db,data->key,createQuicklistObject());
+	}
+}
+
+static listMeta *swapDataGetListMeta(swapData *data) {
+    objectMeta *object_meta = swapDataObjectMeta(data);
+    return object_meta ? objectMetaGetPtr(object_meta) : NULL;
+}
+
+static void swapDataInitMetaList(swapData *data, metaList *ml) {
+    ml->meta = swapDataGetListMeta(data);
+    ml->list = data->value;
+}
+
+/* unlike hash/set, list elements are either in memlist or rockslist
+ * (never both), because otherwise frequently used lpop(rpop) commands
+ * have to issue swap to delete pushed elements, which introduces io
+ * latency. so if a list is hot, there are no elements in rocksdb. */
+int listSwapAna(swapData *data, struct keyRequest *req,
+        int *intention, uint32_t *intention_flags, void *datactx_) {
+    listDataCtx *datactx = datactx_;
+    int cmd_intention = req->cmd_intention;
+    uint32_t cmd_intention_flags = req->cmd_intention_flags;
+
+    switch (cmd_intention) {
+    case SWAP_NOP:
+        *intention = SWAP_NOP;
+        *intention_flags = 0;
+        break;
+    case SWAP_IN:
+        if (!swapDataPersisted(data) || swapDataIsHot(data)) {
+            /* No need to swap for pure hot key (list hot is pure hot) */
+            *intention = SWAP_NOP;
+            *intention_flags = 0;
+        } else if (req->l.num_ranges == 0) {
+            if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
+                mockListForDeleteIfCold(data);
+                *intention = SWAP_DEL;
+                *intention_flags = SWAP_FIN_DEL_SKIP;
+            } else if (cmd_intention_flags == SWAP_IN_META) {
+                if (!swapDataIsCold(data)) {
+                    *intention = SWAP_NOP;
+                    *intention_flags = 0;
+                } else {
+                    /* LLEN: swap in first element if cold */
+                    listMeta *lm = swapDataGetListMeta(data),
+                        *swap_meta = listMetaCreate();
+                    segment *first_seg = listMetaFirstSegment(lm);
+                    listMetaAppendSegment(swap_meta,SEGMENT_TYPE_HOT,
+                            first_seg->index,1);
+                    datactx->swap_meta = swap_meta;
+                    *intention = SWAP_IN;
+                    *intention_flags = SWAP_IN_DEL;
+                }
+            } else {
+                /* LINSERT/LREM/LPOS, swap in all elements */
+                objectMeta *object_meta = swapDataObjectMeta(data);
+                long llen = ctripListLength(data->value,object_meta);
+                listMeta *swap_meta,
+                         *req_meta = listMetaCreate(),
+                         *list_meta = swapDataGetListMeta(data);
+                listMetaAppendSegment(req_meta,SEGMENT_TYPE_HOT,0,llen);
+                swap_meta = listMetaCalculateSwapInMeta(list_meta,req_meta);
+                *intention = SWAP_IN;
+                *intention_flags = SWAP_EXEC_IN_DEL;
+                datactx->swap_meta = swap_meta;
+                listMetaFree(req_meta);
+            }
+        } else { /* list range requests */
+            listMeta *req_meta, *list_meta, *swap_meta;
+            objectMeta *object_meta = swapDataObjectMeta(data);
+            long llen = ctripListLength(data->value,object_meta);
+            list_meta = swapDataGetListMeta(data);
+            req_meta = listMetaNormalizeFromRequest(req->l.num_ranges,
+                    req->l.ranges,llen);
+            swap_meta = listMetaCalculateSwapInMeta(list_meta,req_meta);
+            if (swap_meta && swap_meta->len) {
+                *intention = SWAP_IN;
+                *intention_flags = SWAP_EXEC_IN_DEL;
+            } else {
+                *intention = SWAP_NOP;
+                *intention_flags = 0;
+            }
+            datactx->swap_meta = swap_meta;
+            listMetaFree(req_meta);
+        }
+        break;
+    case SWAP_OUT:
+        if (swapDataIsCold(data)) {
+            *intention = SWAP_NOP;
+            *intention_flags = 0;
+        } else {
+            listMeta *list_meta;
+
+            if (!swapDataPersisted(data)) {
+                /* create new meta if this is a pure hot key */
+                listMeta *lm = listMetaCreate();
+                listMetaAppendSegment(lm,SEGMENT_TYPE_HOT,LIST_INITIAL_INDEX,
+                        listTypeLength(data->value));
+                data->new_meta = createListObjectMeta(lm);
+            }
+
+            list_meta = swapDataGetListMeta(data);
+            datactx->swap_meta = listMetaCalculateSwapOutMeta(list_meta);
+
+            *intention = SWAP_OUT;
+            if (list_meta->len == 
+                    listMetaLength(datactx->swap_meta,SEGMENT_TYPE_BOTH))
+                *intention_flags = SWAP_EXEC_OUT_META;
+            else
+                *intention_flags = 0;
+        }
+        break;
+    case SWAP_DEL:
+        if (!swapDataPersisted(data) || swapDataIsHot(data)) {
+            *intention = SWAP_NOP;
+            *intention_flags = 0;
+        } else {
+            *intention = SWAP_DEL;
+            *intention_flags = 0;
+        }
+        break;
+    default:
+        break;
+    }
+
+    return 0;
+}
+
+static inline sds listEncodeSubkey(redisDb *db, sds key, long ridx) {
+    serverAssert(ridx >= 0);
+    sds subkey = sdsnewlen(&ridx,sizeof(ridx));
+    sds rawkey = rocksEncodeDataKey(db,key,subkey);
+    sdsfree(subkey);
+    return rawkey;
+}
+
+static void listEncodeDeleteRange(swapData *data, sds *start, sds *end) {
+    *start = rocksEncodeDataKey(data->db,data->key->ptr,NULL);
+    *end = rocksCalculateNextKey(*start);
+    serverAssert(NULL != *end);
+}
+
+int listEncodeKeys(swapData *data, int intention, void *datactx_,
+        int *action, int *numkeys, int **pcfs, sds **prawkeys) {
+    listDataCtx *datactx = datactx_;
+    listMeta *swap_meta = datactx->swap_meta;
+    sds *rawkeys = NULL;
+    int *cfs = NULL;
+
+    switch (intention) {
+    case SWAP_IN:
+        if (swap_meta->len > 0) {
+            int neles = 0;
+            listMetaIterator lmiter;
+
+            cfs = zmalloc(sizeof(int)*swap_meta->len);
+            rawkeys = zmalloc(sizeof(sds)*swap_meta->len);
+
+            //TODO opt: use scan/iterate if too many eles
+            listMetaIteratorInitWithType(&lmiter,swap_meta,SEGMENT_TYPE_COLD);
+            while (!listMetaIterFinished(&lmiter)) {
+                long ridx = listMetaIterCur(&lmiter,NULL);
+                cfs[neles] = DATA_CF;
+                rawkeys[neles] = listEncodeSubkey(data->db,data->key->ptr,ridx);
+                neles++;
+            }
+
+            *numkeys = neles;
+            *pcfs = cfs;
+            *prawkeys = rawkeys;
+            *action = ROCKS_MULTIGET;
+        } else {/* Swap in entire list(LREM/LINSERT/LPOS...) */
+            cfs = zmalloc(sizeof(int));
+            rawkeys = zmalloc(sizeof(sds));
+            cfs[0] = DATA_CF;
+            rawkeys[0] = listEncodeSubkey(data->db,data->key->ptr,0);
+            *numkeys = 1;
+            *pcfs = cfs;
+            *prawkeys = rawkeys;
+            *action = ROCKS_SCAN;
+        }
+        return 0;
+    case SWAP_DEL:
+        if (swapDataPersisted(data)) {
+            int *cfs = zmalloc(sizeof(int)*2);
+            rawkeys = zmalloc(sizeof(sds)*2);
+            listEncodeDeleteRange(data,&rawkeys[0],&rawkeys[1]);
+            cfs[0] = cfs[1] = DATA_CF;
+            *numkeys = 2;
+            *pcfs = cfs;
+            *prawkeys = rawkeys;
+            *action = ROCKS_DELETERANGE;
+        } else {
+            *action = 0;
+            *numkeys = 0;
+            *pcfs = NULL;
+            *prawkeys = NULL;
+        }
+        return 0;
+    case SWAP_OUT:
+    default:
+        /* Should not happen .*/
+        *action = 0;
+        *numkeys = 0;
+        *pcfs = NULL;
+        *prawkeys = NULL;
+        return 0;
+    }
+
+    return 0;
+}
+
+static inline sds listEncodeSubval(robj *subval) {
+    return rocksEncodeValRdb(subval);
+}
+
+typedef struct encodeElementPd {
+    int *cfs;
+    sds *rawkeys;
+    sds *rawvals;
+    int capacity;
+    int num;
+    swapData *data;
+} encodeElementPd;
+
+void encodeElement(long ridx, MOVE robj *ele, void *pd_) {
+    encodeElementPd *pd = pd_;
+    pd->cfs[pd->num] = DATA_CF;
+    pd->rawkeys[pd->num] = listEncodeSubkey(pd->data->db,
+            pd->data->key->ptr,ridx);
+    pd->rawvals[pd->num] = listEncodeSubval(ele);
+    pd->num++;
+    decrRefCount(ele);
+}
+
+int listEncodeData(swapData *data, int intention, void *datactx_,
+        int *action, int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
+    metaList main;
+    encodeElementPd *pd;
+    listDataCtx *datactx = datactx_;
+    listMeta *swap_meta = datactx->swap_meta;
+    int capacity = swap_meta->len;
+
+    swapDataInitMetaList(data,&main);
+
+    serverAssert(intention == SWAP_OUT);
+    serverAssert(!swapDataIsCold(data));
+
+    pd = zcalloc(sizeof(encodeElementPd));
+    pd->num = 0;
+    pd->cfs = zmalloc(capacity*sizeof(int));
+    pd->rawkeys = zmalloc(capacity*sizeof(sds));
+    pd->rawvals = zmalloc(capacity*sizeof(sds));
+    pd->capacity = capacity;
+    pd->data = data;
+
+    metaListSelect(&main,swap_meta,encodeElement,pd);
+
+    *action = ROCKS_WRITE;
+    *numkeys = pd->num;
+    *pcfs = pd->cfs;
+    *prawkeys = pd->rawkeys;
+    *prawvals = pd->rawvals;
+
+    zfree(pd);
+    return 0;
+}
+
+int listDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
+        sds *rawvals, void **pdecoded) {
+    listMeta *meta = listMetaCreate();
+    robj *list = createQuicklistObject();
+    metaList *delta = metaListBuild(meta,list);
+
+    serverAssert(num >= 0);
+    UNUSED(cfs);
+
+    for (int i = 0; i < num; i++) {
+        int dbid;
+        long ridx;
+        const char *keystr, *subkeystr;
+        size_t klen, slen;
+        robj *subvalobj;
+
+        if (rawvals[i] == NULL)
+            continue;
+        if (rocksDecodeDataKey(rawkeys[i],sdslen(rawkeys[i]),
+                &dbid,&keystr,&klen,&subkeystr,&slen) < 0)
+            continue;
+        if (!swapDataPersisted(data))
+            continue;
+        if (slen != sizeof(ridx))
+            continue;
+        ridx = *(long*)subkeystr;
+
+        subvalobj = rocksDecodeValRdb(rawvals[i]);
+        serverAssert(subvalobj->type == OBJ_STRING);
+        /* subvalobj might be shared integer, unshared it before
+         * add to decoded. */
+        subvalobj = unshareStringValue(subvalobj);
+        listMetaAppendSegmentWithoutCheck(meta,SEGMENT_TYPE_HOT,ridx,1);
+        listTypePush(list,subvalobj,LIST_TAIL);
+        decrRefCount(subvalobj);
+    }
+
+    *pdecoded = delta;
+    return 0;
+}
+
+void *listCreateOrMergeObject(swapData *data, MOVE void *decoded, void *datactx) {
+    void *result;
+    UNUSED(datactx);
+    metaList *delta = decoded, main;
+
+    if (swapDataIsCold(data) || delta == NULL) {
+        /* decoded moved back to swap framework again (result will later be
+         * pass as swapIn param). */
+        result = delta;
+    } else {
+        swapDataInitMetaList(data,&main);
+        metaListMerge(&main,delta);
+        metaListFree(delta);
+        result = NULL;
+    }
+    return result;
+}
+
+int listSwapIn(swapData *data, MOVE void *result_, void *datactx) {
+    metaList *result = result_;
+    UNUSED(datactx);
+    /* hot key no need to swap in, this must be a warm or cold key. */
+    serverAssert(swapDataPersisted(data));
+    if (swapDataIsCold(data) && result != NULL /* may be empty */) {
+        serverAssert(data->cold_meta);
+        listMeta *meta = swapDataGetListMeta(data);
+        metaList main = {meta,createQuicklistObject()};
+        /* memory manage is little bit tricky here:
+         * - meta is owned by data->cold_meta, which will be moved to db.meta
+         * - list is created and moved to db.dict
+         * - contents in result will be swapped or copied to meta & list */
+        metaListMerge(&main,result);
+        /* cold key swapped in result (may be empty). */
+        dbAdd(data->db,data->key,main.list);
+        /* expire will be swapped in later by swap framework. */
+        serverAssert(main.meta == objectMetaGetPtr(data->cold_meta));
+        dbAddMeta(data->db,data->key,data->cold_meta);
+        data->cold_meta = NULL; /* moved */
+        metaListFree(result);
+    } else {
+        if (result) metaListFree(result);
+    }
+
+    return 0;
+}
+
+int listCleanObject(swapData *data, void *datactx_) {
+    metaList main;
+    listDataCtx *datactx = datactx_;
+    if (swapDataIsCold(data)) return 0;
+    swapDataInitMetaList(data,&main);
+    metaListExclude(&main,datactx->swap_meta);
+    return 0;
+}
+
+/* subkeys already cleaned by cleanObject(to save cpu usage of main thread),
+ * swapout only updates db.dict keyspace, meta (db.meta/db.expire) swapped
+ * out by swap framework. */
+int listSwapOut(swapData *data, void *datactx) {
+    UNUSED(datactx);
+    serverAssert(!swapDataIsCold(data));
+
+    if (listTypeLength(data->value) == 0) {
+        /* all elements swapped out, key turnning into cold:
+         * - rocks-meta should have already persisted.
+         * - object_meta and value will be deleted by dbDelete, expire already
+         *   deleted by swap framework. */
+        dbDelete(data->db,data->key);
+        /* new_meta exists if hot key turns cold directly, in which case
+         * new_meta not moved to db.meta nor updated but abandonded. */
+        if (data->new_meta) {
+            freeObjectMeta(data->new_meta);
+            data->new_meta = NULL;
+        }
+    } else { /* not all elements swapped out. */
+        if (data->new_meta) {
+            dbAddMeta(data->db,data->key,data->new_meta);
+            data->new_meta = NULL; /* moved to db.meta */
+        }
+    }
+
+    return 0;
+}
+
+int listSwapDel(swapData *data, void *datactx, int del_skip) {
+    UNUSED(datactx);
+    if (del_skip) {
+        if (!swapDataIsCold(data))
+            dbDeleteMeta(data->db,data->key);
+        return 0;
+    } else {
+        if (!swapDataIsCold(data))
+            /* both value/object_meta/expire are deleted */
+            dbDelete(data->db,data->key);
+        return 0;
+    }
+}
+
+/* arg rewrite */
+argRewrites *argRewritesCreate() {
+    argRewrites *arg_rewrites = zmalloc(sizeof(argRewrites));
+    argRewritesReset(arg_rewrites);
+    return arg_rewrites;
+}
+
+void argRewritesAdd(argRewrites *arg_rewrites, int arg_idx, MOVE robj *orig_arg) {
+    serverAssert(arg_rewrites->num < ARG_REWRITES_MAX);
+    argRewrite *rewrite = arg_rewrites->rewrites + arg_rewrites->num;
+    rewrite->arg_idx = arg_idx;
+    rewrite->orig_arg = orig_arg;
+    arg_rewrites->num++;
+}
+
+void argRewritesReset(argRewrites *arg_rewrites) {
+    memset(arg_rewrites,0,sizeof(argRewrites));
+}
+
+void argRewritesFree(argRewrites *arg_rewrites) {
+    if (arg_rewrites) zfree(arg_rewrites);
+}
+
+void clientArgRewritesRestore(client *c) {
+    for (int i = 0; i < c->swap_arg_rewrites->num; i++) {
+        argRewrite *rewrite = c->swap_arg_rewrites->rewrites+i;
+        serverAssert(rewrite->arg_idx < c->argc);
+        decrRefCount(c->argv[rewrite->arg_idx]);
+        c->argv[rewrite->arg_idx] = rewrite->orig_arg;
+    }
+    argRewritesReset(c->swap_arg_rewrites);
+}
+
+void clientArgRewrite(client *c, int arg_idx, MOVE robj *new_arg) {
+    serverAssert(arg_idx < c->argc);
+    robj *orig_arg =c->argv[arg_idx];
+    c->argv[arg_idx] = new_arg;
+    argRewritesAdd(c->swap_arg_rewrites,arg_idx,orig_arg);
+}
+
+int listBeforeCall(swapData *data, client *c, void *datactx_) {
+    listDataCtx *datactx = datactx_;
+
+    for (int i = 0; i < 2; i++) {
+        int arg_idx = datactx->arg_rewrite[i];
+        if (arg_idx > 0) {
+            long long index;
+            int ret = getLongLongFromObject(c->argv[arg_idx],&index);
+            serverAssert(ret == C_OK);
+            long midx = listMetaGetMidx(swapDataGetListMeta(data),index);
+            robj *new_arg = createStringObjectFromLongLong(midx);
+            clientArgRewrite(c,arg_idx,new_arg);
+        }
+    }
+
+    return 0;
+}
+
+/* Only free extend fields here, base fields (key/value/object_meta) freed
+ * in swapDataFree */
+void freeListSwapData(swapData *data_, void *datactx_) {
+    UNUSED(data_);
+    listDataCtx *datactx = datactx_;
+    if (datactx->swap_meta) {
+        listMetaFree(datactx->swap_meta);
+        datactx->swap_meta = NULL;
+    }
+    zfree(datactx);
+}
+
+swapDataType listSwapDataType = {
+    .name = "list",
+    .swapAna = listSwapAna,
+    .encodeKeys = listEncodeKeys,
+    .encodeData = listEncodeData,
+    .decodeData = listDecodeData,
+    .swapIn = listSwapIn,
+    .swapOut = listSwapOut,
+    .swapDel = listSwapDel,
+    .createOrMergeObject = listCreateOrMergeObject,
+    .cleanObject = listCleanObject,
+    .beforeCall = listBeforeCall,
+    .free = freeListSwapData,
+};
+
+int swapDataSetupList(swapData *d, void **pdatactx) {
+    d->type = &listSwapDataType;
+    d->omtype = &listObjectMetaType;
+    listDataCtx *datactx = zmalloc(sizeof(listDataCtx));
+    datactx->swap_meta = NULL;
+    datactx->arg_rewrite[0] = datactx->arg_rewrite[1] = 0;
+    *pdatactx = datactx;
+    return 0;
+}
+
+/* List utils */
+static inline listMeta *lookupListMeta(redisDb *db, robj *key) {
+    objectMeta *object_meta = lookupMeta(db,key);
+    if (object_meta == NULL) return NULL;
+    serverAssert(object_meta->object_type == OBJ_HASH);
+    return objectMetaGetPtr(object_meta);
+}
+
+void ctripListTypePush(robj *subject, robj *value, int where, redisDb *db, robj *key) {
+    listTypePush(subject,value,where);
+    if (server.swap_mode == SWAP_MODE_MEMORY) return; 
+    long head = where == LIST_HEAD ? 1 : 0;
+    long tail = where == LIST_TAIL ? 1 : 0;
+    listMetaExtend(lookupListMeta(db,key),head,tail);
+}
+
+robj *ctripListTypePop(robj *subject, int where, redisDb *db, robj *key) {
+    robj *val = listTypePop(subject,where);
+    if (server.swap_mode == SWAP_MODE_MEMORY) return val;
+    long head = where == LIST_HEAD ? -1 : 0;
+    long tail = where == LIST_TAIL ? -1 : 0;
+    listMetaExtend(lookupListMeta(db,key),head,tail);
+    return val;
+}
+
+void ctripListMetaDelRange(redisDb *db, robj *key, long ltrim, long rtrim) {
+    if (server.swap_mode == SWAP_MODE_MEMORY) return;
+    listMetaExtend(lookupListMeta(db,key),-ltrim,-rtrim);
+}
 
 /* List rdb save */
 
@@ -993,8 +1770,15 @@ void turnListMeta2Type(listMeta *lm, int type) {
     }
 }
 
+void selectElements(long ridx, robj *ele, void *pd) {
+    UNUSED(ridx),UNUSED(ele),UNUSED(pd);
+    robj *list = pd;
+    listTypePush(list,ele,LIST_TAIL);
+    decrRefCount(ele);
+}
+
 void initServerConfig(void);
-int swapListTest(int argc, char *argv[], int accurate) {
+int swapListMetaTest(int argc, char *argv[], int accurate) {
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(accurate);
@@ -1193,9 +1977,6 @@ int swapListTest(int argc, char *argv[], int accurate) {
         listMetaFree(lm);
     }
 
-#undef SEGMENT_MAX_PADDING
-#define SEGMENT_MAX_PADDING 0
-
     TEST("list-meta: calculate swap in meta") {
         listMeta *lm = listMetaCreate(), *qm, *sm;
         /* hot */
@@ -1385,6 +2166,332 @@ int swapListTest(int argc, char *argv[], int accurate) {
         metaListDestroy(main);
     }
 
+    TEST("meta-list: select") {
+        listMeta *meta = listMetaCreate();
+        robj *list = createQuicklistObject();
+        metaList *main = metaListBuild(meta,list);
+        robj *selected;
+
+        metaListPush6Seg(main);
+        selected = createQuicklistObject();
+
+        /* skip if overlaps with main cold */
+        range req1[1] = { {10,11} };
+        listMeta *meta1 = listMetaNormalizeFromRequest(1,req1,60);
+        turnListMeta2Type(meta1,SEGMENT_TYPE_COLD);
+        test_assert(metaListSelect(main,meta1,selectElements,selected) == 0);
+        test_assert(listTypeLength(selected) == 0);
+        listMetaFree(meta1);
+
+        /* select cold segment */
+        range req2[1] = { {0,1} };
+        listMeta *meta2 = listMetaNormalizeFromRequest(1,req2,60);
+        turnListMeta2Type(meta2,SEGMENT_TYPE_COLD);
+        test_assert(metaListSelect(main,meta2,selectElements,selected) == 2);
+        test_assert(listTypeLength(selected) == 2);
+        listMetaFree(meta2);
+
+        /* exclude and split */
+        range req3[1] = { {25,26} };
+        listMeta *meta3 = listMetaNormalizeFromRequest(1,req3,60);
+        turnListMeta2Type(meta3,SEGMENT_TYPE_COLD);
+        test_assert(metaListSelect(main,meta3,selectElements,selected) == 2);
+        test_assert(listTypeLength(selected) == 4);
+        listMetaFree(meta3);
+
+        /* complex */
+        decrRefCount(selected), selected = createQuicklistObject();
+        range req4[3] = { {5,14}, {15,44}, {50,52} };
+        listMeta *meta4 = listMetaNormalizeFromRequest(3,req4,60);
+        turnListMeta2Type(meta4,SEGMENT_TYPE_COLD);
+        test_assert(metaListSelect(main,meta4,selectElements,selected) == 20);
+        test_assert(listTypeLength(selected) == 20);
+        listMetaFree(meta4);
+        metaListDestroy(main);
+        decrRefCount(selected);
+    }
+
+    return error;
+}
+
+#define cleanListTestData() do {                        \
+    /* clean previous state */                          \
+    if (puredata) swapDataFree(puredata,puredatactx);   \
+    if (hotdata) swapDataFree(hotdata,hotdatactx);      \
+    if (warmdata) swapDataFree(warmdata,warmdatactx);   \
+    if (colddata) swapDataFree(colddata,colddatactx);   \
+    dbDelete(db,purekey), dbDelete(db,hotkey), dbDelete(db,warmkey), dbDelete(db,coldkey); \
+} while (0)
+
+#define setListTestData() do {              \
+    /* create new state */                  \
+    pure = createQuicklistObject();         \
+    hot = createQuicklistObject();          \
+    warm = createQuicklistObject();         \
+    listTypePush(pure,ele1,LIST_TAIL), listTypePush(pure,ele2,LIST_TAIL), listTypePush(pure,ele3,LIST_TAIL);\
+    listTypePush(hot,ele1,LIST_TAIL), listTypePush(hot,ele2,LIST_TAIL), listTypePush(hot,ele3,LIST_TAIL);   \
+    listTypePush(warm,ele1,LIST_TAIL);      \
+    hotlm = listMetaCreate();               \
+    warmlm = listMetaCreate();              \
+    coldlm = listMetaCreate();              \
+    listMetaAppendSegment(hotlm,SEGMENT_TYPE_HOT,0,3);      \
+    listMetaAppendSegment(warmlm,SEGMENT_TYPE_HOT,0,1);     \
+    listMetaAppendSegment(warmlm,SEGMENT_TYPE_COLD,1,2);    \
+    listMetaAppendSegment(coldlm,SEGMENT_TYPE_COLD,0,3);    \
+    hotmeta = createListObjectMeta(hotlm);      \
+    warmmeta = createListObjectMeta(warmlm);    \
+    coldmeta = createListObjectMeta(coldlm);    \
+    puredata = createSwapData(db,purekey,pure); \
+    hotdata = createSwapData(db,hotkey,hot);    \
+    warmdata = createSwapData(db,warmkey,warm); \
+    colddata = createSwapData(db,coldkey,NULL); \
+    swapDataSetupMeta(puredata,OBJ_LIST,-1,&puredatactx);   \
+    swapDataSetupMeta(hotdata,OBJ_LIST,-1,&hotdatactx), swapDataSetObjectMeta(hotdata,hotmeta);         \
+    swapDataSetupMeta(warmdata,OBJ_LIST,-1,&warmdatactx), swapDataSetObjectMeta(warmdata,warmmeta);     \
+    swapDataSetupMeta(colddata,OBJ_LIST,-1,&colddatactx), swapDataSetColdObjectMeta(colddata,coldmeta); \
+    dbAdd(db,purekey,pure), dbAdd(db,hotkey,hot), dbAdd(db,warmkey,warm); \
+    dbAddMeta(db,hotkey,hotmeta), dbAddMeta(db,warmkey,warmmeta); \
+} while (0)
+
+#define resetListTestData() do {            \
+    cleanListTestData();                    \
+    setListTestData();                      \
+} while (0)
+
+void swapDataSetColdObjectMeta(swapData *d, MOVE objectMeta *object_meta);
+
+int swapListDataTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc), UNUSED(argv), UNUSED(accurate);
+    int error = 0;
+
+    redisDb *db;
+    robj *ele1, *ele2, *ele3;
+    robj *purekey, *hotkey, *warmkey, *coldkey;
+    robj *pure, *hot, *warm;
+    listMeta *hotlm, *warmlm, *coldlm;
+    objectMeta *hotmeta, *warmmeta, *coldmeta;
+    swapData *puredata = NULL, *hotdata = NULL, *warmdata = NULL, *colddata = NULL;
+    void *puredatactx = NULL, *hotdatactx = NULL, *warmdatactx = NULL, *colddatactx = NULL;
+
+    TEST("list-data: init") {
+        initTestRedisServer();
+        db = server.db;
+        server.swap_evict_step_max_memory = 1*1024*1024;
+        server.swap_evict_step_max_subkeys = 1024;
+
+        ele1 = createStringObject("ele1",4);
+        ele2 = createStringObject("ele2",4);
+        ele3 = createStringObject("ele3",4);
+        purekey = createStringObject("pure",3);
+        hotkey = createStringObject("hot",3);
+        warmkey = createStringObject("warm",4);
+        coldkey = createStringObject("cold",4);
+
+        resetListTestData();
+    }
+
+    TEST("list-data: swapAna") {
+        int intention;
+        uint32_t intention_flags;
+        keyRequest kr[1];
+        range *full = zmalloc(sizeof(range));
+        full->start = 0, full->end = 3;
+        kr->level = REQUEST_LEVEL_KEY, kr->dbid = 0;
+        /* nop: pure/hot/in.meta warm/... */
+        kr->cmd_intention = SWAP_IN, kr->cmd_intention_flags = 0, kr->key = purekey, kr->l.num_ranges = 1, kr->l.ranges = full;
+        swapDataAna(puredata,kr,&intention,&intention_flags,puredatactx);
+        test_assert(intention == SWAP_NOP && intention_flags == 0);
+        kr->cmd_intention = SWAP_IN, kr->cmd_intention_flags = 0, kr->key = hotkey, kr->l.num_ranges = 1, kr->l.ranges = full;
+        swapDataAna(hotdata,kr,&intention,&intention_flags,hotdatactx);
+        test_assert(intention == SWAP_NOP && intention_flags == 0);
+        kr->cmd_intention = SWAP_IN, kr->cmd_intention_flags = SWAP_IN_META, kr->key = warmkey, kr->l.num_ranges = 0, kr->l.ranges = NULL;
+        swapDataAna(warmdata,kr,&intention,&intention_flags,warmdatactx);
+        test_assert(intention == SWAP_NOP && intention_flags == 0);
+        /* in: in warm/in.meta cold/... */
+        kr->cmd_intention = SWAP_IN, kr->cmd_intention_flags = 0, kr->key = warmkey, kr->l.num_ranges = 0, kr->l.ranges = NULL;
+        swapDataAna(warmdata,kr,&intention,&intention_flags,warmdatactx);
+        test_assert(intention == SWAP_IN && intention_flags == SWAP_IN_DEL);
+        listDataCtx *warmctx = warmdatactx;
+        test_assert(warmctx->swap_meta->len == 2 && warmctx->swap_meta->segments[0].len == 2);
+        kr->cmd_intention = SWAP_IN, kr->cmd_intention_flags = SWAP_IN_META, kr->key = coldkey, kr->l.num_ranges = 0, kr->l.ranges = NULL;
+        swapDataAna(colddata,kr,&intention,&intention_flags,colddatactx);
+        test_assert(intention == SWAP_IN && intention_flags == SWAP_IN_DEL);
+        listDataCtx *coldctx = colddatactx;
+        test_assert(coldctx->swap_meta->len == 1 && coldctx->swap_meta->segments[0].len == 1);
+        /* out: out by small steps  */
+        kr->cmd_intention = SWAP_OUT, kr->cmd_intention_flags = 0, kr->key = purekey, kr->l.num_ranges = 0, kr->l.ranges = NULL;
+        swapDataAna(puredata,kr,&intention,&intention_flags,puredatactx);
+        test_assert(intention == SWAP_OUT && intention_flags == SWAP_EXEC_OUT_META);
+        listDataCtx *purectx = puredatactx;
+        test_assert(purectx->swap_meta->len == 3 && purectx->swap_meta->segments[0].len == 3);
+        /* del: in.mock cold/del cold */
+        kr->cmd_intention = SWAP_IN, kr->cmd_intention_flags = SWAP_IN_DEL_MOCK_VALUE, kr->key = coldkey, kr->l.num_ranges = 0, kr->l.ranges = NULL;
+        swapDataAna(colddata,kr,&intention,&intention_flags,colddatactx);
+        test_assert(intention == SWAP_DEL && intention_flags == SWAP_FIN_DEL_SKIP);
+        kr->cmd_intention = SWAP_DEL, kr->cmd_intention_flags = 0, kr->key = coldkey, kr->l.num_ranges = 0, kr->l.ranges = NULL;
+        swapDataAna(colddata,kr,&intention,&intention_flags,colddatactx);
+        test_assert(intention == SWAP_DEL && intention_flags == 0);
+
+        zfree(full);
+        resetListTestData();
+    }
+
+    TEST("list-data: encode/decode") {
+        int action, numkeys, *cfs;
+        sds *rawkeys, *rawvals,
+            rawkey0 = listEncodeSubkey(db,hotkey->ptr,0),
+            rawval0 = listEncodeSubval(ele1);
+        metaList *decoded;
+        listDataCtx *hotctx = hotdatactx;
+        hotctx->swap_meta = listMetaCreate();
+        listMetaAppendSegment(hotctx->swap_meta,SEGMENT_TYPE_COLD,0,3);
+
+        listEncodeData(hotdata,SWAP_OUT,hotdatactx,
+                &action,&numkeys,&cfs,&rawkeys,&rawvals);
+        test_assert(action == ROCKS_WRITE && numkeys == 3 && cfs[0] == DATA_CF);
+        test_assert(!sdscmp(rawkeys[0],rawkey0) && !sdscmp(rawvals[0],rawval0));
+
+        listDecodeData(hotdata,numkeys,cfs,rawkeys,rawvals,(void**)&decoded);
+        test_assert(listTypeLength(decoded->list) == 3);
+        test_assert(listMetaLength(decoded->meta,SEGMENT_TYPE_BOTH) == 3);
+        test_assert(listMetaLength(decoded->meta,SEGMENT_TYPE_HOT) == 3);
+
+        sdsfree(rawkey0), sdsfree(rawval0);
+        for (int i = 0; i < numkeys; i++) {
+            sdsfree(rawkeys[i]), sdsfree(rawvals[i]);
+        }
+        zfree(cfs), zfree(rawkeys), zfree(rawvals);
+        metaListDestroy(decoded);
+
+        resetListTestData();
+    }
+
+    TEST("list-data: swapin/swapout case-1") {
+        /* pure => warm => cold */
+        listMeta *swap_meta;
+        objectMeta *object_meta;
+        robj *value;
+        listDataCtx *purectx = puredatactx;
+
+        listMeta *purelm = listMetaCreate();
+        listMetaAppendSegment(purelm,SEGMENT_TYPE_HOT,0,3);
+        objectMeta *puremeta = createListObjectMeta(purelm);
+        swapDataSetNewObjectMeta(puredata,puremeta);  
+        swap_meta = listMetaCreate();
+        listMetaAppendSegment(swap_meta,SEGMENT_TYPE_COLD,1,2);
+        purectx->swap_meta = swap_meta;
+        listCleanObject(puredata,puredatactx);
+        listSwapOut(puredata,puredatactx);
+        object_meta = lookupMeta(db,purekey);
+        test_assert(object_meta != NULL);
+        test_assert(listMetaLength(objectMetaGetPtr(object_meta),SEGMENT_TYPE_BOTH) == 3);
+        test_assert(listMetaLength(objectMetaGetPtr(object_meta),SEGMENT_TYPE_COLD) == 2);
+        listMetaFree(swap_meta);
+        /* after swap out, puremeta moved from swapdata to db.meta, so we
+         * need to set object_meta for puredata(now warm actually) again. */
+        puremeta = lookupMeta(db,purekey);
+        swapDataSetObjectMeta(puredata,puremeta);
+        swap_meta = listMetaCreate();
+        listMetaAppendSegment(swap_meta,SEGMENT_TYPE_COLD,0,3/*exceeds range*/);
+        purectx->swap_meta = swap_meta;
+        listCleanObject(puredata,puredatactx);
+        listSwapOut(puredata,puredatactx);
+        object_meta = lookupMeta(db,purekey);
+        test_assert(object_meta == NULL);
+        value = lookupKey(db,purekey,LOOKUP_NOTOUCH);
+        test_assert(value == NULL);
+        // listMetaFree(swap_meta);
+
+        /* cold => warm => hot */
+        listMeta *delta1_meta = listMetaCreate();
+        listMetaAppendSegment(delta1_meta,SEGMENT_TYPE_HOT,1,1);
+        metaList *delta1 = metaListBuild(delta1_meta,createQuicklistObject());
+        metaListPopulateList(delta1);
+        listCreateOrMergeObject(colddata,delta1,colddatactx);
+        listSwapIn(colddata,delta1,colddatactx);
+        value = lookupKey(db,coldkey,LOOKUP_NOTOUCH);
+        test_assert(value != NULL && listTypeLength(value) == 1);
+        object_meta = lookupMeta(db,coldkey);
+        test_assert(object_meta != NULL && 
+                listMetaLength(objectMetaGetPtr(object_meta),SEGMENT_TYPE_BOTH) == 3 &&
+                listMetaLength(objectMetaGetPtr(object_meta),SEGMENT_TYPE_HOT) == 1);
+        /* after swap in cold_meta will be moved to db.meta, reset to swapin again. */
+        swapDataSetObjectMeta(colddata,object_meta);
+        incrRefCount(value);
+        colddata->value = value;
+        listMeta *delta2_meta = listMetaCreate();
+        listMetaAppendSegment(delta2_meta,SEGMENT_TYPE_HOT,0,3);
+        metaList *delta2 = metaListBuild(delta2_meta,createQuicklistObject());
+        metaListPopulateList(delta2);
+        listCreateOrMergeObject(colddata,delta2,colddatactx);
+        listSwapIn(colddata,delta1,colddatactx);
+        test_assert(listTypeLength(value) == 3);
+        test_assert(listMetaLength(objectMetaGetPtr(object_meta),SEGMENT_TYPE_BOTH) == 3 &&
+                listMetaLength(objectMetaGetPtr(object_meta),SEGMENT_TYPE_HOT) == 3);
+
+        metaListDestroy(delta1);
+        metaListDestroy(delta2);
+        resetListTestData();
+    }
+
+    TEST("list-data: swapin/swapout case-2") {
+        /* hot => cold */
+        listMeta *swap_meta;
+        objectMeta *object_meta;
+        robj *value;
+        listDataCtx *purectx = puredatactx;
+
+        listMeta *purelm = listMetaCreate();
+        listMetaAppendSegment(purelm,SEGMENT_TYPE_HOT,0,3);
+        objectMeta *puremeta = createListObjectMeta(purelm);
+        swapDataSetNewObjectMeta(puredata,puremeta);  
+        swap_meta = listMetaCreate();
+        listMetaAppendSegment(swap_meta,SEGMENT_TYPE_COLD,0,3);
+        purectx->swap_meta = swap_meta;
+        listCleanObject(puredata,puredatactx);
+        listSwapOut(puredata,puredatactx);
+        object_meta = lookupMeta(db,purekey);
+        test_assert(object_meta == NULL);
+        value = lookupKey(db,purekey,LOOKUP_NOTOUCH);
+        test_assert(value == NULL);
+
+        /* cold => hot */
+        colddata->value = NULL;
+        listMeta *delta1_meta = listMetaCreate();
+        listMetaAppendSegment(delta1_meta,SEGMENT_TYPE_HOT,0,3);
+        metaList *delta1 = metaListBuild(delta1_meta,createQuicklistObject());
+        metaListPopulateList(delta1);
+        listCreateOrMergeObject(colddata,delta1,colddatactx);
+        listSwapIn(colddata,delta1,colddatactx);
+        value = lookupKey(db,coldkey,LOOKUP_NOTOUCH);
+        test_assert(value != NULL && listTypeLength(value) == 3);
+        object_meta = lookupMeta(db,coldkey);
+        test_assert(object_meta != NULL && 
+                listMetaLength(objectMetaGetPtr(object_meta),SEGMENT_TYPE_BOTH) == 3 &&
+                listMetaLength(objectMetaGetPtr(object_meta),SEGMENT_TYPE_HOT) == 3);
+        test_assert(keyIsHot(object_meta,value));
+
+        metaListDestroy(delta1);
+        cleanListTestData();
+    }
+
+    TEST("list-data: deinit") {
+        decrRefCount(ele1), decrRefCount(ele2), decrRefCount(ele3);
+        decrRefCount(purekey), decrRefCount(hotkey), decrRefCount(warmkey), decrRefCount(coldkey);
+    }
+
+    return error;
+}
+
+int swapListUtilsTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc), UNUSED(argv), UNUSED(accurate);
+    int error = 0;
+    return error;
+}
+
+int swapListRdbTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc), UNUSED(argv), UNUSED(accurate);
+    int error = 0;
     return error;
 }
 

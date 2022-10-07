@@ -149,7 +149,7 @@ int hashSwapAna(swapData *data, struct keyRequest *req,
 
             /* create new meta if needed */
             if (!swapDataPersisted(data))
-                data->new_meta = createHashObjectMeta(0);
+                swapDataSetNewObjectMeta(data,createHashObjectMeta(0));
 
             if (!data->value->dirty) {
                 /* directly evict value from db.dict if not dirty. */
@@ -280,7 +280,7 @@ int hashEncodeData(swapData *data, int intention, void *datactx_,
 
 /* decoded object move to exec module */
 int hashDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
-        sds *rawvals, robj **pdecoded) {
+        sds *rawvals, void **pdecoded) {
     int i;
     robj *decoded;
     serverAssert(num >= 0);
@@ -335,13 +335,12 @@ int hashDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
 static inline robj *createSwapInObject(robj *newval) {
     robj *swapin = newval;
     serverAssert(newval && newval->type == OBJ_HASH);
-    incrRefCount(newval);
     swapin->dirty = 0;
     return swapin;
 }
 
 /* Note: meta are kept as long as there are data in rocksdb. */
-int hashSwapIn(swapData *data, robj *result, void *datactx) {
+int hashSwapIn(swapData *data, void *result, void *datactx) {
     UNUSED(datactx);
     /* hot key no need to swap in, this must be a warm or cold key. */
     serverAssert(swapDataPersisted(data));
@@ -354,6 +353,8 @@ int hashSwapIn(swapData *data, robj *result, void *datactx) {
             dbAddMeta(data->db,data->key,data->cold_meta);
             data->cold_meta = NULL; /* moved */
         }
+    } else {
+        if (result) decrRefCount(result);
     }
 
     return 0;
@@ -403,8 +404,9 @@ int hashSwapDel(swapData *data, void *datactx, int del_skip) {
 }
 
 /* Decoded moved back by exec to hashSwapData */
-robj *hashCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) {
-    robj *result;
+void *hashCreateOrMergeObject(swapData *data, void *decoded_, void *datactx) {
+    robj *result, *decoded = decoded_;
+
     UNUSED(datactx);
     serverAssert(decoded == NULL || decoded->type == OBJ_HASH);
 
@@ -475,6 +477,7 @@ swapDataType hashSwapDataType = {
     .swapDel = hashSwapDel,
     .createOrMergeObject = hashCreateOrMergeObject,
     .cleanObject = hashCleanObject,
+    .beforeCall = NULL,
     .free = freeHashSwapData,
 };
 
@@ -854,7 +857,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
     }
 
     TEST("hash - encodeData/DecodeData") {
-        robj *decoded;
+        void *decoded;
         size_t old = server.swap_evict_step_max_subkeys;
         hashSwapData *hash1_data_ = (hashSwapData*)hash1_data;
         server.swap_evict_step_max_subkeys = 1024;

@@ -163,7 +163,7 @@ int wholeKeyEncodeData(swapData *data, int intention, void *datactx,
 
 /* decoded move to exec module */
 int wholeKeyDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
-        sds *rawvals, robj **pdecoded) {
+        sds *rawvals, void **pdecoded) {
     serverAssert(num == 1);
     UNUSED(data);
     UNUSED(rawkeys);
@@ -188,10 +188,9 @@ robj *dupSharedObject(robj *o) {
     }
 }
 
-static robj *createSwapInObject(robj *newval) {
+static robj *createSwapInObject(MOVE robj *newval) {
     robj *swapin = newval;
     serverAssert(newval);
-    incrRefCount(newval);
     /* Copy swapin object before modifing If newval is shared object. */
     if (newval->refcount == OBJ_SHARED_REFCOUNT)
         swapin = dupSharedObject(newval);
@@ -199,13 +198,14 @@ static robj *createSwapInObject(robj *newval) {
     return swapin;
 }
 
-int wholeKeySwapIn(swapData *data_, robj *result, void *datactx) {
+int wholeKeySwapIn(swapData *data_, MOVE void *result, void *datactx) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
     UNUSED(datactx);
     robj *swapin;
     serverAssert(data->d.value == NULL);
     swapin = createSwapInObject(result);
     dbAdd(data->d.db,data->d.key,swapin);
+    //TODO remove
     if (data->d.expire != -1)
         setExpire(NULL,data->d.db,data->d.key,data->d.expire);
     return 0;
@@ -215,6 +215,7 @@ int wholeKeySwapOut(swapData *data, void *datactx) {
     UNUSED(datactx);
     redisDb *db = data->db;
     robj *key = data->key;
+    //TODO remove
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     /* TODO opt lazyfree_lazy_swap_del */
     if (dictSize(db->dict) > 0) dictDelete(db->dict,key->ptr);
@@ -226,13 +227,14 @@ int wholeKeySwapDel(swapData *data, void *datactx, int async) {
     redisDb *db = data->db;
     robj *key = data->key;
     if (async) return 0;
+    //TODO remove
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     if (data->value) dictDelete(db->dict,key->ptr);
     return 0;
 }
 
 /* decoded moved back by exec to wholekey then moved to exec again. */
-robj *wholeKeyCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) {
+void *wholeKeyCreateOrMergeObject(swapData *data, void *decoded, void *datactx) {
     UNUSED(data);
     UNUSED(datactx);
     serverAssert(decoded);
@@ -250,6 +252,7 @@ swapDataType wholeKeySwapDataType = {
     .swapDel = wholeKeySwapDel,
     .createOrMergeObject = wholeKeyCreateOrMergeObject,
     .cleanObject = NULL,
+    .beforeCall = NULL,
     .free = NULL,
 };
 
@@ -509,10 +512,10 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(!memcmp(rawkeys[0], "\x00\x00\x00\x00\x00\x00\x00\x03key", 11));
 #endif
 
-        robj* decoded;
+        void* decoded;
         result = wholeKeyDecodeData(data, numkeys, cfs, rawkeys, rawvals, &decoded);
         test_assert(result == C_OK);
-        test_assert(strcmp(decoded->ptr ,"value") == 0);
+        test_assert(strcmp(((robj*)decoded)->ptr ,"value") == 0);
         swapDataFree(data, ctx);
     }
     

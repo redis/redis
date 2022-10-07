@@ -147,7 +147,7 @@ int setSwapAna(swapData *data, struct keyRequest *req,
 
                 /* create new meta if needed */
                 if (!swapDataPersisted(data))
-                    data->new_meta = createSetObjectMeta(0);
+                    swapDataSetNewObjectMeta(data,createSetObjectMeta(0));
 
                 if (!data->value->dirty) {
                     /* directly evict value from db.dict if not dirty. */
@@ -274,7 +274,7 @@ int setEncodeData(swapData *data, int intention, void *datactx_,
 
 /* decoded object move to exec module */
 int setDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
-                   sds *rawvals, robj **pdecoded) {
+                   sds *rawvals, void **pdecoded) {
     int i;
     robj *decoded;
     serverAssert(num >= 0);
@@ -312,13 +312,13 @@ int setDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
 static inline robj *createSwapInObject(robj *newval) {
     robj *swapin = newval;
     serverAssert(newval && newval->type == OBJ_SET);
-    incrRefCount(newval);
     swapin->dirty = 0;
     return swapin;
 }
 
 /* Note: meta are kept as long as there are data in rocksdb. */
-int setSwapIn(swapData *data, robj *result, void *datactx) {
+int setSwapIn(swapData *data, void *result_, void *datactx) {
+    robj *result = result_;
     UNUSED(datactx);
     /* hot key no need to swap in, this must be a warm or cold key. */
     serverAssert(swapDataPersisted(data));
@@ -331,6 +331,8 @@ int setSwapIn(swapData *data, robj *result, void *datactx) {
             dbAddMeta(data->db,data->key,data->cold_meta);
             data->cold_meta = NULL; /* moved */
         }
+    } else {
+        if (result) decrRefCount(result);
     }
 
     return 0;
@@ -380,8 +382,8 @@ int setSwapDel(swapData *data, void *datactx, int del_skip) {
 }
 
 /* Decoded moved back by exec to setSwapData */
-robj *setCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) {
-    robj *result;
+void *setCreateOrMergeObject(swapData *data, void *decoded_, void *datactx) {
+    robj *result, *decoded = decoded_;
     UNUSED(datactx);
     serverAssert(decoded == NULL || decoded->type == OBJ_SET);
 
@@ -442,6 +444,7 @@ swapDataType setSwapDataType = {
     .swapDel = setSwapDel,
     .createOrMergeObject = setCreateOrMergeObject,
     .cleanObject = setCleanObject,
+    .beforeCall = NULL,
     .free = freeSetSwapData,
 };
 
@@ -702,7 +705,8 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
     int error = 0;
     swapData *set1_data, *cold1_data;
     setDataCtx *set1_ctx, *cold1_ctx;
-    robj *key1, *set1, *cold1, *cold1_evict, *decoded;
+    robj *key1, *set1, *cold1, *cold1_evict;
+    void *decoded;
     keyRequest _kr1, *kr1 = &_kr1, _cold_kr1, *cold_kr1 = &_cold_kr1;
     objectMeta *cold1_meta;
     robj *subkeys1[4];

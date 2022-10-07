@@ -125,7 +125,7 @@ inline int swapDataEncodeData(swapData *d, int intention, void *datactx,
 
 /* Swap-thread: decode val/subval from rawvalss returned by rocksdb. */
 inline int swapDataDecodeData(swapData *d, int num, int *cfs, sds *rawkeys,
-        sds *rawvals, robj **decoded) {
+        sds *rawvals, void **decoded) {
     if (d->type->decodeData)
         return d->type->decodeData(d,num,cfs,rawkeys,rawvals,decoded);
     else
@@ -133,7 +133,7 @@ inline int swapDataDecodeData(swapData *d, int num, int *cfs, sds *rawkeys,
 }
 
 /* Main-thread: swap in created or merged result into keyspace. */
-inline int swapDataSwapIn(swapData *d, robj *result, void *datactx) {
+inline int swapDataSwapIn(swapData *d, void *result, void *datactx) {
     if (d->type->swapIn)
         return d->type->swapIn(d,result,datactx);
     else
@@ -159,7 +159,7 @@ inline int swapDataSwapDel(swapData *d, void *datactx, int async) {
 /* Swap-thread: prepare robj to be merged.
  * - create new object: return newly created object.
  * - merge fields into robj: subvals merged into db.value, returns NULL */
-inline robj *swapDataCreateOrMergeObject(swapData *d, robj *decoded,
+inline void *swapDataCreateOrMergeObject(swapData *d, void *decoded,
         void *datactx) {
     if (d->type->createOrMergeObject)
         return d->type->createOrMergeObject(d,decoded,datactx);
@@ -174,6 +174,14 @@ inline int swapDataCleanObject(swapData *d, void *datactx) {
     else
         return 0;
 }
+
+inline int swapDataBeforeCall(swapData *d, client *c, void *datactx) {
+    if (d->type->beforeCall)
+        return d->type->beforeCall(d,c,datactx);
+    else
+        return 0;
+}
+
 
 inline void swapDataFree(swapData *d, void *datactx) {
     /* free extend */
@@ -227,6 +235,8 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
         retval = swapDataSetupSet(d,datactx);
         break;
     case OBJ_LIST:
+        retval = swapDataSetupList(d,datactx);
+        break;
     case OBJ_ZSET:
     case OBJ_STREAM:
         retval = SWAP_ERR_SETUP_UNSUPPORTED;
@@ -236,18 +246,6 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
         break;
     }
     return retval;
-}
-
-void swapDataSetObjectMeta(swapData *d, objectMeta *object_meta) {
-    d->object_meta = object_meta;
-}
-
-void swapDataSetColdObjectMeta(swapData *d, MOVE objectMeta *object_meta) {
-    d->cold_meta = object_meta;
-}
-
-void swapDataSetNewObjectMeta(swapData *d, MOVE objectMeta *object_meta) {
-    d->new_meta = object_meta;
 }
 
 int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {

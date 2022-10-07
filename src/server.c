@@ -3841,6 +3841,9 @@ void call(client *c, int flags) {
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
+    if (server.swap_mode != SWAP_MODE_MEMORY)
+        clientArgRewritesRestore(c);
+
     /* Update failed command calls if required.
      * We leverage a static variable (prev_err_count) to retain
      * the counter across nested function calls and avoid logging

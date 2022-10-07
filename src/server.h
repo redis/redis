@@ -1000,6 +1000,7 @@ typedef struct client {
     sds swap_scan_nextseek;
     struct metaScanResult *swap_metas;
     int swap_errcode;
+    struct argRewrites *swap_arg_rewrites;
 } client;
 
 struct saveparam {

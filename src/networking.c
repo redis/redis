@@ -211,6 +211,7 @@ client *createClient(connection *conn) {
     c->swap_scan_nextseek = NULL;
     c->swap_metas = NULL;
     c->swap_errcode = 0;
+    c->swap_arg_rewrites = argRewritesCreate();
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);
@@ -1508,6 +1509,7 @@ void freeClient(client *c) {
         freeScanMetaResult(c->swap_metas);
         c->swap_metas = NULL;
     }
+    argRewritesFree(c->swap_arg_rewrites);
     zfree(c);
 }
 

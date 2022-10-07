@@ -193,6 +193,7 @@ void replWorkerClientKeyRequestFinished(client *wc, swapCtx *ctx) {
     DEBUG_MSGS_APPEND(&ctx->msgs, "request-finished", "errcode=%d",ctx->errcode);
 
     if (ctx->errcode) clientSwapError(wc,ctx->errcode);
+    swapDataBeforeCall(ctx->data,wc,ctx->datactx);
 
     /* Flag swap finished, note that command processing will be defered to
      * processFinishedReplCommands becasue there might be unfinished preceeding swap. */

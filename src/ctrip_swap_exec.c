@@ -833,7 +833,7 @@ static int doSwapIntentionDel(swapRequest *req, int numkeys, int *cfs, sds *rawk
 }
 
 static void executeSwapInRequest(swapRequest *req) {
-    robj *decoded;
+    void *decoded;
     int numkeys, errcode, action, *cfs = NULL;
     sds *rawkeys = NULL;
     RIO _rio = {0}, *rio = &_rio;
@@ -1211,7 +1211,6 @@ swapRequest *swapRequestNew(keyRequest *key_request, int intention,
 }
 
 void swapRequestFree(swapRequest *req) {
-    if (req->result) decrRefCount(req->result);
     zfree(req);
 }
 
