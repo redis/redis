@@ -1189,6 +1189,14 @@ typedef struct client {
     char *buf;
 } client;
 
+/* ACL information */
+typedef struct aclInfo {
+    long long user_auth_failures; /* Auth failure counts on user level */
+    long long invalid_cmd_accesses; /* Invalid command accesses that user doesn't have permission to */
+    long long invalid_key_accesses; /* Invalid key accesses that user doesn't have permission to */
+    long long invalid_channel_accesses; /* Invalid channel accesses that user doesn't have permission to */
+} aclInfo;
+
 struct saveparam {
     time_t seconds;
     int changes;
@@ -1899,6 +1907,7 @@ struct redisServer {
                                      the old "requirepass" directive for
                                      backward compatibility with Redis <= 5. */
     int acl_pubsub_default;      /* Default ACL pub/sub channels flag */
+    aclInfo acl_info; /* ACL info */
     /* Assert & bug reporting */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
@@ -2798,6 +2807,7 @@ void ACLFreeUserAndKillClients(user *u);
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object);
 const char* getAclErrorMessage(int acl_res);
 void ACLUpdateDefaultUserPassword(sds password);
+sds genRedisInfoStringACLStats(sds info);
 
 /* Sorted sets data type */
 

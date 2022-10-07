@@ -2479,6 +2479,21 @@ void ACLFreeLogEntry(void *leptr) {
     zfree(le);
 }
 
+/* Update the relevant counter by the reason */
+void ACLUpdateInfoMetrics(int reason){
+    if (reason == ACL_DENIED_AUTH) {
+        server.acl_info.user_auth_failures++;
+    } else if (reason == ACL_DENIED_CMD) {
+        server.acl_info.invalid_cmd_accesses++;
+    } else if (reason == ACL_DENIED_KEY) {
+        server.acl_info.invalid_key_accesses++;
+    } else if (reason == ACL_DENIED_CHANNEL) {
+        server.acl_info.invalid_channel_accesses++;
+    } else {
+        serverPanic("Unknown ACL_DENIED encoding");
+    }
+}
+
 /* Adds a new entry in the ACL log, making sure to delete the old entry
  * if we reach the maximum length allowed for the log. This function attempts
  * to find similar entries in the current log in order to bump the counter of
@@ -2495,6 +2510,9 @@ void ACLFreeLogEntry(void *leptr) {
  * If `object` is not NULL, this functions takes over it.
  */
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object) {
+    /* Update ACL info metrics */
+    ACLUpdateInfoMetrics(reason);
+    
     /* Create a new entry. */
     struct ACLLogEntry *le = zmalloc(sizeof(*le));
     le->count = 1;
