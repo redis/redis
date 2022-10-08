@@ -56,7 +56,8 @@ void listTypeConvertListpack(robj *o, int enc) {
 
 /* Check the length and size of a number of objects that will be added to list to see
  * if we need to convert a listpack to a quicklist. Note that we only check string
- * encoded objects as their string length can be queried in constant time. */
+ * encoded objects as their string length can be queried in constant time.
+ * Return 1 if the list encoding changed. */
 int listTypeTryConvertListpack(robj *o, robj **argv, int start, int end) {
     if (o->encoding != OBJ_ENCODING_LISTPACK) return 0;
 
@@ -80,9 +81,10 @@ int listTypeTryConvertListpack(robj *o, robj **argv, int start, int end) {
     return 0;
 }
 
-/* Check the length and size of a quicklist to see if we need to convert it to listpack. */
+/* Check the length and size of a quicklist to see if we need to convert it to listpack.
+ * Return 1 if the list encoding changed. */
 #define QUICKLIST_CONVERT_THRESHOLD 0.5
-void listTypeTryConvertQuicklist(robj *o) {
+int listTypeTryConvertQuicklist(robj *o) {
     size_t sz_limit;
     unsigned long count_limit;
     quicklist *ql = o->ptr;
@@ -92,7 +94,7 @@ void listTypeTryConvertQuicklist(robj *o) {
     if (o->encoding != OBJ_ENCODING_QUICKLIST || ql->len != 1 ||
         ql->head->container != QUICKLIST_NODE_CONTAINER_PACKED)
     {
-        return;
+        return 0;
     }
 
     /* Note that to avoid frequent conversions of quicklist and listpack due to frequent
@@ -102,7 +104,7 @@ void listTypeTryConvertQuicklist(robj *o) {
     if ((sz_limit != SIZE_MAX && ql->head->sz > sz_limit*QUICKLIST_CONVERT_THRESHOLD) ||
         (count_limit != ULONG_MAX && ql->count > count_limit*QUICKLIST_CONVERT_THRESHOLD))
     {
-        return;
+        return 0;
     }
 
     /* Extract the listpack from the unique quicklist node,
@@ -111,6 +113,7 @@ void listTypeTryConvertQuicklist(robj *o) {
     ql->head->entry = NULL;
     quicklistRelease(ql);
     o->encoding = OBJ_ENCODING_LISTPACK;
+    return 1;
 }
 
 /* The function pushes an element to the specified list object 'subject',

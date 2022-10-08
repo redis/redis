@@ -4326,8 +4326,12 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
 int RM_ListDelete(RedisModuleKey *key, long index) {
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeDelete(key->iter, &key->u.list.entry);
-        if (!moduleDelKeyIfEmpty(key))
-            listTypeTryConvertQuicklist(key->value);
+        if (moduleDelKeyIfEmpty(key)) return REDISMODULE_OK;
+        if (listTypeTryConvertQuicklist(key->value) && key->iter) {
+            /* If the listpack was converted, we need to re-seek the iterator. */
+            listTypeReleaseIterator(key->iter);
+            key->iter = NULL;
+        }
         return REDISMODULE_OK;
     } else {
         return REDISMODULE_ERR;
