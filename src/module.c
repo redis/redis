@@ -4152,7 +4152,10 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
         key->iter = NULL;
     }
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_LIST);
-    listTypeTryConvertListpack(key->value, &ele, 0, 0);
+    if (listTypeTryConvertListpack(key->value, &ele, 0, 0)) {
+        zfree(key->iter);
+        key->iter = NULL;
+    }
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     return REDISMODULE_OK;
@@ -4189,8 +4192,12 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     robj *decoded = getDecodedObject(ele);
     decrRefCount(ele);
-    if (!moduleDelKeyIfEmpty(key))
-        listTypeTryConvertQuicklist(key->value);
+    if (!moduleDelKeyIfEmpty(key)) {
+        if (listTypeTryConvertQuicklist(key->value)) {
+            zfree(key->iter);
+            key->iter = NULL;
+        }
+    }
     autoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,decoded);
     return decoded;
 }
@@ -4244,9 +4251,8 @@ int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
-    if (listTypeTryConvertListpack(key->value, &value, 0, 0) && key->iter) {
-        /* If the listpack was converted, we need to re-seek the iterator. */
-        listTypeReleaseIterator(key->iter);
+    if (listTypeTryConvertListpack(key->value, &value, 0, 0)) {
+        zfree(key->iter);
         key->iter = NULL;
     }
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
@@ -4295,9 +4301,8 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
         /* Insert before the first element => push head. */
         return RM_ListPush(key, REDISMODULE_LIST_HEAD, value);
     }
-    if (listTypeTryConvertListpack(key->value, &value, 0, 0) && key->iter) {
-        /* If the listpack was converted, we need to re-seek the iterator. */
-        listTypeReleaseIterator(key->iter);
+    if (listTypeTryConvertListpack(key->value, &value, 0, 0)) {
+        zfree(key->iter);
         key->iter = NULL;
     }
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
@@ -4327,9 +4332,8 @@ int RM_ListDelete(RedisModuleKey *key, long index) {
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeDelete(key->iter, &key->u.list.entry);
         if (moduleDelKeyIfEmpty(key)) return REDISMODULE_OK;
-        if (listTypeTryConvertQuicklist(key->value) && key->iter) {
-            /* If the listpack was converted, we need to re-seek the iterator. */
-            listTypeReleaseIterator(key->iter);
+        if (listTypeTryConvertQuicklist(key->value)) {
+            zfree(key->iter);
             key->iter = NULL;
         }
         return REDISMODULE_OK;
