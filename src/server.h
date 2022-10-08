@@ -2600,7 +2600,7 @@ void popGenericCommand(client *c, int where);
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted);
 void listTypeConvertListpack(robj *o, int enc);
 void listTypeTryConvertQuicklist(robj *o);
-void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end);
+int listTypeTryConvertListpack(robj *o, robj **argv, int start, int end);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);

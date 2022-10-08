@@ -57,8 +57,8 @@ void listTypeConvertListpack(robj *o, int enc) {
 /* Check the length and size of a number of objects that will be added to list to see
  * if we need to convert a listpack to a quicklist. Note that we only check string
  * encoded objects as their string length can be queried in constant time. */
-void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end) {
-    if (o->encoding != OBJ_ENCODING_LISTPACK) return;
+int listTypeTryConvertListpack(robj *o, robj **argv, int start, int end) {
+    if (o->encoding != OBJ_ENCODING_LISTPACK) return 0;
 
     size_t sz_limit;
     unsigned long count_limit;
@@ -75,8 +75,9 @@ void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end) {
         !lpSafeToAdd(o->ptr, sum))
     {
         listTypeConvertListpack(o, OBJ_ENCODING_QUICKLIST);
-        return;
+        return 1;
     }
+    return 0;
 }
 
 /* Check the length and size of a quicklist to see if we need to convert it to listpack. */
