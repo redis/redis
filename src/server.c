@@ -2561,6 +2561,12 @@ void initServer(void) {
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
 
+    /* Initiate acl info struct */
+    server.acl_info.invalid_cmd_accesses = 0;
+    server.acl_info.invalid_key_accesses  = 0;
+    server.acl_info.user_auth_failures = 0;
+    server.acl_info.invalid_channel_accesses = 0;
+
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth. */
@@ -4271,10 +4277,13 @@ int finishShutdown(void) {
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
 
+#if !defined(__sun)
     /* Unlock the cluster config file before shutdown */
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1) {
         flock(server.cluster_config_file_lock_fd, LOCK_UN|LOCK_NB);
     }
+#endif /* __sun */
+
 
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");
@@ -5182,6 +5191,20 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
     return info;
 }
 
+/* Writes the ACL metrics to the info */
+sds genRedisInfoStringACLStats(sds info) {
+    info = sdscatprintf(info,
+         "acl_access_denied_auth:%lld\r\n"
+         "acl_access_denied_cmd:%lld\r\n"
+         "acl_access_denied_key:%lld\r\n"
+         "acl_access_denied_channel:%lld\r\n",
+         server.acl_info.user_auth_failures,
+         server.acl_info.invalid_cmd_accesses,
+         server.acl_info.invalid_key_accesses,
+         server.acl_info.invalid_channel_accesses);
+    return info;
+}
+
 sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
     struct redisCommand *c;
     dictEntry *de;
@@ -5793,6 +5816,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_io_writes_processed,
             server.stat_reply_buffer_shrinks,
             server.stat_reply_buffer_expands);
+        info = genRedisInfoStringACLStats(info);
     }
 
     /* Replication */

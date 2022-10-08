@@ -1754,7 +1754,7 @@ static void stress(int pos, int num, int maxsize, int dnum) {
 static unsigned char *pop(unsigned char *zl, int where) {
     unsigned char *p, *vstr;
     unsigned int vlen;
-    long long vlong;
+    long long vlong = 0;
 
     p = ziplistIndex(zl,where == ZIPLIST_HEAD ? 0 : -1);
     if (ziplistGet(p,&vstr,&vlen,&vlong)) {

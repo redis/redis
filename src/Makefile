@@ -15,7 +15,11 @@
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
-OPTIMIZATION?=-O2
+OPTIMIZATION?=-O3
+ifeq ($(OPTIMIZATION),-O3)
+	REDIS_CFLAGS+=-flto
+	REDIS_LDFLAGS+=-flto
+endif
 DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram
 NODEPS:=clean distclean
 
@@ -139,6 +143,9 @@ ifeq ($(uname_S),SunOS)
 	INSTALL=cp -pf
 	FINAL_CFLAGS+= -D__EXTENSIONS__ -D_XPG6
 	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread -lrt
+	ifeq ($(USE_BACKTRACE),yes)
+	    FINAL_CFLAGS+= -DUSE_BACKTRACE
+	endif
 else
 ifeq ($(uname_S),Darwin)
 	# Darwin
