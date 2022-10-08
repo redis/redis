@@ -122,9 +122,20 @@
                             {
                                 "token": "SKIPME",
                                 "name": "skipme",
-                                "display": "yes/no",
-                                "type": "string",
-                                "optional": true
+                                "type": "oneof",
+                                "optional": true,
+                                "arguments": [
+                                    {
+                                        "name": "yes",
+                                        "type": "pure-token",
+                                        "token": "YES"
+                                    },
+                                    {
+                                        "name": "no",
+                                        "type": "pure-token",
+                                        "token": "NO"
+                                    }
+                                ]
                             }
                         ]
                     }

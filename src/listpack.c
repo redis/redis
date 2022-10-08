@@ -882,8 +882,10 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     if (!delete) {
         if (enctype == LP_ENCODING_INT) {
             memcpy(dst,eleint,enclen);
-        } else {
+        } else if (elestr) {
             lpEncodeString(dst,elestr,size);
+        } else {
+            redis_unreachable();
         }
         dst += enclen;
         memcpy(dst,backlen,backlen_size);
