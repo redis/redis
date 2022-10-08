@@ -62,7 +62,7 @@
             {
                 "name": "newkey",
                 "type": "key",
-                "key_spec_index": 0
+                "key_spec_index": 1
             }
         ]
     }

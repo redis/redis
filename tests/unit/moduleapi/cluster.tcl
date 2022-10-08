@@ -1,75 +1,27 @@
-# Primitive tests on cluster-enabled redis with modules using redis-cli
+# Primitive tests on cluster-enabled redis with modules
 
 source tests/support/cli.tcl
-
-proc cluster_info {r field} {
-    if {[regexp "^$field:(.*?)\r\n" [$r cluster info] _ value]} {
-        set _ $value
-    }
-}
-
-# Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
-proc csi {args} {
-    set level 0
-    if {[string is integer [lindex $args 0]]} {
-        set level [lindex $args 0]
-        set args [lrange $args 1 end]
-    }
-    cluster_info [srv $level "client"] [lindex $args 0]
-}
-
-set testmodule [file normalize tests/modules/blockonkeys.so]
-set testmodule_nokey [file normalize tests/modules/blockonbackground.so]
-set testmodule_blockedclient [file normalize tests/modules/blockedclient.so]
-
-# make sure the test infra won't use SELECT
-set old_singledb $::singledb
-set ::singledb 1
 
 # cluster creation is complicated with TLS, and the current tests don't really need that coverage
 tags {tls:skip external:skip cluster modules} {
 
-# start three servers
-set base_conf [list cluster-enabled yes cluster-node-timeout 1 loadmodule $testmodule]
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
+set testmodule_nokey [file normalize tests/modules/blockonbackground.so]
+set testmodule_blockedclient [file normalize tests/modules/blockedclient.so]
+set testmodule [file normalize tests/modules/blockonkeys.so]
+
+set modules [list loadmodule $testmodule loadmodule $testmodule_nokey loadmodule $testmodule_blockedclient]
+start_cluster 3 0 [list config_lines $modules] {
 
     set node1 [srv 0 client]
     set node2 [srv -1 client]
     set node3 [srv -2 client]
     set node3_pid [srv -2 pid]
 
-    # the "overrides" mechanism can only support one "loadmodule" directive
-    $node1 module load $testmodule_nokey
-    $node2 module load $testmodule_nokey
-    $node3 module load $testmodule_nokey
-
-    $node1 module load $testmodule_blockedclient
-    $node2 module load $testmodule_blockedclient
-    $node3 module load $testmodule_blockedclient
-
-    test {Create 3 node cluster} {
-        exec src/redis-cli --cluster-yes --cluster create \
-                           127.0.0.1:[srv 0 port] \
-                           127.0.0.1:[srv -1 port] \
-                           127.0.0.1:[srv -2 port]
-
-        wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok}
-        } else {
-            fail "Cluster doesn't stabilize"
-        }
-    }
-
     test "Run blocking command (blocked on key) on cluster node3" {
         # key9184688 is mapped to slot 10923 (first slot of node 3)
         set node3_rd [redis_deferring_client -2]
         $node3_rd fsl.bpop key9184688 0
         $node3_rd flush
-
         wait_for_condition 50 100 {
             [s -2 blocked_clients] eq {1}
         } else {
@@ -117,9 +69,12 @@ start_server [list overrides $base_conf] {
 
     test "Wait for cluster to be stable" {
         wait_for_condition 1000 50 {
-            [catch {exec src/redis-cli --cluster \
-            check 127.0.0.1:[srv 0 port] \
-            }] == 0
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv 0 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -1 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -2 port]}] == 0 &&
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -180,8 +135,8 @@ start_server [list overrides $base_conf] {
         exec kill -SIGSTOP $node3_pid
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {fail} &&
-            [csi -1 cluster_state] eq {fail}
+            [CI 0 cluster_state] eq {fail} &&
+            [CI 1 cluster_state] eq {fail}
         } else {
             fail "Cluster doesn't fail"
         }
@@ -206,12 +161,5 @@ start_server [list overrides $base_conf] {
     exec kill -SIGCONT $node3_pid
     $node1_rd close
     $node2_rd close
-
-# stop three servers
 }
 }
-}
-
-} ;# tags
-
-set ::singledb $old_singledb

@@ -7,6 +7,8 @@
         "arity": 2,
         "function": "echoCommand",
         "command_flags": [
+            "LOADING",
+            "STALE",
             "FAST"
         ],
         "acl_categories": [

@@ -69,3 +69,11 @@ test "read-only blocking operations from replica" {
     assert {$res eq {foo bar}}
     $rd close
 }
+
+test "reply MOVED when eval from replica for update" {
+    catch {[$replica eval {#!lua
+        return redis.call('del','a')
+        } 1 a
+    ]} err
+    assert {[string range $err 0 4] eq {MOVED}}
+}

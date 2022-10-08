@@ -12,6 +12,13 @@ if {$::simulate_error} {
     }
 }
 
+test "Sentinel commands sanity check" {
+    foreach_sentinel_id id {
+        assert_equal {72} [llength [S $id command list]]
+        assert_equal {15} [S $id command count]
+    }
+}
+
 test "Basic failover works if the master is down" {
     set old_port [RPort $master_id]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]

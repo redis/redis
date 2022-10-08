@@ -44,6 +44,14 @@ start_server {tags {"modules"}} {
         assert { [string match "*used_memory*" $info] }
     }
 
+    test {module info all infotest} {
+        set info [r info all infotest]
+        # info all infotest should contain both ALL and the module information
+        assert { [string match "*Spanish*" $info] }
+        assert { [string match "*infotest_*" $info] }
+        assert { [string match "*used_memory*" $info] }
+    }
+
     test {module info everything} {
         set info [r info everything]
         # info everything contains all default sections, but not ones for crash report

@@ -421,8 +421,8 @@ start_server {tags {"multi"}} {
         r exec
 
         assert_replication_stream $repl {
-            {select *}
             {multi}
+            {select *}
             {set foo{t} bar}
             {set foo2{t} bar2}
             {set foo3{t} bar3}
@@ -446,8 +446,8 @@ start_server {tags {"multi"}} {
         r exec
 
         assert_replication_stream $repl {
-            {select *}
             {multi}
+            {select *}
             {set foo{t} bar}
             {select *}
             {set foo2{t} bar2}
@@ -904,8 +904,8 @@ start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} append
         r flushall
         r exec
         assert_aof_content $aof {
-            {select *}
             {multi}
+            {select *}
             {set *}
             {flushall}
             {exec}

@@ -208,6 +208,46 @@ start_server {tags {"tracking network"}} {
         assert {$res eq {key1}}
     }
 
+    test {Invalid keys should not be tracked for scripts in NOLOOP mode} {
+        $rd_sg CLIENT TRACKING off
+        $rd_sg CLIENT TRACKING on NOLOOP
+        $rd_sg HELLO 3
+        $rd_sg SET key1 1
+        assert_equal "1" [$rd_sg GET key1]
+
+        # For write command in script, invalid key should not be tracked with NOLOOP flag
+        $rd_sg eval "return redis.call('set', 'key1', '2')" 1 key1
+        assert_equal "2" [$rd_sg GET key1]
+        $rd_sg CLIENT TRACKING off
+    }
+
+    test {Tracking only occurs for scripts when a command calls a read-only command} {
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on
+        $rd_sg MSET key2{t} 1 key2{t} 1
+
+        # If a script doesn't call any read command, don't track any keys
+        r EVAL "redis.call('set', 'key3{t}', 'bar')" 2 key1{t} key2{t} 
+        $rd_sg MSET key2{t} 2 key1{t} 2
+
+        # If a script calls a read command, track all declared keys
+        r EVAL "redis.call('get', 'key3{t}')" 2 key1{t} key2{t} 
+        $rd_sg MSET key2{t} 2 key1{t} 2
+        assert_equal {invalidate key2{t}} [r read]
+        assert_equal {invalidate key1{t}} [r read]
+
+        # RO variants work like the normal variants
+        r EVAL_RO "redis.call('ping')" 2 key1{t} key2{t} 
+        $rd_sg MSET key2{t} 2 key1{t} 2
+
+        r EVAL_RO "redis.call('get', 'key1{t}')" 2 key1{t} key2{t} 
+        $rd_sg MSET key2{t} 3 key1{t} 3
+        assert_equal {invalidate key2{t}} [r read]
+        assert_equal {invalidate key1{t}} [r read]
+
+        assert_equal "PONG" [r ping]
+    }
+
     test {RESP3 Client gets tracking-redir-broken push message after cached key changed when rediretion client is terminated} {
         r CLIENT TRACKING on REDIRECT $redir_id
         $rd_sg SET key1 1
@@ -369,7 +409,7 @@ start_server {tags {"tracking network"}} {
         $r CLIENT TRACKING OFF
     }
 
-    test {hdel deliver invlidate message after response in the same connection} {
+    test {hdel deliver invalidate message after response in the same connection} {
         r CLIENT TRACKING off
         r HELLO 3
         r CLIENT TRACKING on
@@ -520,6 +560,20 @@ start_server {tags {"tracking network"}} {
         assert_equal [s 0 tracking_total_keys] 0
         assert_equal [lindex [$rd_redirection read] 2] {}
     }
+
+    test {flushdb tracking invalidation message is not interleaved with transaction response} {
+        clean_all
+        r HELLO 3
+        r CLIENT TRACKING on
+        r SET a{t} 1
+        r GET a{t}
+        r MULTI
+        r FLUSHDB
+        set res [r EXEC]
+        assert_equal $res {OK}
+        # Consume the invalidate message which is after command response
+        r read
+    } {invalidate {}}
 
     # Keys are defined to be evicted 100 at a time by default.
     # If after eviction the number of keys still surpasses the limit

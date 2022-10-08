@@ -430,7 +430,7 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
     if (usehash) loffset *= bits;
 
     /* Limit offset to server.proto_max_bulk_len (512MB in bytes by default) */
-    if (loffset < 0 || (!(c->flags & CLIENT_MASTER) && (loffset >> 3) >= server.proto_max_bulk_len))
+    if (loffset < 0 || (!mustObeyClient(c) && (loffset >> 3) >= server.proto_max_bulk_len))
     {
         addReplyError(c,err);
         return C_ERR;
@@ -1002,7 +1002,7 @@ void bitposCommand(client *c) {
     }
 }
 
-/* BITFIELD key subcommmand-1 arg ... subcommand-2 arg ... subcommand-N ...
+/* BITFIELD key subcommand-1 arg ... subcommand-2 arg ... subcommand-N ...
  *
  * Supported subcommands:
  *
@@ -1180,7 +1180,9 @@ void bitfieldGeneric(client *c, int flags) {
                     addReplyNull(c);
                 }
             } else {
-                uint64_t oldval, newval, wrapped, retval;
+                /* Initialization of 'wrapped' is required to avoid
+                * false-positive warning "-Wmaybe-uninitialized" */
+                uint64_t oldval, newval, retval, wrapped = 0;
                 int overflow;
 
                 oldval = getUnsignedBitfield(o->ptr,thisop->offset,

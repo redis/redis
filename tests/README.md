@@ -38,7 +38,7 @@ The following compatibility and capability tags are currently used:
 | `external:skip`           | Not compatible with external servers. |
 | `cluster:skip`            | Not compatible with `--cluster-mode`. |
 | `large-memory`            | Test that requires more than 100mb |
-| `tls:skip`                | Not campatible with `--tls`. |
+| `tls:skip`                | Not compatible with `--tls`. |
 | `needs:repl`              | Uses replication and needs to be able to `SYNC` from server. |
 | `needs:debug`             | Uses the `DEBUG` command or other debugging focused commands (like `OBJECT`). |
 | `needs:pfdebug`           | Uses the `PFDEBUG` command. |

@@ -401,7 +401,7 @@ void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_i
         streamID min_id = {0, 0}, max_id = {UINT64_MAX, UINT64_MAX};
         *edge_id = first ? max_id : min_id;
     }
-
+    streamIteratorStop(&si);
 }
 
 /* Adds a new item into the stream 's' having the specified number of
@@ -747,7 +747,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             streamDecodeID(ri.key, &master_id);
 
             /* Read last ID. */
-            streamID last_id;
+            streamID last_id = {0,0};
             lpGetEdgeStreamID(lp, 0, &master_id, &last_id);
 
             /* We can remove the entire node id its last ID < 'id' */
@@ -946,7 +946,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             }
             args->approx_trim = 0;
             char *next = c->argv[i+1]->ptr;
-            /* Check for the form MINID ~ <id>|<age>. */
+            /* Check for the form MINID ~ <id> */
             if (moreargs >= 2 && next[0] == '~' && next[1] == '\0') {
                 args->approx_trim = 1;
                 i++;
@@ -1000,7 +1000,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
         return -1;
     }
 
-    if (c == server.master || c->id == CLIENT_ID_AOF) {
+    if (mustObeyClient(c)) {
         /* If command came from master or from AOF we must not enforce maxnodes
          * (The maxlen/minid argument was re-written to make sure there's no
          * inconsistency). */
@@ -2144,7 +2144,7 @@ void xrevrangeCommand(client *c) {
     xrangeGenericCommand(c,1);
 }
 
-/* XLEN */
+/* XLEN key*/
 void xlenCommand(client *c) {
     robj *o;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL
@@ -2156,10 +2156,10 @@ void xlenCommand(client *c) {
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] STREAMS key_1 key_2 ... key_N
  *       ID_1 ID_2 ... ID_N
  *
- * This function also implements the XREAD-GROUP command, which is like XREAD
+ * This function also implements the XREADGROUP command, which is like XREAD
  * but accepting the [GROUP group-name consumer-name] additional option.
  * This is useful because while XREAD is a read command and can be called
- * on slaves, XREAD-GROUP is not. */
+ * on slaves, XREADGROUP is not. */
 #define XREAD_BLOCKED_DEFAULT_COUNT 1000
 void xreadCommand(client *c) {
     long long timeout = -1; /* -1 means, no BLOCK argument given. */
@@ -2566,8 +2566,8 @@ void streamDelConsumer(streamCG *cg, streamConsumer *consumer) {
  * Consumer groups commands
  * ----------------------------------------------------------------------- */
 
-/* XGROUP CREATE <key> <groupname> <id or $> [MKSTREAM] [ENTRIESADDED count]
- * XGROUP SETID <key> <groupname> <id or $> [ENTRIESADDED count]
+/* XGROUP CREATE <key> <groupname> <id or $> [MKSTREAM] [ENTRIESREAD entries_read]
+ * XGROUP SETID <key> <groupname> <id or $> [ENTRIESREAD entries_read]
  * XGROUP DESTROY <key> <groupname>
  * XGROUP CREATECONSUMER <key> <groupname> <consumer>
  * XGROUP DELCONSUMER <key> <groupname> <consumername> */
@@ -2805,7 +2805,6 @@ void xsetidCommand(client *c) {
 }
 
 /* XACK <key> <group> <id> <id> ... <id>
- *
  * Acknowledge a message as processed. In practical terms we just check the
  * pending entries list (PEL) of the group, and delete the PEL entry both from
  * the group and the consumer (pending messages are referenced in both places).
@@ -3050,7 +3049,7 @@ void xpendingCommand(client *c) {
  *        [IDLE <milliseconds>] [TIME <mstime>] [RETRYCOUNT <count>]
  *        [FORCE] [JUSTID]
  *
- * Gets ownership of one or multiple messages in the Pending Entries List
+ * Changes ownership of one or multiple messages in the Pending Entries List
  * of a given stream consumer group.
  *
  * If the message ID (among the specified ones) exists, and its idle
@@ -3316,7 +3315,7 @@ cleanup:
 
 /* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> [COUNT <count>] [JUSTID]
  *
- * Gets ownership of one or multiple messages in the Pending Entries List
+ * Changes ownership of one or multiple messages in the Pending Entries List
  * of a given stream consumer group.
  *
  * For each PEL entry, if its idle time greater or equal to <min-idle-time>,
@@ -3335,6 +3334,7 @@ void xautoclaimCommand(client *c) {
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     long long minidle; /* Minimum idle time argument, in milliseconds. */
     long count = 100; /* Maximum entries to claim. */
+    const unsigned attempts_factor = 10;
     streamID startid;
     int startex;
     int justid = 0;
@@ -3357,7 +3357,8 @@ void xautoclaimCommand(client *c) {
         int moreargs = (c->argc-1) - j; /* Number of additional arguments. */
         char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"COUNT") && moreargs) {
-            if (getRangeLongFromObjectOrReply(c,c->argv[j+1],1,LONG_MAX,&count,"COUNT must be > 0") != C_OK)
+            long max_count = LONG_MAX / (max(sizeof(streamID), attempts_factor));
+            if (getRangeLongFromObjectOrReply(c,c->argv[j+1],1,max_count,&count,"COUNT must be > 0") != C_OK)
                 return;
             j++;
         } else if (!strcasecmp(opt,"JUSTID")) {
@@ -3384,9 +3385,15 @@ void xautoclaimCommand(client *c) {
         return;
     }
 
+    streamID *deleted_ids = ztrymalloc(count * sizeof(streamID));
+    if (!deleted_ids) {
+        addReplyError(c, "Insufficient memory, failed allocating transient memory, COUNT too high.");
+        return;
+    }
+
     /* Do the actual claiming. */
     streamConsumer *consumer = NULL;
-    long long attempts = count*10;
+    long long attempts = count * attempts_factor;
 
     addReplyArrayLen(c, 3); /* We add another reply later */
     void *endidptr = addReplyDeferredLen(c); /* reply[0] */
@@ -3400,7 +3407,6 @@ void xautoclaimCommand(client *c) {
     size_t arraylen = 0;
     mstime_t now = mstime();
     sds name = c->argv[3]->ptr;
-    streamID *deleted_ids = zmalloc(count * sizeof(streamID));
     int deleted_id_num = 0;
     while (attempts-- && count && raxNext(&ri)) {
         streamNACK *nack = ri.data;
@@ -3422,6 +3428,7 @@ void xautoclaimCommand(client *c) {
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
             raxSeek(&ri,">=",ri.key,ri.key_len);
+            count--; /* Count is a limit of the command response size. */
             continue;
         }
 
@@ -3831,11 +3838,6 @@ void xinfoCommand(client *c) {
 
     /* HELP is special. Handle it ASAP. */
     if (!strcasecmp(c->argv[1]->ptr,"HELP")) {
-        if (c->argc != 2) {
-            addReplySubcommandSyntaxError(c);
-            return;
-        }
-
         const char *help[] = {
 "CONSUMERS <key> <groupname>",
 "    Show consumers of <groupname>.",
@@ -3846,9 +3848,6 @@ void xinfoCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-        return;
-    } else if (c->argc < 3) {
-        addReplySubcommandSyntaxError(c);
         return;
     }
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import subprocess
 from collections import OrderedDict
-from sys import argv, stdin
-import os
+from sys import argv
 
 
 def convert_flags_to_boolean_dict(flags):
@@ -118,7 +118,8 @@ if __name__ == '__main__':
     stdout, stderr = p.communicate()
     commands = json.loads(stdout)
 
-    p = subprocess.Popen([args.cli, '-h', args.host, '-p', str(args.port), '--json', 'command', 'docs'], stdout=subprocess.PIPE)
+    p = subprocess.Popen([args.cli, '-h', args.host, '-p', str(args.port), '--json', 'command', 'docs'],
+                         stdout=subprocess.PIPE)
     stdout, stderr = p.communicate()
     docs = json.loads(stdout)
 

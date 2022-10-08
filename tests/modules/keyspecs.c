@@ -7,6 +7,15 @@
 int kspec_impl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
     UNUSED(argc);
+
+    /* Handle getkeys-api introspection (for "kspec.nonewithgetkeys")  */
+    if (RedisModule_IsKeysPositionRequest(ctx)) {
+        for (int i = 1; i < argc; i += 2)
+            RedisModule_KeyAtPosWithFlags(ctx, i, REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_ACCESS);
+
+        return REDISMODULE_OK;
+    }
+
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
@@ -14,6 +23,13 @@ int kspec_impl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int createKspecNone(RedisModuleCtx *ctx) {
     /* A command without keyspecs; only the legacy (first,last,step) triple (MSET like spec). */
     if (RedisModule_CreateCommand(ctx,"kspec.none",kspec_impl,"",1,-1,2) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    return REDISMODULE_OK;
+}
+
+int createKspecNoneWithGetkeys(RedisModuleCtx *ctx) {
+    /* A command without keyspecs; only the legacy (first,last,step) triple (MSET like spec), but also has a getkeys callback */
+    if (RedisModule_CreateCommand(ctx,"kspec.nonewithgetkeys",kspec_impl,"getkeys-api",1,-1,2) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     return REDISMODULE_OK;
 }
@@ -40,6 +56,39 @@ int createKspecTwoRanges(RedisModuleCtx *ctx) {
                 .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 2,
+                /* Omitted find_keys_type is shorthand for RANGE {0,1,0} */
+            },
+            {0}
+        }
+    };
+    if (RedisModule_SetCommandInfo(command, &info) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    return REDISMODULE_OK;
+}
+
+int createKspecTwoRangesWithGap(RedisModuleCtx *ctx) {
+    /* Test that two position/range-based key specs are combined to produce the
+     * legacy (first,last,step) values representing just one key. */
+    if (RedisModule_CreateCommand(ctx,"kspec.tworangeswithgap",kspec_impl,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    RedisModuleCommand *command = RedisModule_GetCommand(ctx,"kspec.tworangeswithgap");
+    RedisModuleCommandInfo info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .arity = -2,
+        .key_specs = (RedisModuleCommandKeySpec[]){
+            {
+                .flags = REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_ACCESS,
+                .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
+                .bs.index.pos = 1,
+                .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
+                .fk.range = {0,1,0}
+            },
+            {
+                .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,
+                .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
+                .bs.index.pos = 3,
                 /* Omitted find_keys_type is shorthand for RANGE {0,1,0} */
             },
             {0}
@@ -177,7 +226,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (createKspecNone(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+    if (createKspecNoneWithGetkeys(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
     if (createKspecTwoRanges(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+    if (createKspecTwoRangesWithGap(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
     if (createKspecKeyword(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
     if (createKspecComplex1(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
     if (createKspecComplex2(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
