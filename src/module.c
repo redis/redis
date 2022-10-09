@@ -3838,7 +3838,7 @@ mstime_t RM_GetExpire(RedisModuleKey *key) {
     mstime_t expire = getExpire(key->db,key->key);
     if (expire == -1 || key->value == NULL)
         return REDISMODULE_NO_EXPIRE;
-    expire -= mstime();
+    expire -= commandTimeSnapshot();
     return expire >= 0 ? expire : 0;
 }
 
@@ -3855,7 +3855,7 @@ int RM_SetExpire(RedisModuleKey *key, mstime_t expire) {
     if (!(key->mode & REDISMODULE_WRITE) || key->value == NULL || (expire < 0 && expire != REDISMODULE_NO_EXPIRE))
         return REDISMODULE_ERR;
     if (expire != REDISMODULE_NO_EXPIRE) {
-        expire += mstime();
+        expire += commandTimeSnapshot();
         setExpire(key->ctx->client,key->db,key->key,expire);
     } else {
         removeExpire(key->db,key->key);
@@ -7752,6 +7752,7 @@ void moduleGILAfterLock() {
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
     server.module_ctx_nesting++;
+    updateCachedTime(0);
 }
 
 /* Acquire the server lock before executing a thread safe API call.
