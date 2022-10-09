@@ -1520,7 +1520,6 @@ struct redisServer {
     clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
-    long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     int in_nested_call;         /* If > 0, in a nested call of a call */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     pause_type client_pause_type;      /* True if clients are currently paused */
@@ -2420,7 +2419,8 @@ int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 
 /* Utils */
 long long ustime(void);
-long long mstime(void);
+mstime_t mstime(void);
+mstime_t commandTimeSnapshot(void);
 void getRandomHexChars(char *p, size_t len);
 void getRandomBytes(unsigned char *p, size_t len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);

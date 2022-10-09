@@ -168,7 +168,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
     if (unit == UNIT_SECONDS) *milliseconds *= 1000;
 
     if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
-        *milliseconds += mstime();
+        *milliseconds += commandTimeSnapshot();
     }
 
     if (*milliseconds <= 0) {
