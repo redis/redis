@@ -254,6 +254,10 @@ extern objectMetaType listObjectMetaType;
 int buildObjectMeta(int object_type, const char *extend, size_t extlen, OUT objectMeta **pobject_meta);
 objectMeta *dupObjectMeta(objectMeta *object_meta);
 void freeObjectMeta(objectMeta *object_meta);
+sds objectMetaEncode(struct objectMeta *object_meta);
+int objectMetaDecode(struct objectMeta *object_meta, const char *extend, size_t extlen);
+int keyIsHot(objectMeta *object_meta, robj *value);
+
 static inline void *objectMetaGetPtr(objectMeta *object_meta) {
   return (void*)(long)object_meta->ptr;
 }
@@ -296,7 +300,6 @@ static inline int swapObjectMetaIsHot(swapObjectMeta *som) {
     }
 }
 
-int keyIsHot(objectMeta *object_meta, robj *value);
 
 /* Data */
 
@@ -1075,7 +1078,7 @@ typedef struct rdbKeySaveType {
   int (*save_setup)(struct rdbKeySaveData *keydata, rio *rdb);
   int (*save_start)(struct rdbKeySaveData *keydata, rio *rdb);
   int (*save)(struct rdbKeySaveData *keydata, rio *rdb, decodedData *decoded);
-  int (*save_end)(struct rdbKeySaveData *keydata, int save_result);
+  int (*save_end)(struct rdbKeySaveData *keydata, rio *rdb, int save_result);
   void (*save_deinit)(struct rdbKeySaveData *keydata);
 } rdbKeySaveType;
 
@@ -1087,6 +1090,7 @@ typedef struct rdbKeySaveData {
   objectMeta *object_meta; /* own */
   long long expire;
   int saved;
+  void *iter; /* used by list (metaListIterator) */
 } rdbKeySaveData;
 
 typedef struct rdbSaveRocksStats {
@@ -1105,10 +1109,11 @@ int rdbKeySaveDataInit(rdbKeySaveData *keydata, redisDb *db, decodedResult *dr);
 void rdbKeySaveDataDeinit(rdbKeySaveData *keydata);
 int rdbKeySaveStart(struct rdbKeySaveData *keydata, rio *rdb);
 int rdbKeySave(struct rdbKeySaveData *keydata, rio *rdb, decodedData *d);
-int rdbKeySaveEnd(struct rdbKeySaveData *keydata, int save_result);
+int rdbKeySaveEnd(struct rdbKeySaveData *keydata, rio *rdb, int save_result);
 void wholeKeySaveInit(rdbKeySaveData *keydata);
 int hashSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
 int setSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
+int listSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
 
 /* Rdb load */
 /* RDB_LOAD_ERR_*: [1 +inf), SWAP_ERR_RDB_LOAD_*: (-inf -500] */
@@ -1176,13 +1181,15 @@ int rdbKeyLoadEnd(struct rdbKeyLoadData *keydata, rio *rdb);
 int rdbKeyLoadDbAdd(struct rdbKeyLoadData *keydata, redisDb *db);
 void rdbKeyLoadExpired(struct rdbKeyLoadData *keydata);
 
-#define rdbLoadStartHT rdbLoadStartList
-#define rdbLoadStartSet rdbLoadStartList
-void rdbLoadStartList(struct rdbKeyLoadData *load, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
+#define rdbLoadStartHT rdbLoadStartLenMeta
+#define rdbLoadStartSet rdbLoadStartLenMeta
+void rdbLoadStartLenMeta(struct rdbKeyLoadData *load, rio *rdb, int *cf, sds *rawkey, sds *rawval, int *error);
 
 void wholeKeyLoadInit(rdbKeyLoadData *keydata);
 void hashLoadInit(rdbKeyLoadData *load);
 void setLoadInit(rdbKeyLoadData *load);
+void listLoadInit(rdbKeyLoadData *load);
+
 int rdbLoadLenVerbatim(rio *rdb, sds *verbatim, int *isencoded, unsigned long long *lenptr);
 
 /* Util */

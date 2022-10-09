@@ -41,6 +41,7 @@ int objectIsDirty(robj *o) {
     return o->dirty;
 }
 
+/* objectMeta */
 static inline objectMetaType *getObjectMetaType(int object_type) {
     objectMetaType *omtype = NULL;
     switch (object_type) {
@@ -64,6 +65,7 @@ static inline objectMetaType *getObjectMetaType(int object_type) {
 objectMeta *createObjectMeta(int object_type) {
 	objectMeta *m = zmalloc(sizeof(objectMeta));
     m->object_type = object_type;
+    m->len = 0;
     return m;
 }
 
@@ -82,7 +84,10 @@ objectMeta *dupObjectMeta(objectMeta *object_meta) {
     omtype = getObjectMetaType(object_meta->object_type);
     dup_meta = zmalloc(sizeof(objectMeta));
     memcpy(dup_meta,object_meta,sizeof(objectMeta));
-    if (omtype != NULL && omtype->duplicate) omtype->duplicate(dup_meta,object_meta);
+    if (omtype != NULL && omtype->duplicate) {
+        dup_meta->ptr = 0;
+        omtype->duplicate(dup_meta,object_meta);
+    }
     return dup_meta;
 }
 
@@ -108,6 +113,38 @@ int buildObjectMeta(int object_type, const char *extend,
     *pobject_meta = object_meta;
     return 0;
 }
+
+sds objectMetaEncode(struct objectMeta *object_meta) {
+    serverAssert(object_meta);
+    objectMetaType *omtype = getObjectMetaType(object_meta->object_type);
+    if (omtype->encodeObjectMeta) {
+        return omtype->encodeObjectMeta(object_meta);
+    } else {
+        return NULL;
+    }
+}
+
+int objectMetaDecode(struct objectMeta *object_meta, const char *extend, size_t extlen) {
+    serverAssert(object_meta);
+    objectMetaType *omtype = getObjectMetaType(object_meta->object_type);
+    if (omtype->decodeObjectMeta) {
+        return omtype->decodeObjectMeta(object_meta,extend,extlen);
+    } else {
+        return -1;
+    }
+}
+
+int keyIsHot(objectMeta *object_meta, robj *value) {
+    swapObjectMeta som;
+    objectMetaType *type;
+    if (value == NULL) return 0;
+    if (object_meta == NULL) return 1;
+    type = getObjectMetaType(object_meta->object_type);
+    initStaticSwapObjectMeta(som,type,object_meta,value);
+    return swapObjectMetaIsHot(&som);
+}
+
+/* lenObjectMeta, used by hash/set/zset */
 
 objectMeta *createLenObjectMeta(int object_type, size_t len) {
     objectMeta *m = createObjectMeta(object_type);
@@ -138,16 +175,6 @@ objectMetaType lenObjectMetaType = {
     .free = NULL,
     .duplicate = NULL,
 };
-
-int keyIsHot(objectMeta *object_meta, robj *value) {
-    swapObjectMeta som;
-    objectMetaType *type;
-    if (value == NULL) return 0;
-    if (object_meta == NULL) return 1;
-    type = getObjectMetaType(object_meta->object_type);
-    initStaticSwapObjectMeta(som,type,object_meta,value);
-    return swapObjectMetaIsHot(&som);
-}
 
 /* Note that db.meta is a satellite dict just like db.expire. */ 
 /* Db->meta */

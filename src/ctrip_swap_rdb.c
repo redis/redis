@@ -36,15 +36,25 @@ void decodedResultInit(decodedResult *decoded) {
 void decodedResultDeinit(decodedResult *decoded) {
     if (decoded->key) {
         sdsfree(decoded->key);
+        decoded->key = NULL;
     }
     if (decoded->cf == META_CF) {
         decodedMeta *dm = (decodedMeta*)decoded;
-        if (dm->extend) sdsfree(dm->extend);
+        if (dm->extend) {
+            sdsfree(dm->extend);
+            dm->extend = NULL;
+        }
     }
     if (decoded->cf == DATA_CF) {
         decodedData *dd = (decodedData*)decoded;
-        if (dd->subkey) sdsfree(dd->subkey);
-        if (dd->rdbraw) sdsfree(dd->rdbraw);
+        if (dd->subkey) {
+            sdsfree(dd->subkey);
+            dd->subkey = NULL;
+        }
+        if (dd->rdbraw) {
+            sdsfree(dd->rdbraw);
+            dd->rdbraw = NULL;
+        }
     }
     decodedResultInit(decoded);
 }
@@ -111,9 +121,9 @@ int rdbKeySave(struct rdbKeySaveData *save, rio *rdb, decodedData *d) {
 }
 
 /* return -1 if save_result is -1 or save end failed. */
-int rdbKeySaveEnd(struct rdbKeySaveData *save, int save_result) {
+int rdbKeySaveEnd(struct rdbKeySaveData *save, rio *rdb, int save_result) {
     if (save->type->save_end)
-        return save->type->save_end(save, save_result);
+        return save->type->save_end(save,rdb,save_result);
     else
         return C_OK;
 }
@@ -122,6 +132,11 @@ void rdbKeySaveDataDeinit(rdbKeySaveData *save) {
     if (save->key) {
         decrRefCount(save->key);
         save->key = NULL;
+    }
+
+    if (save->object_meta){
+        freeObjectMeta(save->object_meta);
+        save->object_meta = NULL;
     }
 
     if (save->type->save_deinit)
@@ -155,6 +170,7 @@ static void rdbKeySaveDataInitCommon(rdbKeySaveData *save,
     save->expire = expire;
     save->object_meta = dupObjectMeta(om);
     save->saved = 0;
+    save->iter = NULL;
 }
 
 static int rdbKeySaveDataInitWarm(rdbKeySaveData *save, redisDb *db,
@@ -176,6 +192,9 @@ static int rdbKeySaveDataInitWarm(rdbKeySaveData *save, redisDb *db,
         break;
     case OBJ_SET:
         setSaveInit(save,NULL,0);
+        break;
+    case OBJ_LIST:
+        listSaveInit(save,NULL,0);
         break;
     default:
         retval = INIT_SAVE_ERR;
@@ -204,6 +223,10 @@ static int rdbKeySaveDataInitCold(rdbKeySaveData *save, redisDb *db,
     case OBJ_SET:
         serverAssert(dm->extend != NULL);
         retval = setSaveInit(save,dm->extend,sdslen(dm->extend));
+        break;
+    case OBJ_LIST:
+        serverAssert(dm->extend != NULL);
+        retval = listSaveInit(save,dm->extend,sdslen(dm->extend));
         break;
     default:
         retval = INIT_SAVE_ERR;
@@ -455,7 +478,7 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
 
 saveend:
         /* call save_end if save_start called, no matter error or not. */
-        if (rdbKeySaveEnd(save,save_result) == -1) {
+        if (rdbKeySaveEnd(save,rdb,save_result) == -1) {
             if (errstr == NULL) {
                 errstr = sdscatfmt(sdsempty(),"Save key end failed: %s",
                         strerror(errno));
@@ -654,7 +677,7 @@ void evictStopLoading(int success) {
 }
 
 /* ------------------------------ rdb load start -------------------------------- */
-void rdbLoadStartList(struct rdbKeyLoadData *load, rio *rdb, int *cf,
+void rdbLoadStartLenMeta(struct rdbKeyLoadData *load, rio *rdb, int *cf,
                     sds *rawkey, sds *rawval, int *error) {
     int isencode;
     unsigned long long len;
@@ -853,6 +876,11 @@ int rdbKeyLoadDataInit(rdbKeyLoadData *load, int rdbtype,
     case RDB_TYPE_SET:
     case RDB_TYPE_SET_INTSET:
         setLoadInit(load);
+        break;
+    case RDB_TYPE_LIST:
+    case RDB_TYPE_LIST_ZIPLIST:
+    case RDB_TYPE_LIST_QUICKLIST:
+        listLoadInit(load);
         break;
     default:
         retval = SWAP_ERR_RDB_LOAD_UNSUPPORTED;

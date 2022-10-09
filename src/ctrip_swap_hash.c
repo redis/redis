@@ -572,8 +572,9 @@ int hashSave(rdbKeySaveData *save, rio *rdb, decodedData *decoded) {
     return 0;
 }
 
-int hashSaveEnd(rdbKeySaveData *save, int save_result) {
+int hashSaveEnd(rdbKeySaveData *save, rio *rdb, int save_result) {
     objectMeta *object_meta = save->object_meta;
+    UNUSED(rdb);
     if (save->saved != object_meta->len) {
         sds key  = save->key->ptr;
         sds repr = sdscatrepr(sdsempty(), key, sdslen(key));

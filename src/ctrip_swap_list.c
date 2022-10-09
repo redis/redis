@@ -31,15 +31,16 @@
 /* List meta */
 
 #define LIST_INITIAL_INDEX (LONG_MAX>>1)
+#define LIST_MAX_INDEX LONG_MAX
+#define LIST_MIN_INDEX 0
 
 #define SEGMENT_TYPE_HOT 0
 #define SEGMENT_TYPE_COLD 1
 #define SEGMENT_TYPE_BOTH 2
 
 typedef struct segment {
-  unsigned int type:1;
-  unsigned int reserved:1;
-  long index:62;
+  int type;
+  long index;
   long len;
 } segment;
 
@@ -63,6 +64,10 @@ typedef struct listMetaIterator {
 } listMetaIterator;
 
 typedef void (*selectElementCallback)(long ridx, robj *ele, void *pd);
+
+static inline long listGetInitialRidx(long index) {
+    return index + LIST_INITIAL_INDEX;
+}
 
 static inline int segmentTypeMatch(int segtypes, int segtype) {
     return segtype == segtypes || segtypes == SEGMENT_TYPE_BOTH;
@@ -195,7 +200,6 @@ listMeta *listMetaNormalizeFromRequest(int num, range *ranges,
         if (r->end >= llen) r->end = llen-1;
 
         seg->type = SEGMENT_TYPE_HOT;
-        seg->reserved = 0;
         seg->index = r->start;
         seg->len = r->end-r->start+1;
 
@@ -282,7 +286,6 @@ static int listMetaAppendSegment_(listMeta *list_meta, int type, long index,
     cur->index = index;
     cur->len = len;
     cur->type = type;
-    cur->reserved = 0;
     list_meta->len += len;
 
     return 0;
@@ -650,9 +653,20 @@ void listMetaExtend(listMeta *list_meta, long head, long tail) {
     if (tail < 0) len += tail;
     serverAssert(len>=0);
 
+    list_meta->len += head;
+    list_meta->len += tail;
+
     /* head */
     if (head > 0) {
         seg = listMetaFirstSegment(list_meta);
+        if (seg->type != SEGMENT_TYPE_HOT) {
+            /* prepend a hot segment */
+            listMetaMakeRoomFor(list_meta,list_meta->num+1);
+            memmove(seg+1,seg,list_meta->num*sizeof(segment));
+            seg->len = 0;
+            seg->type = SEGMENT_TYPE_HOT;
+            list_meta->num++;
+        }
         seg->index -= head;
         seg->len += head;
     } else if (head == 0) {
@@ -661,13 +675,15 @@ void listMetaExtend(listMeta *list_meta, long head, long tail) {
         head = -head;
         while (head) {
             seg = listMetaFirstSegment(list_meta);
+            serverAssert(seg->type == SEGMENT_TYPE_HOT);
             if (head < seg->len) {
                 seg->index += head;
                 seg->len -= head;
                 head = 0;
             } else {
                 head -= seg->len;
-                memmove(list_meta->segments,list_meta->segments+1,list_meta->num-1);
+                memmove(list_meta->segments,list_meta->segments+1,
+                        (list_meta->num-1)*sizeof(segment));
                 list_meta->num--;
             }
         }
@@ -676,6 +692,12 @@ void listMetaExtend(listMeta *list_meta, long head, long tail) {
     /* tail */
     if (tail > 0) {
         seg = listMetaLastSegment(list_meta);
+        if (seg->type != SEGMENT_TYPE_HOT) {
+            /* append a hot segment */
+            listMetaAppendSegmentWithoutCheck(list_meta,SEGMENT_TYPE_HOT,
+                    seg->index+seg->len,0);
+            seg = listMetaLastSegment(list_meta);
+        }
         seg->len += tail;
     } else if (tail == 0) {
         /* nop */
@@ -683,6 +705,7 @@ void listMetaExtend(listMeta *list_meta, long head, long tail) {
         tail = -tail;
         while (tail) {
             seg = listMetaLastSegment(list_meta);
+            serverAssert(seg->type == SEGMENT_TYPE_HOT);
             if (tail < seg->len) {
                 seg->len -= tail;
                 tail = 0;
@@ -1090,14 +1113,18 @@ static sds encodeListMeta(listMeta *lm) {
     if (lm == NULL) return NULL;
 
     result = sdsnewlen(SDS_NOINIT,LIST_META_ENCODED_INITAL_LEN);
+    sdsclear(result);
+
     result = sdscatlen(result,&lm->len,sizeof(lm->len));
     result = sdscatlen(result,&lm->num,sizeof(lm->num));
 
-    for (int i = 0; i < lm->len; i++) {
+    for (int i = 0; i < lm->num; i++) {
         segment *seg = lm->segments+i;
-        long ridx = seg->index;
+        uint8_t segtype = seg->type;
+        long ridx = seg->index, len = seg->len;
+        result = sdscatlen(result,&segtype,sizeof(segtype));
         result = sdscatlen(result,&ridx,sizeof(ridx));
-        result = sdscatlen(result,&seg->len,sizeof(seg->len));
+        result = sdscatlen(result,&len,sizeof(len));
     }
 
     return result;
@@ -1110,6 +1137,8 @@ sds encodeListObjectMeta(struct objectMeta *object_meta) {
 }
 
 static listMeta *decodeListMeta(const char *extend, size_t extlen) {
+    uint8_t segtype;
+    long ridx, len;
     listMeta *lm = listMetaCreate();
 
     if (extlen < sizeof(lm->len)) goto err;
@@ -1120,13 +1149,25 @@ static listMeta *decodeListMeta(const char *extend, size_t extlen) {
     memcpy(&lm->num,extend,sizeof(lm->num));
     extend += sizeof(lm->num), extlen -= sizeof(lm->num);
 
+    if (extlen != lm->num * (sizeof(segtype) + sizeof(ridx) + sizeof(len)))
+        goto err;
+    
+    listMetaMakeRoomFor(lm,lm->num);
+
     for (int i = 0; i < lm->num; i++) {
-        long ridx, len;
-        if (extlen < sizeof(ridx) + sizeof(len)) goto err;
+        segment *seg;
+
+        memcpy(&segtype,extend,sizeof(segtype));
+        extend += sizeof(segtype), extlen -= sizeof(segtype);
         memcpy(&ridx,extend,sizeof(ridx));
         extend += sizeof(ridx), extlen -= sizeof(ridx);
         memcpy(&len,extend,sizeof(len));
         extend += sizeof(len), extlen -= sizeof(len);
+
+        seg = lm->segments+i;
+        seg->type = segtype;
+        seg->index = ridx;
+        seg->len = len;
     }
 
     return lm;
@@ -1140,7 +1181,7 @@ int decodeListObjectMeta(struct objectMeta *object_meta, const char *extend, siz
     serverAssert(object_meta->object_type == OBJ_LIST);
     serverAssert(objectMetaGetPtr(object_meta) == NULL);
     objectMetaSetPtr(object_meta,decodeListMeta(extend,extlen));
-    return objectMetaGetPtr(object_meta) != NULL;
+    return 0;
 }
 
 
@@ -1285,7 +1326,8 @@ int listSwapAna(swapData *data, struct keyRequest *req,
             if (!swapDataPersisted(data)) {
                 /* create new meta if this is a pure hot key */
                 listMeta *lm = listMetaCreate();
-                listMetaAppendSegment(lm,SEGMENT_TYPE_HOT,LIST_INITIAL_INDEX,
+                listMetaAppendSegment(lm,SEGMENT_TYPE_HOT,
+                        listGetInitialRidx(0),
                         listTypeLength(data->value));
                 data->new_meta = createListObjectMeta(lm);
             }
@@ -1317,12 +1359,24 @@ int listSwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
+static inline sds listEncodeRidx(long ridx) {
+    ridx = htonu64(ridx);
+    return sdsnewlen(&ridx,sizeof(ridx));
+}
+
 static inline sds listEncodeSubkey(redisDb *db, sds key, long ridx) {
     serverAssert(ridx >= 0);
-    sds subkey = sdsnewlen(&ridx,sizeof(ridx));
+    sds subkey = listEncodeRidx(ridx);
     sds rawkey = rocksEncodeDataKey(db,key,subkey);
     sdsfree(subkey);
     return rawkey;
+}
+
+static inline long listDecodeRidx(const char *str, size_t len) {
+    serverAssert(len == sizeof(long));
+    long ridx_be = *(long*)str;
+    long ridx = ntohu64(ridx_be);
+    return ridx;
 }
 
 static void listEncodeDeleteRange(swapData *data, sds *start, sds *end) {
@@ -1482,7 +1536,7 @@ int listDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
             continue;
         if (slen != sizeof(ridx))
             continue;
-        ridx = *(long*)subkeystr;
+        ridx = listDecodeRidx(subkeystr,slen);
 
         subvalobj = rocksDecodeValRdb(rawvals[i]);
         serverAssert(subvalobj->type == OBJ_STRING);
@@ -1695,7 +1749,7 @@ int swapDataSetupList(swapData *d, void **pdatactx) {
 static inline listMeta *lookupListMeta(redisDb *db, robj *key) {
     objectMeta *object_meta = lookupMeta(db,key);
     if (object_meta == NULL) return NULL;
-    serverAssert(object_meta->object_type == OBJ_HASH);
+    serverAssert(object_meta->object_type == OBJ_LIST);
     return objectMetaGetPtr(object_meta);
 }
 
@@ -1704,7 +1758,8 @@ void ctripListTypePush(robj *subject, robj *value, int where, redisDb *db, robj 
     if (server.swap_mode == SWAP_MODE_MEMORY) return; 
     long head = where == LIST_HEAD ? 1 : 0;
     long tail = where == LIST_TAIL ? 1 : 0;
-    listMetaExtend(lookupListMeta(db,key),head,tail);
+    listMeta *meta = lookupListMeta(db,key); 
+    if (meta) listMetaExtend(meta,head,tail);
 }
 
 robj *ctripListTypePop(robj *subject, int where, redisDb *db, robj *key) {
@@ -1712,19 +1767,338 @@ robj *ctripListTypePop(robj *subject, int where, redisDb *db, robj *key) {
     if (server.swap_mode == SWAP_MODE_MEMORY) return val;
     long head = where == LIST_HEAD ? -1 : 0;
     long tail = where == LIST_TAIL ? -1 : 0;
-    listMetaExtend(lookupListMeta(db,key),head,tail);
+    listMeta *meta = lookupListMeta(db,key); 
+    if (meta) listMetaExtend(meta,head,tail);
     return val;
 }
 
 void ctripListMetaDelRange(redisDb *db, robj *key, long ltrim, long rtrim) {
     if (server.swap_mode == SWAP_MODE_MEMORY) return;
-    listMetaExtend(lookupListMeta(db,key),-ltrim,-rtrim);
+    listMeta *meta = lookupListMeta(db,key); 
+    if (meta) listMetaExtend(meta,-ltrim,-rtrim);
 }
 
-/* List rdb save */
+/* List rdb save, note that:
+ * - hot lists are saved as RDB_TYPE_LIST_QUICKLIST (same as origin redis)
+ * - warm/cold list are saved as RDB_TYPE_LIST, which are more suitable
+ *   for stream load & save. */
+
+void *listSaveIterCreate(objectMeta *object_meta, robj *list) {
+    metaListIterator *iter = zmalloc(sizeof(metaListIterator));
+    listMeta *meta = objectMetaGetPtr(object_meta);
+    metaList main = {meta, list};
+    serverAssert(list != NULL);
+    serverAssert((long)listTypeLength(list) == listMetaLength(meta,SEGMENT_TYPE_HOT));
+    metaListIterInit(iter,&main);
+    return iter;
+}
+
+void listSaveIterFree(void *iter) {
+    metaListIterDeinit(iter);
+    zfree(iter);
+}
+
+int listSaveStart(rdbKeySaveData *save, rio *rdb) {
+    robj *key = save->key;
+    size_t neles = 0;
+
+    /* save header */
+    if (rdbSaveKeyHeader(rdb,key,key,RDB_TYPE_LIST,save->expire) == -1)
+        return -1;
+
+    /* neles */
+    neles = ctripListLength(save->value,save->object_meta);
+    if (rdbSaveLen(rdb,neles) == -1)
+        return -1;
+
+    return 0;
+}
+
+/* save elements in memory untill ridx(not included) */
+int listSaveHotElementsUntill(rdbKeySaveData *save, rio *rdb, long ridx) {
+    int segtype;
+    long curidx;
+    metaListIterator *iter = save->iter;
+
+    if (iter == NULL) return 0;
+
+    while (!metaListIterFinished(iter)) {
+        curidx = metaListIterCur(iter,&segtype,NULL);
+        serverAssert(segtype == SEGMENT_TYPE_HOT);
+        if (curidx < ridx) {
+            robj *ele;
+            metaListIterCur(iter,&segtype,&ele);
+            if (rdbSaveStringObject(rdb,ele) == -1) {
+                decrRefCount(ele);
+                return -1;
+            }
+            decrRefCount(ele);
+            metaListIterNext(iter);
+            save->saved++;
+        } else {
+            break;
+        }
+    }
+
+    return 0;
+}
+
+int listSave(rdbKeySaveData *save, rio *rdb, decodedData *decoded) {
+    long ridx;
+    robj *key = save->key;
+    serverAssert(!sdscmp(decoded->key, key->ptr));
+
+    if (decoded->rdbtype != RDB_TYPE_STRING) {
+        /* check failed, skip this key */
+        return 0;
+    }
+    
+    /* save elements in prior to current saving ridx in memlist */
+    ridx = listDecodeRidx(decoded->subkey,sdslen(decoded->subkey));
+    listSaveHotElementsUntill(save,rdb,ridx);
+
+    if (rdbWriteRaw(rdb,(unsigned char*)decoded->rdbraw,
+                sdslen(decoded->rdbraw)) == -1) {
+        return -1;
+    }
+
+    save->saved++;
+    return 0;
+}
+
+int listSaveEnd(rdbKeySaveData *save, rio *rdb, int save_result) {
+    listMeta *meta = objectMetaGetPtr(save->object_meta);
+    long meta_len = listMetaLength(meta,SEGMENT_TYPE_BOTH);
+
+    if (save_result != -1) {
+        /* save tail hot elements */
+        listSaveHotElementsUntill(save,rdb,LIST_MAX_INDEX);
+    }
+
+    if (save->saved != meta_len) {
+        sds key  = save->key->ptr;
+        sds repr = sdscatrepr(sdsempty(), key, sdslen(key));
+        serverLog(LL_WARNING,
+                "listSave %s: saved(%d) != listmeta.len(%ld)",
+                repr, save->saved, meta_len);
+        sdsfree(repr);
+        return -1;
+    }
+
+    return save_result;
+}
+
+void listSaveDeinit(rdbKeySaveData *save) {
+    if (save->iter) {
+        listSaveIterFree(save->iter);
+        save->iter = NULL;
+    }
+}
+
+rdbKeySaveType listSaveType = {
+    .save_start = listSaveStart,
+    .save = listSave,
+    .save_end = listSaveEnd,
+    .save_deinit = listSaveDeinit,
+};
+
+int listSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen) {
+    int retval = 0;
+    save->type = &listSaveType;
+    save->omtype = &listObjectMetaType;
+    if (extend) { /* cold */
+        serverAssert(save->object_meta == NULL && save->value == NULL);
+        retval = buildObjectMeta(OBJ_LIST,extend,extlen,&save->object_meta);
+    } else { /* warm */
+        serverAssert(save->object_meta && save->value);
+        save->iter = listSaveIterCreate(save->object_meta,save->value);
+    }
+    return retval;
+}
+
+static sds listLoadEncodeObjectMetaExtend(size_t llen) {
+    sds extend = NULL;
+    listMeta *meta = listMetaCreate();
+    listMetaAppendSegment(meta,SEGMENT_TYPE_COLD,listGetInitialRidx(0),llen);
+    extend = encodeListMeta(meta);
+    listMetaFree(meta);
+    return extend;
+}
 
 /* List rdb load */
+void listLoadStartWithValue(struct rdbKeyLoadData *load, rio *rdb, int *cf,
+        sds *rawkey, sds *rawval, int *error) {
+    size_t llen;
+    sds extend;
 
+    load->value = rdbLoadObject(load->rdbtype,rdb,load->key,error);
+    if (load->value == NULL) return;
+
+    if (load->value->type != OBJ_LIST) {
+        serverLog(LL_WARNING,"Load rdb with rdbtype(%d) got (%d)",
+                load->rdbtype, load->value->type);
+        *error = RDB_LOAD_ERR_OTHER;
+        return;
+    }
+
+    if ((llen = listTypeLength(load->value)) == 0) {
+        *error = RDB_LOAD_ERR_EMPTY_KEY;
+        return;
+    }
+
+    /* list supports only quicklist encoding now, convert ziplist to
+     * quicklist before iterating. */
+    if (load->value->encoding == OBJ_ENCODING_ZIPLIST)
+        listTypeConvert(load->value,OBJ_ENCODING_QUICKLIST);
+
+    load->iter = listTypeInitIterator(load->value,0,LIST_TAIL);
+    load->total_fields = llen;
+
+    extend = listLoadEncodeObjectMetaExtend(llen);
+
+    *cf = META_CF;
+    *rawkey = rocksEncodeMetaKey(load->db,load->key);
+    *rawval = rocksEncodeMetaVal(load->object_type,load->expire,extend);
+
+    sdsfree(extend);
+}
+
+void listLoadStartList(struct rdbKeyLoadData *load, rio *rdb, int *cf,
+                    sds *rawkey, sds *rawval, int *error) {
+    int isencode;
+    unsigned long long llen;
+    sds header, extend = NULL;
+
+    header = rdbVerbatimNew((unsigned char)load->rdbtype);
+
+    /* nfield */
+    if (rdbLoadLenVerbatim(rdb,&header,&isencode,&llen)) {
+        sdsfree(header);
+        *error = RDB_LOAD_ERR_OTHER;
+        return;
+    }
+
+    load->total_fields = llen;
+
+    extend = listLoadEncodeObjectMetaExtend(llen);
+
+    *cf = META_CF;
+    *rawkey = rocksEncodeMetaKey(load->db,load->key);
+    *rawval = rocksEncodeMetaVal(load->object_type,load->expire,extend);
+    *error = 0;
+
+    sdsfree(extend);
+    sdsfree(header);
+}
+
+void listLoadStart(struct rdbKeyLoadData *load, rio *rdb, int *cf,
+        sds *rawkey, sds *rawval, int *error) {
+    switch (load->rdbtype) {
+    case RDB_TYPE_LIST_ZIPLIST:
+        listLoadStartWithValue(load,rdb,cf,rawkey,rawval,error);
+        break;
+    case RDB_TYPE_LIST_QUICKLIST:
+        listLoadStartWithValue(load,rdb,cf,rawkey,rawval,error);
+        break;
+    case RDB_TYPE_LIST:
+        listLoadStartList(load,rdb,cf,rawkey,rawval,error);
+        break;
+    default:
+        break;
+    }
+}
+
+int listLoadWithValue(struct rdbKeyLoadData *load, rio *rdb, int *cf,
+        sds *rawkey, sds *rawval, int *error) {
+    listTypeEntry entry;
+    robj *ele;
+    long ridx;
+    
+    UNUSED(rdb);
+
+    serverAssert(listTypeNext(load->iter,&entry));
+    ele = listTypeGet(&entry);
+
+    ridx = listGetInitialRidx(load->loaded_fields);
+
+    *cf = DATA_CF;
+    *rawkey = listEncodeSubkey(load->db,load->key,ridx);
+    *rawval = listEncodeSubval(ele);
+    *error = 0;
+
+    decrRefCount(ele);
+    load->loaded_fields++;
+    return load->loaded_fields < load->total_fields;
+}
+
+int listLoadList(struct rdbKeyLoadData *load, rio *rdb, int *cf, sds *rawkey,
+        sds *rawval, int *error) {
+    sds rdbval;
+    long ridx;
+
+    *error = RDB_LOAD_ERR_OTHER;
+
+    rdbval = rdbVerbatimNew(RDB_TYPE_STRING);
+    if (rdbLoadStringVerbatim(rdb,&rdbval)) {
+        sdsfree(rdbval);
+        return 0;
+    }
+
+    ridx = listGetInitialRidx(load->loaded_fields);
+
+    *cf = DATA_CF;
+    *rawkey = listEncodeSubkey(load->db,load->key,ridx);
+    *rawval = rdbval;
+    *error = 0;
+
+    load->loaded_fields++;
+    return load->loaded_fields < load->total_fields;
+}
+
+int listLoad(struct rdbKeyLoadData *load, rio *rdb, int *cf,
+        sds *rawkey, sds *rawval, int *error) {
+    int retval;
+
+    switch (load->rdbtype) {
+    case RDB_TYPE_LIST:
+        retval = listLoadList(load,rdb,cf,rawkey,rawval,error);
+        break;
+    case RDB_TYPE_LIST_QUICKLIST:
+    case RDB_TYPE_LIST_ZIPLIST:
+        retval = listLoadWithValue(load,rdb,cf,rawkey,rawval,error);
+        break;
+    default:
+        retval = RDB_LOAD_ERR_OTHER;
+        break;
+    }
+
+    return retval;
+}
+
+void listLoadDeinit(struct rdbKeyLoadData *load) {
+    if (load->iter) {
+        listTypeReleaseIterator(load->iter);
+        load->iter = NULL;
+    }
+
+    if (load->value) {
+        decrRefCount(load->value);
+        load->value = NULL;
+    }
+}
+
+rdbKeyLoadType listLoadType = {
+    .load_start = listLoadStart,
+    .load = listLoad,
+    .load_end = NULL,
+    .load_deinit = listLoadDeinit,
+};
+
+void listLoadInit(rdbKeyLoadData *load) {
+    load->type = &listLoadType;
+    load->omtype = &listObjectMetaType;
+    load->object_type = OBJ_LIST;
+}
 
 #ifdef REDIS_TEST
 
@@ -1912,7 +2286,7 @@ int swapListMetaTest(int argc, char *argv[], int accurate) {
     }
 
     TEST("list-meta: search overlaps") {
-        segment seg = {SEGMENT_TYPE_HOT,0,0,0};
+        segment seg = {SEGMENT_TYPE_HOT,0,0};
         int left, right;
         listMeta *lm = listMetaCreate();
 
@@ -2074,6 +2448,32 @@ int swapListMetaTest(int argc, char *argv[], int accurate) {
         test_assert(listMetaGetMidx(lm,55) == 30);
         listMetaFree(lm);
     }
+
+    TEST("list-meta: objectMeta encode/decode") {
+        listMeta *lm = listMetaCreate();
+        listMetaAppendSegment(lm,SEGMENT_TYPE_HOT,0,2);
+        listMetaAppendSegment(lm,SEGMENT_TYPE_COLD,2,2);
+        listMetaAppendSegment(lm,SEGMENT_TYPE_HOT,4,2);
+        objectMeta *object_meta = createListObjectMeta(lm);
+        sds extend = objectMetaEncode(object_meta);
+        objectMeta *decoded_meta = createObjectMeta(OBJ_LIST);
+        test_assert(objectMetaDecode(decoded_meta,extend,sdslen(extend)) == 0);
+        listMeta *decoded_lm = objectMetaGetPtr(decoded_meta);
+        test_assert(listMetaLength(decoded_lm,SEGMENT_TYPE_BOTH) == 6);
+        test_assert(listMetaLength(decoded_lm,SEGMENT_TYPE_COLD) == 2);
+        test_assert(decoded_lm->num == 3);
+        segment *seg;
+        seg = decoded_lm->segments+0;
+        test_assert(seg->type == SEGMENT_TYPE_HOT && seg->index == 0 && seg->len == 2);
+        seg = decoded_lm->segments+1;
+        test_assert(seg->type == SEGMENT_TYPE_COLD && seg->index == 2 && seg->len == 2);
+        seg = decoded_lm->segments+2;
+        test_assert(seg->type == SEGMENT_TYPE_HOT && seg->index == 4 && seg->len == 2);
+        freeObjectMeta(object_meta);
+        freeObjectMeta(decoded_meta);
+        sdsfree(extend);
+    }
+
 
     TEST("meta-list: merge") {
         listMeta *meta = listMetaCreate();
@@ -2260,6 +2660,14 @@ int swapListMetaTest(int argc, char *argv[], int accurate) {
 
 void swapDataSetColdObjectMeta(swapData *d, MOVE objectMeta *object_meta);
 
+sds rdbEncodeStringObject(robj *o) {
+    rio rdb;
+    serverAssert(o->type == OBJ_STRING);
+    rioInitWithBuffer(&rdb,sdsempty());
+    rdbSaveObject(&rdb,o,NULL);
+    return rdb.io.buffer.ptr;
+}
+
 int swapListDataTest(int argc, char *argv[], int accurate) {
     UNUSED(argc), UNUSED(argv), UNUSED(accurate);
     int error = 0;
@@ -2272,6 +2680,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
     objectMeta *hotmeta, *warmmeta, *coldmeta;
     swapData *puredata = NULL, *hotdata = NULL, *warmdata = NULL, *colddata = NULL;
     void *puredatactx = NULL, *hotdatactx = NULL, *warmdatactx = NULL, *colddatactx = NULL;
+    long long NOW = 1661657836000;
 
     TEST("list-data: init") {
         initTestRedisServer();
@@ -2472,10 +2881,272 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         test_assert(keyIsHot(object_meta,value));
 
         metaListDestroy(delta1);
-        cleanListTestData();
+        resetListTestData();
+    }
+
+    TEST("list - rdbLoad & rdbSave hot") {
+        rio rdb;
+        int type;
+        uint8_t byte;
+        sds key, rdbhot;
+        sds ele1raw = listEncodeSubval(ele1),
+            ele2raw = listEncodeSubval(ele2),
+            ele3raw = listEncodeSubval(ele3);
+        sds ele1key = listEncodeSubkey(db,hotkey->ptr,listGetInitialRidx(0)), 
+            ele2key = listEncodeSubkey(db,hotkey->ptr,listGetInitialRidx(1)),
+            ele3key = listEncodeSubkey(db,hotkey->ptr,listGetInitialRidx(2));
+
+        /* save hot kvpair */
+        rioInitWithBuffer(&rdb,sdsempty());
+        test_assert(rdbSaveKeyValuePair(&rdb,hotkey,hot,-1) != -1);
+
+        rdbhot = rdb.io.buffer.ptr;
+        rioInitWithBuffer(&rdb,rdbhot);
+
+        /* consume rdb header */
+        test_assert((type = rdbLoadType(&rdb)) == RDB_OPCODE_FREQ);
+        rioRead(&rdb,&byte,1);
+        test_assert((type = rdbLoadType(&rdb)) == RDB_TYPE_LIST_QUICKLIST);
+        key = rdbGenericLoadStringObject(&rdb,RDB_LOAD_SDS,NULL);
+        test_assert(!sdscmp(key,hotkey->ptr));
+
+        /* consume object */
+        rdbKeyLoadData _load, *load = &_load;
+        rdbKeyLoadDataInit(load,type,db,key,-1,NOW);
+        sds metakey, metaval, subkey, subraw;
+        int cont, cf, err;
+
+        listMeta *expected_meta = listMetaCreate(); /* list meta rebuilt when load */
+        listMetaAppendSegment(expected_meta,SEGMENT_TYPE_COLD,listGetInitialRidx(0),3);
+        sds expected_metakey = rocksEncodeMetaKey(db,hotkey->ptr),
+            expected_metaextend = encodeListMeta(expected_meta),
+            expected_metaval = rocksEncodeMetaVal(OBJ_LIST,-1,expected_metaextend);
+        listLoadStart(load,&rdb,&cf,&metakey,&metaval,&err);
+        test_assert(cf == META_CF && err == 0);
+        test_assert(!sdscmp(metakey,expected_metakey) && !sdscmp(metaval,expected_metaval));
+        cont = listLoad(load,&rdb,&cf,&subkey,&subraw,&err);
+        test_assert(cf == DATA_CF && cont == 1 && err == 0);
+        test_assert(!sdscmp(subraw,ele1raw) && !sdscmp(subkey,ele1key));
+        sdsfree(subraw), sdsfree(subkey);
+        cont = listLoad(load,&rdb,&cf,&subkey,&subraw,&err);
+        test_assert(cf == DATA_CF && cont == 1 && err == 0);
+        test_assert(!sdscmp(subraw,ele2raw) && !sdscmp(subkey,ele2key));
+        sdsfree(subraw), sdsfree(subkey);
+        cont = listLoad(load,&rdb,&cf,&subkey,&subraw,&err);
+        test_assert(cf == DATA_CF && cont == 0 && err == 0);
+        test_assert(!sdscmp(subraw,ele3raw) && !sdscmp(subkey,ele3key));
+        sdsfree(subraw), sdsfree(subkey);
+
+        test_assert(load->loaded_fields == 3);
+        test_assert(load->object_type == OBJ_LIST);
+        rdbKeyLoadDataDeinit(load);
+
+        sdsfree(rdbhot);
+        sdsfree(metakey), sdsfree(metaval);
+        sdsfree(key);
+        listMetaFree(expected_meta);
+        sdsfree(expected_metaextend), sdsfree(expected_metaval), sdsfree(expected_metakey);
+        sdsfree(ele1raw), sdsfree(ele2raw), sdsfree(ele3raw);
+        sdsfree(ele1key), sdsfree(ele2key), sdsfree(ele3key);
+        resetListTestData();
+    }
+
+    TEST("list - rdbLoad & rdbSave warm") {
+        rio rdb;
+        int type;
+        uint8_t byte;
+        sds key, rdbwarm;
+        sds ele1rdbraw = rdbEncodeStringObject(ele1), ele1raw = listEncodeSubval(ele1),
+            ele2rdbraw = rdbEncodeStringObject(ele2), ele2raw = listEncodeSubval(ele2),
+            ele3rdbraw = rdbEncodeStringObject(ele3), ele3raw = listEncodeSubval(ele3);
+        sds ele1key = listEncodeSubkey(db,warmkey->ptr,listGetInitialRidx(0)),
+            ele2key = listEncodeSubkey(db,warmkey->ptr,listGetInitialRidx(1)),
+            ele3key = listEncodeSubkey(db,warmkey->ptr,listGetInitialRidx(2));
+        sds ele1idx = listEncodeRidx(0),
+            ele2idx = listEncodeRidx(1),
+            ele3idx = listEncodeRidx(2);
+
+        /* save warm kvpair */
+        rioInitWithBuffer(&rdb,sdsempty());
+
+        decodedData _decoded, *decoded = &_decoded;
+        decoded->cf = DATA_CF;
+        decoded->dbid = db->id;
+        decoded->rdbtype = RDB_TYPE_STRING;
+        decoded->key = warmkey->ptr;
+
+        rdbKeySaveData _save, *save = &_save;
+        test_assert(rdbKeySaveDataInit(save,db,(decodedResult*)decoded) == 0/*INIT_SAVE_OK*/);
+        test_assert(rdbKeySaveStart(save,&rdb) == 0);
+        decoded->subkey = ele2idx, decoded->rdbraw = ele2rdbraw;
+        test_assert(rdbKeySave(save,&rdb,decoded) == 0 && save->saved == 2);
+        decoded->subkey = ele3idx, decoded->rdbraw = ele3rdbraw;
+        test_assert(rdbKeySave(save,&rdb,decoded) == 0 && save->saved == 3);
+        test_assert(rdbKeySaveEnd(save,&rdb,0) == 0);
+
+        rdbKeySaveDataDeinit(save);
+        decoded->rdbraw = NULL, decoded->subkey = NULL;
+
+        rdbwarm = rdb.io.buffer.ptr;
+        rioInitWithBuffer(&rdb,rdbwarm);
+
+        /* consume rdb header */
+        test_assert((type = rdbLoadType(&rdb)) == RDB_OPCODE_FREQ);
+        rioRead(&rdb,&byte,1);
+        test_assert((type = rdbLoadType(&rdb)) == RDB_TYPE_LIST);
+        key = rdbGenericLoadStringObject(&rdb,RDB_LOAD_SDS,NULL);
+        test_assert(!sdscmp(key,warmkey->ptr));
+
+        /* consume object */
+        rdbKeyLoadData _load, *load = &_load;
+        rdbKeyLoadDataInit(load,type,db,key,-1,NOW);
+        sds metakey, metaval, subkey, subraw;
+        int cont, cf, err;
+
+        listMeta *expected_meta = listMetaCreate(); /* list meta rebuilt when load */
+        listMetaAppendSegment(expected_meta,SEGMENT_TYPE_COLD,listGetInitialRidx(0),3);
+        sds expected_metakey = rocksEncodeMetaKey(db,warmkey->ptr),
+            expected_metaextend = encodeListMeta(expected_meta),
+            expected_metaval = rocksEncodeMetaVal(OBJ_LIST,-1,expected_metaextend);
+
+        listLoadStart(load,&rdb,&cf,&metakey,&metaval,&err);
+        test_assert(cf == META_CF && err == 0);
+        test_assert(!sdscmp(metakey,expected_metakey));
+        test_assert(!sdscmp(metaval,expected_metaval));
+        cont = listLoad(load,&rdb,&cf,&subkey,&subraw,&err);
+        test_assert(cf == DATA_CF && cont == 1 && err == 0);
+        test_assert(!sdscmp(subraw,ele1raw) && !sdscmp(subkey,ele1key));
+        sdsfree(subkey), sdsfree(subraw);
+        cont = listLoad(load,&rdb,&cf,&subkey,&subraw,&err);
+        test_assert(cf == DATA_CF && cont == 1 && err == 0);
+        test_assert(!sdscmp(subraw,ele2raw) && !sdscmp(subkey,ele2key));
+        sdsfree(subkey), sdsfree(subraw);
+        cont = listLoad(load,&rdb,&cf,&subkey,&subraw,&err);
+        test_assert(cf == DATA_CF && cont == 0 && err == 0);
+        test_assert(!sdscmp(subraw,ele3raw) && !sdscmp(subkey,ele3key));
+        sdsfree(subkey), sdsfree(subraw);
+
+        test_assert(load->loaded_fields == 3);
+        test_assert(load->object_type == OBJ_LIST);
+
+        sdsfree(rdbwarm);
+        sdsfree(metakey), sdsfree(metaval);
+        sdsfree(key);
+        listMetaFree(expected_meta);
+        sdsfree(expected_metaextend), sdsfree(expected_metaval), sdsfree(expected_metakey);
+        sdsfree(ele1rdbraw), sdsfree(ele2rdbraw), sdsfree(ele3rdbraw);
+        sdsfree(ele1raw), sdsfree(ele2raw), sdsfree(ele3raw);
+        sdsfree(ele1key), sdsfree(ele2key), sdsfree(ele3key);
+        sdsfree(ele1idx), sdsfree(ele2idx), sdsfree(ele3idx);
+        resetListTestData();
+    }
+
+    TEST("list - rdbLoad & rdbSave cold") {
+        rio rdb;
+        int type;
+        uint8_t byte;
+        sds key, rdbcold;
+        sds ele1rdbraw = rdbEncodeStringObject(ele1), ele1raw = listEncodeSubval(ele1),
+            ele2rdbraw = rdbEncodeStringObject(ele2), ele2raw = listEncodeSubval(ele2),
+            ele3rdbraw = rdbEncodeStringObject(ele3), ele3raw = listEncodeSubval(ele3);
+        sds ele1key = listEncodeSubkey(db,coldkey->ptr,listGetInitialRidx(0)),
+            ele2key = listEncodeSubkey(db,coldkey->ptr,listGetInitialRidx(1)),
+            ele3key = listEncodeSubkey(db,coldkey->ptr,listGetInitialRidx(2));
+        sds ele1idx = listEncodeRidx(0),
+            ele2idx = listEncodeRidx(1),
+            ele3idx = listEncodeRidx(2);
+
+        /* save cold kvpair */
+        rioInitWithBuffer(&rdb,sdsempty());
+
+        decodedMeta _decoded_meta, *decoded_meta = &_decoded_meta;
+        decoded_meta->dbid = db->id;
+        decoded_meta->key = sdsdup(coldkey->ptr);
+        decoded_meta->cf = META_CF;
+        decoded_meta->extend = encodeListMeta(coldlm);
+        decoded_meta->expire = -1;
+        decoded_meta->object_type = OBJ_LIST;
+
+        rdbKeySaveData _save, *save = &_save;
+        test_assert(rdbKeySaveDataInit(save,db,(decodedResult*)decoded_meta) == 0/*INIT_SAVE_OK*/);
+        decodedResultDeinit((decodedResult*)decoded_meta);
+
+        decodedData _decoded, *decoded = &_decoded;
+        decoded->dbid = db->id;
+        decoded->key = coldkey->ptr;
+        decoded->cf = DATA_CF;
+        decoded->rdbtype = RDB_TYPE_STRING;
+
+        test_assert(rdbKeySaveStart(save,&rdb) == 0 && save->saved == 0);
+
+        decoded->subkey = ele1idx, decoded->rdbraw = ele1rdbraw;
+        test_assert(rdbKeySave(save,&rdb,decoded) == 0 && save->saved == 1);
+        decoded->subkey = ele2idx, decoded->rdbraw = ele2rdbraw;
+        test_assert(rdbKeySave(save,&rdb,decoded) == 0 && save->saved == 2);
+        decoded->subkey = ele3idx, decoded->rdbraw = ele3rdbraw;
+        test_assert(rdbKeySave(save,&rdb,decoded) == 0 && save->saved == 3);
+
+        test_assert(rdbKeySaveEnd(save,&rdb,0) == 0);
+
+        rdbKeySaveDataDeinit(save);
+        decoded->rdbraw = NULL, decoded->subkey = NULL;
+
+        rdbcold = rdb.io.buffer.ptr;
+        rioInitWithBuffer(&rdb,rdbcold);
+
+        /* consume rdb header */
+        test_assert((type = rdbLoadType(&rdb)) == RDB_OPCODE_FREQ);
+        rioRead(&rdb,&byte,1);
+        test_assert((type = rdbLoadType(&rdb)) == RDB_TYPE_LIST);
+        key = rdbGenericLoadStringObject(&rdb,RDB_LOAD_SDS,NULL);
+        test_assert(!sdscmp(key,coldkey->ptr));
+
+        /* consume object */
+        rdbKeyLoadData _load, *load = &_load;
+        rdbKeyLoadDataInit(load,type,db,key,-1,NOW);
+        sds metakey, metaval, subkey, subraw;
+        int cont, cf, err;
+
+        listMeta *expected_meta = listMetaCreate(); /* list meta rebuilt when load */
+        listMetaAppendSegment(expected_meta,SEGMENT_TYPE_COLD,listGetInitialRidx(0),3);
+        sds expected_metakey = rocksEncodeMetaKey(db,coldkey->ptr),
+            expected_metaextend = encodeListMeta(expected_meta),
+            expected_metaval = rocksEncodeMetaVal(OBJ_LIST,-1,expected_metaextend);
+
+        listLoadStart(load,&rdb,&cf,&metakey,&metaval,&err);
+        test_assert(cf == META_CF && err == 0);
+        test_assert(!sdscmp(metakey,expected_metakey));
+        test_assert(!sdscmp(metaval,expected_metaval));
+        cont = listLoad(load,&rdb,&cf,&subkey,&subraw,&err);
+        test_assert(cf == DATA_CF && cont == 1 && err == 0);
+        test_assert(!sdscmp(subraw,ele1raw) && !sdscmp(subkey,ele1key));
+        sdsfree(subkey), sdsfree(subraw);
+        cont = listLoad(load,&rdb,&cf,&subkey,&subraw,&err);
+        test_assert(cf == DATA_CF && cont == 1 && err == 0);
+        test_assert(!sdscmp(subraw,ele2raw) && !sdscmp(subkey,ele2key));
+        sdsfree(subkey), sdsfree(subraw);
+        cont = listLoad(load,&rdb,&cf,&subkey,&subraw,&err);
+        test_assert(cf == DATA_CF && cont == 0 && err == 0);
+        test_assert(!sdscmp(subraw,ele3raw) && !sdscmp(subkey,ele3key));
+        sdsfree(subkey), sdsfree(subraw);
+
+        test_assert(load->loaded_fields == 3);
+        test_assert(load->object_type == OBJ_LIST);
+
+        sdsfree(rdbcold);
+        sdsfree(metakey), sdsfree(metaval);
+        sdsfree(key);
+        listMetaFree(expected_meta);
+        sdsfree(expected_metaextend), sdsfree(expected_metaval), sdsfree(expected_metakey);
+        sdsfree(ele1rdbraw), sdsfree(ele2rdbraw), sdsfree(ele3rdbraw);
+        sdsfree(ele1raw), sdsfree(ele2raw), sdsfree(ele3raw);
+        sdsfree(ele1key), sdsfree(ele2key), sdsfree(ele3key);
+        sdsfree(ele1idx), sdsfree(ele2idx), sdsfree(ele3idx);
+        resetListTestData();
     }
 
     TEST("list-data: deinit") {
+        cleanListTestData();
         decrRefCount(ele1), decrRefCount(ele2), decrRefCount(ele3);
         decrRefCount(purekey), decrRefCount(hotkey), decrRefCount(warmkey), decrRefCount(coldkey);
     }
@@ -2486,12 +3157,61 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
 int swapListUtilsTest(int argc, char *argv[], int accurate) {
     UNUSED(argc), UNUSED(argv), UNUSED(accurate);
     int error = 0;
-    return error;
-}
+    redisDb *db = server.db;
+    robj *list = createQuicklistObject();
+    robj *key = createStringObject("key",3);
+    robj *ele = createStringObject("ele",3), *poped;
+    server.swap_mode = SWAP_MODE_DISK;
+    dbAdd(db,key,list);
 
-int swapListRdbTest(int argc, char *argv[], int accurate) {
-    UNUSED(argc), UNUSED(argv), UNUSED(accurate);
-    int error = 0;
+    TEST("list-utils: maintain hot mata") {
+        listTypePush(list,ele,LIST_TAIL);
+        ctripListTypePush(list,ele,LIST_TAIL,db,key);
+        test_assert(lookupListMeta(db,key) == NULL);
+
+        listMeta *meta = listMetaCreate(), *dbmeta;
+        listMetaAppendSegment(meta,SEGMENT_TYPE_HOT,0,2);
+        listMetaAppendSegment(meta,SEGMENT_TYPE_COLD,2,2);
+        objectMeta *object_meta = createListObjectMeta(meta);
+        dbAddMeta(db,key,object_meta);
+
+        ctripListTypePush(list,ele,LIST_TAIL,db,key);
+        test_assert((dbmeta = lookupListMeta(db,key)) != NULL);
+        test_assert(listTypeLength(list) == 3);
+        test_assert(listMetaLength(dbmeta,SEGMENT_TYPE_BOTH) == 5);
+        test_assert(listMetaLength(dbmeta,SEGMENT_TYPE_HOT) == 3);
+        test_assert(dbmeta->num == 3);
+
+        poped = ctripListTypePop(list,LIST_HEAD,db,key);
+        test_assert(!strcmp(poped->ptr,"ele"));
+        test_assert(listTypeLength(list) == 2);
+        test_assert(listMetaLength(dbmeta,SEGMENT_TYPE_BOTH) == 4);
+        test_assert(listMetaLength(dbmeta,SEGMENT_TYPE_HOT) == 2);
+        test_assert(dbmeta->num == 3);
+        decrRefCount(poped);
+
+        poped = ctripListTypePop(list,LIST_HEAD,db,key);
+        test_assert(!strcmp(poped->ptr,"ele"));
+        test_assert(listTypeLength(list) == 1);
+        test_assert(listMetaLength(dbmeta,SEGMENT_TYPE_BOTH) == 3);
+        test_assert(listMetaLength(dbmeta,SEGMENT_TYPE_HOT) == 1);
+        test_assert(dbmeta->num == 2);
+        decrRefCount(poped);
+
+        ctripListTypePush(list,ele,LIST_HEAD,db,key);
+        quicklistDelRange(list->ptr,0,1);
+        quicklistDelRange(list->ptr,-1,1);
+        ctripListMetaDelRange(db,key,1,1);
+        test_assert(listTypeLength(list) == 0);
+        test_assert(listMetaLength(dbmeta,SEGMENT_TYPE_BOTH) == 2);
+        test_assert(listMetaLength(dbmeta,SEGMENT_TYPE_HOT) == 0);
+        test_assert(dbmeta->num == 1);
+
+    }
+
+    dbDelete(db,key);
+    decrRefCount(key);
+    decrRefCount(ele);
     return error;
 }
 
