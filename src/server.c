@@ -4373,7 +4373,7 @@ void echoCommand(client *c) {
 void timeCommand(client *c) {
     addReplyArrayLen(c,2);
     addReplyBulkLongLong(c, server.unixtime);
-    addReplyBulkLongLong(c, server.ustime-server.unixtime*1000000);
+    addReplyBulkLongLong(c, server.ustime-((long long)server.unixtime)*1000000);
 }
 
 typedef struct replyFlagNames {
