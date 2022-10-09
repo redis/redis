@@ -876,9 +876,9 @@ void addReplyDouble(client *c, double d) {
         } else {
             dbuf[0] = ',';
             dlen = fpconv_dtoa(d, dbuf+1);
-            dbuf[dlen] = '\r';
-            dbuf[dlen+1] = '\n';
-            dbuf[dlen+2] = '\0';
+            dbuf[dlen+1] = '\r';
+            dbuf[dlen+2] = '\n';
+            dbuf[dlen+3] = '\0';
             addReplyProto(c,dbuf,dlen+3);
         }
     }

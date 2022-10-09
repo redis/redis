@@ -1506,6 +1506,7 @@ start_server {tags {"zset"}} {
         }
 
         test "ZSCORE - $encoding" {
+            set tcl_precision 17
             r del zscoretest
             set aux {}
             for {set i 0} {$i < $elements} {incr i} {
@@ -1516,11 +1517,12 @@ start_server {tags {"zset"}} {
 
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zscore zscoretest $i]
+                assert_equal [format %.17g [lindex $aux $i]] [format %.17g [r zscore zscoretest $i]]
             }
         }
 
         test "ZMSCORE - $encoding" {
+            set tcl_precision 17
             r del zscoretest
             set aux {}
             for {set i 0} {$i < $elements} {incr i} {
@@ -1531,11 +1533,12 @@ start_server {tags {"zset"}} {
 
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zmscore zscoretest $i]
+                assert_equal [format %.17g [lindex $aux $i]] [format %.17g [r zmscore zscoretest $i]]
             }
         }
 
         test "ZSCORE after a DEBUG RELOAD - $encoding" {
+            set tcl_precision 17
             r del zscoretest
             set aux {}
             for {set i 0} {$i < $elements} {incr i} {
@@ -1547,7 +1550,7 @@ start_server {tags {"zset"}} {
             r debug reload
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zscore zscoretest $i]
+                assert_equal [format %.17g [lindex $aux $i]] [format %.17g [r zscore zscoretest $i]]
             }
         } {} {needs:debug}
 
