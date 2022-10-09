@@ -3899,7 +3899,7 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  * When async is set to true, db contents will be freed by a background thread. */
 void RM_ResetDataset(int restart_aof, int async) {
     if (restart_aof && server.aof_state != AOF_OFF) stopAppendOnly();
-    flushAllDataAndResetRDB(async? EMPTYDB_ASYNC: EMPTYDB_NO_FLAGS);
+    flushAllDataAndResetRDB((async? EMPTYDB_ASYNC: EMPTYDB_NO_FLAGS) | EMPTYDB_NOFUNCTIONS);
     if (server.aof_enabled && restart_aof) restartAOFAfterSYNC();
 }
 
