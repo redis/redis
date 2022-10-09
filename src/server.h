@@ -2599,8 +2599,9 @@ void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted);
 void listTypeConvertListpack(robj *o, int enc);
-int listTypeTryConvertQuicklist(robj *o);
-int listTypeTryConvertListpack(robj *o, robj **argv, int start, int end);
+typedef void (*beforeConvertCB)(void *data);
+void listTypeTryConvertQuicklist(robj *o, beforeConvertCB fn, void *data);
+void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end, beforeConvertCB fn, void *data);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);

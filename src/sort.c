@@ -580,7 +580,7 @@ void sortCommandGeneric(client *c, int readonly) {
             }
         }
         if (outputlen) {
-            listTypeTryConvertQuicklist(sobj);
+            listTypeTryConvertQuicklist(sobj,NULL,NULL);
             setKey(c,c->db,storekey,sobj,0);
             notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
                                 c->db->id);
