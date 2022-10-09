@@ -57,7 +57,7 @@ void listTypeConvertListpack(robj *o, int enc) {
 /* Check the length and size of a number of objects that will be added to list to see
  * if we need to convert a listpack to a quicklist. Note that we only check string
  * encoded objects as their string length can be queried in constant time.
- * 
+ *
  * If callback is given the function is called in order for caller to do some work
  * before the list conversion. */
 void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end,
@@ -87,7 +87,7 @@ void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end,
 }
 
 /* Check the length and size of a quicklist to see if we need to convert it to listpack.
-
+ *
  * If callback is given the function is called in order for caller to do some work
  * before the list conversion. */
 #define QUICKLIST_CONVERT_THRESHOLD 0.5
