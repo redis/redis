@@ -6388,7 +6388,7 @@ void restoreCommand(client *c) {
     if (replace)
         deleted = dbDelete(c->db,key);
 
-    if (ttl && !absttl) ttl+=mstime();
+    if (ttl && !absttl) ttl+=commandTimeSnapshot();
     if (ttl && checkAlreadyExpired(ttl)) {
         if (deleted) {
             rewriteClientCommandVector(c,2,shared.del,key);
@@ -6669,7 +6669,7 @@ try_again:
         long long expireat = getExpire(c->db,kv[j]);
 
         if (expireat != -1) {
-            ttl = expireat-mstime();
+            ttl = expireat-commandTimeSnapshot();
             if (ttl < 0) {
                 continue;
             }

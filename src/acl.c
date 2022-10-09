@@ -2358,7 +2358,7 @@ int ACLSaveToFile(const char *filename) {
     /* Create a temp file with the new content. */
     tmpfilename = sdsnew(filename);
     tmpfilename = sdscatfmt(tmpfilename,".tmp-%i-%I",
-        (int) getpid(),mstime());
+        (int) getpid(),commandTimeSnapshot());
     if ((fd = open(tmpfilename,O_WRONLY|O_CREAT,0644)) == -1) {
         serverLog(LL_WARNING,"Opening temp ACL file for ACL SAVE: %s",
             strerror(errno));
@@ -2518,7 +2518,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     le->count = 1;
     le->reason = reason;
     le->username = sdsdup(username ? username : c->user->name);
-    le->ctime = mstime();
+    le->ctime = commandTimeSnapshot();
 
     if (object) {
         le->object = object;
@@ -2895,7 +2895,7 @@ void aclCommand(client *c) {
         listIter li;
         listNode *ln;
         listRewind(ACLLog,&li);
-        mstime_t now = mstime();
+        mstime_t now = commandTimeSnapshot();
         while (count-- && (ln = listNext(&li)) != NULL) {
             ACLLogEntry *le = listNodeValue(ln);
             addReplyMapLen(c,7);
