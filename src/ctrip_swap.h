@@ -958,6 +958,7 @@ int replClientDiscardDispatchedCommands(client *c);
 void replClientDiscardSwappingState(client *c);
 void submitClientKeyRequests(client *c, getKeyRequestsResult *result, clientKeyRequestFinished cb);
 int submitNormalClientRequests(client *c);
+void keyRequestBeforeCall(client *c, swapCtx *ctx);
 
 
 /* Swap rate limit */

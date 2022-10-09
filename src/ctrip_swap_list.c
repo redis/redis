@@ -1356,6 +1356,9 @@ int listSwapAna(swapData *data, struct keyRequest *req,
         break;
     }
 
+    datactx->arg_rewrite[0] = req->list_arg_rewrite[0];
+    datactx->arg_rewrite[1] = req->list_arg_rewrite[1];
+
     return 0;
 }
 
@@ -1695,14 +1698,13 @@ int listBeforeCall(swapData *data, client *c, void *datactx_) {
 
     for (int i = 0; i < 2; i++) {
         int arg_idx = datactx->arg_rewrite[i];
-        if (arg_idx > 0) {
-            long long index;
-            int ret = getLongLongFromObject(c->argv[arg_idx],&index);
-            serverAssert(ret == C_OK);
-            long midx = listMetaGetMidx(swapDataGetListMeta(data),index);
-            robj *new_arg = createStringObjectFromLongLong(midx);
-            clientArgRewrite(c,arg_idx,new_arg);
-        }
+        if (arg_idx <= 0) continue;
+        long long index;
+        int ret = getLongLongFromObject(c->argv[arg_idx],&index);
+        serverAssert(ret == C_OK);
+        long midx = listMetaGetMidx(swapDataGetListMeta(data),index);
+        robj *new_arg = createObject(OBJ_STRING,sdsfromlonglong(midx));
+        clientArgRewrite(c,arg_idx,new_arg);
     }
 
     return 0;
@@ -2668,6 +2670,8 @@ sds rdbEncodeStringObject(robj *o) {
     return rdb.io.buffer.ptr;
 }
 
+void rewriteResetClientCommandCString(client *c, int argc, ...);
+
 int swapListDataTest(int argc, char *argv[], int accurate) {
     UNUSED(argc), UNUSED(argv), UNUSED(accurate);
     int error = 0;
@@ -2683,6 +2687,9 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
     long long NOW = 1661657836000;
 
     TEST("list-data: init") {
+        initServerConfig();
+        ACLInit();
+        server.hz = 10;
         initTestRedisServer();
         db = server.db;
         server.swap_evict_step_max_memory = 1*1024*1024;
@@ -2809,7 +2816,6 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         test_assert(object_meta == NULL);
         value = lookupKey(db,purekey,LOOKUP_NOTOUCH);
         test_assert(value == NULL);
-        // listMetaFree(swap_meta);
 
         /* cold => warm => hot */
         listMeta *delta1_meta = listMetaCreate();
@@ -2882,6 +2888,116 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
 
         metaListDestroy(delta1);
         resetListTestData();
+    }
+
+    TEST("list-data: arg rewrite") {
+        listMeta *meta;
+        objectMeta *object_meta;
+        void *datactx_;
+        robj *key = createStringObject("key",3);
+        robj *list = createQuicklistObject();
+        client *c = createClient(NULL);
+        selectDb(c,0);
+
+        listTypePush(list,ele1,LIST_TAIL);
+        listTypePush(list,ele2,LIST_TAIL);
+        listTypePush(list,ele3,LIST_TAIL);
+
+        swapData *data = createSwapData(db,key,list);
+        swapDataSetupMeta(data,OBJ_LIST,-1,&datactx_);
+        listDataCtx *datactx = datactx_;
+
+        meta = listMetaCreate();
+        /* 0~2 (COLD) | 3~4 (HOT) | 5 (COLD) | 6 (HOT) */
+        listMetaAppendSegment(meta,SEGMENT_TYPE_COLD,0,3);
+        listMetaAppendSegment(meta,SEGMENT_TYPE_HOT,3,2);
+        listMetaAppendSegment(meta,SEGMENT_TYPE_COLD,5,1);
+        listMetaAppendSegment(meta,SEGMENT_TYPE_HOT,6,1);
+        object_meta = createListObjectMeta(meta);
+        swapDataSetObjectMeta(data,object_meta);
+
+        /* lindex */
+        datactx->arg_rewrite[0] = 2;
+        datactx->arg_rewrite[1] = -1;
+
+        rewriteResetClientCommandCString(c,3,"LINDEX","mylist","3");
+        listBeforeCall(data,c,datactx_);
+        test_assert(!strcmp(c->argv[2]->ptr,"0"));
+        clientArgRewritesRestore(c);
+        test_assert(!strcmp(c->argv[2]->ptr,"3"));
+
+        rewriteResetClientCommandCString(c,3,"LINDEX","mylist","4");
+        listBeforeCall(data,c,datactx_);
+        test_assert(!strcmp(c->argv[2]->ptr,"1"));
+        clientArgRewritesRestore(c);
+        test_assert(!strcmp(c->argv[2]->ptr,"4"));
+
+        rewriteResetClientCommandCString(c,3,"LINDEX","mylist","6");
+        listBeforeCall(data,c,datactx_);
+        test_assert(!strcmp(c->argv[2]->ptr,"2"));
+        clientArgRewritesRestore(c);
+        test_assert(!strcmp(c->argv[2]->ptr,"6"));
+
+        rewriteResetClientCommandCString(c,3,"LINDEX","mylist","1"); /* fail */
+        listBeforeCall(data,c,datactx_);
+        test_assert(!strcmp(c->argv[2]->ptr,"0"));
+        clientArgRewritesRestore(c);
+        test_assert(!strcmp(c->argv[2]->ptr,"1"));
+
+        /* lrange/ltrim */
+        datactx->arg_rewrite[0] = 2;
+        datactx->arg_rewrite[1] = 3;
+
+        rewriteResetClientCommandCString(c,4,"LRANGE","mylist","3","4");
+        listBeforeCall(data,c,datactx_);
+        test_assert(!strcmp(c->argv[2]->ptr,"0"));
+        test_assert(!strcmp(c->argv[3]->ptr,"1"));
+        clientArgRewritesRestore(c);
+        test_assert(!strcmp(c->argv[2]->ptr,"3"));
+        test_assert(!strcmp(c->argv[3]->ptr,"4"));
+
+        freeObjectMeta(object_meta);
+
+        meta = listMetaCreate();
+        /* 0~1 (HOT) | 2~3 (COLD) | 4 (HOT)  */
+        listMetaAppendSegment(meta,SEGMENT_TYPE_HOT,0,2);
+        listMetaAppendSegment(meta,SEGMENT_TYPE_COLD,2,2);
+        listMetaAppendSegment(meta,SEGMENT_TYPE_HOT,4,1);
+        object_meta = createListObjectMeta(meta);
+        swapDataSetObjectMeta(data,object_meta);
+
+        /* lindex */
+        datactx->arg_rewrite[0] = 2;
+        datactx->arg_rewrite[1] = -1;
+
+        rewriteResetClientCommandCString(c,3,"LINDEX","mylist","1");
+        listBeforeCall(data,c,datactx_);
+        test_assert(!strcmp(c->argv[2]->ptr,"1"));
+        clientArgRewritesRestore(c);
+        test_assert(!strcmp(c->argv[2]->ptr,"1"));
+
+        rewriteResetClientCommandCString(c,3,"LINDEX","mylist","4");
+        listBeforeCall(data,c,datactx_);
+        test_assert(!strcmp(c->argv[2]->ptr,"2"));
+        clientArgRewritesRestore(c);
+        test_assert(!strcmp(c->argv[2]->ptr,"4"));
+
+        /* lrange/ltrim */
+        datactx->arg_rewrite[0] = 2;
+        datactx->arg_rewrite[1] = 3;
+
+        rewriteResetClientCommandCString(c,4,"LRANGE","mylist","4","4");
+        listBeforeCall(data,c,datactx_);
+        test_assert(!strcmp(c->argv[2]->ptr,"2"));
+        test_assert(!strcmp(c->argv[2]->ptr,"2"));
+        clientArgRewritesRestore(c);
+        test_assert(!strcmp(c->argv[2]->ptr,"4"));
+        test_assert(!strcmp(c->argv[2]->ptr,"4"));
+
+        freeObjectMeta(object_meta);
+        swapDataFree(data,datactx);
+        decrRefCount(key);
+        decrRefCount(list);
     }
 
     TEST("list - rdbLoad & rdbSave hot") {

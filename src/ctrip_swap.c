@@ -258,6 +258,14 @@ void continueProcessCommand(client *c) {
     if (!c->CLIENT_DEFERED_CLOSING) processInputBuffer(c);
 }
 
+void keyRequestBeforeCall(client *c, swapCtx *ctx) {
+    swapData *data = ctx->data;
+    void *datactx = ctx->datactx;
+    if (data == NULL) return;
+    if (!swapDataAlreadySetup(data)) return;
+    swapDataBeforeCall(data,c,datactx);
+}
+
 void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
     robj *key = ctx->key_request->key;
     UNUSED(key);
@@ -268,7 +276,7 @@ void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
     /* if (c->cmd->proc != evictCommand) */
         /* serverLog(LL_WARNING,"< client:%ld, cmd:%s key:%s",c->id, c->cmd->name, key? (sds)key->ptr:"nil"); */
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
-    swapDataBeforeCall(ctx->data,c,ctx->datactx);
+    keyRequestBeforeCall(c,ctx);
     if (c->keyrequests_count == 0) {
         continueProcessCommand(c);
     }
