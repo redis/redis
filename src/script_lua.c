@@ -798,14 +798,14 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
 
     for (j = 0; j < *argc; j++) {
         char *obj_s;
-        size_t obj_len = 0;
+        size_t obj_len;
         char dbuf[64];
 
         if (lua_type(lua,j+1) == LUA_TNUMBER) {
             /* We can't use lua_tolstring() for number -> string conversion
              * since Lua uses a format specifier that loses precision. */
             lua_Number num = lua_tonumber(lua,j+1);
-            const int obj_len = fpconv_dtoa((double)num, dbuf);
+            obj_len = fpconv_dtoa((double)num, dbuf);
             dbuf[obj_len] = '\0';
             obj_s = dbuf;
         } else {
