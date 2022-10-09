@@ -311,9 +311,9 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
     size_t len = sdslen(str);
 
     if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
-        subject->ptr = (where == LIST_TAIL) ?
-            lpInsertString(subject->ptr, (unsigned char *)str, len, entry->p, LP_AFTER, &entry->p) :
-            lpInsertString(subject->ptr, (unsigned char *)str, len, entry->p, LP_BEFORE, &entry->p);
+        int lpw = (where == LIST_TAIL) ? LP_AFTER : LP_BEFORE;
+        subject->ptr = lpInsertString(subject->ptr, (unsigned char *)str,
+                                      len, entry->p, lpw, &entry->p);
     } else if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         if (where == LIST_TAIL) {
             quicklistInsertAfter(entry->li->iter, &entry->entry, str, len);
@@ -344,7 +344,11 @@ void listTypeReplace(listTypeEntry *entry, robj *value) {
     decrRefCount(value);
 }
 
-int listTypeReplaceIndex(robj *o, int index, robj *value) {
+/* Replace entry at offset 'index' by 'value'.
+ *
+ * Returns 1 if replace happened.
+ * Returns 0 if replace failed and no changes happened. */
+int listTypeReplaceAtIndex(robj *o, int index, robj *value) {
     value = getDecodedObject(value);
     sds vstr = value->ptr;
     size_t vlen = sdslen(vstr);
@@ -461,9 +465,7 @@ void pushGenericCommand(client *c, int where, int xx) {
         dbAdd(c->db,c->argv[1],lobj);
     }
 
-    /* Check if we need to convert the quicklist */
     listTypeTryConvertListpack(lobj,c->argv,2,c->argc-1,NULL,NULL);
-
     for (j = 2; j < c->argc; j++) {
         listTypePush(lobj,c->argv[j],where);
         server.dirty++;
@@ -595,7 +597,7 @@ void lsetCommand(client *c) {
         return;
 
     listTypeTryConvertListpack(o,c->argv,3,3,NULL,NULL);
-    if (listTypeReplaceIndex(o,index,value)) {
+    if (listTypeReplaceAtIndex(o,index,value)) {
         addReply(c,shared.ok);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
