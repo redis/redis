@@ -487,6 +487,11 @@ void pauseClientSwap(int pause_type);
 void resumeClientSwap();
 void processResumedClientKeyRequests(void);
 
+/* see server.req_submitted */
+#define REQ_SUBMITTED_NONE 0
+#define REQ_SUBMITTED_BGSAVE (1ULL<<0)
+#define REQ_SUBMITTED_REPL_START (1ULL<<1)
+
 /* String */
 typedef struct wholeKeySwapData {
   swapData d;
@@ -972,6 +977,8 @@ void replClientDiscardSwappingState(client *c);
 void submitClientKeyRequests(client *c, getKeyRequestsResult *result, clientKeyRequestFinished cb);
 int submitNormalClientRequests(client *c);
 void keyRequestBeforeCall(client *c, swapCtx *ctx);
+void mutexopCommand(client *c);
+int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark);
 
 
 /* Swap rate limit */

@@ -1711,9 +1711,12 @@ struct redisServer {
     client **expire_clients; /* array of rocks expire clients (one for each db). */
     client **scan_expire_clients; /* array of expire scan clients (one for each db). */
     client **ttl_clients; /* array of expire scan clients (one for each db). */
+    client *mutex_client; /* exec op needed global swap lock */
     struct swapStat *swap_stats; /* array of swap stats (one for each swap type). */
     struct swapStat *rio_stats; /* array of swap stats (one for each swap type). */
     int debug_evict_keys; /* num of keys to evict before calling cmd. */
+    uint64_t req_submitted; /* whether request already submitted or not,
+                            request will be executed with global swap lock */
     /* swap rate limiting */
     redisAtomic size_t swap_inprogress_count; /* swap request inprogress count */
     redisAtomic size_t swap_inprogress_memory;  /* swap consumed memory in bytes */
@@ -1723,6 +1726,8 @@ struct redisServer {
     int maxmemory_oom_percentage; /* reject denyoom commands if server used more memory than
                                   maxmemory*maxmemory_oom_percentage */
     int debug_rio_latency; /* sleep debug_rio_latency ms to simulate ssd latency. */
+    int debug_swapout_notify_latency; /* sleep debug_swapout_notify_latency ms
+                                        to simulate notify queue blocked after swap out */
     int debug_rio_error; /* mock rio error */
     /* repl swap */
     int repl_workers;   /* num of repl worker clients */
@@ -2157,6 +2162,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
+void ctrip_replicationStartPendingFork(void);
 void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);

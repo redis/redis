@@ -1135,6 +1135,11 @@ struct redisCommand redisCommandTable[] = {
 	{"swap",swapCommand,-2,
 	 "read-only fast",
 	 0,NULL,NULL,SWAP_IN,0,0,0,0,0,0,0},
+
+    {"mutexop",mutexopCommand,1,
+    "admin no-script",
+    0,NULL,getKeyRequestsNone,SWAP_NOP,0,0,0,0,0,0,0},
+
 };
 
 /*============================ Utility functions ============================ */
@@ -2044,7 +2049,7 @@ void checkChildrenDone(void) {
         }
 
         /* start any pending forks immediately. */
-        replicationStartPendingFork();
+        ctrip_replicationStartPendingFork();
     }
 }
 
@@ -2081,6 +2086,14 @@ void cronUpdateMemoryStats() {
         if (!server.cron_malloc_stats.allocator_allocated)
             server.cron_malloc_stats.allocator_allocated = server.cron_malloc_stats.zmalloc_used;
     }
+}
+
+void _rdbSaveBackground(client *c, swapCtx *ctx) {
+    rdbSaveInfo rsi, *rsiptr;
+    rsiptr = rdbPopulateSaveInfo(&rsi);
+    rdbSaveBackground(server.rdb_filename,rsiptr);
+    server.req_submitted &= ~REQ_SUBMITTED_BGSAVE;
+    clientReleaseRequestLocks(c,ctx);
 }
 
 /* This is our timer interrupt, called server.hz times per second.
@@ -2230,11 +2243,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                  CONFIG_BGSAVE_RETRY_DELAY ||
                  server.lastbgsave_status == C_OK))
             {
-                serverLog(LL_NOTICE,"%d changes in %d seconds. Saving...",
-                    sp->changes, (int)sp->seconds);
-                rdbSaveInfo rsi, *rsiptr;
-                rsiptr = rdbPopulateSaveInfo(&rsi);
-                rdbSaveBackground(server.rdb_filename,rsiptr);
+                if (server.swap_mode == SWAP_MODE_MEMORY) {
+                    serverLog(LL_NOTICE,"%d changes in %d seconds. Saving...",
+                              sp->changes, (int)sp->seconds);
+                    rdbSaveInfo rsi, *rsiptr;
+                    rsiptr = rdbPopulateSaveInfo(&rsi);
+                    rdbSaveBackground(server.rdb_filename,rsiptr);
+                } else {
+                    lockGlobalAndExec(_rdbSaveBackground, REQ_SUBMITTED_BGSAVE);
+                }
                 break;
             }
         }
@@ -2321,9 +2338,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         (server.unixtime-server.lastbgsave_try > CONFIG_BGSAVE_RETRY_DELAY ||
          server.lastbgsave_status == C_OK))
     {
-        rdbSaveInfo rsi, *rsiptr;
-        rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSaveBackground(server.rdb_filename,rsiptr) == C_OK)
+        int bgsaved = 0;
+        if (server.swap_mode == SWAP_MODE_MEMORY) {
+            rdbSaveInfo rsi, *rsiptr;
+            rsiptr = rdbPopulateSaveInfo(&rsi);
+            bgsaved = rdbSaveBackground(server.rdb_filename,rsiptr) == C_OK;
+        } else {
+            bgsaved = lockGlobalAndExec(_rdbSaveBackground, REQ_SUBMITTED_BGSAVE);
+        }
+        if (bgsaved)
             server.rdb_bgsave_scheduled = 0;
     }
 
@@ -2797,6 +2820,7 @@ void initServerConfig(void) {
     server.max_db_size = 0;
     server.debug_evict_keys = 0;
     server.debug_rio_latency = 0;
+    server.debug_swapout_notify_latency = 0;
     server.debug_rio_error = 0;
 
     /* Failover related */

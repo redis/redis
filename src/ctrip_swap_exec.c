@@ -791,6 +791,7 @@ static void executeSwapOutRequest(swapRequest *req) {
 end:
 
     DEBUG_MSGS_APPEND(req->msgs,"exec-out-end","errcode=%d",errcode);
+    if (server.debug_swapout_notify_latency) usleep(server.debug_swapout_notify_latency*1000);
     doNotify(req,errcode);
     if (cfs) zfree(cfs);
     if (rawkeys) {

@@ -735,6 +735,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         set1_data = createSwapData(db, key1,set1);
         swapDataSetupSet(set1_data, (void**)&set1_ctx);
         sds *rawkeys, *rawvals;
+        sds empty = sdsempty();
         int *cfs;
 
         set1_ctx->ctx.num = 2;
@@ -755,7 +756,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         setEncodeKeys(set1_data, SWAP_IN, set1_ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_SCAN == action);
         test_assert(DATA_CF == cfs[0]);
-        expectEncodedKey = setEncodeSubkey(db, key1->ptr, "");
+        expectEncodedKey = setEncodeSubkey(db, key1->ptr, empty);
         test_assert(memcmp(expectEncodedKey, rawkeys[0], sdslen(rawkeys[0])) == 0);
 
         // encodeKeys - swap del

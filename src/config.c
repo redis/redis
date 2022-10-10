@@ -2545,6 +2545,7 @@ standardConfig configs[] = {
     createIntConfig("debug-rio-latency", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.debug_rio_latency, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("swap-threads", NULL, IMMUTABLE_CONFIG, 4, 64, server.swap_threads_num, 4, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("jemalloc-max-bg-threads", NULL, IMMUTABLE_CONFIG, 4, 16, server.jemalloc_max_bg_threads, 4, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("debug-swapout-notify-latency", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.debug_swapout_notify_latency, 0, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),

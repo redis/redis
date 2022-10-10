@@ -471,6 +471,27 @@ int submitNormalClientRequests(client *c) {
     return result.num;
 }
 
+void mutexopCommand(client *c) {
+    addReply(c, shared.ok);
+}
+
+int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark) {
+    if (exclude_mark && server.req_submitted&exclude_mark) {
+        return 0;
+    }
+
+    client *c = server.mutex_client;
+    getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+    getKeyRequestsPrepareResult(&result,1);
+    getKeyRequestsAppendSubkeyResult(&result,REQUEST_LEVEL_SVR,NULL,0,NULL,
+                               c->cmd->intention,c->cmd->intention_flags,c->db->id);
+    submitClientKeyRequests(c,&result,locked_op);
+    releaseKeyRequests(&result);
+    getKeyRequestsFreeResult(&result);
+    server.req_submitted |= exclude_mark;
+    return 1;
+}
+
 int dbSwap(client *c) {
     int keyrequests_submit;
     if (!(c->flags & CLIENT_MASTER)) {
@@ -545,6 +566,10 @@ void swapInit() {
         c->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
         server.ttl_clients[i] = c;
     }
+
+    server.mutex_client = createClient(NULL);
+    server.mutex_client->cmd = lookupCommandByCString("mutexop");
+    server.mutex_client->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
 
     server.repl_workers = 256;
     server.repl_swapping_clients = listCreate();

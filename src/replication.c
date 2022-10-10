@@ -3484,7 +3484,7 @@ void replicationCron(void) {
         replicationScriptCacheFlush();
     }
 
-    replicationStartPendingFork();
+    ctrip_replicationStartPendingFork();
 
     /* Remove the RDB file used for replication if Redis is not running
      * with any persistence. */
@@ -3493,6 +3493,45 @@ void replicationCron(void) {
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */
     refreshGoodSlavesCount();
     replication_cron_loops++; /* Incremented with frequency 1 HZ. */
+}
+
+void _replicationStartPendingFork(client *c, swapCtx *ctx) {
+    replicationStartPendingFork();
+    server.req_submitted &= ~REQ_SUBMITTED_REPL_START;
+    clientReleaseRequestLocks(c,ctx);
+}
+
+void ctrip_replicationStartPendingFork(void) {
+    if (!hasActiveChildProcess()) {
+        time_t idle, max_idle = 0;
+        int slaves_waiting = 0;
+        int mincapa = -1;
+        listNode *ln;
+        listIter li;
+
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            client *slave = ln->value;
+            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+                idle = server.unixtime - slave->lastinteraction;
+                if (idle > max_idle) max_idle = idle;
+                slaves_waiting++;
+                mincapa = (mincapa == -1) ? slave->slave_capa :
+                          (mincapa & slave->slave_capa);
+            }
+        }
+
+        if (slaves_waiting &&
+            (!server.repl_diskless_sync ||
+             max_idle >= server.repl_diskless_sync_delay))
+        {
+            if (server.swap_mode == SWAP_MODE_MEMORY) {
+                startBgsaveForReplication(mincapa);
+            } else {
+                lockGlobalAndExec(_replicationStartPendingFork, REQ_SUBMITTED_REPL_START);
+            }
+        }
+    }
 }
 
 void replicationStartPendingFork(void) {

@@ -43,6 +43,8 @@ set ::disk_tests {
     swap/integration/expire_evict
     swap/integration/pipeline
     swap/integration/overwrite
+    swap/integration/replication-psync
+    swap/integration/bgsave
     swap/unit/dirty
     swap/unit/expire
     swap/unit/rdb
@@ -103,7 +105,6 @@ set ::disk_tests {
     integration/block-repl
     integration/psync2-reg
     integration/psync2-pingoff
-    integration/replication-psync
     integration/failover
     integration/corrupt-dump
     integration/corrupt-dump-fuzzer
