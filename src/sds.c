@@ -100,6 +100,13 @@ static inline size_t sdsTypeMaxSize(char type) {
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
+
+/**
+ * init 是字符串数组的指针
+ * initlen 是初始化的大小，缓冲区初始化大小为16k
+ * trymalloc
+ *
+ * */
 sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     void *sh;
     sds s;
@@ -111,7 +118,14 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     unsigned char *fp; /* flags pointer. */
     size_t usable;
 
+    /** assert 来源与标准库，用于调试判断的宏，若表达式为0则程序报错并终止，否则继续往下执行 **/
     assert(initlen + hdrlen + 1 > initlen); /* Catch size_t overflow */
+    /**
+     * 申请足够的内存 hdrlen + initlen + 1
+     * 实际是zmalloc.h的对应函数和宏，这里只是个别名
+     * s_trymalloc_usable： 即ztrymalloc_usable，尝试分配内存，失败返回null，分配成功则给*usable赋值分配的可用大小
+     * s_malloc_usable： 即zmalloc_usable，分配内存，失败返回null，成功返回则给*usable赋值分配的可用大小
+     * **/
     sh = trymalloc?
         s_trymalloc_usable(hdrlen+initlen+1, &usable) :
         s_malloc_usable(hdrlen+initlen+1, &usable);
@@ -119,8 +133,9 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
+        /** 字符替换：此处表示sdshr所在地址的前hdrlen+initlen+1 位被替换成0 **/
         memset(sh, 0, hdrlen+initlen+1);
-    s = (char*)sh+hdrlen;
+    s = (char*)sh+hdrlen;//获取字符串起始地址
     fp = ((unsigned char*)s)-1;
     usable = usable-hdrlen-1;
     if (usable > sdsTypeMaxSize(type))
@@ -161,6 +176,8 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     }
     if (initlen && init)
         memcpy(s, init, initlen);
+
+    /** 填充结尾符号 **/
     s[initlen] = '\0';
     return s;
 }
@@ -242,9 +259,12 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     if (avail >= addlen) return s;
 
     len = sdslen(s);
+    /** 获取sh的首地址 因为内存紧凑且最后一个buf就是s本身，即s的首地址，故减去sds头部结构体的大小即为sds头部的首地址**/
     sh = (char*)s-sdsHdrSize(oldtype);
     reqlen = newlen = (len+addlen);
     assert(newlen > len);   /* Catch size_t overflow */
+
+    /** 小于最大阈值1M则翻倍，否则每次加1M，默认客户端输入IO缓冲区大小为16kb **/
     if (newlen < SDS_MAX_PREALLOC)
         newlen *= 2;
     else
@@ -268,12 +288,20 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
          * and can't use realloc */
         newsh = s_malloc_usable(hdrlen+newlen+1, &usable);
         if (newsh == NULL) return NULL;
+        /** 标准库函数： void *memcpy(void *str1, const void *str2, size_t n) 从str2复制n个字节到存储区str1
+         * len + 1 的意思是 字节字符串长度加上结尾符号'\0'
+         * 此表达式表示将原来的字符串复制到新的内存地址中对应buf位置，因为s = sh首地址 + sh结构体大小
+         * **/
         memcpy((char*)newsh+hdrlen, s, len+1);
+        /** 释放原来分配的sh的内存空间**/
         s_free(sh);
         s = (char*)newsh+hdrlen;
         s[-1] = type;
+        /** 更新sh头部len属性 **/
         sdssetlen(s, len);
     }
+
+    /** 更新实际分配的内存alloc , 不包含头部和结尾符号'\0' **/
     usable = usable-hdrlen-1;
     if (usable > sdsTypeMaxSize(type))
         usable = sdsTypeMaxSize(type);

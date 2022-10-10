@@ -2228,6 +2228,7 @@ void readQueryFromClient(connection *conn) {
     /* Update total number of reads on server */
     atomicIncr(server.stat_total_reads_processed, 1);
 
+    /** 默认通用io缓冲区大小是16k **/
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
      * that is large enough, try to maximize the probability that the query
@@ -2249,6 +2250,10 @@ void readQueryFromClient(connection *conn) {
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
     nread = connRead(c->conn, c->querybuf+qblen, readlen);
+    /**
+     * -1表示客户端连接异常；
+     * 0表示客户端连接已关闭
+     * **/
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
             return;

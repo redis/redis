@@ -42,6 +42,28 @@ extern const char *SDS_NOINIT;
 
 typedef char *sds;
 
+/**
+ *
+ * __attribute__ ((__packed__)) 告诉编译器(gcc)取消结构在编译过程中的优化对齐，按照实际占用字节数进行对齐。
+ *  - __attribute__ ： 可以设置函数属性、变量属性、类属性，与编译器有关，和操作系统无关。通过该指令可设置是否内存对齐以及按多少字节对齐
+ *      - 比如按4个字节内存对齐方式： __attribute__ ((aligned(4)))
+ *  - __packed__ ： 类型属性，使变量和结构体成员使用最小的对齐方式（对变量是一字节对齐，对域是位对齐），即内存间没有间隙
+ *  - 不设置不对齐，则为结构体总长度，默认gcc使用了4字节对齐
+ *
+ * 共定义了五种类型的sds的头部(header)——sdshdr
+ * 结构体解析:
+ *  - len: buf数组中已使用的字节数量
+ *  - alloc: 分配的buf数组长度,不包括头和空字符结尾
+ *  - flags: 标识位 , 最低三位表示header类型,另外5个位没有使用
+ *      - 共有五种类型,见 SDS_TYPE_5 等定义的常量
+ *      - 低三位表示上述类型，因为5在二进制中为101，占3个bit
+ *  - buf: 存储字符表示的二进制数据
+ *
+ *  flags = s[-1]; 即表示flags的内存地址
+ *      因为在hdr结构体中，是连续存储的，buf的上一块地址就是flags，而sds值的就是buf，所以s[-1]表示sds首地址的前一个地址
+ *
+ * **/
+
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
 struct __attribute__ ((__packed__)) sdshdr5 {
@@ -80,10 +102,36 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_64 4
 #define SDS_TYPE_MASK 7
 #define SDS_TYPE_BITS 3
+/**
+ * ## 用于在预编译期粘连两个符号，如sdshdr##T 若T为16 则预编译后就变成了sdshdr16
+ * void* 即void指针，也叫通用指针或者泛指针，表示所指向的对象不属于任何类型，不可进行算术运算
+ *
+ * 此处是获取sdshdr的首地址，根据紧凑的内存地址分配得出： sdshdr首地址+sdshdr结构体的大小 = buf的首地址
+ * 注意"sizeof(struct sdshdr##T))"是表示结构体的大小，此结构体根据不同的类型都是固定，而不是sdshdr的内存大小，此处容易理解错误，而无法看懂上述公式
+ * **/
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
+/**
+ * 在计算机中，数据是用补码存储的
+ * - 正数的补码就是其源码
+ * - 负数的补码为其反码+1（负数的反码为除符号位外，取反）
+ * 移位运算符（即二进制移动）：
+ * - >> : 右移n，表示除于2^n次方
+ * - << : 左移n，表示乘于2^n次方
+ * -1 右移还是-1
+ */
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+/**
+ * inline 内联函数，降低函数栈调用次数，但每一处调用内联函数，都会对该函数代码进行复制
+ * 内联函数需要和定义一起使用，不建议在声明时添加
+ * 且只适合简单代码功能，不能包含复杂的结构控制语句，如while、switch等，且其本身不能直接递归
+ *
+ * flags&SDS_TYPE_MASK ： 因为flags当前只用到了低三位，而SDS_TYPE_MASK为7即111，故此表达式逻辑与计算后还是flags
+ *
+ * @param s
+ * @return
+ */
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -101,6 +149,11 @@ static inline size_t sdslen(const sds s) {
     return 0;
 }
 
+/**
+ * 计算剩余可用空间： alloc - len
+ * @param s
+ * @return
+ */
 static inline size_t sdsavail(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {

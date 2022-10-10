@@ -421,6 +421,10 @@ void getsetCommand(client *c) {
     rewriteClientCommandArgument(c,0,shared.set);
 }
 
+/**
+ * 时间复杂度O(1),因为偏移量的地址是可以根据（sds的首地址+偏移量）获取，而sds的首地址就是buf的地址 = sdshr地址+sdshr结构体的大小
+ * @param c
+ */
 void setrangeCommand(client *c) {
     robj *o;
     long offset;

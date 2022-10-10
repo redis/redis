@@ -47,17 +47,33 @@
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
 
+/**
+ * 哈希表节点结构
+ */
 typedef struct dictEntry {
+
+    /**
+     * 键值对中的键
+     */
     void *key;
+    /**
+     * 键值对中的值
+     * 共用体，内部成员共用一段内存，同一时刻只能保存一个成员数值
+     * 此处代表了字典可存储的4种数值的类型，分别是字符串、无符号正数、有符号正数、双精度类型
+     * **/
     union {
         void *val;
         uint64_t u64;
         int64_t s64;
         double d;
     } v;
+    /**指向下一个哈希表的节点，形成链表**/
     struct dictEntry *next;
 } dictEntry;
 
+/**
+ * todo 此处语法没看懂
+ * **/
 typedef struct dictType {
     uint64_t (*hashFunction)(const void *key);
     void *(*keyDup)(void *privdata, const void *key);
@@ -70,6 +86,9 @@ typedef struct dictType {
 
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
+/**
+ * 哈希表结构
+ * **/
 typedef struct dictht {
     dictEntry **table;
     unsigned long size;
@@ -80,8 +99,9 @@ typedef struct dictht {
 typedef struct dict {
     dictType *type;
     void *privdata;
+    /** 存储了两张哈希表，一般只用到表[1],表[2]用于rehash/**/
     dictht ht[2];
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 表示rehash的进度，-1则没有进行rehash*/
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
 } dict;
 
@@ -89,6 +109,10 @@ typedef struct dict {
  * dictAdd, dictFind, and other functions against the dictionary even while
  * iterating. Otherwise it is a non safe iterator, and only dictNext()
  * should be called while iterating. */
+/**
+ * safe = 1 线程安全，迭代过程可以执行任何操作
+ * safe = 0 线程不安全，只允许dictNext方法执行
+ */
 typedef struct dictIterator {
     dict *d;
     long index;
@@ -105,6 +129,9 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
+/**
+ * 随处可见的反斜杠"\" 表示继续符号，起连接的作用，即一行放不下了，故用该符号连接
+ */
 #define dictFreeVal(d, entry) \
     if ((d)->type->valDestructor) \
         (d)->type->valDestructor((d)->privdata, (entry)->v.val)

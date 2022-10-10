@@ -267,6 +267,13 @@ void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, in
     if (signal) signalModifiedKey(c,db,key);
 }
 
+/**
+ * set 指令 会清除ttl有效期
+ * @param c
+ * @param db
+ * @param key
+ * @param val
+ */
 /* Common case for genericSetKey() where the TTL is not retained. */
 void setKey(client *c, redisDb *db, robj *key, robj *val) {
     genericSetKey(c,db,key,val,0,1);
