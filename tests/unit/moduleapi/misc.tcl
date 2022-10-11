@@ -44,6 +44,16 @@ start_server {tags {"modules"}} {
         assert_equal [r test.dbsize] 0
     }
 
+    test {test RedisModule_ResetDataset do not reset functions} {
+        r function load {#!lua name=lib
+            redis.register_function('test', function() return 1 end)
+        }
+        assert_equal [r function list] {{library_name lib engine LUA functions {{name test description {} flags {}}}}}
+        r test.flushall
+        assert_equal [r function list] {{library_name lib engine LUA functions {{name test description {} flags {}}}}}
+        r function flush
+    }
+
     test {test module keyexists} {
         r set x foo
         assert_equal 1 [r test.keyexists x]
@@ -171,6 +181,21 @@ start_server {tags {"modules"}} {
         ]
 
         r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
+    test {rm_call clear OOM} {
+        r config set maxmemory 1
+
+        # verify rm_call fails with OOM
+        assert_error {OOM *} {
+            r test.rm_call_flags M set x 1
+        }
+
+        # clear OOM state
+        r config set maxmemory 0
+
+        # test set command is allowed
+        r test.rm_call_flags M set x 1
     } {OK} {needs:config-maxmemory}
 
     test {rm_call OOM Eval} {
@@ -389,6 +414,40 @@ start_server {tags {"modules"}} {
         # server is writable again
         r set x y
     } {OK}
+}
+
+start_server {tags {"modules"}} {
+    r module load $testmodule
+
+    test {test Dry Run - OK OOM/ACL} {
+        set x 5
+        r set x $x
+        catch {r test.rm_call_flags DMC set x 10} e
+        assert_match {*NULL reply returned*} $e
+        assert_equal [r get x] 5
+    }
+
+    test {test Dry Run - Fail OOM} {
+        set x 5
+        r set x $x
+        r config set maxmemory 1
+        catch {r test.rm_call_flags DM set x 10} e
+        assert_match {*OOM*} $e
+        assert_equal [r get x] $x
+        r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
+    test {test Dry Run - Fail ACL} {
+        set x 5
+        r set x $x
+        # deny all permissions besides the dryrun command
+        r acl setuser default resetkeys
+
+        catch {r test.rm_call_flags DC set x 10} e
+        assert_match {*ERR acl verification failed, can't access at least one of the keys*} $e
+        r acl setuser default +@all ~*
+        assert_equal [r get x] $x
+    }
 
     test "Unload the module - misc" {
         assert_equal {OK} [r module unload misc]

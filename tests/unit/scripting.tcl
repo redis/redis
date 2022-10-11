@@ -1376,6 +1376,118 @@ start_server {tags {"scripting needs:debug"}} {
         r DEBUG set-active-expire 1
     }
 
+    test "TIME command using cached time" {
+        set res [run_script {
+            local result1 = {redis.call("TIME")}
+            redis.call("DEBUG", "SLEEP", 0.01)
+            local result2 = {redis.call("TIME")}
+            return {result1, result2}
+         } 0]
+         assert_equal [lindex $res 0] [lindex $res 1]
+     }
+
+    test "Script block the time in some expiration related commands" {
+        # The test uses different commands to set the "same" expiration time for different keys,
+        # and interspersed with "DEBUG SLEEP", to verify that time is frozen in script.
+        # The commands involved are [P]TTL / SET EX[PX] / [P]EXPIRE / GETEX / [P]SETEX / [P]EXPIRETIME
+        set res [run_script {
+            redis.call("SET", "key1{t}", "value", "EX", 1)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SET", "key2{t}", "value", "PX", 1000)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SET", "key3{t}", "value")
+            redis.call("EXPIRE", "key3{t}", 1)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SET", "key4{t}", "value")
+            redis.call("PEXPIRE", "key4{t}", 1000)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SETEX", "key5{t}", 1, "value")
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("PSETEX", "key6{t}", 1000, "value")
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SET", "key7{t}", "value")
+            redis.call("GETEX", "key7{t}", "EX", 1)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SET", "key8{t}", "value")
+            redis.call("GETEX", "key8{t}", "PX", 1000)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            local ttl_results = {redis.call("TTL", "key1{t}"),
+                                 redis.call("TTL", "key2{t}"),
+                                 redis.call("TTL", "key3{t}"),
+                                 redis.call("TTL", "key4{t}"),
+                                 redis.call("TTL", "key5{t}"),
+                                 redis.call("TTL", "key6{t}"),
+                                 redis.call("TTL", "key7{t}"),
+                                 redis.call("TTL", "key8{t}")}
+
+            local pttl_results = {redis.call("PTTL", "key1{t}"),
+                                  redis.call("PTTL", "key2{t}"),
+                                  redis.call("PTTL", "key3{t}"),
+                                  redis.call("PTTL", "key4{t}"),
+                                  redis.call("PTTL", "key5{t}"),
+                                  redis.call("PTTL", "key6{t}"),
+                                  redis.call("PTTL", "key7{t}"),
+                                  redis.call("PTTL", "key8{t}")}
+
+            local expiretime_results = {redis.call("EXPIRETIME", "key1{t}"),
+                                        redis.call("EXPIRETIME", "key2{t}"),
+                                        redis.call("EXPIRETIME", "key3{t}"),
+                                        redis.call("EXPIRETIME", "key4{t}"),
+                                        redis.call("EXPIRETIME", "key5{t}"),
+                                        redis.call("EXPIRETIME", "key6{t}"),
+                                        redis.call("EXPIRETIME", "key7{t}"),
+                                        redis.call("EXPIRETIME", "key8{t}")}
+
+            local pexpiretime_results = {redis.call("PEXPIRETIME", "key1{t}"),
+                                         redis.call("PEXPIRETIME", "key2{t}"),
+                                         redis.call("PEXPIRETIME", "key3{t}"),
+                                         redis.call("PEXPIRETIME", "key4{t}"),
+                                         redis.call("PEXPIRETIME", "key5{t}"),
+                                         redis.call("PEXPIRETIME", "key6{t}"),
+                                         redis.call("PEXPIRETIME", "key7{t}"),
+                                         redis.call("PEXPIRETIME", "key8{t}")}
+
+            return {ttl_results, pttl_results, expiretime_results, pexpiretime_results}
+        } 8 key1{t} key2{t} key3{t} key4{t} key5{t} key6{t} key7{t} key8{t}]
+
+        # The elements in each list are equal.
+        assert_equal 1 [llength [lsort -unique [lindex $res 0]]]
+        assert_equal 1 [llength [lsort -unique [lindex $res 1]]]
+        assert_equal 1 [llength [lsort -unique [lindex $res 2]]]
+        assert_equal 1 [llength [lsort -unique [lindex $res 3]]]
+
+        # Then we check that the expiration time is set successfully.
+        assert_morethan [lindex $res 0] 0
+        assert_morethan [lindex $res 1] 0
+        assert_morethan [lindex $res 2] 0
+        assert_morethan [lindex $res 3] 0
+    }
+
+    test "RESTORE expired keys with expiration time" {
+        set res [run_script {
+            redis.call("SET", "key1{t}", "value")
+            local encoded = redis.call("DUMP", "key1{t}")
+
+            redis.call("RESTORE", "key2{t}", 1, encoded, "REPLACE")
+            redis.call("DEBUG", "SLEEP", 0.01)
+            redis.call("RESTORE", "key3{t}", 1, encoded, "REPLACE")
+
+            return {redis.call("PEXPIRETIME", "key2{t}"), redis.call("PEXPIRETIME", "key3{t}")}
+        } 3 key1{t} key2{t} key3{t}]
+
+        # Can get the expiration time and they are all equal.
+        assert_morethan [lindex $res 0] 0
+        assert_equal [lindex $res 0] [lindex $res 1]
+    }
+
     r debug set-disable-deny-scripts 0
 }
 } ;# foreach is_eval

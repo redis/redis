@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the number of arguments to the command",
         "group": "server",
         "since": "7.0.0",
-        "arity": -4,
+        "arity": -3,
         "container": "COMMAND",
         "function": "commandGetKeysAndFlagsCommand",
         "command_flags": [
@@ -14,6 +14,18 @@
         ],
         "acl_categories": [
             "CONNECTION"
+        ],
+        "arguments": [
+            {
+                "name": "command",
+                "type": "string"
+            },
+            {
+                "name": "arg",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
         ]
     }
 }

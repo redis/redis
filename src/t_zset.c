@@ -1028,7 +1028,7 @@ unsigned char *zzlDelete(unsigned char *zl, unsigned char *eptr) {
 unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds ele, double score) {
     unsigned char *sptr;
     char scorebuf[MAX_D2STRING_CHARS];
-    int scorelen;
+    int scorelen = 0;
     long long lscore;
     int score_is_long = double2ll(score, &lscore);
     if (!score_is_long)
