@@ -33,25 +33,19 @@
  * List API
  *----------------------------------------------------------------------------*/
 
-void listTypeConvertListpack(robj *o, int enc) {
+void listTypeConvertToQuicklist(robj *o) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
 
-    if (enc == OBJ_ENCODING_LISTPACK) {
-        /* Nothing to do... */
-    } else if (enc == OBJ_ENCODING_QUICKLIST) {
-        quicklist *ql = quicklistCreate();
-        quicklistSetOptions(ql, server.list_max_listpack_size, server.list_compress_depth);
+    quicklist *ql = quicklistCreate();
+    quicklistSetOptions(ql, server.list_max_listpack_size, server.list_compress_depth);
 
-        /* Append listpack to quicklist if it's not empty, otherwise release it. */
-        if (lpLength(o->ptr))
-            quicklistAppendListpack(ql, o->ptr);
-        else
-            lpFree(o->ptr);
-        o->ptr = ql;
-        o->encoding = OBJ_ENCODING_QUICKLIST;
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
+    /* Append listpack to quicklist if it's not empty, otherwise release it. */
+    if (lpLength(o->ptr))
+        quicklistAppendListpack(ql, o->ptr);
+    else
+        lpFree(o->ptr);
+    o->ptr = ql;
+    o->encoding = OBJ_ENCODING_QUICKLIST;
 }
 
 /* Check the length and size of a number of objects that will be added to list to see
@@ -60,8 +54,8 @@ void listTypeConvertListpack(robj *o, int enc) {
  *
  * If callback is given the function is called in order for caller to do some work
  * before the list conversion. */
-void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end,
-                                beforeConvertCB fn, void *data)
+void listTypeTryConversionForValues(robj *o, robj **argv, int start, int end,
+                                    beforeConvertCB fn, void *data)
 {
     if (o->encoding != OBJ_ENCODING_LISTPACK) return;
 
@@ -82,7 +76,22 @@ void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end,
         /* Invoke callback before conversion. */
         if (fn) fn(data);
 
-        listTypeConvertListpack(o, OBJ_ENCODING_QUICKLIST);
+        listTypeConvertToQuicklist(o);
+    }
+}
+
+/* Check the length and size of a listpack to see if we need to convert it to quicklist. */
+void listTypeTryConvertToQuicklist(robj *o, beforeConvertCB fn, void *data) {
+    if (o->encoding != OBJ_ENCODING_LISTPACK) return;
+
+    size_t sz;
+    unsigned long count;
+    quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz,&count);
+    if (lpBytes(o->ptr) >= sz || lpLength(o->ptr) >= count) {
+        /* Invoke callback before conversion. */
+        if (fn) fn(data);
+
+        listTypeConvertToQuicklist(o); 
     }
 }
 
@@ -91,7 +100,7 @@ void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end,
  * If callback is given the function is called in order for caller to do some work
  * before the list conversion. */
 #define QUICKLIST_CONVERT_THRESHOLD 0.5
-void listTypeTryConvertQuicklist(robj *o, beforeConvertCB fn, void *data) {
+void listTypeTryConvertToListpack(robj *o, beforeConvertCB fn, void *data) {
     size_t sz_limit;
     unsigned long count_limit;
     quicklist *ql = o->ptr;
@@ -105,7 +114,7 @@ void listTypeTryConvertQuicklist(robj *o, beforeConvertCB fn, void *data) {
     }
 
     /* Note that to avoid frequent conversions of quicklist and listpack due to frequent
-     * insertion and deletion, we use a threshold(QUICKLIST_CONVERT_THRESHOLD)
+     * insertion and deletion, we use a threshold (QUICKLIST_CONVERT_THRESHOLD)
      * to determine whether to convert this quicklist. */
     quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
     if ((sz_limit != SIZE_MAX && ql->head->sz > sz_limit*QUICKLIST_CONVERT_THRESHOLD) ||
@@ -123,6 +132,16 @@ void listTypeTryConvertQuicklist(robj *o, beforeConvertCB fn, void *data) {
     ql->head->entry = NULL;
     quicklistRelease(ql);
     o->encoding = OBJ_ENCODING_LISTPACK;
+}
+
+void listTypeTryConversion(robj *o, beforeConvertCB fn, void *data) {
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        listTypeTryConvertToQuicklist(o, fn, data);
+    } else if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        listTypeTryConvertToListpack(o, fn, data);
+    } else {
+        serverPanic("Unknown list encoding");
+    }
 }
 
 /* The function pushes an element to the specified list object 'subject',
@@ -465,7 +484,7 @@ void pushGenericCommand(client *c, int where, int xx) {
         dbAdd(c->db,c->argv[1],lobj);
     }
 
-    listTypeTryConvertListpack(lobj,c->argv,2,c->argc-1,NULL,NULL);
+    listTypeTryConversionForValues(lobj,c->argv,2,c->argc-1,NULL,NULL);
     for (j = 2; j < c->argc; j++) {
         listTypePush(lobj,c->argv[j],where);
         server.dirty++;
@@ -523,7 +542,7 @@ void linsertCommand(client *c) {
      * the list twice (once to see if the value can be inserted and once
      * to do the actual insert), so we assume this value can be inserted
      * and convert the listpack to a regular list if necessary. */
-    listTypeTryConvertListpack(subject,c->argv,4,1,NULL,NULL);
+    listTypeTryConversionForValues(subject,c->argv,4,1,NULL,NULL);
 
     /* Seek pivot from head to tail */
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
@@ -596,7 +615,7 @@ void lsetCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
 
-    listTypeTryConvertListpack(o,c->argv,3,3,NULL,NULL);
+    listTypeTryConversionForValues(o,c->argv,3,3,NULL,NULL);
     if (listTypeReplaceAtIndex(o,index,value)) {
         addReply(c,shared.ok);
         signalModifiedKey(c,c->db,c->argv[1]);
@@ -698,7 +717,7 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, i
         dbDelete(c->db, key);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
     } else {
-        listTypeTryConvertQuicklist(o, NULL, NULL);
+        listTypeTryConversion(o, NULL, NULL);
         if (deleted) *deleted = 0;
     }
     if (signal) signalModifiedKey(c, c->db, key);
@@ -1036,7 +1055,7 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
         dbAdd(c->db,dstkey,dstobj);
     }
     signalModifiedKey(c,c->db,dstkey);
-    listTypeTryConvertListpack(dstobj,&value,0,0,NULL,NULL);
+    listTypeTryConversionForValues(dstobj,&value,0,0,NULL,NULL);
     listTypePush(dstobj,value,where);
     notifyKeyspaceEvent(NOTIFY_LIST,
                         where == LIST_HEAD ? "lpush" : "rpush",
