@@ -97,6 +97,8 @@ struct _rio {
             sds buf;
         } fd;
     } io;
+    sds pre_flush_buffer; /* A buffer that should be flushed before next write operation
+                           * See rdbSaveSingleModuleAux for more details */
 };
 
 typedef struct _rio rio;
@@ -107,6 +109,17 @@ typedef struct _rio rio;
 
 static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
     if (r->flags & RIO_FLAG_WRITE_ERROR) return 0;
+    if (r->pre_flush_buffer) {
+        /* We have data that must be flushed before saving the current data.
+         * Lets flush it. */
+        sds pre_flush_buffer = r->pre_flush_buffer;
+        r->pre_flush_buffer = NULL;
+        size_t res = rioWrite(r, pre_flush_buffer, sdslen(pre_flush_buffer));
+        sdsfree(pre_flush_buffer);
+        if (!res) {
+             return 0;
+        }
+    }
     while (len) {
         size_t bytes_to_write = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
         if (r->update_cksum) r->update_cksum(r,buf,bytes_to_write);

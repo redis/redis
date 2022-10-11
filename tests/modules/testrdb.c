@@ -269,6 +269,18 @@ int testrdb_get_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int test2rdb_aux_load(RedisModuleIO *rdb, int encver, int when) {
+    REDISMODULE_NOT_USED(rdb);
+    REDISMODULE_NOT_USED(encver);
+    REDISMODULE_NOT_USED(when);
+    return REDISMODULE_OK;
+}
+
+void test2rdb_aux_save(RedisModuleIO *rdb, int when) {
+    REDISMODULE_NOT_USED(rdb);
+    REDISMODULE_NOT_USED(when);
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -312,6 +324,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         if (testrdb_type == NULL)
             return REDISMODULE_ERR;
     }
+
+    /* Used to verify that aux_save2 api without any data, saves nothing to the RDB. */
+    RedisModuleTypeMethods datatype_methods = {
+        .version = REDISMODULE_TYPE_METHOD_VERSION,
+        .aux_load = test2rdb_aux_load,
+        .aux_save2 = test2rdb_aux_save,
+        .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB,
+    };
+
+    RedisModule_CreateDataType(ctx, "test2_rdb", 1, &datatype_methods);
 
     if (RedisModule_CreateCommand(ctx,"testrdb.set.before", testrdb_set_before,"deny-oom",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

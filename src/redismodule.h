@@ -17,7 +17,7 @@
 
 /* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods 
  * structure is changed, this version number needs to be changed synchronistically. */
-#define REDISMODULE_TYPE_METHOD_VERSION 4
+#define REDISMODULE_TYPE_METHOD_VERSION 5
 
 /* API flags and constants */
 #define REDISMODULE_READ (1<<0)
@@ -881,6 +881,7 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeFreeEffortFunc2 free_effort2;
     RedisModuleTypeUnlinkFunc2 unlink2;
     RedisModuleTypeCopyFunc2 copy2;
+    RedisModuleTypeAuxSaveFunc aux_save2;
 } RedisModuleTypeMethods;
 
 #define REDISMODULE_GET_API(name) \

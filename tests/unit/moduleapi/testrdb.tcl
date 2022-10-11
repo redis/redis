@@ -21,6 +21,18 @@ tags "modules" {
         }
     }
 
+    test {aux that saves no data are not saved to the rdb} {
+        set server_path [tmpdir "server.module-testrdb"]
+        puts $server_path
+        start_server [list overrides [list loadmodule "$testmodule" "dir" $server_path] keep_persistence true] {
+            r save
+        }
+        start_server [list overrides [list "dir" $server_path] keep_persistence true] {
+            # make sure server started successfully without the module.
+            assert_equal "PONG" [r ping]
+        }
+    }
+
     test {modules are able to persist globals before and after} {
         set server_path [tmpdir "server.module-testrdb"]
         start_server [list overrides [list loadmodule "$testmodule 2" "dir" $server_path] keep_persistence true] {
