@@ -77,7 +77,7 @@ command in order to really clean everything and rebuild from scratch:
 
     % make distclean
 
-This will clean: jemalloc, lua, hiredis, linenoise and hdr_histogram.
+This will clean: jemalloc, lua, hiredis, linenoise and other dependencies.
 
 Also if you force certain build options like 32bit target, no C compiler
 optimizations (for debugging purposes), and other similar build time options,
@@ -488,43 +488,11 @@ void foobarCommand(client *c) {
 }
 ```
 
-There will be a `foobar.json` JSON file to record all the metadata for this command:
+The command is then referenced inside `commands.c`, see above file part for more details.
+Each command will have a JSON file that stores its metadata, see `ping.json` and `PingCommand` for examples.
 
-```json
-{
-    "FOOBAR": {
-        "summary": "A foobar command.",
-        "complexity": "O(1)",
-        "group": "connection",
-        "since": "x.0.0",
-        "arity": 2,
-        "function": "foobarCommand",
-        "command_flags": [
-            "LOADING",
-            "FAST"
-        ],
-        "acl_categories": [
-            "CONNECTION"
-        ],
-        "arguments": [
-            {
-                "name": "message",
-                "type": "string"
-            }
-        ]
-    }
-}
-```
-
-The command is then referenced inside `commands.c`, see above file part for more details:
-
-```c
-{"foobar","A foobar command.","O(1)","x.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,FOOBAR_History,FOOBAR_tips,foobarCommand,2,CMD_LOADING|CMD_FAST,ACL_CATEGORY_CONNECTION,.args=FOOBAR_Args},
-```
-
-In the above example `2` is the number of arguments the command takes,
-while `CMD_LOADING` and `CMD_FAST` are the command flags, as documented in the `redisCommand`
-top comment inside `server.h`. For more details, please refer to the `COMMAND` command.
+Commands will have a command_flags attribute, the command flags are documented in the `redisCommand` top comment inside `server.h`.
+For other details, please refer to the `COMMAND` command. https://redis.io/commands/command/
 
 After the command operates in some way, it returns a reply to the client,
 usually using `addReply()` or a similar function defined inside `networking.c`.
