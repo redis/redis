@@ -30,7 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* This module allow to verify 'RedisModule_AddPostNotificationJob' by registering to 3
+/* This module allow to verify 'RedisModule_AddPostJob' by registering to 3
  * key space event:
  * * STRINGS - the module register to all strings notifications and set post notification job
  *             that increase a counter indicating how many times the string key was changed.
@@ -42,7 +42,7 @@
  *             counts the total number of evicted events.
  *
  * In addition, the module register a new command, 'postnotification.async_set', that performs a set
- * command from a background thread. This allows to check the 'RedisModule_AddPostNotificationJob' on
+ * command from a background thread. This allows to check the 'RedisModule_AddPostJob' on
  * notifications that was triggered on a background thread. */
 
 #define _BSD_SOURCE
@@ -75,7 +75,7 @@ static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const cha
     REDISMODULE_NOT_USED(key);
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "expired", 7);
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    RedisModule_AddPostJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
     return REDISMODULE_OK;
 }
 
@@ -91,7 +91,7 @@ static int KeySpace_NotificationEvicted(RedisModuleCtx *ctx, int type, const cha
     }
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "evicted", 7);
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    RedisModule_AddPostJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
     return REDISMODULE_OK;
 }
 
@@ -117,7 +117,7 @@ static int KeySpace_NotificationString(RedisModuleCtx *ctx, int type, const char
         new_key = RedisModule_CreateStringPrintf(NULL, "string_changed{%s}", key_str);
     }
 
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    RedisModule_AddPostJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
     return REDISMODULE_OK;
 }
 
@@ -133,7 +133,7 @@ static int KeySpace_LazyExpireInsidePostNotificationJob(RedisModuleCtx *ctx, int
     }
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, key_str + 5, strlen(key_str) - 5);;
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationReadKey, new_key, KeySpace_PostNotificationStringFreePD);
+    RedisModule_AddPostJob(ctx, KeySpace_PostNotificationReadKey, new_key, KeySpace_PostNotificationStringFreePD);
     return REDISMODULE_OK;
 }
 

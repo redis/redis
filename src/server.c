@@ -3196,8 +3196,7 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
 /* Handle the alsoPropagate() API to handle commands that want to propagate
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
-void propagatePendingCommands() {
-    firePostKeySpaceJobs();
+static void propagatePendingCommands() {
     if (server.also_propagate.numops == 0)
         return;
 
@@ -3231,6 +3230,31 @@ void propagatePendingCommands() {
     }
 
     redisOpArrayFree(&server.also_propagate);
+}
+
+/* Performs operations that should be performed after an execution unit ends.
+ * Execution unit is a code that should be done atomically.
+ * Logical units can be nested and are not necessarily starts with Redis command.
+ *
+ * For example the following is a logical unit:
+ *   active expire ->
+ *      trigger del notification of some module ->
+ *          accessing a key ->
+ *              trigger key miss notification of some other module
+ *
+ * What we want to achieve is that the entire execution unit will be done atomically,
+ * currently with respect to replication and post jobs, but in the future there might
+ * be other considerations. So we basically want the `postUnitOperations` to trigger
+ * after the entire chain finished.
+ *
+ * Current, in order to avoid massive code changes that could be risky to cherry-pick,
+ * we count on the mechanism we already have such as `server.core_propagation`,
+ * `server.module_ctx_nesting`, and `server.in_nested_call`. We understand that we probably
+ * do not need all of those variable and we will make an attempt to re-arrange it on unstable
+ * branch. */
+void postUnitOperations() {
+    firePostJobs();
+    propagatePendingCommands();
 }
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).
@@ -3549,8 +3573,9 @@ void afterCommand(client *c) {
         /* If we are at the top-most call() we can propagate what we accumulated.
          * Should be done before trackingHandlePendingKeyInvalidations so that we
          * reply to client before invalidating cache (makes more sense) */
-        if (server.core_propagates)
-            propagatePendingCommands();
+        if (server.core_propagates) {
+            postUnitOperations();
+        }
         /* Flush pending invalidation messages only when we are not in nested call.
          * So the messages are not interleaved with transaction response. */
         trackingHandlePendingKeyInvalidations();

@@ -294,7 +294,7 @@ static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 
 /* Function pointer type for post keyspace jobs */
-typedef void (*RedisModulePostNotificationFunc) (RedisModuleCtx *ctx, void *pd);
+typedef void (*RedisModulePostJobFunc) (RedisModuleCtx *ctx, void *pd);
 
 /* Keyspace notification subscriber information.
  * See RM_SubscribeToKeyspaceEvents() for more information. */
@@ -313,7 +313,7 @@ typedef struct RedisModuleKeyspaceSubscriber {
 typedef struct RedisModulePostKeyspaceJob {
     /* The module subscribed to the event */
     RedisModule *module;
-    RedisModulePostNotificationFunc callback;
+    RedisModulePostJobFunc callback;
     void *pd;
     void (*free_pd)(void*);
     int dbid;
@@ -323,7 +323,7 @@ typedef struct RedisModulePostKeyspaceJob {
 static list *moduleKeyspaceSubscribers;
 
 /* The module post keyspace jobs list */
-static list *modulePostKeyspaceJobs;
+static list *modulePostJobs;
 
 /* Data structures related to the exported dictionary data structure. */
 typedef struct RedisModuleDict {
@@ -737,8 +737,9 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
         /* Modules take care of their own propagation, when we are
          * outside of call() context (timers, events, etc.). */
         if (--server.module_ctx_nesting == 0) {
-            if (!server.core_propagates)
-                propagatePendingCommands();
+            if (!server.core_propagates) {
+                postUnitOperations();
+            }
             if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -7810,7 +7811,7 @@ void moduleGILBeforeUnlock() {
      * (because it's u clear when thread safe contexts are
      * released we have to propagate here). */
     server.module_ctx_nesting--;
-    propagatePendingCommands();
+    postUnitOperations();
 
     if (server.busy_module_yield_flags) {
         blockingOperationEnds();
@@ -7924,13 +7925,13 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     return REDISMODULE_OK;
 }
 
-void firePostKeySpaceJobs() {
+void firePostJobs() {
     /* Avoid propagation of commands. */
     server.in_nested_call++;
-    while (listLength(modulePostKeyspaceJobs) > 0) {
-        listNode *ln = listFirst(modulePostKeyspaceJobs);
+    while (listLength(modulePostJobs) > 0) {
+        listNode *ln = listFirst(modulePostJobs);
         RedisModulePostKeyspaceJob *job = listNodeValue(ln);
-        listDelNode(modulePostKeyspaceJobs, ln);
+        listDelNode(modulePostJobs, ln);
 
         RedisModuleCtx ctx;
         moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
@@ -7945,28 +7946,21 @@ void firePostKeySpaceJobs() {
     server.in_nested_call--;
 }
 
-/* This API should only be executed within a key space notification callback and allow to
- * react to the notification with some write operations.
- *
- * In general it is dangerous and highly discouraged to write inside key space notification callback.
- * See `RM_SubscribeToKeyspaceEvents` for more information. In order to still performing write actions
- * as a reaction to key space notification, Redis provides `RM_AddPostNotificationJob` API.
+/* RedisModule API has a few location where it is dangerous and highly discouraged to perform any write
+ * operation ( For example, when running inside a key space notification callback, See `RM_SubscribeToKeyspaceEvents`
+ * for more information). In order to still performing write actions in such locations, Redis provides `RM_AddPostJob` API.
  * The api allows to register a job. When Redis calls this job the following condition are promised to be fulfilled:
  * 1. It is safe to perform any write operation.
- * 2. The job will be called atomically along side the notification (the notification effect and the
- *    job effect will be replicated to the replication and the aof wrapped with multi exec).
+ * 2. The job will be called atomically along side the action that triggered it.
  *
- * Notice, one post notification job might trigger more key space notification and cause more jobs
- * to be registered, This raises a concerns of entering an infinite loops,
- * we consider infinite loops as a logical bug that need to be fixed in the module,
- * an attempt to protect against infinite loops by halting the execution could result
- * in violation of the feature correctness and so Redis will make no attempt to protect
- * the module from infinite loops.
+ * Notice, one job might trigger key space notifications that will trigger more jobs.
+ * This raises a concerns of entering an infinite loops, we consider infinite loops
+ * as a logical bug that need to be fixed in the module, an attempt to protect against
+ * infinite loops by halting the execution could result in violation of the feature correctness
+ * and so Redis will make no attempt to protect the module from infinite loops.
  *
- * 'free_pd' can be NULL and in such case will not be used.
- *
- *  */
-int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationFunc callback, void *pd, void (*free_pd)(void*)) {
+ * 'free_pd' can be NULL and in such case will not be used. */
+int RM_AddPostJob(RedisModuleCtx *ctx, RedisModulePostJobFunc callback, void *pd, void (*free_pd)(void*)) {
     RedisModulePostKeyspaceJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
@@ -7974,7 +7968,7 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationFu
     job->free_pd = free_pd;
     job->dbid = ctx->client->db->id;
 
-    listAddNodeTail(modulePostKeyspaceJobs, job);
+    listAddNodeTail(modulePostJobs, job);
     return REDISMODULE_OK;
 }
 
@@ -11088,7 +11082,7 @@ void moduleInitModulesSystem(void) {
     /* Set up the keyspace notification subscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
 
-    modulePostKeyspaceJobs = listCreate();
+    modulePostJobs = listCreate();
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();
@@ -12800,7 +12794,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(NotifyKeyspaceEvent);
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
-    REGISTER_API(AddPostNotificationJob);
+    REGISTER_API(AddPostJob);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
     REGISTER_API(GetClusterNodeInfo);

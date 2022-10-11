@@ -678,8 +678,7 @@ void handleClientsBlockedOnKeys(void) {
                 unblockDeletedStreamReadgroupClients(rl);
                 /* Edge case: If lookupKeyReadWithFlags decides to expire the key we have to
                  * take care of the propagation here, because afterCommand wasn't called */
-                if (server.also_propagate.numops > 0)
-                    propagatePendingCommands();
+                postUnitOperations();
             }
             server.fixed_time_expire--;
 
