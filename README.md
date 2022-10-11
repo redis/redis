@@ -488,17 +488,15 @@ void foobarCommand(client *c) {
 }
 ```
 
-The command is then referenced inside `commands.c`, see above file part for more details.
-Each command will have a JSON file that stores its metadata, see `ping.json` and `PingCommand` for examples.
-
-Commands will have a command_flags attribute, the command flags are documented in the `redisCommand` top comment inside `server.h`.
+The command function is referenced by a JSON file, together with its metadata, see `commands.c` descibed above for details.
+The command flags are documented in the comment above the `struct redisCommand` in `server.h`.
 For other details, please refer to the `COMMAND` command. https://redis.io/commands/command/
 
 After the command operates in some way, it returns a reply to the client,
 usually using `addReply()` or a similar function defined inside `networking.c`.
 
 There are tons of command implementations inside the Redis source code
-that can serve as examples of actual commands implementations. Writing
+that can serve as examples of actual commands implementations (e.g. pingCommand). Writing
 a few toy commands can be a good exercise to get familiar with the code base.
 
 There are also many other files not described here, but it is useless to
