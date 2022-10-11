@@ -4326,8 +4326,8 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
 int RM_ListDelete(RedisModuleKey *key, long index) {
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeDelete(key->iter, &key->u.list.entry);
-        if (moduleDelKeyIfEmpty(key)) return REDISMODULE_OK;
-        listTypeTryConversion(key->value, moduleFreeListIterator, key);
+        if (!moduleDelKeyIfEmpty(key))
+            listTypeTryConversion(key->value, moduleFreeListIterator, key);
         return REDISMODULE_OK;
     } else {
         return REDISMODULE_ERR;
