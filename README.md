@@ -488,7 +488,7 @@ void foobarCommand(client *c) {
 }
 ```
 
-The command function is referenced by a JSON file, together with its metadata, see `commands.c` descibed above for details.
+The command function is referenced by a JSON file, together with its metadata, see `commands.c` described above for details.
 The command flags are documented in the comment above the `struct redisCommand` in `server.h`.
 For other details, please refer to the `COMMAND` command. https://redis.io/commands/command/
 
