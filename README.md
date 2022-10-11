@@ -75,9 +75,9 @@ When you update the source code with `git pull` or when code inside the
 dependencies tree is modified in any other way, make sure to use the following
 command in order to really clean everything and rebuild from scratch:
 
-    make distclean
+    % make distclean
 
-This will clean: jemalloc, lua, hiredis, linenoise.
+This will clean: jemalloc, lua, hiredis, linenoise and other dependencies.
 
 Also if you force certain build options like 32bit target, no C compiler
 optimizations (for debugging purposes), and other similar build time options,
@@ -319,13 +319,17 @@ As you can see in the client structure above, arguments in a command
 are described as `robj` structures. The following is the full `robj`
 structure, which defines a *Redis object*:
 
-    typedef struct redisObject {
-        unsigned type:4;
-        unsigned encoding:4;
-        unsigned lru:LRU_BITS; /* lru time (relative to server.lruclock) */
-        int refcount;
-        void *ptr;
-    } robj;
+```c
+struct redisObject {
+    unsigned type:4;
+    unsigned encoding:4;
+    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
+                            * LFU data (least significant 8 bits frequency
+                            * and most significant 16 bits access time). */
+    int refcount;
+    void *ptr;
+};
+```
 
 Basically this structure can represent all the basic Redis data types like
 strings, lists, sets, sorted sets and so forth. The interesting thing is that
@@ -451,8 +455,9 @@ replicas, or to continue the replication after a disconnection.
 
 Script
 ---
-The script unit is compose of 3 units
-* `script.c` - integration of scripts with Redis (commands execution, set replication/resp, ..)
+
+The script unit is composed of 3 units:
+* `script.c` - integration of scripts with Redis (commands execution, set replication/resp, ...)
 * `script_lua.c` - responsible to execute Lua code, uses script.c to interact with Redis from within the Lua code.
 * `function_lua.c` - contains the Lua engine implementation, uses script_lua.c to execute the Lua code.
 * `functions.c` - contains Redis Functions implementation (FUNCTION command), uses functions_lua.c if the function it wants to invoke needs the Lua engine.
@@ -476,24 +481,22 @@ Anatomy of a Redis command
 
 All the Redis commands are defined in the following way:
 
-    void foobarCommand(client *c) {
-        printf("%s",c->argv[1]->ptr); /* Do something with the argument. */
-        addReply(c,shared.ok); /* Reply something to the client. */
-    }
+```c
+void foobarCommand(client *c) {
+    printf("%s",c->argv[1]->ptr); /* Do something with the argument. */
+    addReply(c,shared.ok); /* Reply something to the client. */
+}
+```
 
-The command is then referenced inside `server.c` in the command table:
-
-    {"foobar",foobarCommand,2,"rtF",0,NULL,0,0,0,0,0},
-
-In the above example `2` is the number of arguments the command takes,
-while `"rtF"` are the command flags, as documented in the command table
-top comment inside `server.c`.
+The command function is referenced by a JSON file, together with its metadata, see `commands.c` described above for details.
+The command flags are documented in the comment above the `struct redisCommand` in `server.h`.
+For other details, please refer to the `COMMAND` command. https://redis.io/commands/command/
 
 After the command operates in some way, it returns a reply to the client,
 usually using `addReply()` or a similar function defined inside `networking.c`.
 
 There are tons of command implementations inside the Redis source code
-that can serve as examples of actual commands implementations. Writing
+that can serve as examples of actual commands implementations (e.g. pingCommand). Writing
 a few toy commands can be a good exercise to get familiar with the code base.
 
 There are also many other files not described here, but it is useless to
