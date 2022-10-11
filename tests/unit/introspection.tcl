@@ -54,7 +54,29 @@ start_server {tags {"introspection"}} {
         # After killing `me`, the first ping will throw an error
         assert_error "*I/O error*" {r ping}
         assert_equal "PONG" [r ping]
+
+        $rd1 close
+        $rd2 close
+        $rd3 close
+        $rd4 close
     }
+
+    test {CLIENT KILL close the client connection during bgsave} {
+        # Start a slow bgsave, trigger an active fork.
+        r set k v
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+
+        # Kill (close) the connection
+        r client kill skipme no
+
+        # In the past, client connections needed to wait for bgsave to end
+        # before actually closing, now they are closed immediately.
+        assert_error "*I/O error*" {r ping} ;# get the error very quickly
+        assert_equal "PONG" [r ping]
+
+        r config set rdb-key-save-delay 0
+    } {OK} {needs:save}
 
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]

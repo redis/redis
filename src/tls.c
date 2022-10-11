@@ -748,6 +748,12 @@ static int connTLSListen(connListener *listener) {
     return listenToPort(listener);
 }
 
+static void connTLSShutdown(connection *conn, int shut_rd, int shut_wr) {
+    UNUSED(conn);
+    UNUSED(shut_rd);
+    UNUSED(shut_wr);
+}
+
 static void connTLSClose(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
 
@@ -1103,9 +1109,10 @@ static ConnectionType CT_TLS = {
     .addr = connTLSAddr,
     .listen = connTLSListen,
 
-    /* create/close connection */
+    /* create/shutdown/close connection */
     .conn_create = connCreateTLS,
     .conn_create_accepted = connCreateAcceptedTLS,
+    .shutdown = connTLSShutdown,
     .close = connTLSClose,
 
     /* connect & accept */

@@ -80,9 +80,10 @@ typedef struct ConnectionType {
     int (*addr)(connection *conn, char *ip, size_t ip_len, int *port, int remote);
     int (*listen)(connListener *listener);
 
-    /* create/close connection */
+    /* create/shutdown/close connection */
     connection* (*conn_create)(void);
     connection* (*conn_create_accepted)(int fd, void *priv);
+    void (*shutdown)(struct connection *conn, int shut_rd, int shut_wr);
     void (*close)(struct connection *conn);
 
     /* connect & accept */
@@ -238,6 +239,12 @@ static inline int connSetReadHandler(connection *conn, ConnectionCallbackFunc fu
  * things to disk before sending replies, and want to do that in a group fashion. */
 static inline int connSetWriteHandlerWithBarrier(connection *conn, ConnectionCallbackFunc func, int barrier) {
     return conn->type->set_write_handler(conn, func, barrier);
+}
+
+/* shut_rd: Disables further receive operations.
+ * shut_wr: Disables further send operations. */
+static inline void connShutdown(connection *conn, int shut_rd, int shut_wr) {
+    conn->type->shutdown(conn, shut_rd, shut_wr);
 }
 
 static inline void connClose(connection *conn) {
