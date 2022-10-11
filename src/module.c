@@ -293,7 +293,7 @@ static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 /* Function pointer type for keyspace event notification subscriptions from modules. */
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 
-/* Function pointer type for post keyspace jobs */
+/* Function pointer type for post jobs */
 typedef void (*RedisModulePostJobFunc) (RedisModuleCtx *ctx, void *pd);
 
 /* Keyspace notification subscriber information.
@@ -310,14 +310,14 @@ typedef struct RedisModuleKeyspaceSubscriber {
     int active;
 } RedisModuleKeyspaceSubscriber;
 
-typedef struct RedisModulePostKeyspaceJob {
+typedef struct RedisModulePostJob {
     /* The module subscribed to the event */
     RedisModule *module;
     RedisModulePostJobFunc callback;
     void *pd;
     void (*free_pd)(void*);
     int dbid;
-} RedisModulePostKeyspaceJob;
+} RedisModulePostJob;
 
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
@@ -7930,7 +7930,7 @@ void firePostJobs() {
     server.in_nested_call++;
     while (listLength(modulePostJobs) > 0) {
         listNode *ln = listFirst(modulePostJobs);
-        RedisModulePostKeyspaceJob *job = listNodeValue(ln);
+        RedisModulePostJob *job = listNodeValue(ln);
         listDelNode(modulePostJobs, ln);
 
         RedisModuleCtx ctx;
@@ -7961,7 +7961,7 @@ void firePostJobs() {
  *
  * 'free_pd' can be NULL and in such case will not be used. */
 int RM_AddPostJob(RedisModuleCtx *ctx, RedisModulePostJobFunc callback, void *pd, void (*free_pd)(void*)) {
-    RedisModulePostKeyspaceJob *job = zmalloc(sizeof(*job));
+    RedisModulePostJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
     job->pd = pd;
