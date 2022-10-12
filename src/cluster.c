@@ -694,11 +694,6 @@ void clusterInit(void) {
         exit(1);
     }
 
-    if (connectionIndexByType(connTypeOfCluster()->get_type(NULL)) < 0) {
-        serverLog(LL_WARNING, "Missing connection type %s, but it is required for the Cluster bus.", connTypeOfCluster()->get_type(NULL));
-        exit(1);
-    }
-
     /* Initialize data for the Slot to key API. */
     slotToKeyInit(server.db);
 
@@ -718,6 +713,11 @@ void clusterInit(void) {
 }
 
 void clusterInitListeners(void) {
+    if (connectionIndexByType(connTypeOfCluster()->get_type(NULL)) < 0) {
+        serverLog(LL_WARNING, "Missing connection type %s, but it is required for the Cluster bus.", connTypeOfCluster()->get_type(NULL));
+        exit(1);
+    }
+
     int port = server.tls_cluster ? server.tls_port : server.port;
     connListener *listener = &server.clistener;
     listener->count = 0;
