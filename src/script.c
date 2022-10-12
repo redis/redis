@@ -33,7 +33,7 @@
 
 scriptFlag scripts_flags_def[] = {
     {.flag = SCRIPT_FLAG_NO_WRITES, .str = "no-writes"},
-    {.flag = SCRIPT_FLAG_ALLOW_OOM, .str = "allow-oom"},
+    {.flag = SCRIPT_FLAG_NO_DENY_OOM, .str = "no-deny-oom"},
     {.flag = SCRIPT_FLAG_ALLOW_STALE, .str = "allow-stale"},
     {.flag = SCRIPT_FLAG_NO_CLUSTER, .str = "no-cluster"},
     {.flag = SCRIPT_FLAG_ALLOW_CROSS_SLOT, .str = "allow-cross-slot-keys"},
@@ -112,8 +112,8 @@ uint64_t scriptFlagsToCmdFlags(uint64_t cmd_flags, uint64_t script_flags) {
     /* If the script declared flags, clear the ones from the command and use the ones it declared.*/
     cmd_flags &= ~(CMD_STALE | CMD_DENYOOM | CMD_WRITE);
 
-    /* NO_WRITES implies ALLOW_OOM */
-    if (!(script_flags & (SCRIPT_FLAG_ALLOW_OOM | SCRIPT_FLAG_NO_WRITES)))
+    /* NO_WRITES implies NO_DENY_OOM */
+    if (!(script_flags & (SCRIPT_FLAG_NO_WRITES | SCRIPT_FLAG_NO_DENY_OOM)))
         cmd_flags |= CMD_DENYOOM;
     if (!(script_flags & SCRIPT_FLAG_NO_WRITES))
         cmd_flags |= CMD_WRITE;
@@ -187,12 +187,13 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
             }
         }
 
-        /* Check OOM state. the no-writes flag imply allow-oom. we tested it
+        /* Check OOM state. the no-writes flag imply no-deny-oom. we tested it
          * after the no-write error, so no need to mention it in the error reply. */
         if (server.pre_command_oom_state && server.maxmemory &&
-            !(script_flags & (SCRIPT_FLAG_ALLOW_OOM|SCRIPT_FLAG_NO_WRITES)))
+            !(script_flags & (SCRIPT_FLAG_NO_WRITES|SCRIPT_FLAG_NO_DENY_OOM)))
         {
-            addReplyError(caller, "-OOM allow-oom flag is not set on the script, "
+            addReplyError(caller, "-OOM no-writes or no-deny-oom flag "
+                                  "is not set on the script, "
                                   "can not run it when used memory > 'maxmemory'");
             return C_ERR;
         }
@@ -233,10 +234,11 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
          * flag, we will not allow write commands. */
         run_ctx->flags |= SCRIPT_READ_ONLY;
     }
-    if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_ALLOW_OOM)) {
+
+    if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_NO_DENY_OOM)) {
         /* Note: we don't need to test the no-writes flag here and set this run_ctx flag,
-         * since only write commands can are deny-oom. */
-        run_ctx->flags |= SCRIPT_ALLOW_OOM;
+         * since only write commands can be deny-oom. */
+        run_ctx->flags |= SCRIPT_NO_DENY_OOM;
     }
 
     if ((script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) || (script_flags & SCRIPT_FLAG_ALLOW_CROSS_SLOT)) {
@@ -394,8 +396,8 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
 }
 
 static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
-    if (run_ctx->flags & SCRIPT_ALLOW_OOM) {
-        /* Allow running any command even if OOM reached */
+    if (run_ctx->flags & SCRIPT_NO_DENY_OOM) {
+        /* Allow running no deny-oom command even if OOM reached */
         return C_OK;
     }
 
@@ -455,6 +457,18 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
                     "the same slot");
             return C_ERR;
         }
+    }
+    return C_OK;
+}
+
+static int scriptVerifyDenyOOMCommandAllow(scriptRunCtx *run_ctx, char **err) {
+    if (!(run_ctx->c->cmd->flags & CMD_DENYOOM)) {
+        return C_OK;
+    }
+
+    if (run_ctx->flags & SCRIPT_NO_DENY_OOM) {
+        *err = sdsnew("Deny-OOM commands are not allowed from no-deny-oom scripts.");
+        return C_ERR;
     }
     return C_OK;
 }
@@ -544,6 +558,10 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     }
 
     if (scriptVerifyWriteCommandAllow(run_ctx, err) != C_OK) {
+        goto error;
+    }
+
+    if (scriptVerifyDenyOOMCommandAllow(run_ctx, err) != C_OK) {
         goto error;
     }
 

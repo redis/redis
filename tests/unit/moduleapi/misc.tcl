@@ -260,7 +260,7 @@ start_server {tags {"modules"}} {
             return 2
         } 1 x
 
-        assert_error {OOM allow-oom flag is not set on the script,*} {
+        assert_error {OOM no-writes or no-deny-oom flag is not set on the script,*} {
             r test.rm_call eval {#!lua
                 redis.call('get','x')
                 return 3
