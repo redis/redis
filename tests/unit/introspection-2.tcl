@@ -3,6 +3,13 @@ proc cmdstat {cmd} {
 }
 
 start_server {tags {"introspection"}} {
+    test {The microsecond part of the TIME command will not overflow} {
+        set now [r time]
+        set microseconds [lindex $now 1]
+        assert_morethan $microseconds 0
+        assert_lessthan $microseconds 1000000
+    }
+
     test {TTL, TYPE and EXISTS do not alter the last access time of a key} {
         r set foo bar
         after 3000
@@ -176,4 +183,19 @@ start_server {tags {"introspection"}} {
         assert_equal {{}} [r command info get|key]
         assert_equal {{}} [r command info config|get|key]
     }
+
+    foreach cmd {SET GET MSET BITFIELD LMOVE LPOP BLPOP PING MEMORY MEMORY|USAGE RENAME GEORADIUS_RO} {
+        test "$cmd command will not be marked with movablekeys" {
+            set info [lindex [r command info $cmd] 0]
+            assert_no_match {*movablekeys*} [lindex $info 2]
+        }
+    }
+
+    foreach cmd {ZUNIONSTORE XREAD EVAL SORT SORT_RO MIGRATE GEORADIUS} {
+        test "$cmd command is marked with movablekeys" {
+            set info [lindex [r command info $cmd] 0]
+            assert_match {*movablekeys*} [lindex $info 2]
+        }
+    }
+
 }

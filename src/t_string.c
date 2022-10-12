@@ -38,7 +38,7 @@ int getGenericCommand(client *c);
  *----------------------------------------------------------------------------*/
 
 static int checkStringLength(client *c, long long size) {
-    if (!(c->flags & CLIENT_MASTER) && size > server.proto_max_bulk_len) {
+    if (!mustObeyClient(c) && size > server.proto_max_bulk_len) {
         addReplyError(c,"string exceeds maximum allowed size (proto-max-bulk-len)");
         return C_ERR;
     }
@@ -99,7 +99,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         return;
     }
 
-    setkey_flags |= (flags & OBJ_KEEPTTL) ? SETKEY_KEEPTTL : 0;
+    /* When expire is not NULL, we avoid deleting the TTL so it can be updated later instead of being deleted and then created again. */
+    setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
 
     setKey(c,c->db,key,val,setkey_flags);
@@ -167,7 +168,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
     if (unit == UNIT_SECONDS) *milliseconds *= 1000;
 
     if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
-        *milliseconds += mstime();
+        *milliseconds += commandTimeSnapshot();
     }
 
     if (*milliseconds <= 0) {
@@ -411,12 +412,9 @@ void getexCommand(client *c) {
 
 void getdelCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
-    int deleted = server.lazyfree_lazy_user_del ? dbAsyncDelete(c->db, c->argv[1]) :
-                  dbSyncDelete(c->db, c->argv[1]);
-    if (deleted) {
-        /* Propagate as DEL/UNLINK command */
-        robj *aux = server.lazyfree_lazy_user_del ? shared.unlink : shared.del;
-        rewriteClientCommandVector(c,2,aux,c->argv[1]);
+    if (dbSyncDelete(c->db, c->argv[1])) {
+        /* Propagate as DEL command */
+        rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c, c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
@@ -792,7 +790,7 @@ void lcsCommand(client *c) {
 
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
-     * we index it as LCS[j+(blen+1)*j] */
+     * we index it as LCS[j+(blen+1)*i] */
     #define LCS(A,B) lcs[(B)+((A)*(blen+1))]
 
     /* Try to allocate the LCS table, and abort on overflow or insufficient memory. */

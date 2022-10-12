@@ -58,7 +58,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     if (server.maxidletime &&
         /* This handles the idle clients connection timeout if set. */
         !(c->flags & CLIENT_SLAVE) &&   /* No timeout for slaves and monitors */
-        !(c->flags & CLIENT_MASTER) &&  /* No timeout for masters */
+        !mustObeyClient(c) &&         /* No timeout for masters and AOF */
         !(c->flags & CLIENT_BLOCKED) && /* No timeout for BLPOP */
         !(c->flags & CLIENT_PUBSUB) &&  /* No timeout for Pub/Sub clients */
         (now - c->lastinteraction > server.maxidletime))
@@ -164,12 +164,19 @@ void handleBlockedClientsTimeout(void) {
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit) {
     long long tval;
     long double ftval;
+    mstime_t now = commandTimeSnapshot();
 
     if (unit == UNIT_SECONDS) {
         if (getLongDoubleFromObjectOrReply(c,object,&ftval,
             "timeout is not a float or out of range") != C_OK)
             return C_ERR;
-        tval = (long long) (ftval * 1000.0);
+
+        ftval *= 1000.0;  /* seconds => millisec */
+        if (ftval > LLONG_MAX) {
+            addReplyError(c, "timeout is out of range");
+            return C_ERR;
+        }
+        tval = (long long) ftval;
     } else {
         if (getLongLongFromObjectOrReply(c,object,&tval,
             "timeout is not an integer or out of range") != C_OK)
@@ -182,7 +189,11 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
     }
 
     if (tval > 0) {
-        tval += mstime();
+        if  (tval > LLONG_MAX - now) {
+            addReplyError(c,"timeout is out of range"); /* 'tval+now' would overflow */
+            return C_ERR;
+        }
+        tval += now;
     }
     *timeout = tval;
 

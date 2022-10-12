@@ -117,7 +117,7 @@
  *
  *  [0f 00 00 00] [0c 00 00 00] [02 00] [00 f3] [02 f6] [ff]
  *        |             |          |       |       |     |
- *     zlbytes        zltail    entries   "2"     "5"   end
+ *     zlbytes        zltail     zllen    "2"     "5"   end
  *
  * The first 4 bytes represent the number 15, that is the number of bytes
  * the whole ziplist is composed of. The second 4 bytes are the offset
@@ -255,7 +255,7 @@
 
 /* Return the pointer to the last byte of a ziplist, which is, the
  * end of ziplist FF entry. */
-#define ZIPLIST_ENTRY_END(zl)   ((zl)+intrev32ifbe(ZIPLIST_BYTES(zl))-1)
+#define ZIPLIST_ENTRY_END(zl)   ((zl)+intrev32ifbe(ZIPLIST_BYTES(zl))-ZIPLIST_END_SIZE)
 
 /* Increment the number of items field in the ziplist header. Note that this
  * macro should never overflow the unsigned 16 bit integer, since entries are
@@ -1707,17 +1707,17 @@ static unsigned char *createIntList() {
     unsigned char *zl = ziplistNew();
     char buf[32];
 
-    sprintf(buf, "100");
+    snprintf(buf, sizeof(buf), "100");
     zl = ziplistPush(zl, (unsigned char*)buf, strlen(buf), ZIPLIST_TAIL);
-    sprintf(buf, "128000");
+    snprintf(buf, sizeof(buf), "128000");
     zl = ziplistPush(zl, (unsigned char*)buf, strlen(buf), ZIPLIST_TAIL);
-    sprintf(buf, "-100");
+    snprintf(buf, sizeof(buf), "-100");
     zl = ziplistPush(zl, (unsigned char*)buf, strlen(buf), ZIPLIST_HEAD);
-    sprintf(buf, "4294967296");
+    snprintf(buf, sizeof(buf), "4294967296");
     zl = ziplistPush(zl, (unsigned char*)buf, strlen(buf), ZIPLIST_HEAD);
-    sprintf(buf, "non integer");
+    snprintf(buf, sizeof(buf), "non integer");
     zl = ziplistPush(zl, (unsigned char*)buf, strlen(buf), ZIPLIST_TAIL);
-    sprintf(buf, "much much longer non integer");
+    snprintf(buf,sizeof(buf), "much much longer non integer");
     zl = ziplistPush(zl, (unsigned char*)buf, strlen(buf), ZIPLIST_TAIL);
     return zl;
 }
@@ -1754,7 +1754,7 @@ static void stress(int pos, int num, int maxsize, int dnum) {
 static unsigned char *pop(unsigned char *zl, int where) {
     unsigned char *p, *vstr;
     unsigned int vlen;
-    long long vlong;
+    long long vlong = 0;
 
     p = ziplistIndex(zl,where == ZIPLIST_HEAD ? 0 : -1);
     if (ziplistGet(p,&vstr,&vlen,&vlong)) {
@@ -2232,7 +2232,7 @@ int ziplistTest(int argc, char **argv, int flags) {
         char buf[32];
         int i,len;
         for (i = 0; i < 1000; i++) {
-            len = sprintf(buf,"%d",i);
+            len = snprintf(buf,sizeof(buf),"%d",i);
             zl = ziplistPush(zl,(unsigned char*)buf,len,ZIPLIST_TAIL);
         }
         for (i = 0; i < 1000; i++) {
@@ -2379,13 +2379,13 @@ int ziplistTest(int argc, char **argv, int flags) {
                 } else {
                     switch(rand() % 3) {
                     case 0:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()) >> 20);
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()) >> 20);
                         break;
                     case 1:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()));
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()));
                         break;
                     case 2:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()) << 20);
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()) << 20);
                         break;
                     default:
                         assert(NULL);
@@ -2414,7 +2414,7 @@ int ziplistTest(int argc, char **argv, int flags) {
 
                 assert(ziplistGet(p,&sstr,&slen,&sval));
                 if (sstr == NULL) {
-                    buflen = sprintf(buf,"%lld",sval);
+                    buflen = snprintf(buf,sizeof(buf),"%lld",sval);
                 } else {
                     buflen = slen;
                     memcpy(buf,sstr,buflen);

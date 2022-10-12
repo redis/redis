@@ -110,9 +110,10 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 #define DICT_HT_INITIAL_SIZE     (1<<(DICT_HT_INITIAL_EXP))
 
 /* ------------------------------- Macros ------------------------------------*/
-#define dictFreeVal(d, entry) \
-    if ((d)->type->valDestructor) \
-        (d)->type->valDestructor((d), (entry)->v.val)
+#define dictFreeVal(d, entry) do {                     \
+    if ((d)->type->valDestructor)                      \
+        (d)->type->valDestructor((d), (entry)->v.val); \
+   } while(0)
 
 #define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
@@ -150,7 +151,7 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 #define dictMetadataSize(d) ((d)->type->dictEntryMetadataBytes \
                              ? (d)->type->dictEntryMetadataBytes(d) : 0)
 
-#define dictHashKey(d, key) (d)->type->hashFunction(key)
+#define dictHashKey(d, key) ((d)->type->hashFunction(key))
 #define dictGetKey(he) ((he)->key)
 #define dictGetVal(he) ((he)->v.val)
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
@@ -159,8 +160,8 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 #define dictSlots(d) (DICTHT_SIZE((d)->ht_size_exp[0])+DICTHT_SIZE((d)->ht_size_exp[1]))
 #define dictSize(d) ((d)->ht_used[0]+(d)->ht_used[1])
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
-#define dictPauseRehashing(d) (d)->pauserehash++
-#define dictResumeRehashing(d) (d)->pauserehash--
+#define dictPauseRehashing(d) ((d)->pauserehash++)
+#define dictResumeRehashing(d) ((d)->pauserehash--)
 
 /* If our unsigned long type can store a 64 bit number, use a 64 bit PRNG. */
 #if ULONG_MAX >= 0xffffffffffffffff
@@ -186,6 +187,9 @@ void *dictFetchValue(dict *d, const void *key);
 int dictResize(dict *d);
 dictIterator *dictGetIterator(dict *d);
 dictIterator *dictGetSafeIterator(dict *d);
+void dictInitIterator(dictIterator *iter, dict *d);
+void dictInitSafeIterator(dictIterator *iter, dict *d);
+void dictResetIterator(dictIterator *iter);
 dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);

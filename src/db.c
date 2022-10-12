@@ -41,7 +41,11 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired);
+/* Flags for expireIfNeeded */
+#define EXPIRE_FORCE_DELETE_EXPIRED 1
+#define EXPIRE_AVOID_DELETE_EXPIRED 2
+
+int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 
 /* Update LFU when an object is accessed.
@@ -72,6 +76,8 @@ void updateLFU(robj *val) {
  *  LOOKUP_NOSTATS: Don't increment key hits/misses counters.
  *  LOOKUP_WRITE: Prepare the key for writing (delete expired keys even on
  *                replicas, use separate keyspace stats and events (TODO)).
+ *  LOOKUP_NOEXPIRE: Perform expiration check, but avoid deleting the key,
+ *                   so that we don't have to propagate the deletion.
  *
  * Note: this function also returns NULL if the key is logically expired but
  * still existing, in case this is a replica and the LOOKUP_WRITE is not set.
@@ -92,8 +98,12 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
          * command, since the command may trigger events that cause modules to
          * perform additional writes. */
         int is_ro_replica = server.masterhost && server.repl_slave_ro;
-        int force_delete_expired = flags & LOOKUP_WRITE && !is_ro_replica;
-        if (expireIfNeeded(db, key, force_delete_expired)) {
+        int expire_flags = 0;
+        if (flags & LOOKUP_WRITE && !is_ro_replica)
+            expire_flags |= EXPIRE_FORCE_DELETE_EXPIRED;
+        if (flags & LOOKUP_NOEXPIRE)
+            expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
+        if (expireIfNeeded(db, key, expire_flags)) {
             /* The key is no longer valid. */
             val = NULL;
         }
@@ -602,18 +612,11 @@ void flushAllDataAndResetRDB(int flags) {
     server.dirty += emptyData(-1,flags,NULL);
     if (server.child_type == CHILD_TYPE_RDB) killRDBChild();
     if (server.saveparamslen > 0) {
-        /* Normally rdbSave() will reset dirty, but we don't want this here
-         * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
-        int saved_dirty = server.dirty;
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
         rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
-        server.dirty = saved_dirty;
     }
 
-    /* Without that extra dirty++, when db was already empty, FLUSHALL will
-     * not be replicated nor put into the AOF. */
-    server.dirty++;
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
      * for large databases, flushdb blocks for long anyway, so a bit more won't
@@ -632,7 +635,13 @@ void flushdbCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     /* flushdb should not flush the functions */
     server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
+
+    /* Without the forceCommandPropagation, when DB was already empty,
+     * FLUSHDB will not be replicated nor put into the AOF. */
+    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+
     addReply(c,shared.ok);
+
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
      * for large databases, flushdb blocks for long anyway, so a bit more won't
@@ -650,6 +659,11 @@ void flushallCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     /* flushall should not flush the functions */
     flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
+
+    /* Without the forceCommandPropagation, when DBs were already empty,
+     * FLUSHALL will not be replicated nor put into the AOF. */
+    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+
     addReply(c,shared.ok);
 }
 
@@ -1080,7 +1094,7 @@ void shutdownCommand(client *c) {
         return;
     }
 
-    if (!(flags & SHUTDOWN_NOSAVE) && scriptIsTimedout()) {
+    if (!(flags & SHUTDOWN_NOSAVE) && isInsideYieldingLongCommand()) {
         /* Script timed out. Shutdown allowed only with the NOSAVE flag. See
          * also processCommand where these errors are returned. */
         if (server.busy_module_yield_flags && server.busy_module_yield_reply) {
@@ -1606,28 +1620,7 @@ int keyIsExpired(redisDb *db, robj *key) {
     /* Don't expire anything while loading. It will be done later. */
     if (server.loading) return 0;
 
-    /* If we are in the context of a Lua script, we pretend that time is
-     * blocked to when the Lua script started. This way a key can expire
-     * only the first time it is accessed and not in the middle of the
-     * script execution, making propagation to slaves / AOF consistent.
-     * See issue #1525 on Github for more information. */
-    if (server.script_caller) {
-        now = scriptTimeSnapshot();
-    }
-    /* If we are in the middle of a command execution, we still want to use
-     * a reference time that does not change: in that case we just use the
-     * cached time, that we update before each call in the call() function.
-     * This way we avoid that commands such as RPOPLPUSH or similar, that
-     * may re-open the same key multiple times, can invalidate an already
-     * open object in a next call, if the next call will see the key expired,
-     * while the first did not. */
-    else if (server.fixed_time_expire > 0) {
-        now = server.mstime;
-    }
-    /* For the other cases, we want to use the most fresh time we have. */
-    else {
-        now = mstime();
-    }
+    now = commandTimeSnapshot();
 
     /* The key expired if the current (virtual or real) time is greater
      * than the expire time of the key. */
@@ -1653,13 +1646,17 @@ int keyIsExpired(redisDb *db, robj *key) {
  *
  * On replicas, this function does not delete expired keys by default, but
  * it still returns 1 if the key is logically expired. To force deletion
- * of logically expired keys even on replicas, set force_delete_expired to
- * a non-zero value. Note though that if the current client is executing
+ * of logically expired keys even on replicas, use the EXPIRE_FORCE_DELETE_EXPIRED
+ * flag. Note though that if the current client is executing
  * replicated commands from the master, keys are never considered expired.
+ *
+ * On the other hand, if you just want expiration check, but need to avoid
+ * the actual key deletion and propagation of the deletion, use the
+ * EXPIRE_AVOID_DELETE_EXPIRED flag.
  *
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
-int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
+int expireIfNeeded(redisDb *db, robj *key, int flags) {
     if (!keyIsExpired(db,key)) return 0;
 
     /* If we are running in the context of a replica, instead of
@@ -1677,8 +1674,13 @@ int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
      * expired. */
     if (server.masterhost != NULL) {
         if (server.current_client == server.master) return 0;
-        if (!force_delete_expired) return 1;
+        if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return 1;
     }
+
+    /* In some cases we're explicitly instructed to return an indication of a
+     * missing key without actually deleting it, even on masters. */
+    if (flags & EXPIRE_AVOID_DELETE_EXPIRED)
+        return 1;
 
     /* If clients are paused, we keep the current dataset constant,
      * but return to the client what we believe is the right state. Typically,
@@ -1876,15 +1878,6 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
     /* The command has at least one key-spec marked as VARIABLE_FLAGS */
     int has_varflags = (getAllKeySpecsFlags(cmd, 0) & CMD_KEY_VARIABLE_FLAGS);
 
-    /* Flags indicating that we have a getkeys callback */
-    int has_module_getkeys = cmd->flags & CMD_MODULE_GETKEYS;
-    int has_native_getkeys = !(cmd->flags & CMD_MODULE) && cmd->getkeys_proc;
-
-    /* The key-spec that's auto generated by RM_CreateCommand sets VARIABLE_FLAGS since no flags are given.
-     * If the module provides getkeys callback, we'll prefer it, but if it didn't, we'll use key-spec anyway. */
-    if ((cmd->flags & CMD_MODULE) && has_varflags && !has_module_getkeys)
-        has_varflags = 0;
-
     /* We prefer key-specs if there are any, and their flags are reliable. */
     if (has_keyspec && !has_varflags) {
         int ret = getKeysUsingKeySpecs(cmd,argv,argc,search_flags,result);
@@ -1895,19 +1888,19 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
     }
 
     /* Resort to getkeys callback methods. */
-    if (has_module_getkeys)
+    if (cmd->flags & CMD_MODULE_GETKEYS)
         return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
 
     /* We use native getkeys as a last resort, since not all these native getkeys provide
      * flags properly (only the ones that correspond to INVALID, INCOMPLETE or VARIABLE_FLAGS do.*/
-    if (has_native_getkeys)
+    if (cmd->getkeys_proc)
         return cmd->getkeys_proc(cmd,argv,argc,result);
     return 0;
 }
 
 /* This function returns a sanity check if the command may have keys. */
 int doesCommandHaveKeys(struct redisCommand *cmd) {
-    return (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) || /* has getkeys_proc (non modules) */
+    return cmd->getkeys_proc ||                                 /* has getkeys_proc (non modules) */
         (cmd->flags & CMD_MODULE_GETKEYS) ||                    /* module with GETKEYS */
         (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NOT_KEY);        /* has at least one key-spec not marked as NOT_KEY */
 }
@@ -2056,7 +2049,7 @@ int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc,
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     if (cmd->flags & CMD_MODULE_GETKEYS) {
         return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
-    } else if (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) {
+    } else if (cmd->getkeys_proc) {
         return cmd->getkeys_proc(cmd,argv,argc,result);
     } else {
         return getKeysUsingLegacyRangeSpec(cmd,argv,argc,result);
@@ -2386,6 +2379,7 @@ int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *r
  * read-only if the BITFIELD GET subcommand is used. */
 int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     keyReference *keys;
+    int readonly = 1;
     UNUSED(cmd);
 
     keys = getKeysPrepareResult(result, 1);
@@ -2396,11 +2390,23 @@ int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResu
         int remargs = argc - i - 1; /* Remaining args other than current. */
         char *arg = argv[i]->ptr;
         if (!strcasecmp(arg, "get") && remargs >= 2) {
-            keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
-            return 1;
+            i += 2;
+        } else if ((!strcasecmp(arg, "set") || !strcasecmp(arg, "incrby")) && remargs >= 3) {
+            readonly = 0;
+            i += 3;
+            break;
+        } else if (!strcasecmp(arg, "overflow") && remargs >= 1) {
+            i += 1;
+        } else {
+            readonly = 0; /* Syntax error. safer to assume non-RO. */
+            break;
         }
     }
 
-    keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
+    if (readonly) {
+        keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
+    } else {
+        keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
+    }
     return 1;
 }

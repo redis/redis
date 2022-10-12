@@ -253,25 +253,34 @@ proc tags {tags code} {
 
 # Write the configuration in the dictionary 'config' in the specified
 # file name.
-proc create_server_config_file {filename config} {
+proc create_server_config_file {filename config config_lines} {
     set fp [open $filename w+]
     foreach directive [dict keys $config] {
         puts -nonewline $fp "$directive "
         puts $fp [dict get $config $directive]
     }
+    foreach {config_line_directive config_line_args} $config_lines {
+        puts $fp "$config_line_directive $config_line_args"
+    }
     close $fp
 }
 
-proc spawn_server {config_file stdout stderr} {
+proc spawn_server {config_file stdout stderr args} {
+    set cmd [list src/redis-server $config_file]
+    set args {*}$args
+    if {[llength $args] > 0} {
+        lappend cmd {*}$args
+    }
+
     if {$::valgrind} {
-        set pid [exec valgrind --track-origins=yes --trace-children=yes --suppressions=[pwd]/src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file >> $stdout 2>> $stderr &]
+        set pid [exec valgrind --track-origins=yes --trace-children=yes --suppressions=[pwd]/src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full {*}$cmd >> $stdout 2>> $stderr &]
     } elseif ($::stack_logging) {
-        set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file >> $stdout 2>> $stderr &]
+        set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt {*}$cmd >> $stdout 2>> $stderr &]
     } else {
         # ASAN_OPTIONS environment variable is for address sanitizer. If a test
         # tries to allocate huge memory area and expects allocator to return
         # NULL, address sanitizer throws an error without this setting.
-        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 src/redis-server $config_file >> $stdout 2>> $stderr &]
+        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 {*}$cmd >> $stdout 2>> $stderr &]
     }
 
     if {$::wait_server} {
@@ -291,7 +300,7 @@ proc wait_server_started {config_file stdout pid} {
     set maxiter [expr {120*1000/$checkperiod}] ; # Wait up to 2 minutes.
     set port_busy 0
     while 1 {
-        if {[regexp -- " PID: $pid" [exec cat $stdout]]} {
+        if {[regexp -- " PID: $pid.*Server initialized" [exec cat $stdout]]} {
             break
         }
         after $checkperiod
@@ -398,7 +407,9 @@ proc start_server {options {code undefined}} {
     set overrides {}
     set omit {}
     set tags {}
+    set args {}
     set keep_persistence false
+    set config_lines {}
 
     # parse options
     foreach {option value} $options {
@@ -407,7 +418,13 @@ proc start_server {options {code undefined}} {
                 set baseconfig $value
             }
             "overrides" {
-                set overrides $value
+                set overrides [concat $overrides $value]
+            }
+            "config_lines" {
+                set config_lines $value
+            }
+            "args" {
+                set args $value
             }
             "omit" {
                 set omit $value
@@ -447,6 +464,9 @@ proc start_server {options {code undefined}} {
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
     if {$::tls} {
+        if {$::tls_module} {
+            lappend config_lines [list "loadmodule" [format "%s/src/redis-tls.so" [pwd]]]
+        }
         dict set config "tls-cert-file" [format "%s/tests/tls/server.crt" [pwd]]
         dict set config "tls-key-file" [format "%s/tests/tls/server.key" [pwd]]
         dict set config "tls-client-cert-file" [format "%s/tests/tls/client.crt" [pwd]]
@@ -493,7 +513,7 @@ proc start_server {options {code undefined}} {
 
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
-    create_server_config_file $config_file $config
+    create_server_config_file $config_file $config $config_lines
 
     set stdout [format "%s/%s" [dict get $config "dir"] "stdout"]
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
@@ -518,7 +538,7 @@ proc start_server {options {code undefined}} {
 
         send_data_packet $::test_server_fd "server-spawning" "port $port"
 
-        set pid [spawn_server $config_file $stdout $stderr]
+        set pid [spawn_server $config_file $stdout $stderr $args]
 
         # check that the server actually started
         set port_busy [wait_server_started $config_file $stdout $pid]
@@ -534,7 +554,7 @@ proc start_server {options {code undefined}} {
             } else {
                 dict set config port $port
             }
-            create_server_config_file $config_file $config
+            create_server_config_file $config_file $config $config_lines
 
             # Truncate log so wait_server_started will not be looking at
             # output of the failed server.
@@ -721,7 +741,7 @@ proc restart_server {level wait_ready rotate_logs {reconnect 1} {shutdown sigter
 
     set config_file [dict get $srv "config_file"]
 
-    set pid [spawn_server $config_file $stdout $stderr]
+    set pid [spawn_server $config_file $stdout $stderr {}]
 
     # check that the server actually started
     wait_server_started $config_file $stdout $pid

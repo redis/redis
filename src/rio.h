@@ -40,6 +40,11 @@
 #define RIO_FLAG_READ_ERROR (1<<0)
 #define RIO_FLAG_WRITE_ERROR (1<<1)
 
+#define RIO_TYPE_FILE (1<<0)
+#define RIO_TYPE_BUFFER (1<<1)
+#define RIO_TYPE_CONN (1<<2)
+#define RIO_TYPE_FD (1<<3)
+
 struct _rio {
     /* Backend functions.
      * Since this functions do not tolerate short writes or reads the return
@@ -174,5 +179,5 @@ int rioWriteBulkObject(rio *r, struct redisObject *obj);
 
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len);
 void rioSetAutoSync(rio *r, off_t bytes);
-
+uint8_t rioCheckType(rio *r);
 #endif

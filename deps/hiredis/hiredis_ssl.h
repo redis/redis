@@ -57,7 +57,7 @@ typedef enum {
     REDIS_SSL_CTX_CA_CERT_LOAD_FAILED,          /* Failed to load CA Certificate or CA Path */
     REDIS_SSL_CTX_CLIENT_CERT_LOAD_FAILED,      /* Failed to load client certificate */
     REDIS_SSL_CTX_PRIVATE_KEY_LOAD_FAILED,      /* Failed to load private key */
-    REDIS_SSL_CTX_OS_CERTSTORE_OPEN_FAILED,     /* Failed to open system certifcate store */
+    REDIS_SSL_CTX_OS_CERTSTORE_OPEN_FAILED,     /* Failed to open system certificate store */
     REDIS_SSL_CTX_OS_CERT_ADD_FAILED            /* Failed to add CA certificates obtained from system to the SSL context */
 } redisSSLContextError;
 

@@ -47,7 +47,7 @@
                 "key_spec_index": 0
             },
             {
-                "name": "field_value",
+                "name": "data",
                 "type": "block",
                 "multiple": true,
                 "arguments": [

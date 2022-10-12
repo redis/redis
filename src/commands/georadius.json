@@ -11,6 +11,10 @@
             [
                 "6.2.0",
                 "Added the `ANY` option for `COUNT`."
+            ],
+            [
+                "7.0.0",
+                "Added support for uppercase unit names."
             ]
         ],
         "deprecated_since": "6.2.0",
@@ -146,7 +150,7 @@
                 "optional": true
             },
             {
-                "name": "count",
+                "name": "count-block",
                 "type": "block",
                 "optional": true,
                 "arguments": [
@@ -183,14 +187,16 @@
             },
             {
                 "token": "STORE",
-                "name": "key",
+                "name": "storekey",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 1,
                 "optional": true
             },
             {
                 "token": "STOREDIST",
-                "name": "key",
+                "name": "storedistkey",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 2,
                 "optional": true
