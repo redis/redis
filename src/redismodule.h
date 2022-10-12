@@ -236,6 +236,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_YIELD_FLAG_CLIENTS (1<<1)
 
 /* RM_BlockClientOnKeysWithFlags flags */
+#define REDISMODULE_BLOCK_UNBLOCK_NONE (0)
 #define REDISMODULE_BLOCK_UNBLOCK_DELETED (1<<0)
 
 /* This type represents a timer handle, and is returned when a timer is

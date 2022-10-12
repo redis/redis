@@ -705,7 +705,7 @@ void handleClientsBlockedOnKeys(void) {
  *
  * 'count' for those commands that support the optional count argument.
  * Otherwise the value is 0. */
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids, int unblock_deleted) {
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids, int unblock_on_nokey) {
     list *l;
     int j;
 
@@ -735,24 +735,21 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, ms
         dictEntry *de, *existing;
         de = dictAddRaw(c->db->blocking_keys, keys[j], &existing);
         if (de) {
+            incrRefCount(keys[j]);
             /* For every key we take a list of clients blocked for it */
             l = listCreate();
             dictSetVal(c->db->blocking_keys, de, l);
-            dictSetKey(c->db->blocking_keys, de, keys[j]);
-            incrRefCount(keys[j]);
         } else {
             l = dictGetVal(existing);
         }
         listAddNodeTail(l,c);
         bki->listnode = listLast(l);
 
-        /* We need to add the key to blocking_keys_unblock_deleted, if the client
+        /* We need to add the key to blocking_keys_unblock_on_nokey, if the client
          * wants to be awakened if key is deleted (like XREADGROUP) */
-        if (unblock_deleted) {
-            dictEntry *de, *existing;
-            de = dictAddRaw(c->db->blocking_keys_unblock_deleted, keys[j], &existing);
+        if (unblock_on_nokey) {
+            de = dictAddRaw(c->db->blocking_keys_unblock_on_nokey, keys[j], NULL);
             if (de) {
-                dictSetKey(c->db->blocking_keys_unblock_deleted, de, keys[j]);
                 incrRefCount(keys[j]);
             }
         }
@@ -781,7 +778,7 @@ void unblockClientWaitingData(client *c) {
         /* If the list is empty we need to remove it to avoid wasting memory */
         if (listLength(l) == 0) {
             dictDelete(c->db->blocking_keys,key);
-            dictDelete(c->db->blocking_keys_unblock_deleted,key);
+            dictDelete(c->db->blocking_keys_unblock_on_nokey,key);
         }
     }
     dictReleaseIterator(di);
@@ -837,7 +834,7 @@ static void signalKeyAsReadyLogic(redisDb *db, robj *key, int type, int deleted)
 
     if (deleted) {
         /* Key deleted and no clients blocking for this key? No need to queue it. */
-        if (dictFind(db->blocking_keys_unblock_deleted,key) == NULL)
+        if (dictFind(db->blocking_keys_unblock_on_nokey,key) == NULL)
             return;
         /* Note: if we made it here it means the key is also present in db->blocking_keys */
     } else {
@@ -852,7 +849,6 @@ static void signalKeyAsReadyLogic(redisDb *db, robj *key, int type, int deleted)
         /* We add the key in the db->ready_keys dictionary in order
          * to avoid adding it multiple times into a list with a simple O(1)
          * check. */
-        dictSetKey(db->ready_keys, de, key);
         incrRefCount(key);
     } else {
         /* Key was already signaled? No need to queue it again. */
