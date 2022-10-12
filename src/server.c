@@ -7024,7 +7024,7 @@ int main(int argc, char **argv) {
     ACLLoadUsersAtStartup();
     initListeners();
     if (server.cluster_enabled) {
-        clusterInitLast();
+        clusterInitListeners();
     }
     InitServerLast();
 
