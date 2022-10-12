@@ -4044,7 +4044,7 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
 
     /* If the keys do not exist we must block */
     struct blockPos pos = {where};
-    blockForKeys(c,BLOCKED_ZSET,keys,numkeys,count,timeout,NULL,&pos,NULL);
+    blockForKeys(c,BLOCKED_ZSET,keys,numkeys,count,timeout,NULL,&pos,NULL,0);
 }
 
 // BZPOPMIN key [key ...] timeout

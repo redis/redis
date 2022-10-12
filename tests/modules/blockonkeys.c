@@ -57,14 +57,6 @@ void fsl_free(void *value) {
     fsl_type_free(value);
 }
 
-void fsl_unlink(RedisModuleKeyOptCtx *ctx, const void *value) {
-    UNUSED(value);
-    RedisModuleString *key = (RedisModuleString *)RedisModule_GetKeyNameFromOptCtx(ctx);
-    int dbid = RedisModule_GetDbIdFromOptCtx(ctx);
-    /* We mark deleted keys as ready in order to unblock any FSL.BPOPGT clients */
-    RedisModule_SignalKeyAsReadyByDbId(dbid, key);
-}
-
 /* ========================== helper methods ======================= */
 
 int get_fsl(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode, int create, fsl_t **fsl, int reply_on_failure) {
@@ -229,8 +221,10 @@ int fsl_bpopgt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         /* We use malloc so the tests in blockedonkeys.tcl can check for memory leaks */
         long long *pgt = RedisModule_Alloc(sizeof(long long));
         *pgt = gt;
-        RedisModule_BlockClientOnKeys(ctx, bpopgt_reply_callback, bpopgt_timeout_callback,
-                                      bpopgt_free_privdata, timeout, &argv[1], 1, pgt);
+        RedisModule_BlockClientOnKeysWithFlags(
+            ctx, bpopgt_reply_callback, bpopgt_timeout_callback,
+            bpopgt_free_privdata, timeout, &argv[1], 1, pgt,
+            REDISMODULE_BLOCK_UNBLOCK_DELETED);
     } else {
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
     }
@@ -483,7 +477,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .mem_usage = NULL,
         .free = fsl_free,
         .digest = NULL,
-        .unlink2 = fsl_unlink,
     };
 
     fsltype = RedisModule_CreateDataType(ctx, "fsltype_t", 0, &tm);
