@@ -976,7 +976,7 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
     }
 
     /* If the keys do not exist we must block */
-    blockForKeys(c,BLOCKED_LIST,keys,numkeys,timeout);
+    blockForKeys(c,BLOCKED_LIST,keys,numkeys,timeout,0);
 }
 
 /* BLPOP <key> [<key> ...] <timeout> */
@@ -1000,7 +1000,7 @@ void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeou
             addReplyNull(c);
         } else {
             /* The list is empty and the client blocks. */
-            blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,timeout);
+            blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,timeout,0);
         }
     } else {
         /* The list exists and has elements, so

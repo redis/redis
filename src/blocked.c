@@ -81,15 +81,11 @@ typedef struct readyList {
     robj *key;
 } readyList;
 
-static blocking_type getBlockedTypeByType(int type) {
-    switch (type) {
-        case OBJ_LIST: return BLOCKED_LIST;
-        case OBJ_ZSET: return BLOCKED_ZSET;
-        case OBJ_MODULE: return BLOCKED_MODULE;
-        case OBJ_STREAM: return BLOCKED_STREAM;
-        default: return BLOCKED_NONE;
-    }
-}
+/* forward declarations */
+static void unblockClientWaitingData(client *c);
+static void handleClientsBlockedOnKey(readyList *rl);
+static void unblockClientOnKey(client *c, robj *key);
+static void moduleUnblockClientOnKey(client *c, robj *key);
 
 void initClientBlockingState(client *c) {
     c->bstate.btype = BLOCKED_NONE;
@@ -184,44 +180,6 @@ void queueClientForReprocessing(client *c) {
     }
 }
 
-/* Unblock a client which is currently Blocked on and provided a timeout.
- * In this case since we might have a command pending
- * we want to remove the pending flag to indicate we already responded to the
- * command with timeout reply. */
-void unblockClientOnTimeout(client *c) {
-    if (c->flags & CLIENT_PENDING_COMMAND)
-        c->flags &= ~CLIENT_PENDING_COMMAND;
-    unblockClient(c);
-}
-
-/* Helper function to unblock a client that's waiting in a blocking operation such as BLPOP.
- * Internal function for unblockClient() */
-static void unblockClientWaitingData(client *c) {
-    dictEntry *de;
-    dictIterator *di;
-    list *l;
-    listNode *pos;
-
-    if (dictSize(c->bstate.keys) == 0)
-        return;
-
-    di = dictGetIterator(c->bstate.keys);
-    /* The client may wait for multiple keys, so unblock it for every key. */
-    while((de = dictNext(di)) != NULL) {
-        robj *key = dictGetKey(de);
-        pos = dictGetVal(de);
-        /* Remove this client from the list of clients waiting for this key. */
-        l = dictFetchValue(c->db->blocking_keys,key);
-        serverAssertWithInfo(c,key,l != NULL);
-        listUnlinkNode(l,pos);
-        /* If the list is empty we need to remove it to avoid wasting memory */
-        if (listLength(l) == 0)
-            dictDelete(c->db->blocking_keys,key);
-    }
-    dictReleaseIterator(di);
-    dictEmpty(c->bstate.keys, NULL);
-}
-
 /* Unblock a client calling the right function depending on the kind
  * of operation the client is blocking for. */
 void unblockClient(client *c) {
@@ -258,59 +216,6 @@ void unblockClient(client *c) {
     c->bstate.btype = BLOCKED_NONE;
     removeClientFromTimeoutTable(c);
     queueClientForReprocessing(c);
-}
-
-/* Unblock a client once a specific key became available for it.
- * This function will remove the client from the list of clients blocked on this key
- * and also remove the key from the dictionary of keys this client is blocked on.
- * in case the client has a command pending it will process it immediately.  */
-void unblockClientOnKey(client *c, robj *key) {
-    list *l;
-    listNode *pos;
-
-    pos = dictFetchValue(c->bstate.keys, key);
-    /* Remove this client from the list of clients waiting for this key. */
-    l = dictFetchValue(c->db->blocking_keys, key);
-    serverAssertWithInfo(c,key,l != NULL);
-    listUnlinkNode(l,pos);
-    /* If the list is empty we need to remove it to avoid wasting memory */
-    if (listLength(l) == 0)
-        dictDelete(c->db->blocking_keys, key);
-    dictDelete(c->bstate.keys, key);
-
-    /* Only in case of blocking API calls, we might be blocked on several keys.
-       however we should force unblock the entire blocking keys */
-    serverAssert(c->bstate.btype == BLOCKED_STREAM ||
-                c->bstate.btype == BLOCKED_LIST   ||
-                c->bstate.btype == BLOCKED_ZSET);
-
-    unblockClient(c);
-    /* In case this client was blocked on keys during command
-     * we need to
-     */
-    if (c->flags & CLIENT_PENDING_COMMAND) {
-        c->flags &= ~CLIENT_PENDING_COMMAND;
-        processCommandAndResetClient(c);
-    }
-}
-
-/* Unblock a client blocked on the specific key from module context.
- * This function will try to serve the module call, and in case it succeeds,
- * it will add the client to the list of module unblocked clients which will
- * be processed in moduleHandleBlockedClients. */
-void moduleUnblockClientOnKey(client *c, robj *key) {
-    long long prev_error_replies = server.stat_total_error_replies;
-    client *old_client = server.current_client;
-    server.current_client = c;
-    monotime replyTimer;
-    elapsedStart(&replyTimer);
-    if (!moduleTryServeClientBlockedOnKey(c, key)) return;
-    updateStatsOnUnblock(c, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
-    if (c->flags & CLIENT_PENDING_COMMAND)
-        c->flags &= ~CLIENT_PENDING_COMMAND;
-    moduleUnblockClient(c);
-    afterCommand(c);
-    server.current_client = old_client;
 }
 
 /* This function gets called when a blocked client timed out in order to
@@ -378,48 +283,6 @@ void disconnectAllBlockedClients(void) {
     }
 }
 
-/* Helper function for handleClientsBlockedOnKeys(). This function is called
- * whenever a key is ready. we iterate over all the clients blocked on this key
- * and try to re-execute the command (in case the key is still available). */
-void handleClientsBlockedOnKey(readyList *rl) {
-
-    /* We serve clients in the same order they blocked for
-     * this key, from the first blocked to the last. */
-    dictEntry *de = dictFind(rl->db->blocking_keys,rl->key);
-
-    if (de) {
-        list *clients = dictGetVal(de);
-        listNode *ln;
-        listIter li;
-        listRewind(clients,&li);
-
-        while((ln = listNext(&li))) {
-            client *receiver = listNodeValue(ln);
-            robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH);
-            /* 1. In case new key was added/touched we need to verify it satisfy the
-             *    blocked type, since we might process the wrong key type.
-             * 2. We want to serve clients blocked on module keys
-             *    regardless of the object type: we don't know what the
-             *    module is trying to accomplish right now.
-             * 3. In case of XREADGROUP call we will want to unblock on any change in object type
-             *    or in case the key was deleted, since the group is no longer valid. */
-            if ((o != NULL && (receiver->bstate.btype == getBlockedTypeByType(o->type))) ||
-                (o != NULL && (receiver->bstate.btype == BLOCKED_MODULE)) ||
-                ((receiver->bstate.btype == BLOCKED_STREAM) && strcasecmp(receiver->lastcmd->fullname, "xreadgroup") == 0))
-            {
-                    if (receiver->bstate.btype != BLOCKED_MODULE)
-                        unblockClientOnKey(receiver, rl->key);
-                    else
-                        moduleUnblockClientOnKey(receiver, rl->key);
-            }
-            /* Edge case: If lookupKeyReadWithFlags decides to expire the key we have to
-             * take care of the propagation here, because afterCommand might not have been called */
-            if (server.also_propagate.numops > 0)
-                propagatePendingCommands();
-        }
-    }
-}
-
 /* This function should be called by Redis every time a single command,
  * a MULTI/EXEC block, or a Lua script, terminated its execution after
  * being called by a client. It handles serving clients blocked in all scenarios
@@ -480,69 +343,81 @@ void handleClientsBlockedOnKeys(void) {
     server.core_propagates = prev_core_propagates;
 }
 
-/* block a client due to wait command */
-void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas) {
-
-    c->bstate.timeout = timeout;
-    c->bstate.reploffset = offset;
-    c->bstate.numreplicas = numreplicas;
-    listAddNodeHead(server.clients_waiting_acks,c);
-    blockClient(c,BLOCKED_WAIT);
-}
-
-/* Postpone client from executing a command. For example the server might be busy
- * requesting to avoid processing clients commands which will be processed later
- * when the it is ready to accept them. */
-void blockPostponeClient(client *c) {
-    c->bstate.timeout = 0;
-    blockClient(c,BLOCKED_POSTPONE);
-    listAddNodeTail(server.postponed_clients, c);
-    c->postponed_list_node = listLast(server.postponed_clients);
-    /* Mark this client to execute its command */
-    c->flags |= CLIENT_PENDING_COMMAND;
-}
-
-/* Block client due to shutdown command */
-void blockClientShutdown(client *c) {
-    blockClient(c, BLOCKED_SHUTDOWN);
-    /* Mark this client to execute its command */
-}
-
 /* Set a client in blocking mode for the specified key, with the specified timeout.
  * The 'type' argument is BLOCKED_LIST,BLOCKED_ZSET or BLOCKED_STREAM depending on the kind of operation we are
  * waiting for an empty key in order to awake the client. The client is blocked
- * for all the 'numkeys' keys as in the 'keys' argument. */
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout) {
-    dictEntry *de;
+ * for all the 'numkeys' keys as in the 'keys' argument.
+ * The client will unblocked as soon as one of the keys in 'keys' value was updated.
+ * the parameter unblock_on_nokey can be used to force client to be unblocked even in the case the key
+ * is updated to become unavailable, either by type change (override), deletion or swapdb */
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, int unblock_on_nokey) {
+    dictEntry *db_blocked_entry, *db_blocked_existing_entry, *client_blocked_entry;
     list *l;
     int j;
 
     c->bstate.timeout = timeout;
+    c->bstate.unblock_on_nokey = unblock_on_nokey;
     for (j = 0; j < numkeys; j++) {
         /* If the key already exists in the dictionary ignore it. */
-        if (dictFetchValue(c->bstate.keys,keys[j])) {
+        if (!(client_blocked_entry = dictAddRaw(c->bstate.keys,keys[j],NULL))) {
             continue;
         }
         incrRefCount(keys[j]);
 
         /* And in the other "side", to map keys -> clients */
-        de = dictFind(c->db->blocking_keys,keys[j]);
-        if (de == NULL) {
-            int retval;
+        db_blocked_entry = dictAddRaw(c->db->blocking_keys,keys[j],&db_blocked_existing_entry);
 
-            /* For every key we take a list of clients blocked for it */
+        /* In case key[j] did not have blocking clients yet, we need to create a new list */
+        if (db_blocked_entry != NULL) {
             l = listCreate();
-            retval = dictAdd(c->db->blocking_keys,keys[j],l);
+            dictSetVal(c->db->blocking_keys, db_blocked_entry, l);
             incrRefCount(keys[j]);
-            serverAssertWithInfo(c,keys[j],retval == DICT_OK);
         } else {
-            l = dictGetVal(de);
+            l = dictGetVal(db_blocked_existing_entry);
         }
         listAddNodeTail(l,c);
-        dictAdd(c->bstate.keys,keys[j],listLast(l));
+        dictSetVal(c->bstate.keys,client_blocked_entry,listLast(l));
     }
     c->flags |= CLIENT_PENDING_COMMAND;
     blockClient(c,btype);
+}
+
+/* Helper function to unblock a client that's waiting in a blocking operation such as BLPOP.
+ * Internal function for unblockClient() */
+static void unblockClientWaitingData(client *c) {
+    dictEntry *de;
+    dictIterator *di;
+    list *l;
+    listNode *pos;
+
+    if (dictSize(c->bstate.keys) == 0)
+        return;
+
+    di = dictGetIterator(c->bstate.keys);
+    /* The client may wait for multiple keys, so unblock it for every key. */
+    while((de = dictNext(di)) != NULL) {
+        robj *key = dictGetKey(de);
+        pos = dictGetVal(de);
+        /* Remove this client from the list of clients waiting for this key. */
+        l = dictFetchValue(c->db->blocking_keys,key);
+        serverAssertWithInfo(c,key,l != NULL);
+        listUnlinkNode(l,pos);
+        /* If the list is empty we need to remove it to avoid wasting memory */
+        if (listLength(l) == 0)
+            dictDelete(c->db->blocking_keys,key);
+    }
+    dictReleaseIterator(di);
+    dictEmpty(c->bstate.keys, NULL);
+}
+
+static blocking_type getBlockedTypeByType(int type) {
+    switch (type) {
+        case OBJ_LIST: return BLOCKED_LIST;
+        case OBJ_ZSET: return BLOCKED_ZSET;
+        case OBJ_MODULE: return BLOCKED_MODULE;
+        case OBJ_STREAM: return BLOCKED_STREAM;
+        default: return BLOCKED_NONE;
+    }
 }
 
 /* If the specified key has clients blocked waiting for list pushes, this
@@ -590,36 +465,131 @@ void signalKeyAsReady(redisDb *db, robj *key, int type) {
     serverAssert(dictAdd(db->ready_keys,key,NULL) == DICT_OK);
 }
 
-/* Since we are unblocking XREADGROUP clients in the event the
- * key was deleted/overwritten we must do the same in case the
- * database was flushed/swapped. */
-void scanDatabaseForDeletedStreamsAndSignalKeys(redisDb *emptied, redisDb *replaced_with) {
-    /* Optimization: If no clients are in type BLOCKED_STREAM,
-     * we can skip this loop. */
-    if (!server.blocked_clients_by_type[BLOCKED_STREAM]) return;
+/* Helper function for handleClientsBlockedOnKeys(). This function is called
+ * whenever a key is ready. we iterate over all the clients blocked on this key
+ * and try to re-execute the command (in case the key is still available). */
+static void handleClientsBlockedOnKey(readyList *rl) {
 
-    dictEntry *de;
-    dictIterator *di = dictGetSafeIterator(emptied->blocking_keys);
-    while((de = dictNext(di)) != NULL) {
-        robj *key = dictGetKey(de);
-        int was_stream = 0, is_stream = 0;
+    /* We serve clients in the same order they blocked for
+     * this key, from the first blocked to the last. */
+    dictEntry *de = dictFind(rl->db->blocking_keys,rl->key);
 
-        dictEntry *kde = dictFind(emptied->dict, key->ptr);
-        if (kde) {
-            robj *value = dictGetVal(kde);
-            was_stream = value->type == OBJ_STREAM;
-        }
-        if (replaced_with) {
-            dictEntry *kde = dictFind(replaced_with->dict, key->ptr);
-            if (kde) {
-                robj *value = dictGetVal(kde);
-                is_stream = value->type == OBJ_STREAM;
+    if (de) {
+        list *clients = dictGetVal(de);
+        listNode *ln;
+        listIter li;
+        listRewind(clients,&li);
+
+        while((ln = listNext(&li))) {
+            client *receiver = listNodeValue(ln);
+            robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH | LOOKUP_NOEXPIRE);
+            /* 1. In case new key was added/touched we need to verify it satisfy the
+             *    blocked type, since we might process the wrong key type.
+             * 2. We want to serve clients blocked on module keys
+             *    regardless of the object type: we don't know what the
+             *    module is trying to accomplish right now.
+             * 3. In case of XREADGROUP call we will want to unblock on any change in object type
+             *    or in case the key was deleted, since the group is no longer valid. */
+            if ((o != NULL && (receiver->bstate.btype == getBlockedTypeByType(o->type))) ||
+                (o != NULL && (receiver->bstate.btype == BLOCKED_MODULE)) ||
+                (receiver->bstate.unblock_on_nokey))
+            {
+                    if (receiver->bstate.btype != BLOCKED_MODULE)
+                        unblockClientOnKey(receiver, rl->key);
+                    else
+                        moduleUnblockClientOnKey(receiver, rl->key);
             }
         }
-        /* We want to try to unblock any client using a blocking XREADGROUP */
-        if (was_stream && !is_stream)
-            signalKeyAsReady(emptied, key, OBJ_STREAM);
     }
-    dictReleaseIterator(di);
 }
 
+/* block a client due to wait command */
+void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas) {
+
+    c->bstate.timeout = timeout;
+    c->bstate.reploffset = offset;
+    c->bstate.numreplicas = numreplicas;
+    listAddNodeHead(server.clients_waiting_acks,c);
+    blockClient(c,BLOCKED_WAIT);
+}
+
+/* Postpone client from executing a command. For example the server might be busy
+ * requesting to avoid processing clients commands which will be processed later
+ * when the it is ready to accept them. */
+void blockPostponeClient(client *c) {
+    c->bstate.timeout = 0;
+    blockClient(c,BLOCKED_POSTPONE);
+    listAddNodeTail(server.postponed_clients, c);
+    c->postponed_list_node = listLast(server.postponed_clients);
+    /* Mark this client to execute its command */
+    c->flags |= CLIENT_PENDING_COMMAND;
+}
+
+/* Block client due to shutdown command */
+void blockClientShutdown(client *c) {
+    blockClient(c, BLOCKED_SHUTDOWN);
+    /* Mark this client to execute its command */
+}
+
+/* Unblock a client once a specific key became available for it.
+ * This function will remove the client from the list of clients blocked on this key
+ * and also remove the key from the dictionary of keys this client is blocked on.
+ * in case the client has a command pending it will process it immediately.  */
+static void unblockClientOnKey(client *c, robj *key) {
+    list *l;
+    listNode *pos;
+
+    pos = dictFetchValue(c->bstate.keys, key);
+    /* Remove this client from the list of clients waiting for this key. */
+    l = dictFetchValue(c->db->blocking_keys, key);
+    serverAssertWithInfo(c,key,l != NULL);
+    listUnlinkNode(l,pos);
+    /* If the list is empty we need to remove it to avoid wasting memory */
+    if (listLength(l) == 0)
+        dictDelete(c->db->blocking_keys, key);
+    dictDelete(c->bstate.keys, key);
+
+    /* Only in case of blocking API calls, we might be blocked on several keys.
+       however we should force unblock the entire blocking keys */
+    serverAssert(c->bstate.btype == BLOCKED_STREAM ||
+                c->bstate.btype == BLOCKED_LIST   ||
+                c->bstate.btype == BLOCKED_ZSET);
+
+    unblockClient(c);
+    /* In case this client was blocked on keys during command
+     * we need to
+     */
+    if (c->flags & CLIENT_PENDING_COMMAND) {
+        c->flags &= ~CLIENT_PENDING_COMMAND;
+        processCommandAndResetClient(c);
+    }
+}
+
+/* Unblock a client blocked on the specific key from module context.
+ * This function will try to serve the module call, and in case it succeeds,
+ * it will add the client to the list of module unblocked clients which will
+ * be processed in moduleHandleBlockedClients. */
+static void moduleUnblockClientOnKey(client *c, robj *key) {
+    long long prev_error_replies = server.stat_total_error_replies;
+    client *old_client = server.current_client;
+    server.current_client = c;
+    monotime replyTimer;
+    elapsedStart(&replyTimer);
+    if (!moduleTryServeClientBlockedOnKey(c, key)) return;
+    updateStatsOnUnblock(c, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
+    if (c->flags & CLIENT_PENDING_COMMAND)
+        c->flags &= ~CLIENT_PENDING_COMMAND;
+    moduleUnblockClient(c);
+    afterCommand(c);
+    server.current_client = old_client;
+}
+
+/* Unblock a client which is currently Blocked on and provided a timeout.
+ * In this case since we might have a command pending
+ * we want to remove the pending flag to indicate we already responded to the
+ * command with timeout reply. */
+void unblockClientOnTimeout(client *c) {
+    if (c->flags & CLIENT_PENDING_COMMAND)
+        c->flags &= ~CLIENT_PENDING_COMMAND;
+    unblockClient(c);
+}

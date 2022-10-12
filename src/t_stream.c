@@ -2415,7 +2415,7 @@ void xreadCommand(client *c) {
                 decrRefCount(argv_streamid);
             }
         }
-        blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count, timeout);
+        blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count, timeout, xreadgroup);
         goto cleanup;
     }
 
@@ -4014,4 +4014,3 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
 
     return 1;
 }
-
