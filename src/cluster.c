@@ -694,27 +694,6 @@ void clusterInit(void) {
         exit(1);
     }
 
-    if (connectionIndexByType(connTypeOfCluster()->get_type(NULL)) < 0) {
-        serverLog(LL_WARNING, "Missing connection type %s, but it is required for the Cluster bus.", connTypeOfCluster()->get_type(NULL));
-        exit(1);
-    }
-
-    connListener *listener = &server.clistener;
-    listener->count = 0;
-    listener->bindaddr = server.bindaddr;
-    listener->bindaddr_count = server.bindaddr_count;
-    listener->port = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
-    listener->ct = connTypeOfCluster();
-    if (connListen(listener) == C_ERR ) {
-        /* Note: the following log text is matched by the test suite. */
-        serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", listener->port);
-        exit(1);
-    }
-    
-    if (createSocketAcceptHandler(&server.clistener, clusterAcceptHandler) != C_OK) {
-        serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
-    }
-
     /* Initialize data for the Slot to key API. */
     slotToKeyInit(server.db);
 
@@ -731,6 +710,30 @@ void clusterInit(void) {
     clusterUpdateMyselfFlags();
     clusterUpdateMyselfIp();
     clusterUpdateMyselfHostname();
+}
+
+void clusterInitListeners(void) {
+    if (connectionIndexByType(connTypeOfCluster()->get_type(NULL)) < 0) {
+        serverLog(LL_WARNING, "Missing connection type %s, but it is required for the Cluster bus.", connTypeOfCluster()->get_type(NULL));
+        exit(1);
+    }
+
+    int port = server.tls_cluster ? server.tls_port : server.port;
+    connListener *listener = &server.clistener;
+    listener->count = 0;
+    listener->bindaddr = server.bindaddr;
+    listener->bindaddr_count = server.bindaddr_count;
+    listener->port = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
+    listener->ct = connTypeOfCluster();
+    if (connListen(listener) == C_ERR ) {
+        /* Note: the following log text is matched by the test suite. */
+        serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", listener->port);
+        exit(1);
+    }
+    
+    if (createSocketAcceptHandler(&server.clistener, clusterAcceptHandler) != C_OK) {
+        serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
+    }
 }
 
 /* Reset a node performing a soft or hard reset:

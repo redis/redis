@@ -7053,6 +7053,9 @@ int main(int argc, char **argv) {
     if (server.set_proc_title) redisSetProcTitle(NULL);
     redisAsciiArt();
     checkTcpBacklogSettings();
+    if (server.cluster_enabled) {
+        clusterInit();
+    }
     if (!server.sentinel_mode) {
         moduleInitModulesSystemLast();
         moduleLoadFromQueue();
@@ -7060,7 +7063,7 @@ int main(int argc, char **argv) {
     ACLLoadUsersAtStartup();
     initListeners();
     if (server.cluster_enabled) {
-        clusterInit();
+        clusterInitListeners();
     }
     InitServerLast();
 
