@@ -21,42 +21,61 @@ tags "modules" {
         }
     }
 
-    test {aux that saves no data are not saved to the rdb} {
+    test {aux that saves no data are not saved to the rdb when aux_save2 is used} {
         set server_path [tmpdir "server.module-testrdb"]
         puts $server_path
-        start_server [list overrides [list loadmodule "$testmodule" "dir" $server_path] keep_persistence true] {
+        start_server [list overrides [list loadmodule "$testmodule 3" "dir" $server_path] keep_persistence true] {
+            r set x 1
             r save
         }
         start_server [list overrides [list "dir" $server_path] keep_persistence true] {
             # make sure server started successfully without the module.
-            assert_equal "PONG" [r ping]
+            assert_equal {1} [r get x]
         }
     }
 
+    test {aux that saves no data are saved to the rdb when aux_save is used} {
+        set server_path [tmpdir "server.module-testrdb"]
+        puts $server_path
+        start_server [list overrides [list loadmodule "$testmodule 4" "dir" $server_path] keep_persistence true] {
+            r set x 1
+            r save
+        }
+        start_server [list overrides [list loadmodule "$testmodule 4" "dir" $server_path] keep_persistence true] {
+            # make sure server started successfully and aux_save was called twice.
+            assert_equal {1} [r get x]
+            assert_equal {2} [r testrdb.get.n_aux_load_called]
+        }
+    }
+
+    foreach test_case {2 6} {
     test {modules are able to persist globals before and after} {
         set server_path [tmpdir "server.module-testrdb"]
-        start_server [list overrides [list loadmodule "$testmodule 2" "dir" $server_path] keep_persistence true] {
+        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path] keep_persistence true] {
             r testrdb.set.before global1
             r testrdb.set.after global2
             assert_equal "global1" [r testrdb.get.before]
             assert_equal "global2" [r testrdb.get.after]
         }
-        start_server [list overrides [list loadmodule "$testmodule 2" "dir" $server_path]] {
+        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path]] {
             assert_equal "global1" [r testrdb.get.before]
             assert_equal "global2" [r testrdb.get.after]
         }
 
     }
+    }
 
+    foreach test_case {1 5} {
     test {modules are able to persist globals just after} {
         set server_path [tmpdir "server.module-testrdb"]
-        start_server [list overrides [list loadmodule "$testmodule 1" "dir" $server_path] keep_persistence true] {
+        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path] keep_persistence true] {
             r testrdb.set.after global2
             assert_equal "global2" [r testrdb.get.after]
         }
-        start_server [list overrides [list loadmodule "$testmodule 1" "dir" $server_path]] {
+        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path]] {
             assert_equal "global2" [r testrdb.get.after]
         }
+    }
     }
 
     test {Verify module options info} {
@@ -154,13 +173,14 @@ tags "modules" {
         }
 
         # Module events for diskless load swapdb when async_loading (matching master replid)
+        foreach test_case {2 6} {
         foreach testType {Successful Aborted} {
-            start_server [list overrides [list loadmodule "$testmodule 2"] tags [list external:skip]] {
+            start_server [list overrides [list loadmodule "$testmodule $test_case"] tags [list external:skip]] {
                 set replica [srv 0 client]
                 set replica_host [srv 0 host]
                 set replica_port [srv 0 port]
                 set replica_log [srv 0 stdout]
-                start_server [list overrides [list loadmodule "$testmodule 2"]] {
+                start_server [list overrides [list loadmodule "$testmodule $test_case"]] {
                     set master [srv 0 client]
                     set master_host [srv 0 host]
                     set master_port [srv 0 port]
@@ -266,6 +286,7 @@ tags "modules" {
                     }
                 }
             }
+        }
         }
     }
 }

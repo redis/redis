@@ -21,6 +21,8 @@ RedisModuleString *after_str_temp = NULL;
  * We control this value from RedisModuleEvent_ReplAsyncLoad events. */
 int async_loading = 0;
 
+int n_aux_load_called = 0;
+
 void replAsyncLoadCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
 {
     REDISMODULE_NOT_USED(e);
@@ -269,10 +271,20 @@ int testrdb_get_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int testrdb_get_n_aux_load_called(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithLongLong(ctx, n_aux_load_called);
+    return REDISMODULE_OK;
+}
+
 int test2rdb_aux_load(RedisModuleIO *rdb, int encver, int when) {
     REDISMODULE_NOT_USED(rdb);
     REDISMODULE_NOT_USED(encver);
     REDISMODULE_NOT_USED(when);
+    n_aux_load_called++;
     return REDISMODULE_OK;
 }
 
@@ -305,7 +317,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         testrdb_type = RedisModule_CreateDataType(ctx, "test__rdb", 1, &datatype_methods);
         if (testrdb_type == NULL)
             return REDISMODULE_ERR;
-    } else {
+    } else if (conf_aux_count==1 || conf_aux_count==2 || conf_aux_count==5 || conf_aux_count==6) {
         RedisModuleTypeMethods datatype_methods = {
             .version = REDISMODULE_TYPE_METHOD_VERSION,
             .rdb_load = testrdb_type_load,
@@ -315,25 +327,36 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             .free = testrdb_type_free,
             .aux_load = testrdb_aux_load,
             .aux_save = testrdb_aux_save,
-            .aux_save_triggers = (conf_aux_count == 1 ?
+            .aux_save_triggers = ((conf_aux_count == 1 || conf_aux_count == 5) ?
                                   REDISMODULE_AUX_AFTER_RDB :
                                   REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB)
         };
 
+        if (conf_aux_count==5 || conf_aux_count==6) {
+            datatype_methods.aux_save2 = testrdb_aux_save;
+        }
+
         testrdb_type = RedisModule_CreateDataType(ctx, "test__rdb", 1, &datatype_methods);
         if (testrdb_type == NULL)
             return REDISMODULE_ERR;
+    } else if (conf_aux_count==3 || conf_aux_count==4) {
+
+        /* Used to verify that aux_save2 api without any data, saves nothing to the RDB. */
+        RedisModuleTypeMethods datatype_methods = {
+            .version = REDISMODULE_TYPE_METHOD_VERSION,
+            .aux_load = test2rdb_aux_load,
+            .aux_save = test2rdb_aux_save,
+            .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB,
+        };
+        if (conf_aux_count==3) {
+            datatype_methods.aux_save2 = test2rdb_aux_save;
+        }
+
+        RedisModule_CreateDataType(ctx, "test__rdb", 1, &datatype_methods);
+    } else {
+        RedisModule_Log(ctx, "warning", "bad module argument was given");
+        return REDISMODULE_ERR;
     }
-
-    /* Used to verify that aux_save2 api without any data, saves nothing to the RDB. */
-    RedisModuleTypeMethods datatype_methods = {
-        .version = REDISMODULE_TYPE_METHOD_VERSION,
-        .aux_load = test2rdb_aux_load,
-        .aux_save2 = test2rdb_aux_save,
-        .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB,
-    };
-
-    RedisModule_CreateDataType(ctx, "test2_rdb", 1, &datatype_methods);
 
     if (RedisModule_CreateCommand(ctx,"testrdb.set.before", testrdb_set_before,"deny-oom",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -355,6 +378,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"testrdb.get.key", testrdb_get_key,"",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"testrdb.get.n_aux_load_called", testrdb_get_n_aux_load_called,"",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
 
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_ReplAsyncLoad, replAsyncLoadCallback);
