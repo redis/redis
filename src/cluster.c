@@ -694,27 +694,6 @@ void clusterInit(void) {
         exit(1);
     }
 
-    if (connectionIndexByType(connTypeOfCluster()->get_type(NULL)) < 0) {
-        serverLog(LL_WARNING, "Missing connection type %s, but it is required for the Cluster bus.", connTypeOfCluster()->get_type(NULL));
-        exit(1);
-    }
-
-    connListener *listener = &server.clistener;
-    listener->count = 0;
-    listener->bindaddr = server.bindaddr;
-    listener->bindaddr_count = server.bindaddr_count;
-    listener->port = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
-    listener->ct = connTypeOfCluster();
-    if (connListen(listener) == C_ERR ) {
-        /* Note: the following log text is matched by the test suite. */
-        serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", listener->port);
-        exit(1);
-    }
-    
-    if (createSocketAcceptHandler(&server.clistener, clusterAcceptHandler) != C_OK) {
-        serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
-    }
-
     /* Initialize data for the Slot to key API. */
     slotToKeyInit(server.db);
 
@@ -731,6 +710,30 @@ void clusterInit(void) {
     clusterUpdateMyselfFlags();
     clusterUpdateMyselfIp();
     clusterUpdateMyselfHostname();
+}
+
+void clusterInitListeners(void) {
+    if (connectionIndexByType(connTypeOfCluster()->get_type(NULL)) < 0) {
+        serverLog(LL_WARNING, "Missing connection type %s, but it is required for the Cluster bus.", connTypeOfCluster()->get_type(NULL));
+        exit(1);
+    }
+
+    int port = server.tls_cluster ? server.tls_port : server.port;
+    connListener *listener = &server.clistener;
+    listener->count = 0;
+    listener->bindaddr = server.bindaddr;
+    listener->bindaddr_count = server.bindaddr_count;
+    listener->port = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
+    listener->ct = connTypeOfCluster();
+    if (connListen(listener) == C_ERR ) {
+        /* Note: the following log text is matched by the test suite. */
+        serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", listener->port);
+        exit(1);
+    }
+    
+    if (createSocketAcceptHandler(&server.clistener, clusterAcceptHandler) != C_OK) {
+        serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
+    }
 }
 
 /* Reset a node performing a soft or hard reset:
@@ -848,7 +851,7 @@ void setClusterNodeToInboundClusterLink(clusterNode *node, clusterLink *link) {
          * one inbound link from the same node at the same time. Our cleanup logic assumes
          * a one to one relationship between nodes and inbound links, so we need to kill
          * one of the links. The existing link is more likely the outdated one, but it's
-         * possible the the other node may need to open another link. */
+         * possible the other node may need to open another link. */
         serverLog(LL_DEBUG, "Replacing inbound link fd %d from node %.40s with fd %d",
                 node->inbound_link->conn->fd, node->name, link->conn->fd);
         freeClusterLink(node->inbound_link);
@@ -4198,9 +4201,11 @@ void clusterCron(void) {
          * received PONG is older than half the cluster timeout, send
          * a new ping now, to ensure all the nodes are pinged without
          * a too big delay. */
+        mstime_t ping_interval = server.cluster_ping_interval ? 
+            server.cluster_ping_interval : server.cluster_node_timeout/2;
         if (node->link &&
             node->ping_sent == 0 &&
-            (now - node->pong_received) > server.cluster_node_timeout/2)
+            (now - node->pong_received) > ping_interval)
         {
             clusterSendPing(node->link, CLUSTERMSG_TYPE_PING);
             continue;
@@ -5040,7 +5045,11 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_IP) {
         addReplyBulkCString(c, node->ip);
     } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_HOSTNAME) {
-        addReplyBulkCString(c, sdslen(node->hostname) != 0 ? node->hostname : "?");
+        if (sdslen(node->hostname) != 0) {
+            addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
+        } else {
+            addReplyBulkCString(c, "?");
+        }
     } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT) {
         addReplyNull(c);
     } else {
@@ -5066,7 +5075,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
         && sdslen(node->hostname) != 0)
     {
         addReplyBulkCString(c, "hostname");
-        addReplyBulkCString(c, node->hostname);
+        addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
         length++;
     }
     setDeferredMapLen(c, deflen, length);
@@ -5122,9 +5131,9 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     addReplyBulkCString(c, getPreferredEndpoint(node));
     reply_count++;
 
-    if (node->hostname) {
+    if (sdslen(node->hostname) != 0) {
         addReplyBulkCString(c, "hostname");
-        addReplyBulkCString(c, node->hostname);
+        addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
         reply_count++;
     }
 
@@ -5212,7 +5221,7 @@ void clusterReplyShards(client *c) {
             continue;
         }
         shard_count++;
-        /* n->slot_info_pairs is set to NULL when the the node owns no slots. */
+        /* n->slot_info_pairs is set to NULL when the node owns no slots. */
         addShardReplyForClusterShards(c, n, n->slot_info_pairs, n->slot_info_pairs_count);
         clusterFreeNodesSlotsInfo(n);
     }
@@ -5297,7 +5306,7 @@ void clusterCommand(client *c) {
 "    Return the node id.",
 "NODES",
 "    Return cluster configuration seen by node. Output format:",
-"    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ...",
+"    <id> <ip:port@bus-port[,hostname]> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ...",
 "REPLICATE <node-id>",
 "    Configure current node as replica to <node-id>.",
 "RESET [HARD|SOFT]",
@@ -6118,7 +6127,7 @@ void restoreCommand(client *c) {
     if (replace)
         deleted = dbDelete(c->db,key);
 
-    if (ttl && !absttl) ttl+=mstime();
+    if (ttl && !absttl) ttl+=commandTimeSnapshot();
     if (ttl && checkAlreadyExpired(ttl)) {
         if (deleted) {
             rewriteClientCommandVector(c,2,shared.del,key);
@@ -6399,7 +6408,7 @@ try_again:
         long long expireat = getExpire(c->db,kv[j]);
 
         if (expireat != -1) {
-            ttl = expireat-mstime();
+            ttl = expireat-commandTimeSnapshot();
             if (ttl < 0) {
                 continue;
             }
@@ -6648,7 +6657,7 @@ void readwriteCommand(client *c) {
 /* Return the pointer to the cluster node that is able to serve the command.
  * For the function to succeed the command should only target either:
  *
- * 1) A single key (even multiple times like LPOPRPUSH mylist mylist).
+ * 1) A single key (even multiple times like RPOPLPUSH mylist mylist).
  * 2) Multiple keys in the same hash slot, while the slot is stable (no
  *    resharding in progress).
  *

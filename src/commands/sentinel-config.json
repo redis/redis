@@ -21,7 +21,6 @@
                         "name":"set",
                         "token":"SET",
                         "type":"block",
-                        "multiple":true,
                         "arguments":[
                             {
                                 "name":"parameter",
@@ -35,9 +34,7 @@
                     },
                     {
                         "token":"GET",
-                        "multiple":true,
-                        "name":"get",
-                        "display":"parameter",
+                        "name":"parameter",
                         "type":"string"
                     }
                 ]

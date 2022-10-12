@@ -1581,7 +1581,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
              * the slave online. */
             if (type == RDB_CHILD_TYPE_SOCKET) {
                 serverLog(LL_NOTICE,
-                    "Streamed RDB transfer with replica %s succeeded (socket). Waiting for REPLCONF ACK from slave to enable streaming",
+                    "Streamed RDB transfer with replica %s succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming",
                         replicationGetSlaveName(slave));
                 /* Note: we wait for a REPLCONF ACK message from the replica in
                  * order to really put it online (install the write handler
@@ -4006,7 +4006,7 @@ void failoverCommand(client *c) {
         serverLog(LL_NOTICE,"FAILOVER requested to any replica.");
     }
 
-    mstime_t now = mstime();
+    mstime_t now = commandTimeSnapshot();
     if (timeout_in_ms) {
         server.failover_end_time = now + timeout_in_ms;
     }

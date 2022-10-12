@@ -44,6 +44,16 @@ start_server {tags {"modules"}} {
         assert_equal [r test.dbsize] 0
     }
 
+    test {test RedisModule_ResetDataset do not reset functions} {
+        r function load {#!lua name=lib
+            redis.register_function('test', function() return 1 end)
+        }
+        assert_equal [r function list] {{library_name lib engine LUA functions {{name test description {} flags {}}}}}
+        r test.flushall
+        assert_equal [r function list] {{library_name lib engine LUA functions {{name test description {} flags {}}}}}
+        r function flush
+    }
+
     test {test module keyexists} {
         r set x foo
         assert_equal 1 [r test.keyexists x]
@@ -171,6 +181,21 @@ start_server {tags {"modules"}} {
         ]
 
         r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
+    test {rm_call clear OOM} {
+        r config set maxmemory 1
+
+        # verify rm_call fails with OOM
+        assert_error {OOM *} {
+            r test.rm_call_flags M set x 1
+        }
+
+        # clear OOM state
+        r config set maxmemory 0
+
+        # test set command is allowed
+        r test.rm_call_flags M set x 1
     } {OK} {needs:config-maxmemory}
 
     test {rm_call OOM Eval} {

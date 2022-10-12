@@ -1215,6 +1215,14 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     } {foo{t} aguacate}
 }
 
+    test "BLPOP: timeout value out of range" {
+        # Timeout is parsed as float and multiplied by 1000, added mstime()
+        # and stored in long-long which might lead to out-of-range value.
+        # (Even though given timeout is smaller than LLONG_MAX, the result
+        # will be bigger)            
+        assert_error "ERR *is out of range*" {r BLPOP blist1 0x7FFFFFFFFFFFFF}
+    }  
+        
     foreach {pop} {BLPOP BRPOP BLMPOP_LEFT BLMPOP_RIGHT} {
         test "$pop: with single empty list argument" {
             set rd [redis_deferring_client]
@@ -1914,6 +1922,27 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd2 close
         r ping
     } {PONG}
+
+    test "BLPOP/BLMOVE should increase dirty" {
+        r del lst{t} lst1{t}
+        set rd [redis_deferring_client]
+
+        set dirty [s rdb_changes_since_last_save]
+        $rd blpop lst{t} 0
+        r lpush lst{t} a
+        assert_equal {lst{t} a} [$rd read]
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 2}
+
+        set dirty [s rdb_changes_since_last_save]
+        $rd blmove lst{t} lst1{t} left left 0
+        r lpush lst{t} a
+        assert_equal {a} [$rd read]
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 2}
+
+        $rd close
+    }
 
 foreach {pop} {BLPOP BLMPOP_RIGHT} {
     test "client unblock tests" {

@@ -1046,6 +1046,7 @@ typedef struct {
     list *selectors; /* A list of selectors this user validates commands
                         against. This list will always contain at least
                         one selector for backwards compatibility. */
+    robj *acl_string; /* cached string represent of ACLs */
 } user;
 
 /* With multiplexing we need to take per-client state.
@@ -1190,6 +1191,14 @@ typedef struct client {
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
 } client;
+
+/* ACL information */
+typedef struct aclInfo {
+    long long user_auth_failures; /* Auth failure counts on user level */
+    long long invalid_cmd_accesses; /* Invalid command accesses that user doesn't have permission to */
+    long long invalid_key_accesses; /* Invalid key accesses that user doesn't have permission to */
+    long long invalid_channel_accesses; /* Invalid channel accesses that user doesn't have permission to */
+} aclInfo;
 
 struct saveparam {
     time_t seconds;
@@ -1514,7 +1523,6 @@ struct redisServer {
     clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
-    long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     int in_nested_call;         /* If > 0, in a nested call of a call */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     pause_type client_pause_type;      /* True if clients are currently paused */
@@ -1854,6 +1862,7 @@ struct redisServer {
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
+    mstime_t cluster_ping_interval;    /* A debug configuration for setting how often cluster nodes send ping messages. */
     char *cluster_configfile; /* Cluster auto-generated config file name. */
     struct clusterState *cluster;  /* State of the cluster */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
@@ -1900,6 +1909,7 @@ struct redisServer {
                                      the old "requirepass" directive for
                                      backward compatibility with Redis <= 5. */
     int acl_pubsub_default;      /* Default ACL pub/sub channels flag */
+    aclInfo acl_info; /* ACL info */
     /* Assert & bug reporting */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
@@ -2412,7 +2422,8 @@ int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 
 /* Utils */
 long long ustime(void);
-long long mstime(void);
+mstime_t mstime(void);
+mstime_t commandTimeSnapshot(void);
 void getRandomHexChars(char *p, size_t len);
 void getRandomBytes(unsigned char *p, size_t len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
@@ -2466,6 +2477,7 @@ void addReplyOrErrorObject(client *c, robj *reply);
 void afterErrorReply(client *c, const char *s, size_t len, int flags);
 void addReplyErrorSdsEx(client *c, sds err, int flags);
 void addReplyErrorSds(client *c, sds err);
+void addReplyErrorSdsSafe(client *c, sds err);
 void addReplyError(client *c, const char *err);
 void addReplyErrorArity(client *c);
 void addReplyErrorExpireTime(client *c);
@@ -2584,7 +2596,7 @@ robj *listTypeDup(robj *o);
 int listTypeDelRange(robj *o, long start, long stop);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int *deleted);
+void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
@@ -2730,7 +2742,6 @@ int loadAppendOnlyFiles(aofManifest *am);
 void stopAppendOnly(void);
 int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
-ssize_t aofReadDiffFromParent(void);
 void killAppendOnlyChild(void);
 void restartAOFAfterSYNC();
 void aofLoadManifestFromDisk(void);
@@ -2786,11 +2797,12 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
 int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags);
 int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
+sds ACLStringSetUser(user *u, sds username, sds *argv, int argc);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
 const char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
-sds ACLDescribeUser(user *u);
+robj *ACLDescribeUser(user *u);
 void ACLLoadUsersAtStartup(void);
 void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser();
@@ -2798,6 +2810,7 @@ void ACLFreeUserAndKillClients(user *u);
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object);
 const char* getAclErrorMessage(int acl_res);
 void ACLUpdateDefaultUserPassword(sds password);
+sds genRedisInfoStringACLStats(sds info);
 
 /* Sorted sets data type */
 

@@ -628,14 +628,6 @@ void handleClientsBlockedOnKeys(void) {
              * we can safely call signalKeyAsReady() against this key. */
             dictDelete(rl->db->ready_keys,rl->key);
 
-            /* Even if we are not inside call(), increment the call depth
-             * in order to make sure that keys are expired against a fixed
-             * reference time, and not against the wallclock time. This
-             * way we can lookup an object multiple times (BLMOVE does
-             * that) without the risk of it being freed in the second
-             * lookup, invalidating the first one.
-             * See https://github.com/redis/redis/pull/6554. */
-            server.fixed_time_expire++;
             updateCachedTime(0);
 
             /* Serve clients blocked on the key. */
@@ -669,7 +661,6 @@ void handleClientsBlockedOnKeys(void) {
              *    than module blocking clients
              * */
             serveClientsBlockedOnKeyByModule(rl);
-            server.fixed_time_expire--;
 
             /* Free this item. */
             decrRefCount(rl->key);
