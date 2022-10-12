@@ -45,6 +45,7 @@ RedisModuleDict *loaded_event_log = NULL;
 /** stores all the keys on which we got 'module' keyspace notification **/
 RedisModuleDict *module_event_log = NULL;
 
+/** Counts how many deleted KSN we got on keys with a prefix of "count_dels_" **/
 static size_t dels = 0;
 
 static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
