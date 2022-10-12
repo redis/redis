@@ -653,10 +653,10 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_STRING:
         return rdbSaveType(rdb,RDB_TYPE_STRING);
     case OBJ_LIST:
-        if (o->encoding == OBJ_ENCODING_LISTPACK) {
-            return rdbSaveType(rdb, RDB_TYPE_LIST_LISTPACK);
-        } else if (o->encoding == OBJ_ENCODING_QUICKLIST)
+        if (o->encoding == OBJ_ENCODING_QUICKLIST)
             return rdbSaveType(rdb, RDB_TYPE_LIST_QUICKLIST_2);
+        else if (o->encoding == OBJ_ENCODING_LISTPACK)
+            return rdbSaveType(rdb, RDB_TYPE_LIST_LISTPACK);
         else
             serverPanic("Unknown list encoding");
     case OBJ_SET:
@@ -803,11 +803,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         nwritten += n;
     } else if (o->type == OBJ_LIST) {
         /* Save a list value */
-        if (o->encoding == OBJ_ENCODING_LISTPACK) {
-            size_t l = lpBytes((unsigned char*)o->ptr);
-            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
-            nwritten += n;
-        } else if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        if (o->encoding == OBJ_ENCODING_QUICKLIST) {
             quicklist *ql = o->ptr;
             quicklistNode *node = ql->head;
 
@@ -829,6 +825,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 }
                 node = node->next;
             }
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            size_t l = lpBytes((unsigned char*)o->ptr);
+            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            nwritten += n;
         } else {
             serverPanic("Unknown list encoding");
         }

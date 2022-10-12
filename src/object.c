@@ -301,10 +301,10 @@ void freeStringObject(robj *o) {
 }
 
 void freeListObject(robj *o) {
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        lpFree(o->ptr);
-    } else if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistRelease(o->ptr);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        lpFree(o->ptr);
     } else {
         serverPanic("Unknown list encoding type");
     }
@@ -1008,6 +1008,8 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
                 samples++;
             } while ((node = node->next) && samples < sample_size);
             asize += (double)elesize/samples*ql->len;
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {
             serverPanic("Unknown list encoding");
         }

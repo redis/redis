@@ -866,11 +866,11 @@ long defragKey(redisDb *db, dictEntry *de) {
     if (ob->type == OBJ_STRING) {
         /* Already handled in activeDefragStringOb. */
     } else if (ob->type == OBJ_LIST) {
-        if (ob->encoding == OBJ_ENCODING_LISTPACK) {
+        if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
+            defragged += defragQuicklist(db, de);
+        } else if (ob->encoding == OBJ_ENCODING_LISTPACK) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 defragged++, ob->ptr = newzl;
-        } else if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
-            defragged += defragQuicklist(db, de);
         } else {
             serverPanic("Unknown list encoding");
         }

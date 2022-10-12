@@ -2024,6 +2024,9 @@ foreach type {listpack quicklist} {
         set k [r lrange k 0 -1]
         set dump [r dump k]
 
+        # coverage for objectComputeSize
+        assert_morethan [memory_usage k] 0
+
         config_set sanitize-dump-payload no mayfail
         r restore kk 0 $dump replace
         assert_encoding $type kk ;# make sure to keep the same encoding after restore
