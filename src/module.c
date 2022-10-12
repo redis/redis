@@ -7910,7 +7910,7 @@ void moduleReleaseGIL(void) {
  * that the notification code will be executed in the middle on Redis logic
  * (commands logic, eviction, expire). Changing the key space while the logic
  * runs is dangerous and discouraged. In order to react to key space events with
- * write actions, please refer to `RM_AddPostNotificationJob`.
+ * write actions, please refer to `RM_AddPostJob`.
  *
  * See https://redis.io/topics/notifications for more information.
  */
@@ -7947,9 +7947,9 @@ void firePostJobs() {
 }
 
 /* RedisModule API has a few location where it is dangerous and highly discouraged to perform any write
- * operation ( For example, when running inside a key space notification callback, See `RM_SubscribeToKeyspaceEvents`
- * for more information). In order to still performing write actions in such locations, Redis provides `RM_AddPostJob` API.
- * The api allows to register a job. When Redis calls this job the following condition are promised to be fulfilled:
+ * operation (e.g. when running inside a key space notification callback, See `RM_SubscribeToKeyspaceEvents`).
+ * In order to still perform write actions in such scenarios, Redis provides `RM_AddPostJob` API.
+ * The API allows to register a job callback which Redis will call when the following condition are promised to be fulfilled:
  * 1. It is safe to perform any write operation.
  * 2. The job will be called atomically along side the action that triggered it.
  *
