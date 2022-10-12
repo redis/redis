@@ -95,7 +95,7 @@ static const rio rioBufferIO = {
     0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
-    { { NULL, 0 } },/* union for io-specific vars */
+    { { NULL, 0 } } /* union for io-specific vars */
 };
 
 void rioInitWithBuffer(rio *r, sds s) {
@@ -182,7 +182,7 @@ static const rio rioFileIO = {
     0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
-    { { NULL, 0 } },/* union for io-specific vars */
+    { { NULL, 0 } } /* union for io-specific vars */
 };
 
 void rioInitWithFile(rio *r, FILE *fp) {
@@ -283,7 +283,7 @@ static const rio rioConnIO = {
     0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
-    { { NULL, 0 } },/* union for io-specific vars */
+    { { NULL, 0 } } /* union for io-specific vars */
 };
 
 /* Create an RIO that implements a buffered read from an fd
@@ -402,7 +402,7 @@ static const rio rioFdIO = {
     0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
-    { { NULL, 0 } },/* union for io-specific vars */
+    { { NULL, 0 } } /* union for io-specific vars */
 };
 
 void rioInitWithFd(rio *r, int fd) {
