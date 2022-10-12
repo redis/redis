@@ -117,7 +117,7 @@
  *
  *  [0f 00 00 00] [0c 00 00 00] [02 00] [00 f3] [02 f6] [ff]
  *        |             |          |       |       |     |
- *     zlbytes        zltail    entries   "2"     "5"   end
+ *     zlbytes        zltail     zllen    "2"     "5"   end
  *
  * The first 4 bytes represent the number 15, that is the number of bytes
  * the whole ziplist is composed of. The second 4 bytes are the offset
@@ -1754,7 +1754,7 @@ static void stress(int pos, int num, int maxsize, int dnum) {
 static unsigned char *pop(unsigned char *zl, int where) {
     unsigned char *p, *vstr;
     unsigned int vlen;
-    long long vlong;
+    long long vlong = 0;
 
     p = ziplistIndex(zl,where == ZIPLIST_HEAD ? 0 : -1);
     if (ziplistGet(p,&vstr,&vlen,&vlong)) {

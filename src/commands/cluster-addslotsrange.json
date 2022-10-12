@@ -12,12 +12,9 @@
             "ADMIN",
             "STALE"
         ],
-        "command_tips": [
-            "NONDETERMINISTIC_OUTPUT"
-        ],
         "arguments": [
             {
-                "name": "start-slot_end-slot",
+                "name": "range",
                 "type": "block",
                 "multiple": true,
                 "arguments": [

@@ -574,7 +574,12 @@ int performEvictions(void) {
     int prev_core_propagates = server.core_propagates;
     serverAssert(server.also_propagate.numops == 0);
     server.core_propagates = 1;
-    server.propagate_no_multi = 1;
+
+    /* Increase nested call counter
+     * we add this in order to prevent any RM_Call that may exist
+     * in the notify CB to be propagated immediately.
+     * we want them in multi/exec with the DEL command */
+    server.in_nested_call++;
 
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
@@ -590,7 +595,7 @@ int performEvictions(void) {
         {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
 
-            while(bestkey == NULL) {
+            while (bestkey == NULL) {
                 unsigned long total_keys = 0, keys;
 
                 /* We don't want to make local-db choices when expiring keys,
@@ -688,6 +693,7 @@ int performEvictions(void) {
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
             propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
+            propagatePendingCommands();
             decrRefCount(keyobj);
             keys_freed++;
 
@@ -732,21 +738,24 @@ cant_free:
         /* At this point, we have run out of evictable items.  It's possible
          * that some items are being freed in the lazyfree thread.  Perform a
          * short wait here if such jobs exist, but don't wait long.  */
-        if (bioPendingJobsOfType(BIO_LAZY_FREE)) {
-            usleep(eviction_time_limit_us);
+        mstime_t lazyfree_latency;
+        latencyStartMonitor(lazyfree_latency);
+        while (bioPendingJobsOfType(BIO_LAZY_FREE) &&
+              elapsedUs(evictionTimer) < eviction_time_limit_us) {
             if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
                 result = EVICT_OK;
+                break;
             }
+            usleep(eviction_time_limit_us < 1000 ? eviction_time_limit_us : 1000);
         }
+        latencyEndMonitor(lazyfree_latency);
+        latencyAddSampleIfNeeded("eviction-lazyfree",lazyfree_latency);
     }
 
     serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
-    /* Propagate all DELs */
-    propagatePendingCommands();
-
     server.core_propagates = prev_core_propagates;
-    server.propagate_no_multi = 0;
+    server.in_nested_call--;
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);

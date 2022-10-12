@@ -12,9 +12,6 @@
             "ADMIN",
             "STALE"
         ],
-        "command_tips": [
-            "NONDETERMINISTIC_OUTPUT"
-        ],
         "arguments": [
             {
                 "name": "slot",
@@ -25,17 +22,20 @@
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "node-id",
+                        "name": "importing",
+                        "display": "node-id",
                         "type": "string",
                         "token": "IMPORTING"
                     },
                     {
-                        "name": "node-id",
+                        "name": "migrating",
+                        "display": "node-id",
                         "type": "string",
                         "token": "MIGRATING"
                     },
                     {
-                        "name": "node-id",
+                        "name": "node",
+                        "display": "node-id",
                         "type": "string",
                         "token": "NODE"
                     },

@@ -68,7 +68,7 @@ start_server {tags {"scripting"}} {
     } {}
 
     test {EVAL - Return table with a metatable that call redis} {
-        run_script {local a = {}; setmetatable(a,{__index=function() redis.call('set', 'x', '1') end}) return a} 0
+        run_script {local a = {}; setmetatable(a,{__index=function() redis.call('set', 'x', '1') end}) return a} 1 x
         # make sure x was not set
         r get x
     } {}
@@ -215,37 +215,37 @@ start_server {tags {"scripting"}} {
 
     test {EVAL - Scripts can't run blpop command} {
         set e {}
-        catch {run_script {return redis.pcall('blpop','x',0)} 0} e
+        catch {run_script {return redis.pcall('blpop','x',0)} 1 x} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run brpop command} {
         set e {}
-        catch {run_script {return redis.pcall('brpop','empty_list',0)} 0} e
+        catch {run_script {return redis.pcall('brpop','empty_list',0)} 1 empty_list} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run brpoplpush command} {
         set e {}
-        catch {run_script {return redis.pcall('brpoplpush','empty_list1', 'empty_list2',0)} 0} e
+        catch {run_script {return redis.pcall('brpoplpush','empty_list1{t}', 'empty_list2{t}',0)} 2 empty_list1{t} empty_list2{t}} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run blmove command} {
         set e {}
-        catch {run_script {return redis.pcall('blmove','empty_list1', 'empty_list2', 'LEFT', 'LEFT', 0)} 0} e
+        catch {run_script {return redis.pcall('blmove','empty_list1{t}', 'empty_list2{t}', 'LEFT', 'LEFT', 0)} 2 empty_list1{t} empty_list2{t}} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run bzpopmin command} {
         set e {}
-        catch {run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 0} e
+        catch {run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 1 empty_zset} e
         set e
     } {*not allowed*}
 
     test {EVAL - Scripts can't run bzpopmax command} {
         set e {}
-        catch {run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 0} e
+        catch {run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 1 empty_zset} e
         set e
     } {*not allowed*}
 
@@ -263,7 +263,7 @@ start_server {tags {"scripting"}} {
     test {EVAL - Scripts can run non-deterministic commands} {
         set e {}
         catch {
-            run_script "redis.pcall('randomkey'); return redis.pcall('set','x','ciao')" 0
+            run_script {redis.pcall('randomkey'); return redis.pcall('set','x','ciao')} 1 x
         } e
         set e
     } {*OK*}
@@ -702,7 +702,7 @@ start_server {tags {"scripting"}} {
                 a[i] = 1
             end
             return redis.call("lpush", "l", unpack(a))
-        } 0
+        } 1 l
     } {7999}
 
     test "Script read key with expiration set" {
@@ -713,7 +713,7 @@ start_server {tags {"scripting"}} {
              else
                  return redis.call("EXISTS", "key")
              end
-        } 0] "value"
+        } 1 key] "value"
     }
 
     test "Script del key with expiration set" {
@@ -721,7 +721,7 @@ start_server {tags {"scripting"}} {
         assert_equal [run_script {
              redis.call("DEL", "key")
              return redis.call("EXISTS", "key")
-        } 0] 0
+        } 1 key] 0
     }
     
     test "Script ACL check" {
@@ -1061,14 +1061,14 @@ start_server {tags {"scripting"}} {
                     redis.call("incr","x")
                     redis.call("select","11")
                     redis.call("incr","z")
-                } 0
+                } 3 foo1 x z
                 run_script {
                     redis.call("set","foo1","bar1")
                     redis.call("select","10")
                     redis.call("incr","x")
                     redis.call("select","11")
                     redis.call("incr","z")
-                } 0
+                } 3 foo1 x z
                 wait_for_condition 50 100 {
                     [debug_digest -1] eq [debug_digest]
                 } else {
@@ -1126,7 +1126,7 @@ start_server {tags {"scripting repl external:skip"}} {
                 redis.call('set','c','3');
                 redis.set_repl(redis.REPL_ALL);
                 redis.call('set','d','4');
-            } 0
+            } 4 a b c d
 
             wait_for_condition 50 100 {
                 [r -1 mget a b c d] eq {1 {} {} 4}
@@ -1358,7 +1358,7 @@ start_server {tags {"scripting needs:debug"}} {
             redis.call("SET", "key", "value", "PX", "1")
             redis.call("DEBUG", "SLEEP", 0.01)
             return redis.call("EXISTS", "key")
-        } 0] 1
+        } 1 key] 1
 
         assert_equal 0 [r EXISTS key]
     }
@@ -1371,9 +1371,121 @@ start_server {tags {"scripting needs:debug"}} {
         # use DEBUG OBJECT to make sure it doesn't error (means the key still exists)
         r DEBUG OBJECT key
 
-        assert_equal [run_script "return redis.call('EXISTS', 'key')" 0] 0
+        assert_equal [run_script {return redis.call('EXISTS', 'key')} 1 key] 0
         assert_equal 0 [r EXISTS key]
         r DEBUG set-active-expire 1
+    }
+
+    test "TIME command using cached time" {
+        set res [run_script {
+            local result1 = {redis.call("TIME")}
+            redis.call("DEBUG", "SLEEP", 0.01)
+            local result2 = {redis.call("TIME")}
+            return {result1, result2}
+         } 0]
+         assert_equal [lindex $res 0] [lindex $res 1]
+     }
+
+    test "Script block the time in some expiration related commands" {
+        # The test uses different commands to set the "same" expiration time for different keys,
+        # and interspersed with "DEBUG SLEEP", to verify that time is frozen in script.
+        # The commands involved are [P]TTL / SET EX[PX] / [P]EXPIRE / GETEX / [P]SETEX / [P]EXPIRETIME
+        set res [run_script {
+            redis.call("SET", "key1{t}", "value", "EX", 1)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SET", "key2{t}", "value", "PX", 1000)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SET", "key3{t}", "value")
+            redis.call("EXPIRE", "key3{t}", 1)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SET", "key4{t}", "value")
+            redis.call("PEXPIRE", "key4{t}", 1000)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SETEX", "key5{t}", 1, "value")
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("PSETEX", "key6{t}", 1000, "value")
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SET", "key7{t}", "value")
+            redis.call("GETEX", "key7{t}", "EX", 1)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            redis.call("SET", "key8{t}", "value")
+            redis.call("GETEX", "key8{t}", "PX", 1000)
+            redis.call("DEBUG", "SLEEP", 0.01)
+
+            local ttl_results = {redis.call("TTL", "key1{t}"),
+                                 redis.call("TTL", "key2{t}"),
+                                 redis.call("TTL", "key3{t}"),
+                                 redis.call("TTL", "key4{t}"),
+                                 redis.call("TTL", "key5{t}"),
+                                 redis.call("TTL", "key6{t}"),
+                                 redis.call("TTL", "key7{t}"),
+                                 redis.call("TTL", "key8{t}")}
+
+            local pttl_results = {redis.call("PTTL", "key1{t}"),
+                                  redis.call("PTTL", "key2{t}"),
+                                  redis.call("PTTL", "key3{t}"),
+                                  redis.call("PTTL", "key4{t}"),
+                                  redis.call("PTTL", "key5{t}"),
+                                  redis.call("PTTL", "key6{t}"),
+                                  redis.call("PTTL", "key7{t}"),
+                                  redis.call("PTTL", "key8{t}")}
+
+            local expiretime_results = {redis.call("EXPIRETIME", "key1{t}"),
+                                        redis.call("EXPIRETIME", "key2{t}"),
+                                        redis.call("EXPIRETIME", "key3{t}"),
+                                        redis.call("EXPIRETIME", "key4{t}"),
+                                        redis.call("EXPIRETIME", "key5{t}"),
+                                        redis.call("EXPIRETIME", "key6{t}"),
+                                        redis.call("EXPIRETIME", "key7{t}"),
+                                        redis.call("EXPIRETIME", "key8{t}")}
+
+            local pexpiretime_results = {redis.call("PEXPIRETIME", "key1{t}"),
+                                         redis.call("PEXPIRETIME", "key2{t}"),
+                                         redis.call("PEXPIRETIME", "key3{t}"),
+                                         redis.call("PEXPIRETIME", "key4{t}"),
+                                         redis.call("PEXPIRETIME", "key5{t}"),
+                                         redis.call("PEXPIRETIME", "key6{t}"),
+                                         redis.call("PEXPIRETIME", "key7{t}"),
+                                         redis.call("PEXPIRETIME", "key8{t}")}
+
+            return {ttl_results, pttl_results, expiretime_results, pexpiretime_results}
+        } 8 key1{t} key2{t} key3{t} key4{t} key5{t} key6{t} key7{t} key8{t}]
+
+        # The elements in each list are equal.
+        assert_equal 1 [llength [lsort -unique [lindex $res 0]]]
+        assert_equal 1 [llength [lsort -unique [lindex $res 1]]]
+        assert_equal 1 [llength [lsort -unique [lindex $res 2]]]
+        assert_equal 1 [llength [lsort -unique [lindex $res 3]]]
+
+        # Then we check that the expiration time is set successfully.
+        assert_morethan [lindex $res 0] 0
+        assert_morethan [lindex $res 1] 0
+        assert_morethan [lindex $res 2] 0
+        assert_morethan [lindex $res 3] 0
+    }
+
+    test "RESTORE expired keys with expiration time" {
+        set res [run_script {
+            redis.call("SET", "key1{t}", "value")
+            local encoded = redis.call("DUMP", "key1{t}")
+
+            redis.call("RESTORE", "key2{t}", 1, encoded, "REPLACE")
+            redis.call("DEBUG", "SLEEP", 0.01)
+            redis.call("RESTORE", "key3{t}", 1, encoded, "REPLACE")
+
+            return {redis.call("PEXPIRETIME", "key2{t}"), redis.call("PEXPIRETIME", "key3{t}")}
+        } 3 key1{t} key2{t} key3{t}]
+
+        # Can get the expiration time and they are all equal.
+        assert_morethan [lindex $res 0] 0
+        assert_equal [lindex $res 0] [lindex $res 1]
     }
 
     r debug set-disable-deny-scripts 0
