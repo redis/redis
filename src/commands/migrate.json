@@ -56,17 +56,24 @@
                 }
             },
             {
-                "notes": "For the optional KEYS keyword. It is marked 'unknown' because the word 'KEYS' may also appear when using AUTH and AUTH2.",
                 "flags": [
                     "RW",
                     "ACCESS",
-                    "DELETE"
+                    "DELETE",
+                    "INCOMPLETE"
                 ],
                 "begin_search": {
-                    "unknown": null
+                    "keyword": {
+                        "keyword": "KEYS",
+                        "startfrom": -2
+                    }
                 },
                 "find_keys": {
-                    "unknown": null
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
                 }
             }
         ],
