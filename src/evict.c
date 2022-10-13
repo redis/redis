@@ -693,7 +693,7 @@ int performEvictions(void) {
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
             propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
-            postUnitOperations();
+            postExecutionUnitOperations();
             decrRefCount(keyobj);
             keys_freed++;
 

@@ -294,7 +294,7 @@ static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 
 /* Function pointer type for post jobs */
-typedef void (*RedisModulePostJobFunc) (RedisModuleCtx *ctx, void *pd);
+typedef void (*RedisModulePostExecUnitJobFunc) (RedisModuleCtx *ctx, void *pd);
 
 /* Keyspace notification subscriber information.
  * See RM_SubscribeToKeyspaceEvents() for more information. */
@@ -310,20 +310,20 @@ typedef struct RedisModuleKeyspaceSubscriber {
     int active;
 } RedisModuleKeyspaceSubscriber;
 
-typedef struct RedisModulePostJob {
+typedef struct RedisModulePostExecUnitJob {
     /* The module subscribed to the event */
     RedisModule *module;
-    RedisModulePostJobFunc callback;
+    RedisModulePostExecUnitJobFunc callback;
     void *pd;
     void (*free_pd)(void*);
     int dbid;
-} RedisModulePostJob;
+} RedisModulePostExecUnitJob;
 
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
 
 /* The module post keyspace jobs list */
-static list *modulePostJobs;
+static list *modulePostExecUnitJobs;
 
 /* Data structures related to the exported dictionary data structure. */
 typedef struct RedisModuleDict {
@@ -738,7 +738,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
          * outside of call() context (timers, events, etc.). */
         if (--server.module_ctx_nesting == 0) {
             if (!server.core_propagates) {
-                postUnitOperations();
+                postExecutionUnitOperations();
             }
             if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
@@ -7811,7 +7811,7 @@ void moduleGILBeforeUnlock() {
      * (because it's u clear when thread safe contexts are
      * released we have to propagate here). */
     server.module_ctx_nesting--;
-    postUnitOperations();
+    postExecutionUnitOperations();
 
     if (server.busy_module_yield_flags) {
         blockingOperationEnds();
@@ -7925,13 +7925,13 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     return REDISMODULE_OK;
 }
 
-void firePostJobs() {
+void firePostExecutionUnitJobs() {
     /* Avoid propagation of commands. */
     server.in_nested_call++;
-    while (listLength(modulePostJobs) > 0) {
-        listNode *ln = listFirst(modulePostJobs);
-        RedisModulePostJob *job = listNodeValue(ln);
-        listDelNode(modulePostJobs, ln);
+    while (listLength(modulePostExecUnitJobs) > 0) {
+        listNode *ln = listFirst(modulePostExecUnitJobs);
+        RedisModulePostExecUnitJob *job = listNodeValue(ln);
+        listDelNode(modulePostExecUnitJobs, ln);
 
         RedisModuleCtx ctx;
         moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
@@ -7948,7 +7948,7 @@ void firePostJobs() {
 
 /* RedisModule API has a few location where it is dangerous and highly discouraged to perform any write
  * operation (e.g. when running inside a key space notification callback, See `RM_SubscribeToKeyspaceEvents`).
- * In order to still perform write actions in such scenarios, Redis provides `RM_AddPostJob` API.
+ * In order to still perform write actions in such scenarios, Redis provides `RM_AddPostExecutionUnitJob` API.
  * The API allows to register a job callback which Redis will call when the following condition are promised to be fulfilled:
  * 1. It is safe to perform any write operation.
  * 2. The job will be called atomically along side the action that triggered it.
@@ -7960,15 +7960,15 @@ void firePostJobs() {
  * and so Redis will make no attempt to protect the module from infinite loops.
  *
  * 'free_pd' can be NULL and in such case will not be used. */
-int RM_AddPostJob(RedisModuleCtx *ctx, RedisModulePostJobFunc callback, void *pd, void (*free_pd)(void*)) {
-    RedisModulePostJob *job = zmalloc(sizeof(*job));
+int RM_AddPostExecutionUnitJob(RedisModuleCtx *ctx, RedisModulePostExecUnitJobFunc callback, void *pd, void (*free_pd)(void*)) {
+    RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
     job->pd = pd;
     job->free_pd = free_pd;
     job->dbid = ctx->client->db->id;
 
-    listAddNodeTail(modulePostJobs, job);
+    listAddNodeTail(modulePostExecUnitJobs, job);
     return REDISMODULE_OK;
 }
 
@@ -11082,7 +11082,7 @@ void moduleInitModulesSystem(void) {
     /* Set up the keyspace notification subscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
 
-    modulePostJobs = listCreate();
+    modulePostExecUnitJobs = listCreate();
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();
@@ -12794,7 +12794,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(NotifyKeyspaceEvent);
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
-    REGISTER_API(AddPostJob);
+    REGISTER_API(AddPostExecutionUnitJob);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
     REGISTER_API(GetClusterNodeInfo);

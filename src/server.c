@@ -3252,8 +3252,8 @@ static void propagatePendingCommands() {
  * `server.module_ctx_nesting`, and `server.in_nested_call`. We understand that we probably
  * do not need all of those variable and we will make an attempt to re-arrange it on unstable
  * branch. */
-void postUnitOperations() {
-    firePostJobs();
+void postExecutionUnitOperations() {
+    firePostExecutionUnitJobs();
     propagatePendingCommands();
 }
 
@@ -3574,7 +3574,7 @@ void afterCommand(client *c) {
          * Should be done before trackingHandlePendingKeyInvalidations so that we
          * reply to client before invalidating cache (makes more sense) */
         if (server.core_propagates) {
-            postUnitOperations();
+            postExecutionUnitOperations();
         }
         /* Flush pending invalidation messages only when we are not in nested call.
          * So the messages are not interleaved with transaction response. */

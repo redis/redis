@@ -676,9 +676,9 @@ void handleClientsBlockedOnKeys(void) {
             } else {
                 /* Unblock all XREADGROUP clients of this deleted key */
                 unblockDeletedStreamReadgroupClients(rl);
-                /* Edge case: If lookupKeyReadWithFlags decides to expire the key we have to
-                 * take care of the propagation here, because afterCommand wasn't called */
-                postUnitOperations();
+                /* Edge case: If lookupKeyReadWithFlags decides to expire the key this is counted as
+                 * execution unit and we need to perform the post execution unit operations. */
+                postExecutionUnitOperations();
             }
             server.fixed_time_expire--;
 
