@@ -57,7 +57,9 @@ static sds getSwapMetaInfo(int object_type, long long expire, objectMeta *m) {
     sds info = sdscatprintf(sdsempty(),"object_type=%d,expire=%lld",
             object_type,expire);
     if (m) {
-        info = sdscatprintf(info, ",at=%p,len=%ld",(void*)m,(ssize_t)m->len);
+        sds omdump = dumpObjectMeta(m);
+        info = sdscatprintf(info, ",at=%p,%s",(void*)m,omdump);
+        sdsfree(omdump);
     } else {
         info = sdscatprintf(info, ",at=<nil>");
     }

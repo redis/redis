@@ -252,7 +252,8 @@ void pushGenericCommand(client *c, int where, int xx) {
         server.dirty++;
     }
 
-    addReplyLongLong(c, listTypeLength(lobj));
+    objectMeta *om = lookupMeta(c->db,c->argv[1]);
+    addReplyLongLong(c, ctripListTypeLength(lobj,om));
 
     char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
     signalModifiedKey(c,c->db,c->argv[1]);
@@ -326,14 +327,16 @@ void linsertCommand(client *c) {
         return;
     }
 
-    addReplyLongLong(c,listTypeLength(subject));
+    objectMeta *om = lookupMeta(c->db,c->argv[1]);
+    addReplyLongLong(c,ctripListTypeLength(subject,om));
 }
 
 /* LLEN <key> */
 void llenCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
-    addReplyLongLong(c,listTypeLength(o));
+    objectMeta *om = lookupMeta(c->db,c->argv[1]);
+    addReplyLongLong(c,ctripListTypeLength(o,om));
 }
 
 /* LINDEX <key> <index> */
@@ -439,11 +442,11 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
 }
 
 /* A housekeeping helper for list elements popping tasks. */
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count) {
+void listElementsRemoved(client *c, robj *key, int where, robj *o, objectMeta *om, long count) {
     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
 
     notifyKeyspaceEvent(NOTIFY_LIST, event, key, c->db->id);
-    if (listTypeLength(o) == 0) {
+    if (ctripListTypeLength(o,om) == 0) {
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
         dbDelete(c->db, key);
     }
@@ -477,6 +480,7 @@ void popGenericCommand(client *c, int where) {
     robj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
     if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
+    objectMeta *om = lookupMeta(c->db, c->argv[1]);
 
     if (!count) {
         /* Pop a single element. This is POP's original behavior that replies
@@ -485,7 +489,7 @@ void popGenericCommand(client *c, int where) {
         serverAssert(value != NULL);
         addReplyBulk(c,value);
         decrRefCount(value);
-        listElementsRemoved(c,c->argv[1],where,o,1);
+        listElementsRemoved(c,c->argv[1],where,o,om,1);
     } else {
         /* Pop a range of elements. An addition to the original POP command,
          *  which replies with a multi-bulk. */
@@ -501,7 +505,7 @@ void popGenericCommand(client *c, int where) {
             ctripListMetaDelRange(c->db,c->argv[1],-rangelen,0);
         else
             ctripListMetaDelRange(c->db,c->argv[1],0,-rangelen);
-        listElementsRemoved(c,c->argv[1],where,o,rangelen);
+        listElementsRemoved(c,c->argv[1],where,o,om,rangelen);
     }
 }
 
@@ -567,8 +571,9 @@ void ltrimCommand(client *c) {
         serverPanic("Unknown list encoding");
     }
 
+    objectMeta *om = lookupMeta(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
-    if (listTypeLength(o) == 0) {
+    if (ctripListTypeLength(o,om) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
@@ -735,7 +740,8 @@ void lremCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
     }
 
-    if (listTypeLength(subject) == 0) {
+    objectMeta *om = lookupMeta(c->db,c->argv[1]);
+    if (ctripListTypeLength(subject,om) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
@@ -809,7 +815,9 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
                             wherefrom == LIST_HEAD ? "lpop" : "rpop",
                             touchedkey,
                             c->db->id);
-        if (listTypeLength(sobj) == 0) {
+
+        objectMeta *om = lookupMeta(c->db,touchedkey);
+        if (ctripListTypeLength(sobj,om) == 0) {
             dbDelete(c->db,touchedkey);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
                                 touchedkey,c->db->id);
@@ -952,6 +960,7 @@ void blockingPopGenericCommand(client *c, int where) {
             } else {
                 if (listTypeLength(o) != 0) {
                     /* Non empty list, this is like a normal [LR]POP. */
+                    objectMeta *om = lookupMeta(c->db,c->argv[j]);
                     robj *value = ctripListTypePop(o,where,c->db,c->argv[j]);
                     serverAssert(value != NULL);
 
@@ -959,7 +968,7 @@ void blockingPopGenericCommand(client *c, int where) {
                     addReplyBulk(c,c->argv[j]);
                     addReplyBulk(c,value);
                     decrRefCount(value);
-                    listElementsRemoved(c,c->argv[j],where,o,1);
+                    listElementsRemoved(c,c->argv[j],where,o,om,1);
 
                     /* Replicate it as an [LR]POP instead of B[LR]POP. */
                     rewriteClientCommandVector(c,2,

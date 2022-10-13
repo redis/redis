@@ -144,6 +144,29 @@ int keyIsHot(objectMeta *object_meta, robj *value) {
     return swapObjectMetaIsHot(&som);
 }
 
+struct listMeta;
+sds listMetaDump(sds result, struct listMeta *lm);
+
+sds dumpObjectMeta(objectMeta *object_meta) {
+    sds result = sdsempty();
+    if (object_meta == NULL) {
+        result = sdscat(result,"<nil>");
+        return result;
+    }
+
+    objectMetaType *omtype = getObjectMetaType(object_meta->object_type);
+    if (omtype == &lenObjectMetaType){
+        result = sdscatprintf(result,"len=%ld",(long)object_meta->len);
+    } else if (omtype == &listObjectMetaType) {
+        result = sdscat(result,"list_meta=");
+        struct listMeta *meta = objectMetaGetPtr(object_meta);;
+        result = listMetaDump(result,meta);
+    } else {
+        result = sdscat(result,"list_meta=<unknown>");
+    }
+    return result;
+}
+
 /* lenObjectMeta, used by hash/set/zset */
 
 objectMeta *createLenObjectMeta(int object_type, size_t len) {

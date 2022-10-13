@@ -51,6 +51,29 @@ void copyKeyRequest(keyRequest *dst, keyRequest *src) {
     dst->cmd_intention = src->cmd_intention;
     dst->cmd_intention_flags = src->cmd_intention_flags;
     dst->dbid = src->dbid;
+
+    dst->type = src->type;
+    switch (src->type) {
+    case KEYREQUEST_TYPE_KEY:
+        //TODO refactor
+        break;
+    case KEYREQUEST_TYPE_SUBKEY:
+        //TODO refactor
+        break;
+    case KEYREQUEST_TYPE_RANGE:
+        dst->l.num_ranges = src->l.num_ranges;
+        dst->l.ranges = zmalloc(src->l.num_ranges*sizeof(struct range));
+        memcpy(dst->l.ranges,src->l.ranges,src->l.num_ranges*sizeof(struct range));
+        break;
+    case KEYREQUEST_TYPE_SCORE:
+        //TODO impl
+        break;
+    default:
+        break;
+    }
+
+    dst->list_arg_rewrite[0] = src->list_arg_rewrite[0];
+    dst->list_arg_rewrite[1] = src->list_arg_rewrite[1];
 }
 
 void moveKeyRequest(keyRequest *dst, keyRequest *src) {
@@ -64,6 +87,29 @@ void moveKeyRequest(keyRequest *dst, keyRequest *src) {
     dst->cmd_intention = src->cmd_intention;
     dst->cmd_intention_flags = src->cmd_intention_flags;
     dst->dbid = src->dbid;
+
+    dst->type = src->type;
+    switch (src->type) {
+    case KEYREQUEST_TYPE_KEY:
+        //TODO refactor
+        break;
+    case KEYREQUEST_TYPE_SUBKEY:
+        //TODO refactor
+        break;
+    case KEYREQUEST_TYPE_RANGE:
+        dst->l.num_ranges = src->l.num_ranges;
+        dst->l.ranges = src->l.ranges;
+        src->l.ranges = NULL;
+        break;
+    case KEYREQUEST_TYPE_SCORE:
+        //TODO impl
+        break;
+    default:
+        break;
+    }
+
+    dst->list_arg_rewrite[0] = src->list_arg_rewrite[0];
+    dst->list_arg_rewrite[1] = src->list_arg_rewrite[1];
 }
 
 void keyRequestDeinit(keyRequest *key_request) {
@@ -78,6 +124,25 @@ void keyRequestDeinit(keyRequest *key_request) {
     zfree(key_request->subkeys);
     key_request->subkeys = NULL;
     key_request->num_subkeys = 0;
+
+    switch (key_request->type) {
+    case KEYREQUEST_TYPE_KEY:
+        //TODO refactor
+        break;
+    case KEYREQUEST_TYPE_SUBKEY:
+        //TODO refactor
+        break;
+    case KEYREQUEST_TYPE_RANGE:
+        zfree(key_request->l.ranges);
+        key_request->l.ranges = NULL;
+        key_request->num_subkeys = 0;
+        break;
+    case KEYREQUEST_TYPE_SCORE:
+        //TODO impl
+        break;
+    default:
+        break;
+    }
 }
 
 void getKeyRequestsPrepareResult(getKeyRequestsResult *result, int num) {
@@ -121,6 +186,8 @@ keyRequest *getKeyRequestsAppendCommonResult(getKeyRequestsResult *result,
     key_request->cmd_intention = cmd_intention;
     key_request->cmd_intention_flags = cmd_intention_flags;
     key_request->dbid = dbid;
+    argRewriteRequestInit(key_request->list_arg_rewrite+0);
+    argRewriteRequestInit(key_request->list_arg_rewrite+1);
     return key_request;
 }
 
@@ -192,10 +259,18 @@ void getKeyRequests(client *c, getKeyRequestsResult *result) {
         orig_argc = c->argc;
         orig_cmd = c->cmd;
         for (i = 0; i < c->mstate.count; i++) {
+            int prev_keyrequest_num = result->num;
+
             c->argc = c->mstate.commands[i].argc;
             c->argv = c->mstate.commands[i].argv;
             c->cmd = c->mstate.commands[i].cmd;
+
             getSingleCmdKeyRequests(c, result);
+
+            for (int j = prev_keyrequest_num; j < result->num; j++) {
+                result->key_requests[j].list_arg_rewrite[0].mstate_idx = i;
+                result->key_requests[j].list_arg_rewrite[1].mstate_idx = i;
+            }
         }
         c->argv = orig_argv;
         c->argc = orig_argc;
@@ -429,11 +504,11 @@ void getKeyRequestsAppendRangeResult(getKeyRequestsResult *result, int level,
     keyRequest *key_request = getKeyRequestsAppendCommonResult(result,level,
             key,cmd_intention,cmd_intention_flags,dbid);
 
-    key_request->type = KEYREQUEST_TYPE_SEGMENT;
+    key_request->type = KEYREQUEST_TYPE_RANGE;
     key_request->l.num_ranges = num_ranges;
     key_request->l.ranges = ranges;
-    key_request->list_arg_rewrite[0] = arg_rewrite0;
-    key_request->list_arg_rewrite[1] = arg_rewrite1;
+    key_request->list_arg_rewrite[0].arg_idx = arg_rewrite0;
+    key_request->list_arg_rewrite[1].arg_idx = arg_rewrite1;
 }
 
 /* There are no command with more that 2 ranges request. */

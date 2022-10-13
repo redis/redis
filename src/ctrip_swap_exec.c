@@ -175,6 +175,11 @@ static inline rocksdb_column_family_handle_t *rioGetCF(int cf) {
     return server.rocks->cf_handles[cf];
 }
 
+static inline const char *rioGetCFName(int cf) {
+    serverAssert(cf < CF_COUNT);
+    return swap_cf_names[cf];
+}
+
 static int doRIOGet(RIO *rio) {
     size_t vallen;
     char *err = NULL, *val;
@@ -423,7 +428,7 @@ void dumpRIO(RIO *rio) {
     sds repr = sdsnew("[ROCKS] ");
     switch (rio->action) {
     case ROCKS_GET:
-        repr = sdscat(repr, "GET rawkey=");
+        repr = sdscatprintf(repr, "GET [%s] rawkey=", rioGetCFName(rio->get.cf));
         repr = sdscatrepr(repr, rio->get.rawkey, sdslen(rio->get.rawkey));
         repr = sdscat(repr, ", rawval=");
         if (rio->get.rawval) {
@@ -433,22 +438,22 @@ void dumpRIO(RIO *rio) {
         }
         break;
     case ROCKS_PUT:
-        repr = sdscat(repr, "PUT rawkey=");
+        repr = sdscatprintf(repr, "PUT [%s] rawkey=", rioGetCFName(rio->put.cf));
         repr = sdscatrepr(repr, rio->put.rawkey, sdslen(rio->put.rawkey));
         repr = sdscat(repr, ", rawval=");
         repr = sdscatrepr(repr, rio->put.rawval, sdslen(rio->put.rawval));
         break;
     case ROCKS_DEL:
-        repr = sdscat(repr, "DEL ");
+        repr = sdscatprintf(repr, "DEL [%s] rawkey=", rioGetCFName(rio->del.cf));
         repr = sdscatrepr(repr, rio->del.rawkey, sdslen(rio->del.rawkey));
         break;
     case ROCKS_WRITE:
-        repr = sdscat(repr, "WRITE ");
+        repr = sdscat(repr, "WRITE");
         break;
     case ROCKS_MULTIGET:
         repr = sdscat(repr, "MULTIGET:\n");
         for (int i = 0; i < rio->multiget.numkeys; i++) {
-            repr = sdscat(repr, "  (");
+            repr = sdscatprintf(repr, "  ([%s] ", rioGetCFName(rio->multiget.cfs[i]));
             repr = sdscatrepr(repr, rio->multiget.rawkeys[i],
                     sdslen(rio->multiget.rawkeys[i]));
             repr = sdscat(repr, ")=>(");
@@ -462,7 +467,7 @@ void dumpRIO(RIO *rio) {
         }
         break;
     case ROCKS_SCAN:
-        repr = sdscat(repr, "SCAN:(");
+        repr = sdscatprintf(repr, "SCAN [%s]: (", rioGetCFName(rio->scan.cf));
         repr = sdscatrepr(repr, rio->scan.prefix, sdslen(rio->scan.prefix));
         repr = sdscat(repr, ")\n");
         for (int i = 0; i < rio->scan.numkeys; i++) {
@@ -476,13 +481,13 @@ void dumpRIO(RIO *rio) {
         }
         break;
     case ROCKS_DELETERANGE:
-        repr = sdscat(repr, "DELETERANGE start_key=%s");
+        repr = sdscatprintf(repr, "DELETERANGE [%s]: start_key=", rioGetCFName(rio->delete_range.cf));
         repr = sdscatrepr(repr, rio->delete_range.start_key, sdslen(rio->delete_range.start_key));
         repr = sdscat(repr, ", end_key=");
         repr = sdscatrepr(repr, rio->delete_range.end_key, sdslen(rio->delete_range.end_key));
         break;
     case ROCKS_ITERATE:
-        repr = sdscat(repr, "ITERATE:(");
+        repr = sdscatprintf(repr, "ITERATE [%s]: (", rioGetCFName(rio->iterate.cf));
         repr = sdscatrepr(repr, rio->iterate.seek, sdslen(rio->iterate.seek));
         repr = sdscat(repr, "=>");
         sds nextseek = rio->iterate.rawkeys ? rio->iterate.rawkeys[rio->iterate.numkeys] : NULL;
@@ -774,9 +779,10 @@ static void executeSwapOutRequest(swapRequest *req) {
 
 #ifdef SWAP_DEBUG
     objectMeta *object_meta = swapDataObjectMeta(data);
-    DEBUG_MSGS_APPEND(req->msgs,"exec-swapoutmeta","%s => %ld",
-            (sds)data->key->ptr,
-            object_meta ? (ssize_t)object_meta->len : 0 );
+    sds dump = dumpObjectMeta(object_meta);
+    DEBUG_MSGS_APPEND(req->msgs,"exec-swapoutmeta","%s => %s",
+            (sds)data->key->ptr, dump);
+    sdsfree(dump);
 #endif
 
         if (errcode) goto end;
@@ -1013,9 +1019,10 @@ static int swapRequestSwapInMeta(swapRequest *req) {
 
 #ifdef SWAP_DEBUG
     objectMeta *object_meta = swapDataObjectMeta(data);
-    DEBUG_MSGS_APPEND(req->msgs,"exec-swapinmeta", "%s => %ld",
-            (sds)data->key->ptr,
-            object_meta ? (ssize_t)object_meta->len : 0);
+    sds dump = dumpObjectMeta(object_meta);
+    DEBUG_MSGS_APPEND(req->msgs,"exec-swapinmeta", "%s => %s",
+            (sds)data->key->ptr,dump);
+    sdsfree(dump);
 #endif
 
     swapCtxSetSwapData(req->swapCtx,req->data,req->datactx);

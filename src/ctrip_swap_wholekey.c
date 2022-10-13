@@ -58,10 +58,12 @@ int wholeKeySwapAna(swapData *data_, struct keyRequest *req,
     case SWAP_IN:
         if (!data->d.value) {
             *intention = SWAP_IN;
-            if (cmd_intention_flags & SWAP_IN_DEL)
+            if ((cmd_intention_flags & SWAP_IN_DEL) ||
+                    (cmd_intention_flags & SWAP_IN_DEL_MOCK_VALUE)) {
                 *intention_flags = SWAP_EXEC_IN_DEL;
-            else
+            } else {
                 *intention_flags = 0;
+            }
         } else if (data->d.value) {
             if (cmd_intention_flags & SWAP_IN_DEL) {
                 *intention = SWAP_DEL;

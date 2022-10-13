@@ -2073,7 +2073,8 @@ void listTypeConvert(robj *subject, int enc);
 robj *listTypeDup(robj *o);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count);
+struct objectMeta;
+void listElementsRemoved(client *c, robj *key, int where, robj *o, struct objectMeta *om, long count);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);

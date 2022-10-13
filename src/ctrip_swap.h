@@ -123,10 +123,20 @@ typedef struct range {
   long end;
 } range;
 
-#define KEYREQUEST_TYPE_KEY   0
-#define KEYREQUEST_TYPE_SUBKEY   1
-#define KEYREQUEST_TYPE_SEGMENT  2
+#define KEYREQUEST_TYPE_KEY    0
+#define KEYREQUEST_TYPE_SUBKEY 1
+#define KEYREQUEST_TYPE_RANGE  2
 #define KEYREQUEST_TYPE_SCORE  3
+
+typedef struct argRewriteRequest {
+  int mstate_idx; /* >=0 if current command is a exec, means index in mstate; -1 means req not in multi/exec */
+  int arg_idx; /* index of argument to rewrite */
+} argRewriteRequest;
+
+static inline void argRewriteRequestInit(argRewriteRequest *arg_req) {
+  arg_req->mstate_idx = -1;
+  arg_req->arg_idx = -1;
+} 
 
 typedef struct keyRequest{
   int dbid;
@@ -156,7 +166,7 @@ typedef struct keyRequest{
       double max;
     } z; /* score: zset */
   };
-  int list_arg_rewrite[2];
+  argRewriteRequest list_arg_rewrite[2];
 } keyRequest;
 
 void copyKeyRequest(keyRequest *dst, keyRequest *src);
@@ -257,6 +267,7 @@ void freeObjectMeta(objectMeta *object_meta);
 sds objectMetaEncode(struct objectMeta *object_meta);
 int objectMetaDecode(struct objectMeta *object_meta, const char *extend, size_t extlen);
 int keyIsHot(objectMeta *object_meta, robj *value);
+sds dumpObjectMeta(objectMeta *object_meta);
 
 static inline void *objectMetaGetPtr(objectMeta *object_meta) {
   return (void*)(long)object_meta->ptr;
@@ -524,14 +535,14 @@ typedef struct listSwapData {
 
 typedef struct listDataCtx {
   struct listMeta *swap_meta;
-  int arg_rewrite[2];
+  argRewriteRequest arg_reqs[2];
 } listDataCtx;
 
 objectMeta *createListObjectMeta(MOVE struct listMeta *list_meta);
 int swapDataSetupList(swapData *d, void **pdatactx);
 
 typedef struct argRewrite {
-  int arg_idx;
+  argRewriteRequest arg_req;
   robj *orig_arg; /* own */
 } argRewrite;
 
@@ -542,12 +553,13 @@ typedef struct argRewrites {
 } argRewrites;
 
 argRewrites *argRewritesCreate();
-void argRewritesAdd(argRewrites *arg_rewrites, int arg_idx, MOVE robj *orig_arg);
+void argRewritesAdd(argRewrites *arg_rewrites, argRewriteRequest arg_req, MOVE robj *orig_arg);
 void argRewritesReset(argRewrites *arg_rewrites);
 void argRewritesFree(argRewrites *arg_rewrites);
 
 void clientArgRewritesRestore(client *c);
 
+long ctripListTypeLength(robj *list, objectMeta *object_meta);
 void ctripListTypePush(robj *subject, robj *value, int where, redisDb *db, robj *key);
 robj *ctripListTypePop(robj *subject, int where, redisDb *db, robj *key);
 void ctripListMetaDelRange(redisDb *db, robj *key, long ltrim, long rtrim);
@@ -894,6 +906,8 @@ void tryEvictKeyAsapLater(redisDb *db, robj *key);
 void evictCommand(client *c);
 int evictAsap();
 void debugEvictKeys();
+void holdKey(redisDb *db, robj *key, int64_t swap);
+void unholdKey(redisDb *db, robj *key);
 void clientHoldKey(client *c, robj *key, int64_t swap);
 void clientUnholdKeys(client *c);
 void clientUnholdKey(client *c, robj *key);

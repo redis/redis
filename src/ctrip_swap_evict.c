@@ -36,15 +36,9 @@
 #define HC_HOLD_COUNT(hc)   ((hc) & HC_HOLD_MASK)
 #define HC_SWAP_COUNT(hc)   ((hc) >> HC_HOLD_BITS)
 
-void clientHoldKey(client *c, robj *key, int64_t swap) {
+void holdKey(redisDb *db, robj *key, int64_t swap) {
     dictEntry *de;
-    redisDb *db = c->db;
     int64_t hc;
-
-    /* No need to hold key if it has already been holded */
-    if (dictFind(c->hold_keys, key)) return;
-    incrRefCount(key);
-    dictAdd(c->hold_keys, key, (void*)HC_INIT(1, swap));
 
     /* Add key to server & client hold_keys */
     if ((de = dictFind(db->hold_keys, key))) {
@@ -58,6 +52,15 @@ void clientHoldKey(client *c, robj *key, int64_t swap) {
     }
 }
 
+void clientHoldKey(client *c, robj *key, int64_t swap) {
+    /* No need to hold key if it has already been holded */
+    if (dictFind(c->hold_keys, key)) return;
+    incrRefCount(key);
+    dictAdd(c->hold_keys, key, (void*)HC_INIT(1, swap));
+
+    holdKey(c->db,key,swap);
+}
+
 static void dbUnholdKey(redisDb *db, robj *key, int64_t hc) {
     dictDelete(db->hold_keys, key);
 
@@ -69,12 +72,10 @@ static void dbUnholdKey(redisDb *db, robj *key, int64_t hc) {
     }
 }
 
-void clientUnholdKey(client *c, robj *key) {
+void unholdKey(redisDb *db, robj *key) {
     dictEntry *de;
     int64_t hc;
-    redisDb *db = c->db;
 
-    if (dictDelete(c->hold_keys, key) == DICT_ERR) return;
     serverAssert(de = dictFind(db->hold_keys, key));
     hc = HC_UNHOLD(dictGetSignedIntegerVal(de));
 
@@ -85,6 +86,11 @@ void clientUnholdKey(client *c, robj *key) {
     }
     serverLog(LL_DEBUG, "u %s (%ld,%ld)", (sds)key->ptr, HC_HOLD_COUNT(hc),
             HC_SWAP_COUNT(hc));
+}
+
+void clientUnholdKey(client *c, robj *key) {
+    if (dictDelete(c->hold_keys, key) == DICT_ERR) return;
+    unholdKey(c->db,key);
 }
 
 void clientUnholdKeys(client *c) {

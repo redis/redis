@@ -237,11 +237,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"del",delCommand,-2,
      "write @keyspace",
-     0,NULL,NULL,SWAP_IN,SWAP_EXEC_IN_DEL_MOCK_VALUE,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL_MOCK_VALUE,1,-1,1,0,0,0},
 
     {"unlink",unlinkCommand,-2,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,SWAP_EXEC_IN_DEL_MOCK_VALUE,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL_MOCK_VALUE,1,-1,1,0,0,0},
 
     {"exists",existsCommand,-2,
      "read-only fast @keyspace",
