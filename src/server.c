@@ -1129,19 +1129,19 @@ void checkChildrenDone(void) {
         }
 
         /* Start any pending bgsave immediately. */
-        if (!hasActiveChildProcess() &&
-            (server.rdb_bgsave_pending || server.rdb_bgsave_scheduled))
+        if (!hasActiveChildProcess() && server.rdb_bgsave_pending)
         {
             rdbSaveInfo rsi, *rsiptr;
             rsiptr = rdbPopulateSaveInfo(&rsi);
             rdbSaveBackground(SLAVE_REQ_NONE, server.rdb_filename, rsiptr);
+            server.rdb_bgsave_pending = 0;
         }
 
         /* Start any pending aof rewrite immediately. */
-        if (!hasActiveChildProcess() &&
-            (server.aof_rewrite_pending || server.aof_rewrite_scheduled))
+        if (!hasActiveChildProcess() && server.aof_rewrite_pending)
         {
             rewriteAppendOnlyFileBackground();
+            server.aof_rewrite_pending = 0;
         }
 
         /* start any pending forks immediately. */
