@@ -745,7 +745,7 @@ sds listMetaDump(sds result, listMeta *lm) {
                 seg->type == SEGMENT_TYPE_HOT ? "hot":"cold",
                 (long)seg->index,seg->len);
     }
-    sdscatfmt(result,"])");
+    result = sdscatfmt(result,"])");
     return result;
 }
 
@@ -1394,7 +1394,7 @@ static inline sds listEncodeSubkey(redisDb *db, sds key, long ridx) {
 }
 
 static inline sds listEncodeSubkeyPrefix(redisDb *db, sds key) {
-    return rocksEncodeDataKey(db,key,NULL);
+    return rocksEncodeDataKey(db,key,shared.emptystring->ptr);
 }
 
 static inline long listDecodeRidx(const char *str, size_t len) {
@@ -1405,7 +1405,7 @@ static inline long listDecodeRidx(const char *str, size_t len) {
 }
 
 static void listEncodeDeleteRange(swapData *data, sds *start, sds *end) {
-    *start = listEncodeSubkeyPrefix(data->db,data->key->ptr);
+    *start = rocksEncodeDataKey(data->db,data->key->ptr,NULL);
     *end = rocksGenerateEndKey(*start);
 }
 

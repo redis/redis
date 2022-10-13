@@ -1040,7 +1040,7 @@ struct sharedObjectsStruct {
     *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire, 
     *time, *pxat, *px, *retrycount, *force, *justid, 
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
-    *getack, *special_asterick, *special_equals, *default_username, *redacted,
+    *getack, *special_asterick, *special_equals, *default_username, *redacted, *emptystring,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */

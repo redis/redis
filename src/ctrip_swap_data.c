@@ -68,6 +68,7 @@ int swapDataKeyRequestFinished(swapData *data) {
 
     objectMeta *meta;
     if (data->del_meta && (meta = lookupMeta(data->db, data->key)) != NULL) {
+        //TODO remove when prod ready
         robj *val = lookupKey(data->db, data->key, LOOKUP_NOTOUCH);
         serverAssert(keyIsHot(meta, val));
         dbDeleteMeta(data->db, data->key);

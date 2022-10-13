@@ -2565,6 +2565,7 @@ void createSharedObjects(void) {
     shared.space = createObject(OBJ_STRING,sdsnew(" "));
     shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
+    shared.emptystring = createObject(OBJ_STRING,sdsnew(""));
 
     /* Shared command error responses */
     shared.wrongtypeerr = createObject(OBJ_STRING,sdsnew(
