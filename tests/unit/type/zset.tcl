@@ -1506,7 +1506,6 @@ start_server {tags {"zset"}} {
         }
 
         test "ZSCORE - $encoding" {
-            set tcl_precision 17
             r del zscoretest
             set aux {}
             for {set i 0} {$i < $elements} {incr i} {
@@ -1522,7 +1521,6 @@ start_server {tags {"zset"}} {
         }
 
         test "ZMSCORE - $encoding" {
-            set tcl_precision 17
             r del zscoretest
             set aux {}
             for {set i 0} {$i < $elements} {incr i} {
@@ -1538,7 +1536,6 @@ start_server {tags {"zset"}} {
         }
 
         test "ZSCORE after a DEBUG RELOAD - $encoding" {
-            set tcl_precision 17
             r del zscoretest
             set aux {}
             for {set i 0} {$i < $elements} {incr i} {
@@ -1550,6 +1547,10 @@ start_server {tags {"zset"}} {
             r debug reload
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
+                # As stated in http://computer-programming-forum.com/57-tcl/4cb9d256ba600aac.htm
+                # Applications which desire a particular floating point precision should
+                # judiciously use "format" and their own comparison functions.
+                # Therefore we're the max IEEE precision and ensuring that the reply is equal to the input
                 assert_equal [format %.17g [lindex $aux $i]] [format %.17g [r zscore zscoretest $i]]
             }
         } {} {needs:debug}
