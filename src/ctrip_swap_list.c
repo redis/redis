@@ -165,9 +165,9 @@ int sortSegmentByIndex(const void *l_, const void *r_) {
 
 listMeta *listMetaCreate() {
     listMeta *list_meta = zmalloc(sizeof(listMeta));
-    list_meta->capacity = LIST_META_CAPCITY_DEFAULT;
     list_meta->len = 0;
     list_meta->num = 0;
+    list_meta->capacity = LIST_META_CAPCITY_DEFAULT;
     list_meta->segments = zmalloc(list_meta->capacity * sizeof(segment));
     return list_meta;
 }
@@ -3005,6 +3005,8 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         swapData *data = createSwapData(db,key,list);
         swapDataSetupMeta(data,OBJ_LIST,-1,&datactx_);
         listDataCtx *datactx = datactx_;
+        datactx->arg_reqs[0].mstate_idx = -1;
+        datactx->arg_reqs[0].mstate_idx = -1;
 
         meta = listMetaCreate();
         /* 0~2 (COLD) | 3~4 (HOT) | 5 (COLD) | 6 (HOT) */
@@ -3018,8 +3020,8 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         dbAddMeta(db,key,object_meta);
 
         /* lindex */
-        datactx->arg_rewrite[0] = 2;
-        datactx->arg_rewrite[1] = -1;
+        datactx->arg_reqs[0].arg_idx = 2;
+        datactx->arg_reqs[1].arg_idx = -1;
 
         rewriteResetClientCommandCString(c,3,"LINDEX","mylist","3");
         listBeforeCall(data,c,datactx_);
@@ -3046,8 +3048,8 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         test_assert(!strcmp(c->argv[2]->ptr,"1"));
 
         /* lrange/ltrim */
-        datactx->arg_rewrite[0] = 2;
-        datactx->arg_rewrite[1] = 3;
+        datactx->arg_reqs[0].arg_idx = 2;
+        datactx->arg_reqs[1].arg_idx = 3;
 
         rewriteResetClientCommandCString(c,4,"LRANGE","mylist","3","4");
         listBeforeCall(data,c,datactx_);
@@ -3069,8 +3071,8 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         dbAddMeta(db,key,object_meta);
 
         /* lindex */
-        datactx->arg_rewrite[0] = 2;
-        datactx->arg_rewrite[1] = -1;
+        datactx->arg_reqs[0].arg_idx = 2;
+        datactx->arg_reqs[1].arg_idx = -1;
 
         rewriteResetClientCommandCString(c,3,"LINDEX","mylist","1");
         listBeforeCall(data,c,datactx_);
@@ -3085,8 +3087,8 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         test_assert(!strcmp(c->argv[2]->ptr,"4"));
 
         /* lrange/ltrim */
-        datactx->arg_rewrite[0] = 2;
-        datactx->arg_rewrite[1] = 3;
+        datactx->arg_reqs[0].arg_idx = 2;
+        datactx->arg_reqs[1].arg_idx = 3;
 
         rewriteResetClientCommandCString(c,4,"LRANGE","mylist","4","4");
         listBeforeCall(data,c,datactx_);
