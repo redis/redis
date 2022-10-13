@@ -2227,7 +2227,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
 
 /* This command declares incomplete keys, so the flags are correctly set for this function */
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int i, num, first;
+    int i, j, num, first;
     keyReference *keys;
     UNUSED(cmd);
 
@@ -2236,14 +2236,34 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     num = 1;
 
     /* But check for the extended one with the KEYS option. */
+    struct {
+        char* name;
+        int skip;
+    } skip_keywords[] = {       
+        {"copy", 0},
+        {"replace", 0},
+        {"auth", 1},
+        {"auth2", 2},
+        {NULL, 0}
+    };
     if (argc > 6) {
         for (i = 6; i < argc; i++) {
-            if (!strcasecmp(argv[i]->ptr,"keys") &&
-                sdslen(argv[3]->ptr) == 0)
-            {
-                first = i+1;
-                num = argc-first;
+            if (!strcasecmp(argv[i]->ptr, "keys")) {
+                if (sdslen(argv[3]->ptr) > 0) {
+                    /* This is a syntax error. So ignore the keys and leave
+                     * the syntax error to be handled by migrateCommand. */
+                    num = 0; 
+                } else {
+                    first = i + 1;
+                    num = argc - first;
+                }
                 break;
+            }
+            for (j = 0; skip_keywords[j].name != NULL; j++) {
+                if (!strcasecmp(argv[i]->ptr, skip_keywords[j].name)) {
+                    i += skip_keywords[j].skip;
+                    break;
+                }
             }
         }
     }
