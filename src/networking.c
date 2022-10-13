@@ -1442,9 +1442,7 @@ void unlinkClient(client *c) {
             }
         }
         /* Only use shutdown when the fork is active and we are the parent. */
-        if (server.child_type && !server.in_fork_child) {
-            connShutdown(c->conn, 1, 1);
-        }
+        if (server.child_type) connShutdown(c->conn);
         connClose(c->conn);
         c->conn = NULL;
     }

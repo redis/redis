@@ -103,8 +103,8 @@ static void connUnixAcceptHandler(aeEventLoop *el, int fd, void *privdata, int m
     }
 }
 
-static void connUnixShutdown(connection *conn, int shut_rd, int shut_wr) {
-    connectionTypeTcp()->shutdown(conn, shut_rd, shut_wr);
+static void connUnixShutdown(connection *conn) {
+    connectionTypeTcp()->shutdown(conn);
 }
 
 static void connUnixClose(connection *conn) {

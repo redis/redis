@@ -125,16 +125,10 @@ static int connSocketConnect(connection *conn, const char *addr, int port, const
  * move here as we implement additional connection types.
  */
 
-static void connSocketShutdown(connection *conn, int shut_rd, int shut_wr) {
+static void connSocketShutdown(connection *conn) {
     if (conn->fd == -1) return;
 
-    if (shut_rd && shut_wr) {
-        shutdown(conn->fd, SHUT_RDWR);
-    } else if (shut_rd) {
-        shutdown(conn->fd, SHUT_RD);
-    } else if (shut_wr) {
-        shutdown(conn->fd, SHUT_WR);
-    }
+    shutdown(conn->fd, SHUT_RDWR);
 }
 
 /* Close the connection and free resources. */

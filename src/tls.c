@@ -748,10 +748,8 @@ static int connTLSListen(connListener *listener) {
     return listenToPort(listener);
 }
 
-static void connTLSShutdown(connection *conn, int shut_rd, int shut_wr) {
-    UNUSED(conn);
-    UNUSED(shut_rd);
-    UNUSED(shut_wr);
+static void connTLSShutdown(connection *conn) {
+    connectionTypeTcp()->shutdown(conn);
 }
 
 static void connTLSClose(connection *conn_) {

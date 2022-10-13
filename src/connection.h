@@ -83,7 +83,7 @@ typedef struct ConnectionType {
     /* create/shutdown/close connection */
     connection* (*conn_create)(void);
     connection* (*conn_create_accepted)(int fd, void *priv);
-    void (*shutdown)(struct connection *conn, int shut_rd, int shut_wr);
+    void (*shutdown)(struct connection *conn);
     void (*close)(struct connection *conn);
 
     /* connect & accept */
@@ -241,10 +241,8 @@ static inline int connSetWriteHandlerWithBarrier(connection *conn, ConnectionCal
     return conn->type->set_write_handler(conn, func, barrier);
 }
 
-/* shut_rd: Disables further receive operations.
- * shut_wr: Disables further send operations. */
-static inline void connShutdown(connection *conn, int shut_rd, int shut_wr) {
-    conn->type->shutdown(conn, shut_rd, shut_wr);
+static inline void connShutdown(connection *conn) {
+    conn->type->shutdown(conn);
 }
 
 static inline void connClose(connection *conn) {
