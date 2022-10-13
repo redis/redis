@@ -1,3 +1,9 @@
+# This module can be configure with multiple options given as flags on module load time
+# 0 - not aux fields will be declared (this is the default)
+# 1 << 0 - use aux_save2 api
+# 1 << 1 - call aux callback before key space
+# 1 << 2 - call aux callback after key space
+# 1 << 3 - do not save data on aux callback
 set testmodule [file normalize tests/modules/testrdb.so]
 
 tags "modules" {
@@ -24,7 +30,8 @@ tags "modules" {
     test {aux that saves no data are not saved to the rdb when aux_save2 is used} {
         set server_path [tmpdir "server.module-testrdb"]
         puts $server_path
-        start_server [list overrides [list loadmodule "$testmodule 3" "dir" $server_path] keep_persistence true] {
+        # 15 == 1111 - use aux_save2 before and after key space without data
+        start_server [list overrides [list loadmodule "$testmodule 15" "dir" $server_path] keep_persistence true] {
             r set x 1
             r save
         }
@@ -37,18 +44,21 @@ tags "modules" {
     test {aux that saves no data are saved to the rdb when aux_save is used} {
         set server_path [tmpdir "server.module-testrdb"]
         puts $server_path
-        start_server [list overrides [list loadmodule "$testmodule 4" "dir" $server_path] keep_persistence true] {
+        # 14 == 1110 - use aux_save before and after key space without data
+        start_server [list overrides [list loadmodule "$testmodule 14" "dir" $server_path] keep_persistence true] {
             r set x 1
             r save
         }
-        start_server [list overrides [list loadmodule "$testmodule 4" "dir" $server_path] keep_persistence true] {
+        start_server [list overrides [list loadmodule "$testmodule 14" "dir" $server_path] keep_persistence true] {
             # make sure server started successfully and aux_save was called twice.
             assert_equal {1} [r get x]
             assert_equal {2} [r testrdb.get.n_aux_load_called]
         }
     }
 
-    foreach test_case {2 6} {
+    foreach test_case {6 7} {
+    # 6 == 0110 - use aux_save before and after key space with data
+    # 7 == 0111 - use aux_save2 before and after key space with data
     test {modules are able to persist globals before and after} {
         set server_path [tmpdir "server.module-testrdb"]
         start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path] keep_persistence true] {
@@ -65,7 +75,9 @@ tags "modules" {
     }
     }
 
-    foreach test_case {1 5} {
+    foreach test_case {4 5} {
+    # 4 == 0100 - use aux_save after key space with data
+    # 5 == 0101 - use aux_save2 after key space with data
     test {modules are able to persist globals just after} {
         set server_path [tmpdir "server.module-testrdb"]
         start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path] keep_persistence true] {
@@ -173,7 +185,9 @@ tags "modules" {
         }
 
         # Module events for diskless load swapdb when async_loading (matching master replid)
-        foreach test_case {2 6} {
+        foreach test_case {6 7} {
+        # 6 == 0110 - use aux_save before and after key space with data
+        # 7 == 0111 - use aux_save2 before and after key space with data
         foreach testType {Successful Aborted} {
             start_server [list overrides [list loadmodule "$testmodule $test_case"] tags [list external:skip]] {
                 set replica [srv 0 client]

@@ -169,7 +169,6 @@ void rioInitWithFd(rio *r, int fd);
 void rioFreeFd(rio *r);
 void rioFreeConn(rio *r, sds* out_remainingBufferedData);
 
-ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len);
 size_t rioWriteBulkCount(rio *r, char prefix, long count);
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len);
 size_t rioWriteBulkLongLong(rio *r, long long l);

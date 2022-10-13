@@ -4,6 +4,11 @@
 #include <assert.h>
 
 /* Module configuration, save aux or not? */
+#define CONF_AUX_OPTION_NO_AUX           0
+#define CONF_AUX_OPTION_SAVE2            1 << 0
+#define CONF_AUX_OPTION_BEFORE_KEYSPACE  1 << 1
+#define CONF_AUX_OPTION_AFTER_KEYSPACE   1 << 2
+#define CONF_AUX_OPTION_NO_DATA          1 << 3
 long long conf_aux_count = 0;
 
 /* Registered type */
@@ -90,8 +95,9 @@ void testrdb_type_save(RedisModuleIO *rdb, void *value) {
 }
 
 void testrdb_aux_save(RedisModuleIO *rdb, int when) {
-    if (conf_aux_count==1) assert(when == REDISMODULE_AUX_AFTER_RDB);
-    if (conf_aux_count==0) assert(0);
+    if (!(conf_aux_count & CONF_AUX_OPTION_BEFORE_KEYSPACE)) assert(when == REDISMODULE_AUX_AFTER_RDB);
+    if (!(conf_aux_count & CONF_AUX_OPTION_AFTER_KEYSPACE)) assert(when == REDISMODULE_AUX_BEFORE_RDB);
+    assert(conf_aux_count!=CONF_AUX_OPTION_NO_AUX);
     if (when == REDISMODULE_AUX_BEFORE_RDB) {
         if (before_str) {
             RedisModule_SaveSigned(rdb, 1);
@@ -111,8 +117,9 @@ void testrdb_aux_save(RedisModuleIO *rdb, int when) {
 
 int testrdb_aux_load(RedisModuleIO *rdb, int encver, int when) {
     assert(encver == 1);
-    if (conf_aux_count==1) assert(when == REDISMODULE_AUX_AFTER_RDB);
-    if (conf_aux_count==0) assert(0);
+    if (!(conf_aux_count & CONF_AUX_OPTION_BEFORE_KEYSPACE)) assert(when == REDISMODULE_AUX_AFTER_RDB);
+    if (!(conf_aux_count & CONF_AUX_OPTION_AFTER_KEYSPACE)) assert(when == REDISMODULE_AUX_BEFORE_RDB);
+    assert(conf_aux_count!=CONF_AUX_OPTION_NO_AUX);
     RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
     if (when == REDISMODULE_AUX_BEFORE_RDB) {
         if (async_loading == 0) {
@@ -304,7 +311,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (argc > 0)
         RedisModule_StringToLongLong(argv[0], &conf_aux_count);
 
-    if (conf_aux_count==0) {
+    if (conf_aux_count==CONF_AUX_OPTION_NO_AUX) {
         RedisModuleTypeMethods datatype_methods = {
             .version = 1,
             .rdb_load = testrdb_type_load,
@@ -317,7 +324,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         testrdb_type = RedisModule_CreateDataType(ctx, "test__rdb", 1, &datatype_methods);
         if (testrdb_type == NULL)
             return REDISMODULE_ERR;
-    } else if (conf_aux_count==1 || conf_aux_count==2 || conf_aux_count==5 || conf_aux_count==6) {
+    } else if (!(conf_aux_count & CONF_AUX_OPTION_NO_DATA)) {
         RedisModuleTypeMethods datatype_methods = {
             .version = REDISMODULE_TYPE_METHOD_VERSION,
             .rdb_load = testrdb_type_load,
@@ -327,35 +334,32 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             .free = testrdb_type_free,
             .aux_load = testrdb_aux_load,
             .aux_save = testrdb_aux_save,
-            .aux_save_triggers = ((conf_aux_count == 1 || conf_aux_count == 5) ?
-                                  REDISMODULE_AUX_AFTER_RDB :
-                                  REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB)
+            .aux_save_triggers = ((conf_aux_count & CONF_AUX_OPTION_BEFORE_KEYSPACE) ? REDISMODULE_AUX_BEFORE_RDB : 0) |
+                                 ((conf_aux_count & CONF_AUX_OPTION_AFTER_KEYSPACE)  ? REDISMODULE_AUX_AFTER_RDB : 0)
         };
 
-        if (conf_aux_count==5 || conf_aux_count==6) {
+        if (conf_aux_count & CONF_AUX_OPTION_SAVE2) {
             datatype_methods.aux_save2 = testrdb_aux_save;
         }
 
         testrdb_type = RedisModule_CreateDataType(ctx, "test__rdb", 1, &datatype_methods);
         if (testrdb_type == NULL)
             return REDISMODULE_ERR;
-    } else if (conf_aux_count==3 || conf_aux_count==4) {
+    } else {
 
         /* Used to verify that aux_save2 api without any data, saves nothing to the RDB. */
         RedisModuleTypeMethods datatype_methods = {
             .version = REDISMODULE_TYPE_METHOD_VERSION,
             .aux_load = test2rdb_aux_load,
             .aux_save = test2rdb_aux_save,
-            .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB,
+            .aux_save_triggers = ((conf_aux_count & CONF_AUX_OPTION_BEFORE_KEYSPACE) ? REDISMODULE_AUX_BEFORE_RDB : 0) |
+                                 ((conf_aux_count & CONF_AUX_OPTION_AFTER_KEYSPACE)  ? REDISMODULE_AUX_AFTER_RDB : 0)
         };
-        if (conf_aux_count==3) {
+        if (conf_aux_count & CONF_AUX_OPTION_SAVE2) {
             datatype_methods.aux_save2 = test2rdb_aux_save;
         }
 
         RedisModule_CreateDataType(ctx, "test__rdb", 1, &datatype_methods);
-    } else {
-        RedisModule_Log(ctx, "warning", "bad module argument was given");
-        return REDISMODULE_ERR;
     }
 
     if (RedisModule_CreateCommand(ctx,"testrdb.set.before", testrdb_set_before,"deny-oom",0,0,0) == REDISMODULE_ERR)
