@@ -64,6 +64,15 @@ start_server {tags {"modules"}} {
         r list.getall k
     } {bar y foo}
 
+    test {Module list - Crash due to reuse iterator entry after deletion} {
+        set original_config [config_get_set list-max-listpack-size 1]
+        r del k
+        r rpush k x y z
+        r list.edit k dd
+        assert_equal [r list.getall k] {z}
+        config_set list-max-listpack-size $original_config
+    }
+
     test "Unload the module - list" {
         assert_equal {OK} [r module unload list]
     }
