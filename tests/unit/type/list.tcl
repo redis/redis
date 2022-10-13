@@ -1137,9 +1137,13 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {pexpireat k *}
             {swapdb 1 9}
         }
+        r debug set-active-expire 1
+        assert_replication_stream $repl {
+            {select 9}
+            {del k}
+        }
         close_replication_stream $repl
         # Restore server and client state
-        r debug set-active-expire 1
         r select 9
     } {OK} {singledb:skip needs:debug}
 
@@ -1174,9 +1178,13 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {pexpireat k *}
             {exec}
         }
+        
+        r debug set-active-expire 1
+        assert_replication_stream $repl {
+            {del k}
+        }
         close_replication_stream $repl
         # Restore server and client state
-        r debug set-active-expire 1
         r select 9
     } {OK} {singledb:skip needs:debug}
 
