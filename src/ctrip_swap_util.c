@@ -239,7 +239,7 @@ long rocksDecodeObjectMetaLen(const char *raw, size_t rawlen) {
 
 sds rocksGenerateEndKey(sds start_key) {
     sds end_key = sdsdup(start_key);
-    end_key[sdslen(end_key) - 1] = ROCKS_KEY_FLAG_DELETE;
+    end_key[sdslen(end_key) - 1] = (uint8_t)ROCKS_KEY_FLAG_DELETE;
     return end_key;
 }
 
@@ -296,9 +296,10 @@ int swapUtilTest(int argc, char **argv, int accurate) {
     TEST("util - encode & decode key") {
         sds key = sdsnew("key1");
         sds f1 = sdsnew("f1");
-        int dbId;
-        const char *keystr, *subkeystr;
-        size_t klen, slen;
+        int dbId = 123456789;
+        const char *keystr = NULL, *subkeystr = NULL;
+        size_t klen = 123456789, slen = 123456789;
+        sds empty = sdsempty();
 
         // util - encode & decode no subkey
         sds rocksKey = rocksEncodeDataKey(db,key,NULL);
@@ -306,6 +307,7 @@ int swapUtilTest(int argc, char **argv, int accurate) {
         test_assert(dbId == db->id);
         test_assert(memcmp(key,keystr,klen) == 0);
         test_assert(subkeystr == NULL);
+        sdsfree(rocksKey);
         // util - encode & decode with subkey
         rocksKey = rocksEncodeDataKey(db,key,f1);
         rocksDecodeDataKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&subkeystr,&slen);
@@ -313,21 +315,28 @@ int swapUtilTest(int argc, char **argv, int accurate) {
         test_assert(memcmp(key,keystr,klen) == 0);
         test_assert(memcmp(f1,subkeystr,slen) == 0);
         test_assert(sdslen(f1) == slen);
+        sdsfree(rocksKey);
         // util - encode & decode with empty subkey
-        rocksKey = rocksEncodeDataKey(db,key,"");
+        rocksKey = rocksEncodeDataKey(db,key,empty);
         rocksDecodeDataKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&subkeystr,&slen);
         test_assert(dbId == db->id);
         test_assert(memcmp(key,keystr,klen) == 0);
         test_assert(memcmp("",subkeystr,slen) == 0);
         test_assert(slen == 0);
+        sdsfree(rocksKey);
         // util - encode end key
         sds start_key = rocksEncodeDataKey(db,key,NULL);
         sds end_key = rocksGenerateEndKey(start_key);
         test_assert(sdscmp(start_key, end_key) < 0);
-        rocksKey = rocksEncodeDataKey(db,key,"");
+        rocksKey = rocksEncodeDataKey(db,key,empty);
         test_assert(sdscmp(rocksKey, start_key) > 0 && sdscmp(rocksKey, end_key) < 0);
+        sdsfree(rocksKey);
+
         rocksKey = rocksEncodeDataKey(db,key,f1);
         test_assert(sdscmp(rocksKey, start_key) > 0 && sdscmp(rocksKey, end_key) < 0);
+        sdsfree(rocksKey);
+
+        sdsfree(empty);
     }
 
     return error;

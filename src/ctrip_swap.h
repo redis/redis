@@ -1291,13 +1291,10 @@ int swapObjectTest(int argc, char *argv[], int accurate);
 int swapIterTest(int argc, char *argv[], int accurate);
 int metaScanTest(int argc, char *argv[], int accurate);
 int swapExpireTest(int argc, char *argv[], int accurate);
-
 int swapUtilTest(int argc, char **argv, int accurate);
-int swapListTest(int argc, char *argv[], int accurate);
 int swapListMetaTest(int argc, char *argv[], int accurate);
 int swapListDataTest(int argc, char *argv[], int accurate);
 int swapListUtilsTest(int argc, char *argv[], int accurate);
-int swapListRdbTest(int argc, char *argv[], int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 

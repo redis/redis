@@ -1406,8 +1406,7 @@ static inline long listDecodeRidx(const char *str, size_t len) {
 
 static void listEncodeDeleteRange(swapData *data, sds *start, sds *end) {
     *start = listEncodeSubkeyPrefix(data->db,data->key->ptr);
-    *end = rocksCalculateNextKey(*start);
-    serverAssert(NULL != *end);
+    *end = rocksGenerateEndKey(*start);
 }
 
 int listEncodeKeys(swapData *data, int intention, void *datactx_,

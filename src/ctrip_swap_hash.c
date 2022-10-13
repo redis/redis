@@ -887,7 +887,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
     }
 
     TEST("hash - swapIn/swapOut") {
-        robj *h;
+        robj *h, *decoded;
         objectMeta *m, *sm = createHashObjectMeta(0), *sm1, *sm2;
         hashSwapData _data = *(hashSwapData*)hash1_data, *data = &_data;
         test_assert(lookupMeta(db,key1) == NULL);
@@ -908,28 +908,30 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) == NULL);
 
         /* cold => warm => hot */
-        hash1 = createHashObject();
+        decoded = createHashObject();
         sm1 = createHashObjectMeta(2);
-        hashTypeSet(hash1,f1,sds1,HASH_SET_COPY);
-        hashTypeSet(hash1,f2,sds2,HASH_SET_COPY);
+        hashTypeSet(decoded,f1,sds1,HASH_SET_COPY);
+        hashTypeSet(decoded,f2,sds2,HASH_SET_COPY);
         data->d.value = h;
         data->d.cold_meta = sm1, data->d.new_meta = NULL;
-        hashSwapIn((swapData*)data,hash1,hash1_ctx);
+        hashSwapIn((swapData*)data,decoded,hash1_ctx);
         test_assert((m = lookupMeta(db,key1)) != NULL && m->len == 2);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL);
         test_assert(hashTypeLength(h) == 2);
 
-        hashTypeSet(hash1,f3,int1,HASH_SET_COPY);
-        hashTypeSet(hash1,f4,int2,HASH_SET_COPY);
+        decoded = createHashObject();
+        hashTypeSet(decoded,f3,int1,HASH_SET_COPY);
+        hashTypeSet(decoded,f4,int2,HASH_SET_COPY);
         data->d.value = h;
         data->d.object_meta = m;
-        hashCreateOrMergeObject((swapData*)data,hash1,hash1_ctx);
+        hashCreateOrMergeObject((swapData*)data,decoded,hash1_ctx);
         hashSwapIn((swapData*)data,NULL,hash1_ctx);
         test_assert((m = lookupMeta(db,key1)) != NULL);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL);
         test_assert(hashTypeLength(h) == 4);
 
         /* hot => cold */
+        hash1 = h;
         sm2 = createHashObjectMeta(4);
         hashTypeDelete(hash1,f1);
         hashTypeDelete(hash1,f2);
@@ -942,14 +944,14 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) == NULL);
 
         /* cold => hot */
-        hash1 = createHashObject();
-        hashTypeSet(hash1,f1,sds1,HASH_SET_COPY);
-        hashTypeSet(hash1,f2,sds2,HASH_SET_COPY);
-        hashTypeSet(hash1,f3,int1,HASH_SET_COPY);
-        hashTypeSet(hash1,f4,int2,HASH_SET_COPY);
+        decoded = createHashObject();
+        hashTypeSet(decoded,f1,sds1,HASH_SET_COPY);
+        hashTypeSet(decoded,f2,sds2,HASH_SET_COPY);
+        hashTypeSet(decoded,f3,int1,HASH_SET_COPY);
+        hashTypeSet(decoded,f4,int2,HASH_SET_COPY);
         data->d.value = h;
         data->d.cold_meta = createHashObjectMeta(0);
-        hashSwapIn((swapData*)data,hash1,hash1_ctx);
+        hashSwapIn((swapData*)data,decoded,hash1_ctx);
         test_assert((m = lookupMeta(db,key1)) != NULL);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL);
         test_assert(hashTypeLength(h) == 4);
@@ -982,10 +984,12 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         test_assert(!sdscmp(metakey,rocksEncodeMetaKey(db,myhash_key)));
         cont = hashLoad(load,&sdsrdb,&cf,&subkey,&subraw,&err);
         test_assert(cf == DATA_CF && cont == 1 && err == 0);
+        sdsfree(subkey), sdsfree(subraw);
         cont = hashLoad(load,&sdsrdb,&cf,&subkey,&subraw,&err);
         test_assert(cf == DATA_CF && cont == 0 && err == 0);
         test_assert(load->loaded_fields == 2);
         test_assert(load->object_type == OBJ_HASH);
+        sdsfree(subkey), sdsfree(subraw);
 
         sds coldraw,warmraw,hotraw;
         objectMeta *object_meta = createHashObjectMeta(2);
@@ -1014,6 +1018,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         decoded_fx->subkey = f2;
         decoded_fx->rdbraw = sdsnewlen(rdbv2+1, sdslen(rdbv2)-1);
         test_assert(rdbKeySave(save,&rdbcold,decoded_fx) == 0);
+        sdsfree(decoded_fx->rdbraw);
 
         decoded_fx->key = myhash_key;
         decoded_fx->subkey = f1, decoded_fx->rdbraw = sdsnewlen(rdbv1+1,sdslen(rdbv1)-1);
@@ -1023,7 +1028,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         /* save warm */
         rioInitWithBuffer(&rdbwarm,sdsempty());
         robj *value = createHashObject(), keyobj;
-        hashTypeSet(value,f2,sdsnew("v2"),HASH_SET_COPY);
+        hashTypeSet(value,f2,sdsnew("v2"),HASH_SET_TAKE_VALUE);
         initStaticStringObject(keyobj,myhash_key);
         dbAdd(db,&keyobj,value);
         object_meta->len = 1;
@@ -1032,6 +1037,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         test_assert(rdbKeySaveStart(save,&rdbwarm) == 0);
         test_assert(rdbKeySave(save,&rdbwarm,decoded_fx) == 0);
         warmraw = rdbwarm.io.buffer.ptr;
+        sdsfree(decoded_fx->rdbraw);
 
         /* save hot */
         rioInitWithBuffer(&rdbhot,sdsempty());
@@ -1040,6 +1046,17 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         hotraw = rdbhot.io.buffer.ptr;
 
         test_assert(!sdscmp(hotraw,coldraw) && !sdscmp(hotraw,warmraw));
+        
+        sdsfree(f1), sdsfree(f2), sdsfree(v1), sdsfree(v2);
+        sdsfree(rdbv1), sdsfree(rdbv2);
+        sdsfree(myhash_key);
+    }
+
+
+    TEST("hash - deinit") {
+        sdsfree(f1), sdsfree(f2), sdsfree(f3), sdsfree(f4);
+        sdsfree(sds1), sdsfree(sds2);
+        sdsfree(int1), sdsfree(int2);
     }
 
     server.swap_evict_step_max_subkeys = originEvictStepMaxSubkey;

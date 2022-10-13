@@ -323,11 +323,11 @@ int getKeyRequestsOneDestKeyMultiSrcKeys(int dbid, struct redisCommand *cmd, rob
     getKeyRequestsPrepareResult(result, result->num + 1 + last_src_key - first_src_key + 1);
 
     incrRefCount(argv[dest_key_Index]);
-    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[dest_key_Index], 0, NULL,
+    getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,argv[dest_key_Index], 0, NULL,
                                SWAP_IN, SWAP_IN_DEL, dbid);
     for(int i = first_src_key; i <= last_src_key; i++) {
         incrRefCount(argv[i]);
-        getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[i], 0, NULL,
+        getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,argv[i], 0, NULL,
                                    SWAP_IN,0, dbid);
     }
 
@@ -343,6 +343,8 @@ int getKeyRequestsSort(int dbid, struct redisCommand *cmd, robj **argv,
         int argc, struct getKeyRequestsResult *result) {
     int i, j;
     robj *storekey = NULL;
+
+    UNUSED(cmd);
 
     struct {
         char *name;
@@ -371,11 +373,11 @@ int getKeyRequestsSort(int dbid, struct redisCommand *cmd, robj **argv,
 
     getKeyRequestsPrepareResult(result,result->num + (storekey ? 2 : 1));
     incrRefCount(argv[1]);
-    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[1],0,NULL,
+    getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,argv[1],0,NULL,
                                SWAP_IN, 0, dbid);
     if (storekey) {
         incrRefCount(storekey);
-        getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,storekey,0,NULL,
+        getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,storekey,0,NULL,
                                    SWAP_IN, SWAP_IN_DEL, dbid);
     }
 
