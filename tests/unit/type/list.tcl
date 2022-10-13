@@ -1129,7 +1129,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_match "*flags=b*" [r client list id $id]
         r client unblock $id
         assert_equal {} [$rd read]
-        # We want to force key deletion to be propogated to the replica 
+        # We want to force key deletion to be propagated to the replica 
         # in order to verify it was expiered on the replication stream. 
         $rd exists k
         assert_equal {0} [$rd read]
@@ -1176,7 +1176,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_match "*flags=b*" [r client list id $id]
         r client unblock $id
         assert_equal {} [$rd read]
-        # We want to force key deletion to be propogated to the replica 
+        # We want to force key deletion to be propagated to the replica 
         # in order to verify it was expiered on the replication stream. 
         $rd exists k
         assert_equal {0} [$rd read]
