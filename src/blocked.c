@@ -494,10 +494,10 @@ static void handleClientsBlockedOnKey(readyList *rl) {
                 (o != NULL && (receiver->bstate.btype == BLOCKED_MODULE)) ||
                 (receiver->bstate.unblock_on_nokey))
             {
-                    if (receiver->bstate.btype != BLOCKED_MODULE)
-                        unblockClientOnKey(receiver, rl->key);
-                    else
-                        moduleUnblockClientOnKey(receiver, rl->key);
+                if (receiver->bstate.btype != BLOCKED_MODULE)
+                    unblockClientOnKey(receiver, rl->key);
+                else
+                    moduleUnblockClientOnKey(receiver, rl->key);
             }
         }
     }

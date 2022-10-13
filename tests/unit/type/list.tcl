@@ -1129,6 +1129,12 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_match "*flags=b*" [r client list id $id]
         r client unblock $id
         assert_equal {} [$rd read]
+        # We want to force key deletion to be propogated to the replica 
+        # in order to verify it was expiered on the replication stream. 
+        $rd exists k
+        assert_equal {0} [$rd read]
+        r set somekey someval
+        
         assert_replication_stream $repl {
             {select *}
             {flushall}
@@ -1136,13 +1142,13 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {rpush k hello}
             {pexpireat k *}
             {swapdb 1 9}
-        }
-        r debug set-active-expire 1
-        assert_replication_stream $repl {
             {select 9}
             {del k}
+            {select 1}
+            {set somekey someval}
         }
         close_replication_stream $repl
+        r debug set-active-expire 1
         # Restore server and client state
         r select 9
     } {OK} {singledb:skip needs:debug}
@@ -1170,6 +1176,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_match "*flags=b*" [r client list id $id]
         r client unblock $id
         assert_equal {} [$rd read]
+        # We want to force key deletion to be propogated to the replica 
+        # in order to verify it was expiered on the replication stream. 
+        $rd exists k
+        assert_equal {0} [$rd read]
         assert_replication_stream $repl {
             {select *}
             {flushall}
@@ -1177,14 +1187,11 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {rpush k hello}
             {pexpireat k *}
             {exec}
-        }
-        
-        r debug set-active-expire 1
-        assert_replication_stream $repl {
             {del k}
-        }
+        }  
         close_replication_stream $repl
         # Restore server and client state
+        r debug set-active-expire 1
         r select 9
     } {OK} {singledb:skip needs:debug}
 
