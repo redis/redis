@@ -1883,9 +1883,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     lpSafeToAdd(o->ptr, sdslen(sdsele)))
                 {
                     unsigned char *p = lpFirst(o->ptr);
-                    if (p && lpFind(o->ptr, p, (unsigned char*)sdsele,
-                                    sdslen(sdsele), 0))
-                    {
+                    if (p && lpFind(o->ptr, p, (unsigned char*)sdsele, sdslen(sdsele), 0)) {
                         rdbReportCorruptRDB("Duplicate set members detected");
                         decrRefCount(o);
                         sdsfree(sdsele);
