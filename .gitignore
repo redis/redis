@@ -45,3 +45,5 @@ Makefile.dep
 tags
 .cache/*
 compile_commands.json
+
+tests/tmp.tcl

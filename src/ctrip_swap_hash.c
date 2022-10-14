@@ -212,7 +212,7 @@ int hashEncodeKeys(swapData *data, int intention, void *datactx_,
             cfs = zmalloc(sizeof(int));
             rawkeys = zmalloc(sizeof(sds));
             cfs[0] = DATA_CF;
-            rawkeys[0] = hashEncodeSubkey(data->db,data->key->ptr,"");
+            rawkeys[0] = rocksEncodeDataScanPrefix(data->db,data->key->ptr);
             *numkeys = datactx->ctx.num;
             *pcfs = cfs;
             *prawkeys = rawkeys;

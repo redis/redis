@@ -607,7 +607,7 @@ int getKeyRequestsRpoplpush(int dbid, struct redisCommand *cmd, robj **argv,
 int getKeyRequestsLmove(int dbid, struct redisCommand *cmd, robj **argv,
         int argc, struct getKeyRequestsResult *result) {
     long start, end;
-    if ((argc != 5) ||
+    if ((argc != 5/*lmove*/ && argc != 6/*blmove*/) ||
         (strcasecmp(argv[3]->ptr,"left") && strcasecmp(argv[3]->ptr,"right")) ||
         (strcasecmp(argv[4]->ptr,"left") && strcasecmp(argv[4]->ptr,"right"))) {
         return -1;

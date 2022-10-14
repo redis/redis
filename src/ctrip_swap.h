@@ -1212,6 +1212,7 @@ int rdbLoadLenVerbatim(rio *rdb, sds *verbatim, int *isencoded, unsigned long lo
 #define ROCKS_KEY_FLAG_DELETE 0xff
 #define rocksEncodeMetaKey(db,key)  rocksEncodeDataKey(db,key,NULL)
 #define rocksDecodeMetaKey(raw,rawlen,dbid,key,keylen)  rocksDecodeDataKey(raw,rawlen,dbid,key,keylen,NULL,NULL)
+#define rocksEncodeDataScanPrefix(db,key) rocksEncodeDataKey(db,key,shared.emptystring->ptr)
 sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey);
 int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid, const char **key, size_t *keylen, const char **subkey, size_t *subkeylen);
 sds rocksEncodeMetaVal(int object_type, long long expire, sds extend);

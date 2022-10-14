@@ -653,20 +653,18 @@ long listMetaLength(listMeta *list_meta, int type) {
     return 0;
 }
 
-void listMetaExtend(listMeta *list_meta, long head, long tail) {
+/* expand(if delta > 0) or shink(if delta < 0) hot segment */
+void listMetaExtend(listMeta *list_meta, long head_delta, long tail_delta) {
     segment *seg;
     serverAssert(list_meta);
 
-    long len = list_meta->len;
-    if (head < 0) len += head;
-    if (tail < 0) len += tail;
-    serverAssert(len>=0);
+    serverAssert(list_meta->len+head_delta >= 0 && list_meta->len+tail_delta >= 0);
 
-    list_meta->len += head;
-    list_meta->len += tail;
+    list_meta->len += head_delta;
+    list_meta->len += tail_delta;
 
     /* head */
-    if (head > 0) {
+    if (head_delta > 0) {
         seg = listMetaFirstSegment(list_meta);
         if (seg->type != SEGMENT_TYPE_HOT) {
             /* prepend a hot segment */
@@ -676,21 +674,21 @@ void listMetaExtend(listMeta *list_meta, long head, long tail) {
             seg->type = SEGMENT_TYPE_HOT;
             list_meta->num++;
         }
-        seg->index -= head;
-        seg->len += head;
-    } else if (head == 0) {
+        seg->index -= head_delta;
+        seg->len += head_delta;
+    } else if (head_delta == 0) {
         /* nop */
     } else {
-        head = -head;
-        while (head) {
+        head_delta = -head_delta;
+        while (head_delta) {
             seg = listMetaFirstSegment(list_meta);
             serverAssert(seg->type == SEGMENT_TYPE_HOT);
-            if (head < seg->len) {
-                seg->index += head;
-                seg->len -= head;
-                head = 0;
+            if (head_delta < seg->len) {
+                seg->index += head_delta;
+                seg->len -= head_delta;
+                head_delta = 0;
             } else {
-                head -= seg->len;
+                head_delta -= seg->len;
                 memmove(list_meta->segments,list_meta->segments+1,
                         (list_meta->num-1)*sizeof(segment));
                 list_meta->num--;
@@ -699,7 +697,7 @@ void listMetaExtend(listMeta *list_meta, long head, long tail) {
     }
 
     /* tail */
-    if (tail > 0) {
+    if (tail_delta > 0) {
         seg = listMetaLastSegment(list_meta);
         if (seg->type != SEGMENT_TYPE_HOT) {
             /* append a hot segment */
@@ -707,19 +705,19 @@ void listMetaExtend(listMeta *list_meta, long head, long tail) {
                     seg->index+seg->len,0);
             seg = listMetaLastSegment(list_meta);
         }
-        seg->len += tail;
-    } else if (tail == 0) {
+        seg->len += tail_delta;
+    } else if (tail_delta == 0) {
         /* nop */
     } else {
-        tail = -tail;
-        while (tail) {
+        tail_delta = -tail_delta;
+        while (tail_delta) {
             seg = listMetaLastSegment(list_meta);
             serverAssert(seg->type == SEGMENT_TYPE_HOT);
-            if (tail < seg->len) {
-                seg->len -= tail;
-                tail = 0;
+            if (tail_delta < seg->len) {
+                seg->len -= tail_delta;
+                tail_delta = 0;
             } else {
-                tail -= seg->len;
+                tail_delta -= seg->len;
                 list_meta->num--;
             }
         }
@@ -1393,10 +1391,6 @@ static inline sds listEncodeSubkey(redisDb *db, sds key, long ridx) {
     return rawkey;
 }
 
-static inline sds listEncodeSubkeyPrefix(redisDb *db, sds key) {
-    return rocksEncodeDataKey(db,key,shared.emptystring->ptr);
-}
-
 static inline long listDecodeRidx(const char *str, size_t len) {
     serverAssert(len == sizeof(long));
     long ridx_be = *(long*)str;
@@ -1443,7 +1437,7 @@ int listEncodeKeys(swapData *data, int intention, void *datactx_,
             cfs = zmalloc(sizeof(int));
             rawkeys = zmalloc(sizeof(sds));
             cfs[0] = DATA_CF;
-            rawkeys[0] = listEncodeSubkeyPrefix(data->db,data->key->ptr);
+            rawkeys[0] = rocksEncodeDataScanPrefix(data->db,data->key->ptr);
             *numkeys = 1;
             *pcfs = cfs;
             *prawkeys = rawkeys;

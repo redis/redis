@@ -210,7 +210,7 @@ int setEncodeKeys(swapData *data, int intention, void *datactx_,
                 cfs = zmalloc(sizeof(int));
                 rawkeys = zmalloc(sizeof(sds));
                 cfs[0] = DATA_CF;
-                rawkeys[0] = setEncodeSubkey(data->db,data->key->ptr,""); //FIXME "" can't be used as sds, use shared.emptystring->ptr instead
+                rawkeys[0] = rocksEncodeDataScanPrefix(data->db,data->key->ptr);
                 *numkeys = datactx->ctx.num;
                 *pcfs = cfs;
                 *prawkeys = rawkeys;
