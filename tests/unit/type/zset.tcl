@@ -1516,17 +1516,11 @@ start_server {tags {"zset"}} {
 
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                # Notes on IEEE 754 double-precision comparison
-                # As stated in http://computer-programming-forum.com/57-tcl/4cb9d256ba600aac.htm
-                # Applications which desire a particular floating point precision should
-                # judiciously use "format" and their own comparison functions.
-                # IEEE 754 double-precision binary floating-point format takes at max 17 significant decimals.
-                #    Reference Lecture Notes on the Status of IEEE 754:
-                #     - link: https://people.eecs.berkeley.edu/~wkahan/ieee754status/IEEE754.PDF
-                # Therefore, if an IEEE 754 double-precision number is converted to a decimal string with at
-                # least 17 significant digits, and then converted back to double-precision representation,
+                # If an IEEE 754 double-precision number is converted to a decimal string with at
+                # least 17 significant digits (reply of zscore), and then converted back to double-precision representation,
                 # the final result replied via zscore command must match the original number present on the $aux list.
-                assert_equal [format %.17g [lindex $aux $i]] [format %.17g [r zscore zscoretest $i]]
+                # Given Tcl is mostly very relaxed about types (everything is a string) we need to use expr to convert a string to float.
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         }
 
@@ -1542,7 +1536,7 @@ start_server {tags {"zset"}} {
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
                 # Check above notes on IEEE 754 double-precision comparison
-                assert_equal [format %.17g [lindex $aux $i]] [format %.17g [r zmscore zscoretest $i]]
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         }
 
@@ -1559,7 +1553,7 @@ start_server {tags {"zset"}} {
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
                 # Check above notes on IEEE 754 double-precision comparison
-                assert_equal [format %.17g [lindex $aux $i]] [format %.17g [r zscore zscoretest $i]]
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         } {} {needs:debug}
 
