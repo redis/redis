@@ -68,7 +68,6 @@ extern const char *swap_cf_names[CF_COUNT];
 #define SWAP_EXEC_IN_DEL (1U<<0)
 /* Put rocksdb meta key */
 #define SWAP_EXEC_OUT_META (1U<<1)
-#define SWAP_EXEC_IN_DEL_MOCK_VALUE (1U<<2)
 
 /* Don't delete key in keyspace when swap (Delete key in rocksdb) finish. */
 #define SWAP_FIN_DEL_SKIP (1U<<8)
