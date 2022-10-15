@@ -28,6 +28,7 @@
  */
 
 #include "fmacros.h"
+#include "fpconv_dtoa.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -617,8 +618,10 @@ int d2string(char *buf, size_t len, double value) {
         /* Integer printing function is much faster, check if we can safely use it. */
         if (double2ll(value, &lvalue))
             len = ll2string(buf,len,lvalue);
-        else
-            len = snprintf(buf,len,"%.17g",value);
+        else {
+            len = fpconv_dtoa(value, buf);
+            buf[len] = '\0';
+        }
     }
 
     return len;
