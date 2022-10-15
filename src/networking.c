@@ -31,6 +31,7 @@
 #include "atomicvar.h"
 #include "cluster.h"
 #include "script.h"
+#include "fpconv_dtoa.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -855,7 +856,7 @@ void addReplyDouble(client *c, double d) {
              * but still avoid an extra memcpy of the whole number, we reserve space
              * for maximum header `$0000\r\n`, print double, add the resp header in
              * front of it, and then send the buffer with the right `start` offset. */
-            int dlen = snprintf(dbuf+7,sizeof(dbuf) - 7,"%.17g",d);
+            dlen = fpconv_dtoa(d, dbuf+7);
             int digits = digits10(dlen);
             int start = 4 - digits;
             dbuf[start] = '$';
@@ -870,10 +871,15 @@ void addReplyDouble(client *c, double d) {
             dbuf[6] = '\n';
             dbuf[dlen+7] = '\r';
             dbuf[dlen+8] = '\n';
+            dbuf[dlen+9] = '\0';
             addReplyProto(c,dbuf+start,dlen+9-start);
         } else {
-            dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
-            addReplyProto(c,dbuf,dlen);
+            dbuf[0] = ',';
+            dlen = fpconv_dtoa(d, dbuf+1);
+            dbuf[dlen+1] = '\r';
+            dbuf[dlen+2] = '\n';
+            dbuf[dlen+3] = '\0';
+            addReplyProto(c,dbuf,dlen+3);
         }
     }
 }

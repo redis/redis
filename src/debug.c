@@ -34,6 +34,7 @@
 #include "crc64.h"
 #include "bio.h"
 #include "quicklist.h"
+#include "fpconv_dtoa.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -188,8 +189,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                     ll2string(buf,sizeof(buf),vll);
                     mixDigest(eledigest,buf,strlen(buf));
                 }
-
-                snprintf(buf,sizeof(buf),"%.17g",score);
+                const int len = fpconv_dtoa(score, buf);
+                buf[len] = '\0';
                 mixDigest(eledigest,buf,strlen(buf));
                 xorDigest(digest,eledigest,20);
                 zzlNext(zl,&eptr,&sptr);
@@ -202,8 +203,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             while((de = dictNext(di)) != NULL) {
                 sds sdsele = dictGetKey(de);
                 double *score = dictGetVal(de);
-
-                snprintf(buf,sizeof(buf),"%.17g",*score);
+                const int len = fpconv_dtoa(*score, buf);
+                buf[len] = '\0';
                 memset(eledigest,0,20);
                 mixDigest(eledigest,sdsele,sdslen(sdsele));
                 mixDigest(eledigest,buf,strlen(buf));
