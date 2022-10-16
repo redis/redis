@@ -1799,6 +1799,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         }
 
         /* Load every single element of the set */
+        size_t maxelelen = 0, sumelelen = 0;
         for (i = 0; i < len; i++) {
             long long llval;
             sds sdsele;
@@ -1807,6 +1808,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 decrRefCount(o);
                 return NULL;
             }
+            size_t elelen = sdslen(sdsele);
+            sumelelen += elelen;
+            if (elelen > maxelelen) maxelelen = elelen;
 
             if (o->encoding == OBJ_ENCODING_INTSET) {
                 /* Fetch integer value from element. */
@@ -1820,8 +1824,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         return NULL;
                     }
                 } else if (setTypeSize(o) < server.set_max_listpack_entries &&
-                           sdslen(sdsele) <= server.set_max_listpack_value &&
-                           lpSafeToAdd(NULL, sdslen(sdsele)))
+                           maxelelen <= server.set_max_listpack_value &&
+                           lpSafeToAdd(NULL, sumelelen))
                 {
                     setTypeConvert(o, OBJ_ENCODING_LISTPACK);
                 } else {
@@ -1839,17 +1843,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
              * to a listpack encoded set. */
             if (o->encoding == OBJ_ENCODING_LISTPACK) {
                 if (setTypeSize(o) < server.set_max_listpack_entries &&
-                    sdslen(sdsele) <= server.set_max_listpack_value &&
-                    lpSafeToAdd(o->ptr, sdslen(sdsele)))
+                    elelen <= server.set_max_listpack_value &&
+                    lpSafeToAdd(o->ptr, elelen))
                 {
                     unsigned char *p = lpFirst(o->ptr);
-                    if (p && lpFind(o->ptr, p, (unsigned char*)sdsele, sdslen(sdsele), 0)) {
+                    if (p && lpFind(o->ptr, p, (unsigned char*)sdsele, elelen, 0)) {
                         rdbReportCorruptRDB("Duplicate set members detected");
                         decrRefCount(o);
                         sdsfree(sdsele);
                         return NULL;
                     }
-                    o->ptr = lpAppend(o->ptr, (unsigned char *)sdsele, sdslen(sdsele));
+                    o->ptr = lpAppend(o->ptr, (unsigned char *)sdsele, elelen);
                 } else {
                     setTypeConvert(o, OBJ_ENCODING_HT);
                     if (dictTryExpand(o->ptr, len) != DICT_OK) {

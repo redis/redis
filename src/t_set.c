@@ -92,21 +92,26 @@ int setTypeAdd(robj *subject, sds value) {
                     setTypeConvert(subject,OBJ_ENCODING_HT);
                 return 1;
             }
-        } else if (intsetLen((const intset*)subject->ptr) < server.set_max_listpack_entries &&
-                   sdslen(value) <= server.set_max_listpack_value &&
-                   lpSafeToAdd(NULL, sdslen(value)))
-        {
-            setTypeConvert(subject, OBJ_ENCODING_LISTPACK);
-            unsigned char *lp = subject->ptr;
-            lp = lpAppend(lp, (unsigned char *)value, sdslen(value));
-            subject->ptr = lp;
-            return 1;
         } else {
-            setTypeConvert(subject, OBJ_ENCODING_HT);
-            /* The set *was* an intset and this value is not integer
-             * encodable, so dictAdd should always work. */
-            serverAssert(dictAdd(subject->ptr,sdsdup(value),NULL) == DICT_OK);
-            return 1;
+            uint32_t maxelelen = max(sdigits10(intsetMax(subject->ptr)),
+                                     sdigits10(intsetMin(subject->ptr)));
+            if (intsetLen((const intset*)subject->ptr) < server.set_max_listpack_entries &&
+                sdslen(value) <= server.set_max_listpack_value &&
+                maxelelen <= server.set_max_listpack_value &&
+                lpSafeToAdd(NULL, maxelelen * intsetLen(subject->ptr) + sdslen(value)))
+            {
+                setTypeConvert(subject, OBJ_ENCODING_LISTPACK);
+                unsigned char *lp = subject->ptr;
+                lp = lpAppend(lp, (unsigned char *)value, sdslen(value));
+                subject->ptr = lp;
+                return 1;
+            } else {
+                setTypeConvert(subject, OBJ_ENCODING_HT);
+                /* The set *was* an intset and this value is not integer
+                 * encodable, so dictAdd should always work. */
+                serverAssert(dictAdd(subject->ptr,sdsdup(value),NULL) == DICT_OK);
+                return 1;
+            }
         }
     } else {
         serverPanic("Unknown set encoding");
