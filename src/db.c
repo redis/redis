@@ -1620,28 +1620,7 @@ int keyIsExpired(redisDb *db, robj *key) {
     /* Don't expire anything while loading. It will be done later. */
     if (server.loading) return 0;
 
-    /* If we are in the context of a Lua script, we pretend that time is
-     * blocked to when the Lua script started. This way a key can expire
-     * only the first time it is accessed and not in the middle of the
-     * script execution, making propagation to slaves / AOF consistent.
-     * See issue #1525 on Github for more information. */
-    if (server.script_caller) {
-        now = scriptTimeSnapshot();
-    }
-    /* If we are in the middle of a command execution, we still want to use
-     * a reference time that does not change: in that case we just use the
-     * cached time, that we update before each call in the call() function.
-     * This way we avoid that commands such as RPOPLPUSH or similar, that
-     * may re-open the same key multiple times, can invalidate an already
-     * open object in a next call, if the next call will see the key expired,
-     * while the first did not. */
-    else if (server.fixed_time_expire > 0) {
-        now = server.mstime;
-    }
-    /* For the other cases, we want to use the most fresh time we have. */
-    else {
-        now = mstime();
-    }
+    now = commandTimeSnapshot();
 
     /* The key expired if the current (virtual or real) time is greater
      * than the expire time of the key. */
@@ -2248,7 +2227,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
 
 /* This command declares incomplete keys, so the flags are correctly set for this function */
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int i, num, first;
+    int i, j, num, first;
     keyReference *keys;
     UNUSED(cmd);
 
@@ -2257,14 +2236,34 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     num = 1;
 
     /* But check for the extended one with the KEYS option. */
+    struct {
+        char* name;
+        int skip;
+    } skip_keywords[] = {       
+        {"copy", 0},
+        {"replace", 0},
+        {"auth", 1},
+        {"auth2", 2},
+        {NULL, 0}
+    };
     if (argc > 6) {
         for (i = 6; i < argc; i++) {
-            if (!strcasecmp(argv[i]->ptr,"keys") &&
-                sdslen(argv[3]->ptr) == 0)
-            {
-                first = i+1;
-                num = argc-first;
+            if (!strcasecmp(argv[i]->ptr, "keys")) {
+                if (sdslen(argv[3]->ptr) > 0) {
+                    /* This is a syntax error. So ignore the keys and leave
+                     * the syntax error to be handled by migrateCommand. */
+                    num = 0; 
+                } else {
+                    first = i + 1;
+                    num = argc - first;
+                }
                 break;
+            }
+            for (j = 0; skip_keywords[j].name != NULL; j++) {
+                if (!strcasecmp(argv[i]->ptr, skip_keywords[j].name)) {
+                    i += skip_keywords[j].skip;
+                    break;
+                }
             }
         }
     }

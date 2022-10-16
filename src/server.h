@@ -1189,6 +1189,14 @@ typedef struct client {
     char *buf;
 } client;
 
+/* ACL information */
+typedef struct aclInfo {
+    long long user_auth_failures; /* Auth failure counts on user level */
+    long long invalid_cmd_accesses; /* Invalid command accesses that user doesn't have permission to */
+    long long invalid_key_accesses; /* Invalid key accesses that user doesn't have permission to */
+    long long invalid_channel_accesses; /* Invalid channel accesses that user doesn't have permission to */
+} aclInfo;
+
 struct saveparam {
     time_t seconds;
     int changes;
@@ -1512,7 +1520,6 @@ struct redisServer {
     clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
-    long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     int in_nested_call;         /* If > 0, in a nested call of a call */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     pause_type client_pause_type;      /* True if clients are currently paused */
@@ -1899,6 +1906,7 @@ struct redisServer {
                                      the old "requirepass" directive for
                                      backward compatibility with Redis <= 5. */
     int acl_pubsub_default;      /* Default ACL pub/sub channels flag */
+    aclInfo acl_info; /* ACL info */
     /* Assert & bug reporting */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
@@ -2411,7 +2419,8 @@ int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 
 /* Utils */
 long long ustime(void);
-long long mstime(void);
+mstime_t mstime(void);
+mstime_t commandTimeSnapshot(void);
 void getRandomHexChars(char *p, size_t len);
 void getRandomBytes(unsigned char *p, size_t len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
@@ -2798,6 +2807,7 @@ void ACLFreeUserAndKillClients(user *u);
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object);
 sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val, int verbose);
 void ACLUpdateDefaultUserPassword(sds password);
+sds genRedisInfoStringACLStats(sds info);
 
 /* Sorted sets data type */
 
