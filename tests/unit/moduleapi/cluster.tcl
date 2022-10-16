@@ -162,6 +162,49 @@ start_cluster 3 0 [list config_lines $modules] {
     $node1_rd close
     $node2_rd close
 }
+
+set modules [list loadmodule [file normalize tests/modules/keyspace_events.so]]
+start_cluster 2 2 [list config_lines $modules] {
+
+    set master1 [srv 0 client]
+    set master2 [srv -1 client]
+    set replica1 [srv -2 client]
+    set replica2 [srv -3 client]
+    
+    test "Verify keys deletion and notification effects happened on cluster slots change are replicated inside multi exec" {
+        $master2 set count_dels_{4oi} 1
+        $master2 del count_dels_{4oi}
+        assert_equal 1 [$master2 keyspace.get_dels]
+        assert_equal 1 [$replica2 keyspace.get_dels]
+        $master2 set count_dels_{4oi} 1
+        
+        set repl [attach_to_replication_stream_on_connection -3]
+
+        $master1 cluster bumpepoch
+        $master1 cluster setslot 16382 node [$master1 cluster myid]
+
+        wait_for_cluster_propagation
+        wait_for_condition 50 100 {
+            [$master2 keyspace.get_dels] eq 2
+        } else {
+            fail "master did not delete the key"
+        }
+        wait_for_condition 50 100 {
+            [$replica2 keyspace.get_dels] eq 2
+        } else {
+            fail "replica did not increase del counter"
+        }
+
+        assert_replication_stream $repl {
+            {multi}
+            {del count_dels_{4oi}}
+            {keyspace.incr_dels}
+            {exec}
+        }
+        close_replication_stream $repl
+    }
+}
+
 }
 
 set testmodule [file normalize tests/modules/basics.so]
