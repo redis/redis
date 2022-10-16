@@ -793,7 +793,7 @@ start_server {tags {"acl external:skip"}} {
         set current_invalid_channel_accesses [s acl_access_denied_channel]
         r ACL setuser invalidkeyuser on >passwd resetkeys allcommands
         r AUTH invalidkeyuser passwd
-        assert_error "*no permissions to access one of the keys*" {r get x}
+        assert_error "*NOPERM*key*" {r get x}
         r AUTH default ""
         assert {[s acl_access_denied_auth] eq $current_auth_failures}
         assert {[s acl_access_denied_cmd] eq $current_invalid_cmd_accesses}
@@ -809,7 +809,7 @@ start_server {tags {"acl external:skip"}} {
         set current_invalid_channel_accesses [s acl_access_denied_channel]
         r ACL setuser invalidchanneluser on >passwd resetchannels allcommands
         r AUTH invalidkeyuser passwd
-        assert_error "*no permissions to access one of the channels*" {r subscribe x}
+        assert_error "*NOPERM*channel*" {r subscribe x}
         r AUTH default ""
         assert {[s acl_access_denied_auth] eq $current_auth_failures}
         assert {[s acl_access_denied_cmd] eq $current_invalid_cmd_accesses}
