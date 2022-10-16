@@ -6003,7 +6003,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             sds object = (acl_retval == ACL_DENIED_CMD) ? sdsdup(c->cmd->fullname) : sdsdup(c->argv[acl_errpos]->ptr);
             addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, ctx->client->user->name, object);
             if (error_as_call_replies) {
-                sds msg = sdscatfmt(sdsempty(), "acl verification failed, %s.", getAclErrorMessage(acl_retval));
+                /* verbosity should be same as processCommand() in server.c */
+                sds acl_msg = getAclErrorMessage(acl_retval, ctx->client->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
+                sds msg = sdscatfmt(sdsempty(), "-NOPERM %S\r\n", acl_msg);
+                sdsfree(acl_msg);
                 reply = callReplyCreateError(msg, ctx);
             }
             errno = EACCES;

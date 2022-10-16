@@ -1516,7 +1516,11 @@ start_server {tags {"zset"}} {
 
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zscore zscoretest $i]
+                # If an IEEE 754 double-precision number is converted to a decimal string with at
+                # least 17 significant digits (reply of zscore), and then converted back to double-precision representation,
+                # the final result replied via zscore command must match the original number present on the $aux list.
+                # Given Tcl is mostly very relaxed about types (everything is a string) we need to use expr to convert a string to float.
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         }
 
@@ -1531,7 +1535,8 @@ start_server {tags {"zset"}} {
 
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zmscore zscoretest $i]
+                # Check above notes on IEEE 754 double-precision comparison
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         }
 
@@ -1547,7 +1552,8 @@ start_server {tags {"zset"}} {
             r debug reload
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zscore zscoretest $i]
+                # Check above notes on IEEE 754 double-precision comparison
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         } {} {needs:debug}
 
