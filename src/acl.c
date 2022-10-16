@@ -528,9 +528,9 @@ void ACLSetSelectorCommandBit(aclSelector *selector, unsigned long id, int value
     }
 }
 
-/* Remove a rule from the retained command rules. Always match "rules"
+/* Remove a rule from the retained command rules. Always match rules
  * verbatim, but also remove subcommand rules if we are adding or removing the 
- * entire command.  */
+ * entire command. */
 void ACLSelectorRemoveCommandRule(aclSelector *selector, sds rule) {
     /* Fast exit if rule is not present in the existing command rules */
     char *existing = strstr(selector->command_rules, rule);
@@ -674,10 +674,8 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
      * we generate have the same bitmap as those on the current selector. */
     aclSelector *fake_selector = ACLCreateSelector(0);
 
-    /* Here we want to understand if we should start with +@all and remove
-     * the commands corresponding to the bits that are not set in the user
-     * commands bitmap, or the contrary. Note that semantically the two are
-     * different. For instance starting with +@all and subtracting, the user
+    /* Here we want to understand if we should start with +@all or -@all.
+     * Note that when starting with +@all and subtracting, the user
      * will be able to execute future commands, while -@all and adding will just
      * allow the user the run the selected commands and/or categories.
      * How do we test for that? We use the trick of a reserved command ID bit
@@ -690,7 +688,7 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
         ACLSetSelector(fake_selector,"-@all",-1);
     }
 
-    /* Apply all of the commands and categories next. */
+    /* Apply all of the commands and categories to the fake selector. */
     int argc = 0;
     sds *argv = sdssplitargs(selector->command_rules, &argc);
     serverAssert(argv != NULL);
@@ -707,8 +705,6 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
     /* Trim the final useless space. */
     sdsrange(rules,0,-2);
 
-    ACLFreeSelector(fake_selector);
-
     /* This is technically not needed, but we want to verify that now the
      * predicted bitmap is exactly the same as the user bitmap, and abort
      * otherwise, because aborting is better than a security risk in this
@@ -722,6 +718,7 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
             rules);
         serverPanic("No bitmap match in ACLDescribeSelectorCommandRules()");
     }
+    ACLFreeSelector(fake_selector);
     return rules;
 }
 

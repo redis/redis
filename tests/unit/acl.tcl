@@ -512,7 +512,7 @@ start_server {tags {"acl external:skip"}} {
         }
     }
 
-    # Test that only lossless compation of ACLs occur.
+    # Test that only lossless compaction of ACLs occur.
     test {ACL GETUSER provides correct results} {
         r ACL SETUSER adv-test
         r ACL SETUSER adv-test +@all -@hash -@slow +hget
