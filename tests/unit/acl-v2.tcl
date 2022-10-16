@@ -15,9 +15,9 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "OK" [$r2 set write::foo bar]
         assert_equal "" [$r2 get read::foo]
         catch {$r2 get write::foo} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
         catch {$r2 set read::foo bar} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
     }
 
     test {Test ACL selectors by default have no permissions} {
@@ -80,9 +80,9 @@ start_server {tags {"acl external:skip"}} {
         r set readstr bar
         assert_equal bar [$r2 get readstr]
         catch {$r2 set readstr bar} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
         catch {$r2 get notread} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
     }
 
     test {Test separate write permission} {
@@ -92,9 +92,9 @@ start_server {tags {"acl external:skip"}} {
         # Note, SET is a RW command, so it's not used for testing
         $r2 LPUSH writelist 10
         catch {$r2 GET writestr} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
         catch {$r2 LPUSH notwrite 10} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
     }
 
     test {Test separate read and write permissions} {
@@ -104,7 +104,7 @@ start_server {tags {"acl external:skip"}} {
         r set read bar
         $r2 copy read write
         catch {$r2 copy write read} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
     }
 
     test {Test separate read and write permissions on different selectors are not additive} {
@@ -115,23 +115,23 @@ start_server {tags {"acl external:skip"}} {
         # Verify write selector
         $r2 LPUSH writelist 10
         catch {$r2 GET writestr} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
         catch {$r2 LPUSH notwrite 10} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
 
         # Verify read selector
         r set readstr bar
         assert_equal bar [$r2 get readstr]
         catch {$r2 set readstr bar} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
         catch {$r2 get notread} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
 
         # Verify they don't combine
         catch {$r2 copy read write} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
         catch {$r2 copy write read} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
     }
 
     test {Test SET with separate read permission} {
@@ -142,10 +142,10 @@ start_server {tags {"acl external:skip"}} {
         assert_equal {} [$r2 get readstr]
 
         # We don't have the permission to WRITE key.
-        assert_error {*NOPERM*keys*} {$r2 set readstr bar}
-        assert_error {*NOPERM*keys*} {$r2 set readstr bar get}
-        assert_error {*NOPERM*keys*} {$r2 set readstr bar ex 100}
-        assert_error {*NOPERM*keys*} {$r2 set readstr bar keepttl nx}
+        assert_error {*NOPERM*key*} {$r2 set readstr bar}
+        assert_error {*NOPERM*key*} {$r2 set readstr bar get}
+        assert_error {*NOPERM*key*} {$r2 set readstr bar ex 100}
+        assert_error {*NOPERM*key*} {$r2 set readstr bar keepttl nx}
     }
 
     test {Test SET with separate write permission} {
@@ -157,13 +157,13 @@ start_server {tags {"acl external:skip"}} {
         assert_equal {OK} [$r2 set writestr get]
 
         # We don't have the permission to READ key.
-        assert_error {*NOPERM*keys*} {$r2 set get writestr}
-        assert_error {*NOPERM*keys*} {$r2 set writestr bar get}
-        assert_error {*NOPERM*keys*} {$r2 set writestr bar get ex 100}
-        assert_error {*NOPERM*keys*} {$r2 set writestr bar get keepttl nx}
+        assert_error {*NOPERM*key*} {$r2 set get writestr}
+        assert_error {*NOPERM*key*} {$r2 set writestr bar get}
+        assert_error {*NOPERM*key*} {$r2 set writestr bar get ex 100}
+        assert_error {*NOPERM*key*} {$r2 set writestr bar get keepttl nx}
 
         # this probably should be `ERR value is not an integer or out of range`
-        assert_error {*NOPERM*keys*} {$r2 set writestr bar ex get}
+        assert_error {*NOPERM*key*} {$r2 set writestr bar ex get}
     }
 
     test {Test SET with read and write permissions} {
@@ -194,9 +194,9 @@ start_server {tags {"acl external:skip"}} {
         assert_equal {0} [$r2 bitfield readstr get u4 0]
 
         # We don't have the permission to WRITE key.
-        assert_error {*NOPERM*keys*} {$r2 bitfield readstr set u4 0 1}
-        assert_error {*NOPERM*keys*} {$r2 bitfield readstr get u4 0 set u4 0 1}
-        assert_error {*NOPERM*keys*} {$r2 bitfield readstr incrby u4 0 1}
+        assert_error {*NOPERM*key*} {$r2 bitfield readstr set u4 0 1}
+        assert_error {*NOPERM*key*} {$r2 bitfield readstr get u4 0 set u4 0 1}
+        assert_error {*NOPERM*key*} {$r2 bitfield readstr incrby u4 0 1}
     }
 
     test {Test BITFIELD with separate write permission} {
@@ -206,9 +206,9 @@ start_server {tags {"acl external:skip"}} {
         assert_equal PONG [$r2 PING]
 
         # We don't have the permission to READ key.
-        assert_error {*NOPERM*keys*} {$r2 bitfield writestr get u4 0}
-        assert_error {*NOPERM*keys*} {$r2 bitfield writestr set u4 0 1}
-        assert_error {*NOPERM*keys*} {$r2 bitfield writestr incrby u4 0 1}
+        assert_error {*NOPERM*key*} {$r2 bitfield writestr get u4 0}
+        assert_error {*NOPERM*key*} {$r2 bitfield writestr set u4 0 1}
+        assert_error {*NOPERM*key*} {$r2 bitfield writestr incrby u4 0 1}
     }
 
     test {Test BITFIELD with read and write permissions} {
@@ -242,7 +242,7 @@ start_server {tags {"acl external:skip"}} {
         # second selector. We should still show the logically first unmatched key.
         r ACL LOG RESET
         catch {$r2 MGET otherkey someotherkey} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
         set entry [lindex [r ACL LOG] 0]
         assert_equal [dict get $entry username] "acl-log-test-selector"
         assert_equal [dict get $entry context] "toplevel"
@@ -251,7 +251,7 @@ start_server {tags {"acl external:skip"}} {
 
         r ACL LOG RESET
         catch {$r2 MGET key otherkey someotherkey} err
-        assert_match "*NOPERM*keys*" $err
+        assert_match "*NOPERM*key*" $err
         set entry [lindex [r ACL LOG] 0]
         assert_equal [dict get $entry username] "acl-log-test-selector"
         assert_equal [dict get $entry context] "toplevel"
@@ -308,8 +308,8 @@ start_server {tags {"acl external:skip"}} {
 
     test {Test various commands for command permissions} {
         r ACL setuser command-test -@all
-        assert_equal "This user has no permissions to run the 'set' command" [r ACL DRYRUN command-test set somekey somevalue]
-        assert_equal "This user has no permissions to run the 'get' command" [r ACL DRYRUN command-test get somekey]
+        assert_match {*has no permissions to run the 'set' command*} [r ACL DRYRUN command-test set somekey somevalue]
+        assert_match {*has no permissions to run the 'get' command*} [r ACL DRYRUN command-test get somekey]
     }
 
     test {Test various odd commands for key permissions} {
@@ -317,29 +317,29 @@ start_server {tags {"acl external:skip"}} {
 
         # Test migrate, which is marked with incomplete keys
         assert_equal "OK" [r ACL DRYRUN command-test MIGRATE whatever whatever rw 0 500]
-        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever read 0 500]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever write 0 500]
+        assert_match {*has no permissions to access the 'read' key*} [r ACL DRYRUN command-test MIGRATE whatever whatever read 0 500]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN command-test MIGRATE whatever whatever write 0 500]
         assert_equal "OK" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 KEYS rw]
-        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 KEYS read]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 KEYS write]
+        assert_match "*has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 KEYS read]
+        assert_match "*has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 KEYS write]
         assert_equal "OK" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH KEYS KEYS rw]
-        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH KEYS KEYS read]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH KEYS KEYS write]
+        assert_match "*has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH KEYS KEYS read]
+        assert_match "*has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH KEYS KEYS write]
         assert_equal "OK" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH2 KEYS 123 KEYS rw]
-        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH2 KEYS 123 KEYS read]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH2 KEYS 123 KEYS write]
+        assert_match "*has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH2 KEYS 123 KEYS read]
+        assert_match "*has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH2 KEYS 123 KEYS write]
         assert_equal "OK" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH2 USER KEYS KEYS rw]
-        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH2 USER KEYS KEYS read]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH2 USER KEYS KEYS write]
+        assert_match "*has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH2 USER KEYS KEYS read]
+        assert_match "*has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 AUTH2 USER KEYS KEYS write]
 
         # Test SORT, which is marked with incomplete keys
         assert_equal "OK" [r ACL DRYRUN command-test SORT read STORE write]
-        assert_equal "This user has no permissions to access the 'read' key"  [r ACL DRYRUN command-test SORT read STORE read]
-        assert_equal "This user has no permissions to access the 'write' key"  [r ACL DRYRUN command-test SORT write STORE write]
+        assert_match {*has no permissions to access the 'read' key*}  [r ACL DRYRUN command-test SORT read STORE read]
+        assert_match {*has no permissions to access the 'write' key*}  [r ACL DRYRUN command-test SORT write STORE write]
 
         # Test EVAL, which uses the numkey keyspec (Also test EVAL_RO)
         assert_equal "OK" [r ACL DRYRUN command-test EVAL "" 1 rw1]
-        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test EVAL "" 1 read]
+        assert_match {*has no permissions to access the 'read' key*} [r ACL DRYRUN command-test EVAL "" 1 read]
         assert_equal "OK" [r ACL DRYRUN command-test EVAL_RO "" 1 rw1]
         assert_equal "OK" [r ACL DRYRUN command-test EVAL_RO "" 1 read]
 
@@ -354,12 +354,12 @@ start_server {tags {"acl external:skip"}} {
         # Test GEORADIUS which uses the last type of keyspec, keyword
         assert_equal "OK" [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M STOREDIST write]
         assert_equal "OK" [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M]
-        assert_equal "This user has no permissions to access the 'read2' key" [r ACL DRYRUN command-test GEORADIUS read1 longitude latitude radius M STOREDIST read2]
-        assert_equal "This user has no permissions to access the 'write1' key" [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STOREDIST write2]
+        assert_match {*has no permissions to access the 'read2' key*} [r ACL DRYRUN command-test GEORADIUS read1 longitude latitude radius M STOREDIST read2]
+        assert_match {*has no permissions to access the 'write1' key*} [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STOREDIST write2]
         assert_equal "OK" [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M STORE write]
         assert_equal "OK" [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M]
-        assert_equal "This user has no permissions to access the 'read2' key" [r ACL DRYRUN command-test GEORADIUS read1 longitude latitude radius M STORE read2]
-        assert_equal "This user has no permissions to access the 'write1' key" [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STORE write2]
+        assert_match {*has no permissions to access the 'read2' key*} [r ACL DRYRUN command-test GEORADIUS read1 longitude latitude radius M STORE read2]
+        assert_match {*has no permissions to access the 'write1' key*} [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STORE write2]
     }
 
     # Existence test commands are not marked as access since they are the result
@@ -368,15 +368,15 @@ start_server {tags {"acl external:skip"}} {
     test {Existence test commands are not marked as access} {
         assert_equal "OK" [r ACL DRYRUN command-test HEXISTS read foo]
         assert_equal "OK" [r ACL DRYRUN command-test HEXISTS write foo]
-        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test HEXISTS nothing foo]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test HEXISTS nothing foo]
 
         assert_equal "OK" [r ACL DRYRUN command-test HSTRLEN read foo]
         assert_equal "OK" [r ACL DRYRUN command-test HSTRLEN write foo]
-        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test HSTRLEN nothing foo]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test HSTRLEN nothing foo]
 
         assert_equal "OK" [r ACL DRYRUN command-test SISMEMBER read foo]
         assert_equal "OK" [r ACL DRYRUN command-test SISMEMBER write foo]
-        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test SISMEMBER nothing foo]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test SISMEMBER nothing foo]
     }
 
     # Unlike existence test commands, intersection cardinality commands process the data
@@ -384,42 +384,42 @@ start_server {tags {"acl external:skip"}} {
     # requirement.
     test {Intersection cardinaltiy commands are access commands} {
         assert_equal "OK" [r ACL DRYRUN command-test SINTERCARD 2 read read]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test SINTERCARD 2 write read]
-        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test SINTERCARD 2 nothing read]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN command-test SINTERCARD 2 write read]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test SINTERCARD 2 nothing read]
 
         assert_equal "OK" [r ACL DRYRUN command-test ZCOUNT read 0 1]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test ZCOUNT write 0 1]
-        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test ZCOUNT nothing 0 1]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN command-test ZCOUNT write 0 1]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test ZCOUNT nothing 0 1]
 
         assert_equal "OK" [r ACL DRYRUN command-test PFCOUNT read read]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test PFCOUNT write read]
-        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test PFCOUNT nothing read]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN command-test PFCOUNT write read]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test PFCOUNT nothing read]
 
         assert_equal "OK" [r ACL DRYRUN command-test ZINTERCARD 2 read read]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test ZINTERCARD 2 write read]
-        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test ZINTERCARD 2 nothing read]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN command-test ZINTERCARD 2 write read]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test ZINTERCARD 2 nothing read]
     }
 
     test {Test general keyspace commands require some type of permission to execute} {
         assert_equal "OK" [r ACL DRYRUN command-test touch read]
         assert_equal "OK" [r ACL DRYRUN command-test touch write]
         assert_equal "OK" [r ACL DRYRUN command-test touch rw]
-        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test touch nothing]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test touch nothing]
 
         assert_equal "OK" [r ACL DRYRUN command-test exists read]
         assert_equal "OK" [r ACL DRYRUN command-test exists write]
         assert_equal "OK" [r ACL DRYRUN command-test exists rw]
-        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test exists nothing]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test exists nothing]
 
         assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE read]
         assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE write]
         assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE rw]
-        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test MEMORY USAGE nothing]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test MEMORY USAGE nothing]
 
         assert_equal "OK" [r ACL DRYRUN command-test TYPE read]
         assert_equal "OK" [r ACL DRYRUN command-test TYPE write]
         assert_equal "OK" [r ACL DRYRUN command-test TYPE rw]
-        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test TYPE nothing]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test TYPE nothing]
     }
 
     test {Cardinality commands require some type of permission to execute} {
@@ -428,7 +428,7 @@ start_server {tags {"acl external:skip"}} {
             assert_equal "OK" [r ACL DRYRUN command-test $command read]
             assert_equal "OK" [r ACL DRYRUN command-test $command write]
             assert_equal "OK" [r ACL DRYRUN command-test $command rw]
-            assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test $command nothing]
+            assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test $command nothing]
         }
     }
 
@@ -440,8 +440,8 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "OK" [r ACL DRYRUN test-channels sunsubscribe channel]
         assert_equal "OK" [r ACL DRYRUN test-channels sunsubscribe otherchannel]
 
-        assert_equal "This user has no permissions to access the 'otherchannel' channel" [r ACL DRYRUN test-channels spublish otherchannel foo]
-        assert_equal "This user has no permissions to access the 'otherchannel' channel" [r ACL DRYRUN test-channels ssubscribe otherchannel foo]
+        assert_match {*has no permissions to access the 'otherchannel' channel*} [r ACL DRYRUN test-channels spublish otherchannel foo]
+        assert_match {*has no permissions to access the 'otherchannel' channel*} [r ACL DRYRUN test-channels ssubscribe otherchannel foo]
     }
 
     test {Test sort with ACL permissions} {

@@ -444,7 +444,7 @@ start_server {tags {"modules"}} {
         r acl setuser default resetkeys
 
         catch {r test.rm_call_flags DC set x 10} e
-        assert_match {*ERR acl verification failed, can't access at least one of the keys*} $e
+        assert_match {*NOPERM No permissions to access a key*} $e
         r acl setuser default +@all ~*
         assert_equal [r get x] $x
     }

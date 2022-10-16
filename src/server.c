@@ -3752,28 +3752,9 @@ int processCommand(client *c) {
     int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,acl_errpos,NULL,NULL);
-        switch (acl_retval) {
-        case ACL_DENIED_CMD:
-        {
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to run "
-                "the '%s' command", c->cmd->fullname);
-            break;
-        }
-        case ACL_DENIED_KEY:
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to access "
-                "one of the keys used as arguments");
-            break;
-        case ACL_DENIED_CHANNEL:
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to access "
-                "one of the channels used as arguments");
-            break;
-        default:
-            rejectCommandFormat(c, "no permission");
-            break;
-        }
+        sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
+        rejectCommandFormat(c, "-NOPERM %s", msg);
+        sdsfree(msg);
         return C_OK;
     }
 
