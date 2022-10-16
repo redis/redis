@@ -136,7 +136,7 @@ typedef struct {
                         `PUBLISH` or [P][UNSUBSCRIBE] command, unless the flag
                         ALLCHANNELS is set in the user. */
     sds command_rules; /* A string representation of the ordered categories and commands, this
-                       * is used to regenerate the original ACL string for display. */
+                        * is used to regenerate the original ACL string for display. */
 } aclSelector;
 
 void ACLResetFirstArgsForCommand(aclSelector *selector, unsigned long id);
@@ -528,31 +528,31 @@ void ACLSetSelectorCommandBit(aclSelector *selector, unsigned long id, int value
     }
 }
 
-/* Remove a rule from the original command rules, regardless if it was allowed or 
- * not. Always match "rules" verbatim, but also consider  */
-void ACLSelectorRemoveRule(aclSelector *selector, sds rule) {
+/* Remove a rule from the retained command rules. Always match "rules"
+ * verbatim, but also remove subcommand rules if we are adding or removing the 
+ * entire command.  */
+void ACLSelectorRemoveCommandRule(aclSelector *selector, sds rule) {
     /* Fast exit if rule is not present in the existing command rules */
     char *existing = strstr(selector->command_rules, rule);
     if (!existing) {
         return;
     }
 
-    /* Apply all of the commands and categories next. */
     sds new_rules = sdsempty();
     int argc = 0;
     sds *argv = sdssplitargs(selector->command_rules, &argc);
     serverAssert(argv != NULL);
 
     for(int i = 0; i < argc; i++) {
-        size_t existing_len = sdslen(argv[i]) - 1;
+        size_t arg_len = sdslen(argv[i]) - 1;
         size_t new_len = sdslen(rule);
-        if (!memcmp(argv[i] + 1, rule, min(existing_len, new_len))) {
-            if (existing_len == new_len) {
+        if (!memcmp(argv[i] + 1, rule, min(arg_len, new_len))) {
+            if (arg_len == new_len) {
                 /* Exact match */
                 continue;
-            } else if (existing_len > new_len && (argv[i][1 + new_len]) == '|') {
-                /* We are adding a new command, so remove subcommands */
-                serverAssert(argv[i][2] != '@');
+            } else if (arg_len > new_len && (argv[i][1 + new_len]) == '|') {
+                /* The rule we are comparing is a subcommand. */
+                serverAssert(rule[0] != '@');
                 continue;
             }
 
@@ -565,13 +565,13 @@ void ACLSelectorRemoveRule(aclSelector *selector, sds rule) {
     selector->command_rules = new_rules;
 }
 
-/* When categories or commands are updated, the text with relative ordering is maintained
- * on the selector so that the original access string can be reproduced without loss. */
+/* This function is resopnsible for updating the command_rules struct so that relative ordering of
+ * commands and categories is maintained and can be reproduced without loss. */
 void ACLUpdateCommandRules(aclSelector *selector, const char *rule, int allow) {
     sds new_rule = sdsnew(rule);
     sdstolower(new_rule);
 
-    ACLSelectorRemoveRule(selector, new_rule);
+    ACLSelectorRemoveCommandRule(selector, new_rule);
     if (sdslen(selector->command_rules)) selector->command_rules = sdscat(selector->command_rules, " ");
     selector->command_rules = sdscatfmt(selector->command_rules, allow ? "+%S" : "-%S", new_rule);
     sdsfree(new_rule);
@@ -616,15 +616,14 @@ void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector,
     dictReleaseIterator(di);
 }
 
-/* Set the ACL category on the selector. */
-int ACLSetSelectorCategory(aclSelector *selector, const char *category, int value) {
+int ACLSetSelectorCategory(aclSelector *selector, const char *category, int allow) {
     uint64_t cflag = ACLGetCommandCategoryFlagByName(category + 1);
     if (!cflag) return C_ERR;
-    
-    ACLUpdateCommandRules(selector, category, value);
+
+    ACLUpdateCommandRules(selector, category, allow);
 
     /* Set the actual command bits on the selector. */
-    ACLSetSelectorCommandBitsForCategory(server.orig_commands, selector, cflag, value);
+    ACLSetSelectorCommandBitsForCategory(server.orig_commands, selector, cflag, allow);
     return C_OK;
 }
 
@@ -672,10 +671,8 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
     sds rules = sdsempty();
 
     /* We use this fake selector as a "sanity" check to make sure the rules
-     * we generate have the same bitmap as the on on the current selector. */
-    aclSelector fs = {0};
-    aclSelector *fake_selector = &fs;
-    fake_selector->command_rules = sdsempty();
+     * we generate have the same bitmap as those on the current selector. */
+    aclSelector *fake_selector = ACLCreateSelector(0);
 
     /* Here we want to understand if we should start with +@all and remove
      * the commands corresponding to the bits that are not set in the user
@@ -710,9 +707,7 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
     /* Trim the final useless space. */
     sdsrange(rules,0,-2);
 
-    /* Cleanup the fake selector operations. This needs to be done since
-     * we aren't calling ACL Free user. */
-    sdsfree(fake_selector->command_rules);
+    ACLFreeSelector(fake_selector);
 
     /* This is technically not needed, but we want to verify that now the
      * predicted bitmap is exactly the same as the user bitmap, and abort
@@ -830,8 +825,6 @@ void ACLResetFirstArgsForCommand(aclSelector *selector, unsigned long id) {
         zfree(selector->allowed_firstargs[id]);
         selector->allowed_firstargs[id] = NULL;
     }
-
-    /* TODO: Clear out the extra args */
 }
 
 /* Flush the entire table of first-args. This is useful on +@all, -@all

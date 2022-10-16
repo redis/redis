@@ -512,13 +512,13 @@ start_server {tags {"acl external:skip"}} {
         }
     }
 
-    # Test that only self-consistent ACL compactions occur.
+    # Test that only lossless compation of ACLs occur.
     test {ACL GETUSER provides correct results} {
         r ACL SETUSER adv-test
         r ACL SETUSER adv-test +@all -@hash -@slow +hget
         assert_equal "+@all -@hash -@slow +hget" [dict get [r ACL getuser adv-test] commands]
 
-        # Categories are re-ordered if re-added and reset command bits
+        # Categories are re-ordered if re-added
         r ACL SETUSER adv-test -@hash
         assert_equal "+@all -@slow +hget -@hash" [dict get [r ACL getuser adv-test] commands]
 
@@ -529,6 +529,8 @@ start_server {tags {"acl external:skip"}} {
         # Inverting the all category compacts everything
         r ACL SETUSER adv-test -@all
         assert_equal "-@all" [dict get [r ACL getuser adv-test] commands]
+        r ACL SETUSER adv-test -@string -@slow +@all
+        assert_equal "+@all" [dict get [r ACL getuser adv-test] commands]
 
         # Make sure categories are case insensitive
         r ACL SETUSER adv-test -@all +@HASH +@hash +@HaSh
