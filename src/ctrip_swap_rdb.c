@@ -692,6 +692,12 @@ void rdbLoadStartLenMeta(struct rdbKeyLoadData *load, rio *rdb, int *cf,
         return;
     }
 
+    if (len == 0) {
+        sdsfree(header);
+        *error = RDB_LOAD_ERR_EMPTY_KEY;
+        return;
+    }
+
     load->total_fields = len;
     extend = rocksEncodeObjectMetaLen(len);
 
