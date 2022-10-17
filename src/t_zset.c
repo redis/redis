@@ -1810,7 +1810,7 @@ void zremCommand(client *c) {
     for (j = 2; j < c->argc; j++) {
         if (zsetDel(zobj,c->argv[j]->ptr)) deleted++;
         if (zsetLength(zobj) == 0) {
-            dbDelete(c->db,key,DB_FLAG_KEY_DELETED);
+            dbDelete(c->db,key);
             keyremoved = 1;
             break;
         }
@@ -1901,7 +1901,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             break;
         }
         if (zzlLength(zobj->ptr) == 0) {
-            dbDelete(c->db,key,DB_FLAG_KEY_DELETED);
+            dbDelete(c->db,key);
             keyremoved = 1;
         }
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -1920,7 +1920,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
         }
         if (htNeedsResize(zs->dict)) dictResize(zs->dict);
         if (dictSize(zs->dict) == 0) {
-            dbDelete(c->db,key,DB_FLAG_KEY_DELETED);
+            dbDelete(c->db,key);
             keyremoved = 1;
         }
     } else {
@@ -2779,7 +2779,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             server.dirty++;
         } else {
             addReply(c, shared.czero);
-            if (dbDelete(c->db, dstkey, DB_FLAG_KEY_DELETED)) {
+            if (dbDelete(c->db, dstkey)) {
                 signalModifiedKey(c, c->db, dstkey);
                 notifyKeyspaceEvent(NOTIFY_GENERIC, "del", dstkey, c->db->id);
                 server.dirty++;
@@ -2989,7 +2989,7 @@ static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t res
         server.dirty++;
     } else {
         addReply(handler->client, shared.czero);
-        if (dbDelete(handler->client->db, handler->dstkey, DB_FLAG_KEY_DELETED)) {
+        if (dbDelete(handler->client->db, handler->dstkey)) {
             signalModifiedKey(handler->client, handler->client->db, handler->dstkey);
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", handler->dstkey, handler->client->db->id);
             server.dirty++;
@@ -3938,7 +3938,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
     if (zsetLength(zobj) == 0) {
         if (deleted) *deleted = 1;
 
-        dbDelete(c->db,key,DB_FLAG_KEY_DELETED);
+        dbDelete(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
     }
 

@@ -3117,7 +3117,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                     /* This flag is useful for DEBUG RELOAD special modes.
                      * When it's set we allow new keys to replace the current
                      * keys with the same name. */
-                    dbSyncDelete(db,&keyobj,DB_FLAG_KEY_DELETED);
+                    dbSyncDelete(db,&keyobj);
                     dbAddRDBLoad(db,key,val);
                 } else {
                     serverLog(LL_WARNING,

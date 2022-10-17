@@ -637,8 +637,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (checkAlreadyExpired(when)) {
         robj *aux;
 
-        int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key,DB_FLAG_KEY_EXPIRED) :
-                                                    dbSyncDelete(c->db,key,DB_FLAG_KEY_EXPIRED);
+        int deleted = dbGenericDelete(c->db,key,server.lazyfree_lazy_expire,DB_FLAG_KEY_EXPIRED);
         serverAssertWithInfo(c,key,deleted);
         server.dirty++;
 

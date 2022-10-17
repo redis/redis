@@ -784,7 +784,7 @@ void bitopCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
         decrRefCount(o);
         server.dirty++;
-    } else if (dbDelete(c->db,targetkey,DB_FLAG_KEY_DELETED)) {
+    } else if (dbDelete(c->db,targetkey)) {
         signalModifiedKey(c,c->db,targetkey);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
         server.dirty++;

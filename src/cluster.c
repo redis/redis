@@ -6116,7 +6116,7 @@ void restoreCommand(client *c) {
     /* Remove the old key if needed. */
     int deleted = 0;
     if (replace)
-        deleted = dbDelete(c->db,key,DB_FLAG_KEY_DELETED);
+        deleted = dbDelete(c->db,key);
 
     if (ttl && !absttl) ttl+=mstime();
     if (ttl && checkAlreadyExpired(ttl)) {
@@ -6507,7 +6507,7 @@ try_again:
         } else {
             if (!copy) {
                 /* No COPY option: remove the local key, signal the change. */
-                dbDelete(c->db,kv[j],DB_FLAG_KEY_DELETED);
+                dbDelete(c->db,kv[j]);
                 signalModifiedKey(c,c->db,kv[j]);
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",kv[j],c->db->id);
                 server.dirty++;
@@ -7088,7 +7088,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         sds sdskey = dictGetKey(de);
         de = dictEntryNextInSlot(de);
         robj *key = createStringObject(sdskey, sdslen(sdskey));
-        dbDelete(&server.db[0], key, DB_FLAG_KEY_DELETED);
+        dbDelete(&server.db[0], key);
         propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
         propagatePendingCommands();
         signalModifiedKey(NULL, &server.db[0], key);

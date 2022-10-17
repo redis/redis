@@ -679,7 +679,7 @@ int moduleDelKeyIfEmpty(RedisModuleKey *key) {
 
     if (isempty) {
         if (key->iter) moduleFreeKeyIterator(key);
-        dbDelete(key->db,key->key,DB_FLAG_KEY_DELETED);
+        dbDelete(key->db,key->key);
         key->value = NULL;
         return 1;
     } else {
@@ -3803,7 +3803,7 @@ size_t RM_ValueLength(RedisModuleKey *key) {
 int RM_DeleteKey(RedisModuleKey *key) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value) {
-        dbDelete(key->db,key->key,DB_FLAG_KEY_DELETED);
+        dbDelete(key->db,key->key);
         key->value = NULL;
     }
     return REDISMODULE_OK;
@@ -3817,7 +3817,7 @@ int RM_DeleteKey(RedisModuleKey *key) {
 int RM_UnlinkKey(RedisModuleKey *key) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value) {
-        dbAsyncDelete(key->db,key->key,DB_FLAG_KEY_DELETED);
+        dbAsyncDelete(key->db,key->key);
         key->value = NULL;
     }
     return REDISMODULE_OK;

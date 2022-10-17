@@ -3109,8 +3109,9 @@ void dbOverwrite(redisDb *db, robj *key, robj *val);
 #define SETKEY_DOESNT_EXIST 8
 void setKey(client *c, redisDb *db, robj *key, robj *val, int flags);
 robj *dbRandomKey(redisDb *db);
-int dbSyncDelete(redisDb *db, robj *key, int flags);
-int dbDelete(redisDb *db, robj *key, int flags);
+int dbGenericDelete(redisDb *db, robj *key, int async, int flags);
+int dbSyncDelete(redisDb *db, robj *key);
+int dbDelete(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
@@ -3129,7 +3130,7 @@ void signalModifiedKey(client *c, redisDb *db, robj *key);
 void signalFlushedDb(int dbid, int async);
 void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
-int dbAsyncDelete(redisDb *db, robj *key, int flags);
+int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
