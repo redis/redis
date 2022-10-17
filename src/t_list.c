@@ -305,6 +305,14 @@ void linsertCommand(client *c) {
     if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,OBJ_LIST)) return;
 
+    /* lrem/linsert modifies list by value and may insert/rem in the middle,
+     * so it requires that all elements are hot (we can't predict whether
+     * value matches request) and update index cascade, since all elements
+     * are hot, we just delete list meta and make it a pure hot key so that
+     * there's no need to update list meta. */
+    if (server.swap_mode != SWAP_MODE_MEMORY)
+        serverAssert(lookupMeta(c->db,c->argv[1]) == NULL);
+
     /* Seek pivot from head to tail */
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
     while (listTypeNext(iter,&entry)) {
@@ -715,6 +723,14 @@ void lremCommand(client *c) {
 
     subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);
     if (subject == NULL || checkType(c,subject,OBJ_LIST)) return;
+
+    /* lrem/linsert modifies list by value and may insert/rem in the middle,
+     * so it requires that all elements are hot (we can't predict whether
+     * value matches request) and update index cascade, since all elements
+     * are hot, we just delete list meta and make it a pure hot key so that
+     * there's no need to update list meta. */
+    if (server.swap_mode != SWAP_MODE_MEMORY)
+        serverAssert(lookupMeta(c->db,c->argv[1]) == NULL);
 
     listTypeIterator *li;
     if (toremove < 0) {
