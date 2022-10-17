@@ -40,6 +40,8 @@
 RedisModuleDict *event_log = NULL;
 /* stores all the keys on which we got 'removed' event */
 RedisModuleDict *removed_event_log = NULL;
+/* stores all the subevent on which we got 'removed' event */
+RedisModuleDict *removed_subevent_type = NULL;
 /* stores all the keys on which we got 'removed' event with expiry information */
 RedisModuleDict *removed_expiry_log = NULL;
 
@@ -286,13 +288,10 @@ void configChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
 void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
 {
     REDISMODULE_NOT_USED(e);
-    if (sub != REDISMODULE_SUBEVENT_KEY_DELETED) {
-        return;
-    }
 
     RedisModuleKeyInfoV1 *ei = data;
     RedisModuleString *key = ei->key;
-    const char* keyname = RedisModule_StringPtrLen(key, NULL);
+    const char *keyname = RedisModule_StringPtrLen(key, NULL);
     RedisModuleString *event_keyname = RedisModule_CreateStringPrintf(ctx, "key-info-%s", keyname);
     LogStringEvent(ctx, RedisModule_StringPtrLen(event_keyname, NULL), keyname);
     RedisModule_FreeString(ctx, event_keyname);
@@ -316,6 +315,14 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
         RedisModule_FreeString(ctx, prev);
     }
 
+    const char *subevent = "deleted";
+    if (sub == REDISMODULE_SUBEVENT_KEY_EXPIRED) {
+        subevent = "expired";
+    } else if (sub == REDISMODULE_SUBEVENT_KEY_EVICTED) {
+        subevent = "evicted";
+    }
+    RedisModule_DictReplaceC(removed_subevent_type, (void*)keyname, strlen(keyname), (void *)subevent);
+
     mstime_t expire = RedisModule_GetAbsExpire(kp);
     RedisModule_DictReplaceC(removed_expiry_log, (void*)keyname, strlen(keyname), (void *)expire);
 
@@ -327,14 +334,20 @@ static int cmdIsKeyRemoved(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         return RedisModule_WrongArity(ctx);
     }
 
-    const char* key  = RedisModule_StringPtrLen(argv[1], NULL);
+    const char *key  = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleString* keyStr = RedisModule_DictGetC(removed_event_log, (void*)key, strlen(key), NULL);
+    RedisModuleString *value = RedisModule_DictGetC(removed_event_log, (void*)key, strlen(key), NULL);
 
-    if (keyStr == NULL) {
+    if (value == NULL) {
         return RedisModule_ReplyWithError(ctx, "ERR Key was not removed");
     }
-    return RedisModule_ReplyWithString(ctx, keyStr);
+
+    const char *subevent = RedisModule_DictGetC(removed_subevent_type, (void*)key, strlen(key), NULL);
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithString(ctx, value);
+    RedisModule_ReplyWithSimpleString(ctx, subevent);
+
+    return REDISMODULE_OK;
 }
 
 static int cmdKeyExpiry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
@@ -406,6 +419,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     event_log = RedisModule_CreateDict(ctx);
     removed_event_log = RedisModule_CreateDict(ctx);
+    removed_subevent_type = RedisModule_CreateDict(ctx);
     removed_expiry_log = RedisModule_CreateDict(ctx);
 
     if (RedisModule_CreateCommand(ctx,"hooks.event_count", cmdEventCount,"",0,0,0) == REDISMODULE_ERR)
@@ -437,6 +451,9 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeDict(ctx, removed_event_log);
     RedisModule_DictIteratorStop(iter);
     removed_event_log = NULL;
+
+    RedisModule_FreeDict(ctx, removed_subevent_type);
+    removed_subevent_type = NULL;
 
     RedisModule_FreeDict(ctx, removed_expiry_log);
     removed_expiry_log = NULL;

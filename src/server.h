@@ -283,6 +283,12 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 /* Key flags for when access type is unknown */
 #define CMD_KEY_FULL_ACCESS (CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE)
 
+/* Key flags for how key is removed */
+#define DB_FLAG_KEY_NONE 0
+#define DB_FLAG_KEY_DELETED (1ULL<<0)
+#define DB_FLAG_KEY_EXPIRED (1ULL<<1)
+#define DB_FLAG_KEY_EVICTED (1ULL<<2)
+
 /* Channel flags share the same flag space as the key flags */
 #define CMD_CHANNEL_PATTERN (1ULL<<11)     /* The argument is a channel pattern */
 #define CMD_CHANNEL_SUBSCRIBE (1ULL<<12)   /* The command subscribes to channels */
@@ -2396,7 +2402,7 @@ void moduleUnblockClient(client *c);
 int moduleBlockedClientMayTimeout(client *c);
 int moduleClientIsBlockedOnKeys(client *c);
 void moduleNotifyUserChanged(client *c);
-void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid);
+void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags);
 size_t moduleGetFreeEffort(robj *key, robj *val, int dbid);
 size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid);
 robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj *value);
@@ -3103,8 +3109,8 @@ void dbOverwrite(redisDb *db, robj *key, robj *val);
 #define SETKEY_DOESNT_EXIST 8
 void setKey(client *c, redisDb *db, robj *key, robj *val, int flags);
 robj *dbRandomKey(redisDb *db);
-int dbSyncDelete(redisDb *db, robj *key);
-int dbDelete(redisDb *db, robj *key);
+int dbSyncDelete(redisDb *db, robj *key, int flags);
+int dbDelete(redisDb *db, robj *key, int flags);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
@@ -3123,7 +3129,7 @@ void signalModifiedKey(client *c, redisDb *db, robj *key);
 void signalFlushedDb(int dbid, int async);
 void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
-int dbAsyncDelete(redisDb *db, robj *key);
+int dbAsyncDelete(redisDb *db, robj *key, int flags);
 void emptyDbAsync(redisDb *db);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);

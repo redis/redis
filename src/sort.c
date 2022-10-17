@@ -582,7 +582,7 @@ void sortCommandGeneric(client *c, int readonly) {
             notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
                                 c->db->id);
             server.dirty += outputlen;
-        } else if (dbDelete(c->db,storekey)) {
+        } else if (dbDelete(c->db,storekey,DB_FLAG_KEY_DELETED)) {
             signalModifiedKey(c,c->db,storekey);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
             server.dirty++;

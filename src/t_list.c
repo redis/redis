@@ -473,7 +473,7 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, i
     if (listTypeLength(o) == 0) {
         if (deleted) *deleted = 1;
 
-        dbDelete(c->db, key);
+        dbDelete(c->db, key, DB_FLAG_KEY_DELETED);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
     } else {
         if (deleted) *deleted = 0;
@@ -637,7 +637,7 @@ void ltrimCommand(client *c) {
 
     notifyKeyspaceEvent(NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
     if (listTypeLength(o) == 0) {
-        dbDelete(c->db,c->argv[1]);
+        dbDelete(c->db,c->argv[1],DB_FLAG_KEY_DELETED);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
@@ -795,7 +795,7 @@ void lremCommand(client *c) {
     }
 
     if (listTypeLength(subject) == 0) {
-        dbDelete(c->db,c->argv[1]);
+        dbDelete(c->db,c->argv[1],DB_FLAG_KEY_DELETED);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
@@ -869,7 +869,7 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
                             touchedkey,
                             c->db->id);
         if (listTypeLength(sobj) == 0) {
-            dbDelete(c->db,touchedkey);
+            dbDelete(c->db,touchedkey,DB_FLAG_KEY_DELETED);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
                                 touchedkey,c->db->id);
         }
@@ -1012,7 +1012,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
     if (listTypeLength(o) == 0) {
         if (deleted) *deleted = 1;
 
-        dbDelete(receiver->db, key);
+        dbDelete(receiver->db, key, DB_FLAG_KEY_DELETED);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, receiver->db->id);
     }
     /* We don't call signalModifiedKey() as it was already called

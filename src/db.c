@@ -231,7 +231,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     /* Although the key is not really deleted from the database, we regard 
      * overwrite as two steps of unlink+add, so we still need to call the unlink
      * callback of the module. */
-    moduleNotifyKeyUnlink(key,old,db->id);
+    moduleNotifyKeyUnlink(key,old,db->id,DB_FLAG_KEY_DELETED);
     /* We want to try to unblock any client using a blocking XREADGROUP */
     if (old->type == OBJ_STREAM)
         signalKeyAsReady(db,key,old->type);
@@ -316,7 +316,7 @@ robj *dbRandomKey(redisDb *db) {
 }
 
 /* Helper for sync and async delete. */
-static int dbGenericDelete(redisDb *db, robj *key, int async) {
+static int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
     dictEntry **plink;
     int table;
     dictEntry *de = dictTwoPhaseUnlinkFind(db->dict,key->ptr,&plink,&table);
@@ -326,7 +326,7 @@ static int dbGenericDelete(redisDb *db, robj *key, int async) {
          * need to incr to retain val */
         incrRefCount(val);
         /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,val,db->id);
+        moduleNotifyKeyUnlink(key,val,db->id, flags);
         /* We want to try to unblock any client using a blocking XREADGROUP */
         if (val->type == OBJ_STREAM)
             signalKeyAsReady(db,key,val->type);
@@ -351,20 +351,20 @@ static int dbGenericDelete(redisDb *db, robj *key, int async) {
 }
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
-int dbSyncDelete(redisDb *db, robj *key) {
-    return dbGenericDelete(db, key, 0);
+int dbSyncDelete(redisDb *db, robj *key, int flags) {
+    return dbGenericDelete(db, key, 0, flags);
 }
 
 /* Delete a key, value, and associated expiration entry if any, from the DB. If
  * the value consists of many allocations, it may be freed asynchronously. */
-int dbAsyncDelete(redisDb *db, robj *key) {
-    return dbGenericDelete(db, key, 1);
+int dbAsyncDelete(redisDb *db, robj *key, int flags) {
+    return dbGenericDelete(db, key, 1, flags);
 }
 
 /* This is a wrapper whose behavior depends on the Redis lazy free
  * configuration. Deletes the key synchronously or asynchronously. */
-int dbDelete(redisDb *db, robj *key) {
-    return dbGenericDelete(db, key, server.lazyfree_lazy_server_del);
+int dbDelete(redisDb *db, robj *key, int flags) {
+    return dbGenericDelete(db, key, server.lazyfree_lazy_server_del, flags);
 }
 
 /* Prepare the string object stored at 'key' to be modified destructively
@@ -691,8 +691,8 @@ void delGenericCommand(client *c, int lazy) {
 
     for (j = 1; j < c->argc; j++) {
         expireIfNeeded(c->db,c->argv[j],0);
-        int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
-                              dbSyncDelete(c->db,c->argv[j]);
+        int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j],DB_FLAG_KEY_DELETED) :
+                              dbSyncDelete(c->db,c->argv[j],DB_FLAG_KEY_DELETED);
         if (deleted) {
             signalModifiedKey(c,c->db,c->argv[j]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -1160,11 +1160,11 @@ void renameGenericCommand(client *c, int nx) {
         }
         /* Overwrite: delete the old key before creating the new one
          * with the same name. */
-        dbDelete(c->db,c->argv[2]);
+        dbDelete(c->db,c->argv[2],DB_FLAG_KEY_DELETED);
     }
     dbAdd(c->db,c->argv[2],o);
     if (expire != -1) setExpire(c,c->db,c->argv[2],expire);
-    dbDelete(c->db,c->argv[1]);
+    dbDelete(c->db,c->argv[1],DB_FLAG_KEY_DELETED);
     signalModifiedKey(c,c->db,c->argv[1]);
     signalModifiedKey(c,c->db,c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
@@ -1233,7 +1233,7 @@ void moveCommand(client *c) {
     incrRefCount(o);
 
     /* OK! key moved, free the entry in the source DB */
-    dbDelete(src,c->argv[1]);
+    dbDelete(src,c->argv[1],DB_FLAG_KEY_DELETED);
     signalModifiedKey(c,src,c->argv[1]);
     signalModifiedKey(c,dst,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -1333,7 +1333,7 @@ void copyCommand(client *c) {
     }
 
     if (delete) {
-        dbDelete(dst,newkey);
+        dbDelete(dst,newkey,DB_FLAG_KEY_DELETED);
     }
 
     dbAdd(dst,newkey,newobj);
@@ -1580,9 +1580,9 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
     mstime_t expire_latency;
     latencyStartMonitor(expire_latency);
     if (server.lazyfree_lazy_expire)
-        dbAsyncDelete(db,keyobj);
+        dbAsyncDelete(db,keyobj,DB_FLAG_KEY_EXPIRED);
     else
-        dbSyncDelete(db,keyobj);
+        dbSyncDelete(db,keyobj,DB_FLAG_KEY_EXPIRED);
     latencyEndMonitor(expire_latency);
     latencyAddSampleIfNeeded("expire-del",expire_latency);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,"expired",keyobj,db->id);

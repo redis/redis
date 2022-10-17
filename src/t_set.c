@@ -334,7 +334,7 @@ void sremCommand(client *c) {
         if (setTypeRemove(set,c->argv[j]->ptr)) {
             deleted++;
             if (setTypeSize(set) == 0) {
-                dbDelete(c->db,c->argv[1]);
+                dbDelete(c->db,c->argv[1],DB_FLAG_KEY_DELETED);
                 keyremoved = 1;
                 break;
             }
@@ -384,7 +384,7 @@ void smoveCommand(client *c) {
 
     /* Remove the src set from the database when empty */
     if (setTypeSize(srcset) == 0) {
-        dbDelete(c->db,c->argv[1]);
+        dbDelete(c->db,c->argv[1],DB_FLAG_KEY_DELETED);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
@@ -489,7 +489,7 @@ void spopWithCountCommand(client *c) {
         sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
 
         /* Delete the set as it is now empty */
-        dbDelete(c->db,c->argv[1]);
+        dbDelete(c->db,c->argv[1],DB_FLAG_KEY_DELETED);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 
         /* todo: Move the spop notification to be executed after the command logic. */
@@ -639,7 +639,7 @@ void spopCommand(client *c) {
 
     /* Delete the set if it's empty */
     if (setTypeSize(set) == 0) {
-        dbDelete(c->db,c->argv[1]);
+        dbDelete(c->db,c->argv[1],DB_FLAG_KEY_DELETED);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
@@ -892,7 +892,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
     if (empty > 0) {
         zfree(sets);
         if (dstkey) {
-            if (dbDelete(c->db,dstkey)) {
+            if (dbDelete(c->db,dstkey,DB_FLAG_KEY_DELETED)) {
                 signalModifiedKey(c,c->db,dstkey);
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
                 server.dirty++;
@@ -994,7 +994,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
             server.dirty++;
         } else {
             addReply(c,shared.czero);
-            if (dbDelete(c->db,dstkey)) {
+            if (dbDelete(c->db,dstkey,DB_FLAG_KEY_DELETED)) {
                 server.dirty++;
                 signalModifiedKey(c,c->db,dstkey);
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
@@ -1203,7 +1203,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             server.dirty++;
         } else {
             addReply(c,shared.czero);
-            if (dbDelete(c->db,dstkey)) {
+            if (dbDelete(c->db,dstkey,DB_FLAG_KEY_DELETED)) {
                 server.dirty++;
                 signalModifiedKey(c,c->db,dstkey);
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);

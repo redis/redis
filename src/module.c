@@ -679,7 +679,7 @@ int moduleDelKeyIfEmpty(RedisModuleKey *key) {
 
     if (isempty) {
         if (key->iter) moduleFreeKeyIterator(key);
-        dbDelete(key->db,key->key);
+        dbDelete(key->db,key->key,DB_FLAG_KEY_DELETED);
         key->value = NULL;
         return 1;
     } else {
@@ -3803,7 +3803,7 @@ size_t RM_ValueLength(RedisModuleKey *key) {
 int RM_DeleteKey(RedisModuleKey *key) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value) {
-        dbDelete(key->db,key->key);
+        dbDelete(key->db,key->key,DB_FLAG_KEY_DELETED);
         key->value = NULL;
     }
     return REDISMODULE_OK;
@@ -3817,7 +3817,7 @@ int RM_DeleteKey(RedisModuleKey *key) {
 int RM_UnlinkKey(RedisModuleKey *key) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value) {
-        dbAsyncDelete(key->db,key->key);
+        dbAsyncDelete(key->db,key->key,DB_FLAG_KEY_DELETED);
         key->value = NULL;
     }
     return REDISMODULE_OK;
@@ -10829,12 +10829,18 @@ void processModuleLoadingProgressEvent(int is_aof) {
     }
 }
 
-/* When a key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it 
+/* When a key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it
 *  will be called to tell the module which key is about to be released. */
-void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
+void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
     server.lazy_expire_disabled++;
+    int subevent = REDISMODULE_SUBEVENT_KEY_DELETED;
+    if (flags & DB_FLAG_KEY_EXPIRED) {
+        subevent = REDISMODULE_SUBEVENT_KEY_EXPIRED;
+    } else if (flags & DB_FLAG_KEY_EVICTED) {
+        subevent = REDISMODULE_SUBEVENT_KEY_EVICTED;
+    }
     RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, dbid, key};
-    moduleFireServerEvent(REDISMODULE_EVENT_KEY, REDISMODULE_SUBEVENT_KEY_DELETED, &ki);
+    moduleFireServerEvent(REDISMODULE_EVENT_KEY, subevent, &ki);
     server.lazy_expire_disabled--;
 
     if (val->type == OBJ_MODULE) {

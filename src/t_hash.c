@@ -765,7 +765,7 @@ void hdelCommand(client *c) {
         if (hashTypeDelete(o,c->argv[j]->ptr)) {
             deleted++;
             if (hashTypeLength(o) == 0) {
-                dbDelete(c->db,c->argv[1]);
+                dbDelete(c->db,c->argv[1],DB_FLAG_KEY_DELETED);
                 keyremoved = 1;
                 break;
             }

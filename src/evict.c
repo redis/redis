@@ -681,9 +681,9 @@ int performEvictions(void) {
             delta = (long long) zmalloc_used_memory();
             latencyStartMonitor(eviction_latency);
             if (server.lazyfree_lazy_eviction)
-                dbAsyncDelete(db,keyobj);
+                dbAsyncDelete(db,keyobj,DB_FLAG_KEY_EVICTED);
             else
-                dbSyncDelete(db,keyobj);
+                dbSyncDelete(db,keyobj,DB_FLAG_KEY_EVICTED);
             latencyEndMonitor(eviction_latency);
             latencyAddSampleIfNeeded("eviction-del",eviction_latency);
             delta -= (long long) zmalloc_used_memory();
