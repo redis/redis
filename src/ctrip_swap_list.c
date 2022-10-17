@@ -1266,13 +1266,21 @@ int listSwapAna(swapData *data, struct keyRequest *req,
         *intention_flags = 0;
         break;
     case SWAP_IN:
-        if (!swapDataPersisted(data) || swapDataIsHot(data)) {
-            /* No need to swap for pure hot key (list hot is pure hot) */
+        if (!swapDataPersisted(data)) {
+            /* No need to swap for pure hot key */
+            *intention = SWAP_NOP;
+            *intention_flags = 0;
+        } else if (swapDataIsHot(data)) {
+            /* If key is hot, swapAna must be executing in main-thread,
+             * we can safely delete meta and turn hot key into pure hot key,
+             * which is require for LREM/LINSERT because those command do
+             * not maintain list meta. */
+            dbDeleteMeta(data->db,data->key);
             *intention = SWAP_NOP;
             *intention_flags = 0;
         } else if (req->l.num_ranges == 0) {
             if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
-                mockListForDeleteIfCold(data);
+                mockListForDeleteIfCold(data); //FIXME concurrent issue
                 *intention = SWAP_DEL;
                 *intention_flags = SWAP_FIN_DEL_SKIP;
             } else if (cmd_intention_flags == SWAP_IN_META) {
@@ -1288,7 +1296,7 @@ int listSwapAna(swapData *data, struct keyRequest *req,
                             first_seg->index,1);
                     datactx->swap_meta = swap_meta;
                     *intention = SWAP_IN;
-                    *intention_flags = SWAP_IN_DEL;
+                    *intention_flags = SWAP_EXEC_IN_DEL;
                 }
             } else {
                 /* LINSERT/LREM/LPOS, swap in all elements */
@@ -1360,7 +1368,13 @@ int listSwapAna(swapData *data, struct keyRequest *req,
         }
         break;
     case SWAP_DEL:
-        if (!swapDataPersisted(data) || swapDataIsHot(data)) {
+        if (!swapDataPersisted(data)) {
+            *intention = SWAP_NOP;
+            *intention_flags = 0;
+        } else if (swapDataIsHot(data)) {
+            /* If key is hot, swapAna must be executing in main-thread,
+             * we can safely delete meta. */
+            dbDeleteMeta(data->db,data->key);
             *intention = SWAP_NOP;
             *intention_flags = 0;
         } else {
