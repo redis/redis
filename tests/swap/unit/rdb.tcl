@@ -9,6 +9,7 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
         assert_equal [r object encoding hashbig] hashtable
 
         # decoded as hashtable in rocksdb, loaded as ziplist
+        r evict hashbig;
         r config set hash-max-ziplist-entries 512
         assert_equal [r object encoding hashbig] ziplist
 

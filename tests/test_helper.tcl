@@ -107,7 +107,6 @@ set ::disk_tests {
     integration/psync2-pingoff
     integration/failover
     integration/corrupt-dump
-    integration/corrupt-dump-fuzzer
     integration/convert-zipmap-hash-on-load
     integration/redis-benchmark
     swap/tmp_tests/rdb

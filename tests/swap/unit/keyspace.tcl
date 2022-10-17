@@ -162,8 +162,10 @@ start_server {tags {"keyspace"}} {
         r copy mylist mynewlist
         set digest [r debug digest-value mylist]
         assert_equal $digest [r debug digest-value mynewlist]
-        assert_equal 1 [r object refcount mylist]
-        assert_equal 1 [r object refcount mynewlist]
+        set mylist_ref [r object refcount mylist]
+        set mynewlist_ref [r object refcount mynewlist]
+        assert {$mylist_ref==1 || $mylist_ref==2}
+        assert {$mynewlist_ref==1 || $mynewlist_ref==2}
         r del mylist
         assert_equal $digest [r debug digest-value mynewlist]
     }
@@ -175,8 +177,10 @@ start_server {tags {"keyspace"}} {
         r copy set1 newset1
         set digest [r debug digest-value set1]
         assert_equal $digest [r debug digest-value newset1]
-        assert_equal 1 [r object refcount set1]
-        assert_equal 1 [r object refcount newset1]
+        set set1_ref [r object refcount set1]
+        set newset1_ref [r object refcount newset1]
+        assert {$set1_ref==1 || $set1_ref==2}
+        assert {$newset1_ref==1 || $newset1_ref==2}
         r del set1
         assert_equal $digest [r debug digest-value newset1]
     }
@@ -188,8 +192,10 @@ start_server {tags {"keyspace"}} {
         r copy set2 newset2
         set digest [r debug digest-value set2]
         assert_equal $digest [r debug digest-value newset2]
-        assert_equal 1 [r object refcount set2]
-        assert_equal 1 [r object refcount newset2]
+        set set2_ref [r object refcount set2]
+        set newset2_ref [r object refcount newset2]
+        assert {$set2_ref==1 || $set2_ref==2}
+        assert {$newset2_ref==1 || $newset2_ref==2}
         r del set2
         assert_equal $digest [r debug digest-value newset2]
     }

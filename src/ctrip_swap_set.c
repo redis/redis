@@ -401,6 +401,7 @@ void *setCreateOrMergeObject(swapData *data, void *decoded_, void *datactx) {
         while (NULL != (subkey = setTypeNextObject(si))) {
             int updated = setTypeAdd(data->value, subkey);
             if (updated) swapDataObjectMetaModifyLen(data,-1);
+            sdsfree(subkey);
         }
         setTypeReleaseIterator(si);
         /* decoded merged, we can release it now. */
