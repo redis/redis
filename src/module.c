@@ -7401,13 +7401,13 @@ RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleC
 }
 
 /* Same as RedisModule_BlockClientOnKeys, but can take REDISMODULE_BLOCK_* flags
- * Can be either REDISMODULE_BLOCK_UNBLOCK_NONE, which means default behavior (same
+ * Can be either REDISMODULE_BLOCK_UNBLOCK_DEFAULT, which means default behavior (same
  * as calling RedisModule_BlockClientOnKeys)
  *
  * The flags is a bit mask of these:
  *
  * - `REDISMODULE_BLOCK_UNBLOCK_DELETED`: The clients should to be awakened in case any of `keys` are deleted.
- *                                        Mostly useful for commands the must block on an existing key (like XREADGROUP)
+ *                                        Mostly useful for commands that require the key to exist (like XREADGROUP)
  */
 RedisModuleBlockedClient *RM_BlockClientOnKeysWithFlags(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
                                                         RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
