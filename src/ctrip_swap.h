@@ -918,7 +918,6 @@ void clientUnholdKey(client *c, robj *key);
 
 /* Expire */
 int submitExpireClientRequest(client *c, robj *key);
-int isExpireClientRequest(client *c);
 
 /* Rocks */
 #define ROCKS_DIR_MAX_LEN 512

@@ -28,11 +28,6 @@
 
 #include "ctrip_swap.h"
 
-/* Note that expire clients are used only if key is decided to be expired. */
-int isExpireClientRequest(client *c) {
-    return c->cmd && c->cmd->proc == expiredCommand;
-}
-
 /* Passive expire */
 void expireClientKeyRequestFinished(client *c, swapCtx *ctx) {
     robj *key = ctx->key_request->key;
@@ -469,9 +464,6 @@ void expireSlaveKeysSwapMode(void) {
         while ((ln = listFirst(slave_expiring_keys))) {
             slaveExpiringKey *sek = listNodeValue(ln);
             client *c = server.expire_clients[sek->db->id];
-            /* FIXME expire_client can used only when determined to expire key
-             * but key expire can only be determined after lock get.
-             * similar issue exists for master active expire */
             submitExpireClientRequest(c,sek->key);
             decrRefCount(sek->key);
             zfree(sek);
