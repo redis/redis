@@ -5444,9 +5444,7 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
 void addShardReplyForClusterShards(client *c, list *nodes) {
     serverAssert(listLength(nodes) > 0);
     clusterNode *n = listNodeValue(listFirst(nodes));
-    addReplyMapLen(c, 3);
-    addReplyBulkCString(c, auxFieldHandlers[af_shard_id].field);
-    addReplyBulkCBuffer(c, n->shard_id, CLUSTER_NAMELEN);
+    addReplyMapLen(c, 2);
     addReplyBulkCString(c, "slots");
 
     /* Use slot_info_pairs from the primary only */
