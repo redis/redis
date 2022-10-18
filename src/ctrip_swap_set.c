@@ -120,7 +120,7 @@ int setSwapAna(swapData *data, struct keyRequest *req,
             }
             break;
         case SWAP_OUT:
-            if (data->value == NULL) {
+            if (swapDataIsCold(data)) {
                 *intention = SWAP_NOP;
                 *intention_flags = 0;
             } else {
@@ -295,7 +295,6 @@ int setDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
         if (!swapDataPersisted(data))
             continue;
         subkey = sdsnewlen(subkeystr,slen);
-        serverAssert(memcmp(data->key->ptr,keystr,klen) == 0); //TODO remove
 
         if (NULL == decoded) decoded = setTypeCreate(subkey);
         setTypeAdd(decoded,subkey);
@@ -500,8 +499,6 @@ int setSaveStart(rdbKeySaveData *save, rio *rdb) {
 
 int setSave(rdbKeySaveData *save, rio *rdb, decodedData *decoded) {
     robj *key = save->key;
-
-    /* TODO remove */
     serverAssert(!sdscmp(decoded->key, key->ptr));
 
     if (save->value != NULL) {
@@ -705,13 +702,11 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
     initTestRedisServer();
     redisDb* db = server.db + 0;
     int error = 0;
-    swapData *set1_data, *cold1_data;
-    setDataCtx *set1_ctx, *cold1_ctx;
-    robj *key1, *set1, *cold1, *cold1_evict;
+    swapData *set1_data;
+    setDataCtx *set1_ctx;
+    robj *key1, *set1;
     void *decoded;
     keyRequest _kr1, *kr1 = &_kr1, _cold_kr1, *cold_kr1 = &_cold_kr1;
-    objectMeta *cold1_meta;
-    robj *subkeys1[4];
     sds f1, f2, f3, f4;
     int action, numkeys;
     int oldEvictStep = server.swap_evict_step_max_subkeys;
@@ -725,14 +720,9 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         setTypeAdd(set1, f3);
         setTypeAdd(set1, f4);
         dbAdd(db,key1,set1);
-
-        cold1 = createStringObject("cold1",5);
-        cold1_evict = createObject(OBJ_SET,NULL);
-        cold1_meta = createSetObjectMeta(4);
     }
 
     TEST("set - encodeKeys/encodeData/DecodeData") {
-        robj *origin = setTypeDup(set1);
         set1_data = createSwapData(db, key1,set1);
         swapDataSetupSet(set1_data, (void**)&set1_ctx);
         sds *rawkeys, *rawvals;
@@ -925,7 +915,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
     }
 
     TEST("set - swapIn/swapOut") {
-        robj *s, *e, *result;
+        robj *s, *result;
         objectMeta *m;
         set1_data = createSwapData(db, key1,set1);
         swapDataSetupSet(set1_data, (void**)&set1_ctx);
@@ -1007,11 +997,8 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
     TEST("set - rdbLoad & rdbSave") {
         int err = 0;
         int cf;
-        robj *myset = createSetObject();
         sds rdbv1 = rocksEncodeValRdb(createStringObject("f1", 2));
         sds rdbv2 = rocksEncodeValRdb(createStringObject("f2", 2));
-        sds rdbv3 = rocksEncodeValRdb(createStringObject("f3", 2));
-        sds rdbv4 = rocksEncodeValRdb(createStringObject("f4", 2));
 
         /* rdbLoad - RDB_TYPE_SET */
         set1 = createSetObject();
@@ -1035,7 +1022,6 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         test_assert(memcmp(rocksEncodeMetaKey(db,key1->ptr), subkey, sdslen(subkey)) == 0);
 
         rocksDecodeMetaVal(subraw, sdslen(subraw), &t, &e, &extend, &extlen);
-        sds metaraw = sdsnewlen(extend,extlen);
         buildObjectMeta(t,extend,extlen,&cold_meta);
         test_assert(cold_meta->object_type == OBJ_SET && cold_meta->len == 4 && e == -1);
 
@@ -1066,7 +1052,6 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         test_assert(memcmp(rocksEncodeMetaKey(db,key1->ptr), subkey, sdslen(subkey)) == 0);
 
         rocksDecodeMetaVal(subraw, sdslen(subraw), &t, &e, &extend, &extlen);
-        metaraw = sdsnewlen(extend,extlen);
         buildObjectMeta(t,extend,extlen,&cold_meta);
         test_assert(cold_meta->object_type == OBJ_SET && cold_meta->len == 4 && e == -1);
 
@@ -1085,7 +1070,6 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         /* rdbSave */
         sds coldraw,warmraw,hotraw;
         rio rdbcold, rdbwarm, rdbhot;
-        objectMeta *meta = createSetObjectMeta(2);
         rdbKeySaveData _saveData; rdbKeySaveData  *saveData = &_saveData;
 
         decodedMeta _decoded_meta, *decoded_meta = &_decoded_meta;

@@ -110,7 +110,7 @@ int hashSwapAna(swapData *data, struct keyRequest *req,
         }
         break;
     case SWAP_OUT:
-        if (data->value == NULL) {
+        if (swapDataIsCold(data)) {
             *intention = SWAP_NOP;
             *intention_flags = 0;
         } else {
