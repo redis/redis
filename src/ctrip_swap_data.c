@@ -218,10 +218,8 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
     d->expire = expire;
     d->object_type = object_type;
 
-    if (!swapDataMarkedPropagateExpire(d) &&
-            swapDataExpiredAndShouldDelete(d)) {
+    if (swapDataExpiredAndShouldDelete(d))
         swapDataMarkPropagateExpire(d);
-    }
 
     if (datactx) *datactx = NULL;
 
