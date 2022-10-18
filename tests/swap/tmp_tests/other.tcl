@@ -68,9 +68,13 @@ start_server {overrides {save ""} tags {"other"}} {
                     r debug swapout
                 }
                 set sha1 [r debug digest]
+                set dbsize [r dbsize]
                 r debug reload
                 set sha1_after [r debug digest]
-                if {$sha1 eq $sha1_after} {
+                set dbsize_after [r dbsize]
+                # debug digest not supported in disk swap mode
+                # if {$sha1 eq $sha1_after} {}
+                if {$dbsize eq $dbsize_after} {
                     set _ 1
                 } else {
                     set newdump [csvdump r]

@@ -43,6 +43,7 @@ set ::disk_tests {
     swap/integration/expire_evict
     swap/integration/pipeline
     swap/integration/overwrite
+    swap/integration/replication
     swap/integration/replication-psync
     swap/integration/bgsave
     swap/unit/dirty
@@ -99,7 +100,6 @@ set ::disk_tests {
     unit/pubsub
     integration/logging
     integration/redis-cli
-    integration/replication
     integration/replication-2
     integration/replication-4
     integration/block-repl
