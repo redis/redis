@@ -1380,7 +1380,6 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        finishSwapRequest(req);
        test_assert(req->errcode == 0);
        test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) == NULL);
-       test_assert(getExpire(db,key1) == -1);
        test_assert(!wholeKeyRocksDataExists(db,key1));
        test_assert(!wholeKeyRocksMetaExists(db,key1));
    }

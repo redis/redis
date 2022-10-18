@@ -360,9 +360,12 @@ static int insegment(segment *seg, long index) {
     return seg->index <= index && index < seg->index + seg->len;
 }
 
-// TODO use 32
-// #define SEGMENT_MAX_PADDING 32
-#define SEGMENT_MAX_PADDING 0
+#ifdef REDIS_TEST
+  #define SEGMENT_MAX_PADDING 0
+#else
+  #define SEGMENT_MAX_PADDING 32
+#endif
+
 listMeta *listMetaCalculateSwapInMeta(listMeta *list_meta, listMeta *req_meta) {
     listMeta *swap_meta = listMetaCreate();
 
@@ -1003,13 +1006,14 @@ long metaListMerge(metaList *main, metaList *delta) {
         listMetaFree(orig_delta_meta);
         metaListSwap(main,delta);
         
-        //TODO remove
-        /* sds main_dump = listMetaDump(sdsempty(),main->meta); */
-        /* sds delta_dump = listMetaDump(sdsempty(),delta->meta); */
-        /* serverLog(LL_WARNING,"[list] align: \n  main:%s\n  delta:%s\n", */
-                /* main_dump,delta_dump); */
-        /* sdsfree(main_dump); */
-        /* sdsfree(delta_dump); */
+#ifdef SWAP_LIST_DEBUG
+        sds main_dump = listMetaDump(sdsempty(),main->meta);
+        sds delta_dump = listMetaDump(sdsempty(),delta->meta);
+        serverLog(LL_WARNING,"[list] align: \n  main:%s\n  delta:%s\n",
+                main_dump,delta_dump);
+        sdsfree(main_dump);
+        sdsfree(delta_dump);
+#endif
     }
 
     metaListIterInit(&delta_iter,delta);
@@ -1021,16 +1025,17 @@ long metaListMerge(metaList *main, metaList *delta) {
         merged += metaListInsert(main,ridx,ele);
         metaListIterNext(&delta_iter);
 
-        //TODO remove
-        /* sds ele_dump = ele->encoding == OBJ_ENCODING_INT ?  */
-            /* sdsfromlonglong((long)ele->ptr) : sdsdup(ele->ptr); */
-        /* sds main_dump = listMetaDump(sdsempty(),main->meta); */
-        /* sds delta_dump = listMetaDump(sdsempty(),delta->meta); */
-        /* serverLog(LL_WARNING,"[list] insert-%ld:%s\n  main:%s\n  delta:%s\n", */
-                /* ridx,ele_dump,main_dump,delta_dump); */
-        /* sdsfree(ele_dump); */
-        /* sdsfree(main_dump); */
-        /* sdsfree(delta_dump); */
+#ifdef SWAP_LIST_DEBUG
+        sds ele_dump = ele->encoding == OBJ_ENCODING_INT ? 
+            sdsfromlonglong((long)ele->ptr) : sdsdup(ele->ptr);
+        sds main_dump = listMetaDump(sdsempty(),main->meta);
+        sds delta_dump = listMetaDump(sdsempty(),delta->meta);
+        serverLog(LL_WARNING,"[list] insert-%ld:%s\n  main:%s\n  delta:%s\n",
+                ridx,ele_dump,main_dump,delta_dump);
+        sdsfree(ele_dump);
+        sdsfree(main_dump);
+        sdsfree(delta_dump);
+#endif
 
         decrRefCount(ele);
     }
@@ -1090,13 +1095,14 @@ int metaListExclude(metaList *main, listMeta *delta) {
         excluded += metaListDelete(main,ridx);
         listMetaIterNext(&delta_iter);
 
-        /* //TODO remove */
-        /* sds main_dump = listMetaDump(sdsempty(),main->meta); */
-        /* sds delta_dump = listMetaDump(sdsempty(),delta); */
-        /* serverLog(LL_WARNING,"[list] exclude-%ld: \n  main:%s\n  delta:%s\n", */
-                /* ridx,main_dump,delta_dump); */
-        /* sdsfree(main_dump); */
-        /* sdsfree(delta_dump); */
+#ifdef SWAP_LIST_DEBUG
+        sds main_dump = listMetaDump(sdsempty(),main->meta);
+        sds delta_dump = listMetaDump(sdsempty(),delta);
+        serverLog(LL_WARNING,"[list] exclude-%ld: \n  main:%s\n  delta:%s\n",
+                ridx,main_dump,delta_dump);
+        sdsfree(main_dump);
+        sdsfree(delta_dump);
+#endif
     }
     listMetaDefrag(main->meta);
     listMetaIteratorDeinit(&delta_iter);
@@ -1583,10 +1589,11 @@ int listDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
 
     *pdecoded = delta;
 
-    //TODO remove
-    /* sds dump = metaListDump(sdsempty(), delta); */
-    /* serverLog(LL_WARNING, "[listDecodeData]: %s", dump); */
-    /* sdsfree(dump); */
+#ifdef SWAP_LIST_DEBUG
+    sds dump = metaListDump(sdsempty(), delta);
+    serverLog(LL_WARNING, "[listDecodeData]: %s", dump);
+    sdsfree(dump);
+#endif
 
     return 0;
 }
@@ -1603,19 +1610,21 @@ void *listCreateOrMergeObject(swapData *data, MOVE void *decoded, void *datactx)
     } else {
         swapDataInitMetaList(data,&main);
 
-        //TODO remove
-        /* sds main_dump = metaListDump(sdsempty(),&main); */
-        /* sds delta_dump = metaListDump(sdsempty(),delta); */
+#ifdef SWAP_LIST_DEBUG
+        sds main_dump = metaListDump(sdsempty(),&main);
+        sds delta_dump = metaListDump(sdsempty(),delta);
+#endif
 
         metaListMerge(&main,delta);
 
-        //TODO remove
-        /* sds main_merged_dump = metaListDump(sdsempty(), &main); */
-        /* sds delta_merged_dump = metaListDump(sdsempty(), delta); */
-        /* serverLog(LL_WARNING, */
-                /* "[createOrMerge]:\n main:%s\n delta:%s\n main_merged:%s\n delta_merged:%s\n", */
-                /* main_dump, delta_dump, main_merged_dump, delta_merged_dump); */
-        /* sdsfree(main_dump), sdsfree(delta_dump), sdsfree(main_merged_dump), sdsfree(delta_merged_dump); */
+#ifdef SWAP_LIST_DEBUG
+        sds main_merged_dump = metaListDump(sdsempty(), &main);
+        sds delta_merged_dump = metaListDump(sdsempty(), delta);
+        serverLog(LL_WARNING,
+                "[createOrMerge]:\n main:%s\n delta:%s\n main_merged:%s\n delta_merged:%s\n",
+                main_dump, delta_dump, main_merged_dump, delta_merged_dump);
+        sdsfree(main_dump), sdsfree(delta_dump), sdsfree(main_merged_dump), sdsfree(delta_merged_dump);
+#endif
 
         metaListDestroy(delta);
         result = NULL;
@@ -1658,18 +1667,20 @@ int listCleanObject(swapData *data, void *datactx_) {
     swapDataInitMetaList(data,&main);
 
 
-    //TODO remove
-    /* sds main_dump = metaListDump(sdsempty(),&main); */
-    /* sds delta_dump = listMetaDump(sdsempty(),datactx->swap_meta); */
+#ifdef SWAP_LIST_DEBUG
+    sds main_dump = metaListDump(sdsempty(),&main);
+    sds delta_dump = listMetaDump(sdsempty(),datactx->swap_meta);
+#endif
 
     metaListExclude(&main,datactx->swap_meta);
 
-    //TODO remove
-    /* sds main_merged_dump = metaListDump(sdsempty(), &main); */
-    /* serverLog(LL_WARNING, */
-            /* "[cleanObject]:\n main:%s\n delta:%s\n main_merged:%s\n", */
-            /* main_dump, delta_dump, main_merged_dump); */
-    /* sdsfree(main_dump), sdsfree(delta_dump), sdsfree(main_merged_dump); */
+#ifdef SWAP_LIST_DEBUG
+    sds main_merged_dump = metaListDump(sdsempty(), &main);
+    serverLog(LL_WARNING,
+            "[cleanObject]:\n main:%s\n delta:%s\n main_merged:%s\n",
+            main_dump, delta_dump, main_merged_dump);
+    sdsfree(main_dump), sdsfree(delta_dump), sdsfree(main_merged_dump);
+#endif
 
     return 0;
 }

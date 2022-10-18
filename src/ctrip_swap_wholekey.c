@@ -208,9 +208,6 @@ int wholeKeySwapIn(swapData *data_, MOVE void *result, void *datactx) {
     serverAssert(data->d.value == NULL);
     swapin = createSwapInObject(result);
     dbAdd(data->d.db,data->d.key,swapin);
-    //TODO remove
-    if (data->d.expire != -1)
-        setExpire(NULL,data->d.db,data->d.key,data->d.expire);
     return 0;
 }
 
@@ -218,8 +215,6 @@ int wholeKeySwapOut(swapData *data, void *datactx) {
     UNUSED(datactx);
     redisDb *db = data->db;
     robj *key = data->key;
-    //TODO remove
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     /* TODO opt lazyfree_lazy_swap_del */
     if (dictSize(db->dict) > 0) dictDelete(db->dict,key->ptr);
     return 0;
@@ -230,8 +225,6 @@ int wholeKeySwapDel(swapData *data, void *datactx, int async) {
     redisDb *db = data->db;
     robj *key = data->key;
     if (async) return 0;
-    //TODO remove
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     if (data->value) dictDelete(db->dict,key->ptr);
     return 0;
 }
@@ -543,7 +536,6 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         decoded = createRawStringObject("value", 5);
         test_assert(wholeKeySwapIn(data,decoded,NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) != NULL);    
-        test_assert(getExpire(db, key) > 0);
         decoded = NULL;
         swapDataFree(data, NULL);
         clearTestRedisDb();
@@ -560,7 +552,6 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         swapData* data = createWholeKeySwapData(db, key, value, NULL);
         test_assert(wholeKeySwapOut(data, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
-        test_assert(getExpire(db, key) < 0);
         swapDataFree(data, NULL);
         clearTestRedisDb();
     }
@@ -576,7 +567,6 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         swapData* data = createWholeKeySwapDataWithExpire(db, key, value, 1000000, NULL);
         test_assert(wholeKeySwapOut(data, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
-        test_assert(getExpire(db, key) < 0);
         swapDataFree(data, NULL);
         clearTestRedisDb();
     }
@@ -591,7 +581,6 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         swapData* data = createWholeKeySwapData(db, key, value, NULL);
         test_assert(wholeKeySwapDel(data, NULL, 0) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
-        test_assert(getExpire(db, key) < 0);
         swapDataFree(data, NULL);
         clearTestRedisDb();
     }
@@ -603,12 +592,10 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         dbAdd(db, key, value);
         setExpire(NULL, db, key, 1000000);
         test_assert(dictFind(db->dict, key->ptr) != NULL); 
-        test_assert(getExpire(db, key) > 0); 
 
         swapData* data = createWholeKeySwapDataWithExpire(db, key, value, 1000000, NULL);
         test_assert(wholeKeySwapDel(data, NULL, 0) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
-        test_assert(getExpire(db, key) < 0);
         swapDataFree(data, NULL);
         clearTestRedisDb();
     }
@@ -619,7 +606,6 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         swapData* data = createWholeKeySwapData(db, key, NULL, NULL);
         test_assert(wholeKeySwapDel(data, NULL, 0) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
-        test_assert(getExpire(db, key) < 0);
         swapDataFree(data, NULL);
         clearTestRedisDb();
     }
