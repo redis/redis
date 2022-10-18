@@ -247,7 +247,7 @@ void listTypeSetIteratorDirection(listTypeIterator *li, listTypeEntry *entry, un
         unsigned char *lp = li->subject->ptr;
         /* Note that the iterator for listpack always points to the next of the current entry,
          * so we need to update position of the iterator depending on the direction. */
-        li->lpi = (direction == LIST_TAIL) ? lpNext(lp, entry->p) : lpPrev(lp, entry->p);
+        li->lpi = (direction == LIST_TAIL) ? lpNext(lp, entry->lpe) : lpPrev(lp, entry->lpe);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -271,8 +271,8 @@ int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
     if (li->encoding == OBJ_ENCODING_QUICKLIST) {
         return quicklistNext(li->iter, &entry->entry);
     } else if (li->encoding == OBJ_ENCODING_LISTPACK) {
-        entry->p = li->lpi;
-        if (entry->p != NULL) {
+        entry->lpe = li->lpi;
+        if (entry->lpe != NULL) {
             li->lpi = (li->direction == LIST_TAIL) ?
                 lpNext(li->subject->ptr,li->lpi) : lpPrev(li->subject->ptr,li->lpi);
             return 1;
@@ -298,7 +298,7 @@ unsigned char *listTypeGetValue(listTypeEntry *entry, size_t *vlen, long long *l
         }
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned int slen;
-        vstr = lpGetValue(entry->p, &slen, lval);
+        vstr = lpGetValue(entry->lpe, &slen, lval);
         *vlen = slen;
     } else {
         serverPanic("Unknown list encoding");
@@ -334,7 +334,7 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
         int lpw = (where == LIST_TAIL) ? LP_AFTER : LP_BEFORE;
         subject->ptr = lpInsertString(subject->ptr, (unsigned char *)str,
-                                      len, entry->p, lpw, &entry->p);
+                                      len, entry->lpe, lpw, &entry->lpe);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -351,7 +351,7 @@ void listTypeReplace(listTypeEntry *entry, robj *value) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistReplaceEntry(entry->li->iter, &entry->entry, str, len);
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
-        subject->ptr = lpReplace(subject->ptr, &entry->p, (unsigned char *)str, len);
+        subject->ptr = lpReplace(subject->ptr, &entry->lpe, (unsigned char *)str, len);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -392,7 +392,7 @@ int listTypeEqual(listTypeEntry *entry, robj *o) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         return quicklistCompare(&entry->entry,o->ptr,sdslen(o->ptr));
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
-        return lpCompare(entry->p,o->ptr,sdslen(o->ptr));
+        return lpCompare(entry->lpe,o->ptr,sdslen(o->ptr));
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -403,7 +403,7 @@ void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistDelEntry(iter->iter, &entry->entry);
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *p = entry->p;
+        unsigned char *p = entry->lpe;
         iter->subject->ptr = lpDelete(iter->subject->ptr,p,&p);
 
         /* Update position of the iterator depending on the direction */
@@ -617,6 +617,10 @@ void lsetCommand(client *c) {
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
         server.dirty++;
+
+        /* We might replace a big item with a small one or vice versa,
+         * lets try converting it again. */
+        listTypeTryConversion(o,NULL,NULL);
     } else {
         addReplyErrorObject(c,shared.outofrangeerr);
     }
@@ -880,6 +884,8 @@ void ltrimCommand(client *c) {
     if (listTypeLength(o) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+    } else {
+        listTypeTryConversion(o,NULL,NULL);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
     server.dirty += (ltrim + rtrim);
@@ -1038,6 +1044,8 @@ void lremCommand(client *c) {
     if (listTypeLength(subject) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+    } else if (removed) {
+        listTypeTryConversion(subject,NULL,NULL);
     }
 
     addReplyLongLong(c,removed);

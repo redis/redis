@@ -2308,7 +2308,7 @@ typedef struct {
 /* Structure for an entry while iterating over a list. */
 typedef struct {
     listTypeIterator *li;
-    unsigned char *p; /* Entry in listpack */
+    unsigned char *lpe; /* Entry in listpack */
     quicklistEntry entry; /* Entry in quicklist */
 } listTypeEntry;
 

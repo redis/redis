@@ -1162,7 +1162,7 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
 
 unsigned char *lpDup(unsigned char *lp) {
     size_t lpbytes = lpBytes(lp);
-    unsigned char *newlp = zmalloc(lpbytes);
+    unsigned char *newlp = lp_malloc(lpbytes);
     memcpy(newlp, lp, lpbytes);
     return newlp;
 }

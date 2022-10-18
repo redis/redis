@@ -624,9 +624,7 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
 
     switch(type) {
     case REDISMODULE_KEYTYPE_LIST:
-        obj = createQuicklistObject();
-        quicklistSetOptions(obj->ptr, server.list_max_listpack_size,
-                            server.list_compress_depth);
+        obj = createListListpackObject();
         break;
     case REDISMODULE_KEYTYPE_ZSET:
         obj = createZsetListpackObject();
@@ -4252,6 +4250,10 @@ int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
+    if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    }
     listTypeTryConversionForValues(key->value, &value, 0, 0, moduleFreeListIterator, key);
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeReplace(&key->u.list.entry, value);
@@ -4326,8 +4328,11 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
 int RM_ListDelete(RedisModuleKey *key, long index) {
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeDelete(key->iter, &key->u.list.entry);
-        if (!moduleDelKeyIfEmpty(key))
-            listTypeTryConversion(key->value, moduleFreeListIterator, key);
+        /* Todo: will be fixed in #11383 */
+        if (!moduleDelKeyIfEmpty(key)) {
+            listTypeTryConversion(key->value, NULL, NULL);
+            moduleFreeKeyIterator(key);
+        }
         return REDISMODULE_OK;
     } else {
         return REDISMODULE_ERR;

@@ -5,6 +5,7 @@ start_server {tags {"modules"}} {
 
     test {Module list set, get, insert, delete} {
         r del k
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r list.set k 1 xyz}
         r rpush k x
         # insert, set, get
         r list.insert k 0 foo
