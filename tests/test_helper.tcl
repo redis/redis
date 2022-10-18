@@ -80,7 +80,7 @@ set ::disk_tests {
     unit/type/zset
     unit/type/hash
     unit/expire
-    unit/multi
+    swap/tmp_tests/multi
     unit/quit
     unit/acl
     unit/slowlog
