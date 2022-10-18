@@ -37,17 +37,21 @@ set ::failed_disk_tests {
 }
 
 set ::disk_tests {
-    swap/ported/rdb
-    integration/psync2
-    swap/integration/compact_range
+    swap/integration/replication-psync
+    swap/integration/replication
     swap/integration/multi_bighash
     swap/integration/concurrent
-    swap/integration/expire_evict
     swap/integration/pipeline
     swap/integration/overwrite
-    swap/integration/replication
-    swap/integration/replication-psync
     swap/integration/bgsave
+    swap/integration/compact_range
+    swap/integration/expire_evict
+    swap/ported/other
+    swap/ported/stream-cgroups
+    swap/ported/stream
+    swap/ported/replication-3 
+    swap/ported/rdb
+    swap/ported/multi
     swap/unit/dirty
     swap/unit/expire
     swap/unit/rdb
@@ -63,10 +67,6 @@ set ::disk_tests {
     swap/unit/keyspace
     swap/unit/lazydel
     swap/unit/swap_error
-    swap/ported/stream-cgroups
-    swap/ported/stream
-    swap/ported/replication-3 
-    swap/ported/other
     unit/shutdown
     unit/printver
     unit/dump
@@ -82,7 +82,6 @@ set ::disk_tests {
     unit/type/zset
     unit/type/hash
     unit/expire
-    swap/ported/multi
     unit/quit
     unit/acl
     unit/slowlog
@@ -111,6 +110,7 @@ set ::disk_tests {
     integration/corrupt-dump
     integration/convert-zipmap-hash-on-load
     integration/redis-benchmark
+    integration/psync2
 }
 
 set ::all_tests {
