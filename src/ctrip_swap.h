@@ -63,6 +63,10 @@ extern const char *swap_cf_names[CF_COUNT];
 /* Data swap in will be overwritten by fun dbOverwrite
  * same as SWAP_IN_DEL for collection type(SET, ZSET, LISH, HASH...), same as SWAP_IN for STRING */
 #define SWAP_IN_OVERWRITE (1U<<6)
+/* whether to expire Keys with generated in writtable slave is decided
+ * before submitExpireClientRequest and should not skip expire even
+ * if current role is slave. */
+#define SWAP_EXPIRE_FORCE (1U<<7)
 
 /* Delete rocksdb data key */
 #define SWAP_EXEC_IN_DEL (1U<<0)
@@ -917,7 +921,7 @@ void clientUnholdKeys(client *c);
 void clientUnholdKey(client *c, robj *key);
 
 /* Expire */
-int submitExpireClientRequest(client *c, robj *key);
+int submitExpireClientRequest(client *c, robj *key, int force);
 
 /* Rocks */
 #define ROCKS_DIR_MAX_LEN 512

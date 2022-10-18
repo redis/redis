@@ -23,13 +23,11 @@ start_server {tags {"repl"}} {
             } else {
                 fail "wait sync"
             }
-            if {$::debug_evict_keys} {
-                set slave_digest [r -1 debug digest-keys]
-                set master_digest [r -1 debug digest-keys]
-            } else {
-                set slave_digest [r -1 debug digest]
-                set master_digest [r -1 debug digest]
-            }
+
+            # use dbsize to substitude debug digest to get a rough digest
+            set slave_digest [r -1 dbsize]
+            set master_digest [r dbsize]
+
             if {$master_digest ne $slave_digest} {
                 set csv1 [csvdump r]
                 set csv2 [csvdump {r -1}]

@@ -365,6 +365,11 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
     data = createSwapData(db,key,value);
     swapCtxSetSwapData(ctx,data,datactx);
 
+    /* slave expire decided before swap */
+    if (cmd_intention_flags & SWAP_EXPIRE_FORCE) {
+        swapDataMarkPropagateExpire(data);
+    }
+
     if (value == NULL) {
         submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
                 ctx,data,datactx,keyRequestSwapFinished,ctx,msgs,-1);

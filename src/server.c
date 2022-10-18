@@ -1118,7 +1118,7 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script ok-stale",
      0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
-    /* evict/rksdel/rksget command used by shared fake to identify swap does
+    /* evict command used by shared fake to identify swap does
      * not need any swap before command proc, but triggers swap in proc. */
 	{"evict",evictCommand,-2,
 	 "read-only fast",

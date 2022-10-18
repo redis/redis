@@ -70,7 +70,10 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
                 expired = 0;
             } else {
                 client *c = server.expire_clients[db->id];
-                submitExpireClientRequest(c, keyobj);
+                int force = server.masterhost ? 1 : 0;
+                /* We assume that slave try expire key is to force expire
+                 * keys generated in writeable slave. */
+                submitExpireClientRequest(c,keyobj,force);
                 expired = 1;
             }
         }
