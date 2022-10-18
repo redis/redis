@@ -546,8 +546,8 @@ void sortCommandGeneric(client *c, int readonly) {
             }
         }
     } else {
-        /* We can't be sure that the store object will end up encoding, so we
-         * assume it's a large list and then convert it at the end. */
+        /* We can't predict the size and encoding of the stored list, we
+         * assume it's a large list and then convert it at the end if needed. */
         robj *sobj = createQuicklistObject();
 
         /* STORE option specified, set the sorting result as a List object */
