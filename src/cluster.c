@@ -5000,8 +5000,6 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
             port,
             node->cport);
     }
-    /* Node's shard_id */
-    ci = sdscatprintf(ci, ",%s=%.40s ", auxUpdaters[shard_id_idx].field, node->shard_id);
 
     /* Node's aux fields */
     for (int i = af_start; i < af_count; i++) {
