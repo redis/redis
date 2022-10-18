@@ -176,7 +176,7 @@ start_server {} {
 
         # We should accept both psyncs, although this is the condition we might not
         # since we didn't catch up.
-        # assert_equal [expr [s 0 sync_partial_ok] - $initial_psyncs] 2
+        assert_equal [expr [s 0 sync_partial_ok] - $initial_psyncs] 2
         assert_equal [expr [s 0 sync_full] - $initial_syncs] 0
         assert_digests_match $node_0 $node_1 $node_2
     }
