@@ -4350,6 +4350,13 @@ void pingCommand(client *c) {
 void echoCommand(client *c) {
     addReplyBulk(c,c->argv[1]);
 }
+void rechoCommand(client *c) {
+    char* echo_ptr = c->argv[1]->ptr;
+    char* new_string = (strdup(echo_ptr));
+    c->argv[1]->ptr = (void*) new_string;
+    addReplyBulk(c,c->argv[1]);
+}
+
 
 void timeCommand(client *c) {
     addReplyArrayLen(c,2);

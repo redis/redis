@@ -3278,6 +3278,7 @@ char *redisBuildIdString(void);
 void authCommand(client *c);
 void pingCommand(client *c);
 void echoCommand(client *c);
+void rechoCommand(client *c);
 void commandCommand(client *c);
 void commandCountCommand(client *c);
 void commandListCommand(client *c);
