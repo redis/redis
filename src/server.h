@@ -729,6 +729,7 @@ typedef struct RedisModuleType {
     moduleTypeFreeEffortFunc2 free_effort2;
     moduleTypeUnlinkFunc2 unlink2;
     moduleTypeCopyFunc2 copy2;
+    moduleTypeAuxSaveFunc aux_save2;
     int aux_save_triggers;
     char name[10]; /* 9 bytes name + null term. Charset: A-Z a-z 0-9 _- */
 } moduleType;
@@ -786,6 +787,8 @@ struct RedisModuleIO {
     struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
     struct redisObject *key;    /* Optional name of key processed */
     int dbid;            /* The dbid of the key being processed, -1 when unknown. */
+    sds pre_flush_buffer; /* A buffer that should be flushed before next write operation
+                           * See rdbSaveSingleModuleAux for more details */
 };
 
 /* Macro to initialize an IO context. Note that the 'ver' field is populated
@@ -798,6 +801,7 @@ struct RedisModuleIO {
     iovar.key = keyptr; \
     iovar.dbid = db; \
     iovar.ctx = NULL; \
+    iovar.pre_flush_buffer = NULL; \
 } while(0)
 
 /* This is a structure used to export DEBUG DIGEST capabilities to Redis
