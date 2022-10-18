@@ -67,6 +67,7 @@ set ::disk_tests {
     swap/unit/keyspace
     swap/unit/lazydel
     swap/unit/swap_error
+    swap/unit/multi
     unit/shutdown
     unit/printver
     unit/dump

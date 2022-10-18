@@ -1092,7 +1092,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* Step 4: Reply to the client. */
     if (o == NULL) {
         if (cursor == 0) {
-            if (cursorIsHot(outer_cursor)){
+            /* continue with cold data in disk swap mode */
+            if (cursorIsHot(outer_cursor) && server.swap_mode != SWAP_MODE_MEMORY) {
                 outer_cursor = 1;
                 rewindClientSwapScanCursor(c);
             } else {

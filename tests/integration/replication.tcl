@@ -764,15 +764,8 @@ start_server {tags {"repl"}} {
                             set digest [$master debug digest-keys]
                             set digest0 [$replica debug digest-keys]
                         } else {
-                            $master debug swapout 
-                            $replica debug swapout
-                             wait_for_condition 100 100 {
-                                [$master info keyspace] == [$replica info keyspace]
-                            } else {    
-                                fail "Master - Replica sync fail"
-                            }
-                            set digest [$master debug digest-keys]
-                            set digest0 [$replica debug digest-keys]
+                            set digest [$master debug digest]
+                            set digest0 [$replica debug digest]
                         }
                         assert {$digest ne 0000000000000000000000000000000000000000}
                         assert {$digest eq $digest0}

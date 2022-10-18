@@ -196,7 +196,7 @@ start_server {tags {"repl"}} {
                     fail "Master - Replica sync fail"
                 }
                 wait_for_condition 50 100 {
-                    [r debug digest-keys] eq [r -1 debug digest-keys]
+                    [r debug digest] eq [r -1 debug digest]
                 } else {
                     fail "DEBUG DIGEST mismatch after full SYNC with many scripts"
                 }

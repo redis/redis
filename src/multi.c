@@ -410,13 +410,17 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
         if (!clients) continue;
         listRewind(clients,&li);
         while((ln = listNext(&li))) {
+            robj *key = dictGetKey(de);
             client *c = listNodeValue(ln);
-            c->flags |= CLIENT_DIRTY_CAS;
-            /* if (dictFind(emptied->dict, key->ptr)) {
+            if (server.swap_mode != SWAP_MODE_MEMORY) {
+                c->flags |= CLIENT_DIRTY_CAS;
+                continue;
+            }
+            if (dictFind(emptied->dict, key->ptr)) {
                 c->flags |= CLIENT_DIRTY_CAS;
             } else if (replaced_with && (dictFind(replaced_with->dict, key->ptr))) {
                 c->flags |= CLIENT_DIRTY_CAS;
-            } */
+            }
         }
     }
     dictReleaseIterator(di);
