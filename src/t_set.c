@@ -93,8 +93,9 @@ int setTypeAdd(robj *subject, sds value) {
                 return 1;
             }
         } else {
-            uint32_t maxelelen = max(sdigits10(intsetMax(subject->ptr)),
-                                     sdigits10(intsetMin(subject->ptr)));
+            size_t maxelelen = intsetLen(subject->ptr) == 0 ?
+                0 : max(sdigits10(intsetMax(subject->ptr)),
+                        sdigits10(intsetMin(subject->ptr)));
             if (intsetLen((const intset*)subject->ptr) < server.set_max_listpack_entries &&
                 sdslen(value) <= server.set_max_listpack_value &&
                 maxelelen <= server.set_max_listpack_value &&
