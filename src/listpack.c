@@ -1124,7 +1124,7 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
     lplength = lplength < UINT16_MAX ? lplength : UINT16_MAX;
 
     /* Extend target to new lpbytes then append or prepend source. */
-    target = zrealloc(target, lpbytes);
+    target = lp_realloc(target, lpbytes);
     if (append) {
         /* append == appending to target */
         /* Copy source after target (copying over original [END]):
@@ -1148,11 +1148,11 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
 
     /* Now free and NULL out what we didn't realloc */
     if (append) {
-        zfree(*second);
+        lp_free(*second);
         *second = NULL;
         *first = target;
     } else {
-        zfree(*first);
+        lp_free(*first);
         *first = NULL;
         *second = target;
     }
@@ -1397,7 +1397,7 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
         unsigned int index;
         unsigned int order;
     } rand_pick;
-    rand_pick *picks = zmalloc(sizeof(rand_pick)*count);
+    rand_pick *picks = lp_malloc(sizeof(rand_pick)*count);
     unsigned int total_size = lpLength(lp)/2;
 
     /* Avoid div by zero on corrupt listpack */
@@ -1431,7 +1431,7 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
         p = lpNext(lp, p);
     }
 
-    zfree(picks);
+    lp_free(picks);
 }
 
 /* Randomly select count of key value pairs and store into 'keys' and
