@@ -1148,11 +1148,11 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
 
     /* Now free and NULL out what we didn't realloc */
     if (append) {
-        zfree(*second);
+        lp_free(*second);
         *second = NULL;
         *first = target;
     } else {
-        zfree(*first);
+        lp_free(*first);
         *first = NULL;
         *second = target;
     }
