@@ -49,6 +49,7 @@ int aofFileExist(char *filename);
 int rewriteAppendOnlyFile(char *filename);
 aofManifest *aofLoadManifestFromFile(sds am_filepath);
 void aofManifestFreeAndUpdate(aofManifest *am);
+void rewriteDoneHandlerForAofReplication(int rewrite_status);
 void aof_background_fsync_and_close(int fd);
 
 /* ----------------------------------------------------------------------------
@@ -2429,6 +2430,9 @@ int rewriteAppendOnlyFileBackground(void) {
 
     if (hasActiveChildProcess()) return C_ERR;
 
+    // If any slave using aof sync, we should not rewrite
+    if (server.repl_aof_sending_slave_num) return C_ERR; 
+
     if (dirCreateIfMissing(server.aof_dirname) == -1) {
         serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s",
             server.aof_dirname, strerror(errno));
@@ -2706,6 +2710,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated by signal %d", bysignal);
     }
+    rewriteDoneHandlerForAofReplication(server.aof_lastbgrewrite_status);
 
 cleanup:
     aofRemoveTempFile(server.child_pid);

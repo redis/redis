@@ -39,6 +39,7 @@
 
 static void setProtocolError(const char *errstr, client *c);
 int postponeClientRead(client *c);
+void cleanupAofReplication(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
@@ -1438,6 +1439,7 @@ void unlinkClient(client *c) {
             c->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
             server.rdb_pipe_conns)
         {
+            // TODO dyk
             int i;
             for (i=0; i < server.rdb_pipe_numconns; i++) {
                 if (server.rdb_pipe_conns[i] == c->conn) {
@@ -1621,10 +1623,20 @@ void freeClient(client *c) {
         {
             killRDBChild();
         }
-        if (c->replstate == SLAVE_STATE_SEND_BULK) {
+        if (c->replstate == SLAVE_STATE_SEND_BULK ||
+                c->replstate == SLAVE_STATE_SEND_AOF_BASE ||
+                c->replstate == SLAVE_STATE_SEND_AOF_INCR) {
+            // in replication
+
             if (c->repldbfd != -1) close(c->repldbfd);
             if (c->replpreamble) sdsfree(c->replpreamble);
+
+            if (c->replstate == SLAVE_STATE_SEND_AOF_BASE ||
+                    c->replstate == SLAVE_STATE_SEND_AOF_INCR) {
+                cleanupAofReplication(c);
+            }
         }
+
         list *l = (c->flags & CLIENT_MONITOR) ? server.monitors : server.slaves;
         ln = listSearchKey(l,c);
         serverAssert(ln != NULL);

@@ -49,6 +49,21 @@ int replicaPutOnline(client *slave);
 void replicaStartCommandStream(client *slave);
 int cancelReplicationHandshake(int reconnect);
 
+aofInfo *aofInfoCreate(void);
+aofManifest *aofManifestCreate(void);
+aofManifest *aofManifestDup(aofManifest *orig);
+int openNewIncrAofForAppend(void);
+void aofManifestFreeAndUpdate(aofManifest *am);
+int persistAofManifest(aofManifest *am);
+int aofDelHistoryFiles(void);
+off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am, int *status);
+
+void cleanupTmpAof();
+void cleanupAofReplication(client *c);
+
+void initServerDB(void);
+void updateClientsSelectDB();
+
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
  * the instance is configured to have no persistence. */
@@ -207,8 +222,11 @@ int canFeedReplicaReplBuffer(client *replica) {
     /* Don't feed replicas that only want the RDB. */
     if (replica->flags & CLIENT_REPL_RDBONLY) return 0;
 
-    /* Don't feed replicas that are still waiting for BGSAVE to start. */
-    if (replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START) return 0;
+    /* Don't feed replicas that are still waiting for BGSAVE to start,
+     * or waiting current AOF REWRITE to finish.
+     * This can ensure rdb/aof files will be sent does't overlay with repl buffer */
+    if (replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START 
+            || replica->replstate == SLAVE_STATE_WAIT_REWRITE) return 0;
 
     return 1;
 }
@@ -691,12 +709,12 @@ long long getPsyncInitialOffset(void) {
  * Normally this function should be called immediately after a successful
  * BGSAVE for replication was started, or when there is one already in
  * progress that we attached our slave to. */
-int replicationSetupSlaveForFullResync(client *slave, long long offset) {
+int replicationSetupSlaveForFullResync(client *slave, long long offset, int isAofSync) {
     char buf[128];
     int buflen;
 
     slave->psync_initial_offset = offset;
-    slave->replstate = SLAVE_STATE_WAIT_BGSAVE_END;
+    slave->replstate = isAofSync ? SLAVE_STATE_SEND_AOF_BASE : SLAVE_STATE_WAIT_BGSAVE_END;
     /* We are going to accumulate the incremental changes for this
      * slave as well. Set slaveseldb to -1 in order to force to re-emit
      * a SELECT statement in the replication stream. */
@@ -705,14 +723,40 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
     /* Don't send this reply to slaves that approached us with
      * the old SYNC command. */
     if (!(slave->flags & CLIENT_PRE_PSYNC)) {
-        buflen = snprintf(buf,sizeof(buf),"+FULLRESYNC %s %lld\r\n",
-                          server.replid,offset);
-        if (connWrite(slave->conn,buf,buflen) != buflen) {
+        if (isAofSync) {
+            buflen = snprintf(buf, sizeof(buf), "+FULLRESYNC aof_sync %s %lld\r\n",
+                              server.replid, offset);
+        } else {
+            buflen = snprintf(buf, sizeof(buf), "+FULLRESYNC %s %lld\r\n",
+                              server.replid, offset);
+        }
+        if (connWrite(slave->conn, buf, buflen) != buflen) {
             freeClientAsync(slave);
             return C_ERR;
         }
     }
     return C_OK;
+}
+
+/**
+ * Decide whether to use aof fullresync.
+ *
+ * It will be used if:
+ * 1. The server.aof_enabled is true.
+ * 2. Current aof files size is more bigger than zmalloc_used_memory. 
+ *    It will be better if we could compare the real rdb file size with 
+ *    aof file size. But currently we can only get zmalloc_used_memory
+ *    to estimate rdb file's size.
+ */
+int shouldUseAofFullresync() {
+    serverLog(LL_DEBUG, "AOF_ENABLED: %d, AOF_STATE: %d", server.aof_enabled, server.aof_state);
+    if (!server.aof_enabled || server.aof_state == AOF_OFF || !server.aof_full_replication_enabled) {
+        serverLog(LL_WARNING, "Cannot use aof to sync: aof or aof-full-replication is disabled");
+        return 0;
+    } 
+    size_t db_size = zmalloc_used_memory();
+    size_t aof_size = getBaseAndIncrAppendOnlyFilesSize(server.aof_manifest, NULL);
+    return aof_size / 2 > db_size;
 }
 
 /* This function handles the PSYNC command from the point of view of a
@@ -906,12 +950,239 @@ int startBgsaveForReplication(int mincapa, int req) {
                 /* Check slave has the exact requirements */
                 if (slave->slave_req != req)
                     continue;
-                replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
+                replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset(), 0);
             }
         }
     }
 
     return retval;
+}
+
+/**
+ * Send bulks in slave->repldbfd to salve.
+ *
+ * @return whether reached eof: 1 when eof is reached, 0 when not eof and -1 on error. 
+ */
+int sendBulkToSlave(connection *conn) {
+    client *slave = connGetPrivateData(conn);
+    char buf[PROTO_IOBUF_LEN];
+    ssize_t nwritten, buflen;
+
+    /* Before sending the RDB file, we send the preamble as configured by the
+     * replication process. Currently the preamble is just the bulk count of
+     * the file in the form "$<length>\r\n". */
+    if (slave->replpreamble) {
+        nwritten = connWrite(conn,slave->replpreamble,sdslen(slave->replpreamble));
+        if (nwritten == -1) {
+            serverLog(LL_WARNING,
+                "Write error sending preamble to replica: %s",
+                connGetLastError(conn));
+            freeClient(slave);
+            return -1;
+        }
+        atomicIncr(server.stat_net_repl_output_bytes, nwritten);
+        sdsrange(slave->replpreamble,nwritten,-1);
+        if (sdslen(slave->replpreamble) == 0) {
+            sdsfree(slave->replpreamble);
+            slave->replpreamble = NULL;
+            /* fall through sending data. */
+        } else {
+            return 0;
+        }
+    }
+
+    /* If the preamble was already transferred, send the RDB bulk data. */
+    lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
+    buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
+    if (buflen <= 0 && slave->repldbsize != 0) {
+        serverLog(LL_WARNING,"Read error sending DB to replica: %s",
+            (buflen == 0) ? "premature EOF" : strerror(errno));
+        freeClient(slave);
+        return -1;
+    }
+    if ((nwritten = connWrite(conn,buf,buflen)) == -1) {
+        if (connGetState(conn) != CONN_STATE_CONNECTED) {
+            serverLog(LL_WARNING,"Write error sending DB to replica: %s",
+                connGetLastError(conn));
+            freeClient(slave);
+        }
+        return -1;
+    }
+    slave->repldboff += nwritten;
+    atomicIncr(server.stat_net_repl_output_bytes, nwritten);
+    if (slave->repldboff == slave->repldbsize) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+/* Send files in aof manifest to slaver for sync. */
+void sendAofManifestToSlaver(struct connection *conn) {
+    serverAssert(server.repl_aof_manifest != NULL);
+
+    client *slave = connGetPrivateData(conn);
+    int replstate = slave->replstate;
+    aofManifest *am = server.repl_aof_manifest;
+
+    serverAssert(replstate == SLAVE_STATE_SEND_AOF_BASE || replstate == SLAVE_STATE_SEND_AOF_INCR);
+
+    // whether sending base file (or incr files)
+    int sending_base = replstate == SLAVE_STATE_SEND_AOF_BASE;
+
+    if (slave->repldbfd == -1) {
+        // starting send or last file send finished, open new file to send.
+        aofInfo *toOpen = sending_base ?
+            // base file
+            am->base_aof_info : 
+            // or next incr file
+            listIndex(am->incr_aof_list, ++slave->repl_aof_incr_idx)->value;
+        if (toOpen == NULL) {
+            serverLog(LL_WARNING,
+                      "SYNC(AOF) failed. Can't find aof %s file to open",
+                      sending_base ? "base" : "incr");
+            addReplyError(slave, "SYNC(AOF) failed. Can't find aof %s file to open");
+            return;
+        }
+        struct redis_stat stat;
+        sds path = makePath(server.aof_dirname, toOpen->file_name);
+        if ((slave->repldbfd = open(path, O_RDONLY)) == -1 ||
+            redis_fstat(slave->repldbfd, &stat) == -1) {
+            serverLog(LL_WARNING,
+                      "SYNC(AOF) failed. Can't open/stat aof %s file: %s",
+                      sending_base ? "base" : "incr",
+                      strerror(errno));
+            freeClientAsync(slave);
+            sdsfree(path);
+            return;
+        }
+        serverLog(LL_NOTICE,
+                  "SYNC(AOF) open %s file: %s, size %lld",
+                  sending_base ? "base" : "incr", toOpen->file_name, (long long) stat.st_size);
+        sdsfree(path);
+        slave->repldboff = 0;
+        slave->repldbsize = stat.st_size;
+        if (sending_base) {
+            int is_rdb_fmt = stringmatch("*.rdb", path, 0);
+            serverLog(LL_DEBUG, "base file is rdb format: %s", is_rdb_fmt ? "YES" : "NO");
+            slave->replpreamble = sdscatprintf(sdsempty(),
+                    "%ld\r\n%s\r\n$%lld\r\n",
+                    listLength(am->incr_aof_list) + 1,  // files count with base
+                    is_rdb_fmt ? "rdb" : "aof",
+                    (unsigned long long) slave->repldbsize);
+        } else {
+            slave->replpreamble = sdscatprintf(sdsempty(),
+                    "$%lld\r\n", (unsigned long long) slave->repldbsize);
+        }
+    }
+
+    if (sendBulkToSlave(conn) == 1) {
+        // current file send finished
+        close(slave->repldbfd);
+        slave->repldbfd = -1;
+
+        serverLog(LL_NOTICE, "SYNC(AOF) file sent: %s", sending_base ? "base" : "incr");
+        if (sending_base) {
+            // base finished, start to send incr files.
+            slave->repl_aof_incr_idx = -1;
+            slave->replstate = SLAVE_STATE_SEND_AOF_INCR;
+        } else if (slave->repl_aof_incr_idx + 1 == (int) listLength(am->incr_aof_list)) {
+            // final incr finished
+            cleanupAofReplication(slave);
+            connSetWriteHandler(slave->conn, NULL);
+            replicaPutOnline(slave);
+            replicaStartCommandStream(slave);
+            serverLog(LL_NOTICE, "SYNC(AOF) finished");
+        }
+    }
+}
+
+void cleanupAofReplication(client *c) {
+    serverLog(LL_NOTICE, "Cleaning aof replication %s.", replicationGetSlaveName(c));
+    if (c->replstate == SLAVE_STATE_SEND_AOF_BASE ||
+            c->replstate == SLAVE_STATE_SEND_AOF_INCR) {
+        // server.repl_aof_sending_slave_num is the ref-count of server.repl_aof_manifest.
+        // If master is sending files to slave (may disconnected unexpectedly),
+        //   we need to unref the server.repl_aof_manifest.
+        // Else if master is online, the ref-count should have decreased previously.
+        server.repl_aof_sending_slave_num--;
+    }
+    if (server.repl_aof_sending_slave_num == 0) {
+        // If this is final slave using server.repl_aof_manifest, we need to cleanup the manifest.
+        serverLog(LL_NOTICE, "Final slave using aof replication cleared, reenable aof rewrite");
+        aofManifestFree(server.repl_aof_manifest);
+        server.repl_aof_manifest = NULL;
+        // We may called openNewIncrAofForAppend before, so we need trigger a rewrite.
+        server.aof_rewrite_scheduled = 1;
+    }
+}
+
+int prepareAofManifestForReplication() {
+    serverAssert(server.repl_aof_manifest == NULL && server.repl_aof_sending_slave_num == 0);
+    server.repl_aof_manifest = aofManifestDup(server.aof_manifest);
+    if (!server.repl_aof_manifest) {
+        serverLog(LL_WARNING, "Failed to dup aof manifest");
+        return C_ERR;
+    }
+    // We don't need open new incr aof file if current incr file size is zero.
+    // And we need to ensure at least one incr file will send.
+    if (server.aof_last_incr_size <= 0 && listLength(server.repl_aof_manifest->incr_aof_list) > 1) {
+        listNode *last = listLast(server.repl_aof_manifest->incr_aof_list);
+        if (last) {
+            listDelNode(server.repl_aof_manifest->incr_aof_list, last);
+        }
+    } else {
+        if (openNewIncrAofForAppend() != C_OK) {
+            serverLog(LL_WARNING, "Failed to open new incr aof file");
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
+int prepareClientForAofReplication(client *c) {
+    c->replstate = SLAVE_STATE_SEND_AOF_BASE;
+    c->repl_aof_incr_idx = -1;
+    c->repldbfd = -1;
+    c->repldboff = 0;
+    c->repldbsize = 0;
+
+    if (!server.repl_aof_manifest) {
+        if (prepareAofManifestForReplication() != C_OK) {
+            serverLog(LL_WARNING, "Failed to prepare aof manifest for aof replication");
+            addReplyError(c, "Failed to prepare aof manifest for aof replication");
+            return C_ERR;
+        }
+    }
+    server.repl_aof_sending_slave_num++;
+
+    replicationSetupSlaveForFullResync(c, getPsyncInitialOffset(), 1);
+    connSetWriteHandler(c->conn, NULL);
+    if (connSetWriteHandler(c->conn, sendAofManifestToSlaver) == C_ERR) {
+        freeClientAsync(c);
+    }
+    return C_OK;
+}
+
+void rewriteDoneHandlerForAofReplication(int rewrite_status) {
+    listIter li;
+    listNode *ln;
+    int needReplNum = 0;
+
+    serverLog(LL_WARNING, "Checking slaves for aof replication after rewrite");
+    listRewind(server.slaves, &li);
+    while ((ln = listNext(&li))) {
+        client *c = ln->value;
+        if (c->replstate == SLAVE_STATE_WAIT_REWRITE) {
+            needReplNum++;
+            if (rewrite_status == C_OK) {
+                prepareClientForAofReplication(c);
+            } else {
+                addReplyError(c, "AOF rewrite failed, cannot start aof replication");
+            }
+        }
+    }
+    serverLog(LL_WARNING, "%d slave(s) need start aof replication after rewrite", needReplNum);
 }
 
 /* SYNC and PSYNC command implementation. */
@@ -921,7 +1192,7 @@ void syncCommand(client *c) {
 
     /* Check if this is a failover request to a replica with the same replid and
      * become a master if so. */
-    if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") && 
+    if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") &&
         !strcasecmp(c->argv[3]->ptr,"failover"))
     {
         serverLog(LL_WARNING, "Failover request received for replid %s.",
@@ -939,7 +1210,7 @@ void syncCommand(client *c) {
             sdsfree(client);
         } else {
             addReplyError(c, "PSYNC FAILOVER replid must match my replid.");
-            return;            
+            return;
         }
     }
 
@@ -1015,12 +1286,8 @@ void syncCommand(client *c) {
     /* Full resynchronization. */
     server.stat_sync_full++;
 
-    /* Setup the slave as one waiting for BGSAVE to start. The following code
-     * paths will change the state if we handle the slave differently. */
-    c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
     if (server.repl_disable_tcp_nodelay)
         connDisableTcpNoDelay(c->conn); /* Non critical if it fails. */
-    c->repldbfd = -1;
     c->flags |= CLIENT_SLAVE;
     listAddNodeTail(server.slaves,c);
 
@@ -1036,6 +1303,23 @@ void syncCommand(client *c) {
                             "replication IDs are '%s' and '%s'",
                             server.replid, server.replid2);
     }
+
+    if (c->slave_capa & SLAVE_CAPA_AOFSYNC && shouldUseAofFullresync()) {
+        if (server.child_type == CHILD_TYPE_AOF) {
+            serverLog(LL_WARNING, "Rewriting, waiting for rewrite finish");
+            c->replstate = SLAVE_STATE_WAIT_REWRITE;
+            return;
+        } 
+        // start to aof repl
+        if (prepareClientForAofReplication(c) != C_OK) {
+            addReplyError(c, "Failed to prepare for aof replication");
+        }
+        return;
+    }
+
+    /* Setup the slave as one waiting for BGSAVE to start. */
+    c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
+    c->repldbfd = -1;
 
     /* CASE 1: BGSAVE is in progress, with disk target. */
     if (server.child_type == CHILD_TYPE_RDB &&
@@ -1068,7 +1352,7 @@ void syncCommand(client *c) {
              * We don't copy buffer if clients don't want. */
             if (!(c->flags & CLIENT_REPL_RDBONLY))
                 copyReplicaOutputBuffer(c,slave);
-            replicationSetupSlaveForFullResync(c,slave->psync_initial_offset);
+            replicationSetupSlaveForFullResync(c,slave->psync_initial_offset,0);
             serverLog(LL_NOTICE,"Waiting for end of BGSAVE for SYNC");
         } else {
             /* No way, we need to wait for the next BGSAVE in order to
@@ -1178,6 +1462,8 @@ void replconfCommand(client *c) {
                 c->slave_capa |= SLAVE_CAPA_EOF;
             else if (!strcasecmp(c->argv[j+1]->ptr,"psync2"))
                 c->slave_capa |= SLAVE_CAPA_PSYNC2;
+            else if (!strcasecmp(c->argv[j+1]->ptr,"aof_sync"))
+                c->slave_capa |= SLAVE_CAPA_AOFSYNC;
         } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
@@ -1351,54 +1637,9 @@ void removeRDBUsedToSyncReplicas(void) {
     }
 }
 
-void sendBulkToSlave(connection *conn) {
+void sendRDBToSlave(connection *conn) {
     client *slave = connGetPrivateData(conn);
-    char buf[PROTO_IOBUF_LEN];
-    ssize_t nwritten, buflen;
-
-    /* Before sending the RDB file, we send the preamble as configured by the
-     * replication process. Currently the preamble is just the bulk count of
-     * the file in the form "$<length>\r\n". */
-    if (slave->replpreamble) {
-        nwritten = connWrite(conn,slave->replpreamble,sdslen(slave->replpreamble));
-        if (nwritten == -1) {
-            serverLog(LL_WARNING,
-                "Write error sending RDB preamble to replica: %s",
-                connGetLastError(conn));
-            freeClient(slave);
-            return;
-        }
-        atomicIncr(server.stat_net_repl_output_bytes, nwritten);
-        sdsrange(slave->replpreamble,nwritten,-1);
-        if (sdslen(slave->replpreamble) == 0) {
-            sdsfree(slave->replpreamble);
-            slave->replpreamble = NULL;
-            /* fall through sending data. */
-        } else {
-            return;
-        }
-    }
-
-    /* If the preamble was already transferred, send the RDB bulk data. */
-    lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
-    buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
-    if (buflen <= 0) {
-        serverLog(LL_WARNING,"Read error sending DB to replica: %s",
-            (buflen == 0) ? "premature EOF" : strerror(errno));
-        freeClient(slave);
-        return;
-    }
-    if ((nwritten = connWrite(conn,buf,buflen)) == -1) {
-        if (connGetState(conn) != CONN_STATE_CONNECTED) {
-            serverLog(LL_WARNING,"Write error sending DB to replica: %s",
-                connGetLastError(conn));
-            freeClient(slave);
-        }
-        return;
-    }
-    slave->repldboff += nwritten;
-    atomicIncr(server.stat_net_repl_output_bytes, nwritten);
-    if (slave->repldboff == slave->repldbsize) {
+    if (sendBulkToSlave(conn) == 1) {
         close(slave->repldbfd);
         slave->repldbfd = -1;
         connSetWriteHandler(slave->conn,NULL);
@@ -1493,7 +1734,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                 stillUp++;
             }
             serverLog(LL_WARNING,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
-            /* Now that the replicas have finished reading, notify the child that it's safe to exit. 
+            /* Now that the replicas have finished reading, notify the child that it's safe to exit.
              * When the server detects the child has exited, it can mark the replica as online, and
              * start streaming the replication buffers. */
             close(server.rdb_child_exit_pipe);
@@ -1627,7 +1868,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                     (unsigned long long) slave->repldbsize);
 
                 connSetWriteHandler(slave->conn,NULL);
-                if (connSetWriteHandler(slave->conn,sendBulkToSlave) == C_ERR) {
+                if (connSetWriteHandler(slave->conn, sendRDBToSlave) == C_ERR) {
                     freeClientAsync(slave);
                     continue;
                 }
@@ -1802,7 +2043,7 @@ void disklessLoadDiscardTempDb(redisDb *tempDb) {
  * we have no way to incrementally feed our replicas after that.
  * We want our replicas to resync with us as well, if we have any sub-replicas.
  * This is useful on readSyncBulkPayload in places where we just finished transferring db. */
-void replicationAttachToNewMaster() { 
+void replicationAttachToNewMaster() {
     /* Replica starts to apply data from new master, we must discard the cached
      * master structure. */
     serverAssert(server.master == NULL);
@@ -1812,8 +2053,247 @@ void replicationAttachToNewMaster() {
     freeReplicationBacklog(); /* Don't allow our chained replicas to PSYNC. */
 }
 
-/* Asynchronously read the SYNC payload we receive from a master */
+/* Asynchronously read the SYNC aof manifest we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
+void readSyncAofManifest(connection *conn) {
+    /* we need to stop any aof rewriting. */
+    if (server.aof_state != AOF_OFF) {
+        stopAppendOnly();
+    }
+
+    char buf[PROTO_IOBUF_LEN];
+    ssize_t nread, readlen, nwritten;
+
+    off_t left;
+
+    int need_read_preambles = server.repl_transfer_aof_nums == 0 || server.repl_transfer_base_aof_type == -1 ||
+                              !server.repl_transfer_wait_read_aof;
+    if (need_read_preambles) {
+        nread = connSyncReadLine(conn, buf, 1024, server.repl_syncio_timeout * 1000);
+        if (nread == -1) {
+            serverLog(LL_WARNING,
+                      "I/O error reading aof info from MASTER: %s",
+                      strerror(errno));
+            goto error;
+        } else {
+            /* nread here is returned by connSyncReadLine(), which calls syncReadLine() and
+             * convert "\r\n" to '\0' so 1 byte is lost. */
+            atomicIncr(server.stat_net_repl_input_bytes, nread + 1);
+        }
+        if (server.repl_transfer_aof_nums == 0) {
+            server.repl_transfer_aof_nums = (int) strtol(buf, NULL, 10);
+            return;
+        } else if (server.repl_transfer_base_aof_type == -1) {
+            if (strcmp(buf, "aof") == 0) {
+                server.repl_transfer_base_aof_type = 0;
+            } else if (strcmp(buf, "rdb") == 0) {
+                server.repl_transfer_base_aof_type = 1;
+            } else {
+                serverLog(LL_WARNING, "Bad protocol from MASTER, only support rdb or aof type (we received '%s')", buf);
+                goto error;
+            }
+            server.repl_transfer_current_read_aof_index = 0;
+            server.repl_transfer_wait_read_aof = false;
+            return;
+        } else {
+            server.repl_transfer_size = strtol(buf + 1, NULL, 10);
+            serverLog(LL_NOTICE,
+                      "MASTER <-> REPLICA sync: receiving the %d aof %lld bytes from master",
+                      server.repl_transfer_current_read_aof_index,
+                      (long long) server.repl_transfer_size);
+            server.repl_transfer_wait_read_aof = true;
+            /* Prepare a suitable temp file for bulk transfer */
+            int dfd = -1, maxtries = 5;
+            char tmpfile[256];
+            while (maxtries--) {
+                snprintf(tmpfile, 256,
+                         "%s.%lld.%s.%s", server.aof_filename, server.repl_transfer_current_read_aof_index == 0 ?
+                                                               server.repl_aof_manifest->curr_base_file_seq + 1
+                                                                                                                :
+                                                               server.repl_aof_manifest->curr_incr_file_seq + 1,
+                         server.repl_transfer_current_read_aof_index == 0 ? "base" : "incr",
+                         server.repl_transfer_current_read_aof_index > 0 || !server.repl_transfer_base_aof_type ? "aof"
+                                                                                                               : "rdb");
+                sds path = makePath(server.aof_dirname, tmpfile);
+                dfd = open(path, O_CREAT | O_WRONLY | O_EXCL, 0644);
+                if (dfd != -1) break;
+                if (maxtries == 0) {
+                    serverLog(LL_WARNING, "Opening the temp file needed for MASTER <-> REPLICA synchronization: %s",
+                              strerror(errno));
+                    goto error;
+                }
+                sleep(1);
+            }
+            server.repl_transfer_tmpfile = zstrdup(tmpfile);
+            server.repl_transfer_fd = dfd;
+        }
+        /* We can receive empty database, and in the last file we don't need to return, just run down */
+        if (!(server.repl_transfer_size == 0 &&
+              server.repl_transfer_current_read_aof_index + 1 == server.repl_transfer_aof_nums)) {
+            return;
+        }
+    } else {
+        /* read aof data into file */
+        left = server.repl_transfer_size - server.repl_transfer_read;
+        readlen = (left < (signed) sizeof(buf)) ? left : (signed) sizeof(buf);
+        nread = connRead(conn, buf, readlen);
+        if (nread <= 0 && server.repl_transfer_read != 0) {
+            if (connGetState(conn) == CONN_STATE_CONNECTED) {
+                /* equivalent to EAGAIN */
+                return;
+            }
+            serverLog(LL_WARNING, "I/O error trying to sync with MASTER: %s",
+                      (nread == -1) ? strerror(errno) : "connection lost");
+            cancelReplicationHandshake(1);
+            return;
+        }
+        atomicIncr(server.stat_net_repl_input_bytes, nread);
+
+        int eof_reached = 0;
+
+        /* Update the last I/O time for the replication transfer (used in
+         * order to detect timeouts during replication) */
+        server.repl_transfer_lastio = server.unixtime;
+        if ((nwritten = write(server.repl_transfer_fd, buf, nread)) != nread) {
+            serverLog(LL_WARNING,
+                      "Write error or short write writing to the DB dump file "
+                      "needed for MASTER <-> REPLICA synchronization: %s",
+                      (nwritten == -1) ? strerror(errno) : "short write");
+            goto error;
+        }
+        server.repl_transfer_read += nread;
+        /* Sync data on disk from time to time, otherwise at the end of the
+         * transfer we may suffer a big delay as the memory buffers are copied
+         * into the actual disk. */
+        if (server.repl_transfer_read >=
+            server.repl_transfer_last_fsync_off + REPL_MAX_WRITTEN_BEFORE_FSYNC) {
+            off_t sync_size = server.repl_transfer_read -
+                              server.repl_transfer_last_fsync_off;
+            rdb_fsync_range(server.repl_transfer_fd,
+                            server.repl_transfer_last_fsync_off, sync_size);
+            server.repl_transfer_last_fsync_off += sync_size;
+        }
+        if (server.repl_transfer_read == server.repl_transfer_size) {
+            eof_reached = 1;
+        }
+        /* If the transfer is yet not complete, we need to read more. */
+        if (!eof_reached) {
+            return;
+        }
+        /* update aof file to manifest */
+        /* Make sure the new file (also used for persistence) is fully synced. */
+        if (fsync(server.repl_transfer_fd) == -1) {
+            serverLog(LL_WARNING,
+                      "Failed trying to sync the temp DB to disk in "
+                      "MASTER <-> REPLICA synchronization: %s",
+                      strerror(errno));
+            cancelReplicationHandshake(1);
+            return;
+        }
+    }
+    server.repl_transfer_read = 0;
+    close(server.repl_transfer_fd);
+    server.repl_transfer_fd = -1;
+    if (server.repl_transfer_current_read_aof_index == 0) {
+        server.repl_aof_manifest->base_aof_info->file_name = sdsnew(server.repl_transfer_tmpfile);
+        server.repl_aof_manifest->base_aof_info->file_seq = ++server.repl_aof_manifest->curr_base_file_seq;
+        server.repl_aof_manifest->base_aof_info->file_type = AOF_FILE_TYPE_BASE;
+    } else {
+        aofInfo *ai = aofInfoCreate();
+        ai->file_name = sdsnew(server.repl_transfer_tmpfile);
+        ai->file_seq = ++server.repl_aof_manifest->curr_incr_file_seq;
+        ai->file_type = AOF_FILE_TYPE_INCR;
+        listAddNodeTail(server.repl_aof_manifest->incr_aof_list, ai);
+    }
+    server.repl_transfer_current_read_aof_index++;
+    server.repl_transfer_wait_read_aof = false;
+    if (server.repl_transfer_current_read_aof_index == server.repl_transfer_aof_nums) {
+        replicationAttachToNewMaster();
+        redisDb * tmpDB = server.db;
+        connSetReadHandler(conn, NULL);
+        aofManifestFreeAndUpdate(server.repl_aof_manifest);
+        server.db = zmalloc(sizeof(redisDb) * server.dbnum);
+        initServerDB();
+        updateClientsSelectDB();
+        persistAofManifest(server.aof_manifest);
+        long long start = ustime();
+        int ret = loadAppendOnlyFiles(server.aof_manifest);
+        if (ret == AOF_FAILED || ret == AOF_OPEN_ERR) {
+            serverLog(LL_NOTICE, "load the MASTER failed DB:%s", strerror(errno));
+            server.db = tmpDB;
+            updateClientsSelectDB();
+            cancelReplicationHandshake(1);
+            return;
+        }
+        if (ret != AOF_NOT_EXIST) {
+            serverLog(LL_NOTICE, "success load the MASTER DB append only file: %.3f seconds",
+                      (float) (ustime() - start) / 1000000);
+        }
+        /* cleanup. */
+        aofDelHistoryFiles();
+        zfree(server.repl_transfer_tmpfile);
+        close(server.repl_transfer_fd);
+        server.repl_transfer_fd = -1;
+        server.repl_transfer_tmpfile = NULL;
+
+        /* Final setup of the connected slave <- master link */
+        replicationCreateMasterClient(server.repl_transfer_s, -1);
+        server.repl_state = REPL_STATE_CONNECTED;
+        server.repl_down_since = 0;
+
+        /* Fire the master link modules event. */
+        moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+                              REDISMODULE_SUBEVENT_MASTER_LINK_UP,
+                              NULL);
+
+        /* After a full resynchronization we use the replication ID and
+         * offset of the master. The secondary ID / offset are cleared since
+         * we are starting a new history. */
+        memcpy(server.replid, server.master->replid, sizeof(server.replid));
+        server.master_repl_offset = server.master->reploff;
+        clearReplicationId2();
+
+        /* Let's create the replication backlog if needed. Slaves need to
+         * accumulate the backlog regardless of the fact they have sub-slaves
+         * or not, in order to behave correctly if they are promoted to
+         * masters after a failover. */
+        if (server.repl_backlog == NULL) createReplicationBacklog();
+        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
+        return;
+    }
+    return;
+
+    error:
+    cleanupTmpAof();
+    cancelReplicationHandshake(1);
+    return;
+}
+
+void updateClientsSelectDB(){
+    listNode *ln;
+    listIter li;
+    listRewind(server.clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = (client *) ln->value;
+        selectDb(c, c->db->id);
+    }
+}
+
+void cleanupTmpAof() {
+    listNode *ln;
+    listIter li;
+    listRewind(server.repl_aof_manifest->incr_aof_list, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = (aofInfo *) ln->value;
+        unlink(makePath(server.aof_dirname, ai->file_name));
+    }
+    if (server.repl_aof_manifest->base_aof_info != NULL &&
+        server.repl_aof_manifest->base_aof_info->file_name != NULL) {
+        unlink(makePath(server.aof_dirname, server.repl_aof_manifest->base_aof_info->file_name));
+    }
+}
+
+/* Asynchronously read the SYNC payload we receive from a master */
 void readSyncBulkPayload(connection *conn) {
     char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
@@ -2031,7 +2511,7 @@ void readSyncBulkPayload(connection *conn) {
      * rdbLoad() will call the event loop to process events from time to
      * time for non blocking loading. */
     connSetReadHandler(conn, NULL);
-    
+
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Loading DB in memory");
     rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
     if (use_diskless_load) {
@@ -2309,7 +2789,7 @@ char *sendCommand(connection *conn, ...) {
     return NULL;
 }
 
-/* Compose a multi-bulk command and send it to the connection. 
+/* Compose a multi-bulk command and send it to the connection.
  * Used to send AUTH and REPLCONF commands to the master before starting the
  * replication.
  *
@@ -2454,16 +2934,30 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
     connSetReadHandler(conn, NULL);
 
-    if (!strncmp(reply,"+FULLRESYNC",11)) {
+    if (!strncmp(reply, "+FULLRESYNC", 11)) {
         char *replid = NULL, *offset = NULL;
-
-        /* FULL RESYNC, parse the reply in order to extract the replid
-         * and the replication offset. */
-        replid = strchr(reply,' ');
-        if (replid) {
-            replid++;
-            offset = strchr(replid,' ');
-            if (offset) offset++;
+        if (!strncmp(reply, "+FULLRESYNC aof_sync", 20)) {
+            server.repl_full_sync_type = 1;
+            char *aof_tmp = strchr(reply, ' ');
+            if (aof_tmp) {
+                aof_tmp++;
+                replid = strchr(aof_tmp, ' ');
+                /* FULL RESYNC, parse the reply in order to extract the replid
+                 * and the replication offset. */
+                if (replid) {
+                    replid++;
+                    offset = strchr(replid, ' ');
+                    if (offset) offset++;
+                }
+            }
+        } else {
+            server.repl_full_sync_type = 0;
+            replid = strchr(reply, ' ');
+            if (replid) {
+                replid++;
+                offset = strchr(replid, ' ');
+                if (offset) offset++;
+            }
         }
         if (!replid || !offset || (offset-replid-1) != CONFIG_RUN_ID_SIZE) {
             serverLog(LL_WARNING,
@@ -2677,10 +3171,12 @@ void syncWithMaster(connection *conn) {
          *
          * EOF: supports EOF-style RDB transfer for diskless replication.
          * PSYNC2: supports PSYNC v2, so understands +CONTINUE <new repl ID>.
+         * aof_sync: supports aof full replication (option)
          *
          * The master will ignore capabilities it does not understand. */
         err = sendCommand(conn,"REPLCONF",
-                "capa","eof","capa","psync2",NULL);
+                "capa","eof","capa","psync2",
+                server.aof_full_replication_enabled?"":"capa",server.aof_full_replication_enabled?"":"aof_sync",NULL);
         if (err) goto write_error;
 
         server.repl_state = REPL_STATE_RECEIVE_AUTH_REPLY;
@@ -2815,44 +3311,74 @@ void syncWithMaster(connection *conn) {
         serverLog(LL_NOTICE,"Retrying with SYNC...");
         if (connSyncWrite(conn,"SYNC\r\n",6,server.repl_syncio_timeout*1000) == -1) {
             serverLog(LL_WARNING,"I/O error writing to MASTER: %s",
-                strerror(errno));
+                      strerror(errno));
             goto error;
         }
     }
 
-    /* Prepare a suitable temp file for bulk transfer */
-    if (!useDisklessLoad()) {
-        while(maxtries--) {
-            snprintf(tmpfile,256,
-                "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());
-            dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL,0644);
-            if (dfd != -1) break;
-            sleep(1);
-        }
-        if (dfd == -1) {
-            serverLog(LL_WARNING,"Opening the temp file needed for MASTER <-> REPLICA synchronization: %s",strerror(errno));
+    if (server.repl_full_sync_type) {
+        /* Setup the non blocking download of the aof manifest. */
+        if (connSetReadHandler(conn, readSyncAofManifest)
+            == C_ERR) {
+            char conninfo[CONN_INFO_LEN];
+            serverLog(LL_WARNING,
+                      "Can't create readable event for SYNC: %s (%s)",
+                      strerror(errno), connGetInfo(conn, conninfo, sizeof(conninfo)));
             goto error;
         }
-        server.repl_transfer_tmpfile = zstrdup(tmpfile);
-        server.repl_transfer_fd = dfd;
-    }
+        /* dup tmp aof manifest */
+        server.repl_aof_manifest = aofManifestDup(server.aof_manifest);
+        server.repl_transfer_aof_nums = 0;
+        server.repl_transfer_base_aof_type = -1;
+        server.repl_aof_manifest->base_aof_info->file_type = AOF_FILE_TYPE_HIST;
+        listAddNodeTail(server.repl_aof_manifest->history_aof_list, server.repl_aof_manifest->base_aof_info);
+        listNode *ln;
+        listIter li;
+        listRewind(server.repl_aof_manifest->incr_aof_list, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            aofInfo *ai = (aofInfo *) ln->value;
+            ai->file_type = AOF_FILE_TYPE_HIST;
+            listAddNodeTail(server.repl_aof_manifest->history_aof_list, ai);
+        }
+        server.repl_aof_manifest->incr_aof_list = listCreate();
+        server.repl_aof_manifest->base_aof_info = aofInfoCreate();
+        server.repl_aof_manifest->dirty = 1;
+    } else {
+        /* Prepare a suitable temp file for bulk transfer */
+        if (!useDisklessLoad()) {
+            while(maxtries--) {
+                snprintf(tmpfile,256,
+                         "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());
+                dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL,0644);
+                if (dfd != -1) break;
+                if (maxtries == 0) {
+                    serverLog(LL_WARNING, "Opening the temp file needed for MASTER <-> REPLICA synchronization: %s",
+                              strerror(errno));
+                    goto error;
+                }
+                sleep(1);
+            }
+            server.repl_transfer_tmpfile = zstrdup(tmpfile);
+            server.repl_transfer_fd = dfd;
+        }
 
-    /* Setup the non blocking download of the bulk file. */
-    if (connSetReadHandler(conn, readSyncBulkPayload)
-            == C_ERR)
-    {
-        char conninfo[CONN_INFO_LEN];
-        serverLog(LL_WARNING,
-            "Can't create readable event for SYNC: %s (%s)",
-            strerror(errno), connGetInfo(conn, conninfo, sizeof(conninfo)));
-        goto error;
-    }
+        /* Setup the non blocking download of the bulk file. */
+        if (connSetReadHandler(conn, readSyncBulkPayload)
+            == C_ERR) {
+            char conninfo[CONN_INFO_LEN];
+            serverLog(LL_WARNING,
+                      "Can't create readable event for SYNC: %s (%s)",
+                      strerror(errno), connGetInfo(conn, conninfo, sizeof(conninfo)));
+            goto error;
+        }
+    };
 
     server.repl_state = REPL_STATE_TRANSFER;
     server.repl_transfer_size = -1;
     server.repl_transfer_read = 0;
     server.repl_transfer_last_fsync_off = 0;
     server.repl_transfer_lastio = server.unixtime;
+
     return;
 
 no_response_error: /* Handle receiveSynchronousResponse() error when master has no reply */
@@ -3047,7 +3573,7 @@ void replicationUnsetMaster(void) {
      * starting from now. Otherwise the backlog will be freed after a
      * failover if slaves do not connect immediately. */
     server.repl_no_slaves_since = server.unixtime;
-    
+
     /* Reset down time so it'll be ready for when we turn into replica again. */
     server.repl_down_since = 0;
 
@@ -3136,6 +3662,7 @@ void replicaofCommand(client *c) {
                                  "master\r\n"));
             return;
         }
+
         /* There was no previous master or the user specified a different one,
          * we can continue. */
         replicationSetMaster(c->argv[1]->ptr, port);
@@ -3874,9 +4401,9 @@ void abortFailover(const char *err) {
 
     if (server.target_replica_host) {
         serverLog(LL_NOTICE,"FAILOVER to %s:%d aborted: %s",
-            server.target_replica_host,server.target_replica_port,err);  
+            server.target_replica_host,server.target_replica_port,err);
     } else {
-        serverLog(LL_NOTICE,"FAILOVER to any replica aborted: %s",err);  
+        serverLog(LL_NOTICE,"FAILOVER to any replica aborted: %s",err);
     }
     if (server.failover_state == FAILOVER_IN_PROGRESS) {
         replicationUnsetMaster();
@@ -3917,7 +4444,7 @@ void failoverCommand(client *c) {
                         "Use CLUSTER FAILOVER command instead.");
         return;
     }
-    
+
     /* Handle special case for abort */
     if ((c->argc == 2) && !strcasecmp(c->argv[1]->ptr,"abort")) {
         if (server.failover_state == NO_FAILOVER) {
@@ -3948,7 +4475,7 @@ void failoverCommand(client *c) {
             }
             j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"to") && (j + 2 < c->argc) &&
-            !host) 
+            !host)
         {
             if (getLongFromObjectOrReply(c,c->argv[j + 2],&port,NULL) != C_OK)
                 return;
@@ -3974,13 +4501,13 @@ void failoverCommand(client *c) {
 
     if (listLength(server.slaves) == 0) {
         addReplyError(c,"FAILOVER requires connected replicas.");
-        return; 
+        return;
     }
 
     if (force_flag && (!timeout_in_ms || !host)) {
         addReplyError(c,"FAILOVER with force option requires both a timeout "
             "and target HOST and IP.");
-        return;     
+        return;
     }
 
     /* If a replica address was provided, validate that it is connected. */
@@ -4010,7 +4537,7 @@ void failoverCommand(client *c) {
     if (timeout_in_ms) {
         server.failover_end_time = now + timeout_in_ms;
     }
-    
+
     server.force_failover = force_flag;
     server.failover_state = FAILOVER_WAIT_FOR_SYNC;
     /* Cluster failover will unpause eventually */
@@ -4050,7 +4577,7 @@ void updateFailoverStatus(void) {
     /* Check to see if the replica has caught up so failover can start */
     client *replica = NULL;
     if (server.target_replica_host) {
-        replica = findReplica(server.target_replica_host, 
+        replica = findReplica(server.target_replica_host,
             server.target_replica_port);
     } else {
         listIter li;

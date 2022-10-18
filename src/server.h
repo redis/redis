@@ -273,7 +273,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                   * from the value of the key. */
 /* Other flags: */
 #define CMD_KEY_NOT_KEY (1ULL<<8)     /* A 'fake' key that should be routed
-                                       * like a key in cluster mode but is 
+                                       * like a key in cluster mode but is
                                        * excluded from other key checks. */
 #define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
                                        * out to all keys it should cover */
@@ -413,7 +413,7 @@ typedef enum {
     REPL_STATE_SEND_PSYNC,          /* Send PSYNC */
     REPL_STATE_RECEIVE_PSYNC_REPLY, /* Wait for PSYNC reply */
     /* --- End of handshake states --- */
-    REPL_STATE_TRANSFER,        /* Receiving .rdb from master */
+    REPL_STATE_TRANSFER,        /* Receiving .rdb/.aof from master */
     REPL_STATE_CONNECTED,       /* Connected to master */
 } repl_state;
 
@@ -429,17 +429,24 @@ typedef enum {
  * In SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE states instead the server is waiting
  * to start the next background saving in order to send updates to it. */
+/* RDB replication states */
 #define SLAVE_STATE_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
 #define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
 #define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
-#define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
-#define SLAVE_STATE_RDB_TRANSMITTED 10 /* RDB file transmitted - This state is used only for
+/* AOF replication states */
+#define SLAVE_STATE_WAIT_REWRITE 9 /* Currently rewriting, waiting for completion*/
+#define SLAVE_STATE_SEND_AOF_BASE 10 /* Sending base file of AOF manifest to slave. */
+#define SLAVE_STATE_SEND_AOF_INCR 11 /* Sending incremental files of AOF manifest to slave. */
+/* Replication finished, online */
+#define SLAVE_STATE_ONLINE 12 /* RDB/AOF file(s) transmitted, sending just updates. */
+#define SLAVE_STATE_RDB_TRANSMITTED 13 /* RDB file transmitted - This state is used only for
                                         * a replica that only wants RDB without replication buffer  */
 
 /* Slave capabilities. */
 #define SLAVE_CAPA_NONE 0
 #define SLAVE_CAPA_EOF (1<<0)    /* Can parse the RDB EOF streaming format. */
 #define SLAVE_CAPA_PSYNC2 (1<<1) /* Supports PSYNC2 protocol. */
+#define SLAVE_CAPA_AOFSYNC (1<<2) /* Supports sync with aof. */
 
 /* Slave requirements */
 #define SLAVE_REQ_NONE 0
@@ -684,6 +691,7 @@ struct RedisModuleCtx;
 struct moduleLoadQueueEntry;
 struct RedisModuleKeyOptCtx;
 struct RedisModuleCommand;
+typedef struct aofManifest aofManifest;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -889,7 +897,7 @@ typedef struct clientReplyBlock {
  *      |                                           /         \
  *      |                                          /           \
  *  Repl Backlog                               Replia_A      Replia_B
- * 
+ *
  * Each replica or replication backlog increments only the refcount of the
  * 'ref_repl_buf_node' which it points to. So when replica walks to the next
  * node, it should first increase the next node's refcount, and when we trim
@@ -1123,6 +1131,7 @@ typedef struct client {
     off_t repldboff;        /* Replication DB file offset. */
     off_t repldbsize;       /* Replication DB file size. */
     sds replpreamble;       /* Replication DB preamble. */
+    int repl_aof_incr_idx;  /* Index of incr item in aof manifest to send (using aof replaction) */
     long long read_reploff; /* Read replication offset if this is a master. */
     long long reploff;      /* Applied replication offset if this is a master. */
     long long repl_applied; /* Applied replication data count in querybuf, if this is a replica. */
@@ -1235,8 +1244,8 @@ struct sharedObjectsStruct {
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
     *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
-    *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,  
-    *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire, 
+    *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,
+    *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire,
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
@@ -1415,7 +1424,7 @@ typedef struct {
     aof_file_type file_type;  /* file type */
 } aofInfo;
 
-typedef struct {
+struct aofManifest {
     aofInfo     *base_aof_info;       /* BASE file information. NULL if there is no BASE file. */
     list        *incr_aof_list;       /* INCR AOFs list. We may have multiple INCR AOF when rewrite fails. */
     list        *history_aof_list;    /* HISTORY AOF list. When the AOFRW success, The aofInfo contained in
@@ -1425,7 +1434,7 @@ typedef struct {
     long long   curr_incr_file_seq;   /* The sequence number used by the current INCR file. */
     int         dirty;                /* 1 Indicates that the aofManifest in the memory is inconsistent with
                                          disk, we need to persist it immediately. */
-} aofManifest;
+};
 
 /*-----------------------------------------------------------------------------
  * Global server state
@@ -1648,6 +1657,7 @@ struct redisServer {
     int latency_tracking_enabled;   /* 1 if extended latency tracking is enabled, 0 otherwise. */
     double *latency_tracking_info_percentiles; /* Extended latency tracking info output percentile list configuration. */
     int latency_tracking_info_percentiles_len;
+    int aof_full_replication_enabled;   /* AOF full replication*/
     /* AOF persistence */
     int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
@@ -1782,6 +1792,7 @@ struct redisServer {
     connection *repl_transfer_s;     /* Slave -> Master SYNC connection */
     int repl_transfer_fd;    /* Slave -> Master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
+
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
     int repl_slave_ro;          /* Slave is read only? */
@@ -1796,6 +1807,17 @@ struct redisServer {
                                      * when it receives an error on the replication stream */
     int repl_ignore_disk_write_error;   /* Configures whether replicas panic when unable to
                                          * persist writes to AOF. */
+    int repl_full_sync_type; /* Slave used. Full sync type (aof/rdb). default is 0 means rdb, 1 is aof */
+    int repl_transfer_aof_nums; /* Number of AOF to be transmitted */
+    int repl_transfer_base_aof_type; /* Type of base AOF 0 is rdb,1 is aof */
+
+    aofManifest *repl_aof_manifest; /* In master, it is the aofManifest will be sent to slaves;
+                                     * In slave, it is the aofManifest will be persisted */
+    int repl_aof_sending_slave_num; /* The number of slaves using aof replication.
+                                     * When it down to 0, the repl_aof_manifest will be free.
+                                     * Could be understood as the ref-count of repl_aof_manifest */
+    int repl_transfer_current_read_aof_index; /* Current read aof index */
+    int repl_transfer_wait_read_aof; /* Whether to read aof  */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
@@ -2694,7 +2716,7 @@ void replicationSendNewlineToMaster(void);
 long long replicationGetSlaveOffset(void);
 char *replicationGetSlaveName(client *c);
 long long getPsyncInitialOffset(void);
-int replicationSetupSlaveForFullResync(client *slave, long long offset);
+int replicationSetupSlaveForFullResync(client *slave, long long offset, int aofSync);
 void changeReplicationId(void);
 void clearReplicationId2(void);
 void createReplicationBacklog(void);
@@ -3018,7 +3040,7 @@ sds keyspaceEventsFlagsToString(int flags);
 
 /* Configuration */
 /* Configuration Flags */
-#define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard 
+#define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard
                              * config, which is mutable. */
 #define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
 #define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */

@@ -2493,6 +2493,15 @@ static int updateAppendonly(const char **err) {
     return 1;
 }
 
+static int updateAofFullReplication(const char **err) {
+    if (!server.aof_enabled || server.aof_state != AOF_OFF) {
+        *err = "Unable to turn on AOF Full Replication. Check server logs.";
+        return 0;
+    }
+    return 1;
+}
+
+
 static int updateAofAutoGCEnabled(const char **err) {
     UNUSED(err);
     if (!server.aof_disable_auto_gc) {
@@ -3007,6 +3016,7 @@ standardConfig static_configs[] = {
     createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
     createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG | DENY_LOADING_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
+    createBoolConfig("aof-full-replication", NULL, MODIFIABLE_CONFIG | DENY_LOADING_CONFIG, server.aof_full_replication_enabled, 0, NULL, updateAofFullReplication),
     createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
     createBoolConfig("cluster-allow-pubsubshard-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_pubsubshard_when_down, 1, NULL, NULL),
     createBoolConfig("crash-log-enabled", NULL, MODIFIABLE_CONFIG, server.crashlog_enabled, 1, NULL, updateSighandlerEnabled),

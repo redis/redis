@@ -2413,6 +2413,24 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+
+/* Create the Redis databases, and initialize other internal state. */
+void initServerDB(void){
+    for (int j = 0; j < server.dbnum; j++) {
+        server.db[j].dict = dictCreate(&dbDictType);
+        server.db[j].expires = dictCreate(&dbExpiresDictType);
+        server.db[j].expires_cursor = 0;
+        server.db[j].blocking_keys = dictCreate(&keylistDictType);
+        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
+        server.db[j].watched_keys = dictCreate(&keylistDictType);
+        server.db[j].id = j;
+        server.db[j].avg_ttl = 0;
+        server.db[j].defrag_later = listCreate();
+        server.db[j].slots_to_keys = NULL; /* Set by clusterInit later on if necessary. */
+        listSetFreeMethod(server.db[j].defrag_later, (void (*)(void *)) sdsfree);
+    }
+}
+
 void initServer(void) {
     int j;
 
@@ -2489,20 +2507,7 @@ void initServer(void) {
     }
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
-    /* Create the Redis databases, and initialize other internal state. */
-    for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType);
-        server.db[j].expires = dictCreate(&dbExpiresDictType);
-        server.db[j].expires_cursor = 0;
-        server.db[j].blocking_keys = dictCreate(&keylistDictType);
-        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
-        server.db[j].watched_keys = dictCreate(&keylistDictType);
-        server.db[j].id = j;
-        server.db[j].avg_ttl = 0;
-        server.db[j].defrag_later = listCreate();
-        server.db[j].slots_to_keys = NULL; /* Set by clusterInit later on if necessary. */
-        listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
-    }
+    initServerDB();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType);
     server.pubsub_patterns = dictCreate(&keylistDictType);
@@ -2560,6 +2565,8 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
+    server.repl_aof_manifest = NULL;
+    server.repl_aof_sending_slave_num = 0;
 
     /* Initiate acl info struct */
     server.acl_info.invalid_cmd_accesses = 0;
@@ -5120,6 +5127,8 @@ const char *replstateToString(int replstate) {
         return "wait_bgsave";
     case SLAVE_STATE_SEND_BULK:
         return "send_bulk";
+    case SLAVE_STATE_SEND_AOF_BASE:
+        return "send_aof_bulks";
     case SLAVE_STATE_ONLINE:
         return "online";
     default:
@@ -5839,22 +5848,47 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             );
 
             if (server.repl_state == REPL_STATE_TRANSFER) {
-                double perc = 0;
-                if (server.repl_transfer_size) {
-                    perc = ((double)server.repl_transfer_read / server.repl_transfer_size) * 100;
+                if (server.repl_full_sync_type == 0) {
+                    double perc = 0;
+                    if (server.repl_transfer_size) {
+                        perc = ((double) server.repl_transfer_read / server.repl_transfer_size) * 100;
+                    }
+                    info = sdscatprintf(info,
+                                        "master_sync_total_bytes:%lld\r\n"
+                                        "master_sync_read_bytes:%lld\r\n"
+                                        "master_sync_left_bytes:%lld\r\n"
+                                        "master_sync_perc:%.2f\r\n"
+                                        "master_sync_last_io_seconds_ago:%d\r\n",
+                                        (long long) server.repl_transfer_size,
+                                        (long long) server.repl_transfer_read,
+                                        (long long) (server.repl_transfer_size - server.repl_transfer_read),
+                                        perc,
+                                        (int) (server.unixtime - server.repl_transfer_lastio)
+                    );
+                } else {
+                    double perc = 0;
+                    if (server.repl_transfer_size) {
+                        perc = ((double) server.repl_transfer_read / server.repl_transfer_size) * 100;
+                    } else {
+                        perc = 1;
+                    }
+                    info = sdscatprintf(info,
+                                        "master_sync_total_aof_file_nums:%d\r\n"
+                                        "master_sync_current_aof_file_index:%d\r\n"
+                                        "master_sync_current_aof_file_total_bytes:%lld\r\n"
+                                        "master_sync_current_aof_file_read_bytes:%lld\r\n"
+                                        "master_sync_current_aof_file_left_bytes:%lld\r\n"
+                                        "master_sync_current_aof_file_perc:%.2f\r\n"
+                                        "master_sync_last_io_seconds_ago:%d\r\n",
+                                        server.repl_transfer_aof_nums,
+                                        server.repl_transfer_current_read_aof_index,
+                                        (long long) server.repl_transfer_size,
+                                        (long long) server.repl_transfer_read,
+                                        (long long) (server.repl_transfer_size - server.repl_transfer_read),
+                                        perc,
+                                        (int) (server.unixtime - server.repl_transfer_lastio)
+                    );
                 }
-                info = sdscatprintf(info,
-                    "master_sync_total_bytes:%lld\r\n"
-                    "master_sync_read_bytes:%lld\r\n"
-                    "master_sync_left_bytes:%lld\r\n"
-                    "master_sync_perc:%.2f\r\n"
-                    "master_sync_last_io_seconds_ago:%d\r\n",
-                    (long long) server.repl_transfer_size,
-                    (long long) server.repl_transfer_read,
-                    (long long) (server.repl_transfer_size - server.repl_transfer_read),
-                    perc,
-                    (int)(server.unixtime-server.repl_transfer_lastio)
-                );
             }
 
             if (server.repl_state != REPL_STATE_CONNECTED) {
