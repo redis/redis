@@ -2404,7 +2404,7 @@ void xreadCommand(client *c) {
             goto cleanup;
         }
         blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count,
-                     -1, timeout, NULL, NULL, ids);
+                     -1, timeout, NULL, NULL, ids, xreadgroup);
         /* If no COUNT is given and we block, set a relatively small count:
          * in case the ID provided is too low, we do not want the server to
          * block just to serve this client a huge stream of messages. */

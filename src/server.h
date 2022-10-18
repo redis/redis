@@ -917,6 +917,9 @@ typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
+    dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
+                                             * data, and should be unblocked if key is deleted (XREADEDGROUP).
+                                             * This is a subset of blocking_keys*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;                     /* Database ID */
@@ -3234,9 +3237,10 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids);
+void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids, int unblock_on_nokey);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
-void scanDatabaseForDeletedStreams(redisDb *emptied, redisDb *replaced_with);
+void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */
 void addClientToTimeoutTable(client *c);

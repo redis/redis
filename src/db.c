@@ -232,9 +232,8 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
      * overwrite as two steps of unlink+add, so we still need to call the unlink
      * callback of the module. */
     moduleNotifyKeyUnlink(key,old,db->id);
-    /* We want to try to unblock any client using a blocking XREADGROUP */
-    if (old->type == OBJ_STREAM)
-        signalKeyAsReady(db,key,old->type);
+    /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
+    signalDeletedKeyAsReady(db,key,old->type);
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
@@ -325,9 +324,8 @@ static int dbGenericDelete(redisDb *db, robj *key, int async) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
-        /* We want to try to unblock any client using a blocking XREADGROUP */
-        if (val->type == OBJ_STREAM)
-            signalKeyAsReady(db,key,val->type);
+        /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
+        signalDeletedKeyAsReady(db,key,val->type);
         if (async) {
             freeObjAsync(key, val, db->id);
             dictSetVal(db->dict, de, NULL);
@@ -568,7 +566,7 @@ void signalFlushedDb(int dbid, int async) {
     }
 
     for (int j = startdb; j <= enddb; j++) {
-        scanDatabaseForDeletedStreams(&server.db[j], NULL);
+        scanDatabaseForDeletedKeys(&server.db[j], NULL);
         touchAllWatchedKeysInDb(&server.db[j], NULL);
     }
 
@@ -1350,32 +1348,32 @@ void scanDatabaseForReadyKeys(redisDb *db) {
 /* Since we are unblocking XREADGROUP clients in the event the
  * key was deleted/overwritten we must do the same in case the
  * database was flushed/swapped. */
-void scanDatabaseForDeletedStreams(redisDb *emptied, redisDb *replaced_with) {
-    /* Optimization: If no clients are in type BLOCKED_STREAM,
-     * we can skip this loop. */
-    if (!server.blocked_clients_by_type[BLOCKED_STREAM]) return;
-
+void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(emptied->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        int was_stream = 0, is_stream = 0;
+        int existed = 0, exists = 0;
+        int original_type = -1, curr_type = -1;
 
         dictEntry *kde = dictFind(emptied->dict, key->ptr);
         if (kde) {
             robj *value = dictGetVal(kde);
-            was_stream = value->type == OBJ_STREAM;
+            original_type = value->type;
+            existed = 1;
         }
+
         if (replaced_with) {
             dictEntry *kde = dictFind(replaced_with->dict, key->ptr);
             if (kde) {
                 robj *value = dictGetVal(kde);
-                is_stream = value->type == OBJ_STREAM;
+                curr_type = value->type;
+                exists = 1;
             }
         }
         /* We want to try to unblock any client using a blocking XREADGROUP */
-        if (was_stream && !is_stream)
-            signalKeyAsReady(emptied, key, OBJ_STREAM);
+        if ((existed && !exists) || original_type != curr_type)
+            signalDeletedKeyAsReady(emptied, key, original_type);
     }
     dictReleaseIterator(di);
 }
@@ -1401,8 +1399,8 @@ int dbSwapDatabases(int id1, int id2) {
     touchAllWatchedKeysInDb(db2, db1);
 
     /* Try to unblock any XREADGROUP clients if the key no longer exists. */
-    scanDatabaseForDeletedStreams(db1, db2);
-    scanDatabaseForDeletedStreams(db2, db1);
+    scanDatabaseForDeletedKeys(db1, db2);
+    scanDatabaseForDeletedKeys(db2, db1);
 
     /* Swap hash tables. Note that we don't swap blocking_keys,
      * ready_keys and watched_keys, since we want clients to
@@ -1451,7 +1449,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         touchAllWatchedKeysInDb(activedb, newdb);
 
         /* Try to unblock any XREADGROUP clients if the key no longer exists. */
-        scanDatabaseForDeletedStreams(activedb, newdb);
+        scanDatabaseForDeletedKeys(activedb, newdb);
 
         /* Swap hash tables. Note that we don't swap blocking_keys,
          * ready_keys and watched_keys, since clients 
