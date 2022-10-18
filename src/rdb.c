@@ -31,6 +31,7 @@
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
 #include "endianconv.h"
+#include "fpconv_dtoa.h"
 #include "stream.h"
 #include "functions.h"
 
@@ -590,8 +591,10 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
         /* Integer printing function is much faster, check if we can safely use it. */
         if (double2ll(val, &lvalue))
             ll2string((char*)buf+1,sizeof(buf)-1,lvalue);
-        else
-            snprintf((char*)buf+1,sizeof(buf)-1,"%.17g",val);
+        else {
+            const int dlen = fpconv_dtoa(val, (char*)buf+1);
+            buf[dlen+1] = '\0';
+        }
         buf[0] = strlen((char*)buf+1);
         len = buf[0]+1;
     }

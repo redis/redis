@@ -1180,7 +1180,9 @@ void bitfieldGeneric(client *c, int flags) {
                     addReplyNull(c);
                 }
             } else {
-                uint64_t oldval, newval, wrapped, retval;
+                /* Initialization of 'wrapped' is required to avoid
+                * false-positive warning "-Wmaybe-uninitialized" */
+                uint64_t oldval, newval, retval, wrapped = 0;
                 int overflow;
 
                 oldval = getUnsignedBitfield(o->ptr,thisop->offset,
