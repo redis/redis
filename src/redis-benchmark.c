@@ -320,7 +320,7 @@ static redisConfig *getRedisConfig(const char *ip, int port,
     c = getRedisContext(ip, port, hostsocket);
     if (c == NULL) {
         freeRedisConfig(cfg);
-        return NULL;
+        exit(1);
     }
     redisAppendCommand(c, "CONFIG GET %s", "save");
     redisAppendCommand(c, "CONFIG GET %s", "appendonly");

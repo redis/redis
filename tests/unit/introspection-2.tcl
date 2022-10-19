@@ -3,6 +3,13 @@ proc cmdstat {cmd} {
 }
 
 start_server {tags {"introspection"}} {
+    test {The microsecond part of the TIME command will not overflow} {
+        set now [r time]
+        set microseconds [lindex $now 1]
+        assert_morethan $microseconds 0
+        assert_lessthan $microseconds 1000000
+    }
+
     test {TTL, TYPE and EXISTS do not alter the last access time of a key} {
         r set foo bar
         after 3000
