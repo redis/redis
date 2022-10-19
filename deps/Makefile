@@ -1,6 +1,7 @@
 # Redis dependency Makefile
 
 uname_S:= $(shell sh -c 'uname -s 2>/dev/null || echo not')
+uname_M:= $(shell sh -c 'uname -m 2>/dev/null || echo not')
 
 LUA_DEBUG?=no
 
@@ -103,6 +104,19 @@ JEMALLOC_LDFLAGS= $(LDFLAGS)
 ifneq ($(DEB_HOST_GNU_TYPE),)
 JEMALLOC_CONFIGURE_OPTS += --host=$(DEB_HOST_GNU_TYPE)
 endif
+
+# ARM platforms share the same instruction set, but vary in page size.
+# In order to make the binary portable, we define a larger maximal page size
+# at build time, see https://github.com/jemalloc/jemalloc/issues/467
+ifneq (,$(filter aarch64 armv%,$(uname_M)))
+	PAGE_BITS=$(shell getconf PAGESIZE | awk '{print log($$1)/log(2)}')
+	# Set page size to at least 64k (or larger if that's what used on build machine)
+	ifeq ($(shell test $(PAGE_BITS) -lt 16; echo $$?),0)
+		PAGE_BITS := 16
+	endif
+	JEMALLOC_CONFIGURE_OPTS += --with-lg-page=$(PAGE_BITS)
+endif
+
 
 jemalloc: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
