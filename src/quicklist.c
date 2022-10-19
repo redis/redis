@@ -503,7 +503,7 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
         return 0;
 
     /* approximate merged listpack size (- 7 to remove one listpack
-     * header/trailer) */
+     * header/trailer, see LP_HDR_SIZE and LP_EOF) */
     unsigned int merge_sz = a->sz + b->sz - 7;
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(merge_sz, fill)))
         return 1;
