@@ -88,6 +88,9 @@ void listRewindTail(list *list, listIter *li);
 void listRotateTailToHead(list *list);
 void listRotateHeadToTail(list *list);
 void listJoin(list *l, list *o);
+void listInitNode(listNode *node, void *value);
+void listLinkNodeHead(list *list, listNode *node);
+void listUnlinkNode(list *list, listNode *node);
 
 /* Directions for iterators */
 #define AL_START_HEAD 0

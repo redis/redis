@@ -31,6 +31,7 @@
 #include "atomicvar.h"
 #include "cluster.h"
 #include "script.h"
+#include "fpconv_dtoa.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -210,6 +211,7 @@ client *createClient(connection *conn) {
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
+    listInitNode(&c->clients_pending_write_node, c);
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     c->mem_usage_bucket = NULL;
@@ -258,7 +260,7 @@ void putClientInPendingWriteQueue(client *c) {
          * a system call. We'll only really install the write handler if
          * we'll not be able to write the whole reply at once. */
         c->flags |= CLIENT_PENDING_WRITE;
-        listAddNodeHead(server.clients_pending_write,c);
+        listLinkNodeHead(server.clients_pending_write, &c->clients_pending_write_node);
     }
 }
 
@@ -603,6 +605,13 @@ void addReplyErrorSds(client *c, sds err) {
     addReplyErrorSdsEx(c, err, 0);
 }
 
+/* See addReplyErrorLength for expectations from the input string. */
+/* As a side effect the SDS string is freed. */
+void addReplyErrorSdsSafe(client *c, sds err) {
+    err = sdsmapchars(err, "\r\n", "  ",  2);
+    addReplyErrorSdsEx(c, err, 0);
+}
+
 /* Internal function used by addReplyErrorFormat and addReplyErrorFormatEx.
  * Refer to afterErrorReply for more information about the flags. */
 static void addReplyErrorFormatInternal(client *c, int flags, const char *fmt, va_list ap) {
@@ -850,7 +859,7 @@ void addReplyDouble(client *c, double d) {
              * but still avoid an extra memcpy of the whole number, we reserve space
              * for maximum header `$0000\r\n`, print double, add the resp header in
              * front of it, and then send the buffer with the right `start` offset. */
-            int dlen = snprintf(dbuf+7,sizeof(dbuf) - 7,"%.17g",d);
+            dlen = fpconv_dtoa(d, dbuf+7);
             int digits = digits10(dlen);
             int start = 4 - digits;
             dbuf[start] = '$';
@@ -865,10 +874,15 @@ void addReplyDouble(client *c, double d) {
             dbuf[6] = '\n';
             dbuf[dlen+7] = '\r';
             dbuf[dlen+8] = '\n';
+            dbuf[dlen+9] = '\0';
             addReplyProto(c,dbuf+start,dlen+9-start);
         } else {
-            dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
-            addReplyProto(c,dbuf,dlen);
+            dbuf[0] = ',';
+            dlen = fpconv_dtoa(d, dbuf+1);
+            dbuf[dlen+1] = '\r';
+            dbuf[dlen+2] = '\n';
+            dbuf[dlen+3] = '\0';
+            addReplyProto(c,dbuf,dlen+3);
         }
     }
 }
@@ -1442,9 +1456,9 @@ void unlinkClient(client *c) {
 
     /* Remove from the list of pending writes if needed. */
     if (c->flags & CLIENT_PENDING_WRITE) {
-        ln = listSearchKey(server.clients_pending_write,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients_pending_write,ln);
+        serverAssert(&c->clients_pending_write_node.next != NULL || 
+                     &c->clients_pending_write_node.prev != NULL);
+        listUnlinkNode(server.clients_pending_write, &c->clients_pending_write_node);
         c->flags &= ~CLIENT_PENDING_WRITE;
     }
 
@@ -2049,7 +2063,7 @@ int handleClientsWithPendingWrites(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
-        listDelNode(server.clients_pending_write,ln);
+        listUnlinkNode(server.clients_pending_write,ln);
 
         /* If a client is protected, don't do anything,
          * that may trigger write error or recreate handler. */
@@ -4039,7 +4053,13 @@ void processEventsWhileBlocked(void) {
  * ========================================================================== */
 
 #define IO_THREADS_MAX_NUM 128
+#ifndef CACHE_LINE_SIZE
+#if defined(__aarch64__) && defined(__APPLE__)
+#define CACHE_LINE_SIZE 128
+#else
 #define CACHE_LINE_SIZE 64
+#endif
+#endif
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) threads_pending {
     redisAtomic unsigned long value;
@@ -4235,7 +4255,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         /* Remove clients from the list of pending writes since
          * they are going to be closed ASAP. */
         if (c->flags & CLIENT_CLOSE_ASAP) {
-            listDelNode(server.clients_pending_write, ln);
+            listUnlinkNode(server.clients_pending_write, ln);
             continue;
         }
 
@@ -4294,7 +4314,9 @@ int handleClientsWithPendingWritesUsingThreads(void) {
             installClientWriteHandler(c);
         }
     }
-    listEmpty(server.clients_pending_write);
+    while(listLength(server.clients_pending_write) > 0) {
+        listUnlinkNode(server.clients_pending_write, server.clients_pending_write->head);
+    }
 
     /* Update processed count on server */
     server.stat_io_writes_processed += processed;

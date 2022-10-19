@@ -201,6 +201,32 @@ mstime_t mstime(void) {
     return ustime()/1000;
 }
 
+/* Return the command time snapshot in milliseconds.
+ * The time the command started is the logical time it runs,
+ * and all the time readings during the execution time should
+ * reflect the same time.
+ * More details can be found in the comments below. */
+mstime_t commandTimeSnapshot(void) {
+    /* If we are in the context of a Lua script, we pretend that time is
+     * blocked to when the Lua script started. This way a key can expire
+     * only the first time it is accessed and not in the middle of the
+     * script execution, making propagation to slaves / AOF consistent.
+     * See issue #1525 on Github for more information. */
+    if (server.script_caller) {
+        return scriptTimeSnapshot();
+    }
+    /* If we are in the middle of a command execution, we still want to use
+     * a reference time that does not change: in that case we just use the
+     * cached time, that we update before each call in the call() function.
+     * This way we avoid that commands such as RPOPLPUSH or similar, that
+     * may re-open the same key multiple times, can invalidate an already
+     * open object in a next call, if the next call will see the key expired,
+     * while the first did not. */
+    else {
+        return server.mstime;
+    }
+}
+
 /* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
  * exit(), because the latter may interact with the same file objects used by
  * the parent process. However if we are testing the coverage normal exit() is
@@ -1171,9 +1197,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * handler if we don't return here fast enough. */
     if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
 
-    /* Update the time cache. */
-    updateCachedTime(1);
-
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
      * many clients, we want to call serverCron() with an higher frequency. */
@@ -1655,6 +1678,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
  * the different events callbacks. */
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
+
+    /* Update the time cache. */
+    updateCachedTime(1);
 
     /* Do NOT add anything above moduleAcquireGIL !!! */
 
@@ -2408,7 +2434,6 @@ void initServer(void) {
     server.main_thread_id = pthread_self();
     server.current_client = NULL;
     server.errors = raxNew();
-    server.fixed_time_expire = 0;
     server.in_nested_call = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
@@ -2470,6 +2495,7 @@ void initServer(void) {
         server.db[j].expires = dictCreate(&dbExpiresDictType);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
+        server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].watched_keys = dictCreate(&keylistDictType);
         server.db[j].id = j;
@@ -2535,6 +2561,12 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
+
+    /* Initiate acl info struct */
+    server.acl_info.invalid_cmd_accesses = 0;
+    server.acl_info.invalid_key_accesses  = 0;
+    server.acl_info.user_auth_failures = 0;
+    server.acl_info.invalid_channel_accesses = 0;
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
@@ -3327,7 +3359,7 @@ void call(client *c, int flags) {
 
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call*/
-    if (server.fixed_time_expire++ == 0) {
+    if (server.in_nested_call++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
     }
 
@@ -3335,7 +3367,6 @@ void call(client *c, int flags) {
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
 
-    server.in_nested_call++;
     c->cmd->proc(c);
     server.in_nested_call--;
 
@@ -3476,7 +3507,6 @@ void call(client *c, int flags) {
         }
     }
 
-    server.fixed_time_expire--;
     server.stat_numcommands++;
 
     /* Record peak memory after each command and before the eviction that runs
@@ -3718,28 +3748,9 @@ int processCommand(client *c) {
     int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,acl_errpos,NULL,NULL);
-        switch (acl_retval) {
-        case ACL_DENIED_CMD:
-        {
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to run "
-                "the '%s' command", c->cmd->fullname);
-            break;
-        }
-        case ACL_DENIED_KEY:
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to access "
-                "one of the keys used as arguments");
-            break;
-        case ACL_DENIED_CHANNEL:
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to access "
-                "one of the channels used as arguments");
-            break;
-        default:
-            rejectCommandFormat(c, "no permission");
-            break;
-        }
+        sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
+        rejectCommandFormat(c, "-NOPERM %s", msg);
+        sdsfree(msg);
         return C_OK;
     }
 
@@ -4243,10 +4254,13 @@ int finishShutdown(void) {
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
 
+#if !defined(__sun)
     /* Unlock the cluster config file before shutdown */
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1) {
         flock(server.cluster_config_file_lock_fd, LOCK_UN|LOCK_NB);
     }
+#endif /* __sun */
+
 
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");
@@ -4334,14 +4348,9 @@ void echoCommand(client *c) {
 }
 
 void timeCommand(client *c) {
-    struct timeval tv;
-
-    /* gettimeofday() can only fail if &tv is a bad address so we
-     * don't check for errors. */
-    gettimeofday(&tv,NULL);
     addReplyArrayLen(c,2);
-    addReplyBulkLongLong(c,tv.tv_sec);
-    addReplyBulkLongLong(c,tv.tv_usec);
+    addReplyBulkLongLong(c, server.unixtime);
+    addReplyBulkLongLong(c, server.ustime-((long long)server.unixtime)*1000000);
 }
 
 typedef struct replyFlagNames {
@@ -5196,6 +5205,20 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
     return info;
 }
 
+/* Writes the ACL metrics to the info */
+sds genRedisInfoStringACLStats(sds info) {
+    info = sdscatprintf(info,
+         "acl_access_denied_auth:%lld\r\n"
+         "acl_access_denied_cmd:%lld\r\n"
+         "acl_access_denied_key:%lld\r\n"
+         "acl_access_denied_channel:%lld\r\n",
+         server.acl_info.user_auth_failures,
+         server.acl_info.invalid_cmd_accesses,
+         server.acl_info.invalid_key_accesses,
+         server.acl_info.invalid_channel_accesses);
+    return info;
+}
+
 sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
     struct redisCommand *c;
     dictEntry *de;
@@ -5377,7 +5400,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (isShutdownInitiated()) {
             info = sdscatfmt(info,
                 "shutdown_in_milliseconds:%I\r\n",
-                (int64_t)(server.shutdown_mstime - server.mstime));
+                (int64_t)(server.shutdown_mstime - commandTimeSnapshot()));
         }
 
         /* get all the listeners information */
@@ -5807,6 +5830,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_io_writes_processed,
             server.stat_reply_buffer_shrinks,
             server.stat_reply_buffer_expands);
+        info = genRedisInfoStringACLStats(info);
     }
 
     /* Replication */
@@ -6042,9 +6066,13 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Get info from modules.
-     * if user asked for "everything" or "modules", or a specific section
-     * that's not found yet. */
-    if (everything || dictFind(section_dict, "modules") != NULL || sections < (int)dictSize(section_dict)) {
+     * Returned when the user asked for "everything", "modules", or a specific module section.
+     * We're not aware of the module section names here, and we rather avoid the search when we can.
+     * so we proceed if there's a requested section name that's not found yet, or when the user asked
+     * for "all" with any additional section names. */
+    if (everything || dictFind(section_dict, "modules") != NULL || sections < (int)dictSize(section_dict) ||
+        (all_sections && dictSize(section_dict)))
+    {
 
         info = modulesCollectInfo(info,
                                   everything || dictFind(section_dict, "modules") != NULL ? NULL: section_dict,
@@ -7039,6 +7067,9 @@ int main(int argc, char **argv) {
     if (server.set_proc_title) redisSetProcTitle(NULL);
     redisAsciiArt();
     checkTcpBacklogSettings();
+    if (server.cluster_enabled) {
+        clusterInit();
+    }
     if (!server.sentinel_mode) {
         moduleInitModulesSystemLast();
         moduleLoadFromQueue();
@@ -7046,7 +7077,7 @@ int main(int argc, char **argv) {
     ACLLoadUsersAtStartup();
     initListeners();
     if (server.cluster_enabled) {
-        clusterInit();
+        clusterInitListeners();
     }
     InitServerLast();
 

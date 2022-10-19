@@ -488,7 +488,7 @@ int checkAlreadyExpired(long long when) {
      *
      * Instead we add the already expired key to the database with expire time
      * (possibly in the past) and wait for an explicit DEL from the master. */
-    return (when <= mstime() && !server.loading && !server.masterhost);
+    return (when <= commandTimeSnapshot() && !server.loading && !server.masterhost);
 }
 
 #define EXPIRE_NX (1<<0)
@@ -665,7 +665,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
 /* EXPIRE key seconds [ NX | XX | GT | LT] */
 void expireCommand(client *c) {
-    expireGenericCommand(c,mstime(),UNIT_SECONDS);
+    expireGenericCommand(c,commandTimeSnapshot(),UNIT_SECONDS);
 }
 
 /* EXPIREAT key unix-time-seconds [ NX | XX | GT | LT] */
@@ -675,7 +675,7 @@ void expireatCommand(client *c) {
 
 /* PEXPIRE key milliseconds [ NX | XX | GT | LT] */
 void pexpireCommand(client *c) {
-    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
+    expireGenericCommand(c,commandTimeSnapshot(),UNIT_MILLISECONDS);
 }
 
 /* PEXPIREAT key unix-time-milliseconds [ NX | XX | GT | LT] */
@@ -697,7 +697,7 @@ void ttlGenericCommand(client *c, int output_ms, int output_abs) {
      * TTL value otherwise. */
     expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
-        ttl = output_abs ? expire : expire-mstime();
+        ttl = output_abs ? expire : expire-commandTimeSnapshot();
         if (ttl < 0) ttl = 0;
     }
     if (ttl == -1) {

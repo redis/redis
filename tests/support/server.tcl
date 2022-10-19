@@ -418,7 +418,7 @@ proc start_server {options {code undefined}} {
                 set baseconfig $value
             }
             "overrides" {
-                set overrides $value
+                set overrides [concat $overrides $value]
             }
             "config_lines" {
                 set config_lines $value

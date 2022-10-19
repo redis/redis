@@ -15,8 +15,12 @@
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
-OPTIMIZATION?=-O2
-DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram
+OPTIMIZATION?=-O3
+ifeq ($(OPTIMIZATION),-O3)
+	REDIS_CFLAGS+=-flto
+	REDIS_LDFLAGS+=-flto
+endif
+DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram fpconv
 NODEPS:=clean distclean
 
 # Default settings
@@ -139,6 +143,9 @@ ifeq ($(uname_S),SunOS)
 	INSTALL=cp -pf
 	FINAL_CFLAGS+= -D__EXTENSIONS__ -D_XPG6
 	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread -lrt
+	ifeq ($(USE_BACKTRACE),yes)
+	    FINAL_CFLAGS+= -DUSE_BACKTRACE
+	endif
 else
 ifeq ($(uname_S),Darwin)
 	# Darwin
@@ -222,7 +229,7 @@ ifdef OPENSSL_PREFIX
 endif
 
 # Include paths to dependencies
-FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src -I../deps/hdr_histogram
+FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src -I../deps/hdr_histogram -I../deps/fpconv
 
 # Determine systemd support and/or build preference (defaulting to auto-detection)
 BUILD_WITH_SYSTEMD=no
@@ -388,7 +395,7 @@ endif
 
 # redis-server
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a $(FINAL_LIBS)
 
 # redis-sentinel
 $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)
