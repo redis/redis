@@ -2916,12 +2916,66 @@ void xpendingCommand(client *c) {
     long long count = 0;
     long long minidle = 0;
     int startex = 0, endex = 0;
+    int j = 3;
     int mkgroup = 0;   
 
-    /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
-    if (c->argc == 5 || c->argc > 10) {
+    if (c->argc > 10) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
+    }
+
+    while(j < c->argc) {
+       if (!strcasecmp(c->argv[j]->ptr, "MKGROUP")) {
+          mkgroup = 1;
+	  j++;
+	  continue;
+       }
+       if (!strcasecmp(c->argv[j]->ptr, "IDLE")) {
+          if (j+1 == c->argc) {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+          }
+          if (getLongLongFromObjectOrReply(c, c->argv[j+1], &minidle, NULL) == C_ERR)
+            return;
+          if (c->argc < 8) {
+            /* If IDLE was provided we must have at least 'start end count' */
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+          }
+          /* Search for rest of arguments after 'IDLE <idle>' */
+	  j = j+2;
+       }
+       else {
+	  if (j+2 >= c->argc) {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+          }
+	  /* count argument. */
+          if (getLongLongFromObjectOrReply(c,c->argv[j+2],&count,NULL) == C_ERR)
+            return;
+          if (count < 0) count = 0;
+            
+	  /* start and end arguments. */
+          if (streamParseIntervalIDOrReply(c,c->argv[j],&startid,&startex,0) != C_OK)
+            return;
+          if (startex && streamIncrID(&startid) != C_OK) {
+            addReplyError(c,"invalid start ID for the interval");
+            return;
+          } 
+          if (streamParseIntervalIDOrReply(c,c->argv[j+1],&endid,&endex,UINT64_MAX) != C_OK)
+            return;
+          if (endex && streamDecrID(&endid) != C_OK) {
+            addReplyError(c,"invalid end ID for the interval");
+            return;
+          }
+
+          j = j + 3;
+          if(j < c->argc && strcasecmp(c->argv[j]->ptr, "MKGROUP")) {
+             /* 'consumer' was provided */
+             consumername = c->argv[j];
+             j++;
+	  }
+       }
     }
 
     robj *o = lookupKeyRead(c->db,key);
@@ -2932,55 +2986,6 @@ void xpendingCommand(client *c) {
         return;
     }
     if (checkType(c,o,OBJ_STREAM)) return;
-    
-    if(c->argc == 4) {
-        mkgroup = 1;
-    } else if (c->argc >= 6) {
-        int totalOption = c->argc-1;
-        int startidx = 3; /* Without IDLE */
-
-        if (!strcasecmp(c->argv[3]->ptr, "IDLE")) {
-            if (getLongLongFromObjectOrReply(c, c->argv[4], &minidle, NULL) == C_ERR)
-                return;
-            if (c->argc < 8) {
-                /* If IDLE was provided we must have at least 'start end count' */
-                addReplyErrorObject(c,shared.syntaxerr);
-                return;
-            }
-            /* Search for rest of arguments after 'IDLE <idle>' */
-            startidx += 2;
-        }
-        totalOption -= startidx+2;
-
-        /* count argument. */
-        if (getLongLongFromObjectOrReply(c,c->argv[startidx+2],&count,NULL) == C_ERR)
-            return;
-        if (count < 0) count = 0;
-
-        /* start and end arguments. */
-        if (streamParseIntervalIDOrReply(c,c->argv[startidx],&startid,&startex,0) != C_OK)
-            return;
-        if (startex && streamIncrID(&startid) != C_OK) {
-            addReplyError(c,"invalid start ID for the interval");
-            return;
-        }
-        if (streamParseIntervalIDOrReply(c,c->argv[startidx+1],&endid,&endex,UINT64_MAX) != C_OK)
-            return;
-        if (endex && streamDecrID(&endid) != C_OK) {
-            addReplyError(c,"invalid end ID for the interval");
-            return;
-        }
-
-        if (totalOption == 2) {
-            consumername = c->argv[startidx+3];
-            mkgroup = 1;
-        } else if(totalOption == 1) {
-            if(!strcasecmp(c->argv[startidx+3]->ptr, "MKGROUP"))
-                mkgroup = 1;
-            else
-                consumername = c->argv[startidx+3];
-        }
-    }
 
     group = streamLookupCG(o->ptr,groupname->ptr);
     if(group == NULL) {
@@ -3190,23 +3195,6 @@ void xclaimCommand(client *c) {
     } 
     if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
    
-    /* 
-    group = streamLookupCG(o->ptr,c->argv[2]->ptr);
-    if (group == NULL) {
-        if (!mkgroup) {
-	   addReplyErrorFormat(c, "-NOGROUP No consumer "
-                                  "group '%s'", (char*)c->argv[2]->ptr);
-           return;
-	}
-	streamID id;
-        id.ms = 0;
-        id.seq = 0;
-        group = streamCreateCG(o->ptr,c->argv[2]->ptr,strlen(c->argv[2]->ptr),&id,SCG_INVALID_ENTRIES_READ);
-        server.dirty++;
-        notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",c->argv[1],c->db->id);
-    }
-    */
-
     /* Start parsing the IDs, so that we abort ASAP if there is a syntax
      * error: the return value of this command cannot be an error in case
      * the client successfully claimed some message, so it should be
