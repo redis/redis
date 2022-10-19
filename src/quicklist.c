@@ -502,9 +502,9 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
     if (unlikely(QL_NODE_IS_PLAIN(a) || QL_NODE_IS_PLAIN(b)))
         return 0;
 
-    /* approximate merged listpack size (- 11 to remove one listpack
-     * header/trailer) */
-    unsigned int merge_sz = a->sz + b->sz - 11;
+    /* approximate merged listpack size (- 7 to remove one listpack
+     * header/trailer, see LP_HDR_SIZE and LP_EOF) */
+    unsigned int merge_sz = a->sz + b->sz - 7;
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(merge_sz, fill)))
         return 1;
     /* when we return 1 above we know that the limit is a size limit (which is
