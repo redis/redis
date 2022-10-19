@@ -163,6 +163,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         unsigned char eledigest[20];
 
         if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+            if(zsetLength(o) == 0) goto end;
             unsigned char *zl = o->ptr;
             unsigned char *eptr, *sptr;
             unsigned char *vstr;
@@ -261,6 +262,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         serverPanic("Unknown object type");
     }
     /* If the key has an expire, add it to the mix */
+end:
     if (expiretime != -1) xorDigest(digest,"!!expire!!",10);
 }
 

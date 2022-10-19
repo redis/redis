@@ -1056,7 +1056,6 @@ static void executeSwapInRequest(swapRequest *req) {
             rocksActionName(action),numkeys);
 
     if (action == ROCKS_MULTIGET) {
-        serverLog(LL_WARNING, "swapin rocks_multiget");
         RIOInitMultiGet(rio,numkeys,cfs,rawkeys);
         if ((errcode = doRIO(rio))) {
             goto end;

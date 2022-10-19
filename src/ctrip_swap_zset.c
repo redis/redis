@@ -412,7 +412,7 @@ int zsetEncodeData(swapData *data, int intention, void *datactx_,
         int *action, int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
     zsetDataCtx *datactx = datactx_;
     if (datactx->bdc.num == 0) {
-        *action = 0;
+        *action = ROCKS_WRITE;
         *numkeys = 0;
         *prawkeys = NULL;
         *prawvals = NULL;
