@@ -123,6 +123,10 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         set fd $::redis::fd($id)
     }
 
+    if {$method eq {hello} && $::use_resp3 == 1} {
+        # replace argv[1] with "3"
+    }
+
     set blocking $::redis::blocking($id)
     set deferred $::redis::deferred($id)
     if {$blocking == 0} {
