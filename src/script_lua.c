@@ -28,6 +28,7 @@
  */
 
 #include "script_lua.h"
+#include "fpconv_dtoa.h"
 
 #include "server.h"
 #include "sha1.h"
@@ -804,8 +805,8 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
             /* We can't use lua_tolstring() for number -> string conversion
              * since Lua uses a format specifier that loses precision. */
             lua_Number num = lua_tonumber(lua,j+1);
-
-            obj_len = snprintf(dbuf,sizeof(dbuf),"%.17g",(double)num);
+            obj_len = fpconv_dtoa((double)num, dbuf);
+            dbuf[obj_len] = '\0';
             obj_s = dbuf;
         } else {
             obj_s = (char*)lua_tolstring(lua,j+1,&obj_len);

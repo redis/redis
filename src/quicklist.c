@@ -1573,9 +1573,9 @@ REDIS_STATIC void *_quicklistSaver(unsigned char *data, size_t sz) {
  * Returns malloc'd value from quicklist */
 int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
                  size_t *sz, long long *slong) {
-    unsigned char *vstr;
-    size_t vlen;
-    long long vlong;
+    unsigned char *vstr = NULL;
+    size_t vlen = 0;
+    long long vlong = 0;
     if (quicklist->count == 0)
         return 0;
     int ret = quicklistPopCustom(quicklist, where, &vstr, &vlen, &vlong,

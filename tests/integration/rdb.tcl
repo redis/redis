@@ -29,7 +29,7 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "encodings.rd
 "0","set_zipped_2","set","100000","200000","300000","400000",
 "0","set_zipped_3","set","1000000000","2000000000","3000000000","4000000000","5000000000","6000000000",
 "0","string","string","Hello World"
-"0","zset","zset","a","1","b","2","c","3","aa","10","bb","20","cc","30","aaa","100","bbb","200","ccc","300","aaaa","1000","cccc","123456789","bbbb","5000000000",
+"0","zset","zset","a","1","b","2","c","3","aa","10","bb","20","cc","30","aaa","100","bbb","200","ccc","300","aaaa","1000","cccc","123456789","bbbb","5e+9",
 "0","zset_zipped","zset","a","1","b","2","c","3",
 }
 }

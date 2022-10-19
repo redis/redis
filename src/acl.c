@@ -1766,7 +1766,11 @@ int ACLUserCheckChannelPerm(user *u, sds channel, int is_pattern) {
     return ACL_DENIED_CHANNEL;
 }
 
-/* Lower level API that checks if a specified user is able to execute a given command. */
+/* Lower level API that checks if a specified user is able to execute a given command.
+ *
+ * If the command fails an ACL check, idxptr will be to set to the first argv entry that
+ * causes the failure, either 0 if the command itself fails or the idx of the key/channel
+ * that causes the failure */
 int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr) {
     listIter li;
     listNode *ln;
@@ -2358,7 +2362,7 @@ int ACLSaveToFile(const char *filename) {
     /* Create a temp file with the new content. */
     tmpfilename = sdsnew(filename);
     tmpfilename = sdscatfmt(tmpfilename,".tmp-%i-%I",
-        (int) getpid(),mstime());
+        (int) getpid(),commandTimeSnapshot());
     if ((fd = open(tmpfilename,O_WRONLY|O_CREAT,0644)) == -1) {
         serverLog(LL_WARNING,"Opening temp ACL file for ACL SAVE: %s",
             strerror(errno));
@@ -2479,6 +2483,21 @@ void ACLFreeLogEntry(void *leptr) {
     zfree(le);
 }
 
+/* Update the relevant counter by the reason */
+void ACLUpdateInfoMetrics(int reason){
+    if (reason == ACL_DENIED_AUTH) {
+        server.acl_info.user_auth_failures++;
+    } else if (reason == ACL_DENIED_CMD) {
+        server.acl_info.invalid_cmd_accesses++;
+    } else if (reason == ACL_DENIED_KEY) {
+        server.acl_info.invalid_key_accesses++;
+    } else if (reason == ACL_DENIED_CHANNEL) {
+        server.acl_info.invalid_channel_accesses++;
+    } else {
+        serverPanic("Unknown ACL_DENIED encoding");
+    }
+}
+
 /* Adds a new entry in the ACL log, making sure to delete the old entry
  * if we reach the maximum length allowed for the log. This function attempts
  * to find similar entries in the current log in order to bump the counter of
@@ -2495,12 +2514,15 @@ void ACLFreeLogEntry(void *leptr) {
  * If `object` is not NULL, this functions takes over it.
  */
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object) {
+    /* Update ACL info metrics */
+    ACLUpdateInfoMetrics(reason);
+    
     /* Create a new entry. */
     struct ACLLogEntry *le = zmalloc(sizeof(*le));
     le->count = 1;
     le->reason = reason;
     le->username = sdsdup(username ? username : c->user->name);
-    le->ctime = mstime();
+    le->ctime = commandTimeSnapshot();
 
     if (object) {
         le->object = object;
@@ -2563,18 +2585,25 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     }
 }
 
-const char* getAclErrorMessage(int acl_res) {
-    /* Notice that a variant of this code also exists on aclCommand so
-     * it also need to be updated on changed. */
+sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val, int verbose) {
     switch (acl_res) {
     case ACL_DENIED_CMD:
-        return "can't run this command or subcommand";
+        return sdscatfmt(sdsempty(), "User %S has no permissions to run "
+                                     "the '%S' command", user->name, cmd->fullname);
     case ACL_DENIED_KEY:
-        return "can't access at least one of the keys mentioned in the command arguments";
+        if (verbose) {
+            return sdscatfmt(sdsempty(), "User %S has no permissions to access "
+                                         "the '%S' key", user->name, errored_val);
+        } else {
+            return sdsnew("No permissions to access a key");
+        }
     case ACL_DENIED_CHANNEL:
-        return "can't publish to the channel mentioned in the command";
-    default:
-        return "lacking the permissions for the command";
+        if (verbose) {
+            return sdscatfmt(sdsempty(), "User %S has no permissions to access "
+                                         "the '%S' channel", user->name, errored_val);
+        } else {
+            return sdsnew("No permissions to access a channel");
+        }
     }
     serverPanic("Reached deadcode on getAclErrorMessage");
 }
@@ -2877,7 +2906,7 @@ void aclCommand(client *c) {
         listIter li;
         listNode *ln;
         listRewind(ACLLog,&li);
-        mstime_t now = mstime();
+        mstime_t now = commandTimeSnapshot();
         while (count-- && (ln = listNext(&li)) != NULL) {
             ACLLogEntry *le = listNodeValue(ln);
             addReplyMapLen(c,7);
@@ -2938,22 +2967,8 @@ void aclCommand(client *c) {
 
         int idx;
         int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
-        /* Notice that a variant of this code also exists on getAclErrorMessage so
-         * it also need to be updated on changed. */
         if (result != ACL_OK) {
-            sds err = sdsempty();
-            if (result == ACL_DENIED_CMD) {
-                err = sdscatfmt(err, "This user has no permissions to run "
-                    "the '%s' command", cmd->fullname);
-            } else if (result == ACL_DENIED_KEY) {
-                err = sdscatfmt(err, "This user has no permissions to access "
-                    "the '%s' key", c->argv[idx + 3]->ptr);
-            } else if (result == ACL_DENIED_CHANNEL) {
-                err = sdscatfmt(err, "This user has no permissions to access "
-                    "the '%s' channel", c->argv[idx + 3]->ptr);
-            } else {
-                serverPanic("Invalid permission result");
-            }
+            sds err = getAclErrorMessage(result, u, cmd,  c->argv[idx+3]->ptr, 1);
             addReplyBulkSds(c, err);
             return;
         }

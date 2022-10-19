@@ -17,7 +17,7 @@
 
 /* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods 
  * structure is changed, this version number needs to be changed synchronistically. */
-#define REDISMODULE_TYPE_METHOD_VERSION 4
+#define REDISMODULE_TYPE_METHOD_VERSION 5
 
 /* API flags and constants */
 #define REDISMODULE_READ (1<<0)
@@ -234,6 +234,10 @@ This flag should not be used directly by the module.
 /* RM_Yield flags */
 #define REDISMODULE_YIELD_FLAG_NONE (1<<0)
 #define REDISMODULE_YIELD_FLAG_CLIENTS (1<<1)
+
+/* RM_BlockClientOnKeysWithFlags flags */
+#define REDISMODULE_BLOCK_UNBLOCK_DEFAULT (0)
+#define REDISMODULE_BLOCK_UNBLOCK_DELETED (1<<0)
 
 /* This type represents a timer handle, and is returned when a timer is
  * registered and used in order to invalidate a timer. It's just a 64 bit
@@ -881,6 +885,7 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeFreeEffortFunc2 free_effort2;
     RedisModuleTypeUnlinkFunc2 unlink2;
     RedisModuleTypeCopyFunc2 copy2;
+    RedisModuleTypeAuxSaveFunc aux_save2;
 } RedisModuleTypeMethods;
 
 #define REDISMODULE_GET_API(name) \
@@ -1132,6 +1137,7 @@ REDISMODULE_API int (*RedisModule_GetLRU)(RedisModuleKey *key, mstime_t *lru_idl
 REDISMODULE_API int (*RedisModule_SetLFU)(RedisModuleKey *key, long long lfu_freq) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetLFU)(RedisModuleKey *key, long long *lfu_freq) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_BlockClientOnKeys)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_BlockClientOnKeysWithFlags)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata, int flags) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SignalKeyAsReady)(RedisModuleCtx *ctx, RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_GetBlockedClientReadyKey)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleScanCursor * (*RedisModule_ScanCursorCreate)() REDISMODULE_ATTR;
@@ -1475,6 +1481,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetLFU);
     REDISMODULE_GET_API(GetLFU);
     REDISMODULE_GET_API(BlockClientOnKeys);
+    REDISMODULE_GET_API(BlockClientOnKeysWithFlags);
     REDISMODULE_GET_API(SignalKeyAsReady);
     REDISMODULE_GET_API(GetBlockedClientReadyKey);
     REDISMODULE_GET_API(ScanCursorCreate);

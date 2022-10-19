@@ -356,7 +356,6 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
     int j;
 
     c->bstate.timeout = timeout;
-    c->bstate.unblock_on_nokey = unblock_on_nokey;
     for (j = 0; j < numkeys; j++) {
         /* If the key already exists in the dictionary ignore it. */
         if (!(client_blocked_entry = dictAddRaw(c->bstate.keys,keys[j],NULL))) {
@@ -377,6 +376,17 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         }
         listAddNodeTail(l,c);
         dictSetVal(c->bstate.keys,client_blocked_entry,listLast(l));
+
+
+        /* We need to add the key to blocking_keys_unblock_on_nokey, if the client
+         * wants to be awakened if key is deleted (like XREADGROUP) */
+        if (unblock_on_nokey) {
+            c->bstate.unblock_on_nokey = unblock_on_nokey;
+            db_blocked_entry = dictAddRaw(c->db->blocking_keys_unblock_on_nokey, keys[j], NULL);
+            if (db_blocked_entry) {
+                incrRefCount(keys[j]);
+            }
+        }
     }
     c->flags |= CLIENT_PENDING_COMMAND;
     blockClient(c,btype);
@@ -403,8 +413,10 @@ static void unblockClientWaitingData(client *c) {
         serverAssertWithInfo(c,key,l != NULL);
         listUnlinkNode(l,pos);
         /* If the list is empty we need to remove it to avoid wasting memory */
-        if (listLength(l) == 0)
+        if (listLength(l) == 0) {
             dictDelete(c->db->blocking_keys,key);
+            dictDelete(c->db->blocking_keys_unblock_on_nokey,key);
+        }
     }
     dictReleaseIterator(di);
     dictEmpty(c->bstate.keys, NULL);
@@ -427,7 +439,7 @@ static blocking_type getBlockedTypeByType(int type) {
  * made by a script or in the context of MULTI/EXEC.
  *
  * The list will be finally processed by handleClientsBlockedOnKeys() */
-void signalKeyAsReady(redisDb *db, robj *key, int type) {
+static void signalKeyAsReadyLogic(redisDb *db, robj *key, int type, int deleted) {
     readyList *rl;
 
     /* Quick returns. */
@@ -445,11 +457,28 @@ void signalKeyAsReady(redisDb *db, robj *key, int type) {
         return;
     }
 
-    /* No clients blocking for this key? No need to queue it. */
-    if (dictFind(db->blocking_keys,key) == NULL) return;
+    if (deleted) {
+        /* Key deleted and no clients blocking for this key? No need to queue it. */
+        if (dictFind(db->blocking_keys_unblock_on_nokey,key) == NULL)
+            return;
+        /* Note: if we made it here it means the key is also present in db->blocking_keys */
+    } else {
+        /* No clients blocking for this key? No need to queue it. */
+        if (dictFind(db->blocking_keys,key) == NULL)
+            return;
+    }
 
-    /* Key was already signaled? No need to queue it again. */
-    if (dictFind(db->ready_keys,key) != NULL) return;
+    dictEntry *de, *existing;
+    de = dictAddRaw(db->ready_keys, key, &existing);
+    if (de) {
+        /* We add the key in the db->ready_keys dictionary in order
+         * to avoid adding it multiple times into a list with a simple O(1)
+         * check. */
+        incrRefCount(key);
+    } else {
+        /* Key was already signaled? No need to queue it again. */
+        return;
+    }
 
     /* Ok, we need to queue this key into server.ready_keys. */
     rl = zmalloc(sizeof(*rl));
@@ -457,12 +486,14 @@ void signalKeyAsReady(redisDb *db, robj *key, int type) {
     rl->db = db;
     incrRefCount(key);
     listAddNodeTail(server.ready_keys,rl);
+}
 
-    /* We also add the key in the db->ready_keys dictionary in order
-     * to avoid adding it multiple times into a list with a simple O(1)
-     * check. */
-    incrRefCount(key);
-    serverAssert(dictAdd(db->ready_keys,key,NULL) == DICT_OK);
+void signalKeyAsReady(redisDb *db, robj *key, int type) {
+    signalKeyAsReadyLogic(db, key, type, 0);
+}
+
+void signalDeletedKeyAsReady(redisDb *db, robj *key, int type) {
+    signalKeyAsReadyLogic(db, key, type, 1);
 }
 
 /* Helper function for handleClientsBlockedOnKeys(). This function is called
@@ -575,11 +606,16 @@ static void moduleUnblockClientOnKey(client *c, robj *key) {
     server.current_client = c;
     monotime replyTimer;
     elapsedStart(&replyTimer);
-    if (!moduleTryServeClientBlockedOnKey(c, key)) return;
-    updateStatsOnUnblock(c, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
-    if (c->flags & CLIENT_PENDING_COMMAND)
-        c->flags &= ~CLIENT_PENDING_COMMAND;
-    moduleUnblockClient(c);
+
+    if (moduleTryServeClientBlockedOnKey(c, key)) {
+        updateStatsOnUnblock(c, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
+        if (c->flags & CLIENT_PENDING_COMMAND)
+            c->flags &= ~CLIENT_PENDING_COMMAND;
+        moduleUnblockClient(c);
+    }
+    /* We need to call afterCommand even if the client was not unblocked
+     * in order to propagate any changes that could have been done inside
+     * moduleTryServeClientBlockedOnKey */
     afterCommand(c);
     server.current_client = old_client;
 }
