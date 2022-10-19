@@ -64,12 +64,45 @@ start_server {tags {"modules"}} {
         r list.getall k
     } {bar y foo}
 
-    test {Module list - Crash due to reuse iterator entry after deletion} {
+    test {Module list - list entry and index should be updated when deletion} {
         set original_config [config_get_set list-max-listpack-size 1]
-        r del k
-        r rpush k x y z
-        r list.edit k dd
-        assert_equal [r list.getall k] {z}
+
+        # delete from start of list (index 0)
+        r del l
+        r rpush l x y z
+        r list.edit l dd
+        assert_equal [r list.getall l] {z}
+
+        # delete from tail of list (index -3)
+        r del l
+        r rpush l x y z
+        r list.edit l reverse kkdi foo
+        assert_equal [r list.getall l] {foo y z}
+
+        # delete from tail (index 2)
+        r del l
+        r rpush l x y z
+        r list.edit l kkd
+        assert_equal [r list.getall l] {x y}
+
+        # delete from tail (index -1)
+        r del l
+        r rpush l x y z
+        r list.edit l reverse dd
+        assert_equal [r list.getall l] {x}
+
+        # delete from middle (index 1)
+        r del l
+        r rpush l x y z
+        r list.edit l kdd
+        assert_equal [r list.getall l] {x}
+
+        # delete from middle (index -2)
+        r del l
+        r rpush l x y z
+        r list.edit l reverse kdd
+        assert_equal [r list.getall l] {z}
+
         config_set list-max-listpack-size $original_config
     }
 

@@ -4308,9 +4308,20 @@ int RM_ListDelete(RedisModuleKey *key, long index) {
         listTypeDelete(key->iter, &key->u.list.entry);
         if (moduleDelKeyIfEmpty(key)) return REDISMODULE_OK;
         if (listTypeNext(key->iter, &key->u.list.entry)) {
+            /* After delete entry at position 'index', we need to update
+             * 'key->u.list.index' according to the following cases:
+             * 1) [1, 2, 3] => dir: forward, index: 0  => [2, 3] => index: still 0
+             * 2) [1, 2, 3] => dir: forward, index: -3 => [2, 3] => index: -2
+             * 3) [1, 2, 3] => dir: reverse, index: 2  => [1, 2] => index: 1
+             * 4) [1, 2, 3] => dir: reverse, index: -1 => [1, 2] => index: still -1 */
             listTypeIterator *li = key->iter;
-            key->u.list.index += li->direction == LIST_HEAD ? -1 : 0;
+            int reverse = li->direction == LIST_HEAD;
+            if (key->u.list.index < 0)
+                key->u.list.index += reverse ? 0 : 1;
+            else
+                key->u.list.index += reverse ? -1 : 0;
         } else {
+            /* Reset list iterator if the next entry doesn't exist. */
             moduleFreeKeyIterator(key);
         }
         return REDISMODULE_OK;
