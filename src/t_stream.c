@@ -1697,7 +1697,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
     if (!(flags & STREAM_RWR_RAWENTRIES))
         arraylen_ptr = addReplyDeferredLen(c);
-    streamIteratorStart(&si,s,start,end,rev);    
+    streamIteratorStart(&si,s,start,end,rev);
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
@@ -2176,7 +2176,7 @@ void xreadCommand(client *c) {
     int streams_count = 0;
     int streams_arg = 0;
     int noack = 0;          /* True if NOACK option was specified. */
-    int mkgroup = 0;          /* True if MKGROUP option for XREADGROUP was specified. */
+    int mkgroup = 0;        /* True if MKGROUP option for XREADGROUP was specified. */
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
     streamCG **groups = NULL;
@@ -2234,8 +2234,7 @@ void xreadCommand(client *c) {
             noack = 1;
         } else if (!strcasecmp(o,"MKGROUP")) {
             if (!xreadgroup) {
-                addReplyError(c,"The MKGROUP option is only supported by "
-                                "XREADGROUP, XPENDING, XCLAIM, and XAUTOCLAIM. You called XREAD instead.");
+                addReplyError(c,"The MKGROUP option is not supported by XREAD");
                 return;
             }
             mkgroup = 1;
@@ -2277,30 +2276,27 @@ void xreadCommand(client *c) {
          * key and group actually exist. */
         if (groupname) {
             if (o == NULL) {
-                addReplyErrorFormat(c, "No such key '%s'",
-                                     (char*)key->ptr);
+                addReplyErrorFormat(c, "-NOGROUP No such key '%s'"
+                                       "in XREADGROUP with GROUP "
+                                       "option",(char*)key->ptr);
                 goto cleanup;
 	    }
-	    group = streamLookupCG(o->ptr,groupname->ptr);
-	    if (group == NULL) {
-	       if (!mkgroup) {
-	          addReplyErrorFormat(c, "-NOGROUP No consumer "
+            group = streamLookupCG(o->ptr,groupname->ptr);
+            if (group == NULL) {
+               if (!mkgroup) {
+                  addReplyErrorFormat(c, "-NOGROUP No consumer "
                                        "group '%s' in XREADGROUP with GROUP "
                                        "option",(char*)groupname->ptr);
                   goto cleanup;
-	       } 
-	       streamID id;
+               }
+               streamID id;
                id.ms = 0;
                id.seq = 0;
                group = streamCreateCG(o->ptr,groupname->ptr,strlen(groupname->ptr),&id,SCG_INVALID_ENTRIES_READ);
-               if(group) {
-                 server.dirty++;
-                 notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",key,c->db->id);
-               } else {
-                 addReplyErrorFormat(c, "Create consumer group '%s' in XREADGROUP failed" , (char*)groupname->ptr);
-               }
+               server.dirty++;
+               notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",key,c->db->id);
            }
-	   groups[id_idx] = group;               
+           groups[id_idx] = group;
         }
 
         if (strcmp(c->argv[i]->ptr,"$") == 0) {
@@ -2365,7 +2361,7 @@ void xreadCommand(client *c) {
             } else if (s->length) {
                 /* We also want to serve a consumer in a consumer group
                  * synchronously in case the group top item delivered is smaller
-                 * than what the stream has inside. */                
+                 * than what the stream has inside. */ 
                 streamID maxid, *last = &groups[i]->last_id;
                 streamLastValidID(s, &maxid);
                 if (streamCompareID(&maxid, last) > 0) {
@@ -2420,7 +2416,7 @@ void xreadCommand(client *c) {
                                                         spi.groupname,
                                                         consumer->name);
                 }
-            }            
+            }
             int flags = 0;
             if (noack) flags |= STREAM_RWR_NOACK;
             if (serve_history) flags |= STREAM_RWR_HISTORY;
@@ -2430,7 +2426,7 @@ void xreadCommand(client *c) {
             if (groups) server.dirty++;
         }
     }
-    
+          
     /* We replied synchronously! Set the top array len and return to caller. */
     if (arraylen) {
         if (c->resp == 2)
@@ -2922,27 +2918,26 @@ void xpendingCommand(client *c) {
     int startex = 0, endex = 0;
     int mkgroup = 0;   
 
-    robj *o = lookupKeyRead(c->db,key);
-    streamCG *group;
-
-    if (checkType(c,o,OBJ_STREAM)) return;
-    if (o == NULL) {
-        addReplyErrorFormat(c, "No such key '%s'",
-                                     (char*)key->ptr);
-        return;
-    }
- 
     /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
     if (c->argc == 5 || c->argc > 10) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
+    robj *o = lookupKeyRead(c->db,key);
+    streamCG *group;
+
+    if (o == NULL) {
+        addReplyErrorFormat(c, "-NOGROUP No such key '%s'",(char*)key->ptr);
+        return;
+    }
+    if (checkType(c,o,OBJ_STREAM)) return;
+    
     if(c->argc == 4) {
-	mkgroup = 1;
+        mkgroup = 1;
     } else if (c->argc >= 6) {
-	int totalOption = c->argc-1;
-	int startidx = 3; /* Without IDLE */
+        int totalOption = c->argc-1;
+        int startidx = 3; /* Without IDLE */
 
         if (!strcasecmp(c->argv[3]->ptr, "IDLE")) {
             if (getLongLongFromObjectOrReply(c, c->argv[4], &minidle, NULL) == C_ERR)
@@ -2955,7 +2950,7 @@ void xpendingCommand(client *c) {
             /* Search for rest of arguments after 'IDLE <idle>' */
             startidx += 2;
         }
-	totalOption -= startidx+2;
+        totalOption -= startidx+2;
 
         /* count argument. */
         if (getLongLongFromObjectOrReply(c,c->argv[startidx+2],&count,NULL) == C_ERR)
@@ -2976,35 +2971,29 @@ void xpendingCommand(client *c) {
             return;
         }
 
-	if (totalOption == 2) {
-	    consumername = c->argv[startidx+3];
-	    mkgroup = 1;
-	} else if(totalOption == 1) {
-	    if(!strcasecmp(c->argv[startidx+3]->ptr, "MKGROUP"))
-	        mkgroup = 1;
-	    else
-		consumername = c->argv[startidx+3];
-	}
+        if (totalOption == 2) {
+            consumername = c->argv[startidx+3];
+            mkgroup = 1;
+        } else if(totalOption == 1) {
+            if(!strcasecmp(c->argv[startidx+3]->ptr, "MKGROUP"))
+                mkgroup = 1;
+            else
+                consumername = c->argv[startidx+3];
+        }
     }
 
     group = streamLookupCG(o->ptr,groupname->ptr);
     if(group == NULL) {
-	if (!mkgroup) {
-	          addReplyErrorFormat(c, "-NOGROUP No consumer "
-                                       "group '%s'",(char*)groupname->ptr);
-                 return;
-	} 
+        if (!mkgroup) {
+            addReplyErrorFormat(c, "-NOGROUP No consumer group '%s'",(char*)groupname->ptr);
+            return;
+        } 
         streamID id;
         id.ms = 0;
         id.seq = 0;
         group = streamCreateCG(o->ptr,groupname->ptr,strlen(groupname->ptr),&id,SCG_INVALID_ENTRIES_READ);
-        if(group) {
-            server.dirty++;
-            notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",key,c->db->id);
-        } else {
-            addReplyErrorFormat(c, "Create consumer group '%s' in XPENDING failed" , (char*)groupname->ptr);
-            return;
-        }
+        server.dirty++;
+        notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",key,c->db->id);
     }
 
     /* XPENDING <key> <group> variant. */
@@ -3185,18 +3174,24 @@ void xclaimCommand(client *c) {
     int justid = 0;
     int mkgroup = 0;
 
-    if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
-    if (o == NULL) {
-        addReplyErrorFormat(c, "No such key '%s'",
-                                     (char*)c->argv[1]->ptr);
-        return;
-    }
-   
-    group = streamLookupCG(o->ptr,c->argv[2]->ptr);
     if(c->argc > 6 && !strcasecmp(c->argv[c->argc-1]->ptr,"MKGROUP")) {
        mkgroup = 1;
     }
     
+    if (getLongLongFromObjectOrReply(c,c->argv[4],&minidle,
+        "Invalid min-idle-time argument for XCLAIM")
+        != C_OK) return;
+    if (minidle < 0) minidle = 0;
+
+    if (o == NULL) {
+        addReplyErrorFormat(c, "-NOGROUP No such key '%s'",
+                                     (char*)c->argv[1]->ptr);
+        return;
+    } 
+    if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
+   
+    /* 
+    group = streamLookupCG(o->ptr,c->argv[2]->ptr);
     if (group == NULL) {
         if (!mkgroup) {
 	   addReplyErrorFormat(c, "-NOGROUP No consumer "
@@ -3207,19 +3202,10 @@ void xclaimCommand(client *c) {
         id.ms = 0;
         id.seq = 0;
         group = streamCreateCG(o->ptr,c->argv[2]->ptr,strlen(c->argv[2]->ptr),&id,SCG_INVALID_ENTRIES_READ);
-        if(group) {
-            server.dirty++;
-            notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",c->argv[1],c->db->id);
-        } else {
-            addReplyErrorFormat(c, "Create consumer group '%s' in CLAIMfailed" , (char*)c->argv[2]->ptr);
-	    return;
-        }       
+        server.dirty++;
+        notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",c->argv[1],c->db->id);
     }
-
-    if (getLongLongFromObjectOrReply(c,c->argv[4],&minidle,
-        "Invalid min-idle-time argument for XCLAIM")
-        != C_OK) return;
-    if (minidle < 0) minidle = 0;
+    */
 
     /* Start parsing the IDs, so that we abort ASAP if there is a syntax
      * error: the return value of this command cannot be an error in case
@@ -3273,6 +3259,21 @@ void xclaimCommand(client *c) {
             addReplyErrorFormat(c,"Unrecognized XCLAIM option '%s'",opt);
             goto cleanup;
         }
+    }
+
+    group = streamLookupCG(o->ptr,c->argv[2]->ptr);
+    if (group == NULL) {
+        if (!mkgroup) {
+	   addReplyErrorFormat(c, "-NOGROUP No consumer "
+                                  "group '%s'", (char*)c->argv[2]->ptr);
+           return;
+	}
+	streamID id;
+        id.ms = 0;
+        id.seq = 0;
+        group = streamCreateCG(o->ptr,c->argv[2]->ptr,strlen(c->argv[2]->ptr),&id,SCG_INVALID_ENTRIES_READ);
+        server.dirty++;
+        notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",c->argv[1],c->db->id);
     }
 
     if (streamCompareID(&last_id,&group->last_id) > 0) {
@@ -3458,17 +3459,16 @@ void xautoclaimCommand(client *c) {
         j++;
     }
 
-    if (o) {
-        if (checkType(c,o,OBJ_STREAM))
-            return; /* Type error. */
-        group = streamLookupCG(o->ptr,c->argv[2]->ptr);
-    }
     if(o == NULL) {
-        addReplyErrorFormat(c, "No such key '%s'",
+        addReplyErrorFormat(c, "-NOGROUP No such key '%s'",
                                      (char*)c->argv[1]->ptr);
         return;
     }
-
+     
+    if (checkType(c,o,OBJ_STREAM))
+            return; /* Type error. */
+    group = streamLookupCG(o->ptr,c->argv[2]->ptr);
+    
     if (group == NULL) {
         if (!mkgroup) {
            addReplyErrorFormat(c, "-NOGROUP No consumer "
@@ -3479,13 +3479,8 @@ void xautoclaimCommand(client *c) {
         id.ms = 0;
         id.seq = 0;
         group = streamCreateCG(o->ptr,c->argv[2]->ptr,strlen(c->argv[2]->ptr),&id,SCG_INVALID_ENTRIES_READ);
-        if(group) {
-            server.dirty++;
-            notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",c->argv[1],c->db->id);
-        } else {
-            addReplyErrorFormat(c, "Create consumer group '%s' in CAUTOLAIM failed" , (char*)c->argv[2]->ptr);
-            return;
-        }
+        server.dirty++;
+        notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",c->argv[1],c->db->id);
     }
 
     streamID *deleted_ids = ztrymalloc(count * sizeof(streamID));
