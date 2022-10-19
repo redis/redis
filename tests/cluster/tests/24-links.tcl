@@ -1,11 +1,7 @@
 source "../tests/includes/init-tests.tcl"
 
-test "Create a cluster with two single-node shards" {
-    create_cluster 2 0
-}
-
-test "Cluster should start ok" {
-    assert_cluster_state ok
+test "Create a cluster with 10 two-node shards" {
+    create_cluster 10 10
 }
 
 proc number_of_peers {id} {
@@ -111,4 +107,61 @@ test "Disconnect link when send buffer limit reached" {
     # Reset configs on primary1 so config changes don't leak out to other tests
     $primary1 CONFIG set cluster-node-timeout $oldtimeout
     $primary1 CONFIG set cluster-link-sendbuf-limit $oldlimit
+}
+
+
+test "Link memory increases with publishes" {
+    set server [Rn 0]
+    set msg_size 10000
+    set num_msgs 10
+
+    # Publish ~100KB to one of the servers
+    $server MULTI
+    $server INFO memory
+    for {set i 0} {$i < $num_msgs} {incr i} {
+        $server PUBLISH channel [string repeat "x" $msg_size]
+    }
+    $server INFO memory
+    set res [$server EXEC]
+
+    set link_mem_before_pubs [getInfoProperty $res mem_cluster_links]
+
+    # Remove the first half of the response string which contains the
+    # first "INFO memory" results and search for the property again
+    set res [string range $res [expr [string length $res] / 2] end]
+    set link_mem_after_pubs [getInfoProperty $res mem_cluster_links]
+    
+    # We expect the memory to have increased by more than
+    # the culmulative size of the publish messages
+    set mem_diff_floor [expr $msg_size * $num_msgs]
+    set mem_diff [expr $link_mem_after_pubs - $link_mem_before_pubs]
+    assert {$mem_diff > $mem_diff_floor}
+}
+
+test "Link memory resets after publish messages flush" {
+    # Allow a little buffer to ensure publishes from the 
+    # previous test are flushed
+    after 3000
+
+    set server [Rn 0]
+    set msg_size 100000
+    set num_msgs 10
+
+    set link_mem_before [status $server mem_cluster_links]
+
+    # Publish ~1MB to one of the servers
+    $server MULTI
+    for {set i 0} {$i < $num_msgs} {incr i} {
+        $server PUBLISH channel [string repeat "x" $msg_size]
+    }
+    $server EXEC
+
+    # Wait until the cluster link memory has returned to below the pre-publish value.
+    # We can't guarantee it returns to the exact same value since gossip messages
+    # can cause the values to fluctuate.
+    wait_for_condition 1000 500 {
+        [status $server mem_cluster_links] <= $link_mem_before
+    } else {
+        fail "Cluster link memory did not settle back to expected range"
+    }
 }
