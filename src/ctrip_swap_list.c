@@ -1306,17 +1306,9 @@ int listSwapAna(swapData *data, struct keyRequest *req,
                 }
             } else {
                 /* LINSERT/LREM/LPOS, swap in all elements */
-                objectMeta *object_meta = swapDataObjectMeta(data);
-                long llen = ctripListTypeLength(data->value,object_meta);
-                listMeta *swap_meta,
-                         *req_meta = listMetaCreate(),
-                         *list_meta = swapDataGetListMeta(data);
-                listMetaAppendSegment(req_meta,SEGMENT_TYPE_HOT,0,llen);
-                swap_meta = listMetaCalculateSwapInMeta(list_meta,req_meta);
                 *intention = SWAP_IN;
                 *intention_flags = SWAP_EXEC_IN_DEL;
-                datactx->swap_meta = swap_meta;
-                listMetaFree(req_meta);
+                datactx->swap_meta = NULL;
             }
         } else { /* list range requests */
             listMeta *req_meta, *list_meta, *swap_meta;
@@ -1328,6 +1320,13 @@ int listSwapAna(swapData *data, struct keyRequest *req,
 
             req_meta = listMetaNormalizeFromRequest(ridx_shift,
                     req->l.num_ranges,req->l.ranges,llen);
+
+            /* req_meta is NULL if range is not valid, in which case swap in
+             * all eles (e.g. ltrim removes all eles if range invalid) */
+            if (req_meta == NULL) {
+                req_meta = listMetaCreate();
+                listMetaAppendSegment(req_meta,SEGMENT_TYPE_HOT,ridx_shift,llen);
+            }
 
             if (listMetaLength(req_meta,SEGMENT_TYPE_BOTH) > 0) {
                 swap_meta = listMetaCalculateSwapInMeta(list_meta,req_meta);
@@ -1432,14 +1431,14 @@ int listEncodeKeys(swapData *data, int intention, void *datactx_,
 
     switch (intention) {
     case SWAP_IN:
-        if (swap_meta->len > 0) {
+        if (swap_meta && swap_meta->len > 0) {
             int neles = 0;
             listMetaIterator iter;
 
             cfs = zmalloc(sizeof(int)*swap_meta->len);
             rawkeys = zmalloc(sizeof(sds)*swap_meta->len);
 
-            //TODO opt: use scan/iterate if too many eles
+            //TODO opt: use ROCKS_RANGE if too many eles
             listMetaIteratorInitWithType(&iter,swap_meta,SEGMENT_TYPE_HOT);
             while (!listMetaIterFinished(&iter)) {
                 long ridx = listMetaIterCur(&iter,NULL);

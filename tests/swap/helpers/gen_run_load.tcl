@@ -15,7 +15,9 @@ proc format_command {args} {
 }
 proc gen_run_load {host port seconds counter tls db code} {
     set start_time [clock seconds]
+    # redis defering client
     set r [redis $host $port 1 $tls]
+    # redis vanilla client
     set r1 [redis $host $port ]
     set constValue [randstring 1024 1024 alpha]
     $r client setname LOAD_HANDLER

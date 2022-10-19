@@ -4,6 +4,11 @@ proc press_enter_to_continue {{message "Hit Enter to continue ==> "}} {
     gets stdin
 }
 
+proc start_run_load {host port seconds counter code} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/swap/helpers/gen_run_load.tcl $host $port $seconds $counter $::tls $::target_db $code &
+}
+
 proc get_info_property {r section line property} {
     set str [$r info $section]
     if {[regexp ".*${line}:\[^\r\n\]*${property}=(\[^,\r\n\]*).*" $str match submatch]} {
