@@ -50,6 +50,16 @@ robj *setTypeCreate(sds value) {
     return createSetListpackObject();
 }
 
+/* Converts intset to HT if it contains too many entries. */
+static void maybeConvertIntset(robj *subject) {
+    serverAssert(subject->encoding == OBJ_ENCODING_INTSET);
+    size_t max_entries = server.set_max_intset_entries;
+    /* limit to 1G entries due to intset internals. */
+    if (max_entries >= 1<<30) max_entries = 1<<30;
+    if (intsetLen(subject->ptr) > max_entries)
+        setTypeConvert(subject,OBJ_ENCODING_HT);
+}
+
 /* Add the specified sds value into a set.
  *
  * If the value was already member of the set, nothing is done and 0 is
@@ -106,13 +116,7 @@ int setTypeAddBuf(robj *subject, char *value, size_t len) {
             uint8_t success = 0;
             subject->ptr = intsetAdd(subject->ptr,llval,&success);
             if (success) {
-                /* Convert to regular set when the intset contains
-                 * too many entries. */
-                size_t max_entries = server.set_max_intset_entries;
-                /* limit to 1G entries due to intset internals. */
-                if (max_entries >= 1<<30) max_entries = 1<<30;
-                if (intsetLen(subject->ptr) > max_entries)
-                    setTypeConvert(subject,OBJ_ENCODING_HT);
+                maybeConvertIntset(subject);
                 return 1;
             }
         } else {
@@ -145,9 +149,16 @@ int setTypeAddBuf(robj *subject, char *value, size_t len) {
 
 /* Add an integer value to the set. */
 int setTypeAddInt(robj *subject, int64_t value) {
-    char buf[21]; /* 20 digits of -2^63 + 1 null term = 21. */
-    size_t len = ll2string(buf, sizeof buf, value);
-    return setTypeAddBuf(subject, buf, len);
+    if (subject->encoding == OBJ_ENCODING_INTSET) {
+        uint8_t success = 0;
+        subject->ptr = intsetAdd(subject->ptr, value, &success);
+        if (success) maybeConvertIntset(subject);
+        return success;
+    } else {
+        char buf[21]; /* 20 digits of -2^63 + 1 null term = 21. */
+        size_t len = ll2string(buf, sizeof buf, value);
+        return setTypeAddBuf(subject, buf, len);
+    }
 }
 
 int setTypeRemove(robj *setobj, sds value) {
