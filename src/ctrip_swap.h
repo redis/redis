@@ -639,6 +639,7 @@ typedef struct zsetDataCtx {
 } zsetDataCtx;
 int swapDataSetupZSet(swapData *d, OUT void **datactx);
 #define createZsetObjectMeta(len) createLenObjectMeta(OBJ_ZSET, len)
+#define zsetObjectMetaType lenObjectMetaType
 
 
 /* MetaScan */

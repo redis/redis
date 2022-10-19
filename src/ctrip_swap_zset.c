@@ -73,8 +73,8 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
             *intention_flags = 0;
             if (cmd_intention_flags == SWAP_IN_DEL 
                 || cmd_intention_flags & SWAP_IN_OVERWRITE) {
-                if ((data->cold_meta != NULL && data->cold_meta->len == 0) ||
-                    (data->object_meta != NULL && data->object_meta->len == 0)) {
+                objectMeta *meta = swapDataObjectMeta(data);
+                if (meta->len == 0) {
                     *intention = SWAP_DEL;
                     *intention_flags = SWAP_FIN_DEL_SKIP;
                 } else {
@@ -83,23 +83,27 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
                 } 
             } 
         } else if (req->num_subkeys == 0) {
-            if (cmd_intention_flags == SWAP_IN_DEL
+            if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
+                /* DEL/GETDEL: Lazy delete current key. */
+                datactx->bdc.ctx_flag |= BIG_DATA_CTX_FLAG_MOCK_VALUE;
+                
+                *intention = SWAP_DEL;
+                *intention_flags = SWAP_FIN_DEL_SKIP;
+            }  else if (cmd_intention_flags == SWAP_IN_DEL
                 || cmd_intention_flags & SWAP_IN_OVERWRITE) {
-                if ((data->cold_meta != NULL && data->cold_meta->len == 0) ||
-                    (data->object_meta != NULL && data->object_meta->len == 0)) {
+                objectMeta *meta = swapDataObjectMeta(data);
+                if (meta->len == 0) {
                     *intention = SWAP_DEL;
                     *intention_flags = SWAP_FIN_DEL_SKIP;
                 } else {
                     *intention = SWAP_IN;
                     *intention_flags = SWAP_EXEC_IN_DEL;
                 } 
-            } else if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
-                /* DEL/GETDEL: Lazy delete current key. */
-                datactx->bdc.ctx_flag |= BIG_DATA_CTX_FLAG_MOCK_VALUE;
-                
-                *intention = SWAP_DEL;
-                *intention_flags = SWAP_FIN_DEL_SKIP;
-            }  else if (cmd_intention_flags == SWAP_IN_META) {
+            } else if (swapDataIsHot(data)) {
+                /* No need to do swap for hot key(execept for SWAP_IN_DEl). */
+                *intention = SWAP_NOP;
+                *intention_flags = 0;
+            } else if (cmd_intention_flags == SWAP_IN_META) {
                 /* HLEN: swap in meta (with random field gets empty zset)
                  * also HLEN command will be modified like dbsize. */
                 datactx->bdc.num = 0;
@@ -115,31 +119,38 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
                 *intention_flags = 0;
             }
         } else { /* keyrequests with subkeys */
-            datactx->bdc.num = 0;
-            datactx->bdc.subkeys = zmalloc(req->num_subkeys * sizeof(robj*));
-            for (int i = 0; i < req->num_subkeys; i++) {
-                robj *subkey = req->subkeys[i];
-                /* HDEL: even if field is hot (exists in value), we still
-                 * need to do ROCKS_DEL on those fields. */
-                double score;
-                if (cmd_intention_flags == SWAP_IN_DEL
-                    || cmd_intention_flags & SWAP_IN_OVERWRITE ||
-                        data->value == NULL || 
-                    zsetScore(data->value, subkey->ptr, &score) == C_ERR) {
-                    incrRefCount(subkey);
-                    datactx->bdc.subkeys[datactx->bdc.num++] = subkey;
+            objectMeta *meta = swapDataObjectMeta(data);
+            if (meta->len == 0) {
+                *intention = SWAP_NOP;
+                *intention_flags = 0;
+            } else {
+                datactx->bdc.num = 0;
+                datactx->bdc.subkeys = zmalloc(req->num_subkeys * sizeof(robj*));
+                for (int i = 0; i < req->num_subkeys; i++) {
+                    robj *subkey = req->subkeys[i];
+                    /* HDEL: even if field is hot (exists in value), we still
+                    * need to do ROCKS_DEL on those fields. */
+                    double score;
+                    if (cmd_intention_flags == SWAP_IN_DEL
+                        || cmd_intention_flags & SWAP_IN_OVERWRITE ||
+                            data->value == NULL || 
+                        zsetScore(data->value, subkey->ptr, &score) == C_ERR) {
+                        incrRefCount(subkey);
+                        datactx->bdc.subkeys[datactx->bdc.num++] = subkey;
+                    }
+                }
+                *intention = datactx->bdc.num > 0 ? SWAP_IN : SWAP_NOP;
+                if (cmd_intention_flags == SWAP_IN_DEL) {
+                    *intention_flags = SWAP_EXEC_IN_DEL;
+                } else {
+                    *intention_flags = 0;
                 }
             }
-            *intention = datactx->bdc.num > 0 ? SWAP_IN : SWAP_NOP;
-            if (cmd_intention_flags == SWAP_IN_DEL) {
-                *intention_flags = SWAP_EXEC_IN_DEL;
-            } else {
-                *intention_flags = 0;
-            }
+            
         }
         break;
     case SWAP_OUT:
-        if (data->value == NULL) {
+        if (swapDataIsCold(data)) {
             *intention = SWAP_NOP;
             *intention_flags = 0;
         } else {
@@ -202,10 +213,11 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
 
             /* create new meta if needed */
             if (!swapDataPersisted(data))
-                data->new_meta = createZsetObjectMeta(0);
+                swapDataSetNewObjectMeta(data,createZsetObjectMeta(0));
 
             if (!data->value->dirty) {
                 /* directly evict value from db.dict if not dirty. */
+                swapDataTurnCold(data);
                 swapDataCleanObject(data, datactx);
                 swapDataSwapOut(data,datactx);
                 *intention = SWAP_NOP;
@@ -295,7 +307,6 @@ int zsetEncodeKeys(swapData *data, int intention, void *datactx_,
                 cfs[0] = DATA_CF;
                 cfs[1] = datactx->zl.reverse;
                 rawkeys = zmalloc(sizeof(sds) * 2);
-                serverLog(LL_WARNING, "min(%s) max(%s)", datactx->zl.rangespec->min, datactx->zl.rangespec->max);
                 if (datactx->zl.rangespec->min == shared.minstring) {
                     rawkeys[0] = zsetEncodeIntervalKey(data->db, datactx->zl.rangespec->minex,
                         data->key->ptr, NULL);
@@ -554,7 +565,6 @@ int zsetDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
 static inline robj *createSwapInObject(robj *newval) {
     robj *swapin = newval;
     serverAssert(newval && newval->type == OBJ_ZSET);
-    incrRefCount(newval);
     swapin->dirty = 0;
     return swapin;
 }
@@ -574,6 +584,8 @@ int zsetSwapIn(swapData *data_, robj *result, void *datactx_) {
             dbAddMeta(data->sd.db,data->sd.key,data->sd.cold_meta);
             data->sd.cold_meta = NULL; /* moved */
         }
+    } else {
+       if (result) decrRefCount(result);
     }
     return 0;
 }
@@ -731,11 +743,6 @@ void freeZsetSwapData(swapData *data_, void *datactx_) {
         break;
         
     }
-    if (datactx->type == TYPE_ZL) {
-
-    } else if (datactx->type == TYPE_ZL) {
-        
-    }
     zfree(datactx);
 }
 
@@ -815,13 +822,7 @@ swapDataType zsetSwapDataType = {
     .free = freeZsetSwapData,
 };
 
-objectMetaType zsetObjectMetaType = {
-    .encodeObjectMeta = encodeLenObjectMeta,
-    .decodeObjectMeta = decodeLenObjectMeta,
-    .objectIsHot = lenObjectMetaIsHot,
-    .free = NULL,
-    .duplicate = NULL,
-};
+
 
 /**
  * @brief 
@@ -1376,14 +1377,16 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         kr1->cmd_intention = SWAP_IN;
         kr1->cmd_intention_flags = SWAP_IN_META;
         zset1_data->object_meta = NULL;
+        zset1_data->value = NULL;
         zset1_data->cold_meta = zset1_meta;
+        zset1_meta->len = 4;
         zsetSwapAna(zset1_data,kr1,&intention,&intention_flags,zset1_ctx);
         test_assert(intention == SWAP_IN && intention_flags == 0);
         test_assert(zset1_ctx->bdc.num > 0);
 
         // swap in del mock value
         kr1->cmd_intention = SWAP_IN;
-        kr1->cmd_intention_flags = SWAP_IN_DEL;
+        kr1->cmd_intention_flags = SWAP_IN_DEL_MOCK_VALUE;
         zset1_data->value = zset1;
         zsetSwapAna(zset1_data, kr1, &intention, &intention_flags, zset1_ctx);
         test_assert(intention == SWAP_DEL && intention_flags == SWAP_FIN_DEL_SKIP);
@@ -1405,6 +1408,8 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         // swap in whole key
         kr1->cmd_intention = SWAP_IN;
         kr1->cmd_intention_flags = 0;
+        zset1_data->value = NULL;
+        zset1_meta->len = 4;
         zsetSwapAna(zset1_data,kr1,&intention,&intention_flags,zset1_ctx);
         test_assert(intention == SWAP_IN && intention_flags == 0);
 
