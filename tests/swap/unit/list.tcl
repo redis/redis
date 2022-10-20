@@ -12,7 +12,7 @@ start_server {tags "list"} {
 
         test {swap-list chaos} {
             set rounds 5
-            set loaders 1
+            set loaders 5
             set duration 30
             set lists 4; # NOTE: keep it equal to lists in run load below
 
@@ -61,7 +61,7 @@ start_server {tags "list"} {
                             $r1 LINDEX $mylist [randomInt $mylist_len]
                         } {
                             catch { $r1 LSET $mylist [randomInt $mylist_len] $loader_id } e
-                            if {$e != "OK" && ![string match {*no such key*} $e]} {
+                            if {$e != "OK" && ![string match {*no such key*} $e] && ![string match {*index out of range*} $e] } {
                                 error "unexpected: $e"
                             }
                         } {

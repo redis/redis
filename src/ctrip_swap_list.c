@@ -218,18 +218,29 @@ end:
     return req_meta;
 }
 
+#define LIST_META_STRICT_NOEMPTY (1U << 1)
+#define LIST_META_STRICT_CONTINOUS (1U << 2)
+#define LIST_META_STRICT_RIDX (1U << 3)
+
+#define LITS_META_STRICT_SENSABLE_RIDX_MIN  (LONG_MAX>>2)
+#define LITS_META_STRICT_SENSABLE_RIDX_MAX  ((LONG_MAX>>2) + (LONG_MAX>>1))
+
 /* List meta segments are constinuous, req meta aren't . */ 
 int listMetaIsValid(listMeta *list_meta, int strict) {
     segment *seg;
     long i, expected_len = 0, next_index = -1;
+    int noempty = strict & LIST_META_STRICT_NOEMPTY,
+        continuous = strict & LIST_META_STRICT_CONTINOUS,
+        ridx = strict & LIST_META_STRICT_RIDX;
 
     for (i = 0; i < list_meta->num; i++) {
         seg = list_meta->segments + i;
         expected_len += seg->len;
-        if (seg->len <= 0) {
-            return 0;
-        } else if (next_index == -1 || 
-                (strict && next_index == seg->index) ||
+        if (seg->len < 0) return 0;
+        if (seg->len == 0 && noempty) return 0;
+        if (ridx && (seg->index < LITS_META_STRICT_SENSABLE_RIDX_MIN || seg->index > LITS_META_STRICT_SENSABLE_RIDX_MAX)) return 0;
+        if (next_index == -1 || 
+                (continuous && next_index == seg->index) ||
                 next_index <= seg->index) {
             next_index = seg->index + seg->len;
         } else {
@@ -319,7 +330,7 @@ void listMetaDefrag(listMeta *list_meta) {
         } else {
             merged_idx++;
             merged_seg = list_meta->segments + merged_idx;
-            memcpy(merged_seg,seg,sizeof(segment));
+            memmove(merged_seg,seg,sizeof(segment));
         }
     }
     list_meta->num = merged_idx+1;
@@ -369,8 +380,9 @@ static int insegment(segment *seg, long index) {
 listMeta *listMetaCalculateSwapInMeta(listMeta *list_meta, listMeta *req_meta) {
     listMeta *swap_meta = listMetaCreate();
 
-    //TODO remove
-    serverAssert(listMetaIsValid(list_meta,1));
+    //TODO remove if prod ready
+    serverAssert(listMetaIsValid(list_meta,
+                LIST_META_STRICT_CONTINOUS|LIST_META_STRICT_NOEMPTY));
     serverAssert(listMetaIsValid(req_meta,0));
 
     for (int i = 0; i < req_meta->num; i++) {
@@ -553,7 +565,7 @@ static int listMetaUpdate(listMeta *list_meta, long index, int type) {
     segment *cur, *prev, *next;
     int l, r, m;
 
-    serverAssert(listMetaIsValid(list_meta,1));
+    serverAssert(listMetaIsValid(list_meta,LIST_META_STRICT_CONTINOUS));
 
     l = 0, r = list_meta->num;
     while (l < r) {
@@ -658,7 +670,7 @@ long listMetaLength(listMeta *list_meta, int type) {
 
 /* expand(if delta > 0) or shink(if delta < 0) hot segment */
 void listMetaExtend(listMeta *list_meta, long head_delta, long tail_delta) {
-    segment *seg;
+    segment *first, *last;
     serverAssert(list_meta);
 
     serverAssert(list_meta->len+head_delta >= 0 && list_meta->len+tail_delta >= 0);
@@ -668,30 +680,33 @@ void listMetaExtend(listMeta *list_meta, long head_delta, long tail_delta) {
 
     /* head */
     if (head_delta > 0) {
-        seg = listMetaFirstSegment(list_meta);
-        if (seg->type != SEGMENT_TYPE_HOT) {
+        first = listMetaFirstSegment(list_meta);
+        if (first->type != SEGMENT_TYPE_HOT) {
             /* prepend a hot segment */
             listMetaMakeRoomFor(list_meta,list_meta->num+1);
-            memmove(seg+1,seg,list_meta->num*sizeof(segment));
-            seg->len = 0;
-            seg->type = SEGMENT_TYPE_HOT;
+            memmove(list_meta->segments+1,list_meta->segments,
+                    list_meta->num*sizeof(segment));
             list_meta->num++;
+            /* Note that first is invalid after makeroom */
+            first = listMetaFirstSegment(list_meta);
+            first->len = 0;
+            first->type = SEGMENT_TYPE_HOT;
         }
-        seg->index -= head_delta;
-        seg->len += head_delta;
+        first->index -= head_delta;
+        first->len += head_delta;
     } else if (head_delta == 0) {
         /* nop */
     } else {
         head_delta = -head_delta;
         while (head_delta) {
-            seg = listMetaFirstSegment(list_meta);
-            serverAssert(seg->type == SEGMENT_TYPE_HOT);
-            if (head_delta < seg->len) {
-                seg->index += head_delta;
-                seg->len -= head_delta;
+            first = listMetaFirstSegment(list_meta);
+            serverAssert(first->type == SEGMENT_TYPE_HOT);
+            if (head_delta < first->len) {
+                first->index += head_delta;
+                first->len -= head_delta;
                 head_delta = 0;
             } else {
-                head_delta -= seg->len;
+                head_delta -= first->len;
                 memmove(list_meta->segments,list_meta->segments+1,
                         (list_meta->num-1)*sizeof(segment));
                 list_meta->num--;
@@ -701,26 +716,26 @@ void listMetaExtend(listMeta *list_meta, long head_delta, long tail_delta) {
 
     /* tail */
     if (tail_delta > 0) {
-        seg = listMetaLastSegment(list_meta);
-        if (seg->type != SEGMENT_TYPE_HOT) {
+        last = listMetaLastSegment(list_meta);
+        if (last->type != SEGMENT_TYPE_HOT) {
             /* append a hot segment */
             listMetaAppendSegmentWithoutCheck(list_meta,SEGMENT_TYPE_HOT,
-                    seg->index+seg->len,0);
-            seg = listMetaLastSegment(list_meta);
+                    last->index+last->len,0);
+            last = listMetaLastSegment(list_meta);
         }
-        seg->len += tail_delta;
+        last->len += tail_delta;
     } else if (tail_delta == 0) {
         /* nop */
     } else {
         tail_delta = -tail_delta;
         while (tail_delta) {
-            seg = listMetaLastSegment(list_meta);
-            serverAssert(seg->type == SEGMENT_TYPE_HOT);
-            if (tail_delta < seg->len) {
-                seg->len -= tail_delta;
+            last = listMetaLastSegment(list_meta);
+            serverAssert(last->type == SEGMENT_TYPE_HOT);
+            if (tail_delta < last->len) {
+                last->len -= tail_delta;
                 tail_delta = 0;
             } else {
-                tail_delta -= seg->len;
+                tail_delta -= last->len;
                 list_meta->num--;
             }
         }
@@ -732,7 +747,7 @@ listMeta *listMetaDup(listMeta *list_meta) {
     lm->len = list_meta->len;
     lm->num = list_meta->num;
     lm->capacity = list_meta->capacity;
-    lm->segments = zmalloc(sizeof(segment)*lm->len);
+    lm->segments = zmalloc(sizeof(segment)*list_meta->capacity);
     memcpy(lm->segments,list_meta->segments,sizeof(segment)*lm->num);
     return lm;
 }
@@ -790,8 +805,8 @@ int metaListIterFinished(metaListIterator *iter) {
     return listMetaIterFinished(iter->meta_iter);
 }
 
-int metaListIsValid(metaList *ml, int continuous) {
-    if (!listMetaIsValid(ml->meta,continuous)) return 0;
+int metaListIsValid(metaList *ml, int strict) {
+    if (!listMetaIsValid(ml->meta,strict)) return 0;
     return (long)listTypeLength(ml->list) <= ml->meta->len;
 }
 
@@ -840,66 +855,6 @@ sds metaListDump(sds result, metaList *ml) {
     result = sdscatprintf(result,"])");
     metaListIterDeinit(&iter);
     return result;
-}
-
-void metaListFeedStart(metaList *main, segment *start) {
-    serverAssert(listMetaEmpty(main->meta) && listTypeLength(main->list));
-    listMetaAppendSegmentWithoutCheck(main->meta,start->type,start->index,0);
-}
-
-/* Feed metaList with hot element. */
-void metaListFeedElement(metaList *main, int ridx, robj *ele) {
-    listMeta *meta = main->meta;
-    robj *list = main->list;
-    segment *last;
-    long next_ridx;
-
-    serverAssert(ele);
-    serverAssert(meta->num > 0);
-    
-    last = listMetaLastSegment(meta);
-    next_ridx = last->index+last->len;
-
-    serverAssert(ridx >= next_ridx);
-
-    if (ridx > next_ridx) {
-        listMetaAppendSegment(meta,SEGMENT_TYPE_COLD,next_ridx,
-                ridx-next_ridx);
-        listMetaAppendSegmentWithoutCheck(meta,SEGMENT_TYPE_HOT,ridx,0);
-        last = listMetaLastSegment(meta);
-    }
-
-    last->len++;
-    listTypePush(list,ele,LIST_TAIL);
-}
-
-void metaListFeedEnd(metaList *main, segment *end) {
-    listMeta *meta = main->meta;
-    segment *last = listMetaLastSegment(meta);
-
-    if (end->len <= 0) return;
-
-    if (meta->num > 0) {
-        last = meta->segments+meta->num-1;
-        serverAssert(last->index+last->len <= end->index+end->len);
-    }
-
-    if (end->type == SEGMENT_TYPE_HOT) {
-        /* All elements must have already feeded to main if ending with
-         * hot segment. */
-        serverAssert(last->index+last->len == end->index+end->len);
-    } else {
-        /* Append or expend if ending segment is cold */
-        if (last == NULL || last->type == SEGMENT_TYPE_HOT) {
-            if (last->index+last->len < end->index+end->len) {
-                long index = last->index+last->len;
-                long len = end->index+end->len - index;
-                listMetaAppendSegment(meta,SEGMENT_TYPE_COLD,index,len);
-            }
-        } else {
-            last->len = end->index+end->len-last->index;
-        }
-    }
 }
 
 static void objectSwap(robj *lhs, robj *rhs) {
@@ -995,7 +950,7 @@ long metaListMerge(metaList *main, metaList *delta) {
     int segtype;
     metaListIterator delta_iter;
 
-    serverAssert(metaListIsValid(main,1));
+    serverAssert(metaListIsValid(main,LIST_META_STRICT_NOEMPTY|LIST_META_STRICT_CONTINOUS));
     serverAssert(metaListIsValid(delta,0));
 
     /* always merge small inst into big one */
@@ -2274,9 +2229,9 @@ int swapListMetaTest(int argc, char *argv[], int accurate) {
 
     TEST("list-meta: basics & iterator") {
         listMeta *lm = listMetaCreate();
-        test_assert(listMetaIsValid(lm,1));
+        test_assert(listMetaIsValid(lm,LIST_META_STRICT_CONTINOUS|LIST_META_STRICT_NOEMPTY));
         test_assert(listMetaAppendSegment(lm,SEGMENT_TYPE_HOT,0,2) == 0);
-        test_assert(listMetaIsValid(lm,1));
+        test_assert(listMetaIsValid(lm,LIST_META_STRICT_CONTINOUS|LIST_META_STRICT_NOEMPTY));
         test_assert(lm->num == 1 && lm->len == 2);
         test_assert(listMetaAppendSegment(lm,SEGMENT_TYPE_HOT,2,2) == 0);
         test_assert(lm->num == 1 && lm->len == 4);
@@ -2289,7 +2244,7 @@ int swapListMetaTest(int argc, char *argv[], int accurate) {
         test_assert(listMetaAppendSegment(lm,SEGMENT_TYPE_HOT,30,2) == 0);
         test_assert(listMetaAppendSegment(lm,SEGMENT_TYPE_COLD,40,2) == 0);
         test_assert(lm->capacity == 8);
-        test_assert(listMetaIsValid(lm,1));
+        test_assert(listMetaIsValid(lm,LIST_META_STRICT_CONTINOUS|LIST_META_STRICT_NOEMPTY));
         listMetaFree(lm);
     }
 
@@ -2330,6 +2285,7 @@ int swapListMetaTest(int argc, char *argv[], int accurate) {
         lm->segments = zrealloc(lm->segments,8*sizeof(segment));
         lm->capacity = 8;
 
+        /* 10~11(HOT)|12(HOT)|12~13(HOT)|14~15(COLD)|20~21(COLD)|22~23(COLD) */
         seg = lm->segments + lm->num++;
         seg->type = SEGMENT_TYPE_HOT;
         seg->index = 10;
@@ -2846,7 +2802,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         swapDataAna(warmdata,kr,&intention,&intention_flags,warmdatactx);
         test_assert(intention == SWAP_IN && intention_flags == SWAP_IN_DEL);
         listDataCtx *warmctx = warmdatactx;
-        test_assert(warmctx->swap_meta->len == 2 && warmctx->swap_meta->segments[0].len == 2);
+        test_assert(warmctx->swap_meta == NULL/*swap whole key*/);
         kr->cmd_intention = SWAP_IN, kr->cmd_intention_flags = SWAP_IN_META, kr->key = coldkey, kr->l.num_ranges = 0, kr->l.ranges = NULL;
         swapDataAna(colddata,kr,&intention,&intention_flags,colddatactx);
         test_assert(intention == SWAP_IN && intention_flags == SWAP_IN_DEL);
