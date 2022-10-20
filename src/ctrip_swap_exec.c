@@ -384,7 +384,6 @@ static int doRIOScan(RIO *rio) {
 #define min(a,b)  (a > b? b: a)
 static int doRIORange(RIO* rio) {
     int ret = 0;
-    char *err = NULL;
     rocksdb_iterator_t *iter = NULL;
     
     int reverse = rio->range.reverse;
@@ -415,7 +414,6 @@ static int doRIORange(RIO* rio) {
     size_t numkeys = 0, numalloc = 8;
     sds *rawkeys = zmalloc(numalloc*sizeof(sds));
     sds *rawvals = zmalloc(numalloc*sizeof(sds));
-    // serverAssert(memcmp(start, end, min(start_len, end_len)) <= 0);
 
     for(;rocksdb_iter_valid(iter); reverse?rocksdb_iter_prev(iter):rocksdb_iter_next(iter)) {
         size_t klen, vlen;
@@ -712,7 +710,6 @@ static void executeSwapDelRequest(swapRequest *req) {
     RIO _rio = {0}, *rio = &_rio;
     rocksdb_writebatch_t *wb;
     swapData *data = req->data;
-    sds zlmin, zlmax;
     errcode = doSwapDelMeta(data);
     DEBUG_MSGS_APPEND(req->msgs,"exec-del.meta","errcode=%d",errcode);
     if (errcode) goto end;
@@ -741,10 +738,6 @@ static void executeSwapDelRequest(swapRequest *req) {
         zfree(rawkeys), rawkeys = NULL;
         zfree(cfs), cfs = NULL;
     } else if (action == ROCKS_MULTI_DELETERANGE) {
-        // serverAssert(numkeys == 2 && rawkeys);
-        // DEBUG_MSGS_APPEND(req->msgs,"exec-del-deleterange",
-        //         "start_key=%s end_key=%s",rawkeys[0],rawkeys[1]);
-        // RIOInitDeleteRange(rio,cfs[0],rawkeys[0],rawkeys[1]);
         int* cfs_ = zmalloc(sizeof(int) * numkeys);
         sds* rawkeys_ = zmalloc(sizeof(sds) * numkeys);
         for(int i = 0; i < numkeys; i++) {
@@ -752,8 +745,6 @@ static void executeSwapDelRequest(swapRequest *req) {
             cfs_[i] = cfs[i];
         }
         RIOInitMultiDeleteRange(rio, numkeys, cfs_, rawkeys_);
-        // zfree(rawkeys), rawkeys = NULL;
-        // zfree(cfs), cfs = NULL;
     } else {
         errcode = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
         goto end;
@@ -986,22 +977,27 @@ static int doSwapIntentionDelRange(swapRequest *req, int cf,sds start, sds end) 
 }
 
 
-int rocksDel(swapRequest *req, int action, int search_numkeys, int* search_cfs, sds* search_rawkeys,   int result_numkeys, int* result_cfs, sds* result_rawkeys, sds* result_rawvals) {
+int rocksDel(swapRequest *req, int action, int search_numkeys, int* search_cfs,
+        sds* search_rawkeys,   int result_numkeys, int* result_cfs,
+        sds* result_rawkeys, sds* result_rawvals) {
     if (result_numkeys == 0) return 0;
     int errcode = 0;
-    RIO _drio = {0}, *drio = &_drio;
     swapData *data = req->data;
+    UNUSED(search_numkeys);
     if (data->type->rocksDel == NULL) {
         switch (action) {
             case ROCKS_MULTIGET:
             case ROCKS_GET:
             case ROCKS_RANGE:
-                if ((errcode = doSwapIntentionDel(req, result_numkeys,result_cfs, result_rawkeys))) {
+                if ((errcode = doSwapIntentionDel(req, result_numkeys,result_cfs,
+                                result_rawkeys))) {
                     return errcode;
                 }
             break;
             case ROCKS_SCAN:
-                if ((errcode = doSwapIntentionDelRange(req,search_cfs[0],sdsdup(search_rawkeys[0]), rocksGenerateEndKey(search_rawkeys[0])))) {
+                if ((errcode = doSwapIntentionDelRange(req,search_cfs[0],
+                                sdsdup(search_rawkeys[0]),
+                                rocksGenerateEndKey(search_rawkeys[0])))) {
                     return errcode;
                 }
             break;
@@ -1014,7 +1010,9 @@ int rocksDel(swapRequest *req, int action, int search_numkeys, int* search_cfs, 
     int outaction, outnum;
     int* outcfs = NULL;
     sds* outrawkeys = NULL;
-    serverAssert(data->type->rocksDel(data, req->datactx, action, result_numkeys, result_cfs, result_rawkeys, result_rawvals, &outaction,  &outnum, &outcfs, &outrawkeys) == 0);
+    serverAssert(data->type->rocksDel(data, req->datactx, action, result_numkeys,
+                result_cfs, result_rawkeys, result_rawvals, &outaction,
+                &outnum, &outcfs, &outrawkeys) == 0);
     switch(outaction) {
         case ROCKS_WRITE:
         {

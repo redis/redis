@@ -53,6 +53,7 @@ set ::disk_tests {
     swap/ported/replication-3 
     swap/ported/rdb
     swap/ported/multi
+    swap/unit/list
     swap/unit/dirty
     swap/unit/expire
     swap/unit/rdb

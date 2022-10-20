@@ -786,6 +786,7 @@ int getKeyRequestsZincrby(int dbid, struct redisCommand *cmd, robj **argv, int a
 #define ZMIN -1
 #define ZMAX 1
 int getKeyRequestsZpopGeneric(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result, int flags) {
+    UNUSED(cmd), UNUSED(flags);
     getKeyRequestsPrepareResult(result,result->num+ argc - 2);
     for(int i = 1; i < argc - 1; i++) {
         incrRefCount(argv[i]);
@@ -803,6 +804,7 @@ int getKeyRequestsZpopMax(int dbid, struct redisCommand *cmd, robj **argv, int a
 }
 
 int getKeyRequestsZrangestore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    UNUSED(cmd), UNUSED(argc);
     getKeyRequestsPrepareResult(result,result->num+ 2);
     for(int i = 1; i < 3; i++) {
         incrRefCount(argv[i]);
@@ -827,16 +829,13 @@ typedef enum {
 int getKeyRequestsZrangeGeneric(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result, zrange_type rangetype, zrange_direction direction) {
     if (argc < 4) return C_ERR;
     robj *minobj ,*maxobj; 
-    int reverse;
-    char *eptr;
     int argc_start = 1;
     long long opt_offset = 0, opt_limit = 0;
-    int opt_withscores = 0;
     /* Step 1: Skip the <src> <min> <max> args and parse remaining optional arguments. */
     for (int j=argc_start + 3; j < argc; j++) {
         int leftargs = argc-j-1;
         if (!strcasecmp(argv[j]->ptr,"withscores")) {
-            opt_withscores = 1;
+            /* opt_withscores = 1; */
         } else if (!strcasecmp(argv[j]->ptr,"limit") && leftargs >= 2) {
             
             if (getLongLongFromObject(argv[j+1], &opt_offset) != C_OK
@@ -982,6 +981,7 @@ int getKeyRequestsGeoHash(int dbid, struct redisCommand *cmd, robj **argv, int a
 
 int getKeyRequestsGeoRadius(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
     robj* storekey = NULL;
+    UNUSED(cmd);
     for(int i =0; i < argc; i++) {
         if (!strcasecmp(argv[i]->ptr, "store") && (i+1) < argc) {
             storekey = argv[i+1];
@@ -1002,7 +1002,7 @@ int getKeyRequestsGeoRadius(int dbid, struct redisCommand *cmd, robj **argv, int
 }
 
 int getKeyRequestsGeoSearchStore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    
+    UNUSED(cmd), UNUSED(argc);
     getKeyRequestsPrepareResult(result,result->num+ 2);
     incrRefCount(argv[1]);
     getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, argv[1], 0, NULL, SWAP_IN, SWAP_IN_DEL, dbid);

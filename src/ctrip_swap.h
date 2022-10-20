@@ -1334,7 +1334,7 @@ int decodeScoreKey(char* raw, int rawlen, int* dbid, char** key, size_t* keylen,
 sds encodeScoreKey(redisDb* db ,sds key, sds subkey, double score);
 sds encodeIntervalSds(int ex, MOVE IN sds data);
 int decodeIntervalSds(sds data, int* ex, char** raw, size_t* rawlen);
-sds encodeScorePriex(redisDb* db, sds key);
+sds encodeScorePrefix(redisDb* db, sds key);
 
 robj *unshareStringValue(robj *value);
 size_t objectEstimateSize(robj *o);

@@ -345,12 +345,12 @@ sds encodeScoreHead(sds rawkey, int dbid, sds key, keylen_t keylen) {
     return ptr;
 }
 
-sds encodeScorePriex(redisDb* db, sds key) {
+sds encodeScorePrefix(redisDb* db, sds key) {
     int dbid = db->id;
     keylen_t keylen = key ? sdslen(key) : 0;
     keylen_t rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen;
-    sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen),
-        ptr = encodeScoreHead(rawkey, dbid, key, keylen);
+    sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen);
+    encodeScoreHead(rawkey, dbid, key, keylen);
     return rawkey;
 }
 
@@ -372,14 +372,14 @@ sds encodeScoreKey(redisDb* db ,sds key, sds subkey, double score) {
 
 int decodeScoreKey(char* raw, int rawlen, int* dbid, char** key, size_t* keylen, char** subkey, size_t* subkeylen, double* score) {
     keylen_t keylen_;
-    if (raw == NULL || rawlen < sizeof(int)+sizeof(keylen_t)) return -1;
+    if (raw == NULL || rawlen < (int)(sizeof(int)+sizeof(keylen_t))) return -1;
     if (dbid) *dbid = *(int*)raw;
     raw += sizeof(int), rawlen -= sizeof(int);
     keylen_ = *(keylen_t*)raw;
     if (keylen) *keylen = keylen_;
     raw += sizeof(keylen_t), rawlen -= sizeof(keylen_t);
     if (key) *key = raw;
-    if (rawlen < keylen_) return -1;
+    if (rawlen < (int)keylen_) return -1;
     raw += keylen_, rawlen -= keylen_;
     int double_offset = decodeDouble(raw, score);
     raw += double_offset;
