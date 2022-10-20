@@ -536,7 +536,7 @@ void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
     char *existing_rule = selector->command_rules;
 
     /* Loop over the existing rules, trying to find a rule that "matches"
-     * it. If we find a match, then remove the command from the string by
+     * the new rule. If we find a match, then remove the command from the string by
      * copying the later rules over it. */
     while(existing_rule[0]) {
         /* The first character of the rule is +/-, which we don't need to compare. */
