@@ -93,7 +93,7 @@ start_server {tags {"acl external:skip"}} {
         r AUTH psuser pspass
         catch {r PUBLISH foo bar} e
         set e
-    } {*NOPERM*channels*}
+    } {*NOPERM*channel*}
 
     test {By default, only default user is not able to publish to any shard channel} {
         r AUTH default pwd
@@ -101,7 +101,7 @@ start_server {tags {"acl external:skip"}} {
         r AUTH psuser pspass
         catch {r SPUBLISH foo bar} e
         set e
-    } {*NOPERM*channels*}
+    } {*NOPERM*channel*}
 
     test {By default, only default user is able to subscribe to any channel} {
         set rd [redis_deferring_client]
@@ -117,7 +117,7 @@ start_server {tags {"acl external:skip"}} {
         catch {$rd read} e
         $rd close
         set e
-    } {*NOPERM*channels*}
+    } {*NOPERM*channel*}
 
     test {By default, only default user is able to subscribe to any shard channel} {
         set rd [redis_deferring_client]
@@ -133,7 +133,7 @@ start_server {tags {"acl external:skip"}} {
         catch {$rd read} e
         $rd close
         set e
-    } {*NOPERM*channels*}
+    } {*NOPERM*channel*}
 
     test {By default, only default user is able to subscribe to any pattern} {
         set rd [redis_deferring_client]
@@ -149,7 +149,7 @@ start_server {tags {"acl external:skip"}} {
         catch {$rd read} e
         $rd close
         set e
-    } {*NOPERM*channels*}
+    } {*NOPERM*channel*}
 
     test {It's possible to allow publishing to a subset of channels} {
         r ACL setuser psuser resetchannels &foo:1 &bar:*
@@ -554,9 +554,9 @@ start_server {tags {"acl external:skip"}} {
 
     test "ACL requires explicit permission for scripting for EVAL_RO, EVALSHA_RO and FCALL_RO" {
         r ACL SETUSER scripter on nopass +readonly
-        assert_equal "This user has no permissions to run the 'eval_ro' command" [r ACL DRYRUN scripter EVAL_RO "" 0]
-        assert_equal "This user has no permissions to run the 'evalsha_ro' command" [r ACL DRYRUN scripter EVALSHA_RO "" 0]
-        assert_equal "This user has no permissions to run the 'fcall_ro' command" [r ACL DRYRUN scripter FCALL_RO "" 0]
+        assert_match {*has no permissions to run the 'eval_ro' command*} [r ACL DRYRUN scripter EVAL_RO "" 0]
+        assert_match {*has no permissions to run the 'evalsha_ro' command*} [r ACL DRYRUN scripter EVALSHA_RO "" 0]
+        assert_match {*has no permissions to run the 'fcall_ro' command*} [r ACL DRYRUN scripter FCALL_RO "" 0]
     }
 
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {
@@ -751,6 +751,71 @@ start_server {tags {"acl external:skip"}} {
        catch {r ACL load} err
        set err
     } {*Redis instance is not configured to use an ACL file*}
+
+    # If there is an AUTH failure the metric increases
+    test {ACL-Metrics user AUTH failure} {
+        set current_auth_failures [s acl_access_denied_auth]
+        set current_invalid_cmd_accesses [s acl_access_denied_cmd]
+        set current_invalid_key_accesses [s acl_access_denied_key]
+        set current_invalid_channel_accesses [s acl_access_denied_channel]
+        assert_error "*WRONGPASS*" {r AUTH notrealuser 1233456} 
+        assert {[s acl_access_denied_auth] eq [expr $current_auth_failures + 1]}
+        assert_error "*WRONGPASS*" {r HELLO 3 AUTH notrealuser 1233456}
+        assert {[s acl_access_denied_auth] eq [expr $current_auth_failures + 2]}
+        assert_error "*WRONGPASS*" {r HELLO 2 AUTH notrealuser 1233456}
+        assert {[s acl_access_denied_auth] eq [expr $current_auth_failures + 3]}
+        assert {[s acl_access_denied_cmd] eq $current_invalid_cmd_accesses}
+        assert {[s acl_access_denied_key] eq $current_invalid_key_accesses}
+        assert {[s acl_access_denied_channel] eq $current_invalid_channel_accesses}
+    }
+
+    # If a user try to access an unauthorized command the metric increases
+    test {ACL-Metrics invalid command accesses} {
+        set current_auth_failures [s acl_access_denied_auth]
+        set current_invalid_cmd_accesses [s acl_access_denied_cmd]
+        set current_invalid_key_accesses [s acl_access_denied_key]
+        set current_invalid_channel_accesses [s acl_access_denied_channel]
+        r ACL setuser invalidcmduser on >passwd nocommands
+        r AUTH invalidcmduser passwd
+        assert_error "*no permissions to run the * command*" {r acl list}
+        r AUTH default ""
+        assert {[s acl_access_denied_auth] eq $current_auth_failures}
+        assert {[s acl_access_denied_cmd] eq [expr $current_invalid_cmd_accesses + 1]}
+        assert {[s acl_access_denied_key] eq $current_invalid_key_accesses}
+        assert {[s acl_access_denied_channel] eq $current_invalid_channel_accesses}
+    }
+
+    # If a user try to access an unauthorized key the metric increases
+    test {ACL-Metrics invalid key accesses} {
+        set current_auth_failures [s acl_access_denied_auth]
+        set current_invalid_cmd_accesses [s acl_access_denied_cmd]
+        set current_invalid_key_accesses [s acl_access_denied_key]
+        set current_invalid_channel_accesses [s acl_access_denied_channel]
+        r ACL setuser invalidkeyuser on >passwd resetkeys allcommands
+        r AUTH invalidkeyuser passwd
+        assert_error "*NOPERM*key*" {r get x}
+        r AUTH default ""
+        assert {[s acl_access_denied_auth] eq $current_auth_failures}
+        assert {[s acl_access_denied_cmd] eq $current_invalid_cmd_accesses}
+        assert {[s acl_access_denied_key] eq [expr $current_invalid_key_accesses + 1]}
+        assert {[s acl_access_denied_channel] eq $current_invalid_channel_accesses}
+    }   
+
+    # If a user try to access an unauthorized channel the metric increases
+    test {ACL-Metrics invalid channels accesses} {
+        set current_auth_failures [s acl_access_denied_auth]
+        set current_invalid_cmd_accesses [s acl_access_denied_cmd]
+        set current_invalid_key_accesses [s acl_access_denied_key]
+        set current_invalid_channel_accesses [s acl_access_denied_channel]
+        r ACL setuser invalidchanneluser on >passwd resetchannels allcommands
+        r AUTH invalidkeyuser passwd
+        assert_error "*NOPERM*channel*" {r subscribe x}
+        r AUTH default ""
+        assert {[s acl_access_denied_auth] eq $current_auth_failures}
+        assert {[s acl_access_denied_cmd] eq $current_invalid_cmd_accesses}
+        assert {[s acl_access_denied_key] eq $current_invalid_key_accesses}
+        assert {[s acl_access_denied_channel] eq [expr $current_invalid_channel_accesses + 1]}
+    }
 }
 
 set server_path [tmpdir "server.acl"]

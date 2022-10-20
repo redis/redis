@@ -352,7 +352,7 @@ raxNode *raxAddChild(raxNode *n, unsigned char c, raxNode **childptr, raxNode **
      * we don't need to do anything if there was already some padding to use. In
      * that case the final destination of the pointers will be the same, however
      * in our example there was no pre-existing padding, so we added one byte
-     * plus there bytes of padding. After the next memmove() things will look
+     * plus three bytes of padding. After the next memmove() things will look
      * like that:
      *
      * [HDR*][abde][....][Aptr][Bptr][....][Dptr][Eptr]|AUXP|

@@ -3838,7 +3838,7 @@ mstime_t RM_GetExpire(RedisModuleKey *key) {
     mstime_t expire = getExpire(key->db,key->key);
     if (expire == -1 || key->value == NULL)
         return REDISMODULE_NO_EXPIRE;
-    expire -= mstime();
+    expire -= commandTimeSnapshot();
     return expire >= 0 ? expire : 0;
 }
 
@@ -3855,7 +3855,7 @@ int RM_SetExpire(RedisModuleKey *key, mstime_t expire) {
     if (!(key->mode & REDISMODULE_WRITE) || key->value == NULL || (expire < 0 && expire != REDISMODULE_NO_EXPIRE))
         return REDISMODULE_ERR;
     if (expire != REDISMODULE_NO_EXPIRE) {
-        expire += mstime();
+        expire += commandTimeSnapshot();
         setExpire(key->ctx->client,key->db,key->key,expire);
     } else {
         removeExpire(key->db,key->key);
@@ -3899,7 +3899,7 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  * When async is set to true, db contents will be freed by a background thread. */
 void RM_ResetDataset(int restart_aof, int async) {
     if (restart_aof && server.aof_state != AOF_OFF) stopAppendOnly();
-    flushAllDataAndResetRDB(async? EMPTYDB_ASYNC: EMPTYDB_NO_FLAGS);
+    flushAllDataAndResetRDB((async? EMPTYDB_ASYNC: EMPTYDB_NO_FLAGS) | EMPTYDB_NOFUNCTIONS);
     if (server.aof_enabled && restart_aof) restartAOFAfterSYNC();
 }
 
@@ -6003,7 +6003,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             sds object = (acl_retval == ACL_DENIED_CMD) ? sdsdup(c->cmd->fullname) : sdsdup(c->argv[acl_errpos]->ptr);
             addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, ctx->client->user->name, object);
             if (error_as_call_replies) {
-                sds msg = sdscatfmt(sdsempty(), "acl verification failed, %s.", getAclErrorMessage(acl_retval));
+                /* verbosity should be same as processCommand() in server.c */
+                sds acl_msg = getAclErrorMessage(acl_retval, ctx->client->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
+                sds msg = sdscatfmt(sdsempty(), "-NOPERM %S\r\n", acl_msg);
+                sdsfree(acl_msg);
                 reply = callReplyCreateError(msg, ctx);
             }
             errno = EACCES;
@@ -6378,6 +6381,9 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *   so that meta information such as key name and db id can be obtained.
  * * **copy2**: Similar to `copy`, but provides the `RedisModuleKeyOptCtx` parameter
  *   so that meta information such as key names and db ids can be obtained.
+ * * **aux_save2**: Similar to `aux_save`, but with small semantic change, if the module
+ *   saves nothing on this callback then no data about this aux field will be written to the
+ *   RDB and it will be possible to load the RDB even if the module is not loaded.
  * 
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
@@ -6430,6 +6436,9 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
             moduleTypeUnlinkFunc2 unlink2;
             moduleTypeCopyFunc2 copy2;
         } v4;
+        struct {
+            moduleTypeAuxSaveFunc aux_save2;
+        } v5;
     } *tms = (struct typemethods*) typemethods_ptr;
 
     moduleType *mt = zcalloc(sizeof(*mt));
@@ -6457,6 +6466,9 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         mt->unlink2 = tms->v4.unlink2;
         mt->free_effort2 = tms->v4.free_effort2;
         mt->copy2 = tms->v4.copy2;
+    }
+    if (tms->version >= 5) {
+        mt->aux_save2 = tms->v5.aux_save2;
     }
     memcpy(mt->name,name,sizeof(mt->name));
     listAddNodeTail(ctx->module->types,mt);
@@ -6572,11 +6584,25 @@ int RM_IsIOError(RedisModuleIO *io) {
     return io->error;
 }
 
+static int flushRedisModuleIOBuffer(RedisModuleIO *io) {
+    if (!io->pre_flush_buffer) return 0;
+
+    /* We have data that must be flushed before saving the current data.
+     * Lets flush it. */
+    sds pre_flush_buffer = io->pre_flush_buffer;
+    io->pre_flush_buffer = NULL;
+    ssize_t retval = rdbWriteRaw(io->rio, pre_flush_buffer, sdslen(pre_flush_buffer));
+    sdsfree(pre_flush_buffer);
+    if (retval >= 0) io->bytes += retval;
+    return retval;
+}
+
 /* Save an unsigned 64 bit value into the RDB file. This function should only
  * be called in the context of the rdb_save method of modules implementing new
  * data types. */
 void RM_SaveUnsigned(RedisModuleIO *io, uint64_t value) {
     if (io->error) return;
+    if (flushRedisModuleIOBuffer(io) == -1) goto saveerr;
     /* Save opcode. */
     int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_UINT);
     if (retval == -1) goto saveerr;
@@ -6630,6 +6656,7 @@ int64_t RM_LoadSigned(RedisModuleIO *io) {
  * the RDB file. */
 void RM_SaveString(RedisModuleIO *io, RedisModuleString *s) {
     if (io->error) return;
+    if (flushRedisModuleIOBuffer(io) == -1) goto saveerr;
     /* Save opcode. */
     ssize_t retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
     if (retval == -1) goto saveerr;
@@ -6648,6 +6675,7 @@ saveerr:
  * as input. */
 void RM_SaveStringBuffer(RedisModuleIO *io, const char *str, size_t len) {
     if (io->error) return;
+    if (flushRedisModuleIOBuffer(io) == -1) goto saveerr;
     /* Save opcode. */
     ssize_t retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
     if (retval == -1) goto saveerr;
@@ -6706,6 +6734,7 @@ char *RM_LoadStringBuffer(RedisModuleIO *io, size_t *lenptr) {
  * It is possible to load back the value with RedisModule_LoadDouble(). */
 void RM_SaveDouble(RedisModuleIO *io, double value) {
     if (io->error) return;
+    if (flushRedisModuleIOBuffer(io) == -1) goto saveerr;
     /* Save opcode. */
     int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_DOUBLE);
     if (retval == -1) goto saveerr;
@@ -6741,6 +6770,7 @@ loaderr:
  * It is possible to load back the value with RedisModule_LoadFloat(). */
 void RM_SaveFloat(RedisModuleIO *io, float value) {
     if (io->error) return;
+    if (flushRedisModuleIOBuffer(io) == -1) goto saveerr;
     /* Save opcode. */
     int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_FLOAT);
     if (retval == -1) goto saveerr;
@@ -6811,7 +6841,7 @@ ssize_t rdbSaveModulesAux(rio *rdb, int when) {
         listRewind(module->types,&li);
         while((ln = listNext(&li))) {
             moduleType *mt = ln->value;
-            if (!mt->aux_save || !(mt->aux_save_triggers & when))
+            if ((!mt->aux_save && !mt->aux_save2) || !(mt->aux_save_triggers & when))
                 continue;
             ssize_t ret = rdbSaveSingleModuleAux(rdb, when, mt);
             if (ret==-1) {
@@ -7213,7 +7243,10 @@ void unblockClientFromModule(client *c) {
  * reply callback the privdata that is set here while blocking.
  *
  */
-RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
+RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
+                                            RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
+                                            long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata,
+                                            int flags) {
     client *c = ctx->client;
     int islua = scriptIsRunning();
     int ismulti = server.in_exec;
@@ -7252,7 +7285,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
             "Blocking module command called from transaction");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,-1,timeout,NULL,NULL,NULL);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,-1,timeout,NULL,NULL,NULL,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
@@ -7327,8 +7360,10 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
  * use RM_BlockedClientMeasureTimeStart() and RM_BlockedClientMeasureTimeEnd() one,
  * or multiple times within the blocking command background work.
  */
-RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) {
-    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL);
+RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
+                                         RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
+                                         long long timeout_ms) {
+    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL,0);
 }
 
 /* This call is similar to RedisModule_BlockClient(), however in this case we
@@ -7389,15 +7424,31 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
  *       handled as if it were timed-out (You must implement the timeout
  *       callback in that case).
  */
-RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
-    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata);
+RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
+                                               RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
+                                               long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
+    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,0);
+}
+
+/* Same as RedisModule_BlockClientOnKeys, but can take REDISMODULE_BLOCK_* flags
+ * Can be either REDISMODULE_BLOCK_UNBLOCK_DEFAULT, which means default behavior (same
+ * as calling RedisModule_BlockClientOnKeys)
+ *
+ * The flags is a bit mask of these:
+ *
+ * - `REDISMODULE_BLOCK_UNBLOCK_DELETED`: The clients should to be awakened in case any of `keys` are deleted.
+ *                                        Mostly useful for commands that require the key to exist (like XREADGROUP)
+ */
+RedisModuleBlockedClient *RM_BlockClientOnKeysWithFlags(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
+                                                        RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
+                                                        long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata,
+                                                        int flags) {
+    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,flags);
 }
 
 /* This function is used in order to potentially unblock a client blocked
  * on keys with RedisModule_BlockClientOnKeys(). When this function is called,
- * all the clients blocked for this key will get their reply_callback called.
- *
- * Note: The function has no effect if the signaled key doesn't exist. */
+ * all the clients blocked for this key will get their reply_callback called. */
 void RM_SignalKeyAsReady(RedisModuleCtx *ctx, RedisModuleString *key) {
     signalKeyAsReady(ctx->client->db, key, OBJ_MODULE);
 }
@@ -7752,6 +7803,7 @@ void moduleGILAfterLock() {
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
     server.module_ctx_nesting++;
+    updateCachedTime(0);
 }
 
 /* Acquire the server lock before executing a thread safe API call.
@@ -12795,6 +12847,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetLFU);
     REGISTER_API(GetLFU);
     REGISTER_API(BlockClientOnKeys);
+    REGISTER_API(BlockClientOnKeysWithFlags);
     REGISTER_API(SignalKeyAsReady);
     REGISTER_API(GetBlockedClientReadyKey);
     REGISTER_API(GetUsedMemoryRatio);

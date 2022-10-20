@@ -34,6 +34,7 @@
 #include "crc64.h"
 #include "bio.h"
 #include "quicklist.h"
+#include "fpconv_dtoa.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -188,8 +189,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                     ll2string(buf,sizeof(buf),vll);
                     mixDigest(eledigest,buf,strlen(buf));
                 }
-
-                snprintf(buf,sizeof(buf),"%.17g",score);
+                const int len = fpconv_dtoa(score, buf);
+                buf[len] = '\0';
                 mixDigest(eledigest,buf,strlen(buf));
                 xorDigest(digest,eledigest,20);
                 zzlNext(zl,&eptr,&sptr);
@@ -202,8 +203,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             while((de = dictNext(di)) != NULL) {
                 sds sdsele = dictGetKey(de);
                 double *score = dictGetVal(de);
-
-                snprintf(buf,sizeof(buf),"%.17g",*score);
+                const int len = fpconv_dtoa(*score, buf);
+                buf[len] = '\0';
                 memset(eledigest,0,20);
                 mixDigest(eledigest,sdsele,sdslen(sdsele));
                 mixDigest(eledigest,buf,strlen(buf));
@@ -1205,6 +1206,8 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     #endif
 #elif defined(__DragonFly__)
     GET_SET_RETURN(uc->uc_mcontext.mc_rip, eip);
+#elif defined(__sun) && defined(__x86_64__)
+    GET_SET_RETURN(uc->uc_mcontext.gregs[REG_RIP], eip);
 #else
     NOT_SUPPORTED();
 #endif
@@ -1658,6 +1661,37 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.mc_cs
     );
     logStackContent((void**)uc->uc_mcontext.mc_rsp);
+#elif defined(__sun)
+    #if defined(__x86_64__)
+    serverLog(LL_WARNING,
+    "\n"
+    "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
+    "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
+    "RIP:%016lx EFL:%016lx\nCSGSFS:%016lx",
+        (unsigned long) uc->uc_mcontext.gregs[REG_RAX],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RBX],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RCX],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RDX],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RDI],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RSI],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RBP],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RSP],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R8],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R9],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R10],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R11],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R12],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R13],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R14],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R15],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RIP],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RFL],
+        (unsigned long) uc->uc_mcontext.gregs[REG_CS]
+    );
+    logStackContent((void**)uc->uc_mcontext.gregs[REG_RSP]);
+    #endif
 #else
     NOT_SUPPORTED();
 #endif
