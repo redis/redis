@@ -73,11 +73,16 @@ void updateLFU(robj *val) {
  *  LOOKUP_NONE (or zero): No special flags are passed.
  *  LOOKUP_NOTOUCH: Don't alter the last access time of the key.
  *  LOOKUP_NONOTIFY: Don't trigger keyspace event on key miss.
- *  LOOKUP_NOSTATS: Don't increment key hits/misses counters.
+ *  LOOKUP_NOSTATS: Don't increase key hits/misses counters.
  *  LOOKUP_WRITE: Prepare the key for writing (delete expired keys even on
  *                replicas, use separate keyspace stats and events (TODO)).
  *  LOOKUP_NOEXPIRE: Perform expiration check, but avoid deleting the key,
  *                   so that we don't have to propagate the deletion.
+ *  LOOKUP_READ: Lookup the key, and as the side-effects of read, trigger 
+ *               keyspace event on miss(when LOOKUP_NONOTIFY is not set) and
+ *               update hits/misses counters(when LOOKUP_NOSTATS is not set).
+ *               To get the effect of both read and write, you can specify
+ *               LOOKUP_READ | LOOKUP_WRITE
  *
  * Note: this function also returns NULL if the key is logically expired but
  * still existing, in case this is a replica and the LOOKUP_WRITE is not set.
@@ -121,13 +126,13 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             }
         }
 
-        if (!(flags & (LOOKUP_NOSTATS | LOOKUP_WRITE)))
+        if (!(flags & LOOKUP_NOSTATS) && flags & LOOKUP_READ)
             server.stat_keyspace_hits++;
         /* TODO: Use separate hits stats for WRITE */
     } else {
-        if (!(flags & (LOOKUP_NONOTIFY | LOOKUP_WRITE)))
+        if (!(flags & LOOKUP_NONOTIFY) && flags & LOOKUP_READ)
             notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
-        if (!(flags & (LOOKUP_NOSTATS | LOOKUP_WRITE)))
+        if (!(flags & LOOKUP_NOSTATS) && flags & LOOKUP_READ)
             server.stat_keyspace_misses++;
         /* TODO: Use separate misses stats and notify event for WRITE */
     }
@@ -146,7 +151,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * the key. */
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     serverAssert(!(flags & LOOKUP_WRITE));
-    return lookupKey(db, key, flags);
+    return lookupKey(db, key, flags | LOOKUP_READ);
 }
 
 /* Like lookupKeyReadWithFlags(), but does not use any flag, which is the

@@ -313,16 +313,20 @@ void psetexCommand(client *c) {
 }
 
 /* The getGenericCommand() function is called in order to implement GET, GETDEL and GETSET command.
- * If 'write' is zero, we use lookupKeyReadOrReply to look for the key and reply, otherwise we use
- * lookupKeyWriteOrReply(GETSET command use this). 
+ * If 'write' is zero, we use lookupKeyReadOrReply() to look for the key and reply, otherwise we use
+ * lookupKey() with LOOKUP_READ|LOOKUP_WRITE flags to get the effect of both read and write. (GETSET 
+ * command use this). 
  * If 'found' is not NULL, we set *found to 1 if we found the key, or 0 if the key doesn't exist. */
 int getGenericCommand(client *c, int write, int *found) {
     robj *o;
     if (found) *found = 0;
 
     if (write) {
-        if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
+        o = lookupKeyWriteWithFlags(c->db, c->argv[1], LOOKUP_READ); /* Use LOOKUP_READ|LOOKUP_WRITE */
+        if (!o) {
+            addReplyOrErrorObject(c, shared.null[c->resp]);
             return C_OK;
+        }
     } else {
         if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
             return C_OK;
