@@ -267,7 +267,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
-             * selected data base, in order to avoid useless rehashing. */
+             * selected database, in order to avoid useless rehashing. */
             uint64_t db_size, expires_size;
             rdbstate.doing = RDB_CHECK_DOING_READ_LEN;
             if ((db_size = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
@@ -279,7 +279,6 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             /* AUX: generic string-string fields. Use to add state to RDB
              * which is backward compatible. Implementations of RDB loading
              * are required to skip AUX fields they don't understand.
-             *
              * An AUX field is composed of two strings: key and value. */
             robj *auxkey, *auxval;
             rdbstate.doing = RDB_CHECK_DOING_READ_AUX;
