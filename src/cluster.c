@@ -3359,8 +3359,7 @@ void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
  * but only the masters are supposed to reply to our query. */
 void clusterRequestFailoverAuth(void) {
     uint32_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    clusterMsgSendBlock *msgblock
-        = createClusterMsgSendBlock(CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST, msglen);
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST, msglen);
 
     clusterMsg *hdr = &msgblock->msg;
     /* If this is a manual failover, set the CLUSTERMSG_FLAG0_FORCEACK bit
@@ -3376,8 +3375,7 @@ void clusterSendFailoverAuth(clusterNode *node) {
     if (!node->link) return;
 
     uint32_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    clusterMsgSendBlock *msgblock
-        = createClusterMsgSendBlock(CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK, msglen);
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK, msglen);
 
     clusterSendMessage(node->link,msgblock);
     clusterMsgSendBlockDecrRefCount(msgblock);
@@ -3388,8 +3386,7 @@ void clusterSendMFStart(clusterNode *node) {
     if (!node->link) return;
 
     uint32_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    clusterMsgSendBlock *msgblock
-        = createClusterMsgSendBlock(CLUSTERMSG_TYPE_MFSTART, msglen);
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_MFSTART, msglen);
 
     clusterSendMessage(node->link,msgblock);
     clusterMsgSendBlockDecrRefCount(msgblock);

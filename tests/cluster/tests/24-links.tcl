@@ -12,6 +12,29 @@ proc number_of_links {id} {
     llength [get_cluster_links $id]
 }
 
+proc publish_messages {server num_msgs msg_size} {
+    for {set i 0} {$i < $num_msgs} {incr i} {
+        $server PUBLISH channel [string repeat "x" $msg_size]
+    }
+}
+
+proc reset_links {id} {
+    # Set a 1 byte limit and wait for cluster cron to run
+    # (executes every 100ms) and terminate links
+    R $id CONFIG SET cluster-link-sendbuf-limit 1
+    after 150
+
+    # Turn off the limit
+    R $id CONFIG SET cluster-link-sendbuf-limit 0
+
+    # Wait until the cluster links come back up for each node
+    wait_for_condition 50 100 {
+        [number_of_links $id] == [expr [number_of_peers $id] * 2]
+    } else {
+        fail "Cluster links did not come back up"
+    }
+}
+
 test "Each node has two links with each peer" {
     foreach_redis_id id {
         # Assert that from point of view of each node, there are two links for
@@ -109,18 +132,16 @@ test "Disconnect link when send buffer limit reached" {
     $primary1 CONFIG set cluster-link-sendbuf-limit $oldlimit
 }
 
-
 test "Link memory increases with publishes" {
-    set server [Rn 0]
+    set server_id 0
+    set server [Rn $server_id]
     set msg_size 10000
     set num_msgs 10
 
     # Publish ~100KB to one of the servers
     $server MULTI
     $server INFO memory
-    for {set i 0} {$i < $num_msgs} {incr i} {
-        $server PUBLISH channel [string repeat "x" $msg_size]
-    }
+    publish_messages $server $num_msgs $msg_size
     $server INFO memory
     set res [$server EXEC]
 
@@ -136,13 +157,12 @@ test "Link memory increases with publishes" {
     set mem_diff_floor [expr $msg_size * $num_msgs]
     set mem_diff [expr $link_mem_after_pubs - $link_mem_before_pubs]
     assert {$mem_diff > $mem_diff_floor}
+
+    # Reset links to ensure no leftover data for the next test
+    reset_links $server_id
 }
 
 test "Link memory resets after publish messages flush" {
-    # Allow a little buffer to ensure publishes from the 
-    # previous test are flushed
-    after 3000
-
     set server [Rn 0]
     set msg_size 100000
     set num_msgs 10
@@ -151,9 +171,7 @@ test "Link memory resets after publish messages flush" {
 
     # Publish ~1MB to one of the servers
     $server MULTI
-    for {set i 0} {$i < $num_msgs} {incr i} {
-        $server PUBLISH channel [string repeat "x" $msg_size]
-    }
+    publish_messages $server $num_msgs $msg_size
     $server EXEC
 
     # Wait until the cluster link memory has returned to below the pre-publish value.
