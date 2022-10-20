@@ -1454,25 +1454,77 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
     p = lpFirst(lp);
     unsigned int picked = 0, remaining = count;
     while (picked < count && p) {
-        double randomDouble = ((double)rand()) / RAND_MAX;
-        double threshold = ((double)remaining) / (total_size - index);
-        if (randomDouble <= threshold) {
+        assert((p = lpNextRandom(lp, p, &index, remaining, 1)));
+        key = lpGetValue(p, &klen, &klval);
+        lpSaveValue(key, klen, klval, &keys[picked]);
+        assert((p = lpNext(lp, p)));
+        index++;
+        if (vals) {
             key = lpGetValue(p, &klen, &klval);
-            lpSaveValue(key, klen, klval, &keys[picked]);
-            assert((p = lpNext(lp, p)));
-            if (vals) {
-                key = lpGetValue(p, &klen, &klval);
-                lpSaveValue(key, klen, klval, &vals[picked]);
-            }
-            remaining--;
-            picked++;
-        } else {
-            assert((p = lpNext(lp, p)));
+            lpSaveValue(key, klen, klval, &vals[picked]);
         }
         p = lpNext(lp, p);
+        remaining--;
+        picked++;
         index++;
     }
     return picked;
+}
+
+/* Iterates forward to the "next random" element, given we are yet to pick
+ * 'remaining' unique elements between the starting element 'p' (inclusive) and
+ * the end of the list. The 'index' needs to be initialized according to the
+ * current zero-based index matching the position of the starting element 'p'
+ * and is updated to match the retuned element's zero-based index. If
+ * 'even_only' is nonzero, an element with an even index is picked, which is
+ * useful if the listpack represents a key-value pair sequence.
+ *
+ * Note that this function can return p. In order to skip the previously
+ * returned element, you need to call lpNext() or lpDelete() after each call to
+ * lpNextRandom(). Idea:
+ *
+ *     p = lpFirst(lp);
+ *     i = 0;
+ *     while (remaining > 0) {
+ *         p = lpNextRandom(lp, p, &i, remaining--, 0);
+ *
+ *         // ... Do stuff with p ...
+ *
+ *         p = lpNext(lp, p);
+ *         i++;
+ *     }
+ */
+unsigned char *lpNextRandom(unsigned char *lp, unsigned char *p, unsigned int *index,
+                            unsigned int remaining, int even_only)
+{
+    /* To only iterate once, every time we try to pick a member, the probability
+     * we pick it is the quotient of the count left we want to pick and the
+     * count still we haven't visited in the dict, this way, we could make every
+     * member be equally picked.*/
+    unsigned int i = *index;
+    unsigned int total_size = lpLength(lp);
+    while (i < total_size && p != NULL) {
+        if (even_only && i % 2 != 0) {
+            p = lpNext(lp, p);
+            i++;
+            continue;
+        }
+
+        /* Do we pick this element? */
+        unsigned int available = total_size - i;
+        if (even_only) available /= 2;
+        double randomDouble = ((double)rand()) / RAND_MAX;
+        double threshold = ((double)remaining) / available;
+        if (randomDouble <= threshold) {
+            *index = i;
+            return p;
+        }
+
+        p = lpNext(lp, p);
+        i++;
+    }
+
+    return NULL;
 }
 
 /* Print info of listpack which is used in debugCommand */
