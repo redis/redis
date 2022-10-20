@@ -531,38 +531,46 @@ void ACLSetSelectorCommandBit(aclSelector *selector, unsigned long id, int value
 /* Remove a rule from the retained command rules. Always match rules
  * verbatim, but also remove subcommand rules if we are adding or removing the 
  * entire command. */
-void ACLSelectorRemoveCommandRule(aclSelector *selector, sds rule) {
-    /* Fast exit if rule is not present in the existing command rules */
-    char *existing = strstr(selector->command_rules, rule);
-    if (!existing) {
-        return;
-    }
+void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
+    size_t new_len = sdslen(new_rule);
+    char *existing_rule = selector->command_rules;
 
-    sds new_rules = sdsempty();
-    int argc = 0;
-    sds *argv = sdssplitargs(selector->command_rules, &argc);
-    serverAssert(argv != NULL);
+    /* Loop over the existing rules, trying to find a rule that "matches"
+     * it. If we find a match, then remove the command from the string by
+     * copying the later rules over it. */
+    while(existing_rule[0]) {
+        /* The first character of the rule is +/-, which we don't need to compare. */
+        char *copy_position = existing_rule;
+        existing_rule += 1;
 
-    for(int i = 0; i < argc; i++) {
-        size_t arg_len = sdslen(argv[i]) - 1;
-        size_t new_len = sdslen(rule);
-        if (!memcmp(argv[i] + 1, rule, min(arg_len, new_len))) {
-            if (arg_len == new_len) {
-                /* Exact match */
-                continue;
-            } else if (arg_len > new_len && (argv[i][1 + new_len]) == '|') {
-                /* The rule we are comparing is a subcommand. */
-                serverAssert(rule[0] != '@');
-                continue;
-            }
+        /* Assume a trailing space after a command is part of the command, like '+get ', so trim it
+         * as well if the command is removed. */
+        char *rule_end = strchr(existing_rule, ' ');
+        if (!rule_end) {
+            /* This is the last rule, so it it to the end of the string. */
+            rule_end = existing_rule + strlen(existing_rule);
 
+            /* This approach can leave a trailing space if the last rule is removed,
+             * but only if it's not the first rule, so handle that case. */
+            if (copy_position != selector->command_rules) copy_position -= 1;
         }
-        if (sdslen(new_rules)) new_rules = sdscat(new_rules, " ");
-        new_rules = sdscat(new_rules, argv[i]);
+        char *copy_end = rule_end;
+        if (*copy_end == ' ') copy_end++;
+
+        /* Exact match or the rule we are comparing is a subcommand denoted by '|' */
+        size_t existing_len = rule_end - existing_rule;
+        if (!memcmp(existing_rule, new_rule, min(existing_len, new_len))) {
+            if ((existing_len == new_len) || (existing_len > new_len && (existing_rule[new_len]) == '|')) {
+                /* Copy the remaining rules starting at the next rule to replace the rule to be
+                 * deleted, including the terminating NULL character. */
+                memmove(copy_position, copy_end, strlen(copy_end) + 1);
+            }
+        }
+        existing_rule = copy_end;
     }
-    sdsfreesplitres(argv, argc);
-    sdsfree(selector->command_rules);
-    selector->command_rules = new_rules;
+
+    /* There is now extra padding at the end of the rules, so clean that up. */
+    sdsupdatelen(selector->command_rules);
 }
 
 /* This function is resopnsible for updating the command_rules struct so that relative ordering of
