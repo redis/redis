@@ -151,9 +151,12 @@ int setSwapAna(swapData *data, struct keyRequest *req,
 
                 if (!data->value->dirty) {
                     /* directly evict value from db.dict if not dirty. */
-                    swapDataTurnCold(data);
                     swapDataCleanObject(data, datactx);
+                    if (setTypeSize(data->value) == 0) {
+                        swapDataTurnCold(data);
+                    }
                     swapDataSwapOut(data,datactx);
+                    
                     *intention = SWAP_NOP;
                     *intention_flags = 0;
                 } else {

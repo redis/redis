@@ -37,6 +37,7 @@ set ::failed_disk_tests {
 }
 
 set ::disk_tests {
+    swap/unit/dbsize
     swap/integration/replication-psync
     swap/integration/replication
     swap/integration/multi_bighash
