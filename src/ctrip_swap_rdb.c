@@ -257,6 +257,7 @@ int rdbKeySaveDataInit(rdbKeySaveData *save, redisDb *db, decodedResult *dr) {
     object_meta = lookupMeta(db,key);
 
     if (keyIsHot(object_meta,value)) { /* hot */
+        decrRefCount(key);
         return INIT_SAVE_SKIP;
     } else if (value) { /* warm */
         return rdbKeySaveDataInitWarm(save,db,key,value);
