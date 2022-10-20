@@ -120,7 +120,18 @@ int list_edit(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         }
     }
 
+    RedisModuleString *v = RedisModule_ListGet(key, index);
+    RedisModule_ReplyWithArray(ctx, v ? 6 : 4);
+    RedisModule_ReplyWithCString(ctx, "num_edits");
     RedisModule_ReplyWithLongLong(ctx, num_edits);
+    RedisModule_ReplyWithCString(ctx, "index");
+    RedisModule_ReplyWithLongLong(ctx, index);
+    if (v) {
+        RedisModule_ReplyWithCString(ctx, "entry");
+        RedisModule_ReplyWithString(ctx, v);
+        RedisModule_FreeString(ctx, v);
+    } 
+
     RedisModule_CloseKey(key);
     return REDISMODULE_OK;
 }

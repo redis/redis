@@ -70,37 +70,49 @@ start_server {tags {"modules"}} {
         # delete from start of list (index 0)
         r del l
         r rpush l x y z
-        r list.edit l dd
+        set reply [r list.edit l dd]
+        assert_equal [lindex $reply 3] 0
+        assert_equal [lindex $reply 5] {z}
         assert_equal [r list.getall l] {z}
 
         # delete from tail of list (index -3)
         r del l
         r rpush l x y z
-        r list.edit l reverse kkdi foo
-        assert_equal [r list.getall l] {foo y z}
+        set reply [r list.edit l reverse kkd]
+        assert_equal [lindex $reply 3] -3
+        assert_equal [lindex $reply 5] {}
+        assert_equal [r list.getall l] {y z}
 
         # delete from tail (index 2)
         r del l
         r rpush l x y z
-        r list.edit l kkd
+        set reply [r list.edit l kkd]
+        assert_equal [lindex $reply 3] 2
+        assert_equal [lindex $reply 5] {}
         assert_equal [r list.getall l] {x y}
 
         # delete from tail (index -1)
         r del l
         r rpush l x y z
-        r list.edit l reverse dd
+        set reply [r list.edit l reverse dd]
+        assert_equal [lindex $reply 3] -1
+        assert_equal [lindex $reply 5] {x}
         assert_equal [r list.getall l] {x}
 
         # delete from middle (index 1)
         r del l
         r rpush l x y z
-        r list.edit l kdd
+        set reply [r list.edit l kdd]
+        assert_equal [lindex $reply 3] 1
+        assert_equal [lindex $reply 5] {}
         assert_equal [r list.getall l] {x}
 
         # delete from middle (index -2)
         r del l
         r rpush l x y z
-        r list.edit l reverse kdd
+        set reply [r list.edit l reverse kdd]
+        assert_equal [lindex $reply 3] -2
+        assert_equal [lindex $reply 5] {}
         assert_equal [r list.getall l] {z}
 
         config_set list-max-listpack-size $original_config
