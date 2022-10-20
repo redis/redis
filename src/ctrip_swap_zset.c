@@ -1091,6 +1091,13 @@ void zsetLoadStartHT(struct rdbKeyLoadData *load, rio *rdb, int *cf,
         *error = RDB_LOAD_ERR_OTHER;
         return;
 	}
+
+    if (len == 0) {
+        sdsfree(zset_header);
+        *error = RDB_LOAD_ERR_EMPTY_KEY;
+        return;
+    }
+
     load->total_fields = len;
     load->iter = createZsetIter();
     extend = rocksEncodeObjectMetaLen(len);
