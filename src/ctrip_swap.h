@@ -585,6 +585,7 @@ typedef struct listSwapData {
 typedef struct listDataCtx {
   struct listMeta *swap_meta;
   argRewriteRequest arg_reqs[2];
+  int ctx_flag;
 } listDataCtx;
 
 objectMeta *createListObjectMeta(MOVE struct listMeta *list_meta);

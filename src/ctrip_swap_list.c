@@ -1241,7 +1241,7 @@ int listSwapAna(swapData *data, struct keyRequest *req,
             *intention_flags = 0;
         } else if (req->l.num_ranges == 0) {
             if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
-                mockListForDeleteIfCold(data); //FIXME concurrent issue
+                datactx->ctx_flag |= BIG_DATA_CTX_FLAG_MOCK_VALUE;
                 *intention = SWAP_DEL;
                 *intention_flags = SWAP_FIN_DEL_SKIP;
             } else if (cmd_intention_flags == SWAP_IN_META) {
@@ -1668,8 +1668,11 @@ int listSwapOut(swapData *data, void *datactx) {
     return 0;
 }
 
-int listSwapDel(swapData *data, void *datactx, int del_skip) {
-    UNUSED(datactx);
+int listSwapDel(swapData *data, void *datactx_, int del_skip) {
+    listDataCtx* datactx = (listDataCtx*)datactx_;
+    if (datactx->ctx_flag & BIG_DATA_CTX_FLAG_MOCK_VALUE) {
+        mockListForDeleteIfCold(data);
+    }
     if (del_skip) {
         if (!swapDataIsCold(data))
             dbDeleteMeta(data->db,data->key);
@@ -1803,6 +1806,7 @@ int swapDataSetupList(swapData *d, void **pdatactx) {
     d->omtype = &listObjectMetaType;
     listDataCtx *datactx = zmalloc(sizeof(listDataCtx));
     datactx->swap_meta = NULL;
+    datactx->ctx_flag = BIG_DATA_CTX_FLAG_NONE;
     argRewriteRequestInit(datactx->arg_reqs+0);
     argRewriteRequestInit(datactx->arg_reqs+1);
     *pdatactx = datactx;
