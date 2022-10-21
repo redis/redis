@@ -155,7 +155,7 @@ int setTypeAddInt(robj *subject, int64_t value) {
         if (success) maybeConvertIntset(subject);
         return success;
     } else {
-        char buf[21]; /* 20 digits of -2^63 + 1 null term = 21. */
+        char buf[LONG_STR_SIZE];
         size_t len = ll2string(buf, sizeof buf, value);
         return setTypeAddBuf(subject, buf, len);
     }
