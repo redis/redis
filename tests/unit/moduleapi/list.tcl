@@ -1,5 +1,15 @@
 set testmodule [file normalize tests/modules/list.so]
 
+proc verify_list_edit_reply {reply inserts deletes replaces index {entry ""}} {
+    assert_equal [dict get $reply "num_inserts"] $inserts
+    assert_equal [dict get $reply "num_deletes"] $deletes
+    assert_equal [dict get $reply "num_replaces"] $replaces
+    assert_equal [dict get $reply "index"] $index
+    if {$entry ne ""} {
+        assert_equal [dict get $reply "entry"] $entry
+    }
+}
+
 start_server {tags {"modules"}} {
     r module load $testmodule
 
@@ -70,49 +80,37 @@ start_server {tags {"modules"}} {
         # delete from start of list (index 0)
         r del l
         r rpush l x y z
-        set reply [r list.edit l dd]
-        assert_equal [lindex $reply 3] 0
-        assert_equal [lindex $reply 5] {z}
+        verify_list_edit_reply [r list.edit l dd] 0 2 0 0 z
         assert_equal [r list.getall l] {z}
 
         # delete from tail of list (index -3)
         r del l
         r rpush l x y z
-        set reply [r list.edit l reverse kkd]
-        assert_equal [lindex $reply 3] -3
-        assert_equal [lindex $reply 5] {}
+        verify_list_edit_reply [r list.edit l reverse kkd] 0 1 0 -3
         assert_equal [r list.getall l] {y z}
 
-        # delete from tail (index 2)
+        # # delete from tail (index 2)
         r del l
         r rpush l x y z
-        set reply [r list.edit l kkd]
-        assert_equal [lindex $reply 3] 2
-        assert_equal [lindex $reply 5] {}
+        verify_list_edit_reply [r list.edit l kkd] 0 1 0 2
         assert_equal [r list.getall l] {x y}
 
-        # delete from tail (index -1)
+        # # delete from tail (index -1)
         r del l
         r rpush l x y z
-        set reply [r list.edit l reverse dd]
-        assert_equal [lindex $reply 3] -1
-        assert_equal [lindex $reply 5] {x}
+        verify_list_edit_reply [r list.edit l reverse dd] 0 2 0 -1 x
         assert_equal [r list.getall l] {x}
 
-        # delete from middle (index 1)
+        # # delete from middle (index 1)
         r del l
         r rpush l x y z
-        set reply [r list.edit l kdd]
-        assert_equal [lindex $reply 3] 1
-        assert_equal [lindex $reply 5] {}
+        verify_list_edit_reply [r list.edit l kdd] 0 2 0 1
         assert_equal [r list.getall l] {x}
 
-        # delete from middle (index -2)
+        # # delete from middle (index -2)
         r del l
         r rpush l x y z
-        set reply [r list.edit l reverse kdd]
-        assert_equal [lindex $reply 3] -2
-        assert_equal [lindex $reply 5] {}
+        verify_list_edit_reply [r list.edit l reverse kdd] 0 2 0 -2
         assert_equal [r list.getall l] {z}
 
         config_set list-max-listpack-size $original_config
