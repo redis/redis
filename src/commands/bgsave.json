@@ -22,7 +22,8 @@
                 "name": "schedule",
                 "token": "SCHEDULE",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "3.2.2"
             }
         ]
     }

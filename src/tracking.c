@@ -228,11 +228,17 @@ void trackingRememberKeys(client *c) {
         getKeysFreeResult(&result);
         return;
     }
+    /* Shard channels are treated as special keys for client
+     * library to rely on `COMMAND` command to discover the node
+     * to connect to. These channels doesn't need to be tracked. */
+    if (c->cmd->flags & CMD_PUBSUB) {
+        return;
+    }
 
-    int *keys = result.keys;
+    keyReference *keys = result.keys;
 
     for(int j = 0; j < numkeys; j++) {
-        int idx = keys[j];
+        int idx = keys[j].pos;
         sds sdskey = c->argv[idx]->ptr;
         rax *ids = raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey));
         if (ids == raxNotFound) {
@@ -289,7 +295,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
     } else if (using_redirection && c->flags & CLIENT_PUBSUB) {
         /* We use a static object to speedup things, however we assume
          * that addReplyPubsubMessage() will not take a reference. */
-        addReplyPubsubMessage(c,TrackingChannelName,NULL);
+        addReplyPubsubMessage(c,TrackingChannelName,NULL,shared.messagebulk);
     } else {
         /* If are here, the client is not using RESP3, nor is
          * redirecting to another client. We can't send anything to
@@ -382,7 +388,7 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
         /* If the client enabled the NOLOOP mode, don't send notifications
          * about keys changed by the client itself. */
         if (target->flags & CLIENT_TRACKING_NOLOOP &&
-            target == c)
+            target == server.current_client)
         {
             continue;
         }
@@ -406,7 +412,7 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
     raxRemove(TrackingTable,(unsigned char*)key,keylen,NULL);
 }
 
-void trackingHandlePendingKeyInvalidations() {
+void trackingHandlePendingKeyInvalidations(void) {
     if (!listLength(server.tracking_pending_keys)) return;
 
     listNode *ln;
@@ -417,9 +423,15 @@ void trackingHandlePendingKeyInvalidations() {
         robj *key = listNodeValue(ln);
         /* current_client maybe freed, so we need to send invalidation
          * message only when current_client is still alive */
-        if (server.current_client != NULL)
-            sendTrackingMessage(server.current_client,(char *)key->ptr,sdslen(key->ptr),0);
-        decrRefCount(key);
+        if (server.current_client != NULL) {
+            if (key != NULL) {
+                sendTrackingMessage(server.current_client,(char *)key->ptr,sdslen(key->ptr),0);
+            } else {
+                sendTrackingMessage(server.current_client,shared.null[server.current_client->resp]->ptr,
+                    sdslen(shared.null[server.current_client->resp]->ptr),1);
+            }
+        }
+        if (key != NULL) decrRefCount(key);
     }
     listEmpty(server.tracking_pending_keys);
 }
@@ -448,7 +460,12 @@ void trackingInvalidateKeysOnFlush(int async) {
         while ((ln = listNext(&li)) != NULL) {
             client *c = listNodeValue(ln);
             if (c->flags & CLIENT_TRACKING) {
-                sendTrackingMessage(c,shared.null[c->resp]->ptr,sdslen(shared.null[c->resp]->ptr),1);
+                if (c == server.current_client) {
+                    /* We use a special NULL to indicate that we should send null */
+                    listAddNodeTail(server.tracking_pending_keys,NULL);
+                } else {
+                    sendTrackingMessage(c,shared.null[c->resp]->ptr,sdslen(shared.null[c->resp]->ptr),1);
+                }
             }
         }
     }

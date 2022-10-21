@@ -20,7 +20,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -36,9 +37,23 @@
                 }
             },
             {
+                "notes": "For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",
                 "flags": [
-                    "WRITE",
-                    "INCOMPLETE"
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "unknown": null
+                },
+                "find_keys": {
+                    "unknown": null
+                }
+            },
+            {
+                "notes": "For the optional STORE keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",
+                "flags": [
+                    "OW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "unknown": null
@@ -56,13 +71,15 @@
             },
             {
                 "token": "BY",
-                "name": "pattern",
+                "name": "by-pattern",
+                "display": "pattern",
                 "type": "pattern",
+                "key_spec_index": 1,
                 "optional": true
             },
             {
                 "token": "LIMIT",
-                "name": "offset_count",
+                "name": "limit",
                 "type": "block",
                 "optional": true,
                 "arguments": [
@@ -78,8 +95,10 @@
             },
             {
                 "token": "GET",
-                "name": "pattern",
-                "type": "string",
+                "name": "get-pattern",
+                "display": "pattern",
+                "key_spec_index": 1,
+                "type": "pattern",
                 "optional": true,
                 "multiple": true,
                 "multiple_token": true
@@ -111,7 +130,7 @@
                 "token": "STORE",
                 "name": "destination",
                 "type": "key",
-                "key_spec_index": 1,
+                "key_spec_index": 2,
                 "optional": true
             }
         ]

@@ -61,15 +61,20 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
     test {Turning off AOF kills the background writing child if any} {
         r config set appendonly yes
         waitForBgrewriteaof r
-        r multi
+
+        # start a slow AOFRW
+        r set k v
+        r config set rdb-key-save-delay 10000000
         r bgrewriteaof
+
+        # disable AOF and wait for the child to be killed
         r config set appendonly no
-        r exec
         wait_for_condition 50 100 {
             [string match {*Killing*AOF*child*} [exec tail -5 < [srv 0 stdout]]]
         } else {
             fail "Can't find 'Killing AOF child' into recent logs"
         }
+        r config set rdb-key-save-delay 0
     }
 
     foreach d {string int} {
@@ -177,6 +182,19 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
             }
         }
     }
+
+    test "AOF rewrite functions" {
+        r flushall
+        r FUNCTION LOAD {#!lua name=test
+            redis.register_function('test', function() return 1 end)
+        }
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r function flush
+        r debug loadaof
+        assert_equal [r fcall test 0] 1
+        r FUNCTION LIST
+    } {{library_name test engine LUA functions {{name test description {} flags {}}}}}
 
     test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
         r flushall

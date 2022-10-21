@@ -30,7 +30,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
 #include <string.h>
 #include <stdlib.h>
@@ -284,8 +283,8 @@ int TestCallResp3Double(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     double d = RedisModule_CallReplyDouble(reply);
     /* we compare strings, since comparing doubles directly can fail in various architectures, e.g. 32bit */
     char got[30], expected[30];
-    sprintf(got, "%.17g", d);
-    sprintf(expected, "%.17g", 3.141);
+    snprintf(got, sizeof(got), "%.17g", d);
+    snprintf(expected, sizeof(expected), "%.17g", 3.141);
     if (strcmp(got, expected) != 0) goto fail;
     RedisModule_ReplyWithSimpleString(ctx,"OK");
     return REDISMODULE_OK;
@@ -719,6 +718,25 @@ end:
 
 /* Return 1 if the reply matches the specified string, otherwise log errors
  * in the server log and return 0. */
+int TestAssertErrorReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, char *str, size_t len) {
+    RedisModuleString *mystr, *expected;
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR) {
+        return 0;
+    }
+
+    mystr = RedisModule_CreateStringFromCallReply(reply);
+    expected = RedisModule_CreateString(ctx,str,len);
+    if (RedisModule_StringCompare(mystr,expected) != 0) {
+        const char *mystr_ptr = RedisModule_StringPtrLen(mystr,NULL);
+        const char *expected_ptr = RedisModule_StringPtrLen(expected,NULL);
+        RedisModule_Log(ctx,"warning",
+            "Unexpected Error reply reply '%s' (instead of '%s')",
+            mystr_ptr, expected_ptr);
+        return 0;
+    }
+    return 1;
+}
+
 int TestAssertStringReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, char *str, size_t len) {
     RedisModuleString *mystr, *expected;
 
@@ -847,6 +865,18 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!TestAssertStringReply(ctx,RedisModule_CallReplyArrayElement(reply, 0),"test",4)) goto fail;
     if (!TestAssertStringReply(ctx,RedisModule_CallReplyArrayElement(reply, 1),"1234",4)) goto fail;
 
+    T("foo", "E");
+    if (!TestAssertErrorReply(ctx,reply,"ERR unknown command 'foo', with args beginning with: ",53)) goto fail;
+
+    T("set", "Ec", "x");
+    if (!TestAssertErrorReply(ctx,reply,"ERR wrong number of arguments for 'set' command",47)) goto fail;
+
+    T("shutdown", "SE");
+    if (!TestAssertErrorReply(ctx,reply,"ERR command 'shutdown' is not allowed on script mode",52)) goto fail;
+
+    T("set", "WEcc", "x", "1");
+    if (!TestAssertErrorReply(ctx,reply,"ERR Write command 'set' was called while write is not allowed.",62)) goto fail;
+
     RedisModule_ReplyWithSimpleString(ctx,"ALL TESTS PASSED");
     return REDISMODULE_OK;
 
@@ -862,6 +892,28 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_Init(ctx,"test",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    /* Perform RM_Call inside the RedisModule_OnLoad
+     * to verify that it works as expected without crashing.
+     * The tests will verify it on different configurations
+     * options (cluster/no cluster). A simple ping command
+     * is enough for this test. */
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "ping", "");
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
+        RedisModule_FreeCallReply(reply);
+        return REDISMODULE_ERR;
+    }
+    size_t len;
+    const char *reply_str = RedisModule_CallReplyStringPtr(reply, &len);
+    if (len != 4) {
+        RedisModule_FreeCallReply(reply);
+        return REDISMODULE_ERR;
+    }
+    if (memcmp(reply_str, "PONG", 4) != 0) {
+        RedisModule_FreeCallReply(reply);
+        return REDISMODULE_ERR;
+    }
+    RedisModule_FreeCallReply(reply);
 
     if (RedisModule_CreateCommand(ctx,"test.call",
         TestCall,"write deny-oom",1,1,1) == REDISMODULE_ERR)

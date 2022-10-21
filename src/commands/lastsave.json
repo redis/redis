@@ -7,10 +7,12 @@
         "arity": 1,
         "function": "lastsaveCommand",
         "command_flags": [
-            "RANDOM",
             "LOADING",
             "STALE",
             "FAST"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "acl_categories": [
             "ADMIN",

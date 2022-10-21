@@ -8,7 +8,7 @@
         "function": "lpopCommand",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "Added the `count` argument."
             ]
         ],
@@ -22,7 +22,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -47,7 +49,8 @@
             {
                 "name": "count",
                 "type": "integer",
-                "optional": true
+                "optional": true,
+                "since": "6.2.0"
             }
         ]
     }

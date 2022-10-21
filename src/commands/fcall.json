@@ -1,7 +1,7 @@
 {
     "FCALL": {
-        "summary": "PATCH__TBD__38__",
-        "complexity": "PATCH__TBD__37__",
+        "summary": "Invoke a function",
+        "complexity": "Depends on the function that is executed.",
         "group": "scripting",
         "since": "7.0.0",
         "arity": -3,
@@ -11,16 +11,19 @@
             "NOSCRIPT",
             "SKIP_MONITOR",
             "MAY_REPLICATE",
-            "NO_MANDATORY_KEYS"
+            "NO_MANDATORY_KEYS",
+            "STALE"
         ],
         "acl_categories": [
             "SCRIPTING"
         ],
         "key_specs": [
             {
+                "notes": "We cannot tell how the keys will be used so we assume the worst, RW and UPDATE",
                 "flags": [
-                    "WRITE",
-                    "READ"
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -49,11 +52,13 @@
                 "name": "key",
                 "type": "key",
                 "key_spec_index": 0,
+                "optional": true,
                 "multiple": true
             },
             {
                 "name": "arg",
                 "type": "string",
+                "optional": true,
                 "multiple": true
             }
         ]

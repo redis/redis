@@ -8,7 +8,7 @@
         "function": "lpushxCommand",
         "history": [
             [
-                "4.0",
+                "4.0.0",
                 "Accepts multiple `element` arguments."
             ]
         ],
@@ -23,7 +23,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {

@@ -6,21 +6,22 @@
         "since": "1.0.0",
         "arity": -3,
         "function": "setCommand",
+        "get_keys_function": "setGetKeys",
         "history": [
             [
                 "2.6.12",
                 "Added the `EX`, `PX`, `NX` and `XX` options."
             ],
             [
-                "6.0",
+                "6.0.0",
                 "Added the `KEEPTTL` option."
             ],
             [
-                "6.2",
+                "6.2.0",
                 "Added the `GET`, `EXAT` and `PXAT` option."
             ],
             [
-                "7.0",
+                "7.0.0",
                 "Allowed the `NX` and `GET` options to be used together."
             ]
         ],
@@ -33,9 +34,12 @@
         ],
         "key_specs": [
             {
+                "notes": "RW and ACCESS due to the optional `GET` argument",
                 "flags": [
-                    "WRITE",
-                    "READ"
+                    "RW",
+                    "ACCESS",
+                    "UPDATE",
+                    "VARIABLE_FLAGS"
                 ],
                 "begin_search": {
                     "index": {
@@ -62,41 +66,10 @@
                 "type": "string"
             },
             {
-                "name": "expiration",
-                "type": "oneof",
-                "optional": true,
-                "arguments": [
-                    {
-                        "name": "seconds",
-                        "type": "integer",
-                        "token": "EX"
-                    },
-                    {
-                        "name": "milliseconds",
-                        "type": "integer",
-                        "token": "PX"
-                    },
-                    {
-                        "name": "unix-time-seconds",
-                        "type": "unix-time",
-                        "token": "EXAT"
-                    },
-                    {
-                        "name": "unix-time-milliseconds",
-                        "type": "unix-time",
-                        "token": "PXAT"
-                    },
-                    {
-                        "name": "keepttl",
-                        "type": "pure-token",
-                        "token": "KEEPTTL"
-                    }
-                ]
-            },
-            {
                 "name": "condition",
                 "type": "oneof",
                 "optional": true,
+                "since": "2.6.12",
                 "arguments": [
                     {
                         "name": "nx",
@@ -114,7 +87,45 @@
                 "name": "get",
                 "token": "GET",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "6.2.0"
+            },
+            {
+                "name": "expiration",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "seconds",
+                        "type": "integer",
+                        "token": "EX",
+                        "since": "2.6.12"
+                    },
+                    {
+                        "name": "milliseconds",
+                        "type": "integer",
+                        "token": "PX",
+                        "since": "2.6.12"
+                    },
+                    {
+                        "name": "unix-time-seconds",
+                        "type": "unix-time",
+                        "token": "EXAT",
+                        "since": "6.2.0"
+                    },
+                    {
+                        "name": "unix-time-milliseconds",
+                        "type": "unix-time",
+                        "token": "PXAT",
+                        "since": "6.2.0"
+                    },
+                    {
+                        "name": "keepttl",
+                        "type": "pure-token",
+                        "token": "KEEPTTL",
+                        "since": "6.0.0"
+                    }
+                ]
             }
         ]
     }

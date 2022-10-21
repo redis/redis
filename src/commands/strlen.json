@@ -16,7 +16,7 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RO"
                 ],
                 "begin_search": {
                     "index": {

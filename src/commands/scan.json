@@ -6,12 +6,21 @@
         "since": "2.8.0",
         "arity": -2,
         "function": "scanCommand",
+        "history": [
+            [
+                "6.0.0",
+                "Added the `TYPE` subcommand."
+            ]
+        ],
         "command_flags": [
-            "READONLY",
-            "RANDOM"
+            "READONLY"
         ],
         "acl_categories": [
             "KEYSPACE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT",
+            "REQUEST_POLICY:SPECIAL"
         ],
         "arguments": [
             {
@@ -34,7 +43,8 @@
                 "token": "TYPE",
                 "name": "type",
                 "type": "string",
-                "optional": true
+                "optional": true,
+                "since": "6.0.0"
             }
         ]
     }

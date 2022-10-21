@@ -15,6 +15,8 @@ start_server {} {
 
     $master config set save ""
     $master config set repl-backlog-size 16384
+    $master config set repl-diskless-sync-delay 5
+    $master config set repl-diskless-sync-max-replicas 1
     $master config set client-output-buffer-limit "replica 0 0 0"
 
     # Make sure replica3 is synchronized with master
@@ -26,6 +28,7 @@ start_server {} {
     populate 100 "" 16
 
     # Make sure replica1 and replica2 are waiting bgsave
+    $master config set repl-diskless-sync-max-replicas 2
     $replica1 replicaof $master_host $master_port
     $replica2 replicaof $master_host $master_port
     wait_for_condition 50 100 {

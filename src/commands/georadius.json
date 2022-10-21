@@ -9,8 +9,12 @@
         "get_keys_function": "georadiusGetKeys",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "Added the `ANY` option for `COUNT`."
+            ],
+            [
+                "7.0.0",
+                "Added support for uppercase unit names."
             ]
         ],
         "deprecated_since": "6.2.0",
@@ -28,7 +32,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -45,7 +50,8 @@
             },
             {
                 "flags": [
-                    "WRITE"
+                    "OW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "keyword": {
@@ -63,7 +69,8 @@
             },
             {
                 "flags": [
-                    "WRITE"
+                    "OW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "keyword": {
@@ -143,7 +150,7 @@
                 "optional": true
             },
             {
-                "name": "count",
+                "name": "count-block",
                 "type": "block",
                 "optional": true,
                 "arguments": [
@@ -156,7 +163,8 @@
                         "name": "any",
                         "token": "ANY",
                         "type": "pure-token",
-                        "optional": true
+                        "optional": true,
+                        "since": "6.2.0"
                     }
                 ]
             },
@@ -179,14 +187,16 @@
             },
             {
                 "token": "STORE",
-                "name": "key",
+                "name": "storekey",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 1,
                 "optional": true
             },
             {
                 "token": "STOREDIST",
-                "name": "key",
+                "name": "storedistkey",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 2,
                 "optional": true

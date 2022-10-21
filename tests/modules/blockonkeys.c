@@ -1,10 +1,11 @@
-#define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
 
 #include <string.h>
 #include <strings.h>
 #include <assert.h>
 #include <unistd.h>
+
+#define UNUSED(V) ((void) V)
 
 #define LIST_SIZE 1024
 
@@ -136,22 +137,29 @@ int bpop_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return RedisModule_ReplyWithSimpleString(ctx, "Request timedout");
 }
 
-/* FSL.BPOP <key> <timeout> - Block clients until list has two or more elements.
+/* FSL.BPOP <key> <timeout> [NO_TO_CB]- Block clients until list has two or more elements.
  * When that happens, unblock client and pop the last two elements (from the right). */
 int fsl_bpop(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 3)
+    if (argc < 3)
         return RedisModule_WrongArity(ctx);
 
     long long timeout;
     if (RedisModule_StringToLongLong(argv[2],&timeout) != REDISMODULE_OK || timeout < 0)
         return RedisModule_ReplyWithError(ctx,"ERR invalid timeout");
 
+    int to_cb = 1;
+    if (argc == 4) {
+        if (strcasecmp("NO_TO_CB", RedisModule_StringPtrLen(argv[3], NULL)))
+            return RedisModule_ReplyWithError(ctx,"ERR invalid argument");
+        to_cb = 0;
+    }
+
     fsl_t *fsl;
     if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &fsl, 1))
         return REDISMODULE_OK;
 
     if (!fsl) {
-        RedisModule_BlockClientOnKeys(ctx, bpop_reply_callback, bpop_timeout_callback,
+        RedisModule_BlockClientOnKeys(ctx, bpop_reply_callback, to_cb ? bpop_timeout_callback : NULL,
                                       NULL, timeout, &argv[1], 1, NULL);
     } else {
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
@@ -168,7 +176,7 @@ int bpopgt_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
     fsl_t *fsl;
     if (!get_fsl(ctx, keyname, REDISMODULE_READ, 0, &fsl, 0) || !fsl)
-        return REDISMODULE_ERR;
+        return RedisModule_ReplyWithError(ctx,"UNBLOCKED key no longer exists");
 
     if (fsl->list[fsl->length-1] <= *pgt)
         return REDISMODULE_ERR;
@@ -206,12 +214,17 @@ int fsl_bpopgt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &fsl, 1))
         return REDISMODULE_OK;
 
-    if (!fsl || fsl->list[fsl->length-1] <= gt) {
+    if (!fsl)
+        return RedisModule_ReplyWithError(ctx,"ERR key must exist");
+
+    if (fsl->list[fsl->length-1] <= gt) {
         /* We use malloc so the tests in blockedonkeys.tcl can check for memory leaks */
         long long *pgt = RedisModule_Alloc(sizeof(long long));
         *pgt = gt;
-        RedisModule_BlockClientOnKeys(ctx, bpopgt_reply_callback, bpopgt_timeout_callback,
-                                      bpopgt_free_privdata, timeout, &argv[1], 1, pgt);
+        RedisModule_BlockClientOnKeysWithFlags(
+            ctx, bpopgt_reply_callback, bpopgt_timeout_callback,
+            bpopgt_free_privdata, timeout, &argv[1], 1, pgt,
+            REDISMODULE_BLOCK_UNBLOCK_DELETED);
     } else {
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
     }
@@ -463,7 +476,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .aof_rewrite = fsl_aofrw,
         .mem_usage = NULL,
         .free = fsl_free,
-        .digest = NULL
+        .digest = NULL,
     };
 
     fsltype = RedisModule_CreateDataType(ctx, "fsltype_t", 0, &tm);

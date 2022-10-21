@@ -8,7 +8,7 @@
         "function": "bitposCommand",
         "history": [
             [
-                "7.0",
+                "7.0.0",
                 "Added the `BYTE|BIT` option."
             ]
         ],
@@ -21,7 +21,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -48,7 +49,7 @@
                 "type": "integer"
             },
             {
-                "name": "index",
+                "name": "range",
                 "type": "block",
                 "optional": true,
                 "arguments": [
@@ -57,7 +58,7 @@
                         "type": "integer"
                     },
                     {
-                        "name": "end_index",
+                        "name": "end-unit-block",
                         "type": "block",
                         "optional": true,
                         "arguments": [
@@ -66,9 +67,10 @@
                                 "type": "integer"
                             },
                             {
-                                "name": "index_unit",
+                                "name": "unit",
                                 "type": "oneof",
                                 "optional": true,
+                                "since": "7.0.0",
                                 "arguments": [
                                     {
                                         "name": "byte",

@@ -47,11 +47,32 @@ void ldbEnable(client *c);
 void evalGenericCommandWithDebugging(client *c, int evalsha);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
 
+static void dictLuaScriptDestructor(dict *d, void *val) {
+    UNUSED(d);
+    if (val == NULL) return; /* Lazy freeing will set value to NULL. */
+    decrRefCount(((luaScript*)val)->body);
+    zfree(val);
+}
+
+static uint64_t dictStrCaseHash(const void *key) {
+    return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+/* server.lua_scripts sha (as sds string) -> scripts (as luaScript) cache. */
+dictType shaScriptObjectDictType = {
+        dictStrCaseHash,            /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCaseCompare,      /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        dictLuaScriptDestructor,    /* val destructor */
+        NULL                        /* allow to expand */
+};
+
 /* Lua context */
 struct luaCtx {
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
-    char *lua_cur_script; /* SHA1 of the script currently running, or NULL */
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
     unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
 } lctx;
@@ -165,7 +186,6 @@ void scriptingInit(int setup) {
     if (setup) {
         lctx.lua_client = NULL;
         server.script_caller = NULL;
-        lctx.lua_cur_script = NULL;
         server.script_disable_deny_script = 0;
         ldbInit();
     }
@@ -198,34 +218,26 @@ void scriptingInit(int setup) {
 
     lua_setglobal(lua,"redis");
 
-    /* Add a helper function that we use to sort the multi bulk output of non
-     * deterministic commands, when containing 'false' elements. */
-    {
-        char *compare_func =    "function __redis__compare_helper(a,b)\n"
-                                "  if a == false then a = '' end\n"
-                                "  if b == false then b = '' end\n"
-                                "  return a<b\n"
-                                "end\n";
-        luaL_loadbuffer(lua,compare_func,strlen(compare_func),"@cmp_func_def");
-        lua_pcall(lua,0,0,0);
-    }
-
     /* Add a helper function we use for pcall error reporting.
      * Note that when the error is in the C function we want to report the
      * information about the caller, that's what makes sense from the point
      * of view of the user debugging a script. */
     {
         char *errh_func =       "local dbg = debug\n"
+                                "debug = nil\n"
                                 "function __redis__err__handler(err)\n"
                                 "  local i = dbg.getinfo(2,'nSl')\n"
                                 "  if i and i.what == 'C' then\n"
                                 "    i = dbg.getinfo(3,'nSl')\n"
                                 "  end\n"
+                                "  if type(err) ~= 'table' then\n"
+                                "    err = {err='ERR ' .. tostring(err)}"
+                                "  end"
                                 "  if i then\n"
-                                "    return i.source .. ':' .. i.currentline .. ': ' .. err\n"
-                                "  else\n"
-                                "    return err\n"
-                                "  end\n"
+                                "    err['source'] = i.source\n"
+                                "    err['line'] = i.currentline\n"
+                                "  end"
+                                "  return err\n"
                                 "end\n";
         luaL_loadbuffer(lua,errh_func,strlen(errh_func),"@err_handler_def");
         lua_pcall(lua,0,0,0);
@@ -243,10 +255,12 @@ void scriptingInit(int setup) {
         lctx.lua_client->flags |= CLIENT_DENY_BLOCKING;
     }
 
-    /* Lua beginners often don't use "local", this is likely to introduce
-     * subtle bugs in their code. To prevent problems we protect accesses
-     * to global variables. */
-    luaEnableGlobalsProtection(lua, 1);
+    /* Lock the global table from any changes */
+    lua_pushvalue(lua, LUA_GLOBALSINDEX);
+    luaSetErrorMetatable(lua);
+    /* Recursively lock all tables that can be reached from the global table */
+    luaSetTableProtectionRecursively(lua);
+    lua_pop(lua, 1);
 
     lctx.lua = lua;
 }
@@ -271,6 +285,124 @@ void scriptingReset(int async) {
  * EVAL and SCRIPT commands implementation
  * ------------------------------------------------------------------------- */
 
+static void evalCalcFunctionName(int evalsha, sds script, char *out_funcname) {
+    /* We obtain the script SHA1, then check if this function is already
+     * defined into the Lua state */
+    out_funcname[0] = 'f';
+    out_funcname[1] = '_';
+    if (!evalsha) {
+        /* Hash the code if this is an EVAL call */
+        sha1hex(out_funcname+2,script,sdslen(script));
+    } else {
+        /* We already have the SHA if it is an EVALSHA */
+        int j;
+        char *sha = script;
+
+        /* Convert to lowercase. We don't use tolower since the function
+         * managed to always show up in the profiler output consuming
+         * a non trivial amount of time. */
+        for (j = 0; j < 40; j++)
+            out_funcname[j+2] = (sha[j] >= 'A' && sha[j] <= 'Z') ?
+                sha[j]+('a'-'A') : sha[j];
+        out_funcname[42] = '\0';
+    }
+}
+
+/* Helper function to try and extract shebang flags from the script body.
+ * If no shebang is found, return with success and COMPAT mode flag.
+ * The err arg is optional, can be used to get a detailed error string.
+ * The out_shebang_len arg is optional, can be used to trim the shebang from the script.
+ * Returns C_OK on success, and C_ERR on error. */
+int evalExtractShebangFlags(sds body, uint64_t *out_flags, ssize_t *out_shebang_len, sds *err) {
+    ssize_t shebang_len = 0;
+    uint64_t script_flags = SCRIPT_FLAG_EVAL_COMPAT_MODE;
+    if (!strncmp(body, "#!", 2)) {
+        int numparts,j;
+        char *shebang_end = strchr(body, '\n');
+        if (shebang_end == NULL) {
+            if (err)
+                *err = sdsnew("Invalid script shebang");
+            return C_ERR;
+        }
+        shebang_len = shebang_end - body;
+        sds shebang = sdsnewlen(body, shebang_len);
+        sds *parts = sdssplitargs(shebang, &numparts);
+        sdsfree(shebang);
+        if (!parts || numparts == 0) {
+            if (err)
+                *err = sdsnew("Invalid engine in script shebang");
+            sdsfreesplitres(parts, numparts);
+            return C_ERR;
+        }
+        /* Verify lua interpreter was specified */
+        if (strcmp(parts[0], "#!lua")) {
+            if (err)
+                *err = sdscatfmt(sdsempty(), "Unexpected engine in script shebang: %s", parts[0]);
+            sdsfreesplitres(parts, numparts);
+            return C_ERR;
+        }
+        script_flags &= ~SCRIPT_FLAG_EVAL_COMPAT_MODE;
+        for (j = 1; j < numparts; j++) {
+            if (!strncmp(parts[j], "flags=", 6)) {
+                sdsrange(parts[j], 6, -1);
+                int numflags, jj;
+                sds *flags = sdssplitlen(parts[j], sdslen(parts[j]), ",", 1, &numflags);
+                for (jj = 0; jj < numflags; jj++) {
+                    scriptFlag *sf;
+                    for (sf = scripts_flags_def; sf->flag; sf++) {
+                        if (!strcmp(flags[jj], sf->str)) break;
+                    }
+                    if (!sf->flag) {
+                        if (err)
+                            *err = sdscatfmt(sdsempty(), "Unexpected flag in script shebang: %s", flags[jj]);
+                        sdsfreesplitres(flags, numflags);
+                        sdsfreesplitres(parts, numparts);
+                        return C_ERR;
+                    }
+                    script_flags |= sf->flag;
+                }
+                sdsfreesplitres(flags, numflags);
+            } else {
+                /* We only support function flags options for lua scripts */
+                if (err)
+                    *err = sdscatfmt(sdsempty(), "Unknown lua shebang option: %s", parts[j]);
+                sdsfreesplitres(parts, numparts);
+                return C_ERR;
+            }
+        }
+        sdsfreesplitres(parts, numparts);
+    }
+    if (out_shebang_len)
+        *out_shebang_len = shebang_len;
+    *out_flags = script_flags;
+    return C_OK;
+}
+
+/* Try to extract command flags if we can, returns the modified flags.
+ * Note that it does not guarantee the command arguments are right. */
+uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
+    char funcname[43];
+    int evalsha = c->cmd->proc == evalShaCommand || c->cmd->proc == evalShaRoCommand;
+    if (evalsha && sdslen(c->argv[1]->ptr) != 40)
+        return cmd_flags;
+    evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
+    char *lua_cur_script = funcname + 2;
+    dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
+    uint64_t script_flags;
+    if (!de) {
+        if (evalsha)
+            return cmd_flags;
+        if (evalExtractShebangFlags(c->argv[1]->ptr, &script_flags, NULL, NULL) == C_ERR)
+            return cmd_flags;
+    } else {
+        luaScript *l = dictGetVal(de);
+        script_flags = l->flags;
+    }
+    if (script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)
+        return cmd_flags;
+    return scriptFlagsToCmdFlags(cmd_flags, script_flags);
+}
+
 /* Define a Lua function with the specified body.
  * The function name will be generated in the following form:
  *
@@ -291,51 +423,47 @@ void scriptingReset(int async) {
 sds luaCreateFunction(client *c, robj *body) {
     char funcname[43];
     dictEntry *de;
+    uint64_t script_flags;
 
     funcname[0] = 'f';
     funcname[1] = '_';
     sha1hex(funcname+2,body->ptr,sdslen(body->ptr));
 
-    sds sha = sdsnewlen(funcname+2,40);
-    if ((de = dictFind(lctx.lua_scripts,sha)) != NULL) {
-        sdsfree(sha);
+    if ((de = dictFind(lctx.lua_scripts,funcname+2)) != NULL) {
         return dictGetKey(de);
     }
 
-    sds funcdef = sdsempty();
-    funcdef = sdscat(funcdef,"function ");
-    funcdef = sdscatlen(funcdef,funcname,42);
-    funcdef = sdscatlen(funcdef,"() ",3);
-    funcdef = sdscatlen(funcdef,body->ptr,sdslen(body->ptr));
-    funcdef = sdscatlen(funcdef,"\nend",4);
+    /* Handle shebang header in script code */
+    ssize_t shebang_len = 0;
+    sds err = NULL;
+    if (evalExtractShebangFlags(body->ptr, &script_flags, &shebang_len, &err) == C_ERR) {
+        addReplyErrorSds(c, err);
+        return NULL;
+    }
 
-    if (luaL_loadbuffer(lctx.lua,funcdef,sdslen(funcdef),"@user_script")) {
+    /* Note that in case of a shebang line we skip it but keep the line feed to conserve the user's line numbers */
+    if (luaL_loadbuffer(lctx.lua,(char*)body->ptr + shebang_len,sdslen(body->ptr) - shebang_len,"@user_script")) {
         if (c != NULL) {
             addReplyErrorFormat(c,
-                "Error compiling script (new function): %s\n",
+                "Error compiling script (new function): %s",
                 lua_tostring(lctx.lua,-1));
         }
         lua_pop(lctx.lua,1);
-        sdsfree(sha);
-        sdsfree(funcdef);
         return NULL;
     }
-    sdsfree(funcdef);
 
-    if (lua_pcall(lctx.lua,0,0,0)) {
-        if (c != NULL) {
-            addReplyErrorFormat(c,"Error running script (new function): %s\n",
-                lua_tostring(lctx.lua,-1));
-        }
-        lua_pop(lctx.lua,1);
-        sdsfree(sha);
-        return NULL;
-    }
+    serverAssert(lua_isfunction(lctx.lua, -1));
+
+    lua_setfield(lctx.lua, LUA_REGISTRYINDEX, funcname);
 
     /* We also save a SHA1 -> Original script map in a dictionary
      * so that we can replicate / write in the AOF all the
      * EVALSHA commands as EVAL using the original script. */
-    int retval = dictAdd(lctx.lua_scripts,sha,body);
+    luaScript *l = zcalloc(sizeof(luaScript));
+    l->body = body;
+    l->flags = script_flags;
+    sds sha = sdsnewlen(funcname+2,40);
+    int retval = dictAdd(lctx.lua_scripts,sha,l);
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
     lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
     incrRefCount(body);
@@ -374,32 +502,13 @@ void evalGenericCommand(client *c, int evalsha) {
         return;
     }
 
-    /* We obtain the script SHA1, then check if this function is already
-     * defined into the Lua state */
-    funcname[0] = 'f';
-    funcname[1] = '_';
-    if (!evalsha) {
-        /* Hash the code if this is an EVAL call */
-        sha1hex(funcname+2,c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
-    } else {
-        /* We already have the SHA if it is an EVALSHA */
-        int j;
-        char *sha = c->argv[1]->ptr;
-
-        /* Convert to lowercase. We don't use tolower since the function
-         * managed to always show up in the profiler output consuming
-         * a non trivial amount of time. */
-        for (j = 0; j < 40; j++)
-            funcname[j+2] = (sha[j] >= 'A' && sha[j] <= 'Z') ?
-                sha[j]+('a'-'A') : sha[j];
-        funcname[42] = '\0';
-    }
+    evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
 
     /* Push the pcall error handler function on the stack. */
     lua_getglobal(lua, "__redis__err__handler");
 
     /* Try to lookup the Lua function */
-    lua_getglobal(lua, funcname);
+    lua_getfield(lua, LUA_REGISTRYINDEX, funcname);
     if (lua_isnil(lua,-1)) {
         lua_pop(lua,1); /* remove the nil from the stack */
         /* Function not defined... let's define it if we have the
@@ -417,28 +526,26 @@ void evalGenericCommand(client *c, int evalsha) {
             return;
         }
         /* Now the following is guaranteed to return non nil */
-        lua_getglobal(lua, funcname);
+        lua_getfield(lua, LUA_REGISTRYINDEX, funcname);
         serverAssert(!lua_isnil(lua,-1));
     }
 
-    lctx.lua_cur_script = funcname + 2;
+    char *lua_cur_script = funcname + 2;
+    dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
+    luaScript *l = dictGetVal(de);
+    int ro = c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand;
 
     scriptRunCtx rctx;
-    scriptPrepareForRun(&rctx, lctx.lua_client, c, lctx.lua_cur_script);
-    rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as legacy so we
-                                    will get legacy error messages and logs */
-
-    /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
-    if ((server.script_caller->cmd->proc == evalRoCommand ||
-         server.script_caller->cmd->proc == evalShaRoCommand)) {
-        rctx.flags |= SCRIPT_READ_ONLY;
+    if (scriptPrepareForRun(&rctx, lctx.lua_client, c, lua_cur_script, l->flags, ro) != C_OK) {
+        lua_pop(lua,2); /* Remove the function and error handler. */
+        return;
     }
+    rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll
+                                      get appropriate error messages and logs */
 
     luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
     lua_pop(lua,1); /* Remove the error handler. */
     scriptResetRun(&rctx);
-
-    lctx.lua_cur_script = NULL;
 }
 
 void evalCommand(client *c) {
@@ -563,15 +670,9 @@ dict* evalScriptsDict() {
 
 unsigned long evalScriptsMemory() {
     return lctx.lua_scripts_mem +
-            dictSize(lctx.lua_scripts) * sizeof(dictEntry) +
+            dictSize(lctx.lua_scripts) * (sizeof(dictEntry) + sizeof(luaScript)) +
             dictSlots(lctx.lua_scripts) * sizeof(dictEntry*);
 }
-
-/* Returns the time when the script invocation started */
-mstime_t evalTimeSnapshot() {
-    return scriptTimeSnapshot();
-}
-
 
 /* ---------------------------------------------------------------------------
  * LDB: Redis Lua debugging facilities
@@ -1406,8 +1507,8 @@ int ldbRepl(lua_State *lua) {
         while((argv = ldbReplParseCommand(&argc, &err)) == NULL) {
             char buf[1024];
             if (err) {
-                lua_pushstring(lua, err);
-                lua_error(lua);
+                luaPushError(lua, err);
+                luaError(lua);
             }
             int nread = connRead(ldb.conn,buf,sizeof(buf));
             if (nread <= 0) {
@@ -1424,8 +1525,8 @@ int ldbRepl(lua_State *lua) {
             if (sdslen(ldb.cbuf) > 1<<20) {
                 sdsfree(ldb.cbuf);
                 ldb.cbuf = sdsempty();
-                lua_pushstring(lua, "max client buffer reached");
-                lua_error(lua);
+                luaPushError(lua, "max client buffer reached");
+                luaError(lua);
             }
         }
 
@@ -1485,8 +1586,8 @@ ldbLog(sdsnew("                     next line of code."));
             ldbEval(lua,argv,argc);
             ldbSendLogs();
         } else if (!strcasecmp(argv[0],"a") || !strcasecmp(argv[0],"abort")) {
-            lua_pushstring(lua, "script aborted for user request");
-            lua_error(lua);
+            luaPushError(lua, "script aborted for user request");
+            luaError(lua);
         } else if (argc > 1 &&
                    (!strcasecmp(argv[0],"r") || !strcasecmp(argv[0],"redis"))) {
             ldbRedis(lua,argv,argc);
@@ -1528,6 +1629,7 @@ ldbLog(sdsnew("                     next line of code."));
  * to start executing a new line. */
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    serverAssert(rctx); /* Only supported inside script invocation */
     lua_getstack(lua,0,ar);
     lua_getinfo(lua,"Sl",ar);
     ldb.currentline = ar->currentline;
@@ -1541,8 +1643,8 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
     /* Check if a timeout occurred. */
     if (ar->event == LUA_HOOKCOUNT && ldb.step == 0 && bp == 0) {
         mstime_t elapsed = elapsedMs(rctx->start_time);
-        mstime_t timelimit = server.script_time_limit ?
-                             server.script_time_limit : 5000;
+        mstime_t timelimit = server.busy_reply_threshold ?
+                             server.busy_reply_threshold : 5000;
         if (elapsed >= timelimit) {
             timeout = 1;
             ldb.step = 1;
@@ -1567,8 +1669,8 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
             /* If the client closed the connection and we have a timeout
              * connection, let's kill the script otherwise the process
              * will remain blocked indefinitely. */
-            lua_pushstring(lua, "timeout during Lua debugging with client closing connection");
-            lua_error(lua);
+            luaPushError(lua, "timeout during Lua debugging with client closing connection");
+            luaError(lua);
         }
         rctx->start_time = getMonotonicUs();
         rctx->snapshot_time = mstime();

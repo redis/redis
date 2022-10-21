@@ -13,16 +13,19 @@
             ]
         ],
         "command_flags": [
-            "READONLY",
-            "RANDOM"
+            "READONLY"
         ],
         "acl_categories": [
             "STREAM"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -57,7 +60,8 @@
                         "token": "IDLE",
                         "name": "min-idle-time",
                         "type": "integer",
-                        "optional": true
+                        "optional": true,
+                        "since": "6.2.0"
                     },
                     {
                         "name": "start",

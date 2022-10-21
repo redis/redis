@@ -97,9 +97,8 @@ start_server {tags {"expire"}} {
         for {set j 0} {$j < 50} {incr j} {
             r del x
             r psetex x 100 somevalue
-            after 80
             set a [r get x]
-            after 120
+            after 101
             set b [r get x]
 
             if {$a eq {somevalue} && $b eq {}} break
@@ -114,9 +113,8 @@ start_server {tags {"expire"}} {
         for {set j 0} {$j < 50} {incr j} {
             r set x somevalue
             r pexpire x 100
-            after 80
             set c [r get x]
-            after 120
+            after 101
             set d [r get x]
 
             if {$c eq {somevalue} && $d eq {}} break
@@ -132,9 +130,8 @@ start_server {tags {"expire"}} {
             r set x somevalue
             set now [r time]
             r pexpireat x [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)+200]
-            after 20
             set e [r get x]
-            after 220
+            after 201
             set f [r get x]
 
             if {$e eq {somevalue} && $f eq {}} break
@@ -247,35 +244,35 @@ start_server {tags {"expire"}} {
     test {SET with EX with big integer should report an error} {
         catch {r set foo bar EX 10000000000000000} e
         set e
-    } {ERR invalid expire time in set}
+    } {ERR invalid expire time in 'set' command}
 
     test {SET with EX with smallest integer should report an error} {
         catch {r SET foo bar EX -9999999999999999} e
         set e
-    } {ERR invalid expire time in set}
+    } {ERR invalid expire time in 'set' command}
 
     test {GETEX with big integer should report an error} {
         r set foo bar
         catch {r GETEX foo EX 10000000000000000} e
         set e
-    } {ERR invalid expire time in getex}
+    } {ERR invalid expire time in 'getex' command}
 
     test {GETEX with smallest integer should report an error} {
         r set foo bar
         catch {r GETEX foo EX -9999999999999999} e
         set e
-    } {ERR invalid expire time in getex}
+    } {ERR invalid expire time in 'getex' command}
 
     test {EXPIRE with big integer overflows when converted to milliseconds} {
         r set foo bar
 
         # Hit `when > LLONG_MAX - basetime`
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 9223370399119966}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 9223370399119966}
 
         # Hit `when > LLONG_MAX / 1000`
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 9223372036854776}
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 10000000000000000}
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 18446744073709561}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 9223372036854776}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 10000000000000000}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 18446744073709561}
 
         assert_equal {-1} [r ttl foo]
     }
@@ -284,14 +281,14 @@ start_server {tags {"expire"}} {
         r set foo bar
         catch {r PEXPIRE foo 9223372036854770000} e
         set e
-    } {ERR invalid expire time in pexpire}
+    } {ERR invalid expire time in 'pexpire' command}
 
     test {EXPIRE with big negative integer} {
         r set foo bar
 
         # Hit `when < LLONG_MIN / 1000`
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo -9223372036854776}
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo -9999999999999999}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo -9223372036854776}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo -9999999999999999}
 
         r ttl foo
     } {-1}
@@ -308,14 +305,14 @@ start_server {tags {"expire"}} {
     } {-2}
 
     # Start a new server with empty data and AOF file.
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
+    start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
         test {All time-to-live(TTL) in commands are propagated as absolute timestamp in milliseconds in AOF} {
             # This test makes sure that expire times are propagated as absolute
             # times to the AOF file and not as relative time, so that when the AOF
             # is reloaded the TTLs are not being shifted forward to the future.
             # We want the time to logically pass when the server is restarted!
 
-            set aof [file join [lindex [r config get dir] 1] [lindex [r config get appendfilename] 1]]
+            set aof [get_last_incr_aof_path r]
 
             # Apply each TTL-related command to a unique key
             # SET commands
@@ -748,4 +745,27 @@ start_server {tags {"expire"}} {
         assert_equal [r EXPIRE none 100 GT] 0
         assert_equal [r EXPIRE none 100 LT] 0
     } {}
+
+    test {Redis should not propagate the read command on lazy expire} {
+        r debug set-active-expire 0
+        r flushall ; # Clean up keyspace to avoid interference by keys from other tests
+        r set foo bar PX 1
+        set repl [attach_to_replication_stream]
+        wait_for_condition 50 100 {
+            [r get foo] eq {}
+        } else {
+            fail "Replication not started."
+        }
+
+        # dummy command to verify nothing else gets into the replication stream.
+        r set x 1
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo}
+            {set x 1}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
 }

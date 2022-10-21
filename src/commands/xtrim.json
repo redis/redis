@@ -8,21 +8,24 @@
         "function": "xtrimCommand",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "Added the `MINID` trimming strategy and the `LIMIT` option."
             ]
         ],
         "command_flags": [
-            "WRITE",
-            "RANDOM"
+            "WRITE"
         ],
         "acl_categories": [
             "STREAM"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -60,7 +63,8 @@
                             {
                                 "name": "minid",
                                 "type": "pure-token",
-                                "token": "MINID"
+                                "token": "MINID",
+                                "since": "6.2.0"
                             }
                         ]
                     },
@@ -89,7 +93,8 @@
                         "token": "LIMIT",
                         "name": "count",
                         "type": "integer",
-                        "optional": true
+                        "optional": true,
+                        "since": "6.2.0"
                     }
                 ]
             }

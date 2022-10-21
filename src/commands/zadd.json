@@ -8,7 +8,7 @@
         "function": "zaddCommand",
         "history": [
             [
-                "2.4",
+                "2.4.0",
                 "Accepts multiple elements."
             ],
             [
@@ -16,7 +16,7 @@
                 "Added the `XX`, `NX`, `CH` and `INCR` options."
             ],
             [
-                "6.2",
+                "6.2.0",
                 "Added the `GT` and `LT` options."
             ]
         ],
@@ -31,7 +31,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -57,6 +58,7 @@
                 "name": "condition",
                 "type": "oneof",
                 "optional": true,
+                "since": "3.0.2",
                 "arguments": [
                     {
                         "name": "nx",
@@ -74,6 +76,7 @@
                 "name": "comparison",
                 "type": "oneof",
                 "optional": true,
+                "since": "6.2.0",
                 "arguments": [
                     {
                         "name": "gt",
@@ -91,16 +94,18 @@
                 "name": "change",
                 "token": "CH",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "3.0.2"
             },
             {
                 "name": "increment",
                 "token": "INCR",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "3.0.2"
             },
             {
-                "name": "score_member",
+                "name": "data",
                 "type": "block",
                 "multiple": true,
                 "arguments": [

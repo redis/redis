@@ -46,6 +46,7 @@
 
 
 #include "fmacros.h"
+#include "fpconv_dtoa.h"
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -244,7 +245,9 @@ static size_t rioConnRead(rio *r, void *buf, size_t len) {
         int retval = connRead(r->io.conn.conn,
                           (char*)r->io.conn.buf + sdslen(r->io.conn.buf),
                           toread);
-        if (retval <= 0) {
+        if (retval == 0) {
+            return 0;
+        } else if (retval < 0) {
             if (connLastErrorRetryable(r->io.conn.conn)) continue;
             if (errno == EWOULDBLOCK) errno = ETIMEDOUT;
             return 0;
@@ -436,6 +439,20 @@ void rioSetAutoSync(rio *r, off_t bytes) {
     r->io.file.autosync = bytes;
 }
 
+/* Check the type of rio. */
+uint8_t rioCheckType(rio *r) {
+    if (r->read == rioFileRead) {
+        return RIO_TYPE_FILE;
+    } else if (r->read == rioBufferRead) {
+        return RIO_TYPE_BUFFER;
+    } else if (r->read == rioConnRead) {
+        return RIO_TYPE_CONN;
+    } else {
+        /* r->read == rioFdRead */
+        return RIO_TYPE_FD;
+    }
+}
+
 /* --------------------------- Higher level interface --------------------------
  *
  * The following higher level functions use lower level rio.c functions to help
@@ -477,7 +494,7 @@ size_t rioWriteBulkLongLong(rio *r, long long l) {
 size_t rioWriteBulkDouble(rio *r, double d) {
     char dbuf[128];
     unsigned int dlen;
-
-    dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
+    dlen = fpconv_dtoa(d, dbuf);
+    dbuf[dlen] = '\0';
     return rioWriteBulkString(r,dbuf,dlen);
 }

@@ -8,7 +8,7 @@
         "function": "geoaddCommand",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "Added the `CH`, `NX` and `XX` options."
             ]
         ],
@@ -22,7 +22,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -48,6 +49,7 @@
                 "name": "condition",
                 "type": "oneof",
                 "optional": true,
+                "since": "6.2.0",
                 "arguments": [
                     {
                         "name": "nx",
@@ -65,10 +67,11 @@
                 "name": "change",
                 "token": "CH",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "6.2.0"
             },
             {
-                "name": "longitude_latitude_member",
+                "name": "data",
                 "type": "block",
                 "multiple": true,
                 "arguments": [

@@ -6,6 +6,16 @@
         "since": "1.0.0",
         "arity": -1,
         "function": "flushdbCommand",
+        "history": [
+            [
+                "4.0.0",
+                "Added the `ASYNC` flushing mode modifier."
+            ],
+            [
+                "6.2.0",
+                "Added the `SYNC` flushing mode modifier."
+            ]
+        ],
         "command_flags": [
             "WRITE"
         ],
@@ -13,21 +23,27 @@
             "KEYSPACE",
             "DANGEROUS"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
         "arguments": [
             {
-                "name": "async",
+                "name": "flush-type",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [
                     {
                         "name": "async",
                         "type": "pure-token",
-                        "token": "ASYNC"
+                        "token": "ASYNC",
+                        "since": "4.0.0"
                     },
                     {
                         "name": "sync",
                         "type": "pure-token",
-                        "token": "SYNC"
+                        "token": "SYNC",
+                        "since": "6.2.0"
                     }
                 ]
             }

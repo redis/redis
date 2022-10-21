@@ -34,6 +34,7 @@
 #include <stdarg.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 void createSharedObjects(void);
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len);
@@ -62,6 +63,7 @@ struct {
 #define RDB_CHECK_DOING_READ_LEN 6
 #define RDB_CHECK_DOING_READ_AUX 7
 #define RDB_CHECK_DOING_READ_MODULE_AUX 8
+#define RDB_CHECK_DOING_READ_FUNCTIONS 9
 
 char *rdb_check_doing_string[] = {
     "start",
@@ -72,7 +74,8 @@ char *rdb_check_doing_string[] = {
     "check-sum",
     "read-len",
     "read-aux",
-    "read-module-aux"
+    "read-module-aux",
+    "read-functions"
 };
 
 char *rdb_type_string[] = {
@@ -82,8 +85,9 @@ char *rdb_type_string[] = {
     "zset-v1",
     "hash-hashtable",
     "zset-v2",
+    "module-pre-release",
     "module-value",
-    "","",
+    "",
     "hash-zipmap",
     "list-ziplist",
     "set-intset",
@@ -192,11 +196,15 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     char buf[1024];
     long long expiretime, now = mstime();
     static rio rdb; /* Pointed by global struct riostate. */
+    struct stat sb;
 
     int closefile = (fp == NULL);
     if (fp == NULL && (fp = fopen(rdbfilename,"r")) == NULL) return 1;
 
-    startLoadingFile(fp, rdbfilename, RDBFLAGS_NONE);
+    if (fstat(fileno(fp), &sb) == -1)
+        sb.st_size = 0;
+
+    startLoadingFile(sb.st_size, rdbfilename, RDBFLAGS_NONE);
     rioInitWithFile(&rdb,fp);
     rdbstate.rio = &rdb;
     rdb.update_cksum = rdbLoadProgressCallback;
@@ -276,7 +284,10 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             robj *auxkey, *auxval;
             rdbstate.doing = RDB_CHECK_DOING_READ_AUX;
             if ((auxkey = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
-            if ((auxval = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
+            if ((auxval = rdbLoadStringObject(&rdb)) == NULL) {
+                decrRefCount(auxkey);
+                goto eoferr;
+            }
 
             rdbCheckInfo("AUX FIELD %s = '%s'",
                 (char*)auxkey->ptr, (char*)auxval->ptr);
@@ -290,6 +301,10 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             if ((moduleid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
             if ((when_opcode = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
             if ((when = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+            if (when_opcode != RDB_MODULE_OPCODE_UINT) {
+                rdbCheckError("bad when_opcode");
+                goto err;
+            }
 
             char name[10];
             moduleTypeNameByID(name,moduleid);
@@ -298,6 +313,18 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             robj *o = rdbLoadCheckModuleValue(&rdb,name);
             decrRefCount(o);
             continue; /* Read type again. */
+        } else if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
+            rdbCheckError("Pre-release function format not supported %d",rdbver);
+            goto err;
+        } else if (type == RDB_OPCODE_FUNCTION2) {
+            sds err = NULL;
+            rdbstate.doing = RDB_CHECK_DOING_READ_FUNCTIONS;
+            if (rdbFunctionLoad(&rdb, rdbver, NULL, 0, &err) != C_OK) {
+                rdbCheckError("Failed loading library, %s", err);
+                sdsfree(err);
+                goto err;
+            }
+            continue;
         } else {
             if (!rdbIsObjectType(type)) {
                 rdbCheckError("Invalid object type: %d", type);

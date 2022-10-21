@@ -144,8 +144,8 @@ start_server {
     } {3}
 
     test "SINTERCARD with illegal arguments" {
-        assert_error "ERR wrong number of arguments*" {r sintercard}
-        assert_error "ERR wrong number of arguments*" {r sintercard 1}
+        assert_error "ERR wrong number of arguments for 'sintercard' command" {r sintercard}
+        assert_error "ERR wrong number of arguments for 'sintercard' command" {r sintercard 1}
 
         assert_error "ERR numkeys*" {r sintercard 0 myset{t}}
         assert_error "ERR numkeys*" {r sintercard a myset{t}}
@@ -284,6 +284,13 @@ start_server {
                 assert_encoding intset setres{t}
             }
             assert_equal {1 2 3 4} [lsort [r smembers setres{t}]]
+        }
+
+        test "SINTER/SUNION/SDIFF with three same sets - $type" {
+            set expected [lsort "[r smembers set1{t}]"]
+            assert_equal $expected [lsort [r sinter set1{t} set1{t} set1{t}]]
+            assert_equal $expected [lsort [r sunion set1{t} set1{t} set1{t}]]
+            assert_equal {} [lsort [r sdiff set1{t} set1{t} set1{t}]]
         }
     }
 
@@ -935,6 +942,7 @@ start_server {
     }
 }
 
+run_solo {set-large-memory} {
 start_server [list overrides [list save ""] ] {
 
 # test if the server supports such large configs (avoid 32 bit builds)
@@ -969,3 +977,4 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
     } {} {large-memory}
 } ;# skip 32bit builds
 }
+} ;# run_solo

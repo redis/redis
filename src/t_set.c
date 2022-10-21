@@ -203,7 +203,7 @@ sds setTypeNextObject(setTypeIterator *si) {
  * The caller provides both pointers to be populated with the right
  * object. The return value of the function is the object->encoding
  * field of the object and is used by the caller to check if the
- * int64_t pointer or the redis object pointer was populated.
+ * int64_t pointer or the sds pointer was populated.
  *
  * Note that both the sdsele and llele pointers should be passed and cannot
  * be NULL since the function will try to defensively populate the non
@@ -491,6 +491,8 @@ void spopWithCountCommand(client *c) {
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+
+        /* todo: Move the spop notification to be executed after the command logic. */
 
         /* Propagate this command as a DEL operation */
         rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
@@ -805,7 +807,7 @@ void srandmemberWithCountCommand(client *c) {
     }
 }
 
-/* SRANDMEMBER [<count>] */
+/* SRANDMEMBER <key> [<count>] */
 void srandmemberCommand(client *c) {
     robj *set;
     sds ele;
@@ -850,7 +852,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     return 0;
 }
 
-/* SINTER / SINTERSTORE / SINTERCARD
+/* SINTER / SMEMBERS / SINTERSTORE / SINTERCARD
  *
  * 'cardinality_only' work for SINTERCARD, only return the cardinality
  * with minimum processing and memory overheads.
@@ -1055,6 +1057,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     sds ele;
     int j, cardinality = 0;
     int diff_algo = 1;
+    int sameset = 0; 
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = lookupKeyRead(c->db, setkeys[j]);
@@ -1067,6 +1070,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             return;
         }
         sets[j] = setobj;
+        if (j > 0 && sets[0] == sets[j]) {
+            sameset = 1; 
+        }
     }
 
     /* Select what DIFF algorithm to use.
@@ -1078,7 +1084,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
      * the sets.
      *
      * We compute what is the best bet with the current input here. */
-    if (op == SET_OP_DIFF && sets[0]) {
+    if (op == SET_OP_DIFF && sets[0] && !sameset) {
         long long algo_one_work = 0, algo_two_work = 0;
 
         for (j = 0; j < setnum; j++) {
@@ -1120,6 +1126,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             }
             setTypeReleaseIterator(si);
         }
+    } else if (op == SET_OP_DIFF && sameset) {
+        /* At least one of the sets is the same one (same key) as the first one, result must be empty. */
     } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 1) {
         /* DIFF Algorithm 1:
          *

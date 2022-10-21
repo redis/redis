@@ -8,22 +8,24 @@
         "function": "blpopCommand",
         "history": [
             [
-                "6.0",
+                "6.0.0",
                 "`timeout` is interpreted as a double instead of an integer."
             ]
         ],
         "command_flags": [
             "WRITE",
-            "NOSCRIPT"
+            "NOSCRIPT",
+            "BLOCKING"
         ],
         "acl_categories": [
-            "LIST",
-            "BLOCKING"
+            "LIST"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {

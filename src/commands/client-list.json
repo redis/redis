@@ -13,30 +13,34 @@
                 "Added unique client `id` field."
             ],
             [
-                "5.0",
+                "5.0.0",
                 "Added optional `TYPE` filter."
             ],
             [
-                "6.2",
+                "6.2.0",
                 "Added `laddr` field and the optional `ID` filter."
             ]
         ],
         "command_flags": [
             "ADMIN",
             "NOSCRIPT",
-            "RANDOM",
             "LOADING",
-            "STALE"
+            "STALE",
+            "SENTINEL"
         ],
         "acl_categories": [
             "CONNECTION"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "arguments": [
             {
                 "token": "TYPE",
-                "name": "normal_master_replica_pubsub",
+                "name": "client-type",
                 "type": "oneof",
                 "optional": true,
+                "since": "5.0.0",
                 "arguments": [
                     {
                         "name": "normal",
@@ -61,17 +65,12 @@
                 ]
             },
             {
-                "name": "id",
+                "name": "client-id",
                 "token": "ID",
-                "type": "block",
+                "type": "integer",
                 "optional": true,
-                "arguments": [
-                    {
-                        "name": "client-id",
-                        "type": "integer",
-                        "multiple": true
-                    }
-                ]
+                "multiple": true,
+                "since": "6.2.0"
             }
         ]
     }

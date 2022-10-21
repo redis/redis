@@ -66,7 +66,8 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop list4] [string repeat c 500]
         assert_equal [r lpop list4] [string repeat b 500]
         assert_equal [r lpop list4] [string repeat a 500]
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     test {plain node check compression with ltrim} {
         r debug quicklist-packed-threshold 1b
@@ -75,8 +76,9 @@ start_server [list overrides [list save ""] ] {
         r rpush list5 [string repeat c 500]
         assert_equal [string repeat b 500] [r lindex list5 1]
         r LTRIM list5 1 -1
-        r llen list5
-    } {2} {needs:debug}
+        assert_equal [r llen list5] 2
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     test {plain node check compression using lset} {
         r debug quicklist-packed-threshold 1b
@@ -86,7 +88,8 @@ start_server [list overrides [list save ""] ] {
         r lpush list6 [string repeat c 500]
         r LSET list6 0 [string repeat d 500]
         assert_equal [string repeat d 500] [r lindex list6 0]
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # revert config for external mode tests.
     r config set list-compress-depth 0
@@ -115,7 +118,8 @@ start_server [list overrides [list save ""] ] {
         r lpush lst bb
         r debug reload
         assert_equal [r rpop lst] "xxxxxxxxxx"
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # basic command check for plain nodes - "LINDEX & LINSERT"
     test {Test LINDEX and LINSERT on plain nodes} {
@@ -129,7 +133,8 @@ start_server [list overrides [list save ""] ] {
         r linsert lst BEFORE "9" "7"
         r linsert lst BEFORE "9" "xxxxxxxxxxx"
         assert {[r lindex lst 3] eq "xxxxxxxxxxx"}
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # basic command check for plain nodes - "LTRIM"
     test {Test LTRIM on plain nodes} {
@@ -140,7 +145,8 @@ start_server [list overrides [list save ""] ] {
         r lpush lst1 9
         r LTRIM lst1 1 -1
         assert_equal [r llen lst1] 2
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # basic command check for plain nodes - "LREM"
     test {Test LREM on plain nodes} {
@@ -153,7 +159,8 @@ start_server [list overrides [list save ""] ] {
         r lpush lst 9
         r LREM lst -2 "one"
         assert_equal [r llen lst] 2
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # basic command check for plain nodes - "LPOS"
     test {Test LPOS on plain nodes} {
@@ -164,7 +171,8 @@ start_server [list overrides [list save ""] ] {
         r RPUSH lst "cc"
         r LSET lst 0 "xxxxxxxxxxx"
         assert_equal [r LPOS lst "xxxxxxxxxxx"] 0
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # basic command check for plain nodes - "LMOVE"
     test {Test LMOVE on plain nodes} {
@@ -183,7 +191,8 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop lst2{t}] "cc"
         assert_equal [r lpop lst{t}] "dd"
         assert_equal [r lpop lst{t}] "xxxxxxxxxxx"
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # testing LSET with combinations of node types
     # plain->packed , packed->plain, plain->plain, packed->packed
@@ -206,7 +215,8 @@ start_server [list overrides [list save ""] ] {
         r lset lst 0 "cc"
         set s1 [r lpop lst]
         assert_equal $s1 "cc"
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
     # checking LSET in case ziplist needs to be split
     test {Test LSET with packed is split in the middle} {
@@ -223,14 +233,15 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop lst] [string repeat e 10]
         assert_equal [r lpop lst] "dd"
         assert_equal [r lpop lst] "ee"
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 
 
     # repeating "plain check LSET with combinations"
     # but now with single item in each ziplist
     test {Test LSET with packed consist only one item} {
         r flushdb
-        r config set list-max-ziplist-size 1
+        set original_config [config_get_set list-max-ziplist-size 1]
         r debug quicklist-packed-threshold 1b
         r RPUSH lst "aa"
         r RPUSH lst "bb"
@@ -249,9 +260,49 @@ start_server [list overrides [list save ""] ] {
         r lset lst 0 "cc"
         set s1 [r lpop lst]
         assert_equal $s1 "cc"
-    } {} {needs:debug}
+        r debug quicklist-packed-threshold 0
+        r config set list-max-ziplist-size $original_config
+    } {OK} {needs:debug}
+
+    test {Crash due to delete entry from a compress quicklist node} {
+        r flushdb
+        r debug quicklist-packed-threshold 100b
+        set original_config [config_get_set list-compress-depth 1]
+
+        set small_ele [string repeat x 32]
+        set large_ele [string repeat x 100]
+
+        # Push a large element
+        r RPUSH lst $large_ele
+
+        # Insert two elements and keep them in the same node
+        r RPUSH lst $small_ele
+        r RPUSH lst $small_ele
+
+        # When setting the position of -1 to a large element, we first insert
+        # a large element at the end and then delete its previous element.
+        r LSET lst -1 $large_ele
+        assert_equal "$large_ele $small_ele $large_ele" [r LRANGE lst 0 -1]
+
+        r debug quicklist-packed-threshold 0
+        r config set list-compress-depth $original_config
+    } {OK} {needs:debug}
+
+    test {Crash due to split quicklist node wrongly} {
+        r flushdb
+        r debug quicklist-packed-threshold 10b
+
+        r LPUSH lst "aa"
+        r LPUSH lst "bb"
+        r LSET lst -2 [string repeat x 10]
+        r RPOP lst
+        assert_equal [string repeat x 10] [r LRANGE lst 0 -1]
+
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
 }
 
+run_solo {list-large-memory} {
 start_server [list overrides [list save ""] ] {
 
 # test if the server supports such large configs (avoid 32 bit builds)
@@ -349,6 +400,7 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
    } {} {large-memory}
 } ;# skip 32bit builds
 }
+} ;# run_solo
 
 start_server {
     tags {"list"}
@@ -387,12 +439,13 @@ start_server {
         assert {[r LPOS mylist c] == 2}
     }
 
-    test {LPOS RANK (positive and negative rank) option} {
+    test {LPOS RANK (positive, negative and zero rank) option} {
         assert {[r LPOS mylist c RANK 1] == 2}
         assert {[r LPOS mylist c RANK 2] == 6}
         assert {[r LPOS mylist c RANK 4] eq ""}
         assert {[r LPOS mylist c RANK -1] == 7}
         assert {[r LPOS mylist c RANK -2] == 6}
+        assert_error "*RANK can't be zero: use 1 to start from the first match, 2 from the second ... or use negative to start*" {r LPOS mylist c RANK 0}
     }
 
     test {LPOS COUNT option} {
@@ -486,6 +539,11 @@ start_server {
         assert_equal c [r lpop mylist2]
     }
 
+    test "LPOP/RPOP with wrong number of arguments" {
+        assert_error {*wrong number of arguments for 'lpop' command} {r lpop key 1 1}
+        assert_error {*wrong number of arguments for 'rpop' command} {r rpop key 2 2}
+    }
+
     test {RPOP/LPOP with the optional count argument} {
         assert_equal 7 [r lpush listcount aa bb cc dd ee ff gg]
         assert_equal {gg} [r lpop listcount 1]
@@ -496,15 +554,49 @@ start_server {
         assert_error "*ERR*range*" {r lpop forbarqaz -123}
     }
 
-    # Make sure we can distinguish between an empty array and a null response
-    r readraw 1
+    proc verify_resp_response {resp response resp2_response resp3_response} {
+        if {$resp == 2} {
+            assert_equal $response $resp2_response
+        } elseif {$resp == 3} {
+            assert_equal $response $resp3_response
+        }
+    }
 
-    test {RPOP/LPOP with the count 0 returns an empty array} {
-        r lpush listcount zero
-        r lpop listcount 0
-    } {*0}
+    foreach resp {3 2} {
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$resp == 3} {continue}
+        } else {
+            r hello $resp
+        }
 
-    r readraw 0
+        # Make sure we can distinguish between an empty array and a null response
+        r readraw 1
+
+        test "LPOP/RPOP with the count 0 returns an empty array in RESP$resp" {
+            r lpush listcount zero
+            assert_equal {*0} [r lpop listcount 0]
+            assert_equal {*0} [r rpop listcount 0]
+        }
+
+        test "LPOP/RPOP against non existing key in RESP$resp" {
+            r del non_existing_key
+
+            verify_resp_response $resp [r lpop non_existing_key] {$-1} {_}
+            verify_resp_response $resp [r rpop non_existing_key] {$-1} {_}
+        }
+
+        test "LPOP/RPOP with <count> against non existing key in RESP$resp" {
+            r del non_existing_key
+
+            verify_resp_response $resp [r lpop non_existing_key 0] {*-1} {_}
+            verify_resp_response $resp [r lpop non_existing_key 1] {*-1} {_}
+
+            verify_resp_response $resp [r rpop non_existing_key 0] {*-1} {_}
+            verify_resp_response $resp [r rpop non_existing_key 1] {*-1} {_}
+        }
+
+        r readraw 0
+    }
 
     test {Variadic RPUSH/LPUSH} {
         r del mylist
@@ -1123,6 +1215,14 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     } {foo{t} aguacate}
 }
 
+    test "BLPOP: timeout value out of range" {
+        # Timeout is parsed as float and multiplied by 1000, added mstime()
+        # and stored in long-long which might lead to out-of-range value.
+        # (Even though given timeout is smaller than LLONG_MAX, the result
+        # will be bigger)            
+        assert_error "ERR *is out of range*" {r BLPOP blist1 0x7FFFFFFFFFFFFF}
+    }  
+        
     foreach {pop} {BLPOP BRPOP BLMPOP_LEFT BLMPOP_RIGHT} {
         test "$pop: with single empty list argument" {
             set rd [redis_deferring_client]
@@ -1138,7 +1238,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         test "$pop: with negative timeout" {
             set rd [redis_deferring_client]
             bpop_command $rd $pop blist1 -1
-            assert_error "ERR*is negative*" {$rd read}
+            assert_error "ERR *is negative*" {$rd read}
             $rd close
         }
 
@@ -1570,9 +1670,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     }
 
     test {LMPOP with illegal argument} {
-        assert_error "ERR wrong number of arguments*" {r lmpop}
-        assert_error "ERR wrong number of arguments*" {r lmpop 1}
-        assert_error "ERR wrong number of arguments*" {r lmpop 1 mylist{t}}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1 mylist{t}}
 
         assert_error "ERR numkeys*" {r lmpop 0 mylist{t} LEFT}
         assert_error "ERR numkeys*" {r lmpop a mylist{t} LEFT}
@@ -1822,6 +1922,27 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd2 close
         r ping
     } {PONG}
+
+    test "BLPOP/BLMOVE should increase dirty" {
+        r del lst{t} lst1{t}
+        set rd [redis_deferring_client]
+
+        set dirty [s rdb_changes_since_last_save]
+        $rd blpop lst{t} 0
+        r lpush lst{t} a
+        assert_equal {lst{t} a} [$rd read]
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 2}
+
+        set dirty [s rdb_changes_since_last_save]
+        $rd blmove lst{t} lst1{t} left left 0
+        r lpush lst{t} a
+        assert_equal {a} [$rd read]
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 2}
+
+        $rd close
+    }
 
 foreach {pop} {BLPOP BLMPOP_RIGHT} {
     test "client unblock tests" {

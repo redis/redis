@@ -10,7 +10,8 @@
         "command_flags": [
             "NOSCRIPT",
             "LOADING",
-            "STALE"
+            "STALE",
+            "SENTINEL"
         ],
         "acl_categories": [
             "CONNECTION"

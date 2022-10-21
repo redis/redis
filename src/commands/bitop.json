@@ -16,7 +16,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "OW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -33,7 +34,8 @@
             },
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -52,7 +54,29 @@
         "arguments": [
             {
                 "name": "operation",
-                "type": "string"
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "and",
+                        "type": "pure-token",
+                        "token": "AND"
+                    },
+                    {
+                        "name": "or",
+                        "type": "pure-token",
+                        "token": "OR"
+                    },
+                    {
+                        "name": "xor",
+                        "type": "pure-token",
+                        "token": "XOR"
+                    },
+                    {
+                        "name": "not",
+                        "type": "pure-token",
+                        "token": "NOT"
+                    }
+                ]
             },
             {
                 "name": "destkey",

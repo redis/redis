@@ -91,4 +91,8 @@ start_server {tags {"modules"}} {
         r eval "redis.call('commandfilter.ping')" 0
         assert_equal {} [r lrange log-key 0 -1]
     }
+
+    test "Unload the module - commandfilter" {
+        assert_equal {OK} [r module unload commandfilter]
+    }
 } 

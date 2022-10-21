@@ -1,0 +1,48 @@
+{
+    "LOADEX": {
+        "summary": "Load a module with extended parameters",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "7.0.0",
+        "arity": -3,
+        "container": "MODULE",
+        "function": "moduleCommand",
+        "command_flags": [
+            "NO_ASYNC_LOADING",
+            "ADMIN",
+            "NOSCRIPT",
+            "PROTECTED"
+        ],
+        "arguments": [
+            {
+                "name": "path",
+                "type": "string"
+            },
+            {
+                "name": "configs",
+                "token": "CONFIG",
+                "type": "block",
+                "multiple": true,
+                "multiple_token": true,
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string"
+                    }
+                ]
+            },
+            {
+                "name": "args",
+                "token": "ARGS",
+                "type": "string",
+                "multiple": true,
+                "optional": true
+            }
+        ]
+    }
+}

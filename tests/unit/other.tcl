@@ -38,9 +38,25 @@ start_server {tags {"other"}} {
         }
     }
 
+    start_server {overrides {save ""} tags {external:skip}} {
+        test {FLUSHALL should not reset the dirty counter if we disable save} {
+            r set key value
+            r flushall
+            assert_morethan [s rdb_changes_since_last_save] 0
+        }
+
+        test {FLUSHALL should reset the dirty counter to 0 if we enable save} {
+            r config set save "3600 1 300 100 60 10000"
+            r set key value
+            r flushall
+            assert_equal [s rdb_changes_since_last_save] 0
+        }
+    }
+
     test {BGSAVE} {
-        r flushdb
-        waitForBgsave r
+        # Use FLUSHALL instead of FLUSHDB, FLUSHALL do a foreground save
+        # and reset the dirty counter to 0, so we won't trigger an unexpected bgsave.
+        r flushall
         r save
         r set x 10
         r bgsave
@@ -305,10 +321,18 @@ start_server {tags {"other"}} {
 
         assert_equal [r acl whoami] default
     } {} {needs:reset}
+
+    test "Subcommand syntax error crash (issue #10070)" {
+        assert_error {*unknown command*} {r GET|}
+        assert_error {*unknown command*} {r GET|SET}
+        assert_error {*unknown command*} {r GET|SET|OTHER}
+        assert_error {*unknown command*} {r CONFIG|GET GET_XX}
+        assert_error {*unknown subcommand*} {r CONFIG GET_XX}
+    }
 }
 
 start_server {tags {"other external:skip"}} {
-    test {Don't rehash if redis has child proecess} {
+    test {Don't rehash if redis has child process} {
         r config set save ""
         r config set rdb-key-save-delay 1000000
 
@@ -324,7 +348,8 @@ start_server {tags {"other external:skip"}} {
         # Hash table should not rehash
         assert_no_match "*table size: 8192*" [r debug HTSTATS 9]
         exec kill -9 [get_child_pid 0]
-        after 200
+        waitForBgsave r
+        after 200 ;# waiting for serverCron
 
         # Hash table should rehash since there is no child process,
         # size is power of two and over 4098, so it is 8192

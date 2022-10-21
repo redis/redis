@@ -1157,9 +1157,9 @@ start_server {tags {"zset"}} {
     }
 
     test "ZMPOP with illegal argument" {
-        assert_error "ERR wrong number of arguments*" {r zmpop}
-        assert_error "ERR wrong number of arguments*" {r zmpop 1}
-        assert_error "ERR wrong number of arguments*" {r zmpop 1 myzset{t}}
+        assert_error "ERR wrong number of arguments for 'zmpop' command" {r zmpop}
+        assert_error "ERR wrong number of arguments for 'zmpop' command" {r zmpop 1}
+        assert_error "ERR wrong number of arguments for 'zmpop' command" {r zmpop 1 myzset{t}}
 
         assert_error "ERR numkeys*" {r zmpop 0 myzset{t} MIN}
         assert_error "ERR numkeys*" {r zmpop a myzset{t} MIN}
@@ -1223,11 +1223,20 @@ start_server {tags {"zset"}} {
     } {} {needs:repl}
 
     foreach resp {3 2} {
+        set rd [redis_deferring_client]
+
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$resp == 3} {continue}
+        } else {
+            r hello $resp
+            $rd hello $resp
+            $rd read
+        }
+
         test "ZPOPMIN/ZPOPMAX readraw in RESP$resp" {
             r del zset{t}
             create_zset zset2{t} {1 a 2 b 3 c 4 d 5 e}
 
-            r hello $resp
             r readraw 1
 
             # ZPOP against non existing key.
@@ -1260,9 +1269,6 @@ start_server {tags {"zset"}} {
             r del zset{t}
             create_zset zset2{t} {1 a 2 b 3 c 4 d 5 e}
 
-            set rd [redis_deferring_client]
-            $rd hello $resp
-            $rd read
             $rd readraw 1
 
             # BZPOP released on timeout.
@@ -1291,7 +1297,7 @@ start_server {tags {"zset"}} {
             assert_equal [$rd read] {a}
             verify_score_response $rd $resp 1
 
-            $rd close
+            $rd readraw 0
         }
 
         test "ZMPOP readraw in RESP$resp" {
@@ -1299,7 +1305,6 @@ start_server {tags {"zset"}} {
             create_zset zset3{t} {1 a}
             create_zset zset4{t} {1 a 2 b 3 c 4 d 5 e}
 
-            r hello $resp
             r readraw 1
 
             # ZMPOP against non existing key.
@@ -1339,9 +1344,6 @@ start_server {tags {"zset"}} {
             r del zset{t} zset2{t}
             create_zset zset3{t} {1 a 2 b 3 c 4 d 5 e}
 
-            set rd [redis_deferring_client]
-            $rd hello $resp
-            $rd read
             $rd readraw 1
 
             # BZMPOP released on timeout.
@@ -1380,8 +1382,9 @@ start_server {tags {"zset"}} {
             assert_equal [$rd read] {b}
             verify_score_response $rd $resp 2
 
-            $rd close
         }
+
+        $rd close
     }
 
     test {ZINTERSTORE regression with two sets, intset+hashtable} {
@@ -1475,6 +1478,16 @@ start_server {tags {"zset"}} {
         assert_error "*not*float*" {r zadd myzset "" abc}
     }
 
+    test "zunionInterDiffGenericCommand at least 1 input key" {
+        assert_error {*at least 1 input key * 'zunion' command} {r zunion 0 key{t}}
+        assert_error {*at least 1 input key * 'zunionstore' command} {r zunionstore dst_key{t} 0 key{t}}
+        assert_error {*at least 1 input key * 'zinter' command} {r zinter 0 key{t}}
+        assert_error {*at least 1 input key * 'zinterstore' command} {r zinterstore dst_key{t} 0 key{t}}
+        assert_error {*at least 1 input key * 'zdiff' command} {r zdiff 0 key{t}}
+        assert_error {*at least 1 input key * 'zdiffstore' command} {r zdiffstore dst_key{t} 0 key{t}}
+        assert_error {*at least 1 input key * 'zintercard' command} {r zintercard 0 key{t}}
+    }
+
     proc stressers {encoding} {
         set original_max_entries [lindex [r config get zset-max-ziplist-entries] 1]
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
@@ -1503,7 +1516,11 @@ start_server {tags {"zset"}} {
 
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zscore zscoretest $i]
+                # If an IEEE 754 double-precision number is converted to a decimal string with at
+                # least 17 significant digits (reply of zscore), and then converted back to double-precision representation,
+                # the final result replied via zscore command must match the original number present on the $aux list.
+                # Given Tcl is mostly very relaxed about types (everything is a string) we need to use expr to convert a string to float.
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         }
 
@@ -1518,7 +1535,8 @@ start_server {tags {"zset"}} {
 
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zmscore zscoretest $i]
+                # Check above notes on IEEE 754 double-precision comparison
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         }
 
@@ -1534,7 +1552,8 @@ start_server {tags {"zset"}} {
             r debug reload
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zscore zscoretest $i]
+                # Check above notes on IEEE 754 double-precision comparison
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         } {} {needs:debug}
 
@@ -1950,9 +1969,9 @@ start_server {tags {"zset"}} {
     }
 
     test "BZMPOP with illegal argument" {
-        assert_error "ERR wrong number of arguments*" {r bzmpop}
-        assert_error "ERR wrong number of arguments*" {r bzmpop 0 1}
-        assert_error "ERR wrong number of arguments*" {r bzmpop 0 1 myzset{t}}
+        assert_error "ERR wrong number of arguments for 'bzmpop' command" {r bzmpop}
+        assert_error "ERR wrong number of arguments for 'bzmpop' command" {r bzmpop 0 1}
+        assert_error "ERR wrong number of arguments for 'bzmpop' command" {r bzmpop 0 1 myzset{t}}
 
         assert_error "ERR numkeys*" {r bzmpop 1 0 myzset{t} MIN}
         assert_error "ERR numkeys*" {r bzmpop 1 a myzset{t} MIN}
@@ -2051,6 +2070,33 @@ start_server {tags {"zset"}} {
         }
         close_replication_stream $repl
     } {} {needs:repl}
+
+    test "BZMPOP should not blocks on non key arguments - #10762" {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        r del myzset myzset2 myzset3
+
+        $rd1 bzmpop 0 1 myzset min count 10
+        wait_for_blocked_clients_count 1
+        $rd2 bzmpop 0 2 myzset2 myzset3 max count 10
+        wait_for_blocked_clients_count 2
+
+        # These non-key keys will not unblock the clients.
+        r zadd 0 100 timeout_value
+        r zadd 1 200 numkeys_value
+        r zadd min 300 min_token
+        r zadd max 400 max_token
+        r zadd count 500 count_token
+        r zadd 10 600 count_value
+
+        r zadd myzset 1 zset
+        r zadd myzset3 1 zset3
+        assert_equal {myzset {{zset 1}}} [$rd1 read]
+        assert_equal {myzset3 {{zset3 1}}} [$rd2 read]
+
+        $rd1 close
+        $rd2 close
+    } {0} {cluster:skip}
 
     test {ZSET skiplist order consistency when elements are moved} {
         set original_max [lindex [r config get zset-max-ziplist-entries] 1]
@@ -2168,6 +2214,27 @@ start_server {tags {"zset"}} {
         assert_match "*syntax*" $err
     }
 
+    test {ZRANGESTORE with zset-max-listpack-entries 0 #10767 case} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del z1{t} z2{t}
+        r zadd z1{t} 1 a
+        assert_equal 1 [r zrangestore z2{t} z1{t} 0 -1]
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZRANGESTORE with zset-max-listpack-entries 1 dst key should use skiplist encoding} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 1
+        r del z1{t} z2{t} z3{t}
+        r zadd z1{t} 1 a 2 b
+        assert_equal 1 [r zrangestore z2{t} z1{t} 0 0]
+        assert_encoding listpack z2{t}
+        assert_equal 2 [r zrangestore z3{t} z1{t} 0 1]
+        assert_encoding skiplist z3{t}
+        r config set zset-max-listpack-entries $original_max
+    }
+
     test {ZRANGE invalid syntax} {
         catch {r zrange z1{t} 0 -1 limit 1 2} err
         assert_match "*syntax*" $err
@@ -2262,10 +2329,7 @@ start_server {tags {"zset"}} {
             assert_encoding $type myzset
 
             # create a dict for easy lookup
-            unset -nocomplain mydict
-            foreach {k v} [r zrange myzset 0 -1 withscores] {
-                dict append mydict $k $v
-            }
+            set mydict [dict create {*}[r zrange myzset 0 -1 withscores]]
 
             # We'll stress different parts of the code, see the implementation
             # of ZRANDMEMBER for more information, but basically there are
@@ -2391,5 +2455,13 @@ start_server {tags {"zset"}} {
         }
         r config set zset-max-ziplist-value $original_max_value
     }
+
+    test {zset score double range} {
+        set dblmax 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.00000000000000000
+        r del zz
+        r zadd zz $dblmax dblmax
+        assert_encoding listpack zz
+        r zscore zz dblmax
+    } {1.7976931348623157e+308}
 
 }

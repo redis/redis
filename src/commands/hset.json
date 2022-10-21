@@ -6,6 +6,12 @@
         "since": "2.0.0",
         "arity": -4,
         "function": "hsetCommand",
+        "history": [
+            [
+                "4.0.0",
+                "Accepts multiple `field` and `value` arguments."
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "DENYOOM",
@@ -17,7 +23,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -40,7 +47,7 @@
                 "key_spec_index": 0
             },
             {
-                "name": "field_value",
+                "name": "data",
                 "type": "block",
                 "multiple": true,
                 "arguments": [

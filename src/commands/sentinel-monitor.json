@@ -11,6 +11,24 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "name",
+                "type": "string"
+            },
+            {
+                "name": "ip",
+                "type": "string"
+            },
+            {
+                "name": "port",
+                "type": "integer"
+            },
+            {
+                "name": "quorum",
+                "type": "integer"
+            }
         ]
     }
 }

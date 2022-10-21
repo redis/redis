@@ -8,7 +8,7 @@
         "function": "zremCommand",
         "history": [
             [
-                "2.4",
+                "2.4.0",
                 "Accepts multiple elements."
             ]
         ],
@@ -22,7 +22,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {

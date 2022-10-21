@@ -8,27 +8,31 @@
         "function": "xaddCommand",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."
             ],
             [
-                "7.0",
+                "7.0.0",
                 "Added support for the `<ms>-*` explicit ID form."
             ]
         ],
         "command_flags": [
             "WRITE",
             "DENYOOM",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
             "STREAM"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
+                "notes": "UPDATE instead of INSERT because of the optional trimming feature",
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -55,7 +59,7 @@
                 "name": "nomkstream",
                 "type": "pure-token",
                 "optional": true,
-                "since": "6.2"
+                "since": "6.2.0"
             },
             {
                 "name": "trim",
@@ -75,7 +79,7 @@
                                 "name": "minid",
                                 "type": "pure-token",
                                 "token": "MINID",
-                                "since": "6.2"
+                                "since": "6.2.0"
                             }
                         ]
                     },
@@ -105,27 +109,27 @@
                         "name": "count",
                         "type": "integer",
                         "optional": true,
-                        "since": "6.2"
+                        "since": "6.2.0"
                     }
                 ]
             },
             {
-                "name": "id_or_auto",
+                "name": "id-selector",
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "auto_id",
+                        "name": "auto-id",
                         "type": "pure-token",
                         "token": "*"
                     },
                     {
-                        "name": "ID",
+                        "name": "id",
                         "type": "string"
                     }
                 ]
             },
             {
-                "name": "field_value",
+                "name": "data",
                 "type": "block",
                 "multiple": true,
                 "arguments": [

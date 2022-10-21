@@ -8,16 +8,19 @@
         "function": "xclaimCommand",
         "command_flags": [
             "WRITE",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
             "STREAM"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -64,8 +67,8 @@
             },
             {
                 "token": "TIME",
-                "name": "ms-unix-time",
-                "type": "integer",
+                "name": "unix-time-milliseconds",
+                "type": "unix-time",
                 "optional": true
             },
             {
@@ -84,6 +87,12 @@
                 "name": "justid",
                 "token": "JUSTID",
                 "type": "pure-token",
+                "optional": true
+            },
+            {
+                "name": "lastid",
+                "token": "LASTID",
+                "type": "string",
                 "optional": true
             }
         ]

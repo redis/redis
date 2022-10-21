@@ -37,10 +37,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
 #include <pthread.h>
 #include <errno.h>
+
+#define UNUSED(V) ((void) V)
 
 RedisModuleCtx *detached_ctx = NULL;
 
@@ -388,6 +389,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 propagateTestIncr,
                 "write",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
+
+    return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    UNUSED(ctx);
+
+    if (detached_ctx)
+        RedisModule_FreeThreadSafeContext(detached_ctx);
 
     return REDISMODULE_OK;
 }

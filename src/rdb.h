@@ -78,7 +78,7 @@
 #define RDB_TYPE_ZSET   3
 #define RDB_TYPE_HASH   4
 #define RDB_TYPE_ZSET_2 5 /* ZSET version 2 with doubles stored in binary. */
-#define RDB_TYPE_MODULE 6
+#define RDB_TYPE_MODULE_PRE_GA 6 /* Used in 4.0 release candidates */
 #define RDB_TYPE_MODULE_2 7 /* Module value with annotations for parsing without
                                the generating module being loaded. */
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
@@ -94,13 +94,15 @@
 #define RDB_TYPE_HASH_LISTPACK 16
 #define RDB_TYPE_ZSET_LISTPACK 17
 #define RDB_TYPE_LIST_QUICKLIST_2   18
+#define RDB_TYPE_STREAM_LISTPACKS_2 19
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
 
 /* Test if a type is an object type. */
-#define rdbIsObjectType(t) ((t >= 0 && t <= 7) || (t >= 9 && t <= 18))
+#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 19))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
-#define RDB_OPCODE_FUNCTION   246   /* engine data */
+#define RDB_OPCODE_FUNCTION2  245   /* function library data */
+#define RDB_OPCODE_FUNCTION_PRE_GA   246   /* old function library data for 7.0 rc1 and rc2 */
 #define RDB_OPCODE_MODULE_AUX 247   /* Module auxiliary data. */
 #define RDB_OPCODE_IDLE       248   /* LRU idle time. */
 #define RDB_OPCODE_FREQ       249   /* LFU frequency. */
@@ -137,6 +139,7 @@
 #define RDB_LOAD_ERR_EMPTY_KEY  1   /* Error of empty key */
 #define RDB_LOAD_ERR_OTHER      2   /* Any other errors */
 
+ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len);
 int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
 time_t rdbLoadTime(rio *rdb);
@@ -148,10 +151,10 @@ int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr);
 int rdbSaveObjectType(rio *rdb, robj *o);
 int rdbLoadObjectType(rio *rdb);
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags);
-int rdbSaveBackground(char *filename, rdbSaveInfo *rsi);
-int rdbSaveToSlavesSockets(rdbSaveInfo *rsi);
+int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi);
+int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi);
 void rdbRemoveTempFile(pid_t childpid, int from_signal);
-int rdbSave(char *filename, rdbSaveInfo *rsi);
+int rdbSave(int req, char *filename, rdbSaveInfo *rsi);
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid);
 size_t rdbSavedObjectLen(robj *o, robj *key, int dbid);
 robj *rdbLoadObject(int type, rio *rdb, sds key, int dbid, int *error);
@@ -169,9 +172,9 @@ int rdbSaveBinaryFloatValue(rio *rdb, float val);
 int rdbLoadBinaryFloatValue(rio *rdb, float *val);
 int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi);
 int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx);
-int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, int rdbflags, sds *err);
-int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi);
-int functionsSaveRio(rio *rdb);
+int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, sds *err);
+int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi);
+ssize_t rdbSaveFunctions(rio *rdb);
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi);
 
 #endif

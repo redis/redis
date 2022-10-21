@@ -7,6 +7,12 @@
         "arity": -5,
         "container": "XGROUP",
         "function": "xgroupCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the `entries_read` named argument."
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "DENYOOM"
@@ -17,7 +23,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {
@@ -40,19 +47,19 @@
                 "key_spec_index": 0
             },
             {
-                "name": "groupname",
+                "name": "group",
                 "type": "string"
             },
             {
-                "name": "id",
+                "name": "id-selector",
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "ID",
+                        "name": "id",
                         "type": "string"
                     },
                     {
-                        "name": "new_id",
+                        "name": "new-id",
                         "type": "pure-token",
                         "token": "$"
                     }
@@ -62,6 +69,12 @@
                 "token": "MKSTREAM",
                 "name": "mkstream",
                 "type": "pure-token",
+                "optional": true
+            },
+            {
+                "token": "ENTRIESREAD",
+                "name": "entries-read",
+                "type": "integer",
                 "optional": true
             }
         ]

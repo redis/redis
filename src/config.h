@@ -72,7 +72,7 @@
 
 /* Test for backtrace() */
 #if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
-    defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\
+    defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__) || defined(__sun)) && defined(USE_BACKTRACE))\
  || defined(__DragonFly__) || (defined(__UCLIBC__) && defined(__UCLIBC_HAS_BACKTRACE__))
 #define HAVE_BACKTRACE 1
 #endif
@@ -80,6 +80,10 @@
 /* MSG_NOSIGNAL. */
 #ifdef __linux__
 #define HAVE_MSG_NOSIGNAL 1
+#if defined(SO_MARK)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_MARK
+#endif
 #endif
 
 /* Test for polling API */
@@ -111,6 +115,20 @@
 #define redis_fsync(fd) fcntl(fd, F_FULLFSYNC)
 #else
 #define redis_fsync(fd) fsync(fd)
+#endif
+
+#if defined(__FreeBSD__)
+#if defined(SO_USER_COOKIE)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_USER_COOKIE
+#endif
+#endif
+
+#if defined(__OpenBSD__)
+#if defined(SO_RTABLE)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_RTABLE
+#endif
 #endif
 
 #if __GNUC__ >= 4
@@ -289,6 +307,16 @@ int pthread_setname_np(const char *name);
 #if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
 #define USE_SETCPUAFFINITY
 void setcpuaffinity(const char *cpulist);
+#endif
+
+/* deprecate unsafe functions
+ *
+ * NOTE: We do not use the poison pragma since it
+ * will error on stdlib definitions in files as well*/
+#if (__GNUC__ && __GNUC__ >= 4) && !defined __APPLE__
+int sprintf(char *str, const char *format, ...) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of snprintf instead")));
+char *strcpy(char *restrict dest, const char *src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcpy instead")));
+char *strcat(char *restrict dest, const char *restrict src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcat instead")));
 #endif
 
 #endif

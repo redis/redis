@@ -6,6 +6,12 @@
         "since": "2.0.0",
         "arity": -3,
         "function": "hdelCommand",
+        "history": [
+            [
+                "2.4.0",
+                "Accepts multiple `field` arguments."
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "FAST"
@@ -16,7 +22,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {

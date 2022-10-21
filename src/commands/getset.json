@@ -22,8 +22,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE",
-                    "READ"
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {

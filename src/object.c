@@ -62,7 +62,7 @@ robj *createObject(int type, void *ptr) {
  * objects such as small integers from different threads without any
  * mutex.
  *
- * A common patter to create shared objects:
+ * A common pattern to create shared objects:
  *
  * robj *myobject = makeObjectShared(createObject(...));
  *
@@ -710,7 +710,7 @@ robj *getDecodedObject(robj *o) {
 #define REDIS_COMPARE_BINARY (1<<0)
 #define REDIS_COMPARE_COLL (1<<1)
 
-int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
+int compareStringObjectsWithFlags(const robj *a, const robj *b, int flags) {
     serverAssertWithInfo(NULL,a,a->type == OBJ_STRING && b->type == OBJ_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
@@ -743,12 +743,12 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
 }
 
 /* Wrapper for compareStringObjectsWithFlags() using binary comparison. */
-int compareStringObjects(robj *a, robj *b) {
+int compareStringObjects(const robj *a, const robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_BINARY);
 }
 
 /* Wrapper for compareStringObjectsWithFlags() using collation. */
-int collateStringObjects(robj *a, robj *b) {
+int collateStringObjects(const robj *a, const robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_COLL);
 }
 
@@ -930,7 +930,6 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_INT: return "int";
     case OBJ_ENCODING_HT: return "hashtable";
     case OBJ_ENCODING_QUICKLIST: return "quicklist";
-    case OBJ_ENCODING_ZIPLIST: return "ziplist";
     case OBJ_ENCODING_LISTPACK: return "listpack";
     case OBJ_ENCODING_INTSET: return "intset";
     case OBJ_ENCODING_SKIPLIST: return "skiplist";
@@ -958,7 +957,7 @@ char *strEncoding(int encoding) {
  * on the insertion speed and thus the ability of the radix tree
  * to compress prefixes. */
 size_t streamRadixTreeMemoryUsage(rax *rax) {
-    size_t size;
+    size_t size = sizeof(*rax);
     size = rax->numele * sizeof(streamID);
     size += rax->numnodes * sizeof(raxNode);
     /* Add a fixed overhead due to the aux data pointer, children, ... */
@@ -998,8 +997,6 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
                 samples++;
             } while ((node = node->next) && samples < sample_size);
             asize += (double)elesize/samples*ql->len;
-        } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -1202,7 +1199,6 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem = 0;
     if (server.aof_state != AOF_OFF) {
         mem += sdsZmallocSize(server.aof_buf);
-        mem += aofRewriteBufferMemoryUsage();
     }
     mh->aof_buffer = mem;
     mem_total+=mem;
@@ -1231,6 +1227,11 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mem = dictSize(db->expires) * sizeof(dictEntry) +
               dictSlots(db->expires) * sizeof(dictEntry*);
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
+        mem_total+=mem;
+
+        /* Account for the slot to keys map in cluster mode */
+        mem = dictSize(db->dict) * dictMetadataSize(db->dict);
+        mh->db[mh->num_dbs].overhead_ht_slot_to_keys = mem;
         mem_total+=mem;
 
         mh->num_dbs++;
@@ -1523,11 +1524,12 @@ NULL
         size_t usage = objectComputeSize(c->argv[2],dictGetVal(de),samples,c->db->id);
         usage += sdsZmallocSize(dictGetKey(de));
         usage += sizeof(dictEntry);
+        usage += dictMetadataSize(c->db->dict);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,26+mh->num_dbs);
+        addReplyMapLen(c,27+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1547,6 +1549,9 @@ NULL
         addReplyBulkCString(c,"clients.normal");
         addReplyLongLong(c,mh->clients_normal);
 
+        addReplyBulkCString(c,"cluster.links");
+        addReplyLongLong(c,mh->cluster_links);
+
         addReplyBulkCString(c,"aof.buffer");
         addReplyLongLong(c,mh->aof_buffer);
 
@@ -1560,14 +1565,18 @@ NULL
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMapLen(c,2);
+            addReplyMapLen(c,3);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);
 
             addReplyBulkCString(c,"overhead.hashtable.expires");
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
+
+            addReplyBulkCString(c,"overhead.hashtable.slot-to-keys");
+            addReplyLongLong(c,mh->db[j].overhead_ht_slot_to_keys);
         }
+
 
         addReplyBulkCString(c,"overhead.total");
         addReplyLongLong(c,mh->overhead_total);

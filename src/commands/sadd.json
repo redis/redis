@@ -8,7 +8,7 @@
         "function": "saddCommand",
         "history": [
             [
-                "2.4",
+                "2.4.0",
                 "Accepts multiple `member` arguments."
             ]
         ],
@@ -23,7 +23,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {

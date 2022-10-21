@@ -17,7 +17,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "OW",
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {

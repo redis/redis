@@ -49,7 +49,6 @@
 #define LP_HDR_NUMELE_UNKNOWN UINT16_MAX
 #define LP_MAX_INT_ENCODING_LEN 9
 #define LP_MAX_BACKLEN_SIZE 5
-#define LP_MAX_ENTRY_BACKLEN 34359738367ULL
 #define LP_ENCODING_INT 0
 #define LP_ENCODING_STRING 1
 
@@ -180,7 +179,8 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
     int negative = 0;
     uint64_t v;
 
-    if (plen == slen)
+    /* Abort if length indicates this cannot possibly be an int */
+    if (slen == 0 || slen >= LONG_STR_SIZE)
         return 0;
 
     /* Special case: first and only digit is 0. */
@@ -568,9 +568,7 @@ unsigned long lpLength(unsigned char *lp) {
  * this lib.
  *
  * Similarly, there is no error returned since the listpack normally can be
- * assumed to be valid, so that would be a very high API cost. However a function
- * in order to check the integrity of the listpack at load time is provided,
- * check lpIsValid(). */
+ * assumed to be valid, so that would be a very high API cost. */
 static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, unsigned char *intbuf, uint64_t *entry_size) {
     int64_t val;
     uint64_t uval, negstart, negmax;
@@ -863,8 +861,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     if (where == LP_BEFORE) {
         memmove(dst+enclen+backlen_size,dst,old_listpack_bytes-poff);
     } else { /* LP_REPLACE. */
-        long lendiff = (enclen+backlen_size)-replaced_len;
-        memmove(dst+replaced_len+lendiff,
+        memmove(dst+enclen+backlen_size,
                 dst+replaced_len,
                 old_listpack_bytes-poff-replaced_len);
     }
@@ -885,8 +882,10 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     if (!delete) {
         if (enctype == LP_ENCODING_INT) {
             memcpy(dst,eleint,enclen);
-        } else {
+        } else if (elestr) {
             lpEncodeString(dst,elestr,size);
+        } else {
+            redis_unreachable();
         }
         dst += enclen;
         memcpy(dst,backlen,backlen_size);
@@ -958,7 +957,7 @@ unsigned char *lpPrependInteger(unsigned char *lp, long long lval) {
     return lpInsertInteger(lp, lval, p, LP_BEFORE, NULL);
 }
 
-/* Append the specified element 'ele' of length 'len' at the end of the
+/* Append the specified element 'ele' of length 'size' at the end of the
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
@@ -1125,7 +1124,7 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
     lplength = lplength < UINT16_MAX ? lplength : UINT16_MAX;
 
     /* Extend target to new lpbytes then append or prepend source. */
-    target = zrealloc(target, lpbytes);
+    target = lp_realloc(target, lpbytes);
     if (append) {
         /* append == appending to target */
         /* Copy source after target (copying over original [END]):
@@ -1149,11 +1148,11 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
 
     /* Now free and NULL out what we didn't realloc */
     if (append) {
-        zfree(*second);
+        lp_free(*second);
         *second = NULL;
         *first = target;
     } else {
-        zfree(*first);
+        lp_free(*first);
         *first = NULL;
         *second = target;
     }
@@ -1398,7 +1397,7 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
         unsigned int index;
         unsigned int order;
     } rand_pick;
-    rand_pick *picks = zmalloc(sizeof(rand_pick)*count);
+    rand_pick *picks = lp_malloc(sizeof(rand_pick)*count);
     unsigned int total_size = lpLength(lp)/2;
 
     /* Avoid div by zero on corrupt listpack */
@@ -1432,7 +1431,7 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
         p = lpNext(lp, p);
     }
 
-    zfree(picks);
+    lp_free(picks);
 }
 
 /* Randomly select count of key value pairs and store into 'keys' and
@@ -1970,7 +1969,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         char buf[32];
         int i,len;
         for (i = 0; i < 1000; i++) {
-            len = sprintf(buf, "%d", i);
+            len = snprintf(buf, sizeof(buf), "%d", i);
             lp = lpAppend(lp, (unsigned char*)buf, len);
         }
         for (i = 0; i < 1000; i++) {
@@ -2274,13 +2273,13 @@ int listpackTest(int argc, char *argv[], int flags) {
                 } else {
                     switch(rand() % 3) {
                     case 0:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()) >> 20);
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()) >> 20);
                         break;
                     case 1:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()));
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()));
                         break;
                     case 2:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()) << 20);
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()) << 20);
                         break;
                     default:
                         assert(NULL);

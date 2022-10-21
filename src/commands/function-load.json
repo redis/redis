@@ -1,38 +1,29 @@
 {
-    "CREATE": {
+    "LOAD": {
         "summary": "Create a function with the given arguments (name, code, description)",
         "complexity": "O(1) (considering compilation time is redundant)",
         "group": "scripting",
         "since": "7.0.0",
-        "arity": -5,
+        "arity": -3,
         "container": "FUNCTION",
-        "function": "functionCreateCommand",
+        "function": "functionLoadCommand",
         "command_flags": [
             "NOSCRIPT",
-            "WRITE"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
             "SCRIPTING"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
         "arguments": [
-            {
-                "name": "engine-name",
-                "type": "string"
-            },
-            {
-                "name": "function-name",
-                "type": "string"
-            },
             {
                 "name": "replace",
                 "type": "pure-token",
                 "token": "REPLACE",
-                "optional": true
-            },
-            {
-                "name": "function-description",
-                "type": "string",
-                "token": "DESC",
                 "optional": true
             },
             {

@@ -6,6 +6,12 @@
         "since": "1.0.0",
         "arity": -2,
         "function": "existsCommand",
+        "history": [
+            [
+                "3.0.3",
+                "Accepts multiple `key` arguments."
+            ]
+        ],
         "command_flags": [
             "READONLY",
             "FAST"
@@ -13,10 +19,14 @@
         "acl_categories": [
             "KEYSPACE"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:MULTI_SHARD",
+            "RESPONSE_POLICY:AGG_SUM"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO"
                 ],
                 "begin_search": {
                     "index": {
