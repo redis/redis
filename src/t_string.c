@@ -111,7 +111,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         setExpire(c,c->db,key,milliseconds);
         /* Propagate as SET Key Value PXAT millisecond-timestamp if there is
          * EX/PX/EXAT/PXAT flag. */
-        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+        robj *milliseconds_obj = createStringObjectFromLongLongAlwaysString(milliseconds);
         rewriteClientCommandVector(c, 5, shared.set, key, val, shared.pxat, milliseconds_obj);
         decrRefCount(milliseconds_obj);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);

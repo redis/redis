@@ -185,6 +185,14 @@ robj *createStringObjectFromLongLongForValue(long long value) {
     return createStringObjectFromLongLongWithOptions(value,1);
 }
 
+/* Always creates a string object from a long long, unlike createStringObjectFromLongLong() which
+ * may return an integer object. */
+robj *createStringObjectFromLongLongAlwaysString(long long value) {
+    char buf[LONG_STR_SIZE];
+    size_t len = ll2string(buf,sizeof(buf),value);
+    return createStringObject(buf, len);
+}
+
 /* Create a string object from a long double. If humanfriendly is non-zero
  * it does not use exponential format and trims trailing zeroes at the end,
  * however this results in loss of precision. Otherwise exp format is used
