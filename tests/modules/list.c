@@ -123,11 +123,11 @@ int list_edit(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModuleString *v = RedisModule_ListGet(key, index);
     RedisModule_ReplyWithMap(ctx, v ? 5 : 4);
-    RedisModule_ReplyWithCString(ctx, "inserts");
+    RedisModule_ReplyWithCString(ctx, "i");
     RedisModule_ReplyWithLongLong(ctx, num_inserts);
-    RedisModule_ReplyWithCString(ctx, "deletes");
+    RedisModule_ReplyWithCString(ctx, "d");
     RedisModule_ReplyWithLongLong(ctx, num_deletes);
-    RedisModule_ReplyWithCString(ctx, "replaces");
+    RedisModule_ReplyWithCString(ctx, "r");
     RedisModule_ReplyWithLongLong(ctx, num_replaces);
     RedisModule_ReplyWithCString(ctx, "index");
     RedisModule_ReplyWithLongLong(ctx, index);

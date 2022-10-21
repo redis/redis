@@ -1,11 +1,15 @@
 set testmodule [file normalize tests/modules/list.so]
 
+# The following arguments can be passed to args:
+#   i -- the number of inserts
+#   d -- the number of deletes
+#   r -- the number of replaces
+#   index -- the last index
+#   entry -- The entry pointed to by index
 proc verify_list_edit_reply {reply argv} {
-    if {[dict exists $argv "i"]} { assert_equal [dict get $reply "inserts"] [dict get $argv "i"]}
-    if {[dict exists $argv "d"]} { assert_equal [dict get $reply "deletes"] [dict get $argv "d"]}
-    if {[dict exists $argv "r"]} { assert_equal [dict get $reply "replaces"] [dict get $argv "r"]}
-    if {[dict exists $argv "index"]} { assert_equal [dict get $reply "index"] [dict get $argv "index"]}
-    if {[dict exists $argv "entry"]} { assert_equal [dict get $reply "entry"] [dict get $argv "entry"]}
+    foreach {k v} $argv {
+        assert_equal [dict get $reply $k] $v
+    }
 }
 
 start_server {tags {"modules"}} {
