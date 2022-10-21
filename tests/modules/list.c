@@ -50,7 +50,7 @@ int list_getall(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  * The number of occurrences of "i" and "r" in cmdstr) should correspond to the
  * number of args after cmdstr.
  *
- * Reply with a map, containing the number of edits (inserts, replaces, deletes)
+ * Reply with a RESP3 Map, containing the number of edits (inserts, replaces, deletes)
  * performed, as well as the last index and the entry it points to.
  */
 int list_edit(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -123,11 +123,11 @@ int list_edit(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModuleString *v = RedisModule_ListGet(key, index);
     RedisModule_ReplyWithMap(ctx, v ? 5 : 4);
-    RedisModule_ReplyWithCString(ctx, "num_inserts");
+    RedisModule_ReplyWithCString(ctx, "inserts");
     RedisModule_ReplyWithLongLong(ctx, num_inserts);
-    RedisModule_ReplyWithCString(ctx, "num_deletes");
+    RedisModule_ReplyWithCString(ctx, "deletes");
     RedisModule_ReplyWithLongLong(ctx, num_deletes);
-    RedisModule_ReplyWithCString(ctx, "num_replaces");
+    RedisModule_ReplyWithCString(ctx, "replaces");
     RedisModule_ReplyWithLongLong(ctx, num_replaces);
     RedisModule_ReplyWithCString(ctx, "index");
     RedisModule_ReplyWithLongLong(ctx, index);
