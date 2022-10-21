@@ -1381,6 +1381,39 @@ void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *k
     val->sval = lpGetValue(p, &(val->slen), &(val->lval));
 }
 
+/* Randomly select 'count' elements and store pointers to them in the 'results'
+ * array, which needs to have space for 'count' pointers. The order is random
+ * and duplicates are possible. */
+void lpRandomElements(unsigned char *lp, unsigned int count, unsigned char **result) {
+    struct pick {
+        unsigned int index;
+        unsigned int order;
+    } *picks = zmalloc(count * sizeof(struct pick));
+    unsigned int total_size = lpLength(lp);
+    assert(total_size);
+    for (unsigned int i = 0; i < count; i++) {
+        picks[i].index = rand() % total_size;
+        picks[i].order = i;
+    }
+
+    /* Sort by index. */
+    qsort(picks, count, sizeof(struct pick), uintCompare);
+
+    /* Iterate over listpack in index order and store pointers to elements in
+     * the result array respecting the original order. */
+    unsigned char *p = lpFirst(lp);
+    unsigned int j = 0; /* index in listpack */
+    for (unsigned int i = 0; i < count; i++) {
+        /* Advance listpack pointer to until we reach 'index' listpack. */
+        while (j < picks[i].index) {
+            p = lpNext(lp, p);
+            j++;
+        }
+        result[picks[i].order] = p;
+    }
+    zfree(picks);
+}
+
 /* Randomly select count of key value pairs and store into 'keys' and
  * 'vals' args. The order of the picked entries is random, and the selections
  * are non-unique (repetitions are possible).

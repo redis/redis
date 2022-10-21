@@ -891,6 +891,24 @@ void srandmemberWithCountCommand(client *c) {
      * elements in random order. */
     if (!uniq || count == 1) {
         addReplyArrayLen(c,count);
+
+        if (set->encoding == OBJ_ENCODING_LISTPACK && count > 1) {
+            /* Specialized case for listpack, traversing it only once. */
+            unsigned char **ps = zmalloc(count * sizeof(unsigned char *));
+            lpRandomElements(set->ptr, count, ps);
+            for (unsigned long i = 0; i < count; i++) {
+                unsigned int len;
+                str = (char *)lpGetValue(ps[i], &len, (long long *)&llele);
+                if (str) {
+                    addReplyBulkCBuffer(c, str, len);
+                } else {
+                    addReplyBulkLongLong(c, llele);
+                }
+            }
+            zfree(ps);
+            return;
+        }
+
         while(count--) {
             setTypeRandomElement(set, &str, &len, &llele);
             if (str == NULL) {
