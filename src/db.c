@@ -948,8 +948,12 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* Handle the case of a hash table. */
     ht = NULL;
     if (o == NULL) {
-        if (cursorIsHot(outer_cursor)) ht = c->db->dict;
-        else metascan = 1;
+        if (server.swap_mode == SWAP_MODE_MEMORY ||
+                cursorIsHot(outer_cursor)) {
+            ht = c->db->dict;
+        } else {
+            metascan = 1;
+        }
         cursor = cursorOuterToInternal(outer_cursor);
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;

@@ -12,35 +12,8 @@ source tests/support/test.tcl
 source tests/support/util.tcl
 source tests/swap/support/util.tcl
 
-set mem_failed {
-    unit/aofrw
-    unit/scripting
-    unit/maxmemory
-}
-
-set ::swap_failed {
-    unit/obuf-limits
-    unit/lazyfree
-    unit/memefficiency
-    integration/aof
-}
-
-set swap_not_supported {
-    unit/sort
-}
-
-set ::failed_disk_tests {
-    integration/corrupt-dump-fuzzer
-    integration/replication
-    integration/replication-psync
-    swap/integration/complex_data
-}
-
 set ::disk_tests {
     swap/integration/concurrency
-    swap/unit/dbsize
-    swap/integration/replication-psync
-    swap/integration/replication
     swap/integration/multi_bighash
     swap/integration/concurrent
     swap/integration/pipeline
@@ -48,12 +21,15 @@ set ::disk_tests {
     swap/integration/bgsave
     swap/integration/compact_range
     swap/integration/expire_evict
+    swap/ported/replication-psync
+    swap/ported/replication
     swap/ported/other
     swap/ported/stream-cgroups
     swap/ported/stream
     swap/ported/replication-3 
     swap/ported/rdb
     swap/ported/multi
+    swap/unit/dbsize
     swap/unit/list
     swap/unit/dirty
     swap/unit/expire

@@ -336,31 +336,11 @@ foreach mdl {no yes} {
                             wait_for_ofs_sync $master [lindex $slaves 2]
 
                             # Check digests
-                            if {$::debug_evict_keys} {
-                                set digest [$master debug digest-keys]
-                                set digest0 [[lindex $slaves 0] debug digest-keys]
-                                set digest1 [[lindex $slaves 1] debug digest-keys]
-                                set digest2 [[lindex $slaves 2] debug digest-keys]
-                            } else {
-                                set keyspace_info [$master info keyspace]
-                                set try 3
-                                while {$try > 0} {
-                                    after 2000
-                                    if {[$master info keyspace] == $keyspace_info} {
-                                        $master debug swapout
-                                        [lindex $slaves 0] debug swapout
-                                        [lindex $slaves 1] debug swapout 
-                                        [lindex $slaves 2] debug swapout
-                                        set try [expr {$try-1}]
-                                        continue
-                                    }
-                                    set keyspace_info [$master info keyspace]
-                                }
-                                set digest [$master debug digest]
-                                set digest0 [[lindex $slaves 0] debug digest]
-                                set digest1 [[lindex $slaves 1] debug digest]
-                                set digest2 [[lindex $slaves 2] debug digest]
-                            }
+                            set digest [$master debug digest]
+                            set digest0 [[lindex $slaves 0] debug digest]
+                            set digest1 [[lindex $slaves 1] debug digest]
+                            set digest2 [[lindex $slaves 2] debug digest]
+
                             assert {$digest ne 0000000000000000000000000000000000000000}
                             assert {$digest eq $digest0}
                             assert {$digest eq $digest1}
