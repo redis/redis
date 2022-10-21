@@ -683,7 +683,35 @@ void spopWithCountCommand(client *c) {
      * CASE 2: The number of elements to return is small compared to the
      * set size. We can just extract random elements and return them to
      * the set. */
-    if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
+    if (remaining*SPOP_MOVE_STRATEGY_MUL > count &&
+        set->encoding == OBJ_ENCODING_LISTPACK)
+    {
+        /* Specialized case for listpack. Traverse it only once. */
+        unsigned char *lp = set->ptr;
+        unsigned char *p = lpFirst(lp);
+        unsigned int index = 0;
+        while (count) {
+            p = lpNextRandom(lp, p, &index, count--, 0);
+            unsigned int len;
+            str = (char *)lpGetValue(p, &len, (long long *)&llele);
+
+            if (str) {
+                addReplyBulkCBuffer(c, str, len);
+                objele = createStringObject(str, len);
+            } else {
+                addReplyBulkLongLong(c, llele);
+                objele = createStringObjectFromLongLong(llele);
+            }
+
+            /* Replicate/AOF this command as an SREM operation */
+            propargv[2] = objele;
+            alsoPropagate(c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
+            decrRefCount(objele);
+
+            lp = lpDelete(lp, p, &p);
+        }
+        set->ptr = lp;
+    } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
         while(count--) {
             setTypeRandomElement(set, &str, &len, &llele);
             objele = setTypeEmitRemoveAndReturnObject(c, set, str, len, llele);
@@ -705,14 +733,34 @@ void spopWithCountCommand(client *c) {
         robj *newset = NULL;
 
         /* Create a new set with just the remaining elements. */
-        while(remaining--) {
-            setTypeRandomElement(set, &str, &len, &llele);
-            sds sdsele = str ? sdsnewlen(str, len) : sdsfromlonglong(llele);
+        if (set->encoding == OBJ_ENCODING_LISTPACK) {
+            /* Specialized case for listpack. Traverse it only once. */
+            newset = createSetListpackObject();
+            unsigned char *lp = set->ptr;
+            unsigned char *p = lpFirst(lp);
+            unsigned int index = 0;
+            while (remaining) {
+                p = lpNextRandom(lp, p, &index, remaining--, 0);
+                unsigned int len;
+                str = (char *)lpGetValue(p, &len, (long long *)&llele);
+                if (str) {
+                    setTypeAddBuf(newset, str, len);
+                } else {
+                    setTypeAddInt(newset, llele);
+                }
+                lp = lpDelete(lp, p, &p);
+            }
+            set->ptr = lp;
+        } else {
+            while(remaining--) {
+                setTypeRandomElement(set, &str, &len, &llele);
+                sds sdsele = str ? sdsnewlen(str, len) : sdsfromlonglong(llele);
 
-            if (!newset) newset = setTypeCreate(sdsele);
-            setTypeAdd(newset,sdsele);
-            setTypeRemove(set,sdsele);
-            sdsfree(sdsele);
+                if (!newset) newset = setTypeCreate(sdsele);
+                setTypeAdd(newset,sdsele);
+                setTypeRemove(set,sdsele);
+                sdsfree(sdsele);
+            }
         }
 
         /* Transfer the old set to the client. */
@@ -863,6 +911,27 @@ void srandmemberWithCountCommand(client *c) {
         }
         setTypeReleaseIterator(si);
         serverAssert(size==0);
+        return;
+    }
+
+    /* CASE 2.5 listpack only. Sampling in non-random order. */
+    if (set->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *lp = set->ptr;
+        unsigned char *p = lpFirst(lp);
+        unsigned int i = 0;
+        addReplyArrayLen(c, count);
+        while (count) {
+            p = lpNextRandom(lp, p, &i, count--, 0);
+            unsigned int len;
+            str = (char *)lpGetValue(p, &len, (long long *)&llele);
+            if (str == NULL) {
+                addReplyBulkLongLong(c, llele);
+            } else {
+                addReplyBulkCBuffer(c, str, len);
+            }
+            p = lpNext(lp, p);
+            i++;
+        }
         return;
     }
 
