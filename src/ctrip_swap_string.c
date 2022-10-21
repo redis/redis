@@ -367,9 +367,9 @@ int wholeKeySwapAna_(swapData *data_,
     int retval;
     struct keyRequest req_, *req = &req_;
     req->level = REQUEST_LEVEL_KEY;
-    req->num_subkeys = 0;
+    req->b.num_subkeys = 0;
     req->key = createStringObject("key1",4);
-    req->subkeys = NULL;
+    req->b.subkeys = NULL;
     req->cmd_intention = cmd_intention;
     req->cmd_intention_flags = cmd_intention_flags;
     retval = wholeKeySwapAna(data_,req,intention,intention_flags,datactx);

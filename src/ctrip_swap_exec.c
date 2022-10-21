@@ -83,14 +83,6 @@ void RIOInitScan(RIO *rio, int cf, sds prefix) {
     rio->err = NULL;
 }
 
-// void RIOInitDeleteRange(RIO *rio, int cf, sds start_key, sds end_key) {
-//     rio->action = ROCKS_DELETERANGE;
-//     rio->delete_range.cf = cf;
-//     rio->delete_range.start_key = start_key;
-//     rio->delete_range.end_key = end_key;
-//     rio->err = NULL;
-// }
-
 void RIOInitMultiDeleteRange(RIO* rio, int num, int* cf , sds* rawkeys) {
     rio->action = ROCKS_MULTI_DELETERANGE;
     rio->multidel_range.num = num;
@@ -1487,9 +1479,9 @@ int swapExecTest(int argc, char *argv[], int accurate) {
 
     keyRequest key1_req_, *key1_req = &key1_req_;
     key1_req->level = REQUEST_LEVEL_KEY;
-    key1_req->num_subkeys = 0;
+    key1_req->b.num_subkeys = 0;
     key1_req->key = createStringObject("key1",4);
-    key1_req->subkeys = NULL;
+    key1_req->b.subkeys = NULL;
     swapCtx *ctx = swapCtxCreate(NULL,key1_req,NULL);
 
     TEST("exec: init") {

@@ -67,25 +67,25 @@ zlexrangespec* zlexrangespecdup(zlexrangespec* src) {
 void copyKeyRequest(keyRequest *dst, keyRequest *src) {
     if (src->key) incrRefCount(src->key);
     dst->key = src->key;
-    if (src->num_subkeys > 0)  {
-        dst->subkeys = zmalloc(sizeof(robj*)*src->num_subkeys);
-        for (int i = 0; i < src->num_subkeys; i++) {
-            if (src->subkeys[i]) incrRefCount(src->subkeys[i]);
-            dst->subkeys[i] = src->subkeys[i];
-        }
-    }
-    dst->num_subkeys = src->num_subkeys;
+
     dst->level = src->level;
     dst->cmd_intention = src->cmd_intention;
     dst->cmd_intention_flags = src->cmd_intention_flags;
     dst->dbid = src->dbid;
     dst->type = src->type;
+
     switch (src->type) {
     case KEYREQUEST_TYPE_KEY:
-        //TODO refactor
         break;
     case KEYREQUEST_TYPE_SUBKEY:
-        //TODO refactor
+        if (src->b.num_subkeys > 0)  {
+            dst->b.subkeys = zmalloc(sizeof(robj*)*src->b.num_subkeys);
+            for (int i = 0; i < src->b.num_subkeys; i++) {
+                if (src->b.subkeys[i]) incrRefCount(src->b.subkeys[i]);
+                dst->b.subkeys[i] = src->b.subkeys[i];
+            }
+        }
+        dst->b.num_subkeys = src->b.num_subkeys;
         break;
     case KEYREQUEST_TYPE_RANGE:
         dst->l.num_ranges = src->l.num_ranges;
@@ -93,7 +93,6 @@ void copyKeyRequest(keyRequest *dst, keyRequest *src) {
         memcpy(dst->l.ranges,src->l.ranges,src->l.num_ranges*sizeof(struct range));
         break;
     case KEYREQUEST_TYPE_SCORE:
-        //TODO impl
         dst->zs.rangespec = zrangespecdup(src->zs.rangespec);
         dst->zs.reverse = src->zs.reverse;
         dst->zs.limit = src->zs.limit;
@@ -114,21 +113,20 @@ void copyKeyRequest(keyRequest *dst, keyRequest *src) {
 void moveKeyRequest(keyRequest *dst, keyRequest *src) {
     dst->key = src->key;
     src->key = NULL;
-    dst->subkeys = src->subkeys;
-    src->subkeys = NULL;
-    dst->num_subkeys = src->num_subkeys;
-    src->num_subkeys = 0;
     dst->level = src->level;
     dst->cmd_intention = src->cmd_intention;
     dst->cmd_intention_flags = src->cmd_intention_flags;
     dst->dbid = src->dbid;
     dst->type = src->type;
+
     switch (src->type) {
     case KEYREQUEST_TYPE_KEY:
-        //TODO refactor
         break;
     case KEYREQUEST_TYPE_SUBKEY:
-        //TODO refactor
+        dst->b.subkeys = src->b.subkeys;
+        src->b.subkeys = NULL;
+        dst->b.num_subkeys = src->b.num_subkeys;
+        src->b.num_subkeys = 0;
         break;
     case KEYREQUEST_TYPE_RANGE:
         dst->l.num_ranges = src->l.num_ranges;
@@ -136,7 +134,6 @@ void moveKeyRequest(keyRequest *dst, keyRequest *src) {
         src->l.ranges = NULL;
         break;
     case KEYREQUEST_TYPE_SCORE:
-        //TODO impl
         dst->zs.rangespec = src->zs.rangespec;
         src->zs.rangespec = NULL;
         dst->zs.reverse = src->zs.reverse;
@@ -160,29 +157,26 @@ void keyRequestDeinit(keyRequest *key_request) {
     if (key_request == NULL) return;
     if (key_request->key) decrRefCount(key_request->key);
     key_request->key = NULL;
-    for (int i = 0; i < key_request->num_subkeys; i++) {
-        if (key_request->subkeys[i])
-            decrRefCount(key_request->subkeys[i]);
-        key_request->subkeys[i] = NULL;
-    }
-    zfree(key_request->subkeys);
-    key_request->subkeys = NULL;
-    key_request->num_subkeys = 0;
 
     switch (key_request->type) {
     case KEYREQUEST_TYPE_KEY:
-        //TODO refactor
         break;
     case KEYREQUEST_TYPE_SUBKEY:
-        //TODO refactor
+        for (int i = 0; i < key_request->b.num_subkeys; i++) {
+            if (key_request->b.subkeys[i])
+                decrRefCount(key_request->b.subkeys[i]);
+            key_request->b.subkeys[i] = NULL;
+        }
+        zfree(key_request->b.subkeys);
+        key_request->b.subkeys = NULL;
+        key_request->b.num_subkeys = 0;
         break;
     case KEYREQUEST_TYPE_RANGE:
         zfree(key_request->l.ranges);
         key_request->l.ranges = NULL;
-        key_request->num_subkeys = 0;
+        key_request->l.num_ranges = 0;
         break;
     case KEYREQUEST_TYPE_SCORE:
-        //TODO impl
         if (key_request->zs.rangespec != NULL) {
             zfree(key_request->zs.rangespec);
             key_request->zs.rangespec = NULL;
@@ -256,9 +250,6 @@ keyRequest *getKeyRequestsAppendCommonResult(getKeyRequestsResult *result,
     return key_request;
 }
 
-
-
-
 void getKeyRequestsAppendScoreResult(getKeyRequestsResult *result, int level,
         robj *key, int reverse, zrangespec* rangespec, int limit, int cmd_intention,
         int cmd_intention_flags, int dbid) {
@@ -291,7 +282,6 @@ void getKeyRequestsAppendLexeResult(getKeyRequestsResult *result, int level,
     key_request->dbid = dbid;
 }
 
-
 /* Note that key&subkeys ownership moved */
 void getKeyRequestsAppendSubkeyResult(getKeyRequestsResult *result, int level,
         robj *key, int num_subkeys, robj **subkeys, int cmd_intention,
@@ -300,8 +290,8 @@ void getKeyRequestsAppendSubkeyResult(getKeyRequestsResult *result, int level,
             key,cmd_intention,cmd_intention_flags,dbid);
 
     key_request->type = KEYREQUEST_TYPE_SUBKEY;
-    key_request->num_subkeys = num_subkeys;
-    key_request->subkeys = subkeys;
+    key_request->b.num_subkeys = num_subkeys;
+    key_request->b.subkeys = subkeys;
 }
 
 void releaseKeyRequests(getKeyRequestsResult *result) {
@@ -1090,11 +1080,11 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequests(c,&result);
         test_assert(result.num == 3);
         test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY1"));
-        test_assert(result.key_requests[0].subkeys == NULL);
+        test_assert(result.key_requests[0].b.subkeys == NULL);
         test_assert(!strcmp(result.key_requests[1].key->ptr, "KEY2"));
-        test_assert(result.key_requests[1].subkeys == NULL);
+        test_assert(result.key_requests[1].b.subkeys == NULL);
         test_assert(!strcmp(result.key_requests[2].key->ptr, "KEY3"));
-        test_assert(result.key_requests[2].subkeys == NULL);
+        test_assert(result.key_requests[2].b.subkeys == NULL);
         test_assert(result.key_requests[2].cmd_intention == SWAP_IN);
         test_assert(result.key_requests[2].cmd_intention_flags == SWAP_IN_OVERWRITE);
         releaseKeyRequests(&result);
@@ -1108,10 +1098,10 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequests(c,&result);
         test_assert(result.num == 1);
         test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY"));
-        test_assert(result.key_requests[0].num_subkeys == 3);
-        test_assert(!strcmp(result.key_requests[0].subkeys[0]->ptr, "F1"));
-        test_assert(!strcmp(result.key_requests[0].subkeys[1]->ptr, "F2"));
-        test_assert(!strcmp(result.key_requests[0].subkeys[2]->ptr, "F3"));
+        test_assert(result.key_requests[0].b.num_subkeys == 3);
+        test_assert(!strcmp(result.key_requests[0].b.subkeys[0]->ptr, "F1"));
+        test_assert(!strcmp(result.key_requests[0].b.subkeys[1]->ptr, "F2"));
+        test_assert(!strcmp(result.key_requests[0].b.subkeys[2]->ptr, "F3"));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
@@ -1129,14 +1119,14 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequests(c,&result);
         test_assert(result.num == 3);
         test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY1"));
-        test_assert(result.key_requests[0].subkeys == NULL);
+        test_assert(result.key_requests[0].b.subkeys == NULL);
         test_assert(!strcmp(result.key_requests[1].key->ptr, "KEY2"));
-        test_assert(result.key_requests[1].subkeys == NULL);
+        test_assert(result.key_requests[1].b.subkeys == NULL);
         test_assert(!strcmp(result.key_requests[2].key->ptr, "HASH"));
-        test_assert(result.key_requests[2].num_subkeys == 3);
-        test_assert(!strcmp(result.key_requests[2].subkeys[0]->ptr, "F1"));
-        test_assert(!strcmp(result.key_requests[2].subkeys[1]->ptr, "F2"));
-        test_assert(!strcmp(result.key_requests[2].subkeys[2]->ptr, "F3"));
+        test_assert(result.key_requests[2].b.num_subkeys == 3);
+        test_assert(!strcmp(result.key_requests[2].b.subkeys[0]->ptr, "F1"));
+        test_assert(!strcmp(result.key_requests[2].b.subkeys[1]->ptr, "F2"));
+        test_assert(!strcmp(result.key_requests[2].b.subkeys[2]->ptr, "F3"));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
@@ -1167,11 +1157,11 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequests(c,&result);
         test_assert(result.num == 2);
         test_assert(!strcmp(result.key_requests[0].key->ptr, "HASH"));
-        test_assert(result.key_requests[0].num_subkeys == 1);
+        test_assert(result.key_requests[0].b.num_subkeys == 1);
         test_assert(result.key_requests[0].cmd_intention == SWAP_IN);
         test_assert(result.key_requests[0].cmd_intention_flags == 0);
         test_assert(!strcmp(result.key_requests[1].key->ptr, "HASH"));
-        test_assert(result.key_requests[1].subkeys == NULL);
+        test_assert(result.key_requests[1].b.subkeys == NULL);
         test_assert(result.key_requests[1].cmd_intention == SWAP_IN);
         test_assert(result.key_requests[1].cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE);
         releaseKeyRequests(&result);
@@ -1213,19 +1203,19 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequests(c,&result);
         test_assert(result.num == 4);
         test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY1"));
-        test_assert(result.key_requests[0].subkeys == NULL);
+        test_assert(result.key_requests[0].b.subkeys == NULL);
         test_assert(result.key_requests[0].cmd_intention == SWAP_IN);
         test_assert(result.key_requests[0].cmd_intention_flags == 0);
         test_assert(result.key_requests[0].dbid == 1);
         test_assert(!strcmp(result.key_requests[1].key->ptr, "KEY2"));
-        test_assert(result.key_requests[1].subkeys == NULL);
+        test_assert(result.key_requests[1].b.subkeys == NULL);
         test_assert(result.key_requests[1].cmd_intention == SWAP_IN);
         test_assert(result.key_requests[1].cmd_intention_flags == 0);
         test_assert(result.key_requests[1].dbid == 1);
         test_assert(!strcmp(result.key_requests[2].key->ptr, "HASH"));
-        test_assert(!strcmp(result.key_requests[2].subkeys[0]->ptr, "F1"));
-        test_assert(!strcmp(result.key_requests[2].subkeys[1]->ptr, "F2"));
-        test_assert(!strcmp(result.key_requests[2].subkeys[2]->ptr, "F3"));
+        test_assert(!strcmp(result.key_requests[2].b.subkeys[0]->ptr, "F1"));
+        test_assert(!strcmp(result.key_requests[2].b.subkeys[1]->ptr, "F2"));
+        test_assert(!strcmp(result.key_requests[2].b.subkeys[2]->ptr, "F3"));
         test_assert(result.key_requests[2].cmd_intention == SWAP_IN);
         test_assert(result.key_requests[2].cmd_intention_flags == SWAP_IN_DEL);
         test_assert(result.key_requests[2].dbid == 1);

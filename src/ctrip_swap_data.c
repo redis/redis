@@ -297,7 +297,7 @@ int swapDataTest(int argc, char *argv[], int accurate) {
         key_request->level = REQUEST_LEVEL_KEY;
         incrRefCount(key1);
         key_request->key = key1;
-        key_request->subkeys = NULL;
+        key_request->b.subkeys = NULL;
         key_request->cmd_intention = SWAP_IN;
         key_request->cmd_intention_flags = 0;
         key_request->dbid = 0;
@@ -319,7 +319,7 @@ int swapDataTest(int argc, char *argv[], int accurate) {
         key_request->level = REQUEST_LEVEL_KEY;
         incrRefCount(key1);
         key_request->key = key1;
-        key_request->subkeys = NULL;
+        key_request->b.subkeys = NULL;
         key_request->cmd_intention = SWAP_IN;
         key_request->cmd_intention_flags = SWAP_IN_DEL;
         key_request->dbid = 0;

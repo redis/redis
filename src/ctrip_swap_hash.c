@@ -40,7 +40,9 @@ int hashSwapAna(swapData *data, struct keyRequest *req,
     hashDataCtx *datactx = datactx_;
     int cmd_intention = req->cmd_intention;
     uint32_t cmd_intention_flags = req->cmd_intention_flags;
-    serverAssert(req->num_subkeys >= 0);
+
+    serverAssert(req->type == KEYREQUEST_TYPE_SUBKEY);
+    serverAssert(req->b.num_subkeys >= 0);
 
     switch (cmd_intention) {
     case SWAP_NOP:
@@ -52,7 +54,7 @@ int hashSwapAna(swapData *data, struct keyRequest *req,
             /* No need to swap for pure hot key */
             *intention = SWAP_NOP;
             *intention_flags = 0;
-        } else if (req->num_subkeys == 0) {
+        } else if (req->b.num_subkeys == 0) {
             if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
                 /* DEL/GETDEL: Lazy delete current key. */
                 datactx->ctx.ctx_flag |= BIG_DATA_CTX_FLAG_MOCK_VALUE;
@@ -89,9 +91,9 @@ int hashSwapAna(swapData *data, struct keyRequest *req,
             }
         } else { /* keyrequests with subkeys */
             datactx->ctx.num = 0;
-            datactx->ctx.subkeys = zmalloc(req->num_subkeys * sizeof(robj*));
-            for (int i = 0; i < req->num_subkeys; i++) {
-                robj *subkey = req->subkeys[i];
+            datactx->ctx.subkeys = zmalloc(req->b.num_subkeys * sizeof(robj*));
+            for (int i = 0; i < req->b.num_subkeys; i++) {
+                robj *subkey = req->b.subkeys[i];
                 /* HDEL: even if field is hot (exists in value), we still
                  * need to do ROCKS_DEL on those fields. */
                 if (cmd_intention_flags == SWAP_IN_DEL ||
@@ -799,14 +801,16 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         hashTypeSet(hash1,f4,int2,HASH_SET_COPY);
         incrRefCount(key1);
         kr1->key = key1;
+        kr1->type = KEYREQUEST_TYPE_SUBKEY;
         kr1->level = REQUEST_LEVEL_KEY;
-        kr1->num_subkeys = 0;
-        kr1->subkeys = NULL;
+        kr1->b.num_subkeys = 0;
+        kr1->b.subkeys = NULL;
         incrRefCount(key1);
         cold_kr1->key = key1;
         cold_kr1->level = REQUEST_LEVEL_KEY;
-        cold_kr1->num_subkeys = 0;
-        cold_kr1->subkeys = NULL;
+        cold_kr1->type = KEYREQUEST_TYPE_SUBKEY;
+        cold_kr1->b.num_subkeys = 0;
+        cold_kr1->b.subkeys = NULL;
         dbAdd(db,key1,hash1);
 
         hash1_data = createSwapData(db,key1,hash1);
@@ -848,15 +852,15 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         test_assert(cold1_ctx->ctx.num == 0 && cold1_ctx->ctx.subkeys == NULL);
         subkeys1[0] = createStringObject(f1,sdslen(f1));
         subkeys1[1] = createStringObject(f2,sdslen(f2));
-        cold_kr1->num_subkeys = 2;
-        cold_kr1->subkeys = subkeys1;
+        cold_kr1->b.num_subkeys = 2;
+        cold_kr1->b.subkeys = subkeys1;
         cold_kr1->cmd_intention = SWAP_IN, cold_kr1->cmd_intention_flags = 0;
         swapDataAna(cold1_data,cold_kr1,&intention,&intention_flags,cold1_ctx);
         test_assert(intention == SWAP_IN && intention_flags == 0);
         test_assert(cold1_ctx->ctx.num == 2 && cold1_ctx->ctx.subkeys != NULL);
         /* out: evict by small steps */
-        kr1->num_subkeys = 0;
-        kr1->subkeys = NULL;
+        kr1->b.num_subkeys = 0;
+        kr1->b.subkeys = NULL;
         kr1->cmd_intention = SWAP_OUT, kr1->cmd_intention_flags = 0;
         swapDataAna(hash1_data,kr1,&intention,&intention_flags,hash1_ctx);
         test_assert(intention == SWAP_OUT && intention_flags == 0);
@@ -868,8 +872,8 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         size_t old = server.swap_evict_step_max_subkeys;
         hashSwapData *hash1_data_ = (hashSwapData*)hash1_data;
         server.swap_evict_step_max_subkeys = 1024;
-        kr1->num_subkeys = 0;
-        kr1->subkeys = NULL;
+        kr1->b.num_subkeys = 0;
+        kr1->b.subkeys = NULL;
         kr1->cmd_intention = SWAP_OUT, kr1->cmd_intention_flags = 0;
         zfree(hash1_ctx->ctx.subkeys), hash1_ctx->ctx.subkeys = NULL;
         hash1_ctx->ctx.num = 0;

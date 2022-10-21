@@ -149,9 +149,6 @@ typedef struct keyRequest{
   int cmd_intention_flags;
   int type;
   robj *key;
-  //TODO refactor
-  int num_subkeys;
-  robj **subkeys;
   union {
     struct {
       int num_subkeys;

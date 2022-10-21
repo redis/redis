@@ -40,7 +40,9 @@ int setSwapAna(swapData *data, struct keyRequest *req,
     setDataCtx *datactx = datactx_;
     int cmd_intention = req->cmd_intention;
     uint32_t cmd_intention_flags = req->cmd_intention_flags;
-    serverAssert(req->num_subkeys >= 0);
+
+    serverAssert(req->type == KEYREQUEST_TYPE_SUBKEY);
+    serverAssert(req->b.num_subkeys >= 0);
 
     switch (cmd_intention) {
         case SWAP_NOP:
@@ -52,7 +54,7 @@ int setSwapAna(swapData *data, struct keyRequest *req,
                 /* No need to swap for pure hot key */
                 *intention = SWAP_NOP;
                 *intention_flags = 0;
-            } else if (req->num_subkeys == 0) {
+            } else if (req->b.num_subkeys == 0) {
                 if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
                     /* DEL/GETDEL: Lazy delete current key. */
                     datactx->ctx.ctx_flag |= BIG_DATA_CTX_FLAG_MOCK_VALUE;
@@ -91,11 +93,11 @@ int setSwapAna(swapData *data, struct keyRequest *req,
                 objectMeta *meta = swapDataObjectMeta(data);
                 if (req->cmd_intention_flags == SWAP_IN_DEL) {
                     datactx->ctx.num = 0;
-                    datactx->ctx.subkeys = zmalloc(req->num_subkeys * sizeof(robj *));
+                    datactx->ctx.subkeys = zmalloc(req->b.num_subkeys * sizeof(robj *));
                     /* SREM: even if field is hot (exists in value), we still
                      * need to do ROCKS_DEL on those fields. */
-                    for (int i = 0; i < req->num_subkeys; i++) {
-                        robj *subkey = req->subkeys[i];
+                    for (int i = 0; i < req->b.num_subkeys; i++) {
+                        robj *subkey = req->b.subkeys[i];
                         incrRefCount(subkey);
                         datactx->ctx.subkeys[datactx->ctx.num++] = subkey;
                     }
@@ -106,9 +108,9 @@ int setSwapAna(swapData *data, struct keyRequest *req,
                     *intention_flags = 0;
                 } else {
                     datactx->ctx.num = 0;
-                    datactx->ctx.subkeys = zmalloc(req->num_subkeys * sizeof(robj *));
-                    for (int i = 0; i < req->num_subkeys; i++) {
-                        robj *subkey = req->subkeys[i];
+                    datactx->ctx.subkeys = zmalloc(req->b.num_subkeys * sizeof(robj *));
+                    for (int i = 0; i < req->b.num_subkeys; i++) {
+                        robj *subkey = req->b.subkeys[i];
                         if (data->value == NULL || !setTypeIsMember(data->value, subkey->ptr)) {
                             incrRefCount(subkey);
                             datactx->ctx.subkeys[datactx->ctx.num++] = subkey;
@@ -784,13 +786,14 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
 
         kr1->key = key1;
         kr1->level = REQUEST_LEVEL_KEY;
-        kr1->num_subkeys = 0;
-        kr1->subkeys = NULL;
+        kr1->type = KEYREQUEST_TYPE_SUBKEY;
+        kr1->b.num_subkeys = 0;
+        kr1->b.subkeys = NULL;
         kr1->dbid = db->id;
         cold_kr1->key = key1;
         cold_kr1->level = REQUEST_LEVEL_KEY;
-        cold_kr1->num_subkeys = 0;
-        cold_kr1->subkeys = NULL;
+        cold_kr1->b.num_subkeys = 0;
+        cold_kr1->b.subkeys = NULL;
         cold_kr1->dbid = db->id;
 
         // swap nop
@@ -849,8 +852,8 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         test_assert(intention == SWAP_IN && intention_flags == 0);
 
         // swap in with subkeys - swap in del
-        kr1->num_subkeys = 2;
-        kr1->subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
+        kr1->b.num_subkeys = 2;
+        kr1->b.subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
         kr1->cmd_intention = SWAP_IN;
         kr1->cmd_intention_flags = SWAP_IN_DEL;
         setSwapAna(set1_data,kr1,&intention,&intention_flags,set1_ctx);
@@ -868,7 +871,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         // swap in with subkeys - subkeys not in mem
         kr1->cmd_intention = SWAP_IN;
         kr1->cmd_intention_flags = 0;
-        kr1->subkeys = mockSubKeys(2, sdsnew("new1"), sdsnew("new2"));
+        kr1->b.subkeys = mockSubKeys(2, sdsnew("new1"), sdsnew("new2"));
         setSwapAna(set1_data,kr1,&intention,&intention_flags,set1_ctx);
         test_assert(intention == SWAP_IN && intention_flags == 0);
         test_assert(set1_ctx->ctx.num == 2);

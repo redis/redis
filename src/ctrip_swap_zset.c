@@ -40,7 +40,6 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
     zsetDataCtx *datactx = datactx_;
     int cmd_intention = req->cmd_intention;
     uint32_t cmd_intention_flags = req->cmd_intention_flags;
-    serverAssert(req->num_subkeys >= 0);
 
     switch (cmd_intention) {
     case SWAP_NOP:
@@ -82,7 +81,7 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
                     *intention_flags = SWAP_EXEC_IN_DEL;
                 } 
             } 
-        } else if (req->num_subkeys == 0) {
+        } else if (req->b.num_subkeys == 0) {
             if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
                 /* DEL/GETDEL: Lazy delete current key. */
                 datactx->bdc.ctx_flag |= BIG_DATA_CTX_FLAG_MOCK_VALUE;
@@ -125,9 +124,9 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
                 *intention_flags = 0;
             } else {
                 datactx->bdc.num = 0;
-                datactx->bdc.subkeys = zmalloc(req->num_subkeys * sizeof(robj*));
-                for (int i = 0; i < req->num_subkeys; i++) {
-                    robj *subkey = req->subkeys[i];
+                datactx->bdc.subkeys = zmalloc(req->b.num_subkeys * sizeof(robj*));
+                for (int i = 0; i < req->b.num_subkeys; i++) {
+                    robj *subkey = req->b.subkeys[i];
                     /* HDEL: even if field is hot (exists in value), we still
                     * need to do ROCKS_DEL on those fields. */
                     double score;
@@ -1276,16 +1275,13 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
     initTestRedisServer();
     redisDb* db = server.db + 0;
     int error = 0;
-    swapData *zset1_data, *cold1_data;
-    zsetDataCtx *zset1_ctx, *cold1_ctx;
-    robj *key1, *zset1, *cold1, *cold1_evict, *decoded;
+    swapData *zset1_data;
+    zsetDataCtx *zset1_ctx;
+    robj *key1, *zset1, *decoded;
     keyRequest _kr1, *kr1 = &_kr1, _cold_kr1, *cold_kr1 = &_cold_kr1;
-    objectMeta *cold1_meta;
-    robj *subkeys1[4];
     sds f1, f2, f3, f4;
     int action, numkeys;
     int oldEvictStep = server.swap_evict_step_max_subkeys;
-    sds zlmin, zlmax;
 
     TEST("zset - init") {
         key1 = createStringObject("key1",4);
@@ -1297,14 +1293,9 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zsetAdd(zset1,3.0,f3,ZADD_IN_NONE,&out_flags,NULL);
         zsetAdd(zset1,4.0,f4,ZADD_IN_NONE,&out_flags,NULL);
         dbAdd(db,key1,zset1);
-
-        cold1 = createStringObject("cold1",5);
-        cold1_evict = createObject(OBJ_ZSET,NULL);
-        cold1_meta = createZsetObjectMeta(4);
     }
 
     TEST("set - encodeKeys/encodeData/DecodeData") {
-        robj *origin = zsetDup(zset1);
         zset1_data = createSwapData(db, key1,zset1);
         swapDataSetupZSet(zset1_data, (void**)&zset1_ctx);
         sds *rawkeys, *rawvals;
@@ -1313,8 +1304,6 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zset1_ctx->bdc.num = 2;
         zset1_ctx->bdc.subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
         zset1_data->object_meta = createZsetObjectMeta(2);
-        int reverse, minex, maxex, limit;
-        double min, max;
         // encodeKeys - swap in subkeys
         zsetEncodeKeys(zset1_data, SWAP_IN, zset1_ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(2 == numkeys);
@@ -1356,7 +1345,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         rawvals_[1] = rawvals[2];
 
         // decodeData - swap in
-        zsetDecodeData(zset1_data, zset1_ctx->bdc.num, cfs_, rawkeys_, rawvals_, &decoded);
+        zsetDecodeData(zset1_data, zset1_ctx->bdc.num, cfs_, rawkeys_, rawvals_, (void**)&decoded);
         test_assert(NULL != decoded);
         test_assert(2 == zsetLength(decoded));
 
@@ -1375,13 +1364,13 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
 
         kr1->key = key1;
         kr1->level = REQUEST_LEVEL_KEY;
-        kr1->num_subkeys = 0;
-        kr1->subkeys = NULL;
+        kr1->b.num_subkeys = 0;
+        kr1->b.subkeys = NULL;
         kr1->dbid = db->id;
         cold_kr1->key = key1;
         cold_kr1->level = REQUEST_LEVEL_KEY;
-        cold_kr1->num_subkeys = 0;
-        cold_kr1->subkeys = NULL;
+        cold_kr1->b.num_subkeys = 0;
+        cold_kr1->b.subkeys = NULL;
         cold_kr1->dbid = db->id;
 
         // swap nop
@@ -1439,8 +1428,8 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         test_assert(intention == SWAP_IN && intention_flags == 0);
 
         // swap in with subkeys - swap in del
-        kr1->num_subkeys = 2;
-        kr1->subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
+        kr1->b.num_subkeys = 2;
+        kr1->b.subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
         kr1->cmd_intention = SWAP_IN;
         kr1->cmd_intention_flags = SWAP_IN_DEL;
         zsetSwapAna(zset1_data,kr1,&intention,&intention_flags,zset1_ctx);
@@ -1458,7 +1447,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         // swap in with subkeys - subkeys not in mem
         kr1->cmd_intention = SWAP_IN;
         kr1->cmd_intention_flags = 0;
-        kr1->subkeys = mockSubKeys(2, sdsnew("new1"), sdsnew("new2"));
+        kr1->b.subkeys = mockSubKeys(2, sdsnew("new1"), sdsnew("new2"));
         zsetSwapAna(zset1_data,kr1,&intention,&intention_flags,zset1_ctx);
         test_assert(intention == SWAP_IN && intention_flags == 0);
         test_assert(zset1_ctx->bdc.num == 2);
@@ -1510,7 +1499,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
     }
 
     TEST("zset - swapIn/swapOut") {
-        robj *s, *e, *result;
+        robj *s, *result;
         objectMeta *m;
         zset1_data = createSwapData(db, key1,zset1);
         swapDataSetupZSet(zset1_data, (void**)&zset1_ctx);
@@ -1596,11 +1585,8 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
     TEST("zset - rdbLoad & rdbSave") {
         int err = 0;
         int cf;
-        robj *myzset = createZsetObject();
         sds rdbv1 = zsetEncodeSubval(1.0);
         sds rdbv2 = zsetEncodeSubval(2.0);
-        sds rdbv3 = zsetEncodeSubval(3.0);
-        sds rdbv4 = zsetEncodeSubval(4.0);
 
         /* rdbLoad - RDB_TYPE_SET */
         zset1 = createZsetObject();
@@ -1627,7 +1613,6 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         test_assert(memcmp(rocksEncodeMetaKey(db,key1->ptr), subkey, sdslen(subkey)) == 0);
 
         rocksDecodeMetaVal(subraw, sdslen(subraw), &t, &e, &extend, &extlen);
-        sds metaraw = sdsnewlen(extend,extlen);
         buildObjectMeta(t,extend,extlen,&cold_meta);
         test_assert(cold_meta->object_type == OBJ_ZSET && cold_meta->len == 4 && e == -1);
 
@@ -1666,7 +1651,6 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         test_assert(memcmp(rocksEncodeMetaKey(db,key1->ptr), subkey, sdslen(subkey)) == 0);
 
         rocksDecodeMetaVal(subraw, sdslen(subraw), &t, &e, &extend, &extlen);
-        metaraw = sdsnewlen(extend,extlen);
         buildObjectMeta(t,extend,extlen,&cold_meta);
         test_assert(cold_meta->object_type == OBJ_ZSET && cold_meta->len == 4 && e == -1);
 
@@ -1693,7 +1677,6 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         /* rdbSave */
         sds coldraw,warmraw,hotraw;
         rio rdbcold, rdbwarm, rdbhot;
-        objectMeta *meta = createZsetObjectMeta(2);
         rdbKeySaveData _saveData; rdbKeySaveData  *saveData = &_saveData;
 
         decodedMeta _decoded_meta, *decoded_meta = &_decoded_meta;
