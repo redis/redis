@@ -5128,16 +5128,6 @@ const char *replstateToString(int replstate) {
     }
 }
 
-const char *getLogLevel() {
-    switch (server.verbosity) {
-    case LL_DEBUG: return "debug";
-    case LL_VERBOSE: return "verbose";
-    case LL_NOTICE: return "notice";
-    case LL_WARNING: return "warning";
-    }
-    return "unknown";
-}
-
 /* Characters we sanitize on INFO output to maintain expected format. */
 static char unsafe_info_chars[] = "#:\n\r";
 static char unsafe_info_chars_substs[] = "____";   /* Must be same length as above */
@@ -5296,7 +5286,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         static struct utsname name;
         char *mode;
         char *supervised;
-	sds logfileDir = getAbsolutePath(server.logfile);
 
         if (server.cluster_enabled) mode = "cluster";
         else if (server.sentinel_mode) mode = "sentinel";
@@ -5345,8 +5334,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "lru_clock:%u\r\n"
             "executable:%s\r\n"
             "config_file:%s\r\n"
-            "log_level:%s\r\n"
-            "log_file:%s\r\n"
             "io_threads_active:%i\r\n",
             REDIS_VERSION,
             redisGitSHA1(),
@@ -5375,8 +5362,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "",
-            getLogLevel(),
-            logfileDir,
             server.io_threads_active);
 
         /* Conditional properties */
@@ -5388,7 +5373,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
 
         /* get all the listeners information */
         info = getListensInfoString(info);
-	sdsfree(logfileDir);
     }
 
     /* Clients */

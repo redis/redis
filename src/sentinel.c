@@ -3182,6 +3182,16 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
 
 /* =========================== SENTINEL command ============================= */
 
+const char* getLogLevel(){
+   switch (server.verbosity) {
+    case LL_DEBUG: return "debug";
+    case LL_VERBOSE: return "verbose";
+    case LL_NOTICE: return "notice";
+    case LL_WARNING: return "warning";
+    }
+    return "unknown";
+}
+
 /* SENTINEL CONFIG SET <option> */
 void sentinelConfigSetCommand(client *c) {
     robj *o = c->argv[3];
@@ -3275,6 +3285,11 @@ void sentinelConfigGetCommand(client *c) {
         matches++;
     }
 
+    if (stringmatch(pattern, "loglevel", 1)) {
+        addReplyBulkCString(c, "loglevel");
+        addReplyBulkCString(c, getLogLevel());
+        matches++;
+    }
     setDeferredMapLen(c, replylen, matches);
 }
 
