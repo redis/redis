@@ -333,6 +333,41 @@ int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele) 
     return setobj->encoding;
 }
 
+/* Pops a random element and returns it as an object. */
+robj *setTypePop(robj *set) {
+    robj *obj;
+    if (set->encoding == OBJ_ENCODING_LISTPACK) {
+        /* Find random and delete it without re-seeking the listpack. */
+        unsigned int i = 0;
+        unsigned char *p = lpNextRandom(set->ptr, lpFirst(set->ptr), &i, 1, 0);
+        unsigned int len;
+        long long llele;
+        char *str = (char *)lpGetValue(p, &len, &llele);
+        if (str)
+            obj = createStringObject(str, len);
+        else
+            obj = createStringObjectFromLongLong(llele);
+        set->ptr = lpDelete(set->ptr, p, NULL);
+    } else {
+        char *str;
+        size_t len;
+        int64_t llele;
+        switch (setTypeRandomElement(set, &str, &len, &llele)) {
+        case OBJ_ENCODING_INTSET:
+            obj = createStringObjectFromLongLong(llele);
+            set->ptr = intsetRemove(set->ptr, llele, NULL);
+            break;
+        case OBJ_ENCODING_HT:
+            obj = createStringObject(str, len);
+            setTypeRemove(set, obj->ptr);
+            break;
+        default:
+            serverPanic("Unknown set encoding");
+        }
+    }
+    return obj;
+}
+
 unsigned long setTypeSize(const robj *subject) {
     if (subject->encoding == OBJ_ENCODING_HT) {
         return dictSize((const dict*)subject->ptr);
@@ -436,29 +471,6 @@ robj *setTypeDup(robj *o) {
         serverPanic("Unknown set encoding");
     }
     return set;
-}
-
-/* Emits the value to the client as a string reply, removes it from the set and
- * returns it as a new string object.
- *
- * The element is passed to this function either as a string (str and len) or a
- * 64bit integer, indicated by passing NULL for str. */
-robj *setTypeEmitRemoveAndReturnObject(client *c, robj *set, char *str, size_t len, int64_t llele) {
-    robj *obj;
-    if (str == NULL && set->encoding == OBJ_ENCODING_INTSET) {
-        addReplyBulkLongLong(c, llele);
-        obj = createStringObjectFromLongLong(llele);
-        set->ptr = intsetRemove(set->ptr, llele, NULL);
-    } else if (str == NULL) {
-        addReplyBulkLongLong(c, llele);
-        obj = createObject(OBJ_STRING, sdsfromlonglong(llele));
-        setTypeRemove(set, obj->ptr);
-    } else {
-        addReplyBulkCBuffer(c, str, len);
-        obj = createStringObject(str, len);
-        setTypeRemove(set, obj->ptr);
-    }
-    return obj;
 }
 
 void saddCommand(client *c) {
@@ -713,8 +725,8 @@ void spopWithCountCommand(client *c) {
         set->ptr = lp;
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
         while(count--) {
-            setTypeRandomElement(set, &str, &len, &llele);
-            objele = setTypeEmitRemoveAndReturnObject(c, set, str, len, llele);
+            objele = setTypePop(set);
+            addReplyBulk(c, objele);
 
             /* Replicate/AOF this command as an SREM operation */
             propargv[2] = objele;
@@ -796,9 +808,6 @@ void spopWithCountCommand(client *c) {
 
 void spopCommand(client *c) {
     robj *set, *ele;
-    char *str;
-    size_t len;
-    int64_t llele;
 
     if (c->argc == 3) {
         spopWithCountCommand(c);
@@ -813,17 +822,16 @@ void spopCommand(client *c) {
     if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
          == NULL || checkType(c,set,OBJ_SET)) return;
 
-    /* Get a random element from the set */
-    setTypeRandomElement(set, &str, &len, &llele);
-
-    /* Add reply and remove the element from the set */
-    ele = setTypeEmitRemoveAndReturnObject(c, set, str, len, llele);
+    /* Pop a random element from the set */
+    ele = setTypePop(set);
 
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
     /* Replicate/AOF this command as an SREM operation */
     rewriteClientCommandVector(c,3,shared.srem,c->argv[1],ele);
 
+    /* Add the element to the reply */
+    addReplyBulk(c, ele);
     decrRefCount(ele);
 
     /* Delete the set if it's empty */
