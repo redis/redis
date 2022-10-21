@@ -31,8 +31,9 @@
 
 /* Internal prototypes */
 
-int setTypeAddBuf(robj *subject, char *value, size_t len);
-int setTypeAddInt(robj *subject, int64_t value);
+int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
+int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
+int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 
 /*-----------------------------------------------------------------------------
  * Set Commands
@@ -63,83 +64,96 @@ static void maybeConvertIntset(robj *subject) {
 /* Add the specified sds value into a set.
  *
  * If the value was already member of the set, nothing is done and 0 is
- * returned, otherwise the new element is added and 1 is returned.
- *
- * If you don't have an sds value, use setTypeAddBuf() instead. */
+ * returned, otherwise the new element is added and 1 is returned. */
 int setTypeAdd(robj *subject, sds value) {
-    if (subject->encoding == OBJ_ENCODING_HT) {
-        /* Specialized code to avoid creating a new sds in some case. */
-        dict *ht = subject->ptr;
-        dictEntry *de = dictAddRaw(ht,value,NULL);
-        if (de) {
-            dictSetKey(ht,de,sdsdup(value));
-            dictSetVal(ht,de,NULL);
-            return 1;
-        } else {
-            return 0;
-        }
-    }
-    return setTypeAddBuf(subject, value, sdslen(value));
+    return setTypeAddAux(subject, value, sdslen(value), 0, 1);
 }
 
-/* Add the specified buffer to a set. If you have an sds string, use
- * setTypeAdd() instead. */
-int setTypeAddBuf(robj *subject, char *value, size_t len) {
-    long long llval;
-    if (subject->encoding == OBJ_ENCODING_HT) {
-        sds sdsval = sdsnewlen(value, len);
-        dict *ht = subject->ptr;
+/* Add member. This function is optimized for the different encodings. The
+ * value can be provided as an sds string (indicated by passing str_is_sds =
+ * 1), as string and length (str_is_sds = 0) or as an integer in which case str
+ * is set to NULL and llval is provided instead. */
+int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
+    char tmpbuf[LONG_STR_SIZE];
+    if (!str) {
+        if (set->encoding == OBJ_ENCODING_INTSET) {
+            uint8_t success = 0;
+            set->ptr = intsetAdd(set->ptr, llval, &success);
+            if (success) maybeConvertIntset(set);
+            return success;
+        }
+        /* Convert int to string. */
+        len = ll2string(tmpbuf, sizeof tmpbuf, llval);
+        str = tmpbuf;
+        str_is_sds = 0;
+    }
+
+    serverAssert(str);
+    if (set->encoding == OBJ_ENCODING_HT) {
+        /* Avoid duping the string if it is an sds string. */
+        sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
+        dict *ht = set->ptr;
         dictEntry *de = dictAddRaw(ht,sdsval,NULL);
-        if (de == NULL) sdsfree(sdsval);
+        if (de && sdsval == str) {
+            /* String was added but we don't own this sds string. Dup it and
+             * replace it in the dict entry. */
+            dictSetKey(ht,de,sdsdup((sds)str));
+            dictSetVal(ht,de,NULL);
+        } else if (!de && sdsval != str) {
+            /* String was already a member. Free our temporary sds copy. */
+            sdsfree(sdsval);
+        }
         return (de != NULL);
-    } else if (subject->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *lp = subject->ptr;
+    } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
         if (p != NULL)
-            p = lpFind(lp, p, (unsigned char*)value, len, 0);
+            p = lpFind(lp, p, (unsigned char*)str, len, 0);
         if (p == NULL) {
-            /* Not found. Convert to hashtable if size limit is reached. */
-            if (lpLength(lp) >= server.set_max_listpack_entries ||
-                len > server.set_max_listpack_value ||
-                !lpSafeToAdd(lp, len))
+            /* Not found.  */
+            if (lpLength(lp) < server.set_max_listpack_entries &&
+                len <= server.set_max_listpack_value &&
+                lpSafeToAdd(lp, len))
             {
-                setTypeConvert(subject, OBJ_ENCODING_HT);
-                serverAssert(dictAdd(subject->ptr,sdsnewlen(value,len),NULL) == DICT_OK);
+                lp = lpAppend(lp, (unsigned char*)str, len);
+                set->ptr = lp;
             } else {
-                lp = lpAppend(lp, (unsigned char*)value, len);
-                subject->ptr = lp;
+                /* Size limit is reached. Convert to hashtable and add. */
+                setTypeConvert(set, OBJ_ENCODING_HT);
+                serverAssert(dictAdd(set->ptr,sdsnewlen(str,len),NULL) == DICT_OK);
             }
             return 1;
         }
-    } else if (subject->encoding == OBJ_ENCODING_INTSET) {
-        if (string2ll(value, len, &llval)) {
+    } else if (set->encoding == OBJ_ENCODING_INTSET) {
+        long long value;
+        if (string2ll(str, len, &value)) {
             uint8_t success = 0;
-            subject->ptr = intsetAdd(subject->ptr,llval,&success);
+            set->ptr = intsetAdd(set->ptr,value,&success);
             if (success) {
-                maybeConvertIntset(subject);
+                maybeConvertIntset(set);
                 return 1;
             }
         } else {
-            size_t maxelelen = intsetLen(subject->ptr) == 0 ?
-                0 : max(sdigits10(intsetMax(subject->ptr)),
-                        sdigits10(intsetMin(subject->ptr)));
-            if (intsetLen((const intset*)subject->ptr) < server.set_max_listpack_entries &&
+            size_t maxelelen = intsetLen(set->ptr) == 0 ?
+                0 : max(sdigits10(intsetMax(set->ptr)),
+                        sdigits10(intsetMin(set->ptr)));
+            if (intsetLen((const intset*)set->ptr) < server.set_max_listpack_entries &&
                 len <= server.set_max_listpack_value &&
                 maxelelen <= server.set_max_listpack_value &&
-                lpSafeToAdd(NULL, maxelelen * intsetLen(subject->ptr) + len))
+                lpSafeToAdd(NULL, maxelelen * intsetLen(set->ptr) + len))
             {
                 /* In the "safe to add" check above we assumed all elements in
                  * the intset are of size maxelelen. This is an upper bound. */
-                setTypeConvert(subject, OBJ_ENCODING_LISTPACK);
-                unsigned char *lp = subject->ptr;
-                lp = lpAppend(lp, (unsigned char *)value, len);
-                subject->ptr = lp;
+                setTypeConvert(set, OBJ_ENCODING_LISTPACK);
+                unsigned char *lp = set->ptr;
+                lp = lpAppend(lp, (unsigned char *)str, len);
+                set->ptr = lp;
                 return 1;
             } else {
-                setTypeConvert(subject, OBJ_ENCODING_HT);
+                setTypeConvert(set, OBJ_ENCODING_HT);
                 /* The set *was* an intset and this value is not integer
                  * encodable, so dictAdd should always work. */
-                serverAssert(dictAdd(subject->ptr,sdsnewlen(value,len),NULL) == DICT_OK);
+                serverAssert(dictAdd(set->ptr,sdsnewlen(str,len),NULL) == DICT_OK);
                 return 1;
             }
         }
@@ -149,39 +163,42 @@ int setTypeAddBuf(robj *subject, char *value, size_t len) {
     return 0;
 }
 
-/* Add an integer value to the set. */
-int setTypeAddInt(robj *subject, int64_t value) {
-    if (subject->encoding == OBJ_ENCODING_INTSET) {
-        uint8_t success = 0;
-        subject->ptr = intsetAdd(subject->ptr, value, &success);
-        if (success) maybeConvertIntset(subject);
-        return success;
-    } else {
-        char buf[LONG_STR_SIZE];
-        size_t len = ll2string(buf, sizeof buf, value);
-        return setTypeAddBuf(subject, buf, len);
-    }
+int setTypeRemove(robj *setobj, sds value) {
+    return setTypeRemoveAux(setobj, value, sdslen(value), 0, 1);
 }
 
-int setTypeRemove(robj *setobj, sds value) {
-    long long llval;
-    if (setobj->encoding == OBJ_ENCODING_HT) {
-        if (dictDelete(setobj->ptr,value) == DICT_OK) {
-            if (htNeedsResize(setobj->ptr)) dictResize(setobj->ptr);
-            return 1;
+int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str_is_sds) {
+    char tmpbuf[LONG_STR_SIZE];
+    if (!str) {
+        if (setobj->encoding == OBJ_ENCODING_INTSET) {
+            int success;
+            setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
+            return success;
         }
+        len = ll2string(tmpbuf, sizeof tmpbuf, llval);
+        str = tmpbuf;
+        str_is_sds = 0;
+    }
+
+    if (setobj->encoding == OBJ_ENCODING_HT) {
+        sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
+        int deleted = (dictDelete(setobj->ptr, sdsval) == DICT_OK);
+        if (deleted && htNeedsResize(setobj->ptr)) dictResize(setobj->ptr);
+        if (sdsval != str) sdsfree(sdsval); /* free temp copy */
+        return deleted;
     } else if (setobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = setobj->ptr;
         unsigned char *p = lpFirst(lp);
         if (p == NULL) return 0;
-        p = lpFind(lp, p, (unsigned char*)value, sdslen(value), 0);
+        p = lpFind(lp, p, (unsigned char*)str, len, 0);
         if (p != NULL) {
             lp = lpDelete(lp, p, NULL);
             setobj->ptr = lp;
             return 1;
         }
     } else if (setobj->encoding == OBJ_ENCODING_INTSET) {
-        if (isSdsRepresentableAsLongLong(value,&llval) == C_OK) {
+        long long llval;
+        if (string2ll(str, len, &llval)) {
             int success;
             setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
             if (success) return 1;
@@ -192,22 +209,42 @@ int setTypeRemove(robj *setobj, sds value) {
     return 0;
 }
 
+/* Check if an sds string is a member of the set. */
 int setTypeIsMember(robj *subject, sds value) {
-    long long llval;
-    if (subject->encoding == OBJ_ENCODING_HT) {
-        return dictFind((dict*)subject->ptr,value) != NULL;
-    } else if (subject->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *lp = subject->ptr;
+    return setTypeIsMemberAux(subject, value, sdslen(value), 0, 1);
+}
+
+/* Membership checking optimized for the different encodings. The value can be
+ * provided as an sds string (indicated by passing str_is_sds = 1), as string
+ * and length (str_is_sds = 0) or as an integer in which case str is set to NULL
+ * and llval is provided instead. */
+int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
+    char tmpbuf[LONG_STR_SIZE];
+    if (!str) {
+        if (set->encoding == OBJ_ENCODING_INTSET)
+            return intsetFind(set->ptr, llval);
+        len = ll2string(tmpbuf, sizeof tmpbuf, llval);
+        str = tmpbuf;
+        str_is_sds = 0;
+    }
+
+    if (set->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
-        return p && lpFind(lp, p, (unsigned char*)value, sdslen(value), 0);
-    } else if (subject->encoding == OBJ_ENCODING_INTSET) {
-        if (isSdsRepresentableAsLongLong(value,&llval) == C_OK) {
-            return intsetFind((intset*)subject->ptr,llval);
-        }
+        return p && lpFind(lp, p, (unsigned char*)str, len, 0);
+    } else if (set->encoding == OBJ_ENCODING_INTSET) {
+        long long llval;
+        return string2ll(str, len, &llval) && intsetFind(set->ptr, llval);
+    } else if (set->encoding == OBJ_ENCODING_HT && str_is_sds) {
+        return dictFind(set->ptr, (sds)str) != NULL;
+    } else if (set->encoding == OBJ_ENCODING_HT) {
+        sds sdsval = sdsnewlen(str, len);
+        int result = dictFind(set->ptr, sdsval) != NULL;
+        sdsfree(sdsval);
+        return result;
     } else {
         serverPanic("Unknown set encoding");
     }
-    return 0;
 }
 
 setTypeIterator *setTypeInitIterator(robj *subject) {
@@ -354,18 +391,12 @@ robj *setTypePopRandom(robj *set) {
         char *str;
         size_t len;
         int64_t llele;
-        switch (setTypeRandomElement(set, &str, &len, &llele)) {
-        case OBJ_ENCODING_INTSET:
-            obj = createStringObjectFromLongLong(llele);
-            set->ptr = intsetRemove(set->ptr, llele, NULL);
-            break;
-        case OBJ_ENCODING_HT:
+        int encoding = setTypeRandomElement(set, &str, &len, &llele);
+        if (str)
             obj = createStringObject(str, len);
-            setTypeRemove(set, obj->ptr);
-            break;
-        default:
-            serverPanic("Unknown set encoding");
-        }
+        else
+            obj = createStringObjectFromLongLong(llele);
+        setTypeRemoveAux(set, str, len, llele, encoding == OBJ_ENCODING_HT);
     }
     return obj;
 }
@@ -757,23 +788,18 @@ void spopWithCountCommand(client *c) {
                 p = lpNextRandom(lp, p, &index, remaining--, 0);
                 unsigned int len;
                 str = (char *)lpGetValue(p, &len, (long long *)&llele);
-                if (str) {
-                    setTypeAddBuf(newset, str, len);
-                } else {
-                    setTypeAddInt(newset, llele);
-                }
+                setTypeAddAux(newset, str, len, llele, 0);
                 lp = lpDelete(lp, p, &p);
             }
             set->ptr = lp;
         } else {
             while(remaining--) {
-                setTypeRandomElement(set, &str, &len, &llele);
-                sds sdsele = str ? sdsnewlen(str, len) : sdsfromlonglong(llele);
-
-                if (!newset) newset = setTypeCreate(sdsele);
-                setTypeAdd(newset,sdsele);
-                setTypeRemove(set,sdsele);
-                sdsfree(sdsele);
+                int encoding = setTypeRandomElement(set, &str, &len, &llele);
+                if (!newset) {
+                    newset = str ? createSetListpackObject() : createIntsetObject();
+                }
+                setTypeAddAux(newset, str, len, llele, encoding == OBJ_ENCODING_HT);
+                setTypeRemoveAux(set, str, len, llele, encoding == OBJ_ENCODING_HT);
             }
         }
 
@@ -1170,25 +1196,9 @@ void sinterGenericCommand(client *c, robj **setkeys,
     while((encoding = setTypeNext(si, &str, &len, &intobj)) != -1) {
         for (j = 1; j < setnum; j++) {
             if (sets[j] == sets[0]) continue;
-            if (str == NULL && sets[j]->encoding == OBJ_ENCODING_INTSET) {
-                /* integer with intset is simple... and fast */
-                if (!intsetFind((intset*)sets[j]->ptr,intobj))
-                    break;
-            } else if (encoding == OBJ_ENCODING_HT) {
-                /* In this case, str is actually an sds string. */
-                if (!setTypeIsMember(sets[j], (sds)str)) {
-                    break;
-                }
-            } else {
-                /* We have to use the generic function, creating an object
-                 * for this */
-                sds elesds = str ? sdsnewlen(str, len) : sdsfromlonglong(intobj);
-                if (!setTypeIsMember(sets[j],elesds)) {
-                    sdsfree(elesds);
-                    break;
-                }
-                sdsfree(elesds);
-            }
+            if (!setTypeIsMemberAux(sets[j], str, len, intobj,
+                                    encoding == OBJ_ENCODING_HT))
+                break;
         }
 
         /* Only take action when all sets contain the member */
@@ -1206,14 +1216,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
                     addReplyBulkLongLong(c,intobj);
                 cardinality++;
             } else {
-                if (encoding == OBJ_ENCODING_HT) {
-                    sds elesds = (sds)str;
-                    setTypeAdd(dstset,elesds);
-                } else if (str != NULL) {
-                    setTypeAddBuf(dstset, str, len);
-                } else {
-                    setTypeAddInt(dstset, intobj);
-                }
+                setTypeAddAux(dstset, str, len, intobj, encoding == OBJ_ENCODING_HT);
             }
         }
     }
@@ -1292,7 +1295,10 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *dstset = NULL;
-    sds ele;
+    char *str;
+    size_t len;
+    int64_t llval;
+    int encoding;
     int j, cardinality = 0;
     int diff_algo = 1;
     int sameset = 0; 
@@ -1358,14 +1364,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             if (!sets[j]) continue; /* non existing keys are like empty sets */
 
             si = setTypeInitIterator(sets[j]);
-            char *str;
-            size_t len;
-            int64_t llval;
-            while (setTypeNext(si, &str, &len, &llval) != -1) {
-                if (str != NULL)
-                    cardinality += setTypeAddBuf(dstset, str, len);
-                else
-                    cardinality += setTypeAddInt(dstset, llval);
+            while ((encoding = setTypeNext(si, &str, &len, &llval)) != -1) {
+                cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
             }
             setTypeReleaseIterator(si);
         }
@@ -1381,18 +1381,19 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          * This way we perform at max N*M operations, where N is the size of
          * the first set, and M the number of sets. */
         si = setTypeInitIterator(sets[0]);
-        while((ele = setTypeNextObject(si)) != NULL) {
+        while ((encoding = setTypeNext(si, &str, &len, &llval)) != -1) {
             for (j = 1; j < setnum; j++) {
                 if (!sets[j]) continue; /* no key is an empty set. */
                 if (sets[j] == sets[0]) break; /* same set! */
-                if (setTypeIsMember(sets[j],ele)) break;
+                if (setTypeIsMemberAux(sets[j], str, len, llval,
+                                       encoding == OBJ_ENCODING_HT))
+                    break;
             }
             if (j == setnum) {
                 /* There is no other set with this element. Add it. */
-                setTypeAdd(dstset,ele);
+                setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
                 cardinality++;
             }
-            sdsfree(ele);
         }
         setTypeReleaseIterator(si);
     } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 2) {
@@ -1407,13 +1408,14 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             if (!sets[j]) continue; /* non existing keys are like empty sets */
 
             si = setTypeInitIterator(sets[j]);
-            while((ele = setTypeNextObject(si)) != NULL) {
+            while((encoding = setTypeNext(si, &str, &len, &llval)) != -1) {
                 if (j == 0) {
-                    if (setTypeAdd(dstset,ele)) cardinality++;
+                    cardinality += setTypeAddAux(dstset, str, len, llval,
+                                                 encoding == OBJ_ENCODING_HT);
                 } else {
-                    if (setTypeRemove(dstset,ele)) cardinality--;
+                    cardinality -= setTypeRemoveAux(dstset, str, len, llval,
+                                                    encoding == OBJ_ENCODING_HT);
                 }
-                sdsfree(ele);
             }
             setTypeReleaseIterator(si);
 
@@ -1427,9 +1429,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     if (!dstkey) {
         addReplySetLen(c,cardinality);
         si = setTypeInitIterator(dstset);
-        while((ele = setTypeNextObject(si)) != NULL) {
-            addReplyBulkCBuffer(c,ele,sdslen(ele));
-            sdsfree(ele);
+        while (setTypeNext(si, &str, &len, &llval) != -1) {
+            if (str)
+                addReplyBulkCBuffer(c, str, len);
+            else
+                addReplyBulkLongLong(c, llval);
         }
         setTypeReleaseIterator(si);
         server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
