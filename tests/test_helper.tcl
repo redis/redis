@@ -29,6 +29,7 @@ set ::disk_tests {
     swap/ported/replication-3 
     swap/ported/rdb
     swap/ported/multi
+    swap/ported/block-repl
     swap/unit/dbsize
     swap/unit/list
     swap/unit/dirty
@@ -84,7 +85,6 @@ set ::disk_tests {
     integration/redis-cli
     integration/replication-2
     integration/replication-4
-    integration/block-repl
     integration/psync2-reg
     integration/psync2-pingoff
     integration/failover
@@ -141,7 +141,6 @@ set ::all_tests {
     integration/replication-2
     integration/replication-3
     integration/replication-4
-    integration/block-repl
     integration/psync2-reg
     integration/psync2-pingoff
     integration/replication-psync
