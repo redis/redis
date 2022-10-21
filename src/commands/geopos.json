@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the number of members requested.",
         "group": "geo",
         "since": "3.2.0",
-        "arity": -2,
+        "arity": -3,
         "function": "geoposCommand",
         "command_flags": [
             "READONLY"
