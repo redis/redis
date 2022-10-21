@@ -1508,7 +1508,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
  * 'remaining' unique elements between the starting element 'p' (inclusive) and
  * the end of the list. The 'index' needs to be initialized according to the
  * current zero-based index matching the position of the starting element 'p'
- * and is updated to match the retuned element's zero-based index. If
+ * and is updated to match the returned element's zero-based index. If
  * 'even_only' is nonzero, an element with an even index is picked, which is
  * useful if the listpack represents a key-value pair sequence.
  *

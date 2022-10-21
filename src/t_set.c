@@ -128,6 +128,8 @@ int setTypeAddBuf(robj *subject, char *value, size_t len) {
                 maxelelen <= server.set_max_listpack_value &&
                 lpSafeToAdd(NULL, maxelelen * intsetLen(subject->ptr) + len))
             {
+                /* In the "safe to add" check above we assumed all elements in
+                 * the intset are of size maxelelen. This is an upper bound. */
                 setTypeConvert(subject, OBJ_ENCODING_LISTPACK);
                 unsigned char *lp = subject->ptr;
                 lp = lpAppend(lp, (unsigned char *)value, len);

@@ -1827,6 +1827,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                            maxelelen <= server.set_max_listpack_value &&
                            lpSafeToAdd(NULL, sumelelen))
                 {
+                    /* We checked if it's safe to add one large element instead
+                     * of many small ones. It's OK since lpSafeToAdd doesn't
+                     * care about individual elements, only the total size. */
                     setTypeConvert(o, OBJ_ENCODING_LISTPACK);
                 } else {
                     setTypeConvert(o,OBJ_ENCODING_HT);
