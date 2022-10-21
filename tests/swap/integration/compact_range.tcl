@@ -55,14 +55,12 @@ start_server {tags {"repl"}} {
             stop_bg_complex_data $load_handle3
             stop_bg_complex_data $load_handle4
             stop_bg_complex_data $load_handle5
-
-            # puts [$master dbsize]
         }
     }
 }
 
 
-start_server {tags {"repl"}} {
+start_server {overrides {save ""}} {
     set master [srv 0 client]
     $master config set repl-diskless-sync-delay 1
     test "info" {
