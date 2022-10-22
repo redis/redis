@@ -4147,10 +4147,7 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
 
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_LIST) return REDISMODULE_ERR;
-    if (key->iter) {
-        listTypeReleaseIterator(key->iter);
-        key->iter = NULL;
-    }
+    if (key->iter) moduleFreeKeyIterator(key);
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_LIST);
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
@@ -4180,10 +4177,7 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
         errno = EBADF;
         return NULL;
     }
-    if (key->iter) {
-        listTypeReleaseIterator(key->iter);
-        key->iter = NULL;
-    }
+    if (key->iter) moduleFreeKeyIterator(key);
     robj *ele = listTypePop(key->value,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     robj *decoded = getDecodedObject(ele);
@@ -4246,8 +4240,7 @@ int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
         listTypeReplace(&key->u.list.entry, value);
         /* A note in quicklist.c forbids use of iterator after insert, so
          * probably also after replace. */
-        listTypeReleaseIterator(key->iter);
-        key->iter = NULL;
+        moduleFreeKeyIterator(key);
         return REDISMODULE_OK;
     } else {
         return REDISMODULE_ERR;
@@ -4292,8 +4285,7 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
         int where = index < 0 ? LIST_TAIL : LIST_HEAD;
         listTypeInsert(&key->u.list.entry, value, where);
         /* A note in quicklist.c forbids use of iterator after insert. */
-        listTypeReleaseIterator(key->iter);
-        key->iter = NULL;
+        moduleFreeKeyIterator(key);
         return REDISMODULE_OK;
     } else {
         return REDISMODULE_ERR;
@@ -4314,7 +4306,24 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
 int RM_ListDelete(RedisModuleKey *key, long index) {
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeDelete(key->iter, &key->u.list.entry);
-        moduleDelKeyIfEmpty(key);
+        if (moduleDelKeyIfEmpty(key)) return REDISMODULE_OK;
+        if (listTypeNext(key->iter, &key->u.list.entry)) {
+            /* After delete entry at position 'index', we need to update
+             * 'key->u.list.index' according to the following cases:
+             * 1) [1, 2, 3] => dir: forward, index: 0  => [2, 3] => index: still 0
+             * 2) [1, 2, 3] => dir: forward, index: -3 => [2, 3] => index: -2
+             * 3) [1, 2, 3] => dir: reverse, index: 2  => [1, 2] => index: 1
+             * 4) [1, 2, 3] => dir: reverse, index: -1 => [1, 2] => index: still -1 */
+            listTypeIterator *li = key->iter;
+            int reverse = li->direction == LIST_HEAD;
+            if (key->u.list.index < 0)
+                key->u.list.index += reverse ? 0 : 1;
+            else
+                key->u.list.index += reverse ? -1 : 0;
+        } else {
+            /* Reset list iterator if the next entry doesn't exist. */
+            moduleFreeKeyIterator(key);
+        }
         return REDISMODULE_OK;
     } else {
         return REDISMODULE_ERR;
