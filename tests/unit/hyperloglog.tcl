@@ -165,18 +165,31 @@ start_server {tags {"hll"}} {
         r pfcount hll{t}
     } {5}
 
-    test {PFMERGE dose not create empty destkey when source key dose not exist - arity error} {
-        r del destkey
-        assert_error {*wrong number of arguments for 'pfmerge' command} {r pfmerge destkey}
-        assert_equal 0 [r exists destkey{t}]
-    }
-
     test {PFMERGE on missing source keys will create an empty destkey} {
         r del sourcekey{t} sourcekey2{t} destkey{t} destkey2{t}
+
         assert_equal {OK} [r pfmerge destkey{t} sourcekey{t}]
         assert_equal 1 [r exists destkey{t}]
+        assert_equal 0 [r pfcount destkey{t}]
+
         assert_equal {OK} [r pfmerge destkey2{t} sourcekey{t} sourcekey2{t}]
         assert_equal 1 [r exists destkey2{t}]
+        assert_equal 0 [r pfcount destkey{t}]
+    }
+
+    test {PFMERGE with one empty input key} {
+        r del destkey
+        assert_equal {OK} [r pfmerge destkey]
+        assert_equal 1 [r exists destkey]
+        assert_equal 0 [r pfcount destkey]
+    }
+
+    test {PFMERGE with one non-empty input key} {
+        r del destkey
+        assert_equal 1 [r pfadd destkey a b c]
+        assert_equal {OK} [r pfmerge destkey]
+        assert_equal 1 [r exists destkey]
+        assert_equal 3 [r pfcount destkey]
     }
 
     test {PFCOUNT multiple-keys merge returns cardinality of union #1} {

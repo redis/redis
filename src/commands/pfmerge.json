@@ -4,7 +4,7 @@
         "complexity": "O(N) to merge N HyperLogLogs, but with high constant times.",
         "group": "hyperloglog",
         "since": "2.8.9",
-        "arity": -3,
+        "arity": -2,
         "function": "pfmergeCommand",
         "command_flags": [
             "WRITE",
@@ -62,6 +62,7 @@
                 "name": "sourcekey",
                 "type": "key",
                 "key_spec_index": 1,
+                "optional": true,
                 "multiple": true
             }
         ]
