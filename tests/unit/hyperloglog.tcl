@@ -177,14 +177,14 @@ start_server {tags {"hll"}} {
         assert_equal 0 [r pfcount destkey{t}]
     }
 
-    test {PFMERGE with one empty input key} {
+    test {PFMERGE with one empty input key, create an empty destkey} {
         r del destkey
         assert_equal {OK} [r pfmerge destkey]
         assert_equal 1 [r exists destkey]
         assert_equal 0 [r pfcount destkey]
     }
 
-    test {PFMERGE with one non-empty input key} {
+    test {PFMERGE with one non-empty input key, dest key is actually one of the source keys} {
         r del destkey
         assert_equal 1 [r pfadd destkey a b c]
         assert_equal {OK} [r pfmerge destkey]
