@@ -2608,7 +2608,7 @@ struct redisCommandArg PFDEBUG_Args[] = {
 /* PFMERGE argument table */
 struct redisCommandArg PFMERGE_Args[] = {
 {"destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"sourcekey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"sourcekey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
