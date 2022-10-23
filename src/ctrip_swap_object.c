@@ -234,6 +234,72 @@ int dbDeleteMeta(redisDb *db, robj *key) {
     return dictDelete(db->meta,key->ptr) == DICT_OK ? 1 : 0;
 }
 
+sds objectDump(robj *o) {
+    sds repr = sdsempty();
+
+    repr = sdscatprintf(repr,"type:%s, ", getObjectTypeName(o));
+    switch (o->encoding) {
+    case OBJ_ENCODING_INT:
+        repr = sdscatprintf(repr, "encoding:int, value:%ld", (long)o->ptr);
+        break;
+    case OBJ_ENCODING_EMBSTR:
+        repr = sdscatprintf(repr, "encoding:emedstr, value:%.*s", (int)sdslen(o->ptr), (sds)o->ptr);
+        break;
+    case OBJ_ENCODING_RAW:
+        repr = sdscatprintf(repr, "encoding:raw, value:%.*s", (int)sdslen(o->ptr), (sds)o->ptr);
+        break;
+    default:
+        repr = sdscatprintf(repr, "encoding:%d, value:nan", o->encoding);
+        break;
+    }
+    return repr;
+}
+
+/* For big Hash/Set/Zset object, object might changed by swap thread in
+ * createOrMergeObject, so iterating those big objects in main thread without
+ * requestGetIOAndLock is not safe. intead we just estimate those object size. */
+#define OBJECT_ESTIMATE_SIZE_SAMPLE 5
+size_t objectComputeSize(robj *o, size_t sample_size);
+size_t objectEstimateSize(robj *o) {
+    size_t asize = 0;
+
+    switch (o->type) {
+    case OBJ_STRING:
+        asize = objectComputeSize(o,OBJECT_ESTIMATE_SIZE_SAMPLE);
+        break;
+    case OBJ_HASH:
+        /* Hash may convert encoding in swap thread, so we can't safely
+         * estimate hash size by encoding. */
+        asize = DEFAULT_HASH_FIELD_COUNT*DEFAULT_HASH_FIELD_SIZE;
+        break;
+    case OBJ_SET:
+        /* similar to Hash */
+        asize = DEFAULT_SET_MEMBER_COUNT*DEFAULT_SET_MEMBER_SIZE;
+        break;
+    case OBJ_LIST:
+        serverAssert(o->encoding == OBJ_ENCODING_QUICKLIST);
+        asize = listTypeLength(o)*DEFAULT_LIST_ELE_SIZE;
+        break;
+    case OBJ_ZSET:
+        asize = DEFAULT_ZSET_MEMBER_COUNT*DEFAULT_ZSET_MEMBER_SIZE;
+        break;
+    case OBJ_STREAM:
+        asize = objectComputeSize(o,OBJECT_ESTIMATE_SIZE_SAMPLE);
+        break;
+    case OBJ_MODULE:
+        /*TODO support module*/
+        asize = objectComputeSize(o,OBJECT_ESTIMATE_SIZE_SAMPLE);
+        break;
+    }
+
+    return asize;
+}
+size_t keyEstimateSize(redisDb *db, robj *key) {
+    robj *val = lookupKey(db, key, LOOKUP_NOTOUCH);
+    return val ? objectEstimateSize(val): 0;
+}
+
+
 #ifdef REDIS_TEST
 int swapObjectTest(int argc, char *argv[], int accurate) {
     initTestRedisServer();

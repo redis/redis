@@ -242,7 +242,6 @@ int getKeyRequestsZlexCount(int dbid, struct redisCommand *cmd, robj **argv, int
 #define getKeyRequestsZrem getKeyRequestsZScore
 
 /** geo **/
-// command use zset object 
 int getKeyRequestsGeoAdd(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsGeoRadius(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsGeoHash(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
@@ -1153,8 +1152,15 @@ void rocksReleaseIter(rocksIter *it);
 void rocksIterGetError(rocksIter *it, char **error);
 
 /* Rdb save */
+#define DEFAULT_STRING_SIZE 512 
+#define DEFAULT_HASH_FIELD_COUNT 8
 #define DEFAULT_HASH_FIELD_SIZE 256
-#define DEFAULT_LIST_FIELD_SIZE 128
+#define DEFAULT_SET_MEMBER_COUNT 8
+#define DEFAULT_SET_MEMBER_SIZE 128
+#define DEFAULT_LIST_ELE_COUNT 32
+#define DEFAULT_LIST_ELE_SIZE 128
+#define DEFAULT_ZSET_MEMBER_COUNT 16
+#define DEFAULT_ZSET_MEMBER_SIZE 128
 
 /* result that decoded from current rocksIter value */
 typedef struct decodedResult {

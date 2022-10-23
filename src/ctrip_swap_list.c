@@ -429,7 +429,7 @@ listMeta *listMetaCalculateSwapOutMeta(listMeta *list_meta) {
     long max_eles;
     int l = (list_meta->num-1)/2, r = l+1, x, select_right;
 
-    max_eles = server.swap_evict_step_max_memory/DEFAULT_LIST_FIELD_SIZE;
+    max_eles = server.swap_evict_step_max_memory/DEFAULT_LIST_ELE_SIZE;
     if (max_eles > server.swap_evict_step_max_subkeys)
         max_eles = server.swap_evict_step_max_subkeys;
 

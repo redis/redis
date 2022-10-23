@@ -51,48 +51,6 @@ int timestampIsExpired(mstime_t when) {
     return now > when;
 }
 
-
-sds objectDump(robj *o) {
-    sds repr = sdsempty();
-
-    repr = sdscatprintf(repr,"type:%s, ", getObjectTypeName(o));
-    switch (o->encoding) {
-    case OBJ_ENCODING_INT:
-        repr = sdscatprintf(repr, "encoding:int, value:%ld", (long)o->ptr);
-        break;
-    case OBJ_ENCODING_EMBSTR:
-        repr = sdscatprintf(repr, "encoding:emedstr, value:%.*s", (int)sdslen(o->ptr), (sds)o->ptr);
-        break;
-    case OBJ_ENCODING_RAW:
-        repr = sdscatprintf(repr, "encoding:raw, value:%.*s", (int)sdslen(o->ptr), (sds)o->ptr);
-        break;
-    default:
-        repr = sdscatprintf(repr, "encoding:%d, value:nan", o->encoding);
-        break;
-    }
-    return repr;
-}
-
-/* For big Hash/Set/Zset object, object might changed by swap thread in
- * createOrMergeObject, so iterating those big objects in main thread without
- * requestGetIOAndLock is not safe. intead we just estimate those object size. */
-size_t objectComputeSize(robj *o, size_t sample_size);
-size_t objectEstimateSize(robj *o) {
-    size_t asize = 0;
-    if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
-        dict *d = o->ptr;
-        asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
-        asize += DEFAULT_HASH_FIELD_SIZE*dictSize(d);
-    } else {
-        asize = objectComputeSize(o,5);
-    }
-    return asize;
-}
-size_t keyEstimateSize(redisDb *db, robj *key) {
-    robj *val = lookupKey(db, key, LOOKUP_NOTOUCH);
-    return val ? objectEstimateSize(val): 0;
-}
-
 /* Create an unshared object from src, note that o.refcount decreased. */
 robj *unshareStringValue(robj *o) {
     serverAssert(o->type == OBJ_STRING);
