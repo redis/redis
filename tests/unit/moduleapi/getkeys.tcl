@@ -64,14 +64,14 @@ start_server {tags {"modules"}} {
     test "module getkeys-api - ACL" {
         # legacy triple didn't provide flags, so they require both read and write
         assert_equal "OK" [r ACL DRYRUN testuser getkeys.command key rw]
-        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN testuser getkeys.command key read]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN testuser getkeys.command key write]
+        assert_match {*has no permissions to access the 'read' key*} [r ACL DRYRUN testuser getkeys.command key read]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN testuser getkeys.command key write]
     }
 
     test "module getkeys-api with flags - ACL" {
         assert_equal "OK" [r ACL DRYRUN testuser getkeys.command_with_flags key rw]
         assert_equal "OK" [r ACL DRYRUN testuser getkeys.command_with_flags key read]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN testuser getkeys.command_with_flags key write]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN testuser getkeys.command_with_flags key write]
     }
 
     test "Unload the module - getkeys" {

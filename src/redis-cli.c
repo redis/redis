@@ -61,6 +61,7 @@
 #include "help.h" /* Used for backwards-compatibility with pre-7.0 servers that don't support COMMAND DOCS. */
 #include "anet.h"
 #include "ae.h"
+#include "connection.h"
 #include "cli_common.h"
 #include "mt19937-64.h"
 
@@ -91,15 +92,15 @@
     "address (ie. 120.0.0.1:7000) or space separated IP " \
     "and port (ie. 120.0.0.1 7000)\n"
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
-#define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) (nodes/(replicas + 1))
+#define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) ((nodes)/((replicas) + 1))
 #define CLUSTER_MANAGER_COMMAND(n,...) \
-        (redisCommand(n->context, __VA_ARGS__))
+        (redisCommand((n)->context, __VA_ARGS__))
 
-#define CLUSTER_MANAGER_NODE_ARRAY_FREE(array) zfree(array->alloc)
+#define CLUSTER_MANAGER_NODE_ARRAY_FREE(array) zfree((array)->alloc)
 
 #define CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, err) \
     clusterManagerLogErr("Node %s:%d replied with error:\n%s\n", \
-                         n->ip, n->port, err);
+                         (n)->ip, (n)->port, (err));
 
 #define clusterManagerLogInfo(...) \
     clusterManagerLog(CLUSTER_MANAGER_LOG_LVL_INFO,__VA_ARGS__)
@@ -322,7 +323,7 @@ static void cliRefreshPrompt(void) {
         prompt = sdscatfmt(prompt,"redis %s",config.hostsocket);
     } else {
         char addr[256];
-        anetFormatAddr(addr, sizeof(addr), config.conn_info.hostip, config.conn_info.hostport);
+        formatAddr(addr, sizeof(addr), config.conn_info.hostip, config.conn_info.hostport);
         prompt = sdscatlen(prompt,addr,strlen(addr));
     }
 
@@ -942,7 +943,7 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
 static char *hintsCallback(const char *buf, int *color, int *bold) {
     if (!pref.hints) return NULL;
 
-    int i, rawargc, argc, buflen = strlen(buf), matchlen = 0;
+    int i, rawargc, argc, buflen = strlen(buf), matchlen = 0, shift = 0;
     sds *rawargv, *argv = sdssplitargs(buf,&argc);
     int endspace = buflen && isspace(buf[buflen-1]);
     helpEntry *entry = NULL;
@@ -952,6 +953,16 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
         sdsfreesplitres(argv,argc);
         return NULL;
     }
+
+    if (argc > 3 && (!strcasecmp(argv[0], "acl") && !strcasecmp(argv[1], "dryrun"))) {
+        shift = 3;
+    } else if (argc > 2 && (!strcasecmp(argv[0], "command") &&
+        (!strcasecmp(argv[1], "getkeys") || !strcasecmp(argv[1], "getkeysandflags"))))
+    {
+        shift = 2;
+    }
+    argc -= shift;
+    argv += shift;
 
     /* Search longest matching prefix command */
     for (i = 0; i < helpEntriesLen; i++) {
@@ -972,7 +983,7 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
         }
         sdsfreesplitres(rawargv,rawargc);
     }
-    sdsfreesplitres(argv,argc);
+    sdsfreesplitres(argv - shift,argc + shift);
 
     if (entry) {
         *color = 90;
@@ -2060,7 +2071,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--memkeys")) {
             config.memkeys = 1;
             config.memkeys_samples = 0; /* use redis default */
-        } else if (!strcmp(argv[i],"--memkeys-samples")) {
+        } else if (!strcmp(argv[i],"--memkeys-samples") && !lastarg) {
             config.memkeys = 1;
             config.memkeys_samples = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--hotkeys")) {
@@ -6340,10 +6351,10 @@ assign_replicas:
                  * So if (bus_port == 0) or (bus_port == port + CLUSTER_MANAGER_PORT_INCR),
                  * we just call CLUSTER MEET with 2 arguments, using the old form. */
                 reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d",
-                                                first->ip, first->port);
+                                                first_ip, first->port);
             } else {
                 reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d %d",
-                                                first->ip, first->port, first->bus_port);
+                                                first_ip, first->port, first->bus_port);
             }
             int is_err = 0;
             if (reply != NULL) {
@@ -6534,7 +6545,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
                                         first_ip, first->port);
     } else {
         reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d %d",
-                                        first->ip, first->port, first->bus_port);
+                                        first_ip, first->port, first->bus_port);
     }
 
     if (!(success = clusterManagerCheckRedisReply(new_node, reply, NULL)))

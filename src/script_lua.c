@@ -28,6 +28,7 @@
  */
 
 #include "script_lua.h"
+#include "fpconv_dtoa.h"
 
 #include "server.h"
 #include "sha1.h"
@@ -173,6 +174,7 @@ void* luaGetFromRegistry(lua_State* lua, const char* name) {
     lua_gettable(lua, LUA_REGISTRYINDEX);
 
     if (lua_isnil(lua, -1)) {
+        lua_pop(lua, 1); /* pops the value */
         return NULL;
     }
     /* must be light user data */
@@ -803,8 +805,8 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
             /* We can't use lua_tolstring() for number -> string conversion
              * since Lua uses a format specifier that loses precision. */
             lua_Number num = lua_tonumber(lua,j+1);
-
-            obj_len = snprintf(dbuf,sizeof(dbuf),"%.17g",(double)num);
+            obj_len = fpconv_dtoa((double)num, dbuf);
+            dbuf[obj_len] = '\0';
             obj_s = dbuf;
         } else {
             obj_s = (char*)lua_tolstring(lua,j+1,&obj_len);
@@ -838,10 +840,7 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
 static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j;
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    if (!rctx) {
-        luaPushError(lua, "redis.call/pcall can only be called inside a script invocation");
-        return luaError(lua);
-    }
+    serverAssert(rctx); /* Only supported inside script invocation */
     sds err = NULL;
     client* c = rctx->c;
     sds reply;
@@ -1052,13 +1051,10 @@ static int luaRedisSetReplCommand(lua_State *lua) {
     int flags, argc = lua_gettop(lua);
 
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    if (!rctx) {
-        luaPushError(lua, "redis.set_repl can only be called inside a script invocation");
-        return luaError(lua);
-    }
+    serverAssert(rctx); /* Only supported inside script invocation */
 
     if (argc != 1) {
-        luaPushError(lua, "redis.set_repl() requires two arguments.");
+        luaPushError(lua, "redis.set_repl() requires one argument.");
          return luaError(lua);
     }
 
@@ -1077,10 +1073,7 @@ static int luaRedisSetReplCommand(lua_State *lua) {
  * Checks ACL permissions for given command for the current user. */
 static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    if (!rctx) {
-        luaPushError(lua, "redis.acl_check_cmd can only be called inside a script invocation");
-        return luaError(lua);
-    }
+    serverAssert(rctx); /* Only supported inside script invocation */
     int raise_error = 0;
 
     int argc;
@@ -1152,10 +1145,7 @@ static int luaLogCommand(lua_State *lua) {
 /* redis.setresp() */
 static int luaSetResp(lua_State *lua) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    if (!rctx) {
-        luaPushError(lua, "redis.setresp can only be called inside a script invocation");
-        return luaError(lua);
-    }
+    serverAssert(rctx); /* Only supported inside script invocation */
     int argc = lua_gettop(lua);
 
     if (argc != 1) {
@@ -1481,11 +1471,6 @@ static void luaCreateArray(lua_State *lua, robj **elev, int elec) {
 /* The following implementation is the one shipped with Lua itself but with
  * rand() replaced by redisLrand48(). */
 static int redis_math_random (lua_State *L) {
-  scriptRunCtx* rctx = luaGetFromRegistry(L, REGISTRY_RUN_CTX_NAME);
-  if (!rctx) {
-    return luaL_error(L, "math.random can only be called inside a script invocation");
-  }
-
   /* the `%' avoids the (rare) case of r==1, and is needed also because on
      some systems (SunOS!) `rand()' may return a value larger than RAND_MAX */
   lua_Number r = (lua_Number)(redisLrand48()%REDIS_LRAND48_MAX) /
@@ -1514,10 +1499,6 @@ static int redis_math_random (lua_State *L) {
 }
 
 static int redis_math_randomseed (lua_State *L) {
-  scriptRunCtx* rctx = luaGetFromRegistry(L, REGISTRY_RUN_CTX_NAME);
-  if (!rctx) {
-    return luaL_error(L, "math.randomseed can only be called inside a script invocation");
-  }
   redisSrand48(luaL_checkint(L, 1));
   return 0;
 }
@@ -1526,6 +1507,7 @@ static int redis_math_randomseed (lua_State *L) {
 static void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     UNUSED(ar);
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    serverAssert(rctx); /* Only supported inside script invocation */
     if (scriptInterrupt(rctx) == SCRIPT_KILL) {
         serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
 

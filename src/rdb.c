@@ -31,6 +31,7 @@
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
 #include "endianconv.h"
+#include "fpconv_dtoa.h"
 #include "stream.h"
 #include "functions.h"
 
@@ -51,7 +52,7 @@
 
 /* This macro tells if we are in the context of a RESTORE command, and not loading an RDB or AOF. */
 #define isRestoreContext() \
-    (server.current_client == NULL || server.current_client->id == CLIENT_ID_AOF) ? 0 : 1
+    ((server.current_client == NULL || server.current_client->id == CLIENT_ID_AOF) ? 0 : 1)
 
 char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
 extern int rdbCheckMode;
@@ -99,7 +100,7 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     exit(1);
 }
 
-static ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
+ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
     return len;
@@ -590,8 +591,10 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
         /* Integer printing function is much faster, check if we can safely use it. */
         if (double2ll(val, &lvalue))
             ll2string((char*)buf+1,sizeof(buf)-1,lvalue);
-        else
-            snprintf((char*)buf+1,sizeof(buf)-1,"%.17g",val);
+        else {
+            const int dlen = fpconv_dtoa(val, (char*)buf+1);
+            buf[dlen+1] = '\0';
+        }
         buf[0] = strlen((char*)buf+1);
         len = buf[0]+1;
     }
@@ -1183,30 +1186,49 @@ int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     /* Save a module-specific aux value. */
     RedisModuleIO io;
-    int retval = rdbSaveType(rdb, RDB_OPCODE_MODULE_AUX);
-    if (retval == -1) return -1;
+    int retval = 0;
     moduleInitIOContext(io,mt,rdb,NULL,-1);
-    io.bytes += retval;
+
+    /* We save the AUX field header in a temporary buffer so we can support aux_save2 API.
+     * If aux_save2 is used the buffer will be flushed at the first time the module will perform
+     * a write operation to the RDB and will be ignored is case there was no writes. */
+    rio aux_save_headers_rio;
+    rioInitWithBuffer(&aux_save_headers_rio, sdsempty());
+
+    if (rdbSaveType(&aux_save_headers_rio, RDB_OPCODE_MODULE_AUX) == -1) goto error;
 
     /* Write the "module" identifier as prefix, so that we'll be able
      * to call the right module during loading. */
-    retval = rdbSaveLen(rdb,mt->id);
-    if (retval == -1) return -1;
-    io.bytes += retval;
+    if (rdbSaveLen(&aux_save_headers_rio,mt->id) == -1) goto error;
 
     /* write the 'when' so that we can provide it on loading. add a UINT opcode
      * for backwards compatibility, everything after the MT needs to be prefixed
      * by an opcode. */
-    retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_UINT);
-    if (retval == -1) return -1;
-    io.bytes += retval;
-    retval = rdbSaveLen(rdb,when);
-    if (retval == -1) return -1;
-    io.bytes += retval;
+    if (rdbSaveLen(&aux_save_headers_rio,RDB_MODULE_OPCODE_UINT) == -1) goto error;
+    if (rdbSaveLen(&aux_save_headers_rio,when) == -1) goto error;
 
     /* Then write the module-specific representation + EOF marker. */
-    mt->aux_save(&io,when);
+    if (mt->aux_save2) {
+        io.pre_flush_buffer = aux_save_headers_rio.io.buffer.ptr;
+        mt->aux_save2(&io,when);
+        if (io.pre_flush_buffer) {
+            /* aux_save did not save any data to the RDB.
+             * We will avoid saving any data related to this aux type
+             * to allow loading this RDB if the module is not present. */
+            sdsfree(io.pre_flush_buffer);
+            io.pre_flush_buffer = NULL;
+            return 0;
+        }
+    } else {
+        /* Write headers now, aux_save does not do lazy saving of the headers. */
+        retval = rdbWriteRaw(rdb, aux_save_headers_rio.io.buffer.ptr, sdslen(aux_save_headers_rio.io.buffer.ptr));
+        if (retval == -1) goto error;
+        io.bytes += retval;
+        sdsfree(aux_save_headers_rio.io.buffer.ptr);
+        mt->aux_save(&io,when);
+    }
     retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
+    serverAssert(!io.pre_flush_buffer);
     if (retval == -1)
         io.error = 1;
     else
@@ -1219,6 +1241,9 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     if (io.error)
         return -1;
     return io.bytes;
+error:
+    sdsfree(aux_save_headers_rio.io.buffer.ptr);
+    return -1;
 }
 
 ssize_t rdbSaveFunctions(rio *rdb) {
@@ -2605,7 +2630,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 raxStop(&ri_cg_pel);
             }
         }
-    } else if (rdbtype == RDB_TYPE_MODULE || rdbtype == RDB_TYPE_MODULE_2) {
+    } else if (rdbtype == RDB_TYPE_MODULE_PRE_GA) {
+            rdbReportCorruptRDB("Pre-release module format not supported");
+            return NULL;
+    } else if (rdbtype == RDB_TYPE_MODULE_2) {
         uint64_t moduleid = rdbLoadLen(rdb,NULL);
         if (rioGetReadError(rdb)) {
             rdbReportReadError("Short read module id");
@@ -2613,7 +2641,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         }
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
 
-        if (rdbCheckMode && rdbtype == RDB_TYPE_MODULE_2) {
+        if (rdbCheckMode) {
             char name[10];
             moduleTypeNameByID(name,moduleid);
             return rdbLoadCheckModuleValue(rdb,name);
@@ -2629,7 +2657,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         robj keyobj;
         initStaticStringObject(keyobj,key);
         moduleInitIOContext(io,mt,rdb,&keyobj,dbid);
-        io.ver = (rdbtype == RDB_TYPE_MODULE) ? 1 : 2;
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
         void *ptr = mt->rdb_load(&io,moduleid&1023);
@@ -2639,24 +2666,22 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         }
 
         /* Module v2 serialization has an EOF mark at the end. */
-        if (io.ver == 2) {
-            uint64_t eof = rdbLoadLen(rdb,NULL);
-            if (eof == RDB_LENERR) {
-                if (ptr) {
-                    o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
-                    decrRefCount(o);
-                }
-                return NULL;
+        uint64_t eof = rdbLoadLen(rdb,NULL);
+        if (eof == RDB_LENERR) {
+            if (ptr) {
+                o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
+                decrRefCount(o);
             }
-            if (eof != RDB_MODULE_OPCODE_EOF) {
-                rdbReportCorruptRDB("The RDB file contains module data for the module '%s' that is not terminated by "
-                                    "the proper module value EOF marker", moduleTypeModuleName(mt));
-                if (ptr) {
-                    o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
-                    decrRefCount(o);
-                }
-                return NULL;
+            return NULL;
+        }
+        if (eof != RDB_MODULE_OPCODE_EOF) {
+            rdbReportCorruptRDB("The RDB file contains module data for the module '%s' that is not terminated by "
+                                "the proper module value EOF marker", moduleTypeModuleName(mt));
+            if (ptr) {
+                o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
+                decrRefCount(o);
             }
+            return NULL;
         }
 
         if (ptr == NULL) {
@@ -2794,62 +2819,14 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
  *
  * The lib_ctx argument is also optional. If NULL is given, only verify rdb
  * structure with out performing the actual functions loading. */
-int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int type, int rdbflags, sds *err) {
+int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, sds *err) {
     UNUSED(ver);
     sds error = NULL;
     sds final_payload = NULL;
     int res = C_ERR;
-    if (type == RDB_OPCODE_FUNCTION) {
-        /* RDB that was generated on versions 7.0 rc1 and 7.0 rc2 has another
-         * an old format that contains the library name, engine and description.
-         * To support this format we must read those values. */
-        sds name = NULL;
-        sds engine_name = NULL;
-        sds desc = NULL;
-        sds blob = NULL;
-        uint64_t has_desc;
-
-        if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-            error = sdsnew("Failed loading library name");
-            goto cleanup;
-        }
-
-        if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-            error = sdsnew("Failed loading engine name");
-            goto cleanup;
-        }
-
-        if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
-            error = sdsnew("Failed loading library description indicator");
-            goto cleanup;
-        }
-
-        if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-            error = sdsnew("Failed loading library description");
-            goto cleanup;
-        }
-
-        if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-            error = sdsnew("Failed loading library blob");
-            goto cleanup;
-        }
-        /* Translate old format (versions 7.0 rc1 and 7.0 rc2) to new format.
-         * The new format has the library name and engine inside the script payload.
-         * Add those parameters to the original script payload (ignore the description if exists). */
-        final_payload = sdscatfmt(sdsempty(), "#!%s name=%s\n%s", engine_name, name, blob);
-cleanup:
-        if (name) sdsfree(name);
-        if (engine_name) sdsfree(engine_name);
-        if (desc) sdsfree(desc);
-        if (blob) sdsfree(blob);
-        if (error) goto done;
-    } else if (type == RDB_OPCODE_FUNCTION2) {
-        if (!(final_payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-            error = sdsnew("Failed loading library payload");
-            goto done;
-        }
-    } else {
-        serverPanic("Bad function type was given to rdbFunctionLoad");
+    if (!(final_payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        error = sdsnew("Failed loading library payload");
+        goto done;
     }
 
     if (lib_ctx) {
@@ -2889,7 +2866,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 
 
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
- * otherwise C_ERR is returned and 'errno' is set accordingly. 
+ * otherwise C_ERR is returned.
  * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
  * currently it only allow to set db object and functionLibCtx to which the data
  * will be loaded (in the future it might contains more such objects). */
@@ -2907,13 +2884,11 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
         serverLog(LL_WARNING,"Wrong signature trying to load DB from file");
-        errno = EINVAL;
         return C_ERR;
     }
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > RDB_VERSION) {
         serverLog(LL_WARNING,"Can't handle RDB format version %d",rdbver);
-        errno = EINVAL;
         return C_ERR;
     }
 
@@ -3072,7 +3047,6 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
 
                 RedisModuleIO io;
                 moduleInitIOContext(io,mt,rdb,NULL,-1);
-                io.ver = 2;
                 /* Call the rdb_load method of the module providing the 10 bit
                  * encoding version in the lower 10 bits of the module ID. */
                 int rc = mt->aux_load(&io,moduleid&1023, when);
@@ -3097,9 +3071,12 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 decrRefCount(aux);
                 continue; /* Read next opcode. */
             }
-        } else if (type == RDB_OPCODE_FUNCTION || type == RDB_OPCODE_FUNCTION2) {
+        } else if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
+            rdbReportCorruptRDB("Pre-release function format not supported.");
+            exit(1);
+        } else if (type == RDB_OPCODE_FUNCTION2) {
             sds err = NULL;
-            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_lib_ctx, type, rdbflags, &err) != C_OK) {
+            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_lib_ctx, rdbflags, &err) != C_OK) {
                 serverLog(LL_WARNING,"Failed loading library, %s", err);
                 sdsfree(err);
                 goto eoferr;
@@ -3254,9 +3231,10 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
     fp = fopen(filename, "r");
     if (fp == NULL) {
-        retval = (errno == ENOENT) ? RDB_NOT_EXIST : RDB_FAILED;
+        if (errno == ENOENT) return RDB_NOT_EXIST;
+
         serverLog(LL_WARNING,"Fatal error: can't open the RDB file %s for reading: %s", filename, strerror(errno));
-        return retval;
+        return RDB_FAILED;
     }
 
     if (fstat(fileno(fp), &sb) == -1)

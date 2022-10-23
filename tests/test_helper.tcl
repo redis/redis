@@ -51,6 +51,7 @@ set ::all_tests {
     integration/replication-buffer
     integration/shutdown
     integration/aof
+    integration/aof-race
     integration/aof-multi-part
     integration/rdb
     integration/corrupt-dump
@@ -95,10 +96,12 @@ set ::all_tests {
     unit/client-eviction
     unit/violations
     unit/replybufsize
+    unit/cluster/misc
     unit/cluster/cli
     unit/cluster/scripting
     unit/cluster/hostnames
     unit/cluster/multi-slot-operations
+    unit/cluster/slot-ownership
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -111,6 +114,7 @@ set ::traceleaks 0
 set ::valgrind 0
 set ::durable 0
 set ::tls 0
+set ::tls_module 0
 set ::stack_logging 0
 set ::verbose 0
 set ::quiet 0
@@ -611,6 +615,7 @@ proc print_help_screen {} {
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
         "--dump-logs        Dump server log on test failure."
         "--tls              Run tests in TLS mode."
+        "--tls-module       Run tests in TLS mode with Redis module."
         "--host <addr>      Run tests against an external host."
         "--port <port>      TCP port to use against external host."
         "--baseport <port>  Initial port number for spawned redis servers."
@@ -659,13 +664,16 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         }
     } elseif {$opt eq {--quiet}} {
         set ::quiet 1
-    } elseif {$opt eq {--tls}} {
+    } elseif {$opt eq {--tls} || $opt eq {--tls-module}} {
         package require tls 1.6
         set ::tls 1
         ::tls::init \
             -cafile "$::tlsdir/ca.crt" \
             -certfile "$::tlsdir/client.crt" \
             -keyfile "$::tlsdir/client.key"
+        if {$opt eq {--tls-module}} {
+            set ::tls_module 1
+        }
     } elseif {$opt eq {--host}} {
         set ::external 1
         set ::host $arg
@@ -790,12 +798,12 @@ if {[llength $filtered_tests] < [llength $::all_tests]} {
     set ::all_tests $filtered_tests
 }
 
-proc attach_to_replication_stream {} {
+proc attach_to_replication_stream_on_connection {conn} {
     r config set repl-ping-replica-period 3600
     if {$::tls} {
-        set s [::tls::socket [srv 0 "host"] [srv 0 "port"]]
+        set s [::tls::socket [srv $conn "host"] [srv $conn "port"]]
     } else {
-        set s [socket [srv 0 "host"] [srv 0 "port"]]
+        set s [socket [srv $conn "host"] [srv $conn "port"]]
     }
     fconfigure $s -translation binary
     puts -nonewline $s "SYNC\r\n"
@@ -818,6 +826,10 @@ proc attach_to_replication_stream {} {
         set count [expr {$count-[string length $buf]}]
     }
     return $s
+}
+
+proc attach_to_replication_stream {} {
+    return [attach_to_replication_stream_on_connection 0]
 }
 
 proc read_from_replication_stream {s} {
