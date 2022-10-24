@@ -1480,10 +1480,6 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
     if (count > total_size)
         count = total_size;
 
-    /* To only iterate once, every time we try to pick a member, the probability
-     * we pick it is the quotient of the count left we want to pick and the
-     * count still we haven't visited in the dict, this way, we could make every
-     * member be equally picked.*/
     p = lpFirst(lp);
     unsigned int picked = 0, remaining = count;
     while (picked < count && p) {
@@ -1532,8 +1528,8 @@ unsigned char *lpNextRandom(unsigned char *lp, unsigned char *p, unsigned int *i
 {
     /* To only iterate once, every time we try to pick a member, the probability
      * we pick it is the quotient of the count left we want to pick and the
-     * count still we haven't visited in the dict, this way, we could make every
-     * member be equally picked.*/
+     * count still we haven't visited. This way, we could make every member be
+     * equally likely to be picked. */
     unsigned int i = *index;
     unsigned int total_size = lpLength(lp);
     while (i < total_size && p != NULL) {
