@@ -336,14 +336,14 @@ int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele) 
 }
 
 /* Pops a random element and returns it as an object. */
-robj *setTypePop(robj *set) {
+robj *setTypePopRandom(robj *set) {
     robj *obj;
     if (set->encoding == OBJ_ENCODING_LISTPACK) {
         /* Find random and delete it without re-seeking the listpack. */
         unsigned int i = 0;
         unsigned char *p = lpNextRandom(set->ptr, lpFirst(set->ptr), &i, 1, 0);
-        unsigned int len;
-        long long llele;
+        unsigned int len = 0; /* initialize to silence warning */
+        long long llele = 0; /* initialize to silence warning */
         char *str = (char *)lpGetValue(p, &len, &llele);
         if (str)
             obj = createStringObject(str, len);
@@ -727,7 +727,7 @@ void spopWithCountCommand(client *c) {
         set->ptr = lp;
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
         while(count--) {
-            objele = setTypePop(set);
+            objele = setTypePopRandom(set);
             addReplyBulk(c, objele);
 
             /* Replicate/AOF this command as an SREM operation */
@@ -825,7 +825,7 @@ void spopCommand(client *c) {
          == NULL || checkType(c,set,OBJ_SET)) return;
 
     /* Pop a random element from the set */
-    ele = setTypePop(set);
+    ele = setTypePopRandom(set);
 
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
