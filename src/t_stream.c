@@ -437,6 +437,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
              * in time. */
             if (s->last_id.ms == use_id->ms) {
                 if (s->last_id.seq == UINT64_MAX) {
+                    errno = EDOM;
                     return C_ERR;
                 }
                 id = s->last_id;
@@ -2025,10 +2026,12 @@ void xaddCommand(client *c) {
     }
 
     /* Append using the low level function and return the ID. */
+    errno = 0;
     streamID id;
     if (streamAppendItem(s,c->argv+field_pos,(c->argc-field_pos)/2,
         &id,parsed_args.id_given ? &parsed_args.id : NULL,parsed_args.seq_given) == C_ERR)
     {
+        serverAssert(errno != 0);
         if (errno == EDOM)
             addReplyError(c,"The ID specified in XADD is equal or smaller than "
                             "the target stream top item");
