@@ -389,8 +389,8 @@ robj *setTypePopRandom(robj *set) {
         set->ptr = lpDelete(set->ptr, p, NULL);
     } else {
         char *str;
-        size_t len;
-        int64_t llele;
+        size_t len = 0;
+        int64_t llele = 0;
         int encoding = setTypeRandomElement(set, &str, &len, &llele);
         if (str)
             obj = createStringObject(str, len);
