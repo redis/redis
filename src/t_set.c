@@ -896,18 +896,15 @@ void srandmemberWithCountCommand(client *c) {
 
         if (set->encoding == OBJ_ENCODING_LISTPACK && count > 1) {
             /* Specialized case for listpack, traversing it only once. */
-            unsigned char **ps = zmalloc(count * sizeof(unsigned char *));
-            lpRandomElements(set->ptr, count, ps);
+            listpackEntry *entries = zmalloc(count * sizeof(listpackEntry));
+            lpRandomEntries(set->ptr, count, entries);
             for (unsigned long i = 0; i < count; i++) {
-                unsigned int len;
-                str = (char *)lpGetValue(ps[i], &len, (long long *)&llele);
-                if (str) {
-                    addReplyBulkCBuffer(c, str, len);
-                } else {
-                    addReplyBulkLongLong(c, llele);
-                }
+                if (entries[i].sval)
+                    addReplyBulkCBuffer(c, entries[i].sval, entries[i].slen);
+                else
+                    addReplyBulkLongLong(c, entries[i].lval);
             }
-            zfree(ps);
+            zfree(entries);
             return;
         }
 

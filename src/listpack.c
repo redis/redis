@@ -1381,10 +1381,10 @@ void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *k
     val->sval = lpGetValue(p, &(val->slen), &(val->lval));
 }
 
-/* Randomly select 'count' elements and store pointers to them in the 'results'
- * array, which needs to have space for 'count' pointers. The order is random
+/* Randomly select 'count' entries and store them in the 'entries' array, which
+ * needs to have space for 'count' listpackEntry structs. The order is random
  * and duplicates are possible. */
-void lpRandomElements(unsigned char *lp, unsigned int count, unsigned char **result) {
+void lpRandomEntries(unsigned char *lp, unsigned int count, listpackEntry *entries) {
     struct pick {
         unsigned int index;
         unsigned int order;
@@ -1399,8 +1399,8 @@ void lpRandomElements(unsigned char *lp, unsigned int count, unsigned char **res
     /* Sort by index. */
     qsort(picks, count, sizeof(struct pick), uintCompare);
 
-    /* Iterate over listpack in index order and store pointers to elements in
-     * the result array respecting the original order. */
+    /* Iterate over listpack in index order and store the values in the entries
+     * array respecting the original order. */
     unsigned char *p = lpFirst(lp);
     unsigned int j = 0; /* index in listpack */
     for (unsigned int i = 0; i < count; i++) {
@@ -1409,7 +1409,11 @@ void lpRandomElements(unsigned char *lp, unsigned int count, unsigned char **res
             p = lpNext(lp, p);
             j++;
         }
-        result[picks[i].order] = p;
+        int storeorder = picks[i].order;
+        unsigned int len = 0;
+        long long llval = 0;
+        unsigned char *str = lpGetValue(p, &len, &llval);
+        lpSaveValue(str, len, llval, &entries[storeorder]);
     }
     lp_free(picks);
 }

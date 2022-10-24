@@ -90,7 +90,7 @@ unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen);
 void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *key, listpackEntry *val);
 void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals);
 unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals);
-void lpRandomElements(unsigned char *lp, unsigned int count, unsigned char **result);
+void lpRandomEntries(unsigned char *lp, unsigned int count, listpackEntry *entries);
 unsigned char *lpNextRandom(unsigned char *lp, unsigned char *p, unsigned int *index,
                             unsigned int remaining, int even_only);
 int lpSafeToAdd(unsigned char* lp, size_t add);
