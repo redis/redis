@@ -86,6 +86,7 @@ static void unblockClientWaitingData(client *c);
 static void handleClientsBlockedOnKey(readyList *rl);
 static void unblockClientOnKey(client *c, robj *key);
 static void moduleUnblockClientOnKey(client *c, robj *key);
+static void releaseBlockedEntry(client *c, dictEntry *de, int remove_key);
 
 void initClientBlockingState(client *c) {
     c->bstate.btype = BLOCKED_NONE;
@@ -93,6 +94,7 @@ void initClientBlockingState(client *c) {
     c->bstate.keys = dictCreate(&objectKeyHeapPointerValueDictType);
     c->bstate.numreplicas = 0;
     c->bstate.reploffset = 0;
+    c->bstate.unblock_on_nokey = 0;
 }
 
 /* Block a client for the specific operation type. Once the CLIENT_BLOCKED
@@ -214,6 +216,7 @@ void unblockClient(client *c) {
     server.blocked_clients_by_type[c->bstate.btype]--;
     c->flags &= ~CLIENT_BLOCKED;
     c->bstate.btype = BLOCKED_NONE;
+    c->bstate.unblock_on_nokey = 0;
     removeClientFromTimeoutTable(c);
     queueClientForReprocessing(c);
 }
@@ -364,7 +367,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         incrRefCount(keys[j]);
 
         /* And in the other "side", to map keys -> clients */
-        db_blocked_entry = dictAddRaw(c->db->blocking_keys,keys[j],&db_blocked_existing_entry);
+        db_blocked_entry = dictAddRaw(c->db->blocking_keys,keys[j], &db_blocked_existing_entry);
 
         /* In case key[j] did not have blocking clients yet, we need to create a new list */
         if (db_blocked_entry != NULL) {
@@ -382,9 +385,12 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
          * wants to be awakened if key is deleted (like XREADGROUP) */
         if (unblock_on_nokey) {
             c->bstate.unblock_on_nokey = unblock_on_nokey;
-            db_blocked_entry = dictAddRaw(c->db->blocking_keys_unblock_on_nokey, keys[j], NULL);
+            db_blocked_entry = dictAddRaw(c->db->blocking_keys_unblock_on_nokey, keys[j], &db_blocked_existing_entry);
             if (db_blocked_entry) {
                 incrRefCount(keys[j]);
+                dictSetUnsignedIntegerVal(db_blocked_entry, 1);
+            } else {
+                dictIncrSignedIntegerVal(db_blocked_existing_entry, 1);
             }
         }
     }
@@ -397,8 +403,6 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
 static void unblockClientWaitingData(client *c) {
     dictEntry *de;
     dictIterator *di;
-    list *l;
-    listNode *pos;
 
     if (dictSize(c->bstate.keys) == 0)
         return;
@@ -406,17 +410,7 @@ static void unblockClientWaitingData(client *c) {
     di = dictGetIterator(c->bstate.keys);
     /* The client may wait for multiple keys, so unblock it for every key. */
     while((de = dictNext(di)) != NULL) {
-        robj *key = dictGetKey(de);
-        pos = dictGetVal(de);
-        /* Remove this client from the list of clients waiting for this key. */
-        l = dictFetchValue(c->db->blocking_keys,key);
-        serverAssertWithInfo(c,key,l != NULL);
-        listUnlinkNode(l,pos);
-        /* If the list is empty we need to remove it to avoid wasting memory */
-        if (listLength(l) == 0) {
-            dictDelete(c->db->blocking_keys,key);
-            dictDelete(c->db->blocking_keys_unblock_on_nokey,key);
-        }
+        releaseBlockedEntry(c, de, 0);
     }
     dictReleaseIterator(di);
     dictEmpty(c->bstate.keys, NULL);
@@ -486,6 +480,53 @@ static void signalKeyAsReadyLogic(redisDb *db, robj *key, int type, int deleted)
     rl->db = db;
     incrRefCount(key);
     listAddNodeTail(server.ready_keys,rl);
+}
+
+/* Helper function to wrap the logic of removing a client blocked key entry
+ * In this case we would like to do the following:
+ * 1. unlink the client from the global DB locked client list
+ * 2. remove the entry from the global db blocking list in case the list is empty
+ * 3. in case the global list is empty, also remove the key from the global dict of keys
+ *    which should trigger unblock on key deletion
+ * 4. remove key from the client blocking keys list - NOTE, since client can be blocked on lots of keys,
+ *    but unblocked when only one of them is triggered, we would like to avoid deleting each key separately
+ *    and instead clear the dictionary in one-shot. this is why the remove_key argument is provided
+ *    to support this logic in unblockClientWaitingData
+ */
+static void releaseBlockedEntry(client *c, dictEntry *de, int remove_key) {
+    list *l;
+    listNode *pos;
+    void *key;
+    dictEntry *unblock_on_nokey_entry;
+
+    key = dictGetKey(de);
+    pos = dictGetVal(de);
+    /* Remove this client from the list of clients waiting for this key. */
+    l = dictFetchValue(c->db->blocking_keys, key);
+    serverAssertWithInfo(c,key,l != NULL);
+    listUnlinkNode(l,pos);
+    /* If the list is empty we need to remove it to avoid wasting memory
+     * We will also remove the key (if exists) from the blocking_keys_unblock_on_nokey dict.
+     * However, in case the list is not empty, we will have to still perform reference accounting
+     * on the blocking_keys_unblock_on_nokey and delete the entry in case of zero reference.
+     * Why? because it is possible that some more clients are blocked on the same key but without
+     * require to be triggered on key deletion, we do not want these to be later triggered by the
+     * signalDeletedKeyAsReady. */
+    if (listLength(l) == 0) {
+        dictDelete(c->db->blocking_keys, key);
+        dictDelete(c->db->blocking_keys_unblock_on_nokey,key);
+    } else if (c->bstate.unblock_on_nokey) {
+        unblock_on_nokey_entry = dictFind(c->db->blocking_keys_unblock_on_nokey,key);
+        /* it is not possible to have a client blocked on nokey with no matching entry */
+        serverAssertWithInfo(c,key,unblock_on_nokey_entry != NULL);
+        dictIncrUnsignedIntegerVal(unblock_on_nokey_entry, -1);
+        /* in case the count is zero, we can delete the entry */
+        if (!dictGetUnsignedIntegerVal(unblock_on_nokey_entry)) {
+            dictDelete(c->db->blocking_keys_unblock_on_nokey,key);
+        }
+    }
+    if (remove_key)
+        dictDelete(c->bstate.keys, key);
 }
 
 void signalKeyAsReady(redisDb *db, robj *key, int type) {
@@ -567,18 +608,10 @@ void blockClientShutdown(client *c) {
  * and also remove the key from the dictionary of keys this client is blocked on.
  * in case the client has a command pending it will process it immediately.  */
 static void unblockClientOnKey(client *c, robj *key) {
-    list *l;
-    listNode *pos;
+    dictEntry *de;
 
-    pos = dictFetchValue(c->bstate.keys, key);
-    /* Remove this client from the list of clients waiting for this key. */
-    l = dictFetchValue(c->db->blocking_keys, key);
-    serverAssertWithInfo(c,key,l != NULL);
-    listUnlinkNode(l,pos);
-    /* If the list is empty we need to remove it to avoid wasting memory */
-    if (listLength(l) == 0)
-        dictDelete(c->db->blocking_keys, key);
-    dictDelete(c->bstate.keys, key);
+    de = dictFind(c->bstate.keys, key);
+    releaseBlockedEntry(c, de, 1);
 
     /* Only in case of blocking API calls, we might be blocked on several keys.
        however we should force unblock the entire blocking keys */
@@ -628,4 +661,19 @@ void unblockClientOnTimeout(client *c) {
     if (c->flags & CLIENT_PENDING_COMMAND)
         c->flags &= ~CLIENT_PENDING_COMMAND;
     unblockClient(c);
+}
+
+/* sets blocking_keys to the total number of keys which has at least one client blocked on them
+ * sets blocking_keys_on_nokey to the total number of keys which has at least one client
+ * blocked on them to be written or deleted */
+void totalNumberOfBlockingKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey) {
+    unsigned long bkeys=0, bkeys_on_nokey=0;
+    for (int j = 0; j < server.dbnum; j++) {
+        bkeys += dictSize(server.db[j].blocking_keys);
+        bkeys_on_nokey += dictSize(server.db[j].blocking_keys_unblock_on_nokey);
+        if (blocking_keys)
+            *blocking_keys = bkeys;
+        if (bloking_keys_on_nokey)
+            *bloking_keys_on_nokey = bkeys_on_nokey;
+    }
 }

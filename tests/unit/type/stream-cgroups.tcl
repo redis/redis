@@ -410,6 +410,44 @@ start_server {
         $rd close
     }
 
+     test {Blocking XREADGROUP for stream key that has clients blocked on list} {
+        set rd [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        
+        # First delete the stream
+        r DEL mystream
+        
+        # now place a client blocked on non-existing key as list
+        $rd2 BLPOP mystream 0
+        
+        # verify we only have 1 regular blocking key
+        assert_equal 1 [getInfoProperty [r info clients] tot_blocking_keys]
+        assert_equal 0 [getInfoProperty [r info clients] tot_blocking_keys_on_nokey]
+        
+        # now write mystream as stream
+        r XADD mystream 666 key value
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        
+        # block another client on xreadgroup 
+        $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream ">"
+        
+        # verify we have 1 blocking key which also have clients blocked on nokey condition
+        assert_equal 1 [getInfoProperty [r info clients] tot_blocking_keys]
+        assert_equal 1 [getInfoProperty [r info clients] tot_blocking_keys_on_nokey]
+
+        # now delete the key and verify we have no clients blocked on nokey condition
+        r DEL mystream
+        assert_equal 1 [getInfoProperty [r info clients] tot_blocking_keys]
+        assert_equal 0 [getInfoProperty [r info clients] tot_blocking_keys_on_nokey]
+        
+        # close the only left client and make sure we have no more blocking keys
+        $rd2 close
+        assert_equal 0 [getInfoProperty [r info clients] tot_blocking_keys]
+        assert_equal 0 [getInfoProperty [r info clients] tot_blocking_keys_on_nokey]
+        
+        $rd close 
+    }
+    
     test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {
         r config resetstat
         r del mystream

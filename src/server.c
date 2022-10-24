@@ -5380,7 +5380,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     /* Clients */
     if (all_sections || (dictFind(section_dict,"clients") != NULL)) {
         size_t maxin, maxout;
+        unsigned long blocking_keys, blocking_keys_on_nokey;
         getExpansiveClientsInfo(&maxin,&maxout);
+        totalNumberOfBlockingKeys(&blocking_keys, &blocking_keys_on_nokey);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Clients\r\n"
@@ -5391,14 +5393,18 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "client_recent_max_output_buffer:%zu\r\n"
             "blocked_clients:%d\r\n"
             "tracking_clients:%d\r\n"
-            "clients_in_timeout_table:%llu\r\n",
+            "clients_in_timeout_table:%llu\r\n"
+            "tot_blocking_keys:%lu\r\n"
+            "tot_blocking_keys_on_nokey:%lu\r\n",
             listLength(server.clients)-listLength(server.slaves),
             getClusterConnectionsCount(),
             server.maxclients,
             maxin, maxout,
             server.blocked_clients,
             server.tracking_clients,
-            (unsigned long long) raxSize(server.clients_timeout_table));
+            (unsigned long long) raxSize(server.clients_timeout_table),
+            blocking_keys,
+            blocking_keys_on_nokey);
     }
 
     /* Memory */
