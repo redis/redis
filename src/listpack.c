@@ -1388,7 +1388,7 @@ void lpRandomElements(unsigned char *lp, unsigned int count, unsigned char **res
     struct pick {
         unsigned int index;
         unsigned int order;
-    } *picks = zmalloc(count * sizeof(struct pick));
+    } *picks = lp_malloc(count * sizeof(struct pick));
     unsigned int total_size = lpLength(lp);
     assert(total_size);
     for (unsigned int i = 0; i < count; i++) {
@@ -1411,7 +1411,7 @@ void lpRandomElements(unsigned char *lp, unsigned int count, unsigned char **res
         }
         result[picks[i].order] = p;
     }
-    zfree(picks);
+    lp_free(picks);
 }
 
 /* Randomly select count of key value pairs and store into 'keys' and
