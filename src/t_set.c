@@ -942,7 +942,11 @@ void srandmemberWithCountCommand(client *c) {
         return;
     }
 
-    /* CASE 2.5 listpack only. Sampling in non-random order. */
+    /* CASE 2.5 listpack only. Sampling unique elements, in non-random order.
+     * Listpack encoded sets are meant to be relatively small, so
+     * SRANDMEMBER_SUB_STRATEGY_MUL isn't necessary and we rather not make
+     * copies of the entries. Instead, we emit them directly to the output
+     * buffer. */
     if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
