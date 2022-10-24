@@ -4,7 +4,7 @@
         "complexity": "O(log(N)) for each member requested, where N is the number of elements in the sorted set.",
         "group": "geo",
         "since": "3.2.0",
-        "arity": -3,
+        "arity": -2,
         "function": "geohashCommand",
         "command_flags": [
             "READONLY"
@@ -41,7 +41,8 @@
             {
                 "name": "member",
                 "type": "string",
-                "multiple": true
+                "multiple": true,
+                "optional": true
             }
         ]
     }
