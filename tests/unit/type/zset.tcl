@@ -1,4 +1,6 @@
 start_server {tags {"zset"}} {
+    r set_response_interpreter zset_response_interpreter
+
     proc create_zset {key items} {
         r del $key
         foreach {score entry} $items {
@@ -94,6 +96,20 @@ start_server {tags {"zset"}} {
         } elseif {$resp == 3} {
             assert_equal [$rd read] ",$score"
         }
+    }
+
+    proc zset_response_interpreter {response} {
+        if {$::use_resp3 == 0} {
+            return $response
+        }
+        if {[string match {\{*\}} $response]} {
+            set flatarray {}
+            foreach pair $response {
+                lappend flatarray {*}$pair
+            }
+            return $flatarray
+        }
+        return $response
     }
 
     proc basics {encoding} {
@@ -308,29 +324,29 @@ start_server {tags {"zset"}} {
             assert_error "*NaN*" {r zincrby myzset -inf abc}
         }
 
-        test {ZADD - Variadic version base case - $encoding} {
+        test "ZADD - Variadic version base case - $encoding" {
             r del myzset
             list [r zadd myzset 10 a 20 b 30 c] [r zrange myzset 0 -1 withscores]
         } {3 {a 10 b 20 c 30}}
 
-        test {ZADD - Return value is the number of actually added items - $encoding} {
+        test "ZADD - Return value is the number of actually added items - $encoding" {
             list [r zadd myzset 5 x 20 b 30 c] [r zrange myzset 0 -1 withscores]
         } {1 {x 5 a 10 b 20 c 30}}
 
-        test {ZADD - Variadic version does not add nothing on single parsing err - $encoding} {
+        test "ZADD - Variadic version does not add nothing on single parsing err - $encoding" {
             r del myzset
             catch {r zadd myzset 10 a 20 b 30.badscore c} e
             assert_match {*ERR*not*float*} $e
             r exists myzset
         } {0}
 
-        test {ZADD - Variadic version will raise error on missing arg - $encoding} {
+        test "ZADD - Variadic version will raise error on missing arg - $encoding" {
             r del myzset
             catch {r zadd myzset 10 a 20 b 30 c 40} e
             assert_match {*ERR*syntax*} $e
         }
 
-        test {ZINCRBY does not work variadic even if shares ZADD implementation - $encoding} {
+        test "ZINCRBY does not work variadic even if shares ZADD implementation - $encoding" {
             r del myzset
             catch {r zincrby myzset 10 a 20 b 30 c} e
             assert_match {*ERR*wrong*number*arg*} $e
@@ -1441,13 +1457,15 @@ start_server {tags {"zset"}} {
         r zadd zmscoretest 10 x
         r zadd zmscoretest 20 y
 
-        r zmscore zmscoretest x y
-    } {10 20}
+        assert_equal [r zmscore zmscoretest x y] {10 20}
+    }
 
     test {ZMSCORE retrieve from empty set} {
+        r reset_response_interpreter
         r del zmscoretest
 
         r zmscore zmscoretest x y
+        r set_response_interpreter zset_response_interpreter
     } {{} {}}
 
     test {ZMSCORE retrieve with missing member} {
@@ -1691,14 +1709,14 @@ start_server {tags {"zset"}} {
             set lexset {}
             r del zset
             for {set j 0} {$j < $elements} {incr j} {
-                set e [randstring 0 30 alpha]
+                set e [randstring 0 30 simplealpha]
                 lappend lexset $e
                 r zadd zset 0 $e
             }
             set lexset [lsort -unique $lexset]
             for {set j 0} {$j < 100} {incr j} {
-                set min [randstring 0 30 alpha]
-                set max [randstring 0 30 alpha]
+                set min [randstring 0 30 simplealpha]
+                set max [randstring 0 30 simplealpha]
                 set mininc [randomInt 2]
                 set maxinc [randomInt 2]
                 if {$mininc} {set cmin "\[$min"} else {set cmin "($min"}
@@ -1756,7 +1774,7 @@ start_server {tags {"zset"}} {
             set lexset {}
             r del zset{t} zsetcopy{t}
             for {set j 0} {$j < $elements} {incr j} {
-                set e [randstring 0 30 alpha]
+                set e [randstring 0 30 simplealpha]
                 lappend lexset $e
                 r zadd zset{t} 0 $e
             }
@@ -1766,8 +1784,8 @@ start_server {tags {"zset"}} {
                 r zunionstore zsetcopy{t} 1 zset{t}
                 set lexsetcopy $lexset
 
-                set min [randstring 0 30 alpha]
-                set max [randstring 0 30 alpha]
+                set min [randstring 0 30 simplealpha]
+                set max [randstring 0 30 simplealpha]
                 set mininc [randomInt 2]
                 set maxinc [randomInt 2]
                 if {$mininc} {set cmin "\[$min"} else {set cmin "($min"}

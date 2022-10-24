@@ -56,7 +56,7 @@ start_server {tags {"hash"}} {
     }
 
     test "HRANDFIELD with RESP3" {
-        if {$::use_resp3 eq 0} {
+        if {$::use_resp3 == 0} {
             r hello 3
         }
         set res [r hrandfield myhash 3 withvalues]
@@ -66,7 +66,7 @@ start_server {tags {"hash"}} {
         set res [r hrandfield myhash 3]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 1
-        if {$::use_resp3 eq 0} {
+        if {$::use_resp3 == 0} {
             r hello 2
         }
     }
