@@ -883,7 +883,7 @@ start_server {tags {"stream"}} {
         assert_equal [dict get $reply max-deleted-entry-id] "2-0"
     }
 
-    test {=XADD with artial ID with maximal seq} {
+    test {XADD with artial ID with maximal seq} {
         r DEL x
         r XADD x 1-18446744073709551615 f1 v1
         assert_error {*The ID specified in XADD is equal or smaller*} {r XADD x 1-* f2 v2}
