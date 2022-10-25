@@ -45,6 +45,9 @@ RedisModuleDict *loaded_event_log = NULL;
 /** stores all the keys on which we got 'module' keyspace notification **/
 RedisModuleDict *module_event_log = NULL;
 
+/** Counts how many deleted KSN we got on keys with a prefix of "count_dels_" **/
+static size_t dels = 0;
+
 static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
     REDISMODULE_NOT_USED(ctx);
     REDISMODULE_NOT_USED(type);
@@ -63,7 +66,14 @@ static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char
 
 static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
-
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(key_str, "count_dels_", 11) == 0 && strcmp(event, "del") == 0) {
+        if (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_MASTER) {
+            dels++;
+            RedisModule_Replicate(ctx, "keyspace.incr_dels", "");
+        }
+        return REDISMODULE_OK;
+    }
     if (cached_time) {
         RedisModule_Assert(cached_time == RedisModule_CachedMicroseconds());
         usleep(1);
@@ -249,6 +259,18 @@ static int cmdIncrCase3(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+static int cmdIncrDels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    dels++;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+static int cmdGetDels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, dels);
+}
 
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
@@ -319,6 +341,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     
     if (RedisModule_CreateCommand(ctx, "keyspace.incr_case3", cmdIncrCase3,
                                   "write", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_dels", cmdIncrDels,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.get_dels", cmdGetDels,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 

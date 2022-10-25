@@ -405,7 +405,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
 
 /* Utility function that replaces an old key pointer in the dictionary with a
  * new pointer. Additionally, we try to defrag the dictEntry in that dict.
- * Oldkey mey be a dead pointer and should not be accessed (we get a
+ * Oldkey may be a dead pointer and should not be accessed (we get a
  * pre-calculated hash value). Newkey may be null if the key pointer wasn't
  * moved. Return value is the dictEntry if found, or NULL if not found.
  * NOTE: this is very ugly code, but it let's us avoid the complication of
