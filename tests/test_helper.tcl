@@ -86,7 +86,6 @@ set ::all_tests {
     unit/wait
     unit/pause
     unit/querybuf
-    unit/pendingquerybuf
     unit/tls
     unit/tracking
     unit/oom-score-adj
