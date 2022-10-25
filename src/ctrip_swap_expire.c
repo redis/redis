@@ -367,8 +367,8 @@ sds genScanExpireInfoString(sds info) {
     }
 
 	info = sdscatprintf(info,
+			"used_memory_scan_expire:%ld\r\n"
 			"scan_expire_candidates:%ld\r\n"
-			"scan_expire_used_memory:%ld\r\n"
 			"scan_expire_stale_perc:%.2f%%\r\n"
 			"scan_expire_scan_limit:%d\r\n"
 			"scan_expire_estimated_cycle_seconds:%lld\r\n"
@@ -376,8 +376,8 @@ sds genScanExpireInfoString(sds info) {
 			"scan_expire_expired_key_per_second:%ld\r\n"
 			"scan_expire_scan_used_time:%lld\r\n"
 			"scan_expire_expire_used_time:%lld\r\n",
-            expireCandidatesSize(scan_expire->candidates),
             used_memory,
+            expireCandidatesSize(scan_expire->candidates),
             scan_expire->stale_percent*100,
             scan_expire->limit,
             scan_expire->stat_estimated_cycle_seconds,
