@@ -1131,9 +1131,11 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_equal {} [$rd read]
         # We want to force key deletion to be propagated to the replica 
         # in order to verify it was expiered on the replication stream. 
+        $rd set somekey1 someval1
+        assert_equal {OK} [$rd read]
         $rd exists k
         assert_equal {0} [$rd read]
-        r set somekey someval
+        r set somekey2 someval2
         
         assert_replication_stream $repl {
             {select *}
@@ -1143,9 +1145,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {pexpireat k *}
             {swapdb 1 9}
             {select 9}
+            {set somekey1 someval1}
             {del k}
             {select 1}
-            {set somekey someval}
+            {set somekey2 someval2}
         }
         close_replication_stream $repl
         r debug set-active-expire 1
