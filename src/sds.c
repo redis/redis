@@ -1041,29 +1041,6 @@ int sdsneedsrepr(const sds s) {
     return 0;
 }
 
-/* Returns 1 if the string contains the character we want to block, otherwise returns 0.
- * We want to block some chars in e.g. module command names that we know can mess things up.
- *
- * There are these characters:
- * '\r', '\n' (newline) - can mess up the protocol on acl error replies.
- * ' ' (space) - issues with old inline protocol.
- * '|' - sub-commands.
- * '@' - ACL
- * '=', ':', ',' - info commandstats.
- */
-int sds_have_block_chars(const sds s) {
-    size_t len = sdslen(s);
-    const char *p = s;
-
-    while (len--) {
-        if (*p == '\r' || *p == '\n' || isspace(*p) || *p == '|' ||
-            *p == '@' || *p == '=' || *p == ':' || *p == ',') return 1;
-        p++;
-    }
-
-    return 0;
-}
-
 /* Helper function for sdssplitargs() that returns non zero if 'c'
  * is a valid hex digit. */
 int is_hex_digit(char c) {
@@ -1338,6 +1315,21 @@ error:
     return NULL;
 }
 
+/* Returns 1 if s contains the character in p, otherwise returns 0. */
+int sdscontains(const sds s, const char *p, size_t plen) {
+    size_t i, j, slen = sdslen(s);
+
+    for (i = 0; i < slen; i++) {
+        for (j = 0; j < plen; j++) {
+            if (s[i] == p[j]) {
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
 #ifdef REDIS_TEST
 #include <stdio.h>
 #include <limits.h>
@@ -1600,32 +1592,21 @@ int sdsTest(int argc, char **argv, int flags) {
         test_cond("sdsrezie() crop alloc", sdsalloc(x) == 4);
         sdsfree(x);
 
-        /* Test sds_have_block_chars. */
-        x = sdsnew("char\r");
-        test_cond("sds_have_block_chars() with char \\r", sds_have_block_chars(x) == 1);
-        sdsfree(x);
-        x = sdsnew("char\n");
-        test_cond("sds_have_block_chars() with char \\n", sds_have_block_chars(x) == 1);
-        sdsfree(x);
-        x = sdsnew("char ");
-        test_cond("sds_have_block_chars() with char (space)", sds_have_block_chars(x) == 1);
-        sdsfree(x);
-        x = sdsnew("char|");
-        test_cond("sds_have_block_chars() with char |", sds_have_block_chars(x) == 1);
-        sdsfree(x);
-        x = sdsnew("char@");
-        test_cond("sds_have_block_chars() with char @", sds_have_block_chars(x) == 1);
-        sdsfree(x);
-        x = sdsnew("char=");
-        test_cond("sds_have_block_chars() with char =", sds_have_block_chars(x) == 1);
-        sdsfree(x);
-        x = sdsnew("char:");
-        test_cond("sds_have_block_chars() with char :", sds_have_block_chars(x) == 1);
-        sdsfree(x);
-        x = sdsnew("char,");
-        test_cond("sds_have_block_chars() with char ,", sds_have_block_chars(x) == 1);
-        sdsfree(x);
+        /* Test sdscontains. */
+        x = sdsnew("sds\r\n\t\v|");
+        test_cond("sdscontains() does not contain", sdscontains(x, "ab", 2) == 0);
+        test_cond("sdscontains() contain", sdscontains(x, "ab\r", 3) == 1);
+        test_cond("sdscontains() contain", sdscontains(x, "abcd\n", 5) == 1);
+        test_cond("sdscontains() contain", sdscontains(x, "|", 1) == 1);
     }
+
+    if (__failed_tests != 0) {
+        printf("%d tests failed, please check.\n", __failed_tests);
+        return 1;
+    }
+
+    printf("ALL TESTS PASSED!\n");
+
     return 0;
 }
 #endif

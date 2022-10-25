@@ -978,6 +978,27 @@ void RM_ChannelAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
     res->numkeys++;
 }
 
+/* Returns 1 if name is valid, otherwise returns 0.
+ *
+ * We want to block some chars in module command names that we know can
+ * mess things up.
+ *
+ * There are these characters:
+ * '\t', '\v', '\f', ' ' (space) - issues with old inline protocol.
+ * '\r', '\n' (newline) - can mess up the protocol on acl error replies.
+ * '|' - sub-commands.
+ * '@' - ACL
+ * '=', ':', ',' - info commandstats.
+ * */
+int isCommandNameValid(sds name) {
+    const char *block_chars = "\t\v\f \r\n|@=:,";
+    int slen = 11;
+
+    if (sdscontains(name, block_chars, slen))
+        return 0;
+    return 1;
+}
+
 /* Helper for RM_CreateCommand(). Turns a string representing command
  * flags into the command flags used by the Redis core.
  *
@@ -1023,7 +1044,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  *
  * The function returns REDISMODULE_ERR in these cases:
  * - The specified command is already busy.
- * - The command name contains some chars we want to block.
+ * - The command name contains some chars that are not allowed.
  * - A set of invalid flags were passed.
  *
  * Otherwise REDISMODULE_OK is returned and the new command is registered.
@@ -1124,7 +1145,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     sds declared_name = sdsnew(name);
 
     /* Check if the command name is valid. */
-    if (sds_have_block_chars(declared_name)) {
+    if (!isCommandNameValid(declared_name)) {
         sdsfree(declared_name);
         return REDISMODULE_ERR;
     }
@@ -1258,7 +1279,7 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     }
 
     /* Check if the command name is valid. */
-    if (sds_have_block_chars(declared_name)) {
+    if (!isCommandNameValid(declared_name)) {
         sdsfree(declared_name);
         return REDISMODULE_ERR;
     }
