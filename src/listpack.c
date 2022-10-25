@@ -1516,6 +1516,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
  * returned element, you need to call lpNext() or lpDelete() after each call to
  * lpNextRandom(). Idea:
  *
+ *     assert(remaining <= lpLength(lp));
  *     p = lpFirst(lp);
  *     i = 0;
  *     while (remaining > 0) {
@@ -2129,6 +2130,82 @@ int listpackTest(int argc, char *argv[], int flags) {
         verifyEntry(lpSeek(lp3, 4), (unsigned char*)"4294967296", 10);
         verifyEntry(lpSeek(lp3, -1), (unsigned char*)"much much longer non integer", 28);
         zfree(lp3);
+    }
+
+    TEST("lpNextRandom normal usage") {
+        /* Create some data */
+        unsigned char *lp = lpNew(0);
+        unsigned char buf[100] = "asdf";
+        unsigned int size = 100;
+        for (size_t i = 0; i < size; i++) {
+            lp = lpAppend(lp, buf, i);
+        }
+        assert(lpLength(lp) == size);
+
+        /* Pick a subset of the elements of every possible subset size */
+        for (unsigned int count = 0; count <= size; count++) {
+            unsigned int remaining = count;
+            unsigned char *p = lpFirst(lp);
+            unsigned char *prev = NULL;
+            unsigned index = 0;
+            while (remaining > 0) {
+                assert(p != NULL);
+                p = lpNextRandom(lp, p, &index, remaining--, 0);
+                assert(p != NULL);
+                assert(p != prev);
+                prev = p;
+                p = lpNext(lp, p);
+                index++;
+            }
+        }
+    }
+
+    TEST("lpNextRandom corner cases") {
+        unsigned char *lp = lpNew(0);
+        unsigned i = 0;
+
+        /* Pick from empty listpack returns NULL. */
+        assert(lpNextRandom(lp, NULL, &i, 2, 0) == NULL);
+
+        /* Add some elements and find their pointers within the listpack. */
+        lp = lpAppend(lp, (unsigned char *)"abc", 3);
+        lp = lpAppend(lp, (unsigned char *)"def", 3);
+        lp = lpAppend(lp, (unsigned char *)"ghi", 3);
+        assert(lpLength(lp) == 3);
+        unsigned char *p0 = lpFirst(lp);
+        unsigned char *p1 = lpNext(lp, p0);
+        unsigned char *p2 = lpNext(lp, p1);
+        assert(lpNext(lp, p2) == NULL);
+
+        /* Pick zero elements returns NULL. */
+        i = 0; assert(lpNextRandom(lp, lpFirst(lp), &i, 0, 0) == NULL);
+
+        /* Pick all returns all. */
+        i = 0; assert(lpNextRandom(lp, p0, &i, 3, 0) == p0 && i == 0);
+        i = 1; assert(lpNextRandom(lp, p1, &i, 2, 0) == p1 && i == 1);
+        i = 2; assert(lpNextRandom(lp, p2, &i, 1, 0) == p2 && i == 2);
+
+        /* Pick more than one when there's only one left returns the last one. */
+        i = 2; assert(lpNextRandom(lp, p2, &i, 42, 0) == p2 && i == 2);
+
+        /* Pick all even elements returns p0 and p2. */
+        i = 0; assert(lpNextRandom(lp, p0, &i, 10, 1) == p0 && i == 0);
+        i = 1; assert(lpNextRandom(lp, p1, &i, 10, 1) == p2 && i == 2);
+
+        /* Don't crash even for bad index. */
+        for (int j = 0; j < 100; j++) {
+            unsigned char *p;
+            switch (j % 4) {
+            case 0: p = p0; break;
+            case 1: p = p1; break;
+            case 2: p = p2; break;
+            case 3: p = NULL; break;
+            }
+            i = j % 7;
+            unsigned int remaining = j % 5;
+            p = lpNextRandom(lp, p, &i, remaining, 0);
+            assert(p == p0 || p == p1 || p == p2 || p == NULL);
+        }
     }
 
     TEST("Random pair with one element") {
