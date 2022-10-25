@@ -1685,7 +1685,6 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
      * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return 1;
 
-
     /* Delete the key */
     deleteExpiredKeyAndPropagate(db,key);
     return 1;
