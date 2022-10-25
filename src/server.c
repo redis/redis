@@ -1173,13 +1173,13 @@ void cronUpdateMemoryStats() {
 static void ClientWritePauseDuringOOM() {
     
     /* if OOM and available pending lazyfree jobs then pause client write */
-    if ((getMaxmemoryState(NULL,NULL,NULL,NULL)) &&
-        (!!bioPendingJobsOfType(BIO_LAZY_FREE))) {
-        pauseClients(PAUSE_THROTTLE_CLIENT_WRITE, LLONG_MAX, CLIENT_PAUSE_WRITE);
+    if ((getMaxmemoryState(NULL,NULL,NULL,NULL) == C_ERR) &&
+        (bioPendingJobsOfType(BIO_LAZY_FREE))) {
+        pauseClients(PAUSE_OOM_THROTTLE, LLONG_MAX, CLIENT_PAUSE_WRITE);
     } else {
         /* If not OOM && lazy-free, then unpause clients. Note: if clients are not in
-         * PAUSE_THROTTLE_CLIENT_WRITE state, then the function makes trivial return */
-        unpauseClients(PAUSE_THROTTLE_CLIENT_WRITE);
+         * PAUSE_OOM_THROTTLE state, then the function makes trivial return */
+        unpauseClients(PAUSE_OOM_THROTTLE);
     }
 }
 
@@ -1393,10 +1393,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 flushAppendOnlyFile(0);
             }
     }
-
-    /* Pause clients on write as long as OOM and pending lazy-free jobs in background */
-    ClientWritePauseDuringOOM();
-
+    
     /* Clear the paused clients state if needed. */
     checkClientPauseTimeoutAndReturnIfPaused();
 
@@ -3821,7 +3818,9 @@ int processCommand(client *c) {
      * propagation of DELs due to eviction. */
     if (server.maxmemory && !isInsideYieldingLongCommand()) {
 
-        /* Pause clients on write as long as OOM and pending lazy-free jobs in background */
+        /* Pause clients on write as long as OOM and pending lazy-free jobs in background
+         * - If we initiated a pause then isSafeToPerformEvictions will prevent the eviction in the later call
+         * - if we initiated a pause, and this is a write command, it'll get postponed later in processCommand.*/
         ClientWritePauseDuringOOM();
 
         int out_of_memory = (performEvictions() == EVICT_FAIL);

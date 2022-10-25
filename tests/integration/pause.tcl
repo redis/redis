@@ -46,6 +46,9 @@ start_server {tags {"external:skip"}} {
     # Expected we won't have any evictions 
     assert_equal [s evicted_keys] 0
     
+    # Expected no -OOM error
+    assert_match {} [s errorstat_OOM]
+    
     # Expected OOM recorded. In comment to avoid flakiness (left for manual testing)
     # assert_morethan [s used_memory_peak]  [s maxmemory]
   }

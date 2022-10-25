@@ -579,7 +579,7 @@ typedef enum {
     PAUSE_BY_CLIENT_COMMAND = 0,
     PAUSE_DURING_SHUTDOWN,
     PAUSE_DURING_FAILOVER,
-    PAUSE_THROTTLE_CLIENT_WRITE,
+    PAUSE_OOM_THROTTLE,
     NUM_PAUSE_PURPOSES /* This value is the number of purposes above. */
 } pause_purpose;
 
