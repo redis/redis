@@ -271,13 +271,9 @@ foreach mdl {no yes} {
                         lappend slaves [srv 0 client]
                         test "Connect multiple replicas at the same time (issue #141), master diskless=$mdl, replica diskless=$sdl" {
                             # start load handles only inside the test, so that the test can be skipped
-                            if {$::swap} {
-                                set load_handle0 [start_bg_complex_data $master_host $master_port 0 100000000]
-                            } else {
-                                set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000000]
-                                set load_handle1 [start_bg_complex_data $master_host $master_port 9 100000000]
-                                set load_handle2 [start_bg_complex_data $master_host $master_port 9 100000000]
-                            }
+                            set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000000]
+                            set load_handle1 [start_bg_complex_data $master_host $master_port 9 100000000]
+                            set load_handle2 [start_bg_complex_data $master_host $master_port 9 100000000]
                             set load_handle3 [start_write_load $master_host $master_port 8]
                             set load_handle4 [start_write_load $master_host $master_port 4]
                             after 5000 ;# wait for some data to accumulate so that we have RDB part for the fork
@@ -318,13 +314,9 @@ foreach mdl {no yes} {
                             }
 
                             # Stop the write load
-                            if {$::swap} {
-                                stop_bg_complex_data $load_handle0
-                            } else {
-                                stop_bg_complex_data $load_handle0
-                                stop_bg_complex_data $load_handle1
-                                stop_bg_complex_data $load_handle2
-                            }
+                            stop_bg_complex_data $load_handle0
+                            stop_bg_complex_data $load_handle1
+                            stop_bg_complex_data $load_handle2
                             stop_write_load $load_handle3
                             stop_write_load $load_handle4
 

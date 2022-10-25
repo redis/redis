@@ -1,5 +1,5 @@
-start_server {tags "list"} {
-    start_server {} {
+start_server {tags {"list"} overrides {save ""}} {
+    start_server {overrides {save ""}} {
         set master_host [srv 0 host]
         set master_port [srv 0 port]
         set master [srv 0 client]

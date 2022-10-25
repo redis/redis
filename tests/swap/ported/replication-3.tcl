@@ -50,14 +50,13 @@ start_server {tags {"repl"}} {
             } else {
                 fail "Replicas and master offsets were unable to match *exactly*."
             }
-            if {$::swap} {
-                r -1 config set slave-read-only no
-                r -1 FLUSHDB
-            } else {
-                r -1 select 5
-                assert {[r -1 dbsize] == 0}
-                r -1 config set slave-read-only no
-            }
+
+            r -1 config set slave-read-only no
+            r -1 FLUSHDB
+            # r -1 select 5
+            # assert {[r -1 dbsize] == 0}
+            # r -1 config set slave-read-only no
+            
             r -1 set key1 1 ex 5
             r -1 set key2 2 ex 5
             r -1 set key3 3 ex 5

@@ -6,9 +6,9 @@ start_server {tags {"repl network"}} {
         set master_port [srv -1 port]
         set slave [srv 0 client]
 
-        set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000]
-        set load_handle1 [start_bg_complex_data $master_host $master_port 9 100000]
-        set load_handle2 [start_bg_complex_data $master_host $master_port 9 100000]
+        set load_handle0 [start_bg_complex_data $master_host $master_port 0 100000]
+        set load_handle1 [start_bg_complex_data $master_host $master_port 0 100000]
+        set load_handle2 [start_bg_complex_data $master_host $master_port 0 100000]
 
         test {First server should have role slave after SLAVEOF} {
             $slave slaveof $master_host $master_port
