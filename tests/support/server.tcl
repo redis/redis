@@ -338,7 +338,7 @@ proc start_server {options {code undefined}} {
             dict set srv "port" $::port
             set client [redis $::host $::port 0 $::tls]
             dict set srv "client" $client
-            if {!$::swap} {$client select 9}
+            if {$::swap_mode != disk} {$client select 9}
 
             set config {}
             dict set config "port" $::port

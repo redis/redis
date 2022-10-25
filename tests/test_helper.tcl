@@ -755,10 +755,10 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--swap-mode}} {
         set ::swap_mode $arg 
         set ::swap 1
-        set ::target_db 0
         if {$::swap_mode == "disk"} {
             set ::all_tests $::disk_tests
             set ::debug_evict_keys -1
+            set ::target_db 0
         } 
         incr j
     } elseif {$opt eq {--help}} {

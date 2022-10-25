@@ -24,8 +24,6 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
             $slave config set repl-diskless-load $sdl
 
             set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000]
-            set load_handle1 [start_bg_complex_data $master_host $master_port 9 100000]
-            set load_handle2 [start_bg_complex_data $master_host $master_port 9 100000]
 
             test {Slave should be able to synchronize with the master} {
                 $slave slaveof $master_host $master_port
@@ -70,8 +68,6 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
                 }
 
                 stop_bg_complex_data $load_handle0
-                stop_bg_complex_data $load_handle1
-                stop_bg_complex_data $load_handle2
 
                 # Wait for the slave to reach the "online"
                 # state from the POV of the master.
