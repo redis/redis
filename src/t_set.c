@@ -72,7 +72,9 @@ int setTypeAdd(robj *subject, sds value) {
 /* Add member. This function is optimized for the different encodings. The
  * value can be provided as an sds string (indicated by passing str_is_sds =
  * 1), as string and length (str_is_sds = 0) or as an integer in which case str
- * is set to NULL and llval is provided instead. */
+ * is set to NULL and llval is provided instead.
+ *
+ * Returns 1 if the value was added and 0 if it was already a member. */
 int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
     if (!str) {
@@ -163,10 +165,18 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     return 0;
 }
 
+/* Deletes a value provided as an sds string from the set. Returns 1 if the
+ * value was deleted and 0 if it was not a member of the set. */
 int setTypeRemove(robj *setobj, sds value) {
     return setTypeRemoveAux(setobj, value, sdslen(value), 0, 1);
 }
 
+/* Remove a member. This function is optimized for the different encodings. The
+ * value can be provided as an sds string (indicated by passing str_is_sds =
+ * 1), as string and length (str_is_sds = 0) or as an integer in which case str
+ * is set to NULL and llval is provided instead.
+ *
+ * Returns 1 if the value was deleted and 0 if it was not a member of the set. */
 int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
     if (!str) {
@@ -209,7 +219,8 @@ int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str
     return 0;
 }
 
-/* Check if an sds string is a member of the set. */
+/* Check if an sds string is a member of the set. Returns 1 if the value is a
+ * member of the set and 0 if it isn't. */
 int setTypeIsMember(robj *subject, sds value) {
     return setTypeIsMemberAux(subject, value, sdslen(value), 0, 1);
 }
@@ -217,7 +228,9 @@ int setTypeIsMember(robj *subject, sds value) {
 /* Membership checking optimized for the different encodings. The value can be
  * provided as an sds string (indicated by passing str_is_sds = 1), as string
  * and length (str_is_sds = 0) or as an integer in which case str is set to NULL
- * and llval is provided instead. */
+ * and llval is provided instead.
+ *
+ * Returns 1 if the value is a member of the set and 0 if it isn't. */
 int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
     if (!str) {
