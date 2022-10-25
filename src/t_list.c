@@ -99,6 +99,7 @@ void listTypeTryConvertToQuicklist(robj *o, beforeConvertCB fn, void *data) {
  *
  * If callback is given the function is called in order for caller to do some work
  * before the list conversion. */
+#define QUICKLIST_CONVERT_THRESHOLD 0.5
 void listTypeTryConvertToListpack(robj *o, beforeConvertCB fn, void *data) {
     size_t sz_limit;
     unsigned long count_limit;
@@ -112,9 +113,12 @@ void listTypeTryConvertToListpack(robj *o, beforeConvertCB fn, void *data) {
         return;
     }
 
+    /* Note that to avoid frequent conversions of quicklist and listpack due to frequent
+     * insertion and deletion, we use a threshold (QUICKLIST_CONVERT_THRESHOLD)
+     * to determine whether to convert this quicklist. */
     quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
-    if ((sz_limit != SIZE_MAX && ql->head->sz > sz_limit) ||
-        (count_limit != ULONG_MAX && ql->count > count_limit))
+    if ((sz_limit != SIZE_MAX && ql->head->sz > sz_limit*QUICKLIST_CONVERT_THRESHOLD) ||
+        (count_limit != ULONG_MAX && ql->count > count_limit*QUICKLIST_CONVERT_THRESHOLD))
     {
         return;
     }
