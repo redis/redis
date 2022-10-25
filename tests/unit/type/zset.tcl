@@ -98,11 +98,11 @@ start_server {tags {"zset"}} {
         }
     }
 
-    proc zset_response_interpreter {response} {
-        if {$::use_resp3 == 0} {
+    proc zset_response_interpreter {id response} {
+        if {$::use_resp3 == 0 || $::redis::testing_resp3($id) == 1} {
             return $response
         }
-        if {[string match {\{*\}} $response]} {
+        if {[string is list $response] && [string is list [lindex $response 0]] && [llength [lindex $response 0]] eq 2} {
             set flatarray {}
             foreach pair $response {
                 lappend flatarray {*}$pair
@@ -878,7 +878,7 @@ start_server {tags {"zset"}} {
         test "ZINTER RESP3 - $encoding" {
             r hello 3
             assert_equal {{b 3.0} {c 5.0}} [r zinter 2 zseta{t} zsetb{t} withscores]
-            ;# r hello 2
+            r hello 2
         }
 
         test "ZINTERSTORE with weights - $encoding" {
@@ -994,6 +994,7 @@ start_server {tags {"zset"}} {
         }
 
         test "ZDIFF fuzzing - $encoding" {
+            r reset_response_interpreter
             for {set j 0} {$j < 100} {incr j} {
                 unset -nocomplain s
                 array set s {}
@@ -1017,6 +1018,7 @@ start_server {tags {"zset"}} {
                 set result [lsort [r zdiff [llength $args] {*}$args]]
                 assert_equal $result [lsort [array names s]]
             }
+            r set_response_interpreter zset_response_interpreter
         }
 
         foreach {pop} {ZPOPMIN ZPOPMAX} {
@@ -1118,7 +1120,7 @@ start_server {tags {"zset"}} {
             create_zset z1 {0 a 1 b 2 c 3 d}
             verify_zpop_response r $popmin z1 0 {a 0.0} {z1 {{a 0.0}}}
             verify_zpop_response r $popmax z1 0 {d 3.0} {z1 {{d 3.0}}}
-            ;# r hello 2
+            r hello 2
         }
 
         test "$popmin/$popmax with count - $encoding RESP3" {
@@ -1126,7 +1128,7 @@ start_server {tags {"zset"}} {
             create_zset z1 {0 a 1 b 2 c 3 d}
             verify_zpop_response r $popmin z1 2 {{a 0.0} {b 1.0}} {z1 {{a 0.0} {b 1.0}}}
             verify_zpop_response r $popmax z1 2 {{d 3.0} {c 2.0}} {z1 {{d 3.0} {c 2.0}}}
-            ;# r hello 2
+            r hello 2
         }
     }
 
@@ -1142,7 +1144,7 @@ start_server {tags {"zset"}} {
             verify_bzpop_response $rd $popmax zset 5 0 {zset c 2} {zset {{c 2}}}
 
             assert_equal 0 [r exists zset]
-            ;# r hello 2
+            r hello 2
             $rd close
         }
     }
@@ -1461,11 +1463,9 @@ start_server {tags {"zset"}} {
     }
 
     test {ZMSCORE retrieve from empty set} {
-        r reset_response_interpreter
         r del zmscoretest
 
         r zmscore zmscoretest x y
-        r set_response_interpreter zset_response_interpreter
     } {{} {}}
 
     test {ZMSCORE retrieve with missing member} {
@@ -2153,7 +2153,7 @@ start_server {tags {"zset"}} {
     test {ZRANGESTORE RESP3} {
         r hello 3
         assert_equal [r zrange z2{t} 0 -1 withscores] {{a 1.0} {b 2.0} {c 3.0} {d 4.0}}
-        ;# r hello 2
+        r hello 2
     } 
 
     test {ZRANGESTORE range} {
@@ -2313,7 +2313,7 @@ start_server {tags {"zset"}} {
         set res [r zrandmember myzset 3]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 1
-        ;# r hello 2
+        r hello 2
     }
 
     test "ZRANDMEMBER count of 0 is handled correctly" {

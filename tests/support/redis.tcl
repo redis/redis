@@ -42,6 +42,7 @@ array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
 array set ::redis::statestack {} ;# Stack of states, for nested mbulks
 array set ::redis::response_interpreters {}
+array set ::redis::testing_resp3 {}
 
 proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {readraw 0}} {
     if {$tls} {
@@ -64,6 +65,7 @@ proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {re
     set ::redis::readraw($id) $readraw
     set ::redis::reconnect($id) 0
     set ::redis::response_interpreters($id) 0
+    set ::redis::testing_resp3($id) 0
     set ::redis::tls($id) $tls
     ::redis::redis_reset_state $id
     interp alias {} ::redis::redisHandle$id {} ::redis::__dispatch__ $id
@@ -125,9 +127,14 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         set fd $::redis::fd($id)
     }
 
-    #if {$method eq {hello} && $::use_resp3 == 1  && and argv[1] == 3} {
-        # replace argv[1] with "3" UPDATE turn on a thread global
-    #}
+    # TODO:GUYBE should be case insensitive
+    if {$method eq {hello}} {
+        if {[lindex $argv 0] == 3} {
+            set ::redis::testing_resp3($id) 1
+        } else {
+            set ::redis::testing_resp3($id) 0
+        }
+    }
 
     set blocking $::redis::blocking($id)
     set deferred $::redis::deferred($id)
@@ -157,7 +164,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
                 set response [::redis::redis_read_reply $id $fd]
                 set interpreter $::redis::response_interpreters($id)
                 if {$interpreter ne 0} {
-                    return [$interpreter $response]
+                    return [$interpreter $id $response]
                 } else {
                     return $response
                 }
@@ -221,6 +228,7 @@ proc ::redis::__method__close {id fd} {
     catch {unset ::redis::statestack($id)}
     catch {unset ::redis::callback($id)}
     catch {unset ::redis::response_interpreters($id)}
+    catch {unset ::redis::testing_resp3($id)}
     catch {interp alias {} ::redis::redisHandle$id {}}
 }
 
@@ -317,9 +325,9 @@ proc ::redis::redis_read_bool fd {
     return -code error "Bad protocol, '$v' as bool type"
 }
 
-proc ::redis::redis_read_double {fd} {
+proc ::redis::redis_read_double {id fd} {
     set v [redis_read_line $fd]
-    if {$::use_resp3 == 0} {
+    if {$::use_resp3 == 0 || $::redis::testing_resp3($id) == 1} {
         return [expr {double($v)}]
     } else {
         return $v
@@ -344,7 +352,7 @@ proc ::redis::redis_read_reply {id fd} {
             : -
             ( -
             + {return [redis_read_line $fd]}
-            , {return [redis_read_double $fd]}
+            , {return [redis_read_double $id $fd]}
             # {return [redis_read_bool $fd]}
             = {return [redis_read_verbatim_str $fd]}
             - {return -code error [redis_read_line $fd]}
