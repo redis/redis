@@ -106,6 +106,7 @@ start_server {tags {"modules"}} {
 
     test {Module client blocked on keys (with metadata): Blocked, case 2} {
         r del k
+        r fsl.push k 32
         set rd [redis_deferring_client]
         $rd fsl.bpopgt k 35 0
         ;# wait until clients are actually blocked
@@ -121,8 +122,120 @@ start_server {tags {"modules"}} {
         assert_equal {36} [$rd read]
     }
 
+    test {Module client blocked on keys (with metadata): Blocked, DEL} {
+        r del k
+        r fsl.push k 32
+        set rd [redis_deferring_client]
+        $rd fsl.bpopgt k 35 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
+        r del k
+        assert_error {*UNBLOCKED key no longer exists*} {$rd read}
+    }
+
+    test {Module client blocked on keys (with metadata): Blocked, FLUSHALL} {
+        r del k
+        r fsl.push k 32
+        set rd [redis_deferring_client]
+        $rd fsl.bpopgt k 35 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
+        r flushall
+        assert_error {*UNBLOCKED key no longer exists*} {$rd read}
+    }
+
+    test {Module client blocked on keys (with metadata): Blocked, SWAPDB, no key} {
+        r select 9
+        r del k
+        r fsl.push k 32
+        set rd [redis_deferring_client]
+        $rd fsl.bpopgt k 35 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
+        r swapdb 0 9
+        assert_error {*UNBLOCKED key no longer exists*} {$rd read}
+    }
+
+    test {Module client blocked on keys (with metadata): Blocked, SWAPDB, key exists, case 1} {
+        ;# Key exists on other db, but wrong type
+        r flushall
+        r select 9
+        r fsl.push k 32
+        r select 0
+        r lpush k 38
+        r select 9
+        set rd [redis_deferring_client]
+        $rd fsl.bpopgt k 35 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
+        r swapdb 0 9
+        assert_error {*UNBLOCKED key no longer exists*} {$rd read}
+        r select 9
+    }
+
+    test {Module client blocked on keys (with metadata): Blocked, SWAPDB, key exists, case 2} {
+        ;# Key exists on other db, with the right type, but the value doesn't allow to unblock
+        r flushall
+        r select 9
+        r fsl.push k 32
+        r select 0
+        r fsl.push k 34
+        r select 9
+        set rd [redis_deferring_client]
+        $rd fsl.bpopgt k 35 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
+        r swapdb 0 9
+        assert_equal {1} [s 0 blocked_clients]
+        r fsl.push k 38
+        assert_equal {38} [$rd read]
+        r select 9
+    }
+
+    test {Module client blocked on keys (with metadata): Blocked, SWAPDB, key exists, case 3} {
+        ;# Key exists on other db, with the right type, the value allows to unblock
+        r flushall
+        r select 9
+        r fsl.push k 32
+        r select 0
+        r fsl.push k 38
+        r select 9
+        set rd [redis_deferring_client]
+        $rd fsl.bpopgt k 35 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
+        r swapdb 0 9
+        assert_equal {38} [$rd read]
+        r select 9
+    }
+
     test {Module client blocked on keys (with metadata): Blocked, CLIENT KILL} {
         r del k
+        r fsl.push k 32
         set rd [redis_deferring_client]
         $rd client id
         set cid [$rd read]
@@ -138,6 +251,7 @@ start_server {tags {"modules"}} {
 
     test {Module client blocked on keys (with metadata): Blocked, CLIENT UNBLOCK TIMEOUT} {
         r del k
+        r fsl.push k 32
         set rd [redis_deferring_client]
         $rd client id
         set cid [$rd read]
@@ -154,6 +268,7 @@ start_server {tags {"modules"}} {
 
     test {Module client blocked on keys (with metadata): Blocked, CLIENT UNBLOCK ERROR} {
         r del k
+        r fsl.push k 32
         set rd [redis_deferring_client]
         $rd client id
         set cid [$rd read]

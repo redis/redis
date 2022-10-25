@@ -62,7 +62,7 @@ robj *createObject(int type, void *ptr) {
  * objects such as small integers from different threads without any
  * mutex.
  *
- * A common patter to create shared objects:
+ * A common pattern to create shared objects:
  *
  * robj *myobject = makeObjectShared(createObject(...));
  *

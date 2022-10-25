@@ -16,12 +16,31 @@ proc cluster_config_consistent {} {
     return 1
 }
 
+# Check if cluster size is consistent.
+proc cluster_size_consistent {cluster_size} {
+    for {set j 0} {$j < $cluster_size} {incr j} {
+        if {[CI $j cluster_known_nodes] ne $cluster_size} {
+            return 0
+        }
+    }
+    return 1
+}
+
 # Wait for cluster configuration to propagate and be consistent across nodes.
 proc wait_for_cluster_propagation {} {
     wait_for_condition 50 100 {
         [cluster_config_consistent] eq 1
     } else {
         fail "cluster config did not reach a consistent state"
+    }
+}
+
+# Wait for cluster size to be consistent across nodes.
+proc wait_for_cluster_size {cluster_size} {
+    wait_for_condition 50 100 {
+        [cluster_size_consistent $cluster_size] eq 1
+    } else {
+        fail "cluster size did not reach a consistent size $cluster_size"
     }
 }
 
@@ -84,7 +103,7 @@ proc start_cluster {masters replicas options code {slot_allocator continuous_slo
 
     # Configure the starting of multiple servers. Set cluster node timeout
     # aggressively since many tests depend on ping/pong messages. 
-    set cluster_options [list overrides [list cluster-enabled yes cluster-node-timeout 500]]
+    set cluster_options [list overrides [list cluster-enabled yes cluster-ping-interval 100 cluster-node-timeout 3000]]
     set options [concat $cluster_options $options]
 
     # Cluster mode only supports a single database, so before executing the tests

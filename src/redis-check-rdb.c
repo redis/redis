@@ -85,8 +85,9 @@ char *rdb_type_string[] = {
     "zset-v1",
     "hash-hashtable",
     "zset-v2",
+    "module-pre-release",
     "module-value",
-    "","",
+    "",
     "hash-zipmap",
     "list-ziplist",
     "set-intset",
@@ -312,10 +313,13 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             robj *o = rdbLoadCheckModuleValue(&rdb,name);
             decrRefCount(o);
             continue; /* Read type again. */
-        } else if (type == RDB_OPCODE_FUNCTION || type == RDB_OPCODE_FUNCTION2) {
+        } else if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
+            rdbCheckError("Pre-release function format not supported %d",rdbver);
+            goto err;
+        } else if (type == RDB_OPCODE_FUNCTION2) {
             sds err = NULL;
             rdbstate.doing = RDB_CHECK_DOING_READ_FUNCTIONS;
-            if (rdbFunctionLoad(&rdb, rdbver, NULL, type, 0, &err) != C_OK) {
+            if (rdbFunctionLoad(&rdb, rdbver, NULL, 0, &err) != C_OK) {
                 rdbCheckError("Failed loading library, %s", err);
                 sdsfree(err);
                 goto err;

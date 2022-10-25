@@ -18,9 +18,6 @@
             "ADMIN",
             "STALE"
         ],
-        "command_tips": [
-            "NONDETERMINISTIC_OUTPUT"
-        ],
         "arguments": [
             {
                 "name": "ip",
@@ -31,7 +28,7 @@
                 "type": "integer"
             },
             {
-                "name": "cluster_bus_port",
+                "name": "cluster-bus-port",
                 "type": "integer",
                 "optional": true,
                 "since": "4.0.0"

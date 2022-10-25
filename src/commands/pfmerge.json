@@ -62,6 +62,7 @@
                 "name": "sourcekey",
                 "type": "key",
                 "key_spec_index": 1,
+                "optional": true,
                 "multiple": true
             }
         ]

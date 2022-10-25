@@ -893,6 +893,28 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"test",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
+    /* Perform RM_Call inside the RedisModule_OnLoad
+     * to verify that it works as expected without crashing.
+     * The tests will verify it on different configurations
+     * options (cluster/no cluster). A simple ping command
+     * is enough for this test. */
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "ping", "");
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
+        RedisModule_FreeCallReply(reply);
+        return REDISMODULE_ERR;
+    }
+    size_t len;
+    const char *reply_str = RedisModule_CallReplyStringPtr(reply, &len);
+    if (len != 4) {
+        RedisModule_FreeCallReply(reply);
+        return REDISMODULE_ERR;
+    }
+    if (memcmp(reply_str, "PONG", 4) != 0) {
+        RedisModule_FreeCallReply(reply);
+        return REDISMODULE_ERR;
+    }
+    RedisModule_FreeCallReply(reply);
+
     if (RedisModule_CreateCommand(ctx,"test.call",
         TestCall,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

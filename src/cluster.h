@@ -383,6 +383,7 @@ static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 void clusterInit(void);
+void clusterInitListeners(void);
 void clusterCron(void);
 void clusterBeforeSleep(void);
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);

@@ -91,7 +91,7 @@ start_server {tags {"dump"}} {
         r get foo
     } {bar2}
 
-    test {RESTORE can detect a syntax error for unrecongized options} {
+    test {RESTORE can detect a syntax error for unrecognized options} {
         catch {r restore foo 0 "..." invalid-option} e
         set e
     } {*syntax*}
