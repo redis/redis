@@ -1112,6 +1112,7 @@ static void *getMcontextEip(ucontext_t *uc) {
 #endif
 }
 
+REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
     int i;
     for (i = 15; i >= 0; i--) {
