@@ -130,8 +130,8 @@ static ConnectionType *connTypeOfCluster() {
 
 /* clusterLink send queue blocks */
 typedef struct {
-    size_t totlen;     /* Total length of this block including the message */
-    uint16_t refcount; /* Number of cluster link send msg queues containing the message */
+    size_t totlen; /* Total length of this block including the message */
+    int refcount;  /* Number of cluster link send msg queues containing the message */
     clusterMsg msg;
 } clusterMsgSendBlock;
 
