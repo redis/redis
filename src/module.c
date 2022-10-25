@@ -1019,9 +1019,14 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
 
 /* Register a new command in the Redis server, that will be handled by
  * calling the function pointer 'cmdfunc' using the RedisModule calling
- * convention. The function returns REDISMODULE_ERR if the specified command
- * name is already busy or a set of invalid flags were passed, otherwise
- * REDISMODULE_OK is returned and the new command is registered.
+ * convention.
+ *
+ * The function returns REDISMODULE_ERR in these cases:
+ * - The specified command is already busy.
+ * - The command name contains some chars we want to block.
+ * - A set of invalid flags were passed.
+ *
+ * Otherwise REDISMODULE_OK is returned and the new command is registered.
  *
  * This function must be called during the initialization of the module
  * inside the RedisModule_OnLoad() function. Calling this function outside
@@ -1117,6 +1122,13 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
         return REDISMODULE_ERR;
 
     sds declared_name = sdsnew(name);
+
+    /* Check if the command name is valid. */
+    if (sds_have_block_chars(declared_name)) {
+        sdsfree(declared_name);
+        return REDISMODULE_ERR;
+    }
+
     RedisModuleCommand *cp = moduleCreateCommandProxy(ctx->module, declared_name, sdsdup(declared_name), cmdfunc, flags, firstkey, lastkey, keystep);
     cp->rediscmd->arity = cmdfunc ? -1 : -2; /* Default value, can be changed later via dedicated API */
 
@@ -1241,6 +1253,12 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     /* Check if the command name is busy within the parent command. */
     sds declared_name = sdsnew(name);
     if (parent_cmd->subcommands_dict && lookupSubcommand(parent_cmd, declared_name) != NULL) {
+        sdsfree(declared_name);
+        return REDISMODULE_ERR;
+    }
+
+    /* Check if the command name is valid. */
+    if (sds_have_block_chars(declared_name)) {
         sdsfree(declared_name);
         return REDISMODULE_ERR;
     }

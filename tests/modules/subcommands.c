@@ -35,12 +35,35 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx, "subcommands", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    int count = 0;
+    if (RedisModule_CreateCommand(ctx,"subcommands.char\r",NULL,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateCommand(ctx,"subcommands.char\n",NULL,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateCommand(ctx,"subcommands.char ",NULL,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateCommand(ctx,"subcommands.char|",NULL,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateCommand(ctx,"subcommands.char@",NULL,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateCommand(ctx,"subcommands.char=",NULL,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateCommand(ctx,"subcommands.char:",NULL,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateCommand(ctx,"subcommands.char,",NULL,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (count != 8) return REDISMODULE_ERR;
+
     if (RedisModule_CreateCommand(ctx,"subcommands.bitarray",NULL,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     RedisModuleCommand *parent = RedisModule_GetCommand(ctx,"subcommands.bitarray");
 
     if (RedisModule_CreateSubcommand(parent,"set",cmd_set,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    count = 0;
+    if (RedisModule_CreateSubcommand(parent,"char\r",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateSubcommand(parent,"char\n",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateSubcommand(parent,"char ",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateSubcommand(parent,"char|",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateSubcommand(parent,"char@",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateSubcommand(parent,"char=",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateSubcommand(parent,"char:",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateSubcommand(parent,"char,",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (count != 8) return REDISMODULE_ERR;
+
     RedisModuleCommand *subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|set");
     RedisModuleCommandInfo cmd_set_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
