@@ -37,9 +37,9 @@ start_server {
     proc check_sort_store_encoding {key} {
         set listpack_max_size [lindex [r config get list-max-ziplist-size] 1]
 
-        # When the length or size of quicklist is below the threshold
-        # of 0.5 (QUICKLIST_CONVERT_THRESHOLD), it will be converted to listpack.
-        if {[r llen $key] <= [expr {$listpack_max_size * 0.5}]} {
+        # When the length or size of quicklist is less than half of limit, 
+        # it will be converted to listpack.
+        if {[r llen $key] <= [expr {$listpack_max_size / 2}]} {
             assert_encoding listpack $key
         } else {
             assert_encoding quicklist $key
