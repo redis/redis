@@ -30,6 +30,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_slot.h"
 #include "endianconv.h"
 
 #include <sys/types.h>
@@ -4974,18 +4975,6 @@ const char *clusterGetMessageTypeString(int type) {
     return "unknown";
 }
 
-int getSlotOrReply(client *c, robj *o) {
-    long long slot;
-
-    if (getLongLongFromObject(o,&slot) != C_OK ||
-        slot < 0 || slot >= CLUSTER_SLOTS)
-    {
-        addReplyError(c,"Invalid or out of range slot");
-        return -1;
-    }
-    return (int) slot;
-}
-
 /* Returns an indication if the replica node is fully available
  * and should be listed in CLUSTER SLOTS response.
  * Returns 1 for available nodes, 0 for nodes that have 
@@ -5002,24 +4991,6 @@ static int isReplicaAvailable(clusterNode *node) {
         repl_offset = replicationGetSlaveOffset();
     }
     return (repl_offset != 0);
-}
-
-int checkSlotAssignmentsOrReply(client *c, unsigned char *slots, int del, int start_slot, int end_slot) {
-    int slot;
-    for (slot = start_slot; slot <= end_slot; slot++) {
-        if (del && server.cluster->slots[slot] == NULL) {
-            addReplyErrorFormat(c,"Slot %d is already unassigned", slot);
-            return C_ERR;
-        } else if (!del && server.cluster->slots[slot]) {
-            addReplyErrorFormat(c,"Slot %d is already busy", slot);
-            return C_ERR;
-        }
-        if (slots[slot]++ == 1) {
-            addReplyErrorFormat(c,"Slot %d specified multiple times",(int)slot);
-            return C_ERR;
-        }
-    }
-    return C_OK;
 }
 
 void clusterUpdateSlots(client *c, unsigned char *slots, int del) {
@@ -5315,6 +5286,9 @@ void clusterCommand(client *c) {
 "    Set config epoch of current node.",
 "SETSLOT <slot> (IMPORTING <node-id>|MIGRATING <node-id>|STABLE|NODE <node-id>)",
 "    Set slot state.",
+"SLOT-STATS",
+"    Return array of slot usage statistics, of slots assigned to the current node.",
+"    The following metrics are tracked and reported; 1) key_count.",
 "REPLICAS <node-id>",
 "    Return <node-id> replicas.",
 "SAVECONFIG",
@@ -5591,6 +5565,41 @@ NULL
                 (retval == C_OK) ? "BUMPED" : "STILL",
                 (unsigned long long) myself->configEpoch);
         addReplySds(c,reply);
+    } else if (!strcasecmp(c->argv[1]->ptr,"slot-stats")) {
+        unsigned char *slots = zmalloc(CLUSTER_SLOTS);
+        memset(slots, 0, CLUSTER_SLOTS);
+        if (c->argc == 2) {
+            /* CLUSTER SLOT-STATS */
+            markAssignedSlots(slots);
+            addReplySlotStats(c, slots);
+        } else if (c->argc >= 3 && !strcasecmp(c->argv[2]->ptr,"slots")) {
+            /* CLUSTER SLOT-STATS SLOTS slot [slot ...]*/
+            if (checkSlotStatsSlotsArgumentOrReply(c, slots) == C_ERR) {
+                zfree(slots);
+                return;
+            }
+            addReplySlotStats(c, slots);
+        } else if (c->argc >= 3 && !strcasecmp(c->argv[2]->ptr,"slotsrange")) {
+            /* CLUSTER SLOT-STATS SLOTSRANGE start-slot end-slot [start-slot end-slot ...] */
+            if (checkSlotStatsSlotsRangeArgumentOrReply(c, slots) == C_ERR) {
+                zfree(slots);
+                return;
+            }
+            addReplySlotStats(c, slots);
+        } else if (c->argc >= 4 && !strcasecmp(c->argv[2]->ptr,"orderby")) {
+            /* CLUSTER SLOT-STATS ORDERBY column [LIMIT limit] [ASC | DESC] */
+            int limit, desc, order_by;
+            if (checkSlotStatsOrderByArgumentOrReply(c, &order_by, &limit, &desc) == C_ERR) {
+                zfree(slots);
+                return;
+            }
+            sortAndAddReplySlotStats(c, order_by, limit, desc);
+        } else {
+            zfree(slots);
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        }
+        zfree(slots);
     } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
         /* CLUSTER INFO */
         char *statestr[] = {"ok","fail"};

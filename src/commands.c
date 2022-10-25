@@ -613,6 +613,56 @@ struct redisCommandArg CLUSTER_SLAVES_Args[] = {
 {0}
 };
 
+/********** CLUSTER SLOT_STATS ********************/
+
+/* CLUSTER SLOT_STATS history */
+commandHistory CLUSTER_SLOT_STATS_History[] = {
+{"7.2.0","Command introduced, with key_count metric."},
+{0}
+};
+
+/* CLUSTER SLOT_STATS tips */
+const char *CLUSTER_SLOT_STATS_tips[] = {
+"nondeterministic_output",
+NULL
+};
+
+/* CLUSTER SLOT_STATS filter slotsrange argument table */
+struct redisCommandArg CLUSTER_SLOT_STATS_filter_slotsrange_Subargs[] = {
+{"start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* CLUSTER SLOT_STATS filter orderby order argument table */
+struct redisCommandArg CLUSTER_SLOT_STATS_filter_orderby_order_Subargs[] = {
+{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE},
+{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* CLUSTER SLOT_STATS filter orderby argument table */
+struct redisCommandArg CLUSTER_SLOT_STATS_filter_orderby_Subargs[] = {
+{"column",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLUSTER_SLOT_STATS_filter_orderby_order_Subargs},
+{0}
+};
+
+/* CLUSTER SLOT_STATS filter argument table */
+struct redisCommandArg CLUSTER_SLOT_STATS_filter_Subargs[] = {
+{"slots",ARG_TYPE_INTEGER,-1,"SLOTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"slotsrange",ARG_TYPE_BLOCK,-1,"SLOTSRANGE",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=CLUSTER_SLOT_STATS_filter_slotsrange_Subargs},
+{"orderby",ARG_TYPE_BLOCK,-1,"ORDERBY",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLUSTER_SLOT_STATS_filter_orderby_Subargs},
+{0}
+};
+
+/* CLUSTER SLOT_STATS argument table */
+struct redisCommandArg CLUSTER_SLOT_STATS_Args[] = {
+{"filter",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLUSTER_SLOT_STATS_filter_Subargs},
+{0}
+};
+
 /********** CLUSTER SLOTS ********************/
 
 /* CLUSTER SLOTS history */
@@ -656,6 +706,7 @@ struct redisCommand CLUSTER_Subcommands[] = {
 {"setslot","Bind a hash slot to a specific node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,CLUSTER_SETSLOT_tips,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SETSLOT_Args},
 {"shards","Get array of cluster slots to node mappings","O(N) where N is the total number of cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SHARDS_History,CLUSTER_SHARDS_tips,clusterCommand,2,CMD_STALE,0},
 {"slaves","List replica nodes of the specified master node","O(1)","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,CLUSTER_SLAVES_tips,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SLAVES_Args},
+{"slot-stats","Return array of slot usage statistics, of slots assigned to the current node","O(N) where N is the total number of slots based on arguments. O(N log N) with ORDERBY subcommand","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SLOT_STATS_History,CLUSTER_SLOT_STATS_tips,clusterCommand,-2,CMD_READONLY|CMD_STALE,0,.args=CLUSTER_SLOT_STATS_Args},
 {"slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER SHARDS`","7.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,CLUSTER_SLOTS_tips,clusterCommand,2,CMD_STALE,0},
 {0}
 };
