@@ -1872,7 +1872,7 @@ struct redisCommandArg GEODIST_Args[] = {
 /* GEOHASH argument table */
 struct redisCommandArg GEOHASH_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -1887,7 +1887,7 @@ struct redisCommandArg GEOHASH_Args[] = {
 /* GEOPOS argument table */
 struct redisCommandArg GEOPOS_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
