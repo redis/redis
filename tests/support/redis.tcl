@@ -134,6 +134,10 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         } else {
             set ::redis::testing_resp3($id) 0
         }
+
+        if {$::force_resp3} {
+            return
+        }
     }
 
     set blocking $::redis::blocking($id)
@@ -327,7 +331,7 @@ proc ::redis::redis_read_bool fd {
 
 proc ::redis::redis_read_double {id fd} {
     set v [redis_read_line $fd]
-    if {$::use_resp3 == 0 || $::redis::testing_resp3($id) == 1} {
+    if {!$::force_resp3 || $::redis::testing_resp3($id) == 1} {
         return [expr {double($v)}]
     } else {
         return $v

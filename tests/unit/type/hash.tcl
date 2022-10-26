@@ -1,4 +1,18 @@
 start_server {tags {"hash"}} {
+    proc hash_response_interpreter {id response} {
+        if {!$::force_resp3 || $::redis::testing_resp3($id) == 1} {
+            return $response
+        }
+        if {[string is list $response] && [string is list [lindex $response 0]] && [llength [lindex $response 0]] eq 2} {
+            set flatarray {}
+            foreach pair $response {
+                lappend flatarray {*}$pair
+            }
+            return $flatarray
+        }
+        return $response
+    }
+
     test {HSET/HLEN - Small hash creation} {
         array set smallhash {}
         for {set i 0} {$i < 8} {incr i} {
@@ -56,9 +70,7 @@ start_server {tags {"hash"}} {
     }
 
     test "HRANDFIELD with RESP3" {
-        if {$::use_resp3 == 0} {
-            r hello 3
-        }
+        r hello 3
         set res [r hrandfield myhash 3 withvalues]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 2
@@ -66,9 +78,7 @@ start_server {tags {"hash"}} {
         set res [r hrandfield myhash 3]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 1
-        if {$::use_resp3 == 0} {
-            r hello 2
-        }
+        r hello 2
     }
 
     test "HRANDFIELD count of 0 is handled correctly" {
@@ -96,6 +106,8 @@ start_server {tags {"hash"}} {
         hashtable {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {[randstring 70 90 alpha] 10}}
         listpack {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {10 j}} " {
         test "HRANDFIELD with <count> - $type" {
+            r set_response_interpreter hash_response_interpreter
+
             set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
             r config set hash-max-ziplist-value 10
             create_hash myhash $contents
@@ -116,19 +128,10 @@ start_server {tags {"hash"}} {
             set res [r hrandfield myhash -1001]
             assert_equal [llength $res] 1001
             # again with WITHVALUES
-            if {$::use_resp3} {
-                set res [r hrandfield myhash -20 withvalues]
-                assert_equal [llength $res] 20
-                assert_equal [llength [lindex $res 0]] 2
-                set res [r hrandfield myhash -1001 withvalues]
-                assert_equal [llength $res] 1001
-                assert_equal [llength [lindex $res 0]] 2
-            } else {
-                set res [r hrandfield myhash -20 withvalues]
-                assert_equal [llength $res] 40
-                set res [r hrandfield myhash -1001 withvalues]
-                assert_equal [llength $res] 2002
-            }
+            set res [r hrandfield myhash -20 withvalues]
+            assert_equal [llength $res] 40
+            set res [r hrandfield myhash -1001 withvalues]
+            assert_equal [llength $res] 2002
 
             # Test random uniform distribution
             # df = 9, 40 means 0.00001 probability
@@ -136,7 +139,7 @@ start_server {tags {"hash"}} {
             assert_lessthan [chi_square_value $res] 40
 
             # 2) Check that all the elements actually belong to the original hash.
-            foreach key $res {
+            foreach {key val} $res {
                 assert {[dict exists $mydict $key]}
             }
 
@@ -148,19 +151,13 @@ start_server {tags {"hash"}} {
                 incr iterations -1
                 if {[expr {$iterations % 2}] == 0} {
                     set res [r hrandfield myhash -3 withvalues]
-                    if {$::use_resp3} {
-                        foreach pair $res {
-                            dict incr auxset [lindex $pair 0] 1
-                        }
-                    } else {
-                        foreach {key val} $res {
-                            dict incr auxset $key 1
-                        }
+                    foreach {key val} $res {
+                        dict append auxset $key $val
                     }
                 } else {
                     set res [r hrandfield myhash -3]
                     foreach key $res {
-                        dict append auxset $key 1
+                        dict append auxset $key $val
                     }
                 }
                 if {[lsort [dict keys $mydict]] eq
@@ -168,29 +165,19 @@ start_server {tags {"hash"}} {
                     break;
                 }
             }
-            assert_not_equal $iterations 0
+            assert {$iterations != 0}
 
             # PATH 2: positive count (unique behavior) with requested size
             # equal or greater than set size.
             foreach size {10 20} {
-                unset -nocomplain keys_values
                 set res [r hrandfield myhash $size]
                 assert_equal [llength $res] 10
                 assert_equal [lsort $res] [lsort [dict keys $mydict]]
 
                 # again with WITHVALUES
                 set res [r hrandfield myhash $size withvalues]
-
-                if {$::use_resp3} {
-                    assert_equal [llength $res] 10
-                    foreach pair $res {
-                        lappend keys_values {*}$pair
-                    }
-                    assert_equal [lsort $keys_values] [lsort $mydict]
-                } else {
-                    assert_equal [llength $res] 20
-                    assert_equal [lsort $res] [lsort $mydict]
-                }
+                assert_equal [llength $res] 20
+                assert_equal [lsort $res] [lsort $mydict]
             }
 
             # PATH 3: Ask almost as elements as there are in the set.
@@ -203,27 +190,15 @@ start_server {tags {"hash"}} {
             # We can test both the code paths just changing the size but
             # using the same code.
             foreach size {8 2} {
-                unset -nocomplain keys_values
                 set res [r hrandfield myhash $size]
                 assert_equal [llength $res] $size
                 # again with WITHVALUES
                 set res [r hrandfield myhash $size withvalues]
-                if {$::use_resp3} {
-                    assert_equal [llength $res] $size
-                } else {
-                    assert_equal [llength $res] [expr {$size * 2}]
-                }
+                assert_equal [llength $res] [expr {$size * 2}]
 
                 # 1) Check that all the elements actually belong to the
                 # original set.
-                if {$::use_resp3} {
-                    foreach pair $res {
-                        lappend keys_values {*}$pair
-                    }
-                } else {
-                    lappend keys_values {*}$res
-                }
-                foreach ele [dict keys $keys_values] {
+                foreach ele [dict keys $res] {
                     assert {[dict exists $mydict $ele]}
                 }
 
@@ -237,21 +212,14 @@ start_server {tags {"hash"}} {
                     incr iterations -1
                     if {[expr {$iterations % 2}] == 0} {
                         set res [r hrandfield myhash $size withvalues]
-                        if {$::use_resp3} {
-                            foreach pair $res {
-                                dict incr auxset [lindex $pair 0] 1
-                                lappend allkey [lindex $pair 0]
-                            }
-                        } else {
-                            foreach {key val} $res {
-                                dict incr auxset $key 1
-                                lappend allkey $key
-                            }
+                        foreach {key value} $res {
+                            dict append auxset $key $value
+                            lappend allkey $key
                         }
                     } else {
                         set res [r hrandfield myhash $size]
                         foreach key $res {
-                            dict incr auxset $key 1
+                            dict append auxset $key
                             lappend allkey $key
                         }
                     }
@@ -266,8 +234,8 @@ start_server {tags {"hash"}} {
             }
         }
         r config set hash-max-ziplist-value $original_max_value
+        r reset_response_interpreter
     }
-
 
     test {HSET/HLEN - Big hash creation} {
         array set bighash {}

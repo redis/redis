@@ -44,6 +44,8 @@ class Response(object):
             f.read(2)  # read \r\n
         elif line[0] == ':':
             self.json = int(line[1:])
+        elif line[0] == ',':
+            self.json = float(line[1:])
         elif line[0] == '_':
             self.json = None
         elif line[0] == '#':
@@ -105,7 +107,7 @@ if __name__ == '__main__':
     print("Processing files...")
     for filename in glob.glob('%s/tmp/*/*.reqres' % testdir):
         with open(filename, "r", newline="\r\n", encoding="latin-1") as f:
-            print("Processing %s..." % filename)
+            print("Processing %s ..." % filename)
             while True:
                 try:
                     req = Request(f)

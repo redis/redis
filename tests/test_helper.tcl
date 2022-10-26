@@ -146,7 +146,7 @@ set ::ignoreencoding 0
 set ::ignoredigest 0
 set ::large_memory 0
 set ::log_req_res 0
-set ::use_resp3 0
+set ::force_resp3 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -651,8 +651,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j 2
     } elseif {$opt eq {--log-req-res}} {
         set ::log_req_res 1
-    } elseif {$opt eq {--use-resp3}} {
-        set ::use_resp3 1
+    } elseif {$opt eq {--force-resp3}} {
+        set ::force_resp3 1
     } elseif {$opt eq {--skipfile}} {
         incr j
         set fp [open $arg r]

@@ -6407,75 +6407,75 @@ struct redisCommandArg ZRANGE_Args[] = {
 {0}
 };
 
-/* ZRANGE_ReplySchema_oneOf_0_items reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_0_items_elements[] = {
+/* ZRANGE_ReplySchema_anyOf_0_items reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_0_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_oneOf_0_items = {ZRANGE_ReplySchema_oneOf_0_items_elements,.length=1};
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_0_items = {ZRANGE_ReplySchema_anyOf_0_items_elements,.length=1};
 
-/* ZRANGE_ReplySchema_oneOf_0 reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_0_elements[] = {
+/* ZRANGE_ReplySchema_anyOf_0 reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_0_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="A list of member elements"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZRANGE_ReplySchema_oneOf_0_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZRANGE_ReplySchema_anyOf_0_items},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_oneOf_0 = {ZRANGE_ReplySchema_oneOf_0_elements,.length=4};
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_0 = {ZRANGE_ReplySchema_anyOf_0_elements,.length=4};
 
-/* ZRANGE_ReplySchema_oneOf_1_items_items_0 reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_1_items_items_0_elements[] = {
+/* ZRANGE_ReplySchema_anyOf_1_items_items_0 reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_items_items_0_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Member"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_oneOf_1_items_items_0 = {ZRANGE_ReplySchema_oneOf_1_items_items_0_elements,.length=2};
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items_items_0 = {ZRANGE_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
 
-/* ZRANGE_ReplySchema_oneOf_1_items_items_1 reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_1_items_items_1_elements[] = {
+/* ZRANGE_ReplySchema_anyOf_1_items_items_1 reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_items_items_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Score"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="number"},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_oneOf_1_items_items_1 = {ZRANGE_ReplySchema_oneOf_1_items_items_1_elements,.length=2};
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items_items_1 = {ZRANGE_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
 
-/* ZRANGE_ReplySchema_oneOf_1_items_items array reply schema */
-struct commandReplySchema *ZRANGE_ReplySchema_oneOf_1_items_items[] = {
-&ZRANGE_ReplySchema_oneOf_1_items_items_0,
-&ZRANGE_ReplySchema_oneOf_1_items_items_1,
+/* ZRANGE_ReplySchema_anyOf_1_items_items array reply schema */
+struct commandReplySchema *ZRANGE_ReplySchema_anyOf_1_items_items[] = {
+&ZRANGE_ReplySchema_anyOf_1_items_items_0,
+&ZRANGE_ReplySchema_anyOf_1_items_items_1,
 };
 
-/* ZRANGE_ReplySchema_oneOf_1_items reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_1_items_elements[] = {
+/* ZRANGE_ReplySchema_anyOf_1_items reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
 {"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZRANGE_ReplySchema_oneOf_1_items_items,.length=2}},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZRANGE_ReplySchema_anyOf_1_items_items,.length=2}},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_oneOf_1_items = {ZRANGE_ReplySchema_oneOf_1_items_elements,.length=4};
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items = {ZRANGE_ReplySchema_anyOf_1_items_elements,.length=4};
 
-/* ZRANGE_ReplySchema_oneOf_1 reply schema */
-struct commandReplySchemaElement ZRANGE_ReplySchema_oneOf_1_elements[] = {
+/* ZRANGE_ReplySchema_anyOf_1 reply schema */
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Members and their scores. Returned in case `WITHSCORES` was used."},
 {"notes",SCHEMA_VAL_TYPE_STRING,.value.string="In RESP2 this is returned as a flat array"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZRANGE_ReplySchema_oneOf_1_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZRANGE_ReplySchema_anyOf_1_items},
 };
 
-struct commandReplySchema ZRANGE_ReplySchema_oneOf_1 = {ZRANGE_ReplySchema_oneOf_1_elements,.length=5};
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_1 = {ZRANGE_ReplySchema_anyOf_1_elements,.length=5};
 
-/* ZRANGE_ReplySchema_oneOf array reply schema */
-struct commandReplySchema *ZRANGE_ReplySchema_oneOf[] = {
-&ZRANGE_ReplySchema_oneOf_0,
-&ZRANGE_ReplySchema_oneOf_1,
+/* ZRANGE_ReplySchema_anyOf array reply schema */
+struct commandReplySchema *ZRANGE_ReplySchema_anyOf[] = {
+&ZRANGE_ReplySchema_anyOf_0,
+&ZRANGE_ReplySchema_anyOf_1,
 };
 
 /* ZRANGE_ReplySchema reply schema */
 struct commandReplySchemaElement ZRANGE_ReplySchema_elements[] = {
-{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZRANGE_ReplySchema_oneOf,.length=2}},
+{"anyOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZRANGE_ReplySchema_anyOf,.length=2}},
 };
 
 struct commandReplySchema ZRANGE_ReplySchema = {ZRANGE_ReplySchema_elements,.length=1};

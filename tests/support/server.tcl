@@ -515,7 +515,7 @@ proc start_server {options {code undefined}} {
         dict set config "req-res-logfile" "stdout.reqres"
     }
 
-    if {$::use_resp3} {
+    if {$::force_resp3} {
         dict set config "client-default-resp" "3"
     }
 

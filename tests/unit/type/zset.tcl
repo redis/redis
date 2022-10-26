@@ -1,6 +1,4 @@
 start_server {tags {"zset"}} {
-    r set_response_interpreter zset_response_interpreter
-
     proc create_zset {key items} {
         r del $key
         foreach {score entry} $items {
@@ -99,7 +97,7 @@ start_server {tags {"zset"}} {
     }
 
     proc zset_response_interpreter {id response} {
-        if {$::use_resp3 == 0 || $::redis::testing_resp3($id) == 1} {
+        if {!$::force_resp3 || $::redis::testing_resp3($id) == 1} {
             return $response
         }
         if {[string is list $response] && [string is list [lindex $response 0]] && [llength [lindex $response 0]] eq 2} {
@@ -111,6 +109,8 @@ start_server {tags {"zset"}} {
         }
         return $response
     }
+
+    r set_response_interpreter zset_response_interpreter
 
     proc basics {encoding} {
         set original_max_entries [lindex [r config get zset-max-ziplist-entries] 1]
@@ -1245,6 +1245,8 @@ start_server {tags {"zset"}} {
 
         if {[lsearch $::denytags "resp3"] >= 0} {
             if {$resp == 3} {continue}
+        } elseif {$::force_resp3} {
+            if {$resp == 2} {continue}
         } else {
             r hello $resp
             $rd hello $resp
