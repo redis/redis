@@ -1115,10 +1115,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r rpush k hello
         r pexpire k 100
         set rd [redis_deferring_client]
+        $rd deferred 0
         $rd select 9
-        assert_equal {OK} [$rd read]
-        $rd client id
-        set id [$rd read]
+        set id [$rd client id]
+        $rd deferred 1
         $rd brpop k 1
         wait_for_blocked_clients_count 1
         after 101
@@ -1129,12 +1129,11 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_match "*flags=b*" [r client list id $id]
         r client unblock $id
         assert_equal {} [$rd read]
+        $rd deferred 0
         # We want to force key deletion to be propagated to the replica 
         # in order to verify it was expiered on the replication stream. 
         $rd set somekey1 someval1
-        assert_equal {OK} [$rd read]
         $rd exists k
-        assert_equal {0} [$rd read]
         r set somekey2 someval2
         
         assert_replication_stream $repl {

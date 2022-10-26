@@ -437,6 +437,7 @@ start_server {
 
         # now delete the key and verify we have no clients blocked on nokey condition
         r DEL mystream
+        assert_error "NOGROUP*" {$rd read}
         assert_equal 1 [getInfoProperty [r info clients] tot_blocking_keys]
         assert_equal 0 [getInfoProperty [r info clients] tot_blocking_keys_on_nokey]
         

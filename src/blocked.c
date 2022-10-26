@@ -384,16 +384,16 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         /* We need to add the key to blocking_keys_unblock_on_nokey, if the client
          * wants to be awakened if key is deleted (like XREADGROUP) */
         if (unblock_on_nokey) {
-            c->bstate.unblock_on_nokey = unblock_on_nokey;
             db_blocked_entry = dictAddRaw(c->db->blocking_keys_unblock_on_nokey, keys[j], &db_blocked_existing_entry);
             if (db_blocked_entry) {
                 incrRefCount(keys[j]);
                 dictSetUnsignedIntegerVal(db_blocked_entry, 1);
             } else {
-                dictIncrSignedIntegerVal(db_blocked_existing_entry, 1);
+                dictIncrUnsignedIntegerVal(db_blocked_existing_entry, 1);
             }
         }
     }
+    c->bstate.unblock_on_nokey = unblock_on_nokey;
     c->flags |= CLIENT_PENDING_COMMAND;
     blockClient(c,btype);
 }
@@ -519,10 +519,9 @@ static void releaseBlockedEntry(client *c, dictEntry *de, int remove_key) {
         unblock_on_nokey_entry = dictFind(c->db->blocking_keys_unblock_on_nokey,key);
         /* it is not possible to have a client blocked on nokey with no matching entry */
         serverAssertWithInfo(c,key,unblock_on_nokey_entry != NULL);
-        dictIncrUnsignedIntegerVal(unblock_on_nokey_entry, -1);
+        if(!dictIncrUnsignedIntegerVal(unblock_on_nokey_entry, -1)) {
         /* in case the count is zero, we can delete the entry */
-        if (!dictGetUnsignedIntegerVal(unblock_on_nokey_entry)) {
-            dictDelete(c->db->blocking_keys_unblock_on_nokey,key);
+             dictDelete(c->db->blocking_keys_unblock_on_nokey,key);
         }
     }
     if (remove_key)
@@ -671,9 +670,9 @@ void totalNumberOfBlockingKeys(unsigned long *blocking_keys, unsigned long *blok
     for (int j = 0; j < server.dbnum; j++) {
         bkeys += dictSize(server.db[j].blocking_keys);
         bkeys_on_nokey += dictSize(server.db[j].blocking_keys_unblock_on_nokey);
-        if (blocking_keys)
-            *blocking_keys = bkeys;
-        if (bloking_keys_on_nokey)
-            *bloking_keys_on_nokey = bkeys_on_nokey;
     }
+    if (blocking_keys)
+        *blocking_keys = bkeys;
+    if (bloking_keys_on_nokey)
+        *bloking_keys_on_nokey = bkeys_on_nokey;
 }
