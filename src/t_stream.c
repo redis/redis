@@ -2780,7 +2780,6 @@ void xsetidCommand(client *c) {
         return;
     }
 
-	serverLog(LL_WARNING,"max deleted id is: '%ld'-'%ld'",s->max_deleted_entry_id.ms, s->max_deleted_entry_id.seq);
     /* If the stream has at least one item, we want to check that the user
      * is setting a last ID that is equal or greater than the current top
      * item, otherwise the fundamental ID monotonicity assumption is violated. */
