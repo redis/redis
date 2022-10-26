@@ -32,6 +32,7 @@ set ::disk_tests {
     swap/ported/block-repl
     swap/ported/replication-2
     swap/ported/replication-4
+    swap/unit/swap_mode
     swap/unit/dbsize
     swap/unit/list
     swap/unit/dirty
@@ -95,7 +96,6 @@ set ::disk_tests {
 }
 
 set ::all_tests {
-    swap/swap_mode
     unit/shutdown
     unit/printver
     unit/dump

@@ -26,12 +26,11 @@ test "start swap disk aof + mode" {
     }
 }
 
-# # swap-mode can't change
 # test "runing server when open aof ,change swap_mode to disk fail" {
-#     start_server {overrides {appendonly {yes}}} {
-#         catch {r config set swap-mode disk} error 
-#         assert_equal [string match {*ERR Invalid argument 'disk' for CONFIG SET 'swap-mode'*} $error] 1
-#     }
+    # start_server {overrides {appendonly {yes}}} {
+        # catch {r config set swap-mode disk} error 
+        # assert_equal [string match {*ERR Invalid argument 'disk' for CONFIG SET 'swap-mode'*} $error] 1
+    # }
 # }
 
 test "runing server when swap_mode == disk ,open aof fail" {
