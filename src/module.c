@@ -985,14 +985,14 @@ void RM_ChannelAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
  * mess things up.
  *
  * There are these characters:
- * '\t', '\v', '\f', ' ' (space) - issues with old inline protocol.
+ * ' ' (space) - issues with old inline protocol.
  * '\r', '\n' (newline) - can mess up the protocol on acl error replies.
  * '|' - sub-commands.
  * '@' - ACL
  * '=', ':', ',' - info commandstats.
  * */
 int isCommandNameValid(const char *name) {
-    const char *block_chars = "\t\v\f \r\n|@=:,";
+    const char *block_chars = " \r\n|@=:,";
 
     if (strpbrk(name, block_chars))
         return 0;
