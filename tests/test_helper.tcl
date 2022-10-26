@@ -10,6 +10,7 @@ source tests/support/server.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
+source tests/support/ctrip_util.tcl
 source tests/swap/support/util.tcl
 
 set ::disk_tests {
@@ -54,7 +55,6 @@ set ::disk_tests {
     unit/shutdown
     ctrip/gtid_merge
     ctrip/gtid
-    ctrip/aof-gtid
     ctrip/sync-gtid
     ctrip/replication-psync-gtid
     unit/printver
@@ -101,6 +101,11 @@ set ::disk_tests {
 
 set ::all_tests {
     swap/swap_mode
+    ctrip/gtid_merge
+    ctrip/gtid
+    ctrip/sync-gtid
+    ctrip/replication-psync-gtid
+    ctrip/aof-gtid
     unit/shutdown
     unit/printver
     unit/dump

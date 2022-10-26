@@ -106,6 +106,8 @@ static inline int isMetaScanRequest(uint32_t intention_flag) {
 #define REQUEST_LEVEL_DB   1
 #define REQUEST_LEVEL_KEY  2
 
+#define MAX_KEYREQUESTS_BUFFER 8
+
 typedef void (*freefunc)(void *);
 
 static inline const char *requestLevelName(int level) {
@@ -218,8 +220,6 @@ int getKeyRequestsLindex(int dbid, struct redisCommand *cmd, robj **argv, int ar
 int getKeyRequestsLrange(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsLtrim(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
-#define MAX_KEYREQUESTS_BUFFER 32
-/** zset **/
 int getKeyRequestsZAdd(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsZScore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsZincrby(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
@@ -241,7 +241,6 @@ int getKeyRequestsZlexCount(int dbid, struct redisCommand *cmd, robj **argv, int
 #define getKeyRequestsSunionstore getKeyRequestsSinterstore
 #define getKeyRequestsZrem getKeyRequestsZScore
 
-/** geo **/
 int getKeyRequestsGeoAdd(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsGeoRadius(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsGeoHash(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
@@ -250,6 +249,10 @@ int getKeyRequestsGeoSearch(int dbid, struct redisCommand *cmd, robj **argv, int
 int getKeyRequestsGeoSearchStore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 #define getKeyRequestsGeoRadiusByMember getKeyRequestsGeoRadius
 #define getKeyRequestsGeoPos getKeyRequestsGeoHash
+
+int getKeyRequestsGtid(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsGtidAuto(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+
 
 #define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYREQUESTS_BUFFER}
 

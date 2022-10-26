@@ -290,7 +290,8 @@ int submitReplClientRequests(client *c) {
         serverAssert(!(c->flags & CLIENT_MULTI));
         c->flags |= CLIENT_MULTI;
     } else if (c->flags & CLIENT_MULTI &&
-            c->cmd->proc != execCommand) {
+            c->cmd->proc != execCommand &&
+            !isGtidExecCommand(c)) {
         serverPanic("command should be already queued.");
     } else {
         /* either vanilla command or transaction are stored in client state,

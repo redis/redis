@@ -309,29 +309,34 @@ void getKeyRequestsFreeResult(getKeyRequestsResult *result) {
 
 /* NOTE that result.{key,subkeys} are ONLY REFS to client argv (since client
  * outlives getKeysResult if no swap action happend. key, subkey will be 
- * copied (using incrRefCount) when async swap acutally proceed. */
-static void getSingleCmdKeyRequests(client *c, getKeyRequestsResult *result) {
-    struct redisCommand *cmd = c->cmd;
-
+  * copied (using incrRefCount) when async swap acutally proceed. */
+static int _getSingleCmdKeyRequests(int dbid, struct redisCommand* cmd,
+        robj** argv, int argc, getKeyRequestsResult *result) {
     if (cmd->getkeyrequests_proc == NULL) {
         int i, numkeys;
         getKeysResult keys = GETKEYS_RESULT_INIT;
         /* whole key swaping, swaps defined by command arity. */
-        numkeys = getKeysFromCommand(cmd,c->argv,c->argc,&keys);
+        numkeys = getKeysFromCommand(cmd,argv,argc,&keys);
         getKeyRequestsPrepareResult(result,result->num+numkeys);
         for (i = 0; i < numkeys; i++) {
-            robj *key = c->argv[keys.keys[i]];
+            robj *key = argv[keys.keys[i]];
 
             incrRefCount(key);
             getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,key,0,NULL,
-                    cmd->intention,cmd->intention_flags,c->db->id);
+                    cmd->intention,cmd->intention_flags,dbid);
         }
         getKeysFreeResult(&keys); 
+        return 0;
     } else if (cmd->flags & CMD_MODULE) {
         /* TODO support module */
     } else {
-        cmd->getkeyrequests_proc(c->db->id,cmd,c->argv,c->argc,result);
+        return cmd->getkeyrequests_proc(dbid,cmd,argv,argc,result);
     }
+    return 0;
+}
+
+static void getSingleCmdKeyRequests(client *c, getKeyRequestsResult *result) {
+    _getSingleCmdKeyRequests(c->db->id,c->cmd,c->argv,c->argc,result);
 }
 
 /*TODO support select in multi/exec */
@@ -340,15 +345,25 @@ void getKeyRequests(client *c, getKeyRequestsResult *result) {
 
     if ((c->flags & CLIENT_MULTI) && 
             !(c->flags & (CLIENT_DIRTY_CAS | CLIENT_DIRTY_EXEC)) &&
-            c->cmd->proc == execCommand) {
+            (c->cmd->proc == execCommand || isGtidExecCommand(c))) {
         /* if current is EXEC, we get swaps for all queue commands. */
         robj **orig_argv;
         int i, orig_argc;
+        redisDb *orig_db;
         struct redisCommand *orig_cmd;
 
         orig_argv = c->argv;
         orig_argc = c->argc;
         orig_cmd = c->cmd;
+        orig_db = c->db;
+
+        if (isGtidExecCommand(c)) {
+            long long dbid;
+            if (getLongLongFromObject(c->argv[2],&dbid)) return;
+            if (dbid < 0 || dbid > server.dbnum)  return;
+            c->db = server.db + dbid;
+        }
+
         for (i = 0; i < c->mstate.count; i++) {
             int prev_keyrequest_num = result->num;
 
@@ -363,9 +378,11 @@ void getKeyRequests(client *c, getKeyRequestsResult *result) {
                 result->key_requests[j].list_arg_rewrite[1].mstate_idx = i;
             }
         }
+
         c->argv = orig_argv;
         c->argc = orig_argc;
         c->cmd = orig_cmd;
+        c->db = orig_db;
     } else {
         getSingleCmdKeyRequests(c, result);
     }
@@ -387,6 +404,7 @@ int getKeyRequestsGlobal(int dbid, struct redisCommand *cmd, robj **argv,
     UNUSED(cmd);
     UNUSED(argc);
     UNUSED(argv);
+    getKeyRequestsPrepareResult(result,result->num+ 1);
     getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_SVR,NULL,0,NULL,
             cmd->intention,cmd->intention_flags,dbid);
     return 0;
@@ -401,6 +419,7 @@ int getKeyRequestsMetaScan(int dbid, struct redisCommand *cmd, robj **argv,
     UNUSED(argv);
     getRandomHexChars(randbuf,sizeof(randbuf));
     randkey = createStringObject(randbuf,sizeof(randbuf));
+    getKeyRequestsPrepareResult(result,result->num+ 1);
     getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,randkey,0,NULL,
             cmd->intention,cmd->intention_flags,dbid);
     return 0;
@@ -859,6 +878,9 @@ int getKeyRequestsZrangeGeneric(int dbid, struct redisCommand *cmd, robj **argv,
     } 
     robj* key = argv[1];
     incrRefCount(key);
+
+    getKeyRequestsPrepareResult(result,result->num+ 1);
+
     switch (rangetype)
     {
     case ZRANGE_SCORE:
@@ -913,6 +935,7 @@ int getKeyRequestsZremRangeByScore1(int dbid, struct redisCommand *cmd, robj **a
     }
     robj* key = argv[1];
     incrRefCount(key);
+    getKeyRequestsPrepareResult(result,result->num+ 1);
     getKeyRequestsAppendScoreResult(result, REQUEST_LEVEL_KEY, key, 0, spec, 0, cmd->intention, cmd->intention_flags, dbid);
     return C_OK;
 }
@@ -926,6 +949,7 @@ int getKeyRequestsZrangeByLexGeneric(int dbid, struct redisCommand *cmd, robj **
     }
     robj* key = argv[1];
     incrRefCount(key);
+    getKeyRequestsPrepareResult(result,result->num+ 1);
     getKeyRequestsAppendLexeResult(result, REQUEST_LEVEL_KEY, key, direction == ZRANGE_DIRECTION_REVERSE, lexrange, 0, cmd->intention, cmd->intention_flags, dbid);
     return C_OK;
 }
@@ -999,6 +1023,53 @@ int getKeyRequestsGeoSearchStore(int dbid, struct redisCommand *cmd, robj **argv
     
     incrRefCount(argv[2]);
     getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, argv[2], 0, NULL, SWAP_IN, 0, dbid);
+    return C_OK;
+}
+
+static inline void getKeyRequestsGtidArgRewriteAdjust(
+        struct getKeyRequestsResult *result, int orig_krs_num, int start_index) {
+    for (int i = orig_krs_num; i < result->num; i++) {
+        keyRequest *kr = result->key_requests+i;
+        if (kr->list_arg_rewrite[0].arg_idx > 0) kr->list_arg_rewrite[0].arg_idx += start_index;
+        if (kr->list_arg_rewrite[1].arg_idx > 0) kr->list_arg_rewrite[1].arg_idx += start_index;
+    }
+}
+
+int getKeyRequestsGtid(int dbid, struct redisCommand *cmd, robj **argv,
+        int argc, struct getKeyRequestsResult *result) {
+    int start_index, exec_dbid, orig_num;
+    struct redisCommand* exec_cmd;
+    long long value;
+
+    UNUSED(dbid), UNUSED(cmd);
+
+    if (getLongLongFromObject(argv[2],&value)) return C_ERR;
+    if (value < 0 || value > server.dbnum)  return C_ERR;
+    exec_dbid = (int)value;
+
+    if (strncmp(argv[3]->ptr, "/*", 2))
+        start_index = 3;
+    else
+        start_index = 4;
+
+    orig_num = result->num;
+
+    exec_cmd = lookupCommandByCString(argv[start_index]->ptr);
+    if (_getSingleCmdKeyRequests(exec_dbid,exec_cmd,argv+start_index,
+            argc-start_index,result)) return C_ERR;
+
+    getKeyRequestsGtidArgRewriteAdjust(result,orig_num,start_index);
+    return C_OK;
+}
+
+int getKeyRequestsGtidAuto(int dbid, struct redisCommand *cmd, robj **argv,
+        int argc, struct getKeyRequestsResult *result) {
+    UNUSED(cmd);
+    int orig_num = result->num, start_index = 2;
+    struct redisCommand* exec_cmd = lookupCommandByCString(argv[2]->ptr);
+    if (_getSingleCmdKeyRequests(dbid,exec_cmd,argv+start_index,argc-start_index,result))
+        return C_ERR;
+    getKeyRequestsGtidArgRewriteAdjust(result,orig_num,start_index);
     return C_OK;
 }
 
@@ -1228,10 +1299,100 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         discardTransaction(c);
     }
 
-    TEST("encode/decode Scorekey") {
+    TEST("cmd: encode/decode Scorekey") {
 
     }
 
+    TEST("cmd: gtid") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        selectDb(c,1);
+        c->flags |= CLIENT_MULTI;
+        rewriteResetClientCommandCString(c,4,"GTID","A:1","1","PING");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,3,"MGET","KEY1","KEY2");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,3,"LINDEX","LIST","3");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,7,"GTID","A:2","2","/*COMMENT*/","MGET","KEY1","KEY2");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,8,"GTID","A:3","3","HDEL","HASH","F1","F2","F3");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,6,"GTID","A:4","4","LINDEX","LIST","3");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,4,"GTID","A:5","5","FLUSHDB");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,5,"GTID.AUTO","/*COMMENT*/","LINDEX","LIST","3");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,4,"GTID","A:10","10","EXEC");
+
+        getKeyRequests(c,&result);
+
+        test_assert(result.num == 9);
+        test_assert(c->db->id == 1);
+
+        test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY1"));
+        test_assert(result.key_requests[0].b.subkeys == NULL);
+        test_assert(result.key_requests[0].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[0].cmd_intention_flags == 0);
+        test_assert(result.key_requests[0].dbid == 10);
+        test_assert(!strcmp(result.key_requests[1].key->ptr, "KEY2"));
+        test_assert(result.key_requests[1].b.subkeys == NULL);
+        test_assert(result.key_requests[1].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[1].cmd_intention_flags == 0);
+        test_assert(result.key_requests[1].dbid == 10);
+
+        test_assert(!strcmp(result.key_requests[2].key->ptr, "LIST"));
+        test_assert(result.key_requests[2].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[2].cmd_intention_flags == 0);
+        test_assert(result.key_requests[2].dbid == 10);
+        test_assert(result.key_requests[2].l.num_ranges == 1);
+        test_assert(result.key_requests[2].l.ranges[0].start == 3 && result.key_requests[2].l.ranges[0].end == 3);
+        test_assert(result.key_requests[2].list_arg_rewrite[0].mstate_idx == 2);
+        test_assert(result.key_requests[2].list_arg_rewrite[0].arg_idx == 2);
+
+        test_assert(!strcmp(result.key_requests[3].key->ptr, "KEY1"));
+        test_assert(result.key_requests[3].b.subkeys == NULL);
+        test_assert(result.key_requests[3].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[3].cmd_intention_flags == 0);
+        test_assert(result.key_requests[3].dbid == 2);
+        test_assert(!strcmp(result.key_requests[4].key->ptr, "KEY2"));
+        test_assert(result.key_requests[4].b.subkeys == NULL);
+        test_assert(result.key_requests[4].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[4].cmd_intention_flags == 0);
+        test_assert(result.key_requests[4].dbid == 2);
+
+        test_assert(!strcmp(result.key_requests[5].key->ptr, "HASH"));
+        test_assert(!strcmp(result.key_requests[5].b.subkeys[0]->ptr, "F1"));
+        test_assert(!strcmp(result.key_requests[5].b.subkeys[1]->ptr, "F2"));
+        test_assert(!strcmp(result.key_requests[5].b.subkeys[2]->ptr, "F3"));
+        test_assert(result.key_requests[5].dbid == 3);
+
+        test_assert(!strcmp(result.key_requests[6].key->ptr, "LIST"));
+        test_assert(result.key_requests[6].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[6].cmd_intention_flags == 0);
+        test_assert(result.key_requests[6].dbid == 4);
+        test_assert(result.key_requests[6].l.num_ranges == 1);
+        test_assert(result.key_requests[6].l.ranges[0].start == 3 && result.key_requests[2].l.ranges[0].end == 3);
+        test_assert(result.key_requests[6].list_arg_rewrite[0].mstate_idx == 5);
+        test_assert(result.key_requests[6].list_arg_rewrite[0].arg_idx == 5);
+
+        test_assert(result.key_requests[7].dbid == 5);
+        test_assert(result.key_requests[7].level == REQUEST_LEVEL_SVR);
+        test_assert(result.key_requests[7].key == NULL);
+
+        test_assert(!strcmp(result.key_requests[8].key->ptr, "LIST"));
+        test_assert(result.key_requests[8].cmd_intention == SWAP_IN);
+        test_assert(result.key_requests[8].cmd_intention_flags == 0);
+        test_assert(result.key_requests[8].dbid == 10);
+        test_assert(result.key_requests[8].l.num_ranges == 1);
+        test_assert(result.key_requests[8].l.ranges[0].start == 3 && result.key_requests[2].l.ranges[0].end == 3);
+        test_assert(result.key_requests[8].list_arg_rewrite[0].mstate_idx == 7);
+        test_assert(result.key_requests[8].list_arg_rewrite[0].arg_idx == 4);
+
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+        discardTransaction(c);
+    }
 
     return error;
 }
