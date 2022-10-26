@@ -796,18 +796,18 @@ start_server {tags {"zset"}} {
 
         test "ZUNION/ZINTER/ZINTERCARD/ZDIFF with integer members - $encoding" {
             r del zsetd{t} zsetf{t}
-            r zadd zsetd{t} 1 1
-            r zadd zsetd{t} 2 2
-            r zadd zsetd{t} 3 3
-            r zadd zsetf{t} 1 1
-            r zadd zsetf{t} 3 3
-            r zadd zsetf{t} 4 4
+            r zadd zsetd{t} 1.1 1
+            r zadd zsetd{t} 2.2 2
+            r zadd zsetd{t} 3.3 3
+            r zadd zsetf{t} 1.1 1
+            r zadd zsetf{t} 3.3 3
+            r zadd zsetf{t} 4.4 4
 
-            assert_equal {1 2 2 2 4 4 3 6} [r zunion 2 zsetd{t} zsetf{t} withscores]
-            assert_equal {1 2 3 6} [r zinter 2 zsetd{t} zsetf{t} withscores]
+            assert_equal {1 2.2 2 2.2 4 4.4 3 6.6} [r zunion 2 zsetd{t} zsetf{t} withscores]
+            assert_equal {1 2.2 3 6.6} [r zinter 2 zsetd{t} zsetf{t} withscores]
             assert_equal 2 [r zintercard 2 zsetd{t} zsetf{t}]
             assert_equal 2 [r zintercard 2 zsetd{t} zsetf{t} limit 0]
-            assert_equal {2 2} [r zdiff 2 zsetd{t} zsetf{t} withscores]
+            assert_equal {2 2.2} [r zdiff 2 zsetd{t} zsetf{t} withscores]
         }
 
         test "ZUNIONSTORE with weights - $encoding" {
@@ -1006,7 +1006,7 @@ start_server {tags {"zset"}} {
                     lappend args zset_$i{t}
                     while {$num_elements} {
                         set ele [randomValue]
-                        r zadd zset_$i{t} [randomInt 100] $ele
+                        r zadd zset_$i{t} 1.33 $ele
                         if {$i == 0} {
                             set s($ele) x
                         } else {

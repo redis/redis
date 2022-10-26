@@ -9,7 +9,9 @@ import time
 
 
 class Request(object):
-    def __init__(self, f):
+    def __init__(self, f, docs):
+        self.command = None
+        self.schema = None
         self.argv = []
         while True:
             line = f.readline()
@@ -22,8 +24,19 @@ class Request(object):
                 break
             self.argv.append(arg)
 
-    def command(self):
-        return self.argv[0].lower() if self.argv else None
+        if not self.argv:
+            return
+
+        self.command = self.argv[0].lower()
+
+        doc = docs[self.argv[0].lower()]
+        if "subcommands" in doc and len(self.argv) > 1:
+            fullname = "{}|{}".format(self.argv[0].lower(), self.argv[1].lower())
+            for k, v in doc["subcommands"].items():
+                if fullname == k:
+                    self.command = fullname
+                    doc = v
+        self.schema = doc.get("reply_schema")
 
     def __str__(self):
         return json.dumps(self.argv)
@@ -104,14 +117,15 @@ if __name__ == '__main__':
     redis_proc.wait()
 
     # Create all command objects
+    missing_schema = set()
     print("Processing files...")
     for filename in glob.glob('%s/tmp/*/*.reqres' % testdir):
         with open(filename, "r", newline="\r\n", encoding="latin-1") as f:
             print("Processing %s ..." % filename)
             while True:
                 try:
-                    req = Request(f)
-                    if not req.command():
+                    req = Request(f, docs)
+                    if not req.command:
                         break
                     res = Response(f)
                 except json.decoder.JSONDecodeError as err:
@@ -121,18 +135,22 @@ if __name__ == '__main__':
                 if res.error:
                     continue
 
-                if 'reply_schema' in docs[req.command()]:
-                    schema = docs[req.command()]['reply_schema']
+                if not req.schema:
+                    missing_schema.add(req.command)
+                    continue
+
+                try:
+                    jsonschema.validate(instance=res.json, schema=req.schema)
+                except jsonschema.ValidationError as err:
+                    print("JSON schema validation error on %s: %s" % (filename, err))
+                    print("Command: %s" % req.command())
                     try:
-                        jsonschema.validate(instance=res.json, schema=schema)
-                    except jsonschema.ValidationError as err:
-                        print("JSON schema validation error on %s: %s" % (filename, err))
-                        print("Command: %s" % req.command())
-                        try:
-                            print("Response: %s" % res)
-                        except UnicodeDecodeError as err:
-                           print("Response: (unprintable)")
-                        print("Schema: %s" % json.dumps(schema, indent=2))
-                        exit(1)
+                        print("Response: %s" % res)
+                    except UnicodeDecodeError as err:
+                       print("Response: (unprintable)")
+                    print("Schema: %s" % json.dumps(schema, indent=2))
+                    exit(1)
         
     print("Done.")
+    if missing_schema:
+        print("WARNING! The following commands are missing a reply_schema: {}".format(sorted(missing_schema)))

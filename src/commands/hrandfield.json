@@ -42,7 +42,7 @@
                     "type": "null"
                 },
                 {
-                    "description": "A single random field. Returned in case `COUNT` was used.",
+                    "description": "A single random field. Returned in case `COUNT` was not used.",
                     "type": "string"
                 },
                 {
@@ -60,7 +60,7 @@
                         "type": "array",
                         "minItems": 2,
                         "maxItems": 2,
-                        "prefixItems": [
+                        "items": [
                             {
                                 "description": "Field",
                                 "type": "string"

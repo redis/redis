@@ -2499,7 +2499,7 @@ struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_0 = {HRANDFIELD_ReplySche
 
 /* HRANDFIELD_ReplySchema_anyOf_1 reply schema */
 struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_1_elements[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="A single random field. Returned in case `COUNT` was used."},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="A single random field. Returned in case `COUNT` was not used."},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
@@ -2521,26 +2521,26 @@ struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_2_elements[] = {
 
 struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_2 = {HRANDFIELD_ReplySchema_anyOf_2_elements,.length=3};
 
-/* HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_0 reply schema */
-struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_0_elements[] = {
+/* HRANDFIELD_ReplySchema_anyOf_3_items_items_0 reply schema */
+struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_3_items_items_0_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Field"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_0 = {HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_0_elements,.length=2};
+struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_3_items_items_0 = {HRANDFIELD_ReplySchema_anyOf_3_items_items_0_elements,.length=2};
 
-/* HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_1 reply schema */
-struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_1_elements[] = {
+/* HRANDFIELD_ReplySchema_anyOf_3_items_items_1 reply schema */
+struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_3_items_items_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Value"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_1 = {HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_1_elements,.length=2};
+struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_3_items_items_1 = {HRANDFIELD_ReplySchema_anyOf_3_items_items_1_elements,.length=2};
 
-/* HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems array reply schema */
-struct commandReplySchema *HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems[] = {
-&HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_0,
-&HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems_1,
+/* HRANDFIELD_ReplySchema_anyOf_3_items_items array reply schema */
+struct commandReplySchema *HRANDFIELD_ReplySchema_anyOf_3_items_items[] = {
+&HRANDFIELD_ReplySchema_anyOf_3_items_items_0,
+&HRANDFIELD_ReplySchema_anyOf_3_items_items_1,
 };
 
 /* HRANDFIELD_ReplySchema_anyOf_3_items reply schema */
@@ -2548,7 +2548,7 @@ struct commandReplySchemaElement HRANDFIELD_ReplySchema_anyOf_3_items_elements[]
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
 {"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
-{"prefixItems",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=HRANDFIELD_ReplySchema_anyOf_3_items_prefixItems,.length=2}},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=HRANDFIELD_ReplySchema_anyOf_3_items_items,.length=2}},
 };
 
 struct commandReplySchema HRANDFIELD_ReplySchema_anyOf_3_items = {HRANDFIELD_ReplySchema_anyOf_3_items_elements,.length=4};
@@ -6160,6 +6160,77 @@ struct redisCommandArg ZDIFF_Args[] = {
 {0}
 };
 
+/* ZDIFF_ReplySchema_anyOf_0_items reply schema */
+struct commandReplySchemaElement ZDIFF_ReplySchema_anyOf_0_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema ZDIFF_ReplySchema_anyOf_0_items = {ZDIFF_ReplySchema_anyOf_0_items_elements,.length=1};
+
+/* ZDIFF_ReplySchema_anyOf_0 reply schema */
+struct commandReplySchemaElement ZDIFF_ReplySchema_anyOf_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="A list of members. Returned in case `WITHSCORES` was not used."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZDIFF_ReplySchema_anyOf_0_items},
+};
+
+struct commandReplySchema ZDIFF_ReplySchema_anyOf_0 = {ZDIFF_ReplySchema_anyOf_0_elements,.length=3};
+
+/* ZDIFF_ReplySchema_anyOf_1_items_items_0 reply schema */
+struct commandReplySchemaElement ZDIFF_ReplySchema_anyOf_1_items_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Member"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema ZDIFF_ReplySchema_anyOf_1_items_items_0 = {ZDIFF_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
+
+/* ZDIFF_ReplySchema_anyOf_1_items_items_1 reply schema */
+struct commandReplySchemaElement ZDIFF_ReplySchema_anyOf_1_items_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Score"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number"},
+};
+
+struct commandReplySchema ZDIFF_ReplySchema_anyOf_1_items_items_1 = {ZDIFF_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
+
+/* ZDIFF_ReplySchema_anyOf_1_items_items array reply schema */
+struct commandReplySchema *ZDIFF_ReplySchema_anyOf_1_items_items[] = {
+&ZDIFF_ReplySchema_anyOf_1_items_items_0,
+&ZDIFF_ReplySchema_anyOf_1_items_items_1,
+};
+
+/* ZDIFF_ReplySchema_anyOf_1_items reply schema */
+struct commandReplySchemaElement ZDIFF_ReplySchema_anyOf_1_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZDIFF_ReplySchema_anyOf_1_items_items,.length=2}},
+};
+
+struct commandReplySchema ZDIFF_ReplySchema_anyOf_1_items = {ZDIFF_ReplySchema_anyOf_1_items_elements,.length=4};
+
+/* ZDIFF_ReplySchema_anyOf_1 reply schema */
+struct commandReplySchemaElement ZDIFF_ReplySchema_anyOf_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Members and their scores. Returned in case `WITHSCORES` was used."},
+{"notes",SCHEMA_VAL_TYPE_STRING,.value.string="In RESP2 this is returned as a flat array"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZDIFF_ReplySchema_anyOf_1_items},
+};
+
+struct commandReplySchema ZDIFF_ReplySchema_anyOf_1 = {ZDIFF_ReplySchema_anyOf_1_elements,.length=4};
+
+/* ZDIFF_ReplySchema_anyOf array reply schema */
+struct commandReplySchema *ZDIFF_ReplySchema_anyOf[] = {
+&ZDIFF_ReplySchema_anyOf_0,
+&ZDIFF_ReplySchema_anyOf_1,
+};
+
+/* ZDIFF_ReplySchema reply schema */
+struct commandReplySchemaElement ZDIFF_ReplySchema_elements[] = {
+{"anyOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZDIFF_ReplySchema_anyOf,.length=2}},
+};
+
+struct commandReplySchema ZDIFF_ReplySchema = {ZDIFF_ReplySchema_elements,.length=1};
+
 /********** ZDIFFSTORE ********************/
 
 /* ZDIFFSTORE history */
@@ -9038,7 +9109,7 @@ struct redisCommand redisCommandTable[] = {
 {"zadd","Add one or more members to a sorted set, or update its score if it already exists","O(log(N)) for each item added, where N is the number of elements in the sorted set.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZADD_History,ZADD_tips,zaddCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZADD_Args,.reply_schema=&ZADD_ReplySchema},
 {"zcard","Get the number of members in a sorted set","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZCARD_History,ZCARD_tips,zcardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZCARD_Args,.reply_schema=&ZCARD_ReplySchema},
 {"zcount","Count the members in a sorted set with scores within the given values","O(log(N)) with N being the number of elements in the sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZCOUNT_History,ZCOUNT_tips,zcountCommand,4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZCOUNT_Args,.reply_schema=&ZCOUNT_ReplySchema},
-{"zdiff","Subtract multiple sorted sets","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZDIFF_History,ZDIFF_tips,zdiffCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZDIFF_Args},
+{"zdiff","Subtract multiple sorted sets","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZDIFF_History,ZDIFF_tips,zdiffCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZDIFF_Args,.reply_schema=&ZDIFF_ReplySchema},
 {"zdiffstore","Subtract multiple sorted sets and store the resulting sorted set in a new key","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZDIFFSTORE_History,ZDIFFSTORE_tips,zdiffstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZDIFFSTORE_Args},
 {"zincrby","Increment the score of a member in a sorted set","O(log(N)) where N is the number of elements in the sorted set.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZINCRBY_History,ZINCRBY_tips,zincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZINCRBY_Args},
 {"zinter","Intersect multiple sorted sets","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZINTER_History,ZINTER_tips,zinterCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZINTER_Args},
