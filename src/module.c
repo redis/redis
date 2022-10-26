@@ -5654,8 +5654,7 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
  *     "3" -> REDISMODULE_ARGV_RESP_3
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
  *     "C" -> REDISMODULE_ARGV_RUN_AS_USER
- *     "C" -> REDISMODULE_ARGV_CHECK_ACL
- *     "O" -> REDISMODULE_ARGV_ALLOW_OOM_IN_SCRIPTS
+ *     "M" -> REDISMODULE_ARGV_RESPECT_DENY_OOM
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
