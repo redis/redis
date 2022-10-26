@@ -62,6 +62,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <string.h>
 
 /* --------------------------------------------------------------------------
  * Private data structures used by the modules system. Those are data
@@ -990,11 +991,10 @@ void RM_ChannelAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
  * '@' - ACL
  * '=', ':', ',' - info commandstats.
  * */
-int isCommandNameValid(sds name) {
+int isCommandNameValid(const char *name) {
     const char *block_chars = "\t\v\f \r\n|@=:,";
-    int slen = 11;
 
-    if (sdscontains(name, block_chars, slen))
+    if (strpbrk(name, block_chars))
         return 0;
     return 1;
 }
@@ -1138,18 +1138,15 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
 
+    /* Check if the command name is valid. */
+    if (!isCommandNameValid(name))
+        return REDISMODULE_ERR;
+
     /* Check if the command name is busy. */
     if (lookupCommandByCString(name) != NULL)
         return REDISMODULE_ERR;
 
     sds declared_name = sdsnew(name);
-
-    /* Check if the command name is valid. */
-    if (!isCommandNameValid(declared_name)) {
-        sdsfree(declared_name);
-        return REDISMODULE_ERR;
-    }
-
     RedisModuleCommand *cp = moduleCreateCommandProxy(ctx->module, declared_name, sdsdup(declared_name), cmdfunc, flags, firstkey, lastkey, keystep);
     cp->rediscmd->arity = cmdfunc ? -1 : -2; /* Default value, can be changed later via dedicated API */
 
@@ -1271,15 +1268,13 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     if (parent_cp->func)
         return REDISMODULE_ERR; /* A parent command should be a pure container of subcommands */
 
+    /* Check if the command name is valid. */
+    if (!isCommandNameValid(name))
+        return REDISMODULE_ERR;
+
     /* Check if the command name is busy within the parent command. */
     sds declared_name = sdsnew(name);
     if (parent_cmd->subcommands_dict && lookupSubcommand(parent_cmd, declared_name) != NULL) {
-        sdsfree(declared_name);
-        return REDISMODULE_ERR;
-    }
-
-    /* Check if the command name is valid. */
-    if (!isCommandNameValid(declared_name)) {
         sdsfree(declared_name);
         return REDISMODULE_ERR;
     }
