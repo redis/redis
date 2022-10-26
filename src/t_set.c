@@ -117,7 +117,13 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 len <= server.set_max_listpack_value &&
                 lpSafeToAdd(lp, len))
             {
-                lp = lpAppend(lp, (unsigned char*)str, len);
+                if (str == tmpbuf) {
+                    /* This came in as integer so we can avoid parsing it again.
+                     * TODO: Create and use lpFindInteger; don't go via string. */
+                    lp = lpAppendInteger(lp, llval);
+                } else {
+                    lp = lpAppend(lp, (unsigned char*)str, len);
+                }
                 set->ptr = lp;
             } else {
                 /* Size limit is reached. Convert to hashtable and add. */
