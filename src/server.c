@@ -1142,31 +1142,31 @@ struct redisCommand redisCommandTable[] = {
 
     {"gtid", gtidCommand, -3,
      "write use-memory ",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsGtid,SWAP_NOP/*not used*/,0,0,0,0,0,0,0},
 
     {"gtid.lwm", gtidLwmCommand, 3,
      "write use-memory ",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
     
     {"gtid.auto", gtidAutoCommand, -3,
      "write use-memory ",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsGtidAuto,SWAP_NOP/*not used*/,0,0,0,0,0,0,0},
 
     {"ctrip.merge_start", ctripMergeStartCommand, -1,
      "write use-memory",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
     
-    {"ctrip.merge", ctripMergeCommand, -1,
+    {"ctrip.merge", ctripMergeCommand, -4,
      "write use-memory ",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_OVERWRITE,1,1,1,0,0,0},
 
     {"ctrip.merge_end", ctripMergeEndCommand, -2,
      "write use-memory ",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"ctrip.get_robj", gtidGetRobjCommand, 2, 
      "read-only fast no-script", 
-     0, NULL,NULL,SWAP_IN,1,1,1,0,0,0}
+     0, NULL,NULL,SWAP_IN,0,1,1,1,0,0,0}
 };
 
 /*============================ Utility functions ============================ */

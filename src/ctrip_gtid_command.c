@@ -235,11 +235,11 @@ int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, in
     if (cmd == server.multiCommand) {
         return 0;
     }
-    robj *gtidArgv[argc+3];
+    robj *gtidArgv[argc+3]; /*FIXME: overflow? */
     gtidArgv[0] = shared.gtid;
-    char buf[uuidSetEstimatedEncodeBufferSize(server.current_uuid)];
+    char buf[uuidSetEstimatedEncodeBufferSize(server.current_uuid)]; /* FIXME: overflow? */
     size_t len = uuidSetNextEncode(server.current_uuid, 1, buf);
-    gtidArgv[1] = createObject(OBJ_STRING, sdsnewlen(buf, len));
+    gtidArgv[1] = createObject(OBJ_STRING, sdsnewlen(buf, len));/*TODO opt: use static string object */
     if (cmd == server.execCommand &&  server.db_at_multi != NULL) {
         gtidArgv[2] = createObject(OBJ_STRING, sdscatprintf(sdsempty(), 
         "%d", server.db_at_multi->id));
@@ -248,15 +248,15 @@ int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, in
         "%d", dbid));
     }
     if(cmd == server.gtidAutoCommand) {
-        for(int i = 0; i < argc; i++) {
-            gtidArgv[i + 3] = argv[i + 1];
+        for(int i = 0; i < argc-1; i++) {
+            gtidArgv[i+3] = argv[i+1];
         }
-        propagate(server.gtidCommand, dbid, gtidArgv, argc + 2, flags);
+        propagate(server.gtidCommand, dbid, gtidArgv, argc+2, flags);
     } else {
         for(int i = 0; i < argc; i++) {
-            gtidArgv[i + 3] = argv[i];
+            gtidArgv[i+3] = argv[i];
         }
-        propagate(server.gtidCommand, dbid, gtidArgv, argc + 3, flags);
+        propagate(server.gtidCommand, dbid, gtidArgv, argc+3, flags);
     }
     decrRefCount(gtidArgv[1]);
     decrRefCount(gtidArgv[2]);
@@ -473,7 +473,7 @@ void ctripMergeCommand(client* c) {
     robj *val = NULL;
     // check val
     if(verifyDumpPayload(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)) == C_ERR) {
-        addReplyErrorFormat(c, "value robj load error: %s", (char*)c->argv[4]->ptr);
+        addReplyErrorFormat(c, "value robj load error: %s", (char*)c->argv[2]->ptr);
         goto error;
     }
     int type = -1;
@@ -496,7 +496,6 @@ void ctripMergeCommand(client* c) {
         }
     }
     
-    // //
     rioInitWithBuffer(&payload, c->argv[2]->ptr);
     int load_error = 0;
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
@@ -518,18 +517,19 @@ void ctripMergeCommand(client* c) {
     if (iAmMaster() &&
         expiretime != -1 && expiretime < now)
     {
-        //expire timeout
         decrRefCount(val); 
     } else {
         /* Add the new object in the hash table */
-        int added = dbAddRDBLoad(c->db,(sds)key->ptr,val);
+        sds keydup = sdsdup(key->ptr); /* moved to db.dict by dbAddRDBLoad */
+
+        int added = dbAddRDBLoad(c->db,keydup,val);
         if (!added) {
             /**
              * When it's set we allow new keys to replace the current
                     keys with the same name.
              */
             dbSyncDelete(c->db,key);
-            dbAddRDBLoad(c->db,(sds)key->ptr,val);
+            dbAddRDBLoad(c->db,keydup,val);
         }
 
         /* Set the expire time if needed */
@@ -546,8 +546,8 @@ void ctripMergeCommand(client* c) {
         moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", key, c->db->id);
     }
 
-    // /* Loading the database more slowly is useful in order to test
-    //     * certain edge cases. */
+    /* Loading the database more slowly is useful in order to test
+     * certain edge cases. */
     if (server.key_load_delay) usleep(server.key_load_delay);
     server.dirty++;
     addReply(c, shared.ok);

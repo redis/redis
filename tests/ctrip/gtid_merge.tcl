@@ -73,22 +73,38 @@ start_server {tags {"gtid merge"} overrides {gtid-enabled yes}} {
         r select 0
         r set k v 
         r ctrip.merge_end A:1
-        assert_replication_stream $repl {
-            {select 9}
-            {ctrip.merge_start}
-            {set k v}
-            {select 0}
-            {set k v}
-            {ctrip.merge_end A:1}
+
+        if {$::swap_mode == "disk" } {
+            assert_replication_stream $repl {
+                {select *}
+                {ctrip.merge_start}
+                {set k v}
+                {set k v}
+                {ctrip.merge_end A:1}
+            }
+        } else {
+            assert_replication_stream $repl {
+                {select *}
+                {ctrip.merge_start}
+                {set k v}
+                {select 0}
+                {set k v}
+                {ctrip.merge_end A:1}
+            }
         }
 
         set after_gid [get_gtid r]
         dict for {addr node} $before_gid {
             assert_equal [dict get $after_gid $addr] $node
         }
+
         assert [string match "*$before_gid*" $after_gid] 
+
         # reset dbid
-        r select 9
+        if {$::swap_mode != "disk"} {
+            r select 9
+        }
+
         close_replication_stream $repl
     }
 

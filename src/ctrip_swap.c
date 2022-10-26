@@ -598,7 +598,7 @@ int clearTestRedisDb() {
 }
 
 int initTestRedisDb() {
-    server.dbnum = 2;
+    server.dbnum = 16;
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
     /* Create the Redis databases, and initialize other internal state. */
     for (int j = 0; j < server.dbnum; j++) {
