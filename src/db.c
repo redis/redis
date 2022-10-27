@@ -218,8 +218,13 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  * count of the new value is up to the caller.
  * This function does not modify the expire time of the existing key.
  *
+ * The 'overwrite' flag is an indication whether this is done as part of a
+ * complete replacement of they key, which can be thought of a deletion and
+ * replacement. om which case we need to emit deletion signals, or just an
+ * update of a value of an existing key (when false).
+ *
  * The program is aborted if the key was not already present. */
-static void dbOverwrite(redisDb *db, robj *key, robj *val, int signal) {
+static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
     dictEntry *de = dictFind(db->dict,key->ptr);
 
     serverAssertWithInfo(NULL,key,de != NULL);
@@ -228,7 +233,7 @@ static void dbOverwrite(redisDb *db, robj *key, robj *val, int signal) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
-    if (signal) {
+    if (overwrite) {
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
          * need to incr to retain old */
         incrRefCount(old);
@@ -257,7 +262,7 @@ static void dbOverwrite(redisDb *db, robj *key, robj *val, int signal) {
 /* Replace an existing key with a new value, we just replace value and don't
  * emit any events */
 void dbReplaceValue(redisDb *db, robj *key, robj *val) {
-    dbOverwrite(db, key, val, 0);
+    dbSetValue(db, key, val, 0);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -284,7 +289,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
     if (!keyfound) {
         dbAdd(db,key,val);
     } else {
-        dbOverwrite(db,key,val,1);
+        dbSetValue(db,key,val,1);
     }
     incrRefCount(val);
     if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
