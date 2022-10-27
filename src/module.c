@@ -989,7 +989,7 @@ void RM_ChannelAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
  * '\r', '\n' (newline) - can mess up the protocol on acl error replies.
  * '|' - sub-commands.
  * '@' - ACL categories.
- * '=', ',' - info commandstats.
+ * '=', ',' - info and client list fields (':' handled by getSafeInfoString).
  * */
 int isCommandNameValid(const char *name) {
     const char *block_chars = " \r\n|@=,";
