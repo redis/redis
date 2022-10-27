@@ -9,6 +9,15 @@ on:
   schedule:
     - cron: '0 0 * * *'
 
+  workflow_dispatch:
+    inputs:
+      use_repo:
+        description: 'repo owner and name'
+        default: 'ctripcorp/redis'
+      use_git_ref:
+        description: 'git branch or sha to use'
+        default: 'xredis_2_ror'
+
 jobs:
 
   build-cache-rocksdb:
