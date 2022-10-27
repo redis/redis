@@ -58,11 +58,12 @@ jobs:
         path: deps/rocksdb
         key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST' -j8
-    - name: test
       run: |
         sudo apt-get update
         sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
+        make REDIS_CFLAGS='-Werror -DREDIS_TEST' -j8
+    - name: test
+      run: |
         sudo apt-get install tcl8.6
         ./runtest --accurate --verbose --dump-logs
     - name: unittest
@@ -88,11 +89,12 @@ jobs:
         path: deps/rocksdb
         key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
     - name: make
-      run: make MALLOC=libc -j8
-    - name: test
       run: |
         sudo apt-get update
         sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
+        make MALLOC=libc -j8
+    - name: test
+      run: |
         sudo apt-get install tcl8.6
         ./runtest --accurate --verbose --dump-logs
 
@@ -116,11 +118,12 @@ jobs:
         path: deps/rocksdb
         key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
     - name: make
-      run: make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror' -j8
-    - name: test
       run: |
         sudo apt-get update
         sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
+        make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror' -j8
+    - name: test
+      run: |
         sudo apt-get install tcl8.6 tclx -y
         ./runtest --accurate --verbose --dump-logs
     - name: unittest
@@ -146,11 +149,12 @@ jobs:
         path: deps/rocksdb
         key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
     - name: make
-      run: make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST -Werror' -j8
-    - name: test
       run: |
         sudo apt-get update
         sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
+        make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST -Werror' -j8
+    - name: test
+      run: |
         sudo apt-get install tcl8.6 tclx -y
         ./runtest --accurate --verbose --dump-logs
     - name: unittest
@@ -176,11 +180,12 @@ jobs:
         path: deps/rocksdb
         key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
     - name: make
-      run: make -j8
-    - name: test
       run: |
         sudo apt-get update
         sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
+        make -j8
+    - name: test
+      run: |
         sudo apt-get install tcl8.6 tcl-tls
         ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs
     - name: cluster tests
