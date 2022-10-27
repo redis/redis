@@ -14,7 +14,7 @@ jobs:
   build-cache-rocksdb:
     strategy:
       matrix:
-        platform: [ ubuntu-latest ]
+        platform: [ ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.platform }}
     if: github.repository == 'ctripcorp/redis'
     steps:
@@ -44,18 +44,27 @@ jobs:
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: get rocksdb sha
+      id: rocksdb-sha
+      run: |
+        echo "::set-output name=sha::$(cd deps/rocksdb && git rev-parse HEAD)"
+      shell: bash
+    - name: cache rocksdb
+      id: cache-rocksdb
+      uses: actions/cache@v3
+      with:
+        path: deps/rocksdb
+        key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST' -j8
     - name: test
       run: |
+        sudo apt-get update
+        sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
         sudo apt-get install tcl8.6
         ./runtest --accurate --verbose --dump-logs
-    - name: module api test
-      run: ./runtest-moduleapi --verbose
-    - name: sentinel tests
-      run: ./runtest-sentinel
-    - name: cluster tests
-      run: ./runtest-cluster
     - name: unittest
       run: ./src/redis-server test all
 
@@ -65,18 +74,87 @@ jobs:
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: get rocksdb sha
+      id: rocksdb-sha
+      run: |
+        echo "::set-output name=sha::$(cd deps/rocksdb && git rev-parse HEAD)"
+      shell: bash
+    - name: cache rocksdb
+      id: cache-rocksdb
+      uses: actions/cache@v3
+      with:
+        path: deps/rocksdb
+        key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
     - name: make
-      run: make MALLOC=libc
+      run: make MALLOC=libc -j8
     - name: test
       run: |
+        sudo apt-get update
+        sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
         sudo apt-get install tcl8.6
         ./runtest --accurate --verbose --dump-logs
-    - name: module api test
-      run: ./runtest-moduleapi --verbose
-    - name: sentinel tests
-      run: ./runtest-sentinel
-    - name: cluster tests
-      run: ./runtest-cluster
+
+  test-sanitizer-address:
+    runs-on: ubuntu-latest
+    if: github.repository == 'ctripcorp/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: get rocksdb sha
+      id: rocksdb-sha
+      run: |
+        echo "::set-output name=sha::$(cd deps/rocksdb && git rev-parse HEAD)"
+      shell: bash
+    - name: cache rocksdb
+      id: cache-rocksdb
+      uses: actions/cache@v3
+      with:
+        path: deps/rocksdb
+        key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
+    - name: make
+      run: make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror' -j8
+    - name: test
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
+        sudo apt-get install tcl8.6 tclx -y
+        ./runtest --accurate --verbose --dump-logs
+    - name: unittest
+      run: ./src/redis-server test all
+
+  test-sanitizer-undefined:
+    runs-on: ubuntu-latest
+    if: github.repository == 'ctripcorp/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: get rocksdb sha
+      id: rocksdb-sha
+      run: |
+        echo "::set-output name=sha::$(cd deps/rocksdb && git rev-parse HEAD)"
+      shell: bash
+    - name: cache rocksdb
+      id: cache-rocksdb
+      uses: actions/cache@v3
+      with:
+        path: deps/rocksdb
+        key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
+    - name: make
+      run: make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST -Werror' -j8
+    - name: test
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
+        sudo apt-get install tcl8.6 tclx -y
+        ./runtest --accurate --verbose --dump-logs
+    - name: unittest
+      run: ./src/redis-server test all
 
   test-ubuntu-io-threads:
     runs-on: ubuntu-latest
@@ -84,11 +162,25 @@ jobs:
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
-    - name: make
+      with:
+        submodules: true
+    - name: get rocksdb sha
+      id: rocksdb-sha
       run: |
-        make
+        echo "::set-output name=sha::$(cd deps/rocksdb && git rev-parse HEAD)"
+      shell: bash
+    - name: cache rocksdb
+      id: cache-rocksdb
+      uses: actions/cache@v3
+      with:
+        path: deps/rocksdb
+        key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
+    - name: make
+      run: make -j8
     - name: test
       run: |
+        sudo apt-get update
+        sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
         sudo apt-get install tcl8.6 tcl-tls
         ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs
     - name: cluster tests
@@ -101,41 +193,31 @@ jobs:
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: get rocksdb sha
+      id: rocksdb-sha
+      run: |
+        echo "::set-output name=sha::$(cd deps/rocksdb && git rev-parse HEAD)"
+      shell: bash
+    - name: cache rocksdb
+      id: cache-rocksdb
+      uses: actions/cache@v3
+      with:
+        path: deps/rocksdb
+        key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
     - name: make
-      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST' -j8
     - name: test
       run: |
         sudo apt-get update
+        sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
         sudo apt-get install tcl8.6 valgrind -y
         ./runtest --valgrind --verbose --clients 1 --tags -large-memory --dump-logs
-    - name: module api test
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
     - name: unittest
       run: |
         valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all
         if grep -q 0x err.txt; then cat err.txt; exit 1; fi
-
-  test-centos7-jemalloc:
-    runs-on: ubuntu-latest
-    if: github.repository == 'ctripcorp/redis'
-    container: centos:7
-    timeout-minutes: 14400
-    steps:
-    - uses: actions/checkout@v2
-    - name: make
-      run: |
-        yum -y install gcc make
-        make
-    - name: test
-      run: |
-        yum -y install which tcl
-        ./runtest --accurate --verbose --dump-logs
-    - name: module api test
-      run: ./runtest-moduleapi --verbose
-    - name: sentinel tests
-      run: ./runtest-sentinel
-    - name: cluster tests
-      run: ./runtest-cluster
 
   test-macos-latest:
     runs-on: macos-latest
@@ -143,60 +225,22 @@ jobs:
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: get rocksdb sha
+      id: rocksdb-sha
+      run: |
+        echo "::set-output name=sha::$(cd deps/rocksdb && git rev-parse HEAD)"
+      shell: bash
+    - name: cache rocksdb
+      id: cache-rocksdb
+      uses: actions/cache@v3
+      with:
+        path: deps/rocksdb
+        key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
     - name: make
-      run: make
+      run: make -j8
     - name: test
       run: |
         ./runtest --accurate --verbose --no-latency --dump-logs
-    - name: module api test
-      run: ./runtest-moduleapi --verbose
-    - name: sentinel tests
-      run: ./runtest-sentinel
-    - name: cluster tests
-      run: ./runtest-cluster
 
-  test-sanitizer-address:
-    runs-on: ubuntu-latest
-    if: github.repository == 'ctripcorp/redis'
-    timeout-minutes: 14400
-    steps:
-      - uses: actions/checkout@v2
-      - name: make
-        run: make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror'
-      - name: testprep
-        run: |
-          sudo apt-get update
-          sudo apt-get install tcl8.6 tclx -y
-      - name: test
-        run: ./runtest --accurate --verbose --dump-logs
-      - name: module api test
-        run: ./runtest-moduleapi --verbose --dump-logs
-      - name: sentinel tests
-        run: ./runtest-sentinel
-      - name: cluster tests
-        run: ./runtest-cluster
-      - name: unittest
-        run: ./src/redis-server test all
-
-  test-sanitizer-undefined:
-    runs-on: ubuntu-latest
-    if: github.repository == 'ctripcorp/redis'
-    timeout-minutes: 14400
-    steps:
-      - uses: actions/checkout@v2
-      - name: make
-        run: make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST -Werror'
-      - name: testprep
-        run: |
-          sudo apt-get update
-          sudo apt-get install tcl8.6 tclx -y
-      - name: test
-        run: ./runtest --accurate --verbose --dump-logs
-      - name: module api test
-        run: ./runtest-moduleapi --verbose --dump-logs
-      - name: sentinel tests
-        run: ./runtest-sentinel
-      - name: cluster tests
-        run: ./runtest-cluster
-      - name: unittest
-        run: ./src/redis-server test all
