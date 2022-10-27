@@ -3,7 +3,7 @@ start_server {
     overrides {
         "set-max-intset-entries" 512
         "set-max-listpack-entries" 128
-        "set-max-listpack-value" 64
+        "set-max-listpack-value" 32
     }
 } {
     proc create_set {key entries} {
@@ -624,6 +624,7 @@ start_server {
     foreach {type contents} {
         listpack {a b c d e f g h i j k l m n o p q r s t u v w x y z}
         intset {1 10 11 12 13 14 15 16 17 18 19 2 20 21 22 23 24 25 26 3 4 5 6 7 8 9}
+        hashtable {ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 b c d e f g h i j k l m n o p q r s t u v w x y z}
     } {
         test "SPOP with <count> - $type" {
             create_set myset $contents
@@ -720,9 +721,20 @@ start_server {
             30 31 32 33 34 35 36 37 38 39
             40 41 42 43 44 45 46 47 48 49
         }
+        hashtable {
+            ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
+            1 5 10 50 125 50000 33959417 4775547 65434162
+            12098459 427716 483706 2726473884 72615637475
+            MARY PATRICIA LINDA BARBARA ELIZABETH JENNIFER MARIA
+            SUSAN MARGARET DOROTHY LISA NANCY KAREN BETTY HELEN
+            SANDRA DONNA CAROL RUTH SHARON MICHELLE LAURA SARAH
+            KIMBERLY DEBORAH JESSICA SHIRLEY CYNTHIA ANGELA MELISSA
+            BRENDA AMY ANNA REBECCA VIRGINIA
+        }
     } {
         test "SRANDMEMBER with <count> - $type" {
             create_set myset $contents
+            assert_encoding $type myset
             unset -nocomplain myset
             array set myset {}
             foreach ele [r smembers myset] {
@@ -820,9 +832,15 @@ start_server {
         intset {
             0 1 2 3 4 5 6 7 8 9
         }
+        hashtable {
+            ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
+            1 5 10 50 125
+            MARY PATRICIA LINDA BARBARA
+        }
     } {
         test "SRANDMEMBER histogram distribution - $type" {
             create_set myset $contents
+            assert_encoding $type myset
             unset -nocomplain myset
             array set myset {}
             foreach ele [r smembers myset] {
