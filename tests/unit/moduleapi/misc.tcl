@@ -245,10 +245,11 @@ start_server {tags {"modules"}} {
         }
     }
 
-    test {rm_call EVAL - OOM} {
+    # Note: each script is unique, to check that flags are extracted correctly
+    test {rm_call EVAL - OOM - with M flag} {
         r config set maxmemory 1
 
-        # OOM checking at RM_Call time, but not an allow-oom/no-writes script, so fails
+        # script without shebang, but uses SET, so fails
         assert_error {*OOM command not allowed when used memory > 'maxmemory'*} {
             r test.rm_call_flags M eval {
                 redis.call('set','x',1)
@@ -256,65 +257,56 @@ start_server {tags {"modules"}} {
             } 1 x
         }
 
-        # OOM checking  with shebang not having flags set, so fails
+        # script with an allow-oom flag, succeeds despite using SET
+        r test.rm_call_flags M eval {#!lua flags=allow-oom
+            redis.call('set','x', 1)
+            return 2
+        } 1 x
+
+        # script wiht no-writes flag, implies allow-oom, succeeds
+        r test.rm_call_flags M eval {#!lua flags=no-writes
+            redis.call('get','x')
+            return 2
+        } 1 x
+
+        # script with shebang using default flags, so fails regardless of using only GET
         assert_error {*OOM command not allowed when used memory > 'maxmemory'*} {
             r test.rm_call_flags M eval {#!lua
                 redis.call('get','x')
-                return 2
+                return 3
             } 1 x
         }
 
-        # OOM checking at RM_Call time, but an allow-oom script, so script runs
-        r test.rm_call_flags M eval {#!lua flags=allow-oom
-            redis.call('set','x', 1)
-            return 3
-        } 1 x
-
-        # OOM checking at RM_Call time, but a no-writes script, so script runs
-        r test.rm_call_flags M eval {#!lua flags=no-writes
+        # script without shebang, but uses GET, so succeeds
+        r test.rm_call_flags M eval {
             redis.call('get','x')
             return 4
         } 1 x
 
-        # OOM checking at RM_Call time, but an invalid no-writes script, so fails in script handling
-        assert_error {*ERR Write commands are not allowed from read-only scripts*} {
-            r test.rm_call_flags M eval {#!lua flags=no-writes
-                redis.call('set','x', 1)
-                return 5
-            } 1 x
-        }
+        r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
 
-        # No OOM checking at RM_Call time, runs
+    # All RM_Call for script succeeds in OOM state without using the M flag
+    test {rm_call EVAL - OOM - without M flag} {
+        r config set maxmemory 1
+
+        # no shebang at all
         r test.rm_call eval {
             redis.call('set','x',1)
             return 6
         } 1 x
 
-        # No OOM checking with empty shebang, runs
+        # Shebang without flags
         r test.rm_call eval {#!lua
-            redis.call('get','x')
+            redis.call('set','x', 1)
             return 7
         } 1 x
 
-        # No OOM checking with allow-oom shebang, runs
+        # with allow-oom flag
         r test.rm_call eval {#!lua flags=allow-oom
             redis.call('set','x', 1)
             return 8
         } 1 x
-
-        # No OOM checking with no-writes shebang, runs
-        r test.rm_call eval {#!lua flags=no-writes
-            redis.call('get','x')
-            return 9
-        } 1 x
-
-        # No OOM checking at RM_Call time, but an invalid no-writes shebang, so fails in script handling
-        assert_error {*ERR Write commands are not allowed from read-only scripts*} {
-            r test.rm_call eval {#!lua flags=no-writes
-                redis.call('set','x', 1)
-                return 10
-            } 1 x
-        }
 
         r config set maxmemory 0
     } {OK} {needs:config-maxmemory}
