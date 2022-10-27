@@ -86,7 +86,6 @@ set ::all_tests {
     unit/wait
     unit/pause
     unit/querybuf
-    unit/pendingquerybuf
     unit/tls
     unit/tracking
     unit/oom-score-adj
@@ -797,12 +796,12 @@ if {[llength $filtered_tests] < [llength $::all_tests]} {
     set ::all_tests $filtered_tests
 }
 
-proc attach_to_replication_stream {} {
+proc attach_to_replication_stream_on_connection {conn} {
     r config set repl-ping-replica-period 3600
     if {$::tls} {
-        set s [::tls::socket [srv 0 "host"] [srv 0 "port"]]
+        set s [::tls::socket [srv $conn "host"] [srv $conn "port"]]
     } else {
-        set s [socket [srv 0 "host"] [srv 0 "port"]]
+        set s [socket [srv $conn "host"] [srv $conn "port"]]
     }
     fconfigure $s -translation binary
     puts -nonewline $s "SYNC\r\n"
@@ -825,6 +824,10 @@ proc attach_to_replication_stream {} {
         set count [expr {$count-[string length $buf]}]
     }
     return $s
+}
+
+proc attach_to_replication_stream {} {
+    return [attach_to_replication_stream_on_connection 0]
 }
 
 proc read_from_replication_stream {s} {

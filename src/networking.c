@@ -31,12 +31,14 @@
 #include "atomicvar.h"
 #include "cluster.h"
 #include "script.h"
+#include "fpconv_dtoa.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
 #include <ctype.h>
 
 static void setProtocolError(const char *errstr, client *c);
+static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 int postponeClientRead(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
@@ -601,6 +603,13 @@ void addReplyErrorSds(client *c, sds err) {
     addReplyErrorSdsEx(c, err, 0);
 }
 
+/* See addReplyErrorLength for expectations from the input string. */
+/* As a side effect the SDS string is freed. */
+void addReplyErrorSdsSafe(client *c, sds err) {
+    err = sdsmapchars(err, "\r\n", "  ",  2);
+    addReplyErrorSdsEx(c, err, 0);
+}
+
 /* Internal function used by addReplyErrorFormat and addReplyErrorFormatEx.
  * Refer to afterErrorReply for more information about the flags. */
 static void addReplyErrorFormatInternal(client *c, int flags, const char *fmt, va_list ap) {
@@ -848,7 +857,7 @@ void addReplyDouble(client *c, double d) {
              * but still avoid an extra memcpy of the whole number, we reserve space
              * for maximum header `$0000\r\n`, print double, add the resp header in
              * front of it, and then send the buffer with the right `start` offset. */
-            int dlen = snprintf(dbuf+7,sizeof(dbuf) - 7,"%.17g",d);
+            dlen = fpconv_dtoa(d, dbuf+7);
             int digits = digits10(dlen);
             int start = 4 - digits;
             dbuf[start] = '$';
@@ -863,10 +872,15 @@ void addReplyDouble(client *c, double d) {
             dbuf[6] = '\n';
             dbuf[dlen+7] = '\r';
             dbuf[dlen+8] = '\n';
+            dbuf[dlen+9] = '\0';
             addReplyProto(c,dbuf+start,dlen+9-start);
         } else {
-            dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
-            addReplyProto(c,dbuf,dlen);
+            dbuf[0] = ',';
+            dlen = fpconv_dtoa(d, dbuf+1);
+            dbuf[dlen+1] = '\r';
+            dbuf[dlen+2] = '\n';
+            dbuf[dlen+3] = '\0';
+            addReplyProto(c,dbuf,dlen+3);
         }
     }
 }
@@ -3135,20 +3149,18 @@ NULL
             addReplyNull(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
         /* CLIENT UNPAUSE */
-        unpauseClients(PAUSE_BY_CLIENT_COMMAND);
+        unpauseActions(PAUSE_BY_CLIENT_COMMAND);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && (c->argc == 3 ||
                                                         c->argc == 4))
     {
         /* CLIENT PAUSE TIMEOUT [WRITE|ALL] */
         mstime_t end;
-        int type = CLIENT_PAUSE_ALL;
+        int isPauseClientAll = 1;
         if (c->argc == 4) {
             if (!strcasecmp(c->argv[3]->ptr,"write")) {
-                type = CLIENT_PAUSE_WRITE;
-            } else if (!strcasecmp(c->argv[3]->ptr,"all")) {
-                type = CLIENT_PAUSE_ALL;
-            } else {
+                isPauseClientAll = 0;
+            } else if (strcasecmp(c->argv[3]->ptr,"all")) {
                 addReplyError(c,
                     "CLIENT PAUSE mode must be WRITE or ALL");  
                 return;       
@@ -3157,7 +3169,7 @@ NULL
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&end,
             UNIT_MILLISECONDS) != C_OK) return;
-        pauseClients(PAUSE_BY_CLIENT_COMMAND, end, type);
+        pauseClientsByClient(end, isPauseClientAll);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
@@ -3803,38 +3815,26 @@ void flushSlavesOutputBuffers(void) {
     }
 }
 
-/* Compute current most restrictive pause type and its end time, aggregated for
+/* Compute current paused actions and its end time, aggregated for
  * all pause purposes. */
-static void updateClientPauseTypeAndEndTime(void) {
-    pause_type old_type = server.client_pause_type;
-    pause_type type = CLIENT_PAUSE_OFF;
-    mstime_t end = 0;
+void updatePausedActions(void) {
+    uint32_t prev_paused_actions = server.paused_actions;
+    server.paused_actions = 0;
+
     for (int i = 0; i < NUM_PAUSE_PURPOSES; i++) {
-        pause_event *p = server.client_pause_per_purpose[i];
-        if (p == NULL) {
-            /* Nothing to do. */
-        } else if (p->end < server.mstime) {
-            /* This one expired. */
-            zfree(p);
-            server.client_pause_per_purpose[i] = NULL;
-        } else if (p->type > type) {
-            /* This type is the most restrictive so far. */
-            type = p->type;
+        pause_event *p = &(server.client_pause_per_purpose[i]);
+        if (p->end > server.mstime)
+            server.paused_actions |= p->paused_actions;
+        else {
+            p->paused_actions = 0;
+            p->end = 0;
         }
     }
 
-    /* Find the furthest end time among the pause purposes of the most
-     * restrictive type */
-    for (int i = 0; i < NUM_PAUSE_PURPOSES; i++) {
-        pause_event *p = server.client_pause_per_purpose[i];
-        if (p != NULL && p->type == type && p->end > end) end = p->end;
-    }
-    server.client_pause_type = type;
-    server.client_pause_end_time = end;
-
     /* If the pause type is less restrictive than before, we unblock all clients
      * so they are reprocessed (may get re-paused). */
-    if (type < old_type) {
+    uint32_t mask_cli = (PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_CLIENT_ALL);
+    if ((server.paused_actions & mask_cli) < (prev_paused_actions & mask_cli)) {
         unblockPostponedClients();
     }
 }
@@ -3851,7 +3851,26 @@ void unblockPostponedClients() {
     }
 }
 
-/* Pause clients up to the specified unixtime (in ms) for a given type of
+/* Set pause-client end-time and restricted action. If already paused, then:
+ * 1. Keep higher end-time value between configured and the new one
+ * 2. Keep most restrictive action between configured and the new one */
+static void pauseClientsByClient(mstime_t endTime, int isPauseClientAll) {
+    uint32_t actions;
+    pause_event *p = &server.client_pause_per_purpose[PAUSE_BY_CLIENT_COMMAND];
+
+    if (isPauseClientAll)
+        actions = PAUSE_ACTIONS_CLIENT_ALL_SET;
+    else {
+        actions = PAUSE_ACTIONS_CLIENT_WRITE_SET;
+        /* If currently configured most restrictive client pause, then keep it */
+        if (p->paused_actions & PAUSE_ACTION_CLIENT_ALL)
+            actions = PAUSE_ACTIONS_CLIENT_ALL_SET;
+    }
+    
+    pauseActions(PAUSE_BY_CLIENT_COMMAND, endTime, actions);
+}
+
+/* Pause actions up to the specified unixtime (in ms) for a given type of
  * commands.
  *
  * A main use case of this function is to allow pausing replication traffic
@@ -3862,20 +3881,17 @@ void unblockPostponedClients() {
  * failover procedure implemented by CLUSTER FAILOVER.
  *
  * The function always succeed, even if there is already a pause in progress.
- * In such a case, the duration is set to the maximum and new end time and the
- * type is set to the more restrictive type of pause. */
-void pauseClients(pause_purpose purpose, mstime_t end, pause_type type) {
+ * The new paused_actions of a given 'purpose' will override the old ones and
+ * end time will be updated if new end time is bigger than currently configured */
+void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions) {
     /* Manage pause type and end time per pause purpose. */
-    if (server.client_pause_per_purpose[purpose] == NULL) {
-        server.client_pause_per_purpose[purpose] = zmalloc(sizeof(pause_event));
-        server.client_pause_per_purpose[purpose]->type = type;
-        server.client_pause_per_purpose[purpose]->end = end;
-    } else {
-        pause_event *p = server.client_pause_per_purpose[purpose];
-        p->type = max(p->type, type);
-        p->end = max(p->end, end);
-    }
-    updateClientPauseTypeAndEndTime();
+    server.client_pause_per_purpose[purpose].paused_actions = actions;
+
+    /* If currently configured end time bigger than new one, then keep it */
+    if (server.client_pause_per_purpose[purpose].end < end)
+        server.client_pause_per_purpose[purpose].end = end;
+
+    updatePausedActions();
 
     /* We allow write commands that were queued
      * up before and after to execute. We need
@@ -3886,29 +3902,23 @@ void pauseClients(pause_purpose purpose, mstime_t end, pause_type type) {
     }
 }
 
-/* Unpause clients and queue them for reprocessing. */
-void unpauseClients(pause_purpose purpose) {
-    if (server.client_pause_per_purpose[purpose] == NULL) return;
-    zfree(server.client_pause_per_purpose[purpose]);
-    server.client_pause_per_purpose[purpose] = NULL;
-    updateClientPauseTypeAndEndTime();
+/* Unpause actions and queue them for reprocessing. */
+void unpauseActions(pause_purpose purpose) {
+    server.client_pause_per_purpose[purpose].end = 0;
+    server.client_pause_per_purpose[purpose].paused_actions = 0;
+    updatePausedActions();
 }
 
-/* Returns true if clients are paused and false otherwise. */ 
-int areClientsPaused(void) {
-    return server.client_pause_type != CLIENT_PAUSE_OFF;
+/* Returns bitmask of paused actions */
+uint32_t isPausedActions(uint32_t actions_bitmask) {
+    return (server.paused_actions & actions_bitmask);
 }
 
-/* Checks if the current client pause has elapsed and unpause clients
- * if it has. Also returns true if clients are now paused and false 
- * otherwise. */
-int checkClientPauseTimeoutAndReturnIfPaused(void) {
-    if (!areClientsPaused())
-        return 0;
-    if (server.client_pause_end_time < server.mstime) {
-        updateClientPauseTypeAndEndTime();
-    }
-    return areClientsPaused();
+/* Returns bitmask of paused actions */
+uint32_t isPausedActionsWithUpdate(uint32_t actions_bitmask) {
+    if (!(server.paused_actions & actions_bitmask)) return 0;
+    updatePausedActions();
+    return (server.paused_actions & actions_bitmask);
 }
 
 /* This function is called by Redis in order to process a few events from
@@ -3961,7 +3971,13 @@ void processEventsWhileBlocked(void) {
  * ========================================================================== */
 
 #define IO_THREADS_MAX_NUM 128
+#ifndef CACHE_LINE_SIZE
+#if defined(__aarch64__) && defined(__APPLE__)
+#define CACHE_LINE_SIZE 128
+#else
 #define CACHE_LINE_SIZE 64
+#endif
+#endif
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) threads_pending {
     redisAtomic unsigned long value;

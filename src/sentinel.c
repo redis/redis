@@ -616,10 +616,16 @@ int sentinelAddrOrHostnameEqual(sentinelAddr *a, sentinelAddr *b) {
 int sentinelAddrEqualsHostname(sentinelAddr *a, char *hostname) {
     char ip[NET_IP_STR_LEN];
 
-    /* We always resolve the hostname and compare it to the address */
+    /* Try resolve the hostname and compare it to the address */
     if (anetResolve(NULL, hostname, ip, sizeof(ip),
-                    sentinel.resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR)
-        return 0;
+                    sentinel.resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR) {
+
+        /* If failed resolve then compare based on hostnames. That is our best effort as
+         * long as the server is unavailable for some reason. It is fine since Redis 
+         * instance cannot have multiple hostnames for a given setup */
+        return !strcasecmp(sentinel.resolve_hostnames ? a->hostname : a->ip, hostname);
+    }
+    /* Compare based on address */
     return !strcasecmp(a->ip, ip);
 }
 
