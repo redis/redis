@@ -369,6 +369,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                           RDB without replication buffer. */
 #define CLIENT_NO_EVICT (1ULL<<43) /* This client is protected against client
                                       memory eviction. */
+#define CLIENT_ALLOW_OOM (1ULL<<44) /* Client used by RM_Call is allowed to fully execute
+                                       scripts even when in OOM */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
