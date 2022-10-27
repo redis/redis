@@ -263,7 +263,7 @@ start_server {tags {"modules"}} {
             return 2
         } 1 x
 
-        # script wiht no-writes flag, implies allow-oom, succeeds
+        # script with no-writes flag, implies allow-oom, succeeds
         r test.rm_call_flags M eval {#!lua flags=no-writes
             redis.call('get','x')
             return 2
