@@ -88,81 +88,105 @@ tags "modules" {
         }
 
         test {Test removed key event} {
-            r set a abcd
-            r del a
+            r set str abcd
+            r set str abcde
             # For String Type value is returned
-            assert_equal {abcd deleted} [r hooks.is_key_removed a]
-            assert_equal -1 [r hooks.pexpireat a]
+            assert_equal {abcd overwrite} [r hooks.is_key_removed str]
+            assert_equal -1 [r hooks.pexpireat str]
+
+            r del str
+            assert_equal {abcde deleted} [r hooks.is_key_removed str]
+            assert_equal -1 [r hooks.pexpireat str]
+
+            # test int encoded string
+            r set intstr 12345678
+            # incr doesn't fire event
+            r incr intstr
+            catch {[r hooks.is_key_removed intstr]} output
+            assert_match {ERR * removed} $output
+            r del intstr
+            assert_equal {12345679 deleted} [r hooks.is_key_removed intstr]
 
             catch {[r hooks.is_key_removed not-exists]} output
             assert_match {ERR * removed} $output
 
-            r hset b f v
-            r hdel b f
-            assert_equal {0 deleted} [r hooks.is_key_removed b]
+            r hset hash f v
+            r hdel hash f
+            assert_equal {0 deleted} [r hooks.is_key_removed hash]
 
-            r lpush c 1
-            r lpop c
-            assert_equal {0 deleted} [r hooks.is_key_removed c]
+            r hset hash f v a b
+            r del hash
+            assert_equal {2 deleted} [r hooks.is_key_removed hash]
 
-            r lpush c 1 2 3
-            r del c
-            assert_equal {3 deleted} [r hooks.is_key_removed c]
+            r lpush list 1
+            r lpop list
+            assert_equal {0 deleted} [r hooks.is_key_removed list]
 
-            r sadd d 1
-            r spop d
-            assert_equal {0 deleted} [r hooks.is_key_removed d]
+            r lpush list 1 2 3
+            r del list
+            assert_equal {3 deleted} [r hooks.is_key_removed list]
 
-            r zadd e 1 f
-            r zpopmin e
-            assert_equal {0 deleted} [r hooks.is_key_removed e]
+            r sadd set 1
+            r spop set
+            assert_equal {0 deleted} [r hooks.is_key_removed set]
 
-            r xadd f 1-1 f v
-            r xdel f 1-1
+            r sadd set 1 2 3 4
+            r del set
+            assert_equal {4 deleted} [r hooks.is_key_removed set]
+
+            r zadd zset 1 f
+            r zpopmin zset
+            assert_equal {0 deleted} [r hooks.is_key_removed zset]
+
+            r zadd zset 1 f 2 d
+            r del zset
+            assert_equal {2 deleted} [r hooks.is_key_removed zset]
+
+            r xadd stream 1-1 f v
+            r xdel stream 1-1
             # Stream does not delete object when del entry
-            catch {[r hooks.is_key_removed f]} output
+            catch {[r hooks.is_key_removed stream]} output
             assert_match {ERR * removed} $output
-            r del f
-            assert_equal {0 deleted} [r hooks.is_key_removed f]
+            r del stream
+            assert_equal {0 deleted} [r hooks.is_key_removed stream]
+
+            r xadd stream 2-1 f v
+            r del stream
+            assert_equal {1 deleted} [r hooks.is_key_removed stream]
 
             # delete key because of active expire
             set size [r dbsize]
-            r set g abcd px 1
+            r set active-expire abcd px 1
             #ensure active expire
             wait_for_condition 50 100 {
                 [r dbsize] == $size
             } else {
                 fail "Active expire not trigger"
             }
-            assert_equal {abcd expired} [r hooks.is_key_removed g]
+            assert_equal {abcd expired} [r hooks.is_key_removed active-expire]
             # current time is greater than pexpireat
             set now [r time]
             set mill [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)]
-            assert {$mill >= [r hooks.pexpireat g]}
+            assert {$mill >= [r hooks.pexpireat active-expire]}
 
             # delete key because of lazy expire
             r debug set-active-expire 0
-            r set h abcd px 1
+            r set lazy-expire abcd px 1
             after 10
-            r get h
-            assert_equal {abcd expired} [r hooks.is_key_removed h]
+            r get lazy-expire
+            assert_equal {abcd expired} [r hooks.is_key_removed lazy-expire]
             set now [r time]
             set mill [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)]
-            assert {$mill >= [r hooks.pexpireat h]}
+            assert {$mill >= [r hooks.pexpireat lazy-expire]}
             r debug set-active-expire 1
 
             # delete key not yet expired
             set now [r time]
             set expireat [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)+1000000]
-            r set i abcd pxat $expireat
-            r del i
-            assert_equal {abcd deleted} [r hooks.is_key_removed i]
-            assert_equal $expireat [r hooks.pexpireat i]
-
-            # test int encoded string
-            r set j 12345678
-            r del j
-            assert_equal {12345678 deleted} [r hooks.is_key_removed j]
+            r set not-expire abcd pxat $expireat
+            r del not-expire
+            assert_equal {abcd deleted} [r hooks.is_key_removed not-expire]
+            assert_equal $expireat [r hooks.pexpireat not-expire]
 
             # Test key evict
             set used [expr {[s used_memory] - [s mem_not_counted_for_evict]}]

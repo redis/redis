@@ -219,7 +219,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  * This function does not modify the expire time of the existing key.
  *
  * The program is aborted if the key was not already present. */
-void dbOverwrite(redisDb *db, robj *key, robj *val) {
+static void dbOverwrite(redisDb *db, robj *key, robj *val, int signal) {
     dictEntry *de = dictFind(db->dict,key->ptr);
 
     serverAssertWithInfo(NULL,key,de != NULL);
@@ -228,13 +228,23 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
-    /* Although the key is not really deleted from the database, we regard 
-     * overwrite as two steps of unlink+add, so we still need to call the unlink
-     * callback of the module. */
-    moduleNotifyKeyUnlink(key,old,db->id,DB_FLAG_KEY_DELETED);
-    /* We want to try to unblock any client using a blocking XREADGROUP */
-    if (old->type == OBJ_STREAM)
-        signalKeyAsReady(db,key,old->type);
+    if (signal) {
+        /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
+         * need to incr to retain old */
+        incrRefCount(old);
+        /* Although the key is not really deleted from the database, we regard
+        * overwrite as two steps of unlink+add, so we still need to call the unlink
+        * callback of the module. */
+        moduleNotifyKeyUnlink(key,old,db->id,DB_FLAG_KEY_OVERWRITE);
+        /* We want to try to unblock any client using a blocking XREADGROUP */
+        if (old->type == OBJ_STREAM)
+            signalKeyAsReady(db,key,old->type);
+        decrRefCount(old);
+        /* Because of RM_StringDMA, old may be changed, so we need get old again */
+        old = dictGetVal(de);
+        /* Entry in auxentry may be changed, so we need update auxentry */
+        auxentry = *de;
+    }
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
@@ -243,6 +253,12 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     }
 
     dictFreeVal(db->dict, &auxentry);
+}
+
+/* Replace an existing key with a new value, we just replace value and don't
+ * emit any events */
+void dbReplaceValue(redisDb *db, robj *key, robj *val) {
+    dbOverwrite(db, key, val, 0);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -269,7 +285,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
     if (!keyfound) {
         dbAdd(db,key,val);
     } else {
-        dbOverwrite(db,key,val);
+        dbOverwrite(db,key,val,1);
     }
     incrRefCount(val);
     if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
@@ -326,7 +342,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
          * need to incr to retain val */
         incrRefCount(val);
         /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,val,db->id, flags);
+        moduleNotifyKeyUnlink(key,val,db->id,flags);
         /* We want to try to unblock any client using a blocking XREADGROUP */
         if (val->type == OBJ_STREAM)
             signalKeyAsReady(db,key,val->type);
@@ -400,15 +416,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
         robj *decoded = getDecodedObject(o);
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
         decrRefCount(decoded);
-        dictEntry *de = dictFind(db->dict, key->ptr);
-        serverAssertWithInfo(NULL,key,de != NULL);
-        dictEntry auxentry = *de;
-        if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-            robj *old = dictGetVal(de);
-            o->lru = old->lru;
-        }
-        dictSetVal(db->dict, de, o);
-        dictFreeVal(db->dict, &auxentry);
+        dbReplaceValue(db,key,o);
     }
     return o;
 }

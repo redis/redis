@@ -10625,6 +10625,7 @@ static uint64_t moduleEventVersions[] = {
  *     * `REDISMODULE_SUBEVENT_KEY_DELETED`
  *     * `REDISMODULE_SUBEVENT_KEY_EXPIRED`
  *     * `REDISMODULE_SUBEVENT_KEY_EVICTED`
+ *     * `REDISMODULE_SUBEVENT_KEY_OVERWRITE`
  *
  *     The data pointer can be casted to a RedisModuleKeyInfo
  *     structure with the following fields:
@@ -10845,7 +10846,7 @@ void processModuleLoadingProgressEvent(int is_aof) {
     }
 }
 
-/* When a key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it
+/* When a key is deleted (in dbAsyncDelete/dbSyncDelete/setKey), it
 *  will be called to tell the module which key is about to be released. */
 void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
     server.lazy_expire_disabled++;
@@ -10854,6 +10855,8 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
         subevent = REDISMODULE_SUBEVENT_KEY_EXPIRED;
     } else if (flags & DB_FLAG_KEY_EVICTED) {
         subevent = REDISMODULE_SUBEVENT_KEY_EVICTED;
+    } else if (flags & DB_FLAG_KEY_OVERWRITE) {
+        subevent = REDISMODULE_SUBEVENT_KEY_OVERWRITE;
     }
     RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, dbid, key};
     moduleFireServerEvent(REDISMODULE_EVENT_KEY, subevent, &ki);

@@ -320,6 +320,8 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
         subevent = "expired";
     } else if (sub == REDISMODULE_SUBEVENT_KEY_EVICTED) {
         subevent = "evicted";
+    } else if (sub == REDISMODULE_SUBEVENT_KEY_OVERWRITE) {
+        subevent = "overwrite";
     }
     RedisModule_DictReplaceC(removed_subevent_type, (void*)keyname, strlen(keyname), (void *)subevent);
 
