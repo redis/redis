@@ -52,7 +52,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     /* Module subcommand names cannot contain special characters. */
     if (RedisModule_CreateSubcommand(parent,"char|",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
     if (RedisModule_CreateSubcommand(parent,"char@",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
-    if (RedisModule_CreateSubcommand(parent,"char:",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
+    if (RedisModule_CreateSubcommand(parent,"char=",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
     if (count != 6) return REDISMODULE_ERR;
 
     RedisModuleCommand *subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|set");
