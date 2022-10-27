@@ -100,12 +100,12 @@ set ::disk_tests {
     integration/psync2
 }
 
+# ctrip/aof-gtid
 set ::all_tests {
     ctrip/gtid_merge
     ctrip/gtid
     ctrip/sync-gtid
     ctrip/replication-psync-gtid
-    ctrip/aof-gtid
     unit/shutdown
     unit/printver
     unit/dump

@@ -122,6 +122,7 @@ tags "aof" {
                     {gtid * 0 PEXPIREAT k4 *} 
                     {gtid * 0 set k v}
                 }
+                after 500
                 set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
                 assert_equal [$client get k] v
             }

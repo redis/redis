@@ -124,6 +124,37 @@ start_server {overrides {gtid-enabled yes}} {
             }
             $R(1) get k1
         } {v}
+
+        test "GTID with list arg rewrite" {
+            $R(0) MSET key1 val1 key2 val2
+            $R(0) HMSET myhash f1 v1 f2 v2
+            $R(0) RPUSH mylist a b c 1 2 3
+
+            if {$::swap_mode == "disk"} {
+                wait_keyspace_cold $R(0)
+            }
+
+            set repl [attach_to_replication_stream]
+            $R(0) multi
+            $R(0) mget key1 key2
+            $R(0) ltrim mylist 1 -2
+            $R(0) hdel myhash f1 f2 f3
+            $R(0) exec
+
+            wait_for_ofs_sync $R(0) $R(1)
+
+            assert_replication_stream $repl {
+                {select *}
+                {multi}
+                {ltrim mylist 1 -2}
+                {hdel myhash f1 f2 f3}
+                {gtid * * exec}
+            }
+
+            assert_equal [$R(1) mget key1 key2] {val1 val2}
+            assert_equal [$R(1) lrange mylist 0 -1] {b c 1 2}
+            assert_equal [$R(1) hmget myhash f1 f2 f3] {{} {} {}}
+        }
     }
 }
 }
