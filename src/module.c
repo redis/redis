@@ -4190,7 +4190,7 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
     robj *decoded = getDecodedObject(ele);
     decrRefCount(ele);
     if (!moduleDelKeyIfEmpty(key))
-        listTypeTryConversion(key->value, moduleFreeListIterator, key);
+        listTypeTryConversion(key->value, OBJ_ENCODING_LISTPACK, moduleFreeListIterator, key);
     autoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,decoded);
     return decoded;
 }
@@ -4321,7 +4321,7 @@ int RM_ListDelete(RedisModuleKey *key, long index) {
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeDelete(key->iter, &key->u.list.entry);
         if (moduleDelKeyIfEmpty(key)) return REDISMODULE_OK;
-        listTypeTryConversion(key->value, moduleFreeListIterator, key);
+        listTypeTryConversion(key->value, OBJ_ENCODING_LISTPACK, moduleFreeListIterator, key);
         if (!key->iter) return REDISMODULE_OK; /* Return ASAP if iterator has been freed */
         if (listTypeNext(key->iter, &key->u.list.entry)) {
             /* After delete entry at position 'index', we need to update

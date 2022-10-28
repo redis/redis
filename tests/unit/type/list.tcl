@@ -1987,17 +1987,29 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
     test "List encoding conversion" {
         set origin_conf [config_get_set list-max-listpack-size 3]
 
+        # convert listpack to quicklist after RPUSH
+        r DEL lst
         create_listpack lst "a b c"
-
-        # when the listpack length is 4 that exceeding
-        # list-max-listpack-size, it will be converted to quicklist
         r RPUSH lst d
         assert_encoding quicklist lst
 
-        # when the length of quicklist is reduced to 1 that reaching
-        # list-max-listpack-size/2, it will be converted to listpack
+        # convert quicklist to listpack after RPOP
+        r DEL lst
+        create_quicklist lst "a b c d"
         r RPOP lst 3
-        assert_encoding listpack lst 
+        assert_encoding listpack lst
+
+        # convert quicklist to listpack after LREM
+        r DEL lst
+        create_quicklist lst "a a a d"
+        r LREM lst 3 a
+        assert_encoding listpack lst
+
+        # convert quicklist to listpack after LTRIM
+        r DEL lst
+        create_quicklist lst "a b c d"
+        r LTRIM lst 1 1
+        assert_encoding listpack lst
 
         r config set list-max-listpack-size $origin_conf
     }

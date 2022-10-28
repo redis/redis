@@ -70,7 +70,6 @@ void listTypeConvertToListpack(robj *o) {
 void listTypeTryConversionForValues(robj *o, robj **argv, int start, int end,
                                     beforeConvertCB fn, void *data)
 {
-    
     if (o->encoding != OBJ_ENCODING_LISTPACK) return;
 
     size_t sz_limit;
@@ -95,58 +94,70 @@ void listTypeTryConversionForValues(robj *o, robj **argv, int start, int end,
 }
 
 /* Check the length and size of a listpack to see if we need to convert it to quicklist. */
-void listTypeTryConvertToQuicklist(robj *o, beforeConvertCB fn, void *data) {
-    if (o->encoding != OBJ_ENCODING_LISTPACK) return;
+static void listTypeTryConvertListpack(robj *o, int enc, beforeConvertCB fn, void *data) {
+    serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
 
-    size_t sz;
-    unsigned long count;
-    quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz,&count);
-    if (lpBytes(o->ptr) >= sz || lpLength(o->ptr) >= count) {
-        /* Invoke callback before conversion. */
-        if (fn) fn(data);
+    if (enc == OBJ_ENCODING_QUICKLIST) {
+        size_t sz;
+        unsigned long count;
+        quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz,&count);
+        if (lpBytes(o->ptr) >= sz || lpLength(o->ptr) >= count) {
+            /* Invoke callback before conversion. */
+            if (fn) fn(data);
 
-        listTypeConvertToQuicklist(o); 
+            listTypeConvertToQuicklist(o); 
+        }
+    } else if (enc == OBJ_ENCODING_LISTPACK) {
+        /* Nothing to do... */
+    } else {
+        serverPanic("Unknown list encoding");
     }
+
 }
 
 /* Check the length and size of a quicklist to see if we need to convert it to listpack.
  *
  * If callback is given the function is called in order for caller to do some work
  * before the list conversion. */
-void listTypeTryConvertToListpack(robj *o, beforeConvertCB fn, void *data) {
-    size_t sz_limit;
-    unsigned long count_limit;
-    quicklist *ql = o->ptr;
+static void listTypeTryConvertQuicklist(robj *o, int enc, beforeConvertCB fn, void *data) {
+    serverAssert(o->encoding == OBJ_ENCODING_QUICKLIST);
 
-    /* A quicklist can be converted to listpack only if it
-     * has only one packed node. */
-    if (o->encoding != OBJ_ENCODING_QUICKLIST || ql->len != 1 ||
-        ql->head->container != QUICKLIST_NODE_CONTAINER_PACKED)
-    {
-        return;
+    if (enc == OBJ_ENCODING_QUICKLIST) {
+        /* Nothing to do... */
+    } else if (enc == OBJ_ENCODING_LISTPACK) {
+        size_t sz_limit;
+        unsigned long count_limit;
+        quicklist *ql = o->ptr;
+
+        /* A quicklist can be converted to listpack only if it
+         * has only one packed node. */
+        if (ql->len != 1 || ql->head->container != QUICKLIST_NODE_CONTAINER_PACKED)
+            return;
+
+        /* Note that to avoid frequent conversions of quicklist and listpack due to frequent
+         * insertion and deletion, we don't convert quicklist to listpack until its length or
+         * size is less than half of the limit. */
+        quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
+        if ((sz_limit != SIZE_MAX && ql->head->sz > sz_limit/2) ||
+            (count_limit != ULONG_MAX && ql->count > count_limit/2))
+        {
+            return;
+        }
+
+        /* Invoke callback before conversion. */
+        if (fn) fn(data);
+
+        listTypeConvertToListpack(o);
+    } else {
+        serverPanic("Unknown list encoding");
     }
-
-    /* Note that to avoid frequent conversions of quicklist and listpack due to frequent
-     * insertion and deletion, we don't convert quicklist to listpack until its length or
-     * size is less than half of the limit. */
-    quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
-    if ((sz_limit != SIZE_MAX && ql->head->sz > sz_limit/2) ||
-        (count_limit != ULONG_MAX && ql->count > count_limit/2))
-    {
-        return;
-    }
-
-    /* Invoke callback before conversion. */
-    if (fn) fn(data);
-
-    listTypeConvertToListpack(o);
 }
 
-void listTypeTryConversion(robj *o, beforeConvertCB fn, void *data) {
+void listTypeTryConversion(robj *o, int enc, beforeConvertCB fn, void *data) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        listTypeTryConvertToListpack(o, fn, data);
+        listTypeTryConvertQuicklist(o, enc, fn, data);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        listTypeTryConvertToQuicklist(o, fn, data);
+        listTypeTryConvertListpack(o, enc, fn, data);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -630,9 +641,9 @@ void lsetCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
         server.dirty++;
 
-        /* We might replace a big item with a small one or vice versa,
+        /* We might replace a big item with a small one,
          * lets try converting it again. */
-        listTypeTryConversion(o,NULL,NULL);
+        listTypeTryConversion(o,OBJ_ENCODING_LISTPACK,NULL,NULL);
     } else {
         addReplyErrorObject(c,shared.outofrangeerr);
     }
@@ -729,7 +740,7 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, i
         dbDelete(c->db, key);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
     } else {
-        listTypeTryConversion(o, NULL, NULL);
+        listTypeTryConversion(o, OBJ_ENCODING_LISTPACK, NULL, NULL);
         if (deleted) *deleted = 0;
     }
     if (signal) signalModifiedKey(c, c->db, key);
@@ -897,7 +908,7 @@ void ltrimCommand(client *c) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     } else {
-        listTypeTryConversion(o,NULL,NULL);
+        listTypeTryConversion(o,OBJ_ENCODING_LISTPACK,NULL,NULL);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
     server.dirty += (ltrim + rtrim);
@@ -1057,7 +1068,7 @@ void lremCommand(client *c) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     } else if (removed) {
-        listTypeTryConversion(subject,NULL,NULL);
+        listTypeTryConversion(subject,OBJ_ENCODING_LISTPACK,NULL,NULL);
     }
 
     addReplyLongLong(c,removed);

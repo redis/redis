@@ -580,7 +580,7 @@ void sortCommandGeneric(client *c, int readonly) {
             }
         }
         if (outputlen) {
-            listTypeTryConversion(sobj,NULL,NULL);
+            listTypeTryConversion(sobj,OBJ_ENCODING_LISTPACK,NULL,NULL);
             setKey(c,c->db,storekey,sobj,0);
             notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
                                 c->db->id);
