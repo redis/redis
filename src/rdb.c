@@ -656,10 +656,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_STRING:
         return rdbSaveType(rdb,RDB_TYPE_STRING);
     case OBJ_LIST:
-        if (o->encoding == OBJ_ENCODING_QUICKLIST)
+        if (o->encoding == OBJ_ENCODING_QUICKLIST || o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb, RDB_TYPE_LIST_QUICKLIST_2);
-        else if (o->encoding == OBJ_ENCODING_LISTPACK)
-            return rdbSaveType(rdb, RDB_TYPE_LIST_LISTPACK);
         else
             serverPanic("Unknown list encoding");
     case OBJ_SET:
@@ -829,8 +827,14 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 node = node->next;
             }
         } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
-            size_t l = lpBytes((unsigned char*)o->ptr);
-            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            unsigned char *lp = o->ptr;
+
+            /* Save list listpack as a fake quicklist that only has a single node. */
+            if ((n = rdbSaveLen(rdb,1)) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveLen(rdb,QUICKLIST_NODE_CONTAINER_PACKED)) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveRawString(rdb,lp,lpBytes(lp))) == -1) return -1;
             nwritten += n;
         } else {
             serverPanic("Unknown list encoding");
@@ -2132,15 +2136,24 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             goto emptykey;
         }
 
-        listTypeTryConversion(o,NULL,NULL);
+        /* Convert quicklist to listpack if it has only one packed node and isn't full. */
+        quicklist *ql = o->ptr;
+        if (ql->len == 1 && ql->head->container == QUICKLIST_NODE_CONTAINER_PACKED) {
+            size_t sz_limit;
+            unsigned long count_limit;
+            quicklistNode *head = ql->head;
+
+            quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
+            if (head->sz <= sz_limit && head->count <= count_limit)
+                listTypeConvertToListpack(o);
+        }
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == RDB_TYPE_SET_INTSET   ||
                rdbtype == RDB_TYPE_ZSET_ZIPLIST ||
                rdbtype == RDB_TYPE_ZSET_LISTPACK ||
                rdbtype == RDB_TYPE_HASH_ZIPLIST ||
-               rdbtype == RDB_TYPE_HASH_LISTPACK ||
-               rdbtype == RDB_TYPE_LIST_LISTPACK)
+               rdbtype == RDB_TYPE_HASH_LISTPACK)
     {
         size_t encoded_len;
         unsigned char *encoded =
@@ -2345,24 +2358,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
                 if (hashTypeLength(o) > server.hash_max_listpack_entries)
                     hashTypeConvert(o, OBJ_ENCODING_HT);
-                break;
-            case RDB_TYPE_LIST_LISTPACK:
-                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!lpValidateIntegrity(encoded, encoded_len, deep_integrity_validation, NULL, NULL)) {
-                    rdbReportCorruptRDB("List Listpack integrity check failed.");
-                    o->ptr = NULL;
-                    decrRefCount(o);
-                    zfree(encoded);
-                    return NULL;
-                }
-                o->type = OBJ_LIST;
-                o->encoding = OBJ_ENCODING_LISTPACK;
-                if (listTypeLength(o) == 0) {
-                    decrRefCount(o);
-                    goto emptykey;
-                }
-
-                listTypeTryConversion(o,NULL,NULL);
                 break;
             default:
                 /* totally unreachable */

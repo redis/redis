@@ -78,7 +78,7 @@ start_server {tags {"modules"}} {
     } {bar y foo}
 
     test {Module list - encoding conversion while inserting} {
-        r config set list-max-listpack-size 5
+        r config set list-max-listpack-size 4
         r del k
         r rpush k a b c d
         assert_encoding listpack k

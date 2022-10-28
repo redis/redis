@@ -48,6 +48,19 @@ void listTypeConvertToQuicklist(robj *o) {
     o->encoding = OBJ_ENCODING_QUICKLIST;
 }
 
+void listTypeConvertToListpack(robj *o) {
+    quicklist *ql = o->ptr;
+    serverAssert(o->encoding == OBJ_ENCODING_QUICKLIST && ql->len == 1 &&
+        ql->head->container == QUICKLIST_NODE_CONTAINER_PACKED);
+
+    /* Extract the listpack from the unique quicklist node,
+     * then reset it and release the quicklist. */
+    o->ptr = ql->head->entry;
+    ql->head->entry = NULL;
+    quicklistRelease(ql);
+    o->encoding = OBJ_ENCODING_LISTPACK;
+}
+
 /* Check the length and size of a number of objects that will be added to list to see
  * if we need to convert a listpack to a quicklist. Note that we only check string
  * encoded objects as their string length can be queried in constant time.
@@ -57,6 +70,7 @@ void listTypeConvertToQuicklist(robj *o) {
 void listTypeTryConversionForValues(robj *o, robj **argv, int start, int end,
                                     beforeConvertCB fn, void *data)
 {
+    
     if (o->encoding != OBJ_ENCODING_LISTPACK) return;
 
     size_t sz_limit;
@@ -70,7 +84,7 @@ void listTypeTryConversionForValues(robj *o, robj **argv, int start, int end,
     }
 
     quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
-    if (lpBytes(o->ptr)+sum >= sz_limit || lpLength(o->ptr)+end-start+1 >= count_limit ||
+    if (lpBytes(o->ptr)+sum > sz_limit || lpLength(o->ptr)+end-start+1 > count_limit ||
         !lpSafeToAdd(o->ptr, sum))
     {
         /* Invoke callback before conversion. */
@@ -105,7 +119,7 @@ void listTypeTryConvertToListpack(robj *o, beforeConvertCB fn, void *data) {
     quicklist *ql = o->ptr;
 
     /* A quicklist can be converted to listpack only if it
-     * has only one non-plain node. */
+     * has only one packed node. */
     if (o->encoding != OBJ_ENCODING_QUICKLIST || ql->len != 1 ||
         ql->head->container != QUICKLIST_NODE_CONTAINER_PACKED)
     {
@@ -125,12 +139,7 @@ void listTypeTryConvertToListpack(robj *o, beforeConvertCB fn, void *data) {
     /* Invoke callback before conversion. */
     if (fn) fn(data);
 
-    /* Extract the listpack from the unique quicklist node,
-     * then reset it and release the quicklist. */
-    o->ptr = ql->head->entry;
-    ql->head->entry = NULL;
-    quicklistRelease(ql);
-    o->encoding = OBJ_ENCODING_LISTPACK;
+    listTypeConvertToListpack(o);
 }
 
 void listTypeTryConversion(robj *o, beforeConvertCB fn, void *data) {

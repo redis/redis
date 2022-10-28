@@ -1987,29 +1987,52 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
     test "List encoding conversion" {
         set origin_conf [config_get_set list-max-listpack-size 3]
 
-        create_listpack lst "a b"
+        create_listpack lst "a b c"
 
-        # convert to quikclist when listpack is reached to maximum length
-        r RPUSH lst c
-        assert_encoding quicklist lst 
+        # when the listpack length is 4 that exceeding
+        # list-max-listpack-size, it will be converted to quicklist
+        r RPUSH lst d
+        assert_encoding quicklist lst
 
-        # convert to listpack when quicklist is reduced to half of maximum length
-        r RPOP lst
-        r RPOP lst
+        # when the length of quicklist is reduced to 1 that reaching
+        # list-max-listpack-size/2, it will be converted to listpack
+        r RPOP lst 3
         assert_encoding listpack lst 
 
         r config set list-max-listpack-size $origin_conf
     }
 
+    test "List encoding conversion when RDB loading" {
+        set origin_conf [config_get_set list-max-listpack-size 3]
+        create_listpack lst "a b c"
+
+        # list is still a listpack after DEBUG RELOAD
+        r DEBUG RELOAD
+        assert_encoding listpack lst
+
+        # list is still a quicklist after DEBUG RELOAD
+        r RPUSH lst d
+        r DEBUG RELOAD
+        assert_encoding quicklist lst
+
+        # when a quicklist has only one packed node, it will be
+        # converted to listpack during rdb loading
+        r RPOP lst
+        assert_encoding quicklist lst 
+        r DEBUG RELOAD
+        assert_encoding listpack lst
+
+        r config set list-max-listpack-size $origin_conf
+    } {OK} {needs:debug}
+
 foreach type {listpack quicklist} {
     if {$type eq "listpack"} {
-        set origin_config [config_get_set list-max-listpack-size 10]
+        set origin_config [config_get_set list-max-listpack-size 20]
     } else {
         set origin_config [config_get_set list-max-listpack-size -1]
     }
 
     test "List $type of various encodings" {
-        
         r del k
         r lpush k 127 ;# ZIP_INT_8B
         r lpush k 32767 ;# ZIP_INT_16B
@@ -2029,7 +2052,7 @@ foreach type {listpack quicklist} {
 
         config_set sanitize-dump-payload no mayfail
         r restore kk 0 $dump replace
-        assert_encoding $type kk ;# make sure to keep the same encoding after restore
+        assert_encoding $type kk
         set kk [r lrange kk 0 -1]
 
         # try some forward and backward searches to make sure all encodings
@@ -2049,7 +2072,7 @@ foreach type {listpack quicklist} {
 
     test "List $type of various encodings - sanitize dump" {
         config_set sanitize-dump-payload yes mayfail
-        r restore kk 0 $dump replace ;# make sure to keep the same encoding after restore
+        r restore kk 0 $dump replace
         assert_encoding $type kk
         set k [r lrange k 0 -1]
         set kk [r lrange kk 0 -1]
