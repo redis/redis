@@ -53,6 +53,8 @@ list *UsersToLoad;  /* This is a list of users found in the configuration file
 list *ACLLog;       /* Our security log, the user is able to inspect that
                        using the ACL LOG command .*/
 
+long long ACLLogEntryCount = 0; /* Number of ACL log entries created */
+
 static rax *commandId = NULL; /* Command name to id mapping */
 
 static unsigned long nextid = 0; /* Next command id that has not been assigned */
@@ -2458,6 +2460,10 @@ typedef struct ACLLogEntry {
     sds username;       /* User the client is authenticated with. */
     mstime_t ctime;     /* Milliseconds time of last update to this entry. */
     sds cinfo;          /* Client info (last client if updated). */
+
+    long long entry_id;         /* The pair (entry_id, timestamp_created) is a unique identifier of this entry */
+    mstime_t timestamp_created; /* UNIX time in milliseconds at the time of this entry's creation. Only visible to admin clients */
+
 } ACLLogEntry;
 
 /* This function will check if ACL entries 'a' and 'b' are similar enough
@@ -2523,6 +2529,8 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     le->reason = reason;
     le->username = sdsdup(username ? username : c->user->name);
     le->ctime = commandTimeSnapshot();
+    le->entry_id = ACLLogEntryCount;
+    le->timestamp_created = le->ctime;
 
     if (object) {
         le->object = object;
@@ -2575,6 +2583,9 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     } else {
         /* Add it to our list of entries. We'll have to trim the list
          * to its maximum size. */
+
+        ACLLogEntryCount++; /* If its not a match to an entry in the log, we increment the unique identifier counter. */
+
         listAddNodeHead(ACLLog, le);
         while(listLength(ACLLog) > server.acllog_max_len) {
             listNode *ln = listLast(ACLLog);
@@ -2909,7 +2920,9 @@ void aclCommand(client *c) {
         mstime_t now = commandTimeSnapshot();
         while (count-- && (ln = listNext(&li)) != NULL) {
             ACLLogEntry *le = listNodeValue(ln);
-            addReplyMapLen(c,7);
+   
+            addReplyMapLen(c,10); 
+
             addReplyBulkCString(c,"count");
             addReplyLongLong(c,le->count);
 
@@ -2944,6 +2957,14 @@ void aclCommand(client *c) {
             addReplyDouble(c,age);
             addReplyBulkCString(c,"client-info");
             addReplyBulkCBuffer(c,le->cinfo,sdslen(le->cinfo));
+
+            addReplyBulkCString(c, "entry-id");
+            addReplyLongLong(c, le->entry_id);
+            addReplyBulkCString(c, "timestamp-created");
+            addReplyLongLong(c, le->timestamp_created);
+            addReplyBulkCString(c, "timestamp-last-updated");
+            addReplyLongLong(c, le->ctime);
+
         }
     } else if (!strcasecmp(sub,"dryrun") && c->argc >= 4) {
         struct redisCommand *cmd;

@@ -566,6 +566,24 @@ start_server {tags {"acl external:skip"}} {
         # The test framework will detect a leak if any.
     }
 
+    test {ACL LOG error record aggregated various errors together 100} {
+        r ACL LOG RESET
+        r ACL setuser antirez >foo
+        assert_error "*WRONGPASS*" {r AUTH antirez doo}
+        set entry_id_initial_error [dict get [lindex [r ACL LOG] 0] entry-id]
+        set timestamp_created_original [dict get [lindex [r ACL LOG] 0] timestamp-created]
+        set timestamp_last_update_original [dict get [lindex [r ACL LOG] 0] timestamp-last-updated]
+        for {set j 0} {$j < 10} {incr j} {
+            assert_error "*WRONGPASS*" {r AUTH antirez doo}
+        }
+        set entry_id_lastest_error [dict get [lindex [r ACL LOG] 0] entry-id]
+        set timestamp_created_updated [dict get [lindex [r ACL LOG] 0] timestamp-created]
+        set timestamp_last_updated_after_update [dict get [lindex [r ACL LOG] 0] timestamp-last-updated]
+        assert {$entry_id_lastest_error eq $entry_id_initial_error}
+        assert {$timestamp_last_update_original < $timestamp_last_updated_after_update}
+        assert {$timestamp_created_original eq $timestamp_created_updated}
+    }
+
     test {ACL LOG shows failed command executions at toplevel} {
         r ACL LOG RESET
         r ACL setuser antirez >foo on +set ~object:1234
