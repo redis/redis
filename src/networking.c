@@ -37,6 +37,24 @@
 #include <math.h>
 #include <ctype.h>
 
+// https://chromium.googlesource.com/chromium/src/third_party/WebKit/Source/wtf/+/823d62cdecdbd5f161634177e130e5ac01eb7b48/SpinLock.cpp
+// https://abseil.io/docs/cpp/platforms/macros
+#if _WIN32
+#define YIELD_PROCESSOR YieldProcessor()
+#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__x86_64__) || defined(__i386__)
+#define YIELD_PROCESSOR __asm__ __volatile__("pause")
+#elif defined(__arm__) || defined(__aarch64__)
+#define YIELD_PROCESSOR __asm__ __volatile__("yield")
+#elif defined(__mips__)
+#define YIELD_PROCESSOR __asm__ __volatile__("pause")
+#endif
+#endif
+#ifndef YIELD_PROCESSOR
+#warning "Processor yield not supported on this architecture."
+#define YIELD_PROCESSOR ((void)0)
+#endif
+
 static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 int postponeClientRead(client *c);
@@ -4018,6 +4036,7 @@ void *IOThreadMain(void *myid) {
         /* Wait for start */
         for (int j = 0; j < 1000000; j++) {
             if (getIOPendingCount(id) != 0) break;
+            YIELD_PROCESSOR;
         }
 
         /* Give the main thread a chance to stop this thread. */
@@ -4213,6 +4232,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         for (int j = 1; j < server.io_threads_num; j++)
             pending += getIOPendingCount(j);
         if (pending == 0) break;
+        YIELD_PROCESSOR;
     }
 
     io_threads_op = IO_THREADS_OP_IDLE;
