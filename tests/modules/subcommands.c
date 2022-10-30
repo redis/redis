@@ -36,11 +36,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     /* Module command names cannot contain special characters. */
-    int count = 0;
-    if (RedisModule_CreateCommand(ctx,"subcommands.char\r",NULL,"",0,0,0) == REDISMODULE_ERR) count++;
-    if (RedisModule_CreateCommand(ctx,"subcommands.char\n",NULL,"",0,0,0) == REDISMODULE_ERR) count++;
-    if (RedisModule_CreateCommand(ctx,"subcommands.char ",NULL,"",0,0,0) == REDISMODULE_ERR) count++;
-    if (count != 3) return REDISMODULE_ERR;
+    RedisModule_Assert(RedisModule_CreateCommand(ctx,"subcommands.char\r",NULL,"",0,0,0) == REDISMODULE_ERR);
+    RedisModule_Assert(RedisModule_CreateCommand(ctx,"subcommands.char\n",NULL,"",0,0,0) == REDISMODULE_ERR);
+    RedisModule_Assert(RedisModule_CreateCommand(ctx,"subcommands.char ",NULL,"",0,0,0) == REDISMODULE_ERR);
 
     if (RedisModule_CreateCommand(ctx,"subcommands.bitarray",NULL,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -50,10 +48,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     /* Module subcommand names cannot contain special characters. */
-    if (RedisModule_CreateSubcommand(parent,"char|",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
-    if (RedisModule_CreateSubcommand(parent,"char@",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
-    if (RedisModule_CreateSubcommand(parent,"char=",cmd_set,"",0,0,0) == REDISMODULE_ERR) count++;
-    if (count != 6) return REDISMODULE_ERR;
+    RedisModule_Assert(RedisModule_CreateSubcommand(parent,"char|",cmd_set,"",0,0,0) == REDISMODULE_ERR);
+    RedisModule_Assert(RedisModule_CreateSubcommand(parent,"char@",cmd_set,"",0,0,0) == REDISMODULE_ERR);
+    RedisModule_Assert(RedisModule_CreateSubcommand(parent,"char=",cmd_set,"",0,0,0) == REDISMODULE_ERR);
 
     RedisModuleCommand *subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|set");
     RedisModuleCommandInfo cmd_set_info = {
