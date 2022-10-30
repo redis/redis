@@ -220,7 +220,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  *
  * The 'overwrite' flag is an indication whether this is done as part of a
  * complete replacement of they key, which can be thought of a deletion and
- * replacement. om which case we need to emit deletion signals, or just an
+ * replacement (in which case we need to emit deletion signals), or just an
  * update of a value of an existing key (when false).
  *
  * The program is aborted if the key was not already present. */
