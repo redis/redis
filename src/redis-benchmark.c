@@ -416,13 +416,13 @@ static void resetClient(client c) {
     c->pending = config.pipeline;
 }
 
-static long calculateClientDuration(long long connection_duration_usec, long max_jitter_usec){
+static long calculateClientDuration(){
     long jitter = 0;
     if (config.connection_duration_jitter_usec > 0){
-        long r = random() % max_jitter_usec;
-        jitter = r - (long)(max_jitter_usec / 2);
+        long r = random() % config.connection_duration_jitter_usec;
+        jitter = r - (long)(config.connection_duration_jitter_usec / 2);
     }
-    return ustime() + connection_duration_usec + jitter;
+    return ustime() + config.connection_duration_usec + jitter;
 }
 
 static void randomizeClientKey(client c) {
@@ -779,7 +779,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             c->obuf = sdscatlen(c->obuf,cmd,len);
     }
     if (config.connection_duration_usec > 0){ // Set client start time if connection duration is enabled
-        c->client_end_time = calculateClientDuration(config.connection_duration_usec, config.connection_duration_jitter_usec);
+        c->client_end_time = calculateClientDuration();
     }
     c->written = 0;
     c->pending = config.pipeline+c->prefix_pending;
