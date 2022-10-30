@@ -325,7 +325,7 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
     }
     RedisModule_DictReplaceC(removed_subevent_type, (void*)keyname, strlen(keyname), (void *)subevent);
 
-    mstime_t expire = RedisModule_GetAbsExpire(kp);
+    RedisModuleString *expire = RedisModule_CreateStringPrintf(ctx, "%lld", RedisModule_GetAbsExpire(kp));
     RedisModule_DictReplaceC(removed_expiry_log, (void*)keyname, strlen(keyname), (void *)expire);
 
     RedisModule_CloseKey(kp);
@@ -358,8 +358,11 @@ static int cmdKeyExpiry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     const char* key  = RedisModule_StringPtrLen(argv[1], NULL);
-    long long expire = (long long)RedisModule_DictGetC(removed_expiry_log, (void*)key, strlen(key), NULL);
-    RedisModule_ReplyWithLongLong(ctx, expire);
+    RedisModuleString *expire = RedisModule_DictGetC(removed_expiry_log, (void*)key, strlen(key), NULL);
+    if (expire == NULL) {
+        return RedisModule_ReplyWithError(ctx, "ERR Key was not removed");
+    }
+    RedisModule_ReplyWithString(ctx, expire);
     return REDISMODULE_OK;
 }
 
@@ -457,7 +460,12 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeDict(ctx, removed_subevent_type);
     removed_subevent_type = NULL;
 
+    iter = RedisModule_DictIteratorStartC(removed_expiry_log, "^", NULL, 0);
+    while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
+        RedisModule_FreeString(ctx, val);
+    }
     RedisModule_FreeDict(ctx, removed_expiry_log);
+    RedisModule_DictIteratorStop(iter);
     removed_expiry_log = NULL;
 
     return REDISMODULE_OK;
