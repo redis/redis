@@ -325,8 +325,12 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
     }
     RedisModule_DictReplaceC(removed_subevent_type, (void*)keyname, strlen(keyname), (void *)subevent);
 
+    RedisModuleString *prevexpire = RedisModule_DictGetC(removed_expiry_log, (void*)keyname, strlen(keyname), NULL);
     RedisModuleString *expire = RedisModule_CreateStringPrintf(ctx, "%lld", RedisModule_GetAbsExpire(kp));
     RedisModule_DictReplaceC(removed_expiry_log, (void*)keyname, strlen(keyname), (void *)expire);
+    if (prevexpire != NULL) {
+        RedisModule_FreeString(ctx, prevexpire);
+    }
 
     RedisModule_CloseKey(kp);
 }
