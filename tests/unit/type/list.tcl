@@ -2004,10 +2004,10 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
             assert_encoding quicklist lst
 
             # LMOVE
-            create_quicklist lsrc "a b c $large"
-            create_listpack ldes "d e f"
-            r LMOVE lsrc ldes right right
-            assert_encoding quicklist ldes
+            create_quicklist lsrc{t} "a b c $large"
+            create_listpack ldes{t} "d e f"
+            r LMOVE lsrc{t} ldes{t} right right
+            assert_encoding quicklist ldes{t}
 
             r config set list-max-listpack-size $origin_conf
         }
