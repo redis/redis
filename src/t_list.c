@@ -93,47 +93,44 @@ void listTypeTryConversionForGrowing(robj *o, robj **argv, int start, int end,
     }
 }
 
-/* Check if the listpack encoded list can be converted to specified encoding.
+/* Check the length and size of a quicklist to see if we need to convert it to listpack.
+ *
+ * 'shrinking' is 1 means that the conversion is due to a list shrinking, to avoid frequent conversions
+ * of quicklist and listpack due to frequent insertion and deletion, we don't convert quicklist to 
+ * listpack until its length or size is less than the threshold (half of the limit).
  *
  * If callback is given the function is called in order for caller to do some work
  * before the list conversion. */
-static void listTypeTryConvertQuicklist(robj *o, int enc, beforeConvertCB fn, void *data) {
+void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB fn, void *data)
+{
     serverAssert(o->encoding == OBJ_ENCODING_QUICKLIST);
 
-    if (enc == OBJ_ENCODING_QUICKLIST) {
-        /* Nothing to do... */
-    } else if (enc == OBJ_ENCODING_LISTPACK) {
-        size_t sz_limit;
-        unsigned long count_limit;
-        quicklist *ql = o->ptr;
+    size_t sz_limit;
+    unsigned long count_limit;
+    quicklist *ql = o->ptr;
 
-        /* A quicklist can be converted to listpack only if it
-         * has only one packed node. */
-        if (ql->len != 1 || ql->head->container != QUICKLIST_NODE_CONTAINER_PACKED)
-            return;
+    /* A quicklist can be converted to listpack only if it has only one packed node. */
+    if (ql->len != 1 || ql->head->container != QUICKLIST_NODE_CONTAINER_PACKED)
+        return;
 
-        /* Note that to avoid frequent conversions of quicklist and listpack due to frequent
-         * insertion and deletion, we don't convert quicklist to listpack until its length or
-         * size is less than half of the limit. */
-        quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
-        if ((sz_limit != SIZE_MAX && ql->head->sz > sz_limit/2) ||
-            (count_limit != ULONG_MAX && ql->count > count_limit/2))
-        {
-            return;
-        }
-
-        /* Invoke callback before conversion. */
-        if (fn) fn(data);
-
-        listTypeConvertToListpack(o);
-    } else {
-        serverPanic("Unknown list encoding");
+    /* Check the length or size of the quicklist is below the threshold. */
+    int threshold = shrinking ? 2 : 1;
+    quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
+    if ((sz_limit != SIZE_MAX && ql->head->sz > sz_limit/threshold) ||
+        (count_limit != ULONG_MAX && ql->count > count_limit/threshold))
+    {
+        return;
     }
+
+    /* Invoke callback before conversion. */
+    if (fn) fn(data);
+
+    listTypeConvertToListpack(o);
 }
 
 void listTypeTryConversionForShrinking(robj *o, beforeConvertCB fn, void *data) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        listTypeTryConvertQuicklist(o, OBJ_ENCODING_LISTPACK, fn, data);
+        listTypeTryConvertQuicklist(o, 1, fn, data);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         /* Nothing to do */
     } else {

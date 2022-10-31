@@ -1802,7 +1802,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             decrRefCount(ele);
         }
 
-        listTypeTryConversionForShrinking(o,NULL,NULL);
+        listTypeTryConvertQuicklist(o,0,NULL,NULL);
     } else if (rdbtype == RDB_TYPE_SET) {
         /* Read Set value */
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
@@ -2136,17 +2136,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             goto emptykey;
         }
 
-        /* Convert quicklist to listpack if it has only one packed node and isn't full. */
-        quicklist *ql = o->ptr;
-        if (ql->len == 1 && ql->head->container == QUICKLIST_NODE_CONTAINER_PACKED) {
-            size_t sz_limit;
-            unsigned long count_limit;
-            quicklistNode *head = ql->head;
-
-            quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
-            if (head->sz <= sz_limit && head->count <= count_limit)
-                listTypeConvertToListpack(o);
-        }
+        listTypeTryConvertQuicklist(o,0,NULL,NULL);
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == RDB_TYPE_SET_INTSET   ||

@@ -2605,8 +2605,8 @@ void listTypeDelRange(robj *o, long start, long stop);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted);
-void listTypeConvertToListpack(robj *o);
 typedef void (*beforeConvertCB)(void *data);
+void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB fn, void *data);
 void listTypeTryConversionForGrowing(robj *o, robj **argv, int start, int end, beforeConvertCB fn, void *data);
 void listTypeTryConversionForShrinking(robj *o, beforeConvertCB fn, void *data);
 
