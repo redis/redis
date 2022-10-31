@@ -539,7 +539,7 @@ void linsertCommand(client *c) {
      * the list twice (once to see if the value can be inserted and once
      * to do the actual insert), so we assume this value can be inserted
      * and convert the listpack to a regular list if necessary. */
-    listTypeTryConversionForGrowing(subject,c->argv,4,1,NULL,NULL);
+    listTypeTryConversionForGrowing(subject,c->argv,4,4,NULL,NULL);
 
     /* Seek pivot from head to tail */
     iter = listTypeInitIterator(subject,0,LIST_TAIL);

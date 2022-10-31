@@ -1984,31 +1984,75 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
     }
 }
 
-    test "List encoding conversion" {
+    foreach {max_lp_size large} "3 $largevalue(listpack) -1 $largevalue(quicklist)" {
+        test "List listpack -> quicklist encoding conversion" {
+            set origin_conf [config_get_set list-max-listpack-size $max_lp_size]
+
+            # RPUSH
+            create_listpack lst "a b c"
+            r RPUSH lst $large
+            assert_encoding quicklist lst
+
+            # LINSERT
+            create_listpack lst "a b c"
+            r LINSERT lst after b $large
+            assert_encoding quicklist lst
+
+            # LSET
+            create_listpack lst "a b c"
+            r LSET lst 0 $large
+            assert_encoding quicklist lst
+
+            # LMOVE
+            create_quicklist lsrc "a b c $large"
+            create_listpack ldes "d e f"
+            r LMOVE lsrc ldes right right
+            assert_encoding quicklist ldes
+
+            r config set list-max-listpack-size $origin_conf
+        }
+    }
+
+    test "List quicklist -> listpack encoding conversion" {
         set origin_conf [config_get_set list-max-listpack-size 3]
 
-        # convert listpack to quicklist after RPUSH
-        r DEL lst
-        create_listpack lst "a b c"
-        r RPUSH lst d
-        assert_encoding quicklist lst
-
-        # convert quicklist to listpack after RPOP
-        r DEL lst
+        # RPOP
         create_quicklist lst "a b c d"
         r RPOP lst 3
         assert_encoding listpack lst
 
-        # convert quicklist to listpack after LREM
-        r DEL lst
+        # LREM
         create_quicklist lst "a a a d"
         r LREM lst 3 a
         assert_encoding listpack lst
 
-        # convert quicklist to listpack after LTRIM
-        r DEL lst
+        # LTRIM
         create_quicklist lst "a b c d"
         r LTRIM lst 1 1
+        assert_encoding listpack lst
+
+        r config set list-max-listpack-size -1
+
+        # RPOP
+        create_quicklist lst "a b c $largevalue(quicklist)"
+        r RPOP lst 1
+        assert_encoding listpack lst
+
+        # LREM
+        create_quicklist lst "a $largevalue(quicklist)"
+        r LREM lst 1 $largevalue(quicklist)
+        assert_encoding listpack lst
+
+        # LTRIM
+        create_quicklist lst "a b $largevalue(quicklist)"
+        r LTRIM lst 0 1
+        assert_encoding listpack lst
+
+        # LSET
+        create_quicklist lst "$largevalue(quicklist) a b"
+        r RPOP lst 2
+        assert_encoding quicklist lst
+        r LSET lst -1 c
         assert_encoding listpack lst
 
         r config set list-max-listpack-size $origin_conf
