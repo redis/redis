@@ -1802,7 +1802,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             decrRefCount(ele);
         }
 
-        listTypeTryConversion(o,OBJ_ENCODING_LISTPACK,NULL,NULL);
+        listTypeTryConversionForShrinking(o,NULL,NULL);
     } else if (rdbtype == RDB_TYPE_SET) {
         /* Read Set value */
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;

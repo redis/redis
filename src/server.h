@@ -2607,8 +2607,8 @@ void popGenericCommand(client *c, int where);
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted);
 void listTypeConvertToListpack(robj *o);
 typedef void (*beforeConvertCB)(void *data);
-void listTypeTryConversionForValues(robj *o, robj **argv, int start, int end, beforeConvertCB fn, void *data);
-void listTypeTryConversion(robj *o, int enc, beforeConvertCB fn, void *data);
+void listTypeTryConversionForGrowing(robj *o, robj **argv, int start, int end, beforeConvertCB fn, void *data);
+void listTypeTryConversionForShrinking(robj *o, beforeConvertCB fn, void *data);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
