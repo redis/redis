@@ -33,63 +33,51 @@
  * List API
  *----------------------------------------------------------------------------*/
 
-void listTypeConvertToQuicklist(robj *o) {
-    serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
-
-    quicklist *ql = quicklistCreate();
-    quicklistSetOptions(ql, server.list_max_listpack_size, server.list_compress_depth);
-
-    /* Append listpack to quicklist if it's not empty, otherwise release it. */
-    if (lpLength(o->ptr))
-        quicklistAppendListpack(ql, o->ptr);
-    else
-        lpFree(o->ptr);
-    o->ptr = ql;
-    o->encoding = OBJ_ENCODING_QUICKLIST;
-}
-
-void listTypeConvertToListpack(robj *o) {
-    quicklist *ql = o->ptr;
-    serverAssert(o->encoding == OBJ_ENCODING_QUICKLIST && ql->len == 1 &&
-        ql->head->container == QUICKLIST_NODE_CONTAINER_PACKED);
-
-    /* Extract the listpack from the unique quicklist node,
-     * then reset it and release the quicklist. */
-    o->ptr = ql->head->entry;
-    ql->head->entry = NULL;
-    quicklistRelease(ql);
-    o->encoding = OBJ_ENCODING_LISTPACK;
-}
-
-/* Check the length and size of a number of objects that will be added to list to see
- * if we need to convert a listpack to a quicklist. Note that we only check string
- * encoded objects as their string length can be queried in constant time.
+/* Check the length and size of a listpack to see if we need to convert it to quicklist.
+ *
+/* If 'growing' is 1, we also check the length and size of a number of objects that will
+ * be added to list to see if we need to convert a listpack to a quicklist. Note that we
+ * only check string encoded objects as their string length can be queried in constant time.
  *
  * If callback is given the function is called in order for caller to do some work
  * before the list conversion. */
-void listTypeTryConversionForGrowing(robj *o, robj **argv, int start, int end,
-                                     beforeConvertCB fn, void *data)
+static void listTypeTryConvertListpack(robj *o, int growing,
+                                       robj **argv, int start, int end,
+                                       beforeConvertCB fn, void *data)
 {
     if (o->encoding != OBJ_ENCODING_LISTPACK) return;
 
     size_t sz_limit;
     unsigned long count_limit;
-    size_t sum = 0;
+    size_t add_bytes = 0;
+    size_t add_length = 0;
 
-    for (int i = start; i <= end; i++) {
-        if (!sdsEncodedObject(argv[i]))
-            continue;
-        sum += sdslen(argv[i]->ptr);
+    if (growing) {
+        for (int i = start; i <= end; i++) {
+            if (!sdsEncodedObject(argv[i]))
+                continue;
+            add_bytes += sdslen(argv[i]->ptr);
+        }
+        add_length = end - start + 1;
     }
 
     quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
-    if (lpBytes(o->ptr)+sum > sz_limit || lpLength(o->ptr)+end-start+1 > count_limit ||
-        !lpSafeToAdd(o->ptr, sum))
+    if (lpBytes(o->ptr) + add_bytes > sz_limit || lpLength(o->ptr) + add_length > count_limit ||
+        !lpSafeToAdd(o->ptr, add_bytes))
     {
         /* Invoke callback before conversion. */
         if (fn) fn(data);
 
-        listTypeConvertToQuicklist(o);
+        quicklist *ql = quicklistCreate();
+        quicklistSetOptions(ql, server.list_max_listpack_size, server.list_compress_depth);
+
+        /* Append listpack to quicklist if it's not empty, otherwise release it. */
+        if (lpLength(o->ptr))
+            quicklistAppendListpack(ql, o->ptr);
+        else
+            lpFree(o->ptr);
+        o->ptr = ql;
+        o->encoding = OBJ_ENCODING_QUICKLIST;
     }
 }
 
@@ -101,8 +89,7 @@ void listTypeTryConversionForGrowing(robj *o, robj **argv, int start, int end,
  *
  * If callback is given the function is called in order for caller to do some work
  * before the list conversion. */
-void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB fn, void *data)
-{
+static void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB fn, void *data) {
     serverAssert(o->encoding == OBJ_ENCODING_QUICKLIST);
 
     size_t sz_limit;
@@ -125,17 +112,31 @@ void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB fn, voi
     /* Invoke callback before conversion. */
     if (fn) fn(data);
 
-    listTypeConvertToListpack(o);
+    /* Extract the listpack from the unique quicklist node,
+     * then reset it and release the quicklist. */
+    o->ptr = ql->head->entry;
+    ql->head->entry = NULL;
+    quicklistRelease(ql);
+    o->encoding = OBJ_ENCODING_LISTPACK;
 }
 
-void listTypeTryConversionForShrinking(robj *o, beforeConvertCB fn, void *data) {
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        listTypeTryConvertQuicklist(o, 1, fn, data);
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        /* Nothing to do */
-    } else {
+/* Check if the list needs to be converted to appropriate encoding due to
+ * growing, shrinking or other cases.
+ *
+ * 'lct' can be one of the following values:
+ * LIST_CONV_GROWING   - Only consider converting from listpack to quicklist
+ * LIST_CONV_SHRINKING - Only consider converting from quicklist to listpack
+ * LIST_CONV_UNKNOWN   - Let system decide whether to convert or not */
+void listTypeTryConversion(robj *o, list_conv_type lct,
+                           robj **argv, int start, int end,
+                           beforeConvertCB fn, void *data)
+{
+    if (o->encoding == OBJ_ENCODING_QUICKLIST)
+        listTypeTryConvertQuicklist(o, lct == LIST_CONV_SHRINKING, fn, data);
+    else if (o->encoding == OBJ_ENCODING_LISTPACK)
+        listTypeTryConvertListpack(o, lct == LIST_CONV_GROWING, argv, start, end, fn, data);
+    else
         serverPanic("Unknown list encoding");
-    }
 }
 
 /* The function pushes an element to the specified list object 'subject',
@@ -478,7 +479,7 @@ void pushGenericCommand(client *c, int where, int xx) {
         dbAdd(c->db,c->argv[1],lobj);
     }
 
-    listTypeTryConversionForGrowing(lobj,c->argv,2,c->argc-1,NULL,NULL);
+    listTypeTryConversion(lobj,LIST_CONV_GROWING,c->argv,2,c->argc-1,NULL,NULL);
     for (j = 2; j < c->argc; j++) {
         listTypePush(lobj,c->argv[j],where);
         server.dirty++;
@@ -536,7 +537,7 @@ void linsertCommand(client *c) {
      * the list twice (once to see if the value can be inserted and once
      * to do the actual insert), so we assume this value can be inserted
      * and convert the listpack to a regular list if necessary. */
-    listTypeTryConversionForGrowing(subject,c->argv,4,4,NULL,NULL);
+    listTypeTryConversion(subject,LIST_CONV_GROWING,c->argv,4,4,NULL,NULL);
 
     /* Seek pivot from head to tail */
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
@@ -609,7 +610,7 @@ void lsetCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
 
-    listTypeTryConversionForGrowing(o,c->argv,3,3,NULL,NULL);
+    listTypeTryConversion(o,LIST_CONV_GROWING,c->argv,3,3,NULL,NULL);
     if (listTypeReplaceAtIndex(o,index,value)) {
         addReply(c,shared.ok);
         signalModifiedKey(c,c->db,c->argv[1]);
@@ -617,9 +618,9 @@ void lsetCommand(client *c) {
         server.dirty++;
 
         /* We might replace a big item with a small one or vice versa, but we've
-         * already handled the growing case in listTypeTryConversionForGrowing()
+         * already handled the growing case in listTypeTryConversion()
          * above, so here we just need to try the conversion for shrinking. */
-        listTypeTryConversionForShrinking(o,NULL,NULL);
+        listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,0,0,NULL,NULL);
     } else {
         addReplyErrorObject(c,shared.outofrangeerr);
     }
@@ -716,7 +717,7 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, i
         dbDelete(c->db, key);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
     } else {
-        listTypeTryConversionForShrinking(o, NULL, NULL);
+        listTypeTryConversion(o, LIST_CONV_SHRINKING, NULL, 0, 0, NULL, NULL);
         if (deleted) *deleted = 0;
     }
     if (signal) signalModifiedKey(c, c->db, key);
@@ -884,7 +885,7 @@ void ltrimCommand(client *c) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     } else {
-        listTypeTryConversionForShrinking(o,NULL,NULL);
+        listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,0,0,NULL,NULL);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
     server.dirty += (ltrim + rtrim);
@@ -1044,7 +1045,7 @@ void lremCommand(client *c) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     } else if (removed) {
-        listTypeTryConversionForShrinking(subject,NULL,NULL);
+        listTypeTryConversion(subject,LIST_CONV_SHRINKING,NULL,0,0,NULL,NULL);
     }
 
     addReplyLongLong(c,removed);
@@ -1058,7 +1059,7 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
         dbAdd(c->db,dstkey,dstobj);
     }
     signalModifiedKey(c,c->db,dstkey);
-    listTypeTryConversionForGrowing(dstobj,&value,0,0,NULL,NULL);
+    listTypeTryConversion(dstobj,LIST_CONV_GROWING,&value,0,0,NULL,NULL);
     listTypePush(dstobj,value,where);
     notifyKeyspaceEvent(NOTIFY_LIST,
                         where == LIST_HEAD ? "lpush" : "rpush",

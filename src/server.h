@@ -2605,10 +2605,13 @@ void listTypeDelRange(robj *o, long start, long stop);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted);
+typedef enum {
+    LIST_CONV_GROWING,
+    LIST_CONV_SHRINKING,
+    LIST_CONV_UNKNOWN,
+} list_conv_type;
 typedef void (*beforeConvertCB)(void *data);
-void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB fn, void *data);
-void listTypeTryConversionForGrowing(robj *o, robj **argv, int start, int end, beforeConvertCB fn, void *data);
-void listTypeTryConversionForShrinking(robj *o, beforeConvertCB fn, void *data);
+void listTypeTryConversion(robj *o, list_conv_type lct, robj **argv, int start, int end, beforeConvertCB fn, void *data);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);

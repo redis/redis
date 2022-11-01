@@ -1802,7 +1802,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             decrRefCount(ele);
         }
 
-        listTypeTryConvertQuicklist(o,0,NULL,NULL);
+        listTypeTryConversion(o,LIST_CONV_UNKNOWN,NULL,0,0,NULL,NULL);
     } else if (rdbtype == RDB_TYPE_SET) {
         /* Read Set value */
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
@@ -2136,7 +2136,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             goto emptykey;
         }
 
-        listTypeTryConvertQuicklist(o,0,NULL,NULL);
+        listTypeTryConversion(o,LIST_CONV_UNKNOWN,NULL,0,0,NULL,NULL);
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == RDB_TYPE_SET_INTSET   ||
