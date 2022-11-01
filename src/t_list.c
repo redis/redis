@@ -35,7 +35,7 @@
 
 /* Check the length and size of a listpack to see if we need to convert it to quicklist.
  *
-/* If 'growing' is 1, we also check the length and size of a number of objects that will
+ * If 'growing' is 1, we also check the length and size of a number of objects that will
  * be added to list to see if we need to convert a listpack to a quicklist. Note that we
  * only check string encoded objects as their string length can be queried in constant time.
  *
