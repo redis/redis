@@ -748,7 +748,9 @@ static int connTLSListen(connListener *listener) {
     return listenToPort(listener);
 }
 
-static void connTLSShutdown(connection *conn) {
+static void connTLSShutdown(connection *conn_) {
+    tls_connection *conn = (tls_connection *) conn_;
+
     if (conn->ssl) {
         if (conn->c.state == CONN_STATE_CONNECTED)
             SSL_shutdown(conn->ssl);
