@@ -749,6 +749,13 @@ static int connTLSListen(connListener *listener) {
 }
 
 static void connTLSShutdown(connection *conn) {
+    if (conn->ssl) {
+        if (conn->c.state == CONN_STATE_CONNECTED)
+            SSL_shutdown(conn->ssl);
+        SSL_free(conn->ssl);
+        conn->ssl = NULL;
+    }
+
     connectionTypeTcp()->shutdown(conn);
 }
 
