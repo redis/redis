@@ -1,7 +1,7 @@
 start_server {
     tags {"sort"}
     overrides {
-        "list-max-ziplist-size" 32
+        "list-max-ziplist-size" 16
         "set-max-intset-entries" 32
     }
 } {
@@ -37,9 +37,9 @@ start_server {
     proc check_sort_store_encoding {key} {
         set listpack_max_size [lindex [r config get list-max-ziplist-size] 1]
 
-        # When the length or size of quicklist is less than half of limit, 
+        # When the length or size of quicklist is less than the limit,
         # it will be converted to listpack.
-        if {[r llen $key] <= [expr {$listpack_max_size / 2}]} {
+        if {[r llen $key] <= $listpack_max_size} {
             assert_encoding listpack $key
         } else {
             assert_encoding quicklist $key
