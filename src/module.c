@@ -8004,7 +8004,9 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
              * If the subscriber performs an action triggering itself,
              * it will not be notified about it. */
             sub->active = 1;
+            server.lazy_expire_disabled++;
             sub->notify_callback(&ctx, type, event, key);
+            server.lazy_expire_disabled--;
             sub->active = 0;
             moduleFreeContext(&ctx);
         }
@@ -10997,7 +10999,6 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
     }
     RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, dbid, key};
     moduleFireServerEvent(REDISMODULE_EVENT_KEY, subevent, &ki);
-    server.lazy_expire_disabled--;
 
     if (val->type == OBJ_MODULE) {
         moduleValue *mv = val->ptr;
@@ -11010,6 +11011,7 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
             mt->unlink(key,mv->value);
         }
     }
+    server.lazy_expire_disabled--;
 }
 
 /* Return the free_effort of the module, it will automatically choose to call 
