@@ -758,7 +758,7 @@ static void connTLSShutdown(connection *conn_) {
         conn->ssl = NULL;
     }
 
-    connectionTypeTcp()->shutdown(conn);
+    connectionTypeTcp()->shutdown(conn_);
 }
 
 static void connTLSClose(connection *conn_) {
