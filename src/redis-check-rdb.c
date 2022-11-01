@@ -108,7 +108,7 @@ void rdbShowGenericInfo(void) {
 }
 
 /* Called on RDB errors. Provides details about the RDB and the offset
- * we were when the error was detected. */
+ * when the error was detected. */
 void rdbCheckError(const char *fmt, ...) {
     char msg[1024];
     va_list ap;
@@ -398,7 +398,7 @@ static sds checkRdbVersion(void) {
     return version;
 }
 
-/* RDB check main: called form server.c when Redis is executed with the
+/* RDB check main: called from server.c when Redis is executed with the
  * redis-check-rdb alias, on during RDB loading errors.
  *
  * The function works in two ways: can be called with argc/argv as a

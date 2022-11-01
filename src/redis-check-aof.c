@@ -431,7 +431,7 @@ input_file_type getInputFileType(char *filepath) {
 
 /* Check if Multi Part AOF is valid. It will check the BASE file and INCR files 
  * at once according to the manifest instructions (this is somewhat similar to 
- * redis' AOF loading).
+ * redis AOF loading).
  * 
  * When the verification is successful, we can guarantee:
  * 1. The manifest file format is valid
@@ -454,10 +454,10 @@ void checkMultiPartAof(char *dirpath, char *manifest_filepath, int fix) {
         sds aof_filename = am->base_aof_info->file_name;
         sds aof_filepath = makePath(dirpath, aof_filename);
         last_file = ++aof_num == total_num;
-        int aof_preable = fileIsRDB(aof_filepath);
+        int aof_preamble = fileIsRDB(aof_filepath);
 
-        printf("Start to check BASE AOF (%s format).\n", aof_preable ? "RDB":"RESP");
-        ret = checkSingleAof(aof_filename, aof_filepath, last_file, fix, aof_preable);
+        printf("Start to check BASE AOF (%s format).\n", aof_preamble ? "RDB":"RESP");
+        ret = checkSingleAof(aof_filename, aof_filepath, last_file, fix, aof_preamble);
         if (ret == AOF_CHECK_OK) {
             printf("BASE AOF %s is valid\n", aof_filename);
         } else if (ret == AOF_CHECK_EMPTY) {
