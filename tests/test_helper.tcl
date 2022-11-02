@@ -8,7 +8,7 @@ set tcl_precision 17
 source tests/support/redis.tcl
 source tests/support/aofmanifest.tcl
 source tests/support/server.tcl
-source tests/support/cluster_helper.tcl
+source tests/support/cluster_util.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
@@ -203,11 +203,16 @@ proc r {args} {
     [srv $level "client"] {*}$args
 }
 
+# Returns a Redis instance by index.
+proc Rn {n} {
+    set level [expr -1*$n]
+    return [srv $level "client"]
+}
+
 # Provide easy access to a client for an inner server. Requires a positive
 # index, unlike r which uses an optional negative index.
 proc R {n args} {
-    set level [expr -1*$n]
-    [srv $level "client"] {*}$args
+    [Rn $n] {*}$args
 }
 
 proc reconnect {args} {
