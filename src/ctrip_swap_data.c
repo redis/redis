@@ -235,11 +235,12 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
     case OBJ_SET:
         retval = swapDataSetupSet(d,datactx);
         break;
-    case OBJ_LIST:
-        retval = swapDataSetupList(d,datactx);
-        break;
     case OBJ_ZSET:
         retval = swapDataSetupZSet(d, datactx);
+        break;
+    case OBJ_LIST:
+        /* list is disabled untill 1.0.1 */
+        retval = SWAP_ERR_SETUP_UNSUPPORTED;
         break;
     case OBJ_STREAM:
         retval = SWAP_ERR_SETUP_UNSUPPORTED;
