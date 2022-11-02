@@ -429,7 +429,7 @@ input_file_type getInputFileType(char *filepath) {
     }
 }
 
-void checkAndPrintResult(int ret, char *aofFileName, char *aofType) {
+void printAofStyle(int ret, char *aofFileName, char *aofType) {
     if (ret == AOF_CHECK_OK) {
         printf("%s %s is valid\n", aofType, aofFileName);
     } else if (ret == AOF_CHECK_EMPTY) {
@@ -471,7 +471,7 @@ void checkMultiPartAof(char *dirpath, char *manifest_filepath, int fix) {
 
         printf("Start to check BASE AOF (%s format).\n", aof_preable ? "RDB":"RESP");
         ret = checkSingleAof(aof_filename, aof_filepath, last_file, fix, aof_preable);
-        checkAndPrintResult(ret, aof_filename, (char *)"BASE AOF");
+        printAofStyle(ret, aof_filename, (char *)"BASE AOF");
         sdsfree(aof_filepath);
     }
 
@@ -487,7 +487,7 @@ void checkMultiPartAof(char *dirpath, char *manifest_filepath, int fix) {
             sds aof_filepath = makePath(dirpath, aof_filename);
             last_file = ++aof_num == total_num;
             ret = checkSingleAof(aof_filename, aof_filepath, last_file, fix, 0);
-            checkAndPrintResult(ret, aof_filename, (char *)"INCR AOF");
+            printAofStyle(ret, aof_filename, (char *)"INCR AOF");
             sdsfree(aof_filepath);
         }
     }
@@ -502,7 +502,7 @@ void checkMultiPartAof(char *dirpath, char *manifest_filepath, int fix) {
 void checkOldStyleAof(char *filepath, int fix, int preamble) {
     printf("Start checking Old-Style AOF\n");
     int ret = checkSingleAof(filepath, filepath, 1, fix, preamble);
-    checkAndPrintResult(ret, filepath, (char *)"AOF");
+    printAofStyle(ret, filepath, (char *)"AOF");
 }
 
 int redis_check_aof_main(int argc, char **argv) {
