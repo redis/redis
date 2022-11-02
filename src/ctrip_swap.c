@@ -482,6 +482,9 @@ int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark)
     if (exclude_mark && server.req_submitted&exclude_mark) {
         return 0;
     }
+    /* add flag before submit request otherwise when
+     * global lock no block, flag may be del just after submit */
+    server.req_submitted |= exclude_mark;
 
     client *c = server.mutex_client;
     getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
@@ -491,7 +494,6 @@ int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark)
     submitClientKeyRequests(c,&result,locked_op);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
-    server.req_submitted |= exclude_mark;
     return 1;
 }
 
