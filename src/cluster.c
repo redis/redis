@@ -2778,11 +2778,11 @@ void clusterReadHandler(connection *conn) {
                     if (connAddrPeerName(conn, ip, sizeof(ip), &port) == -1) {
                         serverLog(LL_WARNING,
                             "Bad message length or signature received "
-                            "from Cluster bus.");
+                            "on the Cluster bus.");
                     } else {
                         serverLog(LL_WARNING,
                             "Bad message length or signature received "
-                            "from Cluster bus, received from %s:%d", ip, port);
+                            "on the Cluster bus from %s:%d", ip, port);
                     }
                     handleLinkIOError(link);
                     return;
