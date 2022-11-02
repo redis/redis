@@ -1826,7 +1826,7 @@ int nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
         buf[NET_IP_STR_LEN-1] = '\0'; /* We are not sure the input is sane. */
         return C_OK;
     } else {
-        if (connAddrPeerName(link->conn, buf, NET_IP_STR_LEN, NULL) == C_ERR) {
+        if (connAddrPeerName(link->conn, buf, NET_IP_STR_LEN, NULL) == -1) {
             serverLog(LL_NOTICE, "Error converting peer IP to string: %s",
                 link->conn ? connGetLastError(link->conn) : "no link");
             return C_ERR;
@@ -2829,9 +2829,17 @@ void clusterReadHandler(connection *conn) {
                 if (memcmp(hdr->sig,"RCmb",4) != 0 ||
                     ntohl(hdr->totlen) < CLUSTERMSG_MIN_LEN)
                 {
-                    serverLog(LL_WARNING,
-                        "Bad message length or signature received "
-                        "from Cluster bus.");
+                    char ip[NET_IP_STR_LEN];
+                    int port;
+                    if (connAddrPeerName(conn, ip, sizeof(ip), &port) == -1) {
+                        serverLog(LL_WARNING,
+                            "Bad message length or signature received "
+                            "on the Cluster bus.");
+                    } else {
+                        serverLog(LL_WARNING,
+                            "Bad message length or signature received "
+                            "on the Cluster bus from %s:%d", ip, port);
+                    }
                     handleLinkIOError(link);
                     return;
                 }
