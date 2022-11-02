@@ -43,6 +43,7 @@
                 "token": "GET",
                 "name": "encoding_offset",
                 "type": "block",
+                "optional": true,
                 "multiple": true,
                 "multiple_token": true,
                 "arguments": [
