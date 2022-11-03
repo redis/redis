@@ -3810,6 +3810,9 @@ RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     if (mode & REDISMODULE_WRITE) {
         value = lookupKeyWriteWithFlags(ctx->client->db,keyname, flags);
     } else {
+        if (ctx->client->flags & CLIENT_NO_TOUCH) {
+            flags |= LOOKUP_NOTOUCH;
+        }
         value = lookupKeyReadWithFlags(ctx->client->db,keyname, flags);
         if (value == NULL) {
             return NULL;

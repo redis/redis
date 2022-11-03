@@ -26,6 +26,17 @@ start_server {tags {"introspection"}} {
         assert {[r object idletime foo] < 2}
     }
 
+    test {Operations in no-touch mode do not alter the last access time of a key} {
+        r set foo bar
+        r client no-touch on
+        after 3000
+        r get foo
+        assert {[r object idletime foo] > 2}
+        r client no-touch off
+        r get foo
+        assert {[r object idletime foo] < 2}
+    }
+
     test {TOUCH returns the number of existing keys specified} {
         r flushdb
         r set key1{t} 1
