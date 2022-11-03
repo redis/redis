@@ -62,6 +62,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <string.h>
 
 /* --------------------------------------------------------------------------
  * Private data structures used by the modules system. Those are data
@@ -978,6 +979,26 @@ void RM_ChannelAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
     res->numkeys++;
 }
 
+/* Returns 1 if name is valid, otherwise returns 0.
+ *
+ * We want to block some chars in module command names that we know can
+ * mess things up.
+ *
+ * There are these characters:
+ * ' ' (space) - issues with old inline protocol.
+ * '\r', '\n' (newline) - can mess up the protocol on acl error replies.
+ * '|' - sub-commands.
+ * '@' - ACL categories.
+ * '=', ',' - info and client list fields (':' handled by getSafeInfoString).
+ * */
+int isCommandNameValid(const char *name) {
+    const char *block_chars = " \r\n|@=,";
+
+    if (strpbrk(name, block_chars))
+        return 0;
+    return 1;
+}
+
 /* Helper for RM_CreateCommand(). Turns a string representing command
  * flags into the command flags used by the Redis core.
  *
@@ -1019,9 +1040,14 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
 
 /* Register a new command in the Redis server, that will be handled by
  * calling the function pointer 'cmdfunc' using the RedisModule calling
- * convention. The function returns REDISMODULE_ERR if the specified command
- * name is already busy or a set of invalid flags were passed, otherwise
- * REDISMODULE_OK is returned and the new command is registered.
+ * convention.
+ *
+ * The function returns REDISMODULE_ERR in these cases:
+ * - The specified command is already busy.
+ * - The command name contains some chars that are not allowed.
+ * - A set of invalid flags were passed.
+ *
+ * Otherwise REDISMODULE_OK is returned and the new command is registered.
  *
  * This function must be called during the initialization of the module
  * inside the RedisModule_OnLoad() function. Calling this function outside
@@ -1110,6 +1136,10 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
+        return REDISMODULE_ERR;
+
+    /* Check if the command name is valid. */
+    if (!isCommandNameValid(name))
         return REDISMODULE_ERR;
 
     /* Check if the command name is busy. */
@@ -1237,6 +1267,10 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     RedisModuleCommand *parent_cp = parent_cmd->module_cmd;
     if (parent_cp->func)
         return REDISMODULE_ERR; /* A parent command should be a pure container of subcommands */
+
+    /* Check if the command name is valid. */
+    if (!isCommandNameValid(name))
+        return REDISMODULE_ERR;
 
     /* Check if the command name is busy within the parent command. */
     sds declared_name = sdsnew(name);
