@@ -1061,6 +1061,55 @@ unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
     return lp;
 }
 
+/* Delete the elements 'ps' passed as an array of 'count' element pointers and
+ * return the resulting listpack. The elements must be given in the same order
+ * as they apper in the listpack. */
+unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned long count) {
+    if (count == 0) return lp;
+    unsigned char *dst = ps[0];
+    size_t total_bytes = lpGetTotalBytes(lp);
+    unsigned char *lp_end = lp + total_bytes; /* After the EOF element. */
+    assert(lp_end[-1] == LP_EOF);
+    /*
+     * ----+--------+-----------+--------+---------+-----+---+
+     * ... | Delete | Keep      | Delete | Keep    | ... |EOF|
+     * ... |xxxxxxxx|           |xxxxxxxx|         | ... |   |
+     * ----+--------+-----------+--------+---------+-----+---+
+     *     ^        ^           ^                            ^
+     *     |        |           |                            |
+     *     ps[i]    |           ps[i+1]                      |
+     *     skip     keep_start  keep_end                     lp_end
+     *
+     * The loop memmoves the bytes between keep_start and keep_end to dst.
+     */
+    for (unsigned long i = 0; i < count; i++) {
+        unsigned char *skip = ps[i];
+        assert(skip != NULL && skip[0] != LP_EOF);
+        unsigned char *keep_start = lpSkip(skip);
+        unsigned char *keep_end;
+        if (i + 1 < count) {
+            keep_end = ps[i + 1];
+            /* Deleting consecutive elements. Nothing to keep between them. */
+            if (keep_start == keep_end) continue;
+        } else {
+            /* Keep the rest of the listpack including the EOF marker. */
+            keep_end = lp_end;
+        }
+        assert(keep_end > keep_start);
+        size_t bytes_to_keep = keep_end - keep_start;
+        memmove(dst, keep_start, bytes_to_keep);
+        dst += bytes_to_keep;
+    }
+    /* Update total size and num elements. */
+    size_t deleted_bytes = lp_end - dst;
+    total_bytes -= deleted_bytes;
+    assert(lp[total_bytes - 1] == LP_EOF);
+    lpSetTotalBytes(lp, total_bytes);
+    uint32_t numele = lpGetNumElements(lp);
+    if (numele != LP_HDR_NUMELE_UNKNOWN) lpSetNumElements(lp, numele - count);
+    return lpShrinkToFit(lp);
+}
+
 /* Merge listpacks 'first' and 'second' by appending 'second' to 'first'.
  *
  * NOTE: The larger listpack is reallocated to contain the new merged listpack.
@@ -1984,6 +2033,21 @@ int listpackTest(int argc, char *argv[], int flags) {
         assert(lpLength(lp) == 1);
         verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
         zfree(lp);
+    }
+
+    TEST("Batch delete") {
+        unsigned char *lp = createList(); /* char *mixlist[] = {"hello", "foo", "quux", "1024"} */
+        assert(lpLength(lp) == 4); /* Pre-condition */
+        unsigned char *p0 = lpFirst(lp),
+            *p1 = lpNext(lp, p0),
+            *p2 = lpNext(lp, p1),
+            *p3 = lpNext(lp, p2);
+        unsigned char *ps[] = {p0, p1, p3};
+        lp = lpBatchDelete(lp, ps, 3);
+        assert(lpLength(lp) == 1);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[2], strlen(mixlist[2]));
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        lpFree(lp);
     }
 
     TEST("Delete foo while iterating") {

@@ -70,6 +70,7 @@ unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long 
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num);
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num);
+unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned long count);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);
 unsigned long lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);

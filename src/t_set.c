@@ -760,8 +760,9 @@ void spopWithCountCommand(client *c) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
         unsigned int index = 0;
-        while (count) {
-            p = lpNextRandom(lp, p, &index, count--, 0);
+        unsigned char **ps = zmalloc(sizeof(char *) * count);
+        for (unsigned long i = 0; i < count; i++) {
+            p = lpNextRandom(lp, p, &index, count - i, 0);
             unsigned int len;
             str = (char *)lpGetValue(p, &len, (long long *)&llele);
 
@@ -778,8 +779,12 @@ void spopWithCountCommand(client *c) {
             alsoPropagate(c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(objele);
 
-            lp = lpDelete(lp, p, &p);
+            /* Store pointer for later deletion and move to next. */
+            ps[i] = p;
+            p = lpNext(lp, p);
+            index++;
         }
+        lp = lpBatchDelete(lp, ps, count);
         set->ptr = lp;
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
         while(count--) {
@@ -809,13 +814,17 @@ void spopWithCountCommand(client *c) {
             unsigned char *lp = set->ptr;
             unsigned char *p = lpFirst(lp);
             unsigned int index = 0;
-            while (remaining) {
-                p = lpNextRandom(lp, p, &index, remaining--, 0);
+            unsigned char **ps = zmalloc(sizeof(char *) * remaining);
+            for (unsigned long i = 0; i < remaining; i++) {
+                p = lpNextRandom(lp, p, &index, remaining - i, 0);
                 unsigned int len;
                 str = (char *)lpGetValue(p, &len, (long long *)&llele);
                 setTypeAddAux(newset, str, len, llele, 0);
-                lp = lpDelete(lp, p, &p);
+                ps[i] = p;
+                p = lpNext(lp, p);
+                index++;
             }
+            lp = lpBatchDelete(lp, ps, remaining);
             set->ptr = lp;
         } else {
             while(remaining--) {
