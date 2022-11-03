@@ -61,23 +61,37 @@ start_server {tags {"introspection"}} {
         $rd4 close
     }
 
-    foreach bg_cmd {bgsave bgrewriteaof} {
-        test "CLIENT KILL close the client connection during $bg_cmd" {
-            # Start a slow bgsave or bgrewriteaof, trigger an active fork.
-            r set k v
-            r config set rdb-key-save-delay 10000000
-            r $bg_cmd
+    test "CLIENT KILL close the client connection during bgsave" {
+        # Start a slow bgsave, trigger an active fork.
+        r flushall
+        r set k v
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 1
+        } else {
+            fail "bgsave did not start in time"
+        }
 
-            # Kill (close) the connection
-            r client kill skipme no
+        # Kill (close) the connection
+        r client kill skipme no
 
-            # In the past, client connections needed to wait for bgsave or bgrewriteaof
-            # to end before actually closing, now they are closed immediately.
-            assert_error "*I/O error*" {r ping} ;# get the error very quickly
-            assert_equal "PONG" [r ping]
+        # In the past, client connections needed to wait for bgsave
+        # to end before actually closing, now they are closed immediately.
+        assert_error "*I/O error*" {r ping} ;# get the error very quickly
+        assert_equal "PONG" [r ping]
 
-            r config set rdb-key-save-delay 0
-        } {OK}
+        # Make sure the bgsave is still in progress
+        assert_equal [s rdb_bgsave_in_progress] 1
+
+        # Stop the child before we proceed to the next test
+        r config set rdb-key-save-delay 0
+        r flushall
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 0
+        } else {
+            fail "bgsave did not stop in time"
+        }
     }
 
     test {MONITOR can log executed commands} {
