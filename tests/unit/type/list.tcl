@@ -514,9 +514,9 @@ foreach {type large} [array get largevalue] {
         # first rpush then lpush
         r del mylist2
         assert_equal 1 [r rpush mylist2 $large]
-        assert_encoding $type mylist2
         assert_equal 2 [r lpush mylist2 b]
         assert_equal 3 [r lpush mylist2 c]
+        assert_encoding $type mylist2
         assert_equal 3 [r llen mylist2]
         assert_equal c [r lindex mylist2 0]
         assert_equal b [r lindex mylist2 1]
@@ -1470,9 +1470,11 @@ foreach type {listpack quicklist} {
             create_$type mylist1{t} "a $large c d"
             assert_equal d [r rpoplpush mylist1{t} mylist2{t}]
             assert_equal c [r rpoplpush mylist1{t} mylist2{t}]
-            assert_equal "a $large" [r lrange mylist1{t} 0 -1]
-            assert_equal "c d" [r lrange mylist2{t} 0 -1]
-            assert_encoding listpack mylist2{t}
+            assert_equal $large [r rpoplpush mylist1{t} mylist2{t}]
+            assert_equal "a" [r lrange mylist1{t} 0 -1]
+            assert_equal "$large c d" [r lrange mylist2{t} 0 -1]
+            assert_encoding listpack mylist1{t} ;# converted to listpack after shrinking
+            assert_encoding $type mylist2{t}
         }
 
         foreach wherefrom {left right} {

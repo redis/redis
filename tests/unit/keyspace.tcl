@@ -252,6 +252,7 @@ foreach {type large} [array get largevalue] {
         r lpush mylist{t} a b $large c d
         assert_encoding $type mylist{t}
         r copy mylist{t} mynewlist{t}
+        assert_encoding $type mynewlist{t}
         set digest [debug_digest_value mylist{t}]
         assert_equal $digest [debug_digest_value mynewlist{t}]
         assert_refcount 1 mylist{t}
