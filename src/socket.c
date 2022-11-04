@@ -125,6 +125,12 @@ static int connSocketConnect(connection *conn, const char *addr, int port, const
  * move here as we implement additional connection types.
  */
 
+static void connSocketShutdown(connection *conn) {
+    if (conn->fd == -1) return;
+
+    shutdown(conn->fd, SHUT_RDWR);
+}
+
 /* Close the connection and free resources. */
 static void connSocketClose(connection *conn) {
     if (conn->fd != -1) {
@@ -388,9 +394,10 @@ static ConnectionType CT_Socket = {
     .addr = connSocketAddr,
     .listen = connSocketListen,
 
-    /* create/close connection */
+    /* create/shutdown/close connection */
     .conn_create = connCreateSocket,
     .conn_create_accepted = connCreateAcceptedSocket,
+    .shutdown = connSocketShutdown,
     .close = connSocketClose,
 
     /* connect & accept */
