@@ -785,6 +785,7 @@ void spopWithCountCommand(client *c) {
             index++;
         }
         lp = lpBatchDelete(lp, ps, count);
+        zfree(ps);
         set->ptr = lp;
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
         while(count--) {
@@ -825,6 +826,7 @@ void spopWithCountCommand(client *c) {
                 index++;
             }
             lp = lpBatchDelete(lp, ps, remaining);
+            zfree(ps);
             set->ptr = lp;
         } else {
             while(remaining--) {
