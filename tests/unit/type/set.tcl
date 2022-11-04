@@ -340,6 +340,17 @@ start_server {
         }
     }
 
+    test "SINTERSTORE with two non-integer sets where result is intset" {
+        r del setres{t} set1{t} set2{t}
+        r sadd set1{t} a b c 1 3 6 x y z
+        r sadd set2{t} e f g 1 2 3 u v w
+        assert_encoding listpack set1{t}
+        assert_encoding listpack set2{t}
+        r sinterstore setres{t} set1{t} set2{t}
+        assert_equal [list 1 3] [lsort [r smembers setres{t}]]
+        assert_encoding intset setres{t}
+    }
+
     test "SDIFF with first set empty" {
         r del set1{t} set2{t} set3{t}
         r sadd set2{t} 1 2 3 4

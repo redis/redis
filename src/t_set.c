@@ -51,14 +51,46 @@ robj *setTypeCreate(sds value) {
     return createSetListpackObject();
 }
 
-/* Converts intset to HT if it contains too many entries. */
-static void maybeConvertIntset(robj *subject) {
-    serverAssert(subject->encoding == OBJ_ENCODING_INTSET);
+/* Return the maximum number of entries to store in an intset. */
+static size_t intsetMaxEntries(void) {
     size_t max_entries = server.set_max_intset_entries;
     /* limit to 1G entries due to intset internals. */
     if (max_entries >= 1<<30) max_entries = 1<<30;
-    if (intsetLen(subject->ptr) > max_entries)
+    return max_entries;
+}
+
+/* Converts intset to HT if it contains too many entries. */
+static void maybeConvertIntset(robj *subject) {
+    serverAssert(subject->encoding == OBJ_ENCODING_INTSET);
+    if (intsetLen(subject->ptr) > intsetMaxEntries())
         setTypeConvert(subject,OBJ_ENCODING_HT);
+}
+
+/* When you know all set elements are integers, call this to convert the set to
+ * an intset. No conversion happens if the set contains too many entries for an
+ * intset. */
+static void maybeConvertToIntset(robj *set) {
+    if (set->encoding == OBJ_ENCODING_INTSET) return; /* already intset */
+    if (setTypeSize(set) > intsetMaxEntries()) return; /* can't use intset */
+    intset *is = intsetNew();
+    char *str;
+    size_t len;
+    int64_t llval;
+    setTypeIterator *si = setTypeInitIterator(set);
+    while (setTypeNext(si, &str, &len, &llval) != -1) {
+        if (str) {
+            /* If the element is returned as a string, we may be able to convert
+             * it to integer. This happens for OBJ_ENCODING_HT. */
+            serverAssert(string2ll(str, len, (long long *)&llval));
+        }
+        uint8_t success = 0;
+        is = intsetAdd(is, llval, &success);
+        serverAssert(success);
+    }
+    setTypeReleaseIterator(si);
+    freeSetObject(set); /* frees the internals but not robj itself */
+    set->ptr = is;
+    set->encoding = OBJ_ENCODING_INTSET;
 }
 
 /* Add the specified sds value into a set.
@@ -1220,7 +1252,24 @@ void sinterGenericCommand(client *c, robj **setkeys,
     if (dstkey) {
         /* If we have a target key where to store the resulting set
          * create this key with an empty set inside */
-        dstset = createIntsetObject();
+        if (sets[0]->encoding == OBJ_ENCODING_INTSET) {
+            /* The first set is an intset, so the result is an intset too. The
+             * elements are inserted in ascending order which is efficient in an
+             * intset. */
+            dstset = createIntsetObject();
+        } else if (sets[0]->encoding == OBJ_ENCODING_LISTPACK) {
+            /* To avoid many reallocs, we estimate that the result is a listpack
+             * of approximately the same size as the first set. Then we shrink
+             * it or possibly convert it to intset it in the end. */
+            unsigned char *lp = lpNew(lpBytes(sets[0]->ptr));
+            dstset = createObject(OBJ_SET, lp);
+            dstset->encoding = OBJ_ENCODING_LISTPACK;
+        } else {
+            /* We start off with a listpack, since it's more efficient to append
+             * to than an intset. Later we can convert it to intset or a
+             * hashtable. */
+            dstset = createSetListpackObject();
+        }
     } else if (!cardinality_only) {
         replylen = addReplyDeferredLen(c);
     }
@@ -1228,6 +1277,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
     /* Iterate all the elements of the first (smallest) set, and test
      * the element against all the other sets, if at least one set does
      * not include the element it is discarded */
+    int only_integers = 1;
     si = setTypeInitIterator(sets[0]);
     while((encoding = setTypeNext(si, &str, &len, &intobj)) != -1) {
         for (j = 1; j < setnum; j++) {
@@ -1252,6 +1302,22 @@ void sinterGenericCommand(client *c, robj **setkeys,
                     addReplyBulkLongLong(c,intobj);
                 cardinality++;
             } else {
+                if (str && only_integers) {
+                    /* It may be an integer although we got it as a string. */
+                    if (encoding == OBJ_ENCODING_HT &&
+                        string2ll(str, len, (long long *)&intobj))
+                    {
+                        if (dstset->encoding == OBJ_ENCODING_LISTPACK ||
+                            dstset->encoding == OBJ_ENCODING_INTSET)
+                        {
+                            /* Adding it as an integer is more efficient. */
+                            str = NULL;
+                        }
+                    } else {
+                        /* It's not an integer */
+                        only_integers = 0;
+                    }
+                }
                 setTypeAddAux(dstset, str, len, intobj, encoding == OBJ_ENCODING_HT);
             }
         }
@@ -1264,6 +1330,12 @@ void sinterGenericCommand(client *c, robj **setkeys,
         /* Store the resulting set into the target, if the intersection
          * is not an empty set. */
         if (setTypeSize(dstset) > 0) {
+            if (only_integers) maybeConvertToIntset(dstset);
+            if (dstset->encoding == OBJ_ENCODING_LISTPACK) {
+                /* We allocated too much memory when we created it to avoid
+                 * frequent reallocs. Therefore, we shrink it now. */
+                dstset->ptr = lpShrinkToFit(dstset->ptr);
+            }
             setKey(c,c->db,dstkey,dstset,0);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,"sinterstore",
