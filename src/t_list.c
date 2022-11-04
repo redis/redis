@@ -132,9 +132,9 @@ static void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB 
  *                       wanna consider converting from quicklist to listpack. When we
  *                       know we're shrinking, we use a lower (more strict) threshold in
  *                       order to avoid repeated conversions on every list change. */
-void listTypeTryConversionWithArgv(robj *o, list_conv_type lct,
-                                   robj **argv, int start, int end,
-                                   beforeConvertCB fn, void *data)
+static void listTypeTryConversionRaw(robj *o, list_conv_type lct,
+                                     robj **argv, int start, int end,
+                                     beforeConvertCB fn, void *data)
 {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         if (lct == LIST_CONV_GROWING) return; /* Growing has nothing to do with quicklist */
@@ -147,10 +147,18 @@ void listTypeTryConversionWithArgv(robj *o, list_conv_type lct,
     }
 }
 
-/* This is just a wrapper for listTypeTryConversionWithArgv() that is
+/* This is just a wrapper for listTypeTryConversionRaw() that is
  * able to try conversion without passing 'argv'. */
 void listTypeTryConversion(robj *o, list_conv_type lct, beforeConvertCB fn, void *data) {
-    listTypeTryConversionWithArgv(o, lct, NULL, 0, 0, fn, data);
+    listTypeTryConversionRaw(o, lct, NULL, 0, 0, fn, data);
+}
+
+/* This is just a wrapper for listTypeTryConversionRaw() that is
+ * able to try conversion before adding elements to the list. */
+void listTypeTryConversionAppend(robj *o, robj **argv, int start, int end,
+                                 beforeConvertCB fn, void *data)
+{
+    listTypeTryConversionRaw(o, LIST_CONV_GROWING, argv, start, end, fn, data);
 }
 
 /* The function pushes an element to the specified list object 'subject',
@@ -493,7 +501,7 @@ void pushGenericCommand(client *c, int where, int xx) {
         dbAdd(c->db,c->argv[1],lobj);
     }
 
-    listTypeTryConversionWithArgv(lobj,LIST_CONV_GROWING,c->argv,2,c->argc-1,NULL,NULL);
+    listTypeTryConversionAppend(lobj,c->argv,2,c->argc-1,NULL,NULL);
     for (j = 2; j < c->argc; j++) {
         listTypePush(lobj,c->argv[j],where);
         server.dirty++;
@@ -551,7 +559,7 @@ void linsertCommand(client *c) {
      * the list twice (once to see if the value can be inserted and once
      * to do the actual insert), so we assume this value can be inserted
      * and convert the listpack to a regular list if necessary. */
-    listTypeTryConversionWithArgv(subject,LIST_CONV_GROWING,c->argv,4,4,NULL,NULL);
+    listTypeTryConversionAppend(subject,c->argv,4,4,NULL,NULL);
 
     /* Seek pivot from head to tail */
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
@@ -624,7 +632,7 @@ void lsetCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
 
-    listTypeTryConversionWithArgv(o,LIST_CONV_GROWING,c->argv,3,3,NULL,NULL);
+    listTypeTryConversionAppend(o,c->argv,3,3,NULL,NULL);
     if (listTypeReplaceAtIndex(o,index,value)) {
         addReply(c,shared.ok);
         signalModifiedKey(c,c->db,c->argv[1]);
@@ -632,7 +640,7 @@ void lsetCommand(client *c) {
         server.dirty++;
 
         /* We might replace a big item with a small one or vice versa, but we've
-         * already handled the growing case in listTypeTryConversion()
+         * already handled the growing case in listTypeTryConversionAppend()
          * above, so here we just need to try the conversion for shrinking. */
         listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
     } else {
@@ -1073,7 +1081,7 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
         dbAdd(c->db,dstkey,dstobj);
     }
     signalModifiedKey(c,c->db,dstkey);
-    listTypeTryConversionWithArgv(dstobj,LIST_CONV_GROWING,&value,0,0,NULL,NULL);
+    listTypeTryConversionAppend(dstobj,&value,0,0,NULL,NULL);
     listTypePush(dstobj,value,where);
     notifyKeyspaceEvent(NOTIFY_LIST,
                         where == LIST_HEAD ? "lpush" : "rpush",

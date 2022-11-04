@@ -2611,9 +2611,8 @@ typedef enum {
     LIST_CONV_SHRINKING,
 } list_conv_type;
 typedef void (*beforeConvertCB)(void *data);
-void listTypeTryConversionWithArgv(robj *o, list_conv_type lct, robj **argv, int start, int end,
-                                   beforeConvertCB fn, void *data);
 void listTypeTryConversion(robj *o, list_conv_type lct, beforeConvertCB fn, void *data);
+void listTypeTryConversionAppend(robj *o, robj **argv, int start, int end, beforeConvertCB fn, void *data);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);

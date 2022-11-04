@@ -4155,8 +4155,7 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     if (key->value && key->value->type != OBJ_LIST) return REDISMODULE_ERR;
     if (key->iter) moduleFreeKeyIterator(key);
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_LIST);
-    listTypeTryConversionWithArgv(key->value, LIST_CONV_GROWING, &ele, 0, 0,
-                                  moduleFreeListIterator, key);
+    listTypeTryConversionAppend(key->value, &ele, 0, 0, moduleFreeListIterator, key);
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     return REDISMODULE_OK;
@@ -4249,8 +4248,7 @@ int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
         errno = ENOTSUP;
         return REDISMODULE_ERR;
     }
-    listTypeTryConversionWithArgv(key->value, LIST_CONV_GROWING, &value, 0, 0,
-                                  moduleFreeListIterator, key);
+    listTypeTryConversionAppend(key->value, &value, 0, 0, moduleFreeListIterator, key);
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeReplace(&key->u.list.entry, value);
         /* A note in quicklist.c forbids use of iterator after insert, so
@@ -4296,8 +4294,7 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
         /* Insert before the first element => push head. */
         return RM_ListPush(key, REDISMODULE_LIST_HEAD, value);
     }
-    listTypeTryConversionWithArgv(key->value, LIST_CONV_GROWING, &value, 0, 0,
-                                  moduleFreeListIterator, key);
+    listTypeTryConversionAppend(key->value, &value, 0, 0, moduleFreeListIterator, key);
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         int where = index < 0 ? LIST_TAIL : LIST_HEAD;
         listTypeInsert(&key->u.list.entry, value, where);
