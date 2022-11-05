@@ -1765,6 +1765,7 @@ struct redisServer {
     int swap_pause_type;
     list *swap_paused_keyrequests;
     list *swap_resumed_keyrequests;
+    uint64_t swap_key_version;
 
     /* gtid executed */
     int gtid_enabled;  /* Is gtid enabled? */

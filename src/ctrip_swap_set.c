@@ -148,8 +148,10 @@ int setSwapAna(swapData *data, struct keyRequest *req,
                 setTypeReleaseIterator(si);
 
                 /* create new meta if needed */
-                if (!swapDataPersisted(data))
-                    swapDataSetNewObjectMeta(data,createSetObjectMeta(0));
+                if (!swapDataPersisted(data)) {
+                    swapDataSetNewObjectMeta(data,
+                            createSetObjectMeta(swapGetAndIncrVersion(),0));
+                }
 
                 if (!data->value->dirty) {
                     /* directly evict value from db.dict if not dirty. */
@@ -181,13 +183,8 @@ int setSwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
-static inline sds setEncodeSubkey(redisDb *db, sds key, sds subkey) {
-    return rocksEncodeDataKey(db,key,subkey);
-}
-
-static void setEncodeDeleteRange(swapData *data, sds *start, sds *end) {
-    *start = rocksEncodeDataKey(data->db,data->key->ptr,NULL);
-    *end = rocksGenerateEndKey(*start);
+static inline sds setEncodeSubkey(redisDb *db, sds key, uint64_t version, sds subkey) {
+    return rocksEncodeDataKey(db,key,version,subkey);
 }
 
 int setEncodeKeys(swapData *data, int intention, void *datactx_,
@@ -195,6 +192,7 @@ int setEncodeKeys(swapData *data, int intention, void *datactx_,
     setDataCtx *datactx = datactx_;
     sds *rawkeys = NULL;
     int *cfs = NULL;
+    uint64_t version = swapDataObjectVersion(data);
 
     switch (intention) {
         case SWAP_IN:
@@ -205,7 +203,7 @@ int setEncodeKeys(swapData *data, int intention, void *datactx_,
                 for (i = 0; i < datactx->ctx.num; i++) {
                     cfs[i] = DATA_CF;
                     rawkeys[i] = setEncodeSubkey(data->db,data->key->ptr,
-                                                  datactx->ctx.subkeys[i]->ptr);
+                            version,datactx->ctx.subkeys[i]->ptr);
                 }
                 *numkeys = datactx->ctx.num;
                 *pcfs = cfs;
@@ -215,7 +213,8 @@ int setEncodeKeys(swapData *data, int intention, void *datactx_,
                 cfs = zmalloc(sizeof(int));
                 rawkeys = zmalloc(sizeof(sds));
                 cfs[0] = DATA_CF;
-                rawkeys[0] = rocksEncodeDataScanPrefix(data->db,data->key->ptr);
+                rawkeys[0] = rocksEncodeDataScanPrefix(data->db,
+                        data->key->ptr,version);
                 *numkeys = datactx->ctx.num;
                 *pcfs = cfs;
                 *prawkeys = rawkeys;
@@ -223,21 +222,10 @@ int setEncodeKeys(swapData *data, int intention, void *datactx_,
             }
             return 0;
         case SWAP_DEL:
-            if (swapDataPersisted(data)) {
-                cfs = zmalloc(sizeof(int)*2);
-                rawkeys = zmalloc(sizeof(sds)*2);
-                setEncodeDeleteRange(data, &rawkeys[0], &rawkeys[1]);
-                cfs[0] = cfs[1] = DATA_CF;
-                *numkeys = 2;
-                *pcfs = cfs;
-                *prawkeys = rawkeys;
-                *action = ROCKS_MULTI_DELETERANGE;
-            } else {
-                *action = 0;
-                *numkeys = 0;
-                *pcfs = NULL;
-                *prawkeys = NULL;
-            }
+            *action = 0;
+            *numkeys = 0;
+            *pcfs = NULL;
+            *prawkeys = NULL;
             return 0;
         case SWAP_OUT:
         default:
@@ -252,13 +240,10 @@ int setEncodeKeys(swapData *data, int intention, void *datactx_,
     return 0;
 }
 
-static inline sds setEncodeSubval(robj *subval) {
-    return rocksEncodeValRdb(subval);
-}
-
 int setEncodeData(swapData *data, int intention, void *datactx_,
                    int *action, int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
     setDataCtx *datactx = datactx_;
+    uint64_t version = swapDataObjectVersion(data);
     int *cfs = zmalloc(datactx->ctx.num*sizeof(int));
     sds *rawkeys = zmalloc(datactx->ctx.num*sizeof(sds));
     sds *rawvals = zmalloc(datactx->ctx.num*sizeof(sds));
@@ -266,7 +251,7 @@ int setEncodeData(swapData *data, int intention, void *datactx_,
     for (int i = 0; i < datactx->ctx.num; i++) {
         cfs[i] = DATA_CF;
         rawkeys[i] = setEncodeSubkey(data->db,data->key->ptr,
-                                      datactx->ctx.subkeys[i]->ptr);
+                version,datactx->ctx.subkeys[i]->ptr);
         rawvals[i] = sdsempty();
     }
     *action = ROCKS_WRITE;
@@ -282,6 +267,8 @@ int setDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
                    sds *rawvals, void **pdecoded) {
     int i;
     robj *decoded;
+    uint64_t version = swapDataObjectVersion(data);
+
     serverAssert(num >= 0);
     UNUSED(cfs);
 
@@ -291,13 +278,16 @@ int setDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
         sds subkey;
         const char *keystr, *subkeystr;
         size_t klen, slen;
+        uint64_t subkey_version;
 
         if (rawvals[i] == NULL)
             continue;
         if (rocksDecodeDataKey(rawkeys[i],sdslen(rawkeys[i]),
-                               &dbid,&keystr,&klen,&subkeystr,&slen) < 0)
+                    &dbid,&keystr,&klen,&subkey_version,&subkeystr,&slen) < 0)
             continue;
         if (!swapDataPersisted(data))
+            continue;
+        if (version != subkey_version)
             continue;
         subkey = sdsnewlen(subkeystr,slen);
 
@@ -454,6 +444,8 @@ swapDataType setSwapDataType = {
     .cleanObject = setCleanObject,
     .beforeCall = NULL,
     .free = freeSetSwapData,
+    .rocksDel = NULL,
+    .mergedIsHot = setMergedIsHot,
 };
 
 int swapDataSetupSet(swapData *d, OUT void **pdatactx) {
@@ -548,13 +540,14 @@ rdbKeySaveType setSaveType = {
     .save_deinit = NULL,
 };
 
-int setSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen) {
+int setSaveInit(rdbKeySaveData *save, uint64_t version, const char *extend,
+        size_t extlen) {
     int retval = 0;
     save->type = &setSaveType;
     save->omtype = &setObjectMetaType;
     if (extend) {
         serverAssert(save->object_meta == NULL);
-        retval = buildObjectMeta(OBJ_SET,extend,
+        retval = buildObjectMeta(OBJ_SET,version,extend,
                                  extlen,&save->object_meta);
     }
     return retval;
@@ -591,7 +584,8 @@ void setLoadStartIntset(struct rdbKeyLoadData *load, rio *rdb, int *cf,
     extend = rocksEncodeObjectMetaLen(load->total_fields);
     *cf = META_CF;
     *rawkey = rocksEncodeMetaKey(load->db,load->key);
-    *rawval = rocksEncodeMetaVal(load->object_type,load->expire,extend);
+    *rawval = rocksEncodeMetaVal(load->object_type,load->expire,
+            load->version,extend);
     sdsfree(extend);
 }
 
@@ -618,7 +612,7 @@ int setLoadHT(struct rdbKeyLoadData *load, rio *rdb, int *cf, sds *rawkey,
     }
 
     *cf = DATA_CF;
-    *rawkey = rocksEncodeDataKey(load->db,load->key,subkey);
+    *rawkey = rocksEncodeDataKey(load->db,load->key,load->version,subkey);
     *rawval = sdsempty();
     *error = 0;
     sdsfree(subkey);
@@ -634,7 +628,7 @@ int setLoadIntset(struct rdbKeyLoadData *load, rio *rdb, int *cf, sds *rawkey,
     subkey = setTypeNextObject(load->iter);
 
     *cf = DATA_CF;
-    *rawkey = rocksEncodeDataKey(load->db,load->key,subkey);
+    *rawkey = rocksEncodeDataKey(load->db,load->key,load->version,subkey);
     *rawval = sdsempty();
     *error = 0;
 
@@ -740,13 +734,13 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
 
         set1_ctx->ctx.num = 2;
         set1_ctx->ctx.subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
-        set1_data->object_meta = createSetObjectMeta(2);
+        set1_data->object_meta = createSetObjectMeta(0,2);
         // encodeKeys - swap in subkeys
         setEncodeKeys(set1_data, SWAP_IN, set1_ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(2 == numkeys);
         test_assert(DATA_CF == cfs[0] && DATA_CF == cfs[1]);
         test_assert(ROCKS_MULTIGET == action);
-        sds expectEncodedKey = setEncodeSubkey(db, key1->ptr, f1);
+        sds expectEncodedKey = setEncodeSubkey(db, key1->ptr, 0, f1);
         test_assert(memcmp(expectEncodedKey,rawkeys[0],sdslen(rawkeys[0])) == 0
             || memcmp(expectEncodedKey,rawkeys[1],sdslen(rawkeys[1])) == 0);
 
@@ -755,13 +749,12 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         setEncodeKeys(set1_data, SWAP_IN, set1_ctx, &action, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_SCAN == action);
         test_assert(DATA_CF == cfs[0]);
-        expectEncodedKey = setEncodeSubkey(db, key1->ptr, empty);
+        expectEncodedKey = setEncodeSubkey(db, key1->ptr, 0, empty);
         test_assert(memcmp(expectEncodedKey, rawkeys[0], sdslen(rawkeys[0])) == 0);
 
         // encodeKeys - swap del
         setEncodeKeys(set1_data, SWAP_DEL, set1_ctx, &action, &numkeys, &cfs, &rawkeys);
-        test_assert(ROCKS_MULTI_DELETERANGE == action);
-        test_assert(DATA_CF == cfs[0] && DATA_CF == cfs[1]);
+        test_assert(0 == action && numkeys == 0);
 
         // encodeData - swap out
         set1_ctx->ctx.num = 2;
@@ -780,7 +773,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
     TEST("set - swapAna") {
         int intention;
         uint32_t intention_flags;
-        objectMeta *set1_meta = createSetObjectMeta(0);
+        objectMeta *set1_meta = createSetObjectMeta(0,0);
         set1_data = createSwapData(db, key1,set1);
         swapDataSetupSet(set1_data, (void**)&set1_ctx);
 
@@ -898,7 +891,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         // swap out - data not dirty
         set1->dirty = 0;
         set1_ctx->ctx.num = 0;
-        set1_data->object_meta = createSetObjectMeta(0);
+        set1_data->object_meta = createSetObjectMeta(0,0);
         set1_data->new_meta = NULL;
         int expectColdKey = db->cold_keys + 1;
         setSwapAna(set1_data,kr1,&intention,&intention_flags,set1_ctx);
@@ -933,7 +926,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         test_assert(setTypeSize(s) == 4);
 
         /* hot => warm => cold */
-        set1_data->new_meta = createSetObjectMeta(0);
+        set1_data->new_meta = createSetObjectMeta(0,0);
         set1_ctx->ctx.num = 2;
         set1_ctx->ctx.subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
         setCleanObject(set1_data, set1_ctx);
@@ -955,7 +948,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         setTypeAdd(decoded, f1);
         setTypeAdd(decoded, f2);
         set1_data->object_meta = NULL;
-        set1_data->cold_meta = createSetObjectMeta(4);
+        set1_data->cold_meta = createSetObjectMeta(0,4);
         set1_data->value = NULL;
         result = setCreateOrMergeObject(set1_data, decoded, set1_ctx);
         setSwapIn(set1_data,result,set1_ctx);
@@ -992,7 +985,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         setTypeAdd(decoded, f3);
         setTypeAdd(decoded, f4);
         set1_data->object_meta = NULL;
-        set1_data->cold_meta = createSetObjectMeta(4);
+        set1_data->cold_meta = createSetObjectMeta(0,4);
         set1_data->value = NULL;
         result = setCreateOrMergeObject(set1_data,decoded,set1_ctx);
         setSwapIn(set1_data,result,set1_ctx);
@@ -1025,13 +1018,14 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         sds subkey, subraw;
         objectMeta *cold_meta;
         int t; long long e; const char *extend; size_t extlen;
+        uint64_t v;
         rdbKeyLoadDataInit(loadData,RDB_TYPE_SET,db,key1->ptr,-1,1600000000);
         setLoadStart(loadData, &sdsrdb, &cf, &subkey, &subraw, &err);
         test_assert(0 == err && META_CF == cf);
         test_assert(memcmp(rocksEncodeMetaKey(db,key1->ptr), subkey, sdslen(subkey)) == 0);
 
-        rocksDecodeMetaVal(subraw, sdslen(subraw), &t, &e, &extend, &extlen);
-        buildObjectMeta(t,extend,extlen,&cold_meta);
+        rocksDecodeMetaVal(subraw, sdslen(subraw), &t, &e, &v, &extend, &extlen);
+        buildObjectMeta(t,v,extend,extlen,&cold_meta);
         test_assert(cold_meta->object_type == OBJ_SET && cold_meta->len == 4 && e == -1);
 
         cont = setLoad(loadData,&sdsrdb,&cf,&subkey,&subraw,&err);
@@ -1060,8 +1054,8 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         test_assert(0 == err && META_CF == cf);
         test_assert(memcmp(rocksEncodeMetaKey(db,key1->ptr), subkey, sdslen(subkey)) == 0);
 
-        rocksDecodeMetaVal(subraw, sdslen(subraw), &t, &e, &extend, &extlen);
-        buildObjectMeta(t,extend,extlen,&cold_meta);
+        rocksDecodeMetaVal(subraw, sdslen(subraw), &t, &e, &v, &extend, &extlen);
+        buildObjectMeta(t,v,extend,extlen,&cold_meta);
         test_assert(cold_meta->object_type == OBJ_SET && cold_meta->len == 4 && e == -1);
 
         cont = setLoad(loadData,&sdsrdb,&cf,&subkey,&subraw,&err);
@@ -1107,7 +1101,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         robj *value = createSetObject();
         setTypeAdd(value,f2);
         dbAdd(db, key1, value);
-        dbAddMeta(db, key1, createSetObjectMeta(1));
+        dbAddMeta(db, key1, createSetObjectMeta(0,1));
         test_assert(rdbKeySaveDataInit(saveData, db, (decodedResult*)decoded_meta) == 0);
         test_assert(rdbKeySaveStart(saveData,&rdbwarm) == 0);
         test_assert(rdbKeySave(saveData,&rdbwarm,decoded_data) == 0);

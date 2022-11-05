@@ -192,16 +192,16 @@ static int rdbKeySaveDataInitWarm(rdbKeySaveData *save, redisDb *db,
         wholeKeySaveInit(save);
         break;
     case OBJ_HASH:
-        hashSaveInit(save,NULL,0);
+        hashSaveInit(save,SWAP_VERSION_ZERO,NULL,0);
         break;
     case OBJ_SET:
-        setSaveInit(save,NULL,0);
+        setSaveInit(save,SWAP_VERSION_ZERO,NULL,0);
         break;
     case OBJ_LIST:
-        listSaveInit(save,NULL,0);
+        listSaveInit(save,SWAP_VERSION_ZERO,NULL,0);
         break;
     case OBJ_ZSET:
-        zsetSaveInit(save, NULL, 0);
+        zsetSaveInit(save,SWAP_VERSION_ZERO,NULL,0);
         break;
     default:
         retval = INIT_SAVE_ERR;
@@ -225,19 +225,19 @@ static int rdbKeySaveDataInitCold(rdbKeySaveData *save, redisDb *db,
         break;
     case OBJ_HASH:
         serverAssert(dm->extend != NULL);
-        retval = hashSaveInit(save,dm->extend,sdslen(dm->extend));
+        retval = hashSaveInit(save,dm->version,dm->extend,sdslen(dm->extend));
         break;
     case OBJ_SET:
         serverAssert(dm->extend != NULL);
-        retval = setSaveInit(save,dm->extend,sdslen(dm->extend));
+        retval = setSaveInit(save,dm->version,dm->extend,sdslen(dm->extend));
         break;
     case OBJ_LIST:
         serverAssert(dm->extend != NULL);
-        retval = listSaveInit(save,dm->extend,sdslen(dm->extend));
+        retval = listSaveInit(save,dm->version,dm->extend,sdslen(dm->extend));
         break;
     case OBJ_ZSET:
         serverAssert(dm->extend != NULL);
-        retval = zsetSaveInit(save,dm->extend,sdslen(dm->extend));
+        retval = zsetSaveInit(save,dm->version,dm->extend,sdslen(dm->extend));
         break;
     default:
         retval = INIT_SAVE_ERR;
@@ -272,14 +272,16 @@ int rocksDecodeDataCF(sds rawkey, unsigned char rdbtype, sds rdbraw,
     int dbid, retval;
     const char *key, *subkey;
     size_t keylen, subkeylen;
+    uint64_t version;
 
     retval = rocksDecodeDataKey(rawkey,sdslen(rawkey),&dbid,&key,&keylen,
-            &subkey,&subkeylen);
+            &version,&subkey,&subkeylen);
     if (retval) return retval;
 
     decoded->cf = DATA_CF;
     decoded->dbid = dbid;
     decoded->key = sdsnewlen(key,keylen);
+    decoded->version = version;
     decoded->subkey = NULL == subkey ? NULL : sdsnewlen(subkey,subkeylen);
     decoded->rdbtype = rdbtype;
     decoded->rdbraw = rdbraw;
@@ -293,17 +295,19 @@ int rocksDecodeMetaCF(sds rawkey, sds rawval, decodedMeta *decoded) {
     const char *key, *extend;
     size_t keylen, extlen;
     long long expire;
+    uint64_t version;
 
     retval = rocksDecodeMetaKey(rawkey,sdslen(rawkey),&dbid,&key,&keylen);
     if (retval) return retval;
 
     retval = rocksDecodeMetaVal(rawval,sdslen(rawval),&object_type,&expire,
-            &extend,&extlen);
+            &version,&extend,&extlen);
     if (retval) return retval;
 
     decoded->cf = META_CF;
     decoded->dbid = dbid;
     decoded->key = sdsnewlen(key,keylen);
+    decoded->version = version;
     decoded->object_type = object_type;
     decoded->expire = expire;
     decoded->extend = extlen > 0 ? sdsnewlen(extend,extlen) : NULL;
@@ -716,7 +720,7 @@ void rdbLoadStartLenMeta(struct rdbKeyLoadData *load, rio *rdb, int *cf,
 
     *cf = META_CF;
     *rawkey = rocksEncodeMetaKey(load->db,load->key);
-    *rawval = rocksEncodeMetaVal(load->object_type,load->expire,extend);
+    *rawval = rocksEncodeMetaVal(load->object_type,load->expire,load->version,extend);
     *error = 0;
 
     sdsfree(extend);
@@ -882,6 +886,7 @@ int rdbKeyLoadDataInit(rdbKeyLoadData *load, int rdbtype,
     load->now = now;
     load->value = NULL;
     load->iter = NULL;
+    load->version = swapGetAndIncrVersion();
 
     switch(rdbtype) {
     case RDB_TYPE_STRING:

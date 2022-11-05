@@ -277,6 +277,8 @@ void dbSetDirty(redisDb *db, robj *key);
 int objectIsDirty(robj *o);
 
 /* Object meta */
+#define SWAP_VERSION_ZERO 0
+
 extern dictType objectMetaDictType;
 
 struct objectMeta;
@@ -289,6 +291,7 @@ typedef struct objectMetaType {
 } objectMetaType;
 
 typedef struct objectMeta {
+  uint64_t version;
   unsigned object_type:4;
   union {
     long long len:60;
@@ -299,7 +302,10 @@ typedef struct objectMeta {
 extern objectMetaType lenObjectMetaType;
 extern objectMetaType listObjectMetaType;
 
-int buildObjectMeta(int object_type, const char *extend, size_t extlen, OUT objectMeta **pobject_meta);
+static inline void swapInitVersion() { server.swap_key_version = 1; }
+static inline uint64_t swapGetAndIncrVersion() { return server.swap_key_version++; }
+
+int buildObjectMeta(int object_type, uint64_t version, const char *extend, size_t extlen, OUT objectMeta **pobject_meta);
 objectMeta *dupObjectMeta(objectMeta *object_meta);
 void freeObjectMeta(objectMeta *object_meta);
 sds objectMetaEncode(struct objectMeta *object_meta);
@@ -314,9 +320,9 @@ static inline void objectMetaSetPtr(objectMeta *object_meta, void *ptr) {
   object_meta->ptr = (unsigned long long)ptr;
 }
 
-objectMeta *createObjectMeta(int object_type);
+objectMeta *createObjectMeta(int object_type, uint64_t version);
 
-objectMeta *createLenObjectMeta(int object_type, size_t len);
+objectMeta *createLenObjectMeta(int object_type, uint64_t version, size_t len);
 sds encodeLenObjectMeta(struct objectMeta *object_meta);
 int decodeLenObjectMeta(struct objectMeta *object_meta, const char *extend, size_t extlen);
 int lenObjectMetaIsHot(struct objectMeta *object_meta, robj *value);
@@ -389,6 +395,7 @@ typedef struct swapDataType {
   int (*beforeCall)(struct swapData *data, client *c, void *datactx);
   void (*free)(struct swapData *data, void *datactx);
   int (*rocksDel)(struct swapData *data_,  void *datactx_, int inaction, int num, int* cfs, sds *rawkeys, sds *rawvals, OUT int *outaction, OUT int *outnum, OUT int** outcfs,OUT sds **outrawkeys);
+  int (*mergedIsHot)(struct swapData *data, MOVE void *result, void *datactx);
 } swapDataType;
 
 swapData *createSwapData(redisDb *db, robj *key, robj *value);
@@ -411,6 +418,8 @@ int swapDataBeforeCall(swapData *d, client *c, void *datactx);
 int swapDataKeyRequestFinished(swapData *data);
 char swapDataGetObjectAbbrev(robj *value);
 void swapDataFree(swapData *data, void *datactx);
+int swapDataMergedIsHot(swapData *d, void *result, void *datactx);
+
 static inline void swapDataSetObjectMeta(swapData *d, objectMeta *object_meta) {
     d->object_meta = object_meta;
 }
@@ -438,6 +447,12 @@ static inline objectMeta *swapDataObjectMeta(swapData *d) {
     if (d->cold_meta) return d->cold_meta;
     return d->new_meta;
 }
+
+static inline uint64_t swapDataObjectVersion(swapData *d) {
+    objectMeta *object_meta = swapDataObjectMeta(d);
+    return object_meta ? object_meta->version : 0;
+}
+
 static inline int swapDataPersisted(swapData *d) {
     return d->object_meta || d->cold_meta;
 }
@@ -452,6 +467,12 @@ static inline void swapDataObjectMetaSetPtr(swapData *d, void *ptr) {
 void swapDataTurnWarmOrHot(swapData *data);
 void swapDataTurnCold(swapData *data);
 void swapDataTurnDeleted(swapData *data,int del_skip);
+
+int swapDataObjectMergedIsHot(swapData *data, void *result, void *datactx);
+#define setMergedIsHot swapDataObjectMergedIsHot
+#define hashMergedIsHot swapDataObjectMergedIsHot
+#define zsetMergedIsHot swapDataObjectMergedIsHot
+#define wholeKeyMergedIsHot swapDataObjectMergedIsHot
 
 
 /* Debug msgs */
@@ -560,7 +581,7 @@ typedef struct hashDataCtx {
 int swapDataSetupHash(swapData *d, OUT void **datactx);
 
 #define hashObjectMetaType lenObjectMetaType
-#define createHashObjectMeta(len) createLenObjectMeta(OBJ_HASH, len)
+#define createHashObjectMeta(version, len) createLenObjectMeta(OBJ_HASH, version, len)
 
 /* Set */
 typedef struct setSwapData {
@@ -574,7 +595,7 @@ typedef struct setDataCtx {
 int swapDataSetupSet(swapData *d, OUT void **datactx);
 
 #define setObjectMetaType lenObjectMetaType
-#define createSetObjectMeta(len) createLenObjectMeta(OBJ_SET, len)
+#define createSetObjectMeta(version, len) createLenObjectMeta(OBJ_SET, version, len)
 
 /* List */
 typedef struct listSwapData {
@@ -587,7 +608,7 @@ typedef struct listDataCtx {
   int ctx_flag;
 } listDataCtx;
 
-objectMeta *createListObjectMeta(MOVE struct listMeta *list_meta);
+objectMeta *createListObjectMeta(uint64_t version, MOVE struct listMeta *list_meta);
 int swapDataSetupList(swapData *d, void **pdatactx);
 
 typedef struct argRewrite {
@@ -638,7 +659,7 @@ typedef struct zsetDataCtx {
 
 } zsetDataCtx;
 int swapDataSetupZSet(swapData *d, OUT void **datactx);
-#define createZsetObjectMeta(len) createLenObjectMeta(OBJ_ZSET, len)
+#define createZsetObjectMeta(version, len) createLenObjectMeta(OBJ_ZSET, version, len)
 #define zsetObjectMetaType lenObjectMetaType
 
 
@@ -1178,6 +1199,7 @@ typedef struct decodedMeta {
   int cf;
   int dbid;
   sds key;
+  uint64_t version;
   int object_type;
   long long expire;
   sds extend;
@@ -1187,6 +1209,7 @@ typedef struct decodedData {
   int cf;
   int dbid;
   sds key;
+  uint64_t version;
   sds subkey;
   int rdbtype;
   sds rdbraw;
@@ -1233,10 +1256,10 @@ int rdbKeySaveStart(struct rdbKeySaveData *keydata, rio *rdb);
 int rdbKeySave(struct rdbKeySaveData *keydata, rio *rdb, decodedData *d);
 int rdbKeySaveEnd(struct rdbKeySaveData *keydata, rio *rdb, int save_result);
 void wholeKeySaveInit(rdbKeySaveData *keydata);
-int hashSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
-int setSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
-int listSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
-int zsetSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen);
+int hashSaveInit(rdbKeySaveData *save, uint64_t version, const char *extend, size_t extlen);
+int setSaveInit(rdbKeySaveData *save, uint64_t version, const char *extend, size_t extlen);
+int listSaveInit(rdbKeySaveData *save, uint64_t version, const char *extend, size_t extlen);
+int zsetSaveInit(rdbKeySaveData *save, uint64_t version, const char *extend, size_t extlen);
 
 /* Rdb load */
 /* RDB_LOAD_ERR_*: [1 +inf), SWAP_ERR_RDB_LOAD_*: (-inf -500] */
@@ -1278,6 +1301,7 @@ typedef struct rdbKeyLoadData {
     sds key; /* ref */
     long long expire;
     long long now;
+    uint64_t version;
     int rdbtype;
     int object_type;
     int nfeeds;
@@ -1320,29 +1344,31 @@ int rdbLoadLenVerbatim(rio *rdb, sds *verbatim, int *isencoded, unsigned long lo
 #define ROCKS_KEY_FLAG_NONE 0x0
 #define ROCKS_KEY_FLAG_SUBKEY 0x1
 #define ROCKS_KEY_FLAG_DELETE 0xff
-#define rocksEncodeMetaKey(db,key)  rocksEncodeDataKey(db,key,NULL)
-#define rocksDecodeMetaKey(raw,rawlen,dbid,key,keylen)  rocksDecodeDataKey(raw,rawlen,dbid,key,keylen,NULL,NULL)
-#define rocksEncodeDataScanPrefix(db,key) rocksEncodeDataKey(db,key,shared.emptystring->ptr)
-sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey);
-int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid, const char **key, size_t *keylen, const char **subkey, size_t *subkeylen);
-sds rocksEncodeMetaVal(int object_type, long long expire, sds extend);
-int rocksDecodeMetaVal(const char* raw, size_t rawlen, int *object_type, long long *expire, const char **extend, size_t *extend_len);
+sds rocksEncodeMetaKey(redisDb *db, sds key);
+int rocksDecodeMetaKey(const char *raw, size_t rawlen, int *dbid, const char **key, size_t *keylen);
+sds rocksEncodeDataKey(redisDb *db, sds key, uint64_t version, sds subkey);
+sds rocksEncodeDataRangeStartKey(redisDb *db, sds key, uint64_t version);
+sds rocksEncodeDataRangeEndKey(redisDb *db, sds key, uint64_t version);
+#define rocksEncodeDataScanPrefix(db,key,version) rocksEncodeDataRangeStartKey(db,key,version)
+int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid, const char **key, size_t *keylen, uint64_t *version, const char **subkey, size_t *subkeylen);
+sds rocksEncodeMetaVal(int object_type, long long expire, uint64_t version, sds extend);
+int rocksDecodeMetaVal(const char* raw, size_t rawlen, int *object_type, long long *expire, uint64_t *version, const char **extend, size_t *extend_len);
 sds rocksEncodeValRdb(robj *value);
 robj *rocksDecodeValRdb(sds raw);
 sds rocksEncodeObjectMetaLen(unsigned long len);
 long rocksDecodeObjectMetaLen(const char *raw, size_t rawlen);
-sds rocksGenerateEndKey(sds start_key);
 sds encodeMetaScanKey(unsigned long cursor, int limit, sds seek);
 int decodeMetaScanKey(sds meta_scan_key, unsigned long *cursor, int *limit, const char **seek, size_t *seeklen);
 
 #define sizeOfDouble (BYTE_ORDER == BIG_ENDIAN? sizeof(double):8)
 int encodeDouble(char* buf, double value);
-int decodeDouble(char* val, double* score);
-int decodeScoreKey(char* raw, int rawlen, int* dbid, char** key, size_t* keylen, char** subkey, size_t* subkeylen, double* score);
-sds encodeScoreKey(redisDb* db ,sds key, sds subkey, double score);
+int decodeDouble(const char* val, double* score);
+int decodeScoreKey(const char* raw, int rawlen, int* dbid, const char** key, size_t* keylen, uint64_t *version, double* score, const char** subkey, size_t* subkeylen);
+sds encodeScoreKey(redisDb* db ,sds key, uint64_t version, double score, sds subkey);
 sds encodeIntervalSds(int ex, MOVE IN sds data);
 int decodeIntervalSds(sds data, int* ex, char** raw, size_t* rawlen);
-sds encodeScorePrefix(redisDb* db, sds key);
+sds encodeScoreRangeStart(redisDb* db, sds key, uint64_t version);
+sds encodeScoreRangeEnd(redisDb* db, sds key, uint64_t version);
 
 robj *unshareStringValue(robj *value);
 size_t objectEstimateSize(robj *o);

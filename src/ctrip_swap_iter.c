@@ -323,7 +323,7 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
         goto err;
     }
 
-    data_start_key = rocksEncodeDataKey(db,NULL,NULL);
+    data_start_key = rocksEncodeDataKey(db,NULL,0,NULL);
     meta_start_key = rocksEncodeMetaKey(db,NULL);
     rocksdb_iter_seek(data_iter,data_start_key,sdslen(data_start_key));
     rocksdb_iter_seek(meta_iter,meta_start_key,sdslen(meta_start_key));
@@ -473,7 +473,7 @@ void dbg_rocksdb_put_cf(
 #define PUT_META(object_type,key_,expire) do {              \
     char *err = NULL;                                       \
     sds keysds = rocksEncodeMetaKey(db, key_);              \
-    sds valsds = rocksEncodeMetaVal(object_type,expire,NULL);\
+    sds valsds = rocksEncodeMetaVal(object_type,expire,0,NULL);\
     rocksdb_put_cf(server.rocks->db,server.rocks->wopts,    \
             server.rocks->cf_handles[META_CF],              \
             keysds,sdslen(keysds),valsds,sdslen(valsds),&err);\
@@ -482,7 +482,7 @@ void dbg_rocksdb_put_cf(
 
 #define PUT_DATA(key_,subkey_,val_) do {                    \
     char *err = NULL;                                       \
-    sds keysds = rocksEncodeDataKey(db,key_,subkey_);       \
+    sds keysds = rocksEncodeDataKey(db,key_,0,subkey_);     \
     sds valsds = rocksEncodeValRdb(val_);                   \
     rocksdb_put_cf(server.rocks->db,server.rocks->wopts,    \
             server.rocks->cf_handles[DATA_CF],              \

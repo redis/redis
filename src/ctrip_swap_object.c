@@ -62,8 +62,9 @@ static inline objectMetaType *getObjectMetaType(int object_type) {
     return omtype;
 }
 
-objectMeta *createObjectMeta(int object_type) {
+objectMeta *createObjectMeta(int object_type, uint64_t version) {
 	objectMeta *m = zmalloc(sizeof(objectMeta));
+    m->version = version;
     m->object_type = object_type;
     m->len = 0;
     return m;
@@ -91,7 +92,7 @@ objectMeta *dupObjectMeta(objectMeta *object_meta) {
     return dup_meta;
 }
 
-int buildObjectMeta(int object_type, const char *extend,
+int buildObjectMeta(int object_type, uint64_t version, const char *extend,
         size_t extlen, OUT objectMeta **pobject_meta) {
     objectMeta *object_meta;
     objectMetaType *omtype = getObjectMetaType(object_type);
@@ -103,7 +104,7 @@ int buildObjectMeta(int object_type, const char *extend,
 
     if (pobject_meta == NULL) return 0;
 
-    object_meta = createObjectMeta(object_type);
+    object_meta = createObjectMeta(object_type, version);
     if (omtype->decodeObjectMeta(object_meta,extend,extlen)) {
         zfree(object_meta);
         *pobject_meta = NULL;
@@ -155,6 +156,7 @@ sds dumpObjectMeta(objectMeta *object_meta) {
     }
 
     objectMetaType *omtype = getObjectMetaType(object_meta->object_type);
+    result = sdscatprintf(result,"version=%lu",object_meta->version);
     if (omtype == &lenObjectMetaType){
         result = sdscatprintf(result,"len=%ld",(long)object_meta->len);
     } else if (omtype == &listObjectMetaType) {
@@ -169,8 +171,8 @@ sds dumpObjectMeta(objectMeta *object_meta) {
 
 /* lenObjectMeta, used by hash/set/zset */
 
-objectMeta *createLenObjectMeta(int object_type, size_t len) {
-    objectMeta *m = createObjectMeta(object_type);
+objectMeta *createLenObjectMeta(int object_type, uint64_t version, size_t len) {
+    objectMeta *m = createObjectMeta(object_type,version);
 	m->len = len;
 	return m;
 }
@@ -313,11 +315,11 @@ int swapObjectTest(int argc, char *argv[], int accurate) {
         robj *val1 = createStringObject(val1raw, strlen(val1raw)); 
 
         dbAdd(db,key1,val1);
-        dbAddMeta(db,key1,createHashObjectMeta(1));
+        dbAddMeta(db,key1,createHashObjectMeta(0,1));
         test_assert(lookupMeta(db,key1) != NULL);
         dbDeleteMeta(db,key1);
         test_assert(lookupMeta(db,key1) == NULL);
-        dbAddMeta(db,key1,createHashObjectMeta(1));
+        dbAddMeta(db,key1,createHashObjectMeta(0,1));
         test_assert(lookupMeta(db,key1) != NULL);
         dbDelete(db,key1);
         test_assert(lookupMeta(db,key1) == NULL);

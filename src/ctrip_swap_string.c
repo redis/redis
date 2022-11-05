@@ -112,7 +112,7 @@ int wholeKeyEncodeKeys(swapData *data, int intention, void *datactx,
     int *cfs = zmalloc(sizeof(int));
 
     UNUSED(datactx);
-    rawkeys[0] = rocksEncodeDataKey(data->db,data->key->ptr,NULL);
+    rawkeys[0] = rocksEncodeDataKey(data->db,data->key->ptr,SWAP_VERSION_ZERO,NULL);
     cfs[0] = DATA_CF;
     *numkeys = 1;
     *prawkeys = rawkeys;
@@ -139,7 +139,7 @@ int wholeKeyEncodeKeys(swapData *data, int intention, void *datactx,
 }
 
 static sds wholeKeyEncodeDataKey(swapData *data) {
-    return data->key ? rocksEncodeDataKey(data->db,data->key->ptr,NULL) : NULL;
+    return data->key ? rocksEncodeDataKey(data->db,data->key->ptr,SWAP_VERSION_ZERO,NULL) : NULL;
 }
 
 static sds wholeKeyEncodeDataVal(swapData *data) {
@@ -252,6 +252,8 @@ swapDataType wholeKeySwapDataType = {
     .cleanObject = NULL,
     .beforeCall = NULL,
     .free = NULL,
+    .rocksDel = NULL,
+    .mergedIsHot = wholeKeyMergedIsHot,
 };
 
 int swapDataSetupWholeKey(swapData *d, void **datactx) {
@@ -301,7 +303,7 @@ void wholekeyLoadStart(struct rdbKeyLoadData *keydata, rio *rdb, int *cf,
     UNUSED(rdb);
     *cf = META_CF;
     *rawkey = rocksEncodeMetaKey(keydata->db,keydata->key);
-    *rawval = rocksEncodeMetaVal(keydata->object_type,keydata->expire,NULL);
+    *rawval = rocksEncodeMetaVal(keydata->object_type,keydata->expire,SWAP_VERSION_ZERO,NULL);
     *error = 0;
 }
 
@@ -317,7 +319,7 @@ int wholekeyLoad(struct rdbKeyLoadData *keydata, rio *rdb, int *cf,
 
     *error = 0;
     *cf = DATA_CF;
-    *rawkey = rocksEncodeDataKey(db,key,NULL);
+    *rawkey = rocksEncodeDataKey(db,key,SWAP_VERSION_ZERO,NULL);
     *rawval = verbatim;
     return 0;
 
@@ -627,8 +629,8 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         sds key = sdsnew("key");
         robj *val = createStringObject("val",3);
         sds meta_rawkey = rocksEncodeMetaKey(db,key);
-        sds meta_rawval = rocksEncodeMetaVal(OBJ_STRING,-1,NULL);
-        sds data_rawkey = rocksEncodeDataKey(db,key,NULL);
+        sds meta_rawval = rocksEncodeMetaVal(OBJ_STRING,-1,0,NULL);
+        sds data_rawkey = rocksEncodeDataKey(db,key,0,NULL);
         sds data_rawval = rocksEncodeValRdb(val);
 
         test_assert(!rocksDecodeMetaCF(sdsdup(meta_rawkey),sdsdup(meta_rawval),dm));

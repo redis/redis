@@ -413,7 +413,7 @@ int metaScanDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
             break;
         }
         if (rocksDecodeMetaVal(rawvals[i],sdslen(rawvals[i]),
-                &object_type,&expire,NULL,NULL)) {
+                &object_type,&expire,NULL,NULL,NULL)) {
             retval = SWAP_ERR_DATA_DECODE_FAIL;
             break;
         }
@@ -583,7 +583,7 @@ int metaScanTest(int argc, char *argv[], int accurate) {
             ocfs[i] = META_CF;
             sds key = sdsfromlonglong(i);
             orawkeys[i] = rocksEncodeMetaKey(db,key);
-            orawvals[i] = rocksEncodeMetaVal(OBJ_HASH,-1,NULL);
+            orawvals[i] = rocksEncodeMetaVal(OBJ_HASH,-1,0,NULL);
             sdsfree(key);
         }
         orawkeys[onumkeys] = rocksEncodeMetaKey(db,lastkey);

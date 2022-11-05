@@ -94,24 +94,35 @@ static inline char abbrev2ObjectType(char abbrev) {
     return -1;
 }
 
-sds rocksEncodeMetaVal(int object_type, long long expire, sds extend) {
-    size_t len = 1 + sizeof(expire) + (extend ? sdslen(extend) : 0);
+/* Encode version in BE order, so that numeric order matches alphabatic. */
+#define rocksEncodeVersion(version) htonu64(version)
+#define rocksDecodeVersion(version) ntohu64(version)
+
+sds rocksEncodeMetaVal(int object_type, long long expire, uint64_t version,
+        sds extend) {
+    uint64_t encoded_version = rocksEncodeVersion(version);
+    size_t len = 1 + sizeof(expire) + sizeof(encoded_version) + 
+        (extend ? sdslen(extend) : 0);
     sds raw = sdsnewlen(SDS_NOINIT,len), ptr = raw;
     ptr[0] = objectType2Abbrev(object_type), ptr++;
-    memcpy(raw+1,&expire,sizeof(expire)), ptr+=sizeof(expire);
+    memcpy(ptr,&expire,sizeof(expire)), ptr+=sizeof(expire);
+    memcpy(ptr,&encoded_version,sizeof(encoded_version));
+    ptr += sizeof(encoded_version);
     if (extend) memcpy(ptr,extend,sdslen(extend));
     return raw;
 }
 
 /* extend: pointer to rawkey, not allocated. */
 int rocksDecodeMetaVal(const char *raw, size_t rawlen, int *pobject_type,
-        long long *pexpire, const char **pextend, size_t *pextend_len) {
+        long long *pexpire, uint64_t *pversion, const char **pextend,
+        size_t *pextend_len) {
     const char *ptr = raw;
     size_t len = rawlen;
     long long expire;
     int object_type;
+    uint64_t encoded_version;
 
-    if (rawlen < 1 + sizeof(expire)) return -1;
+    if (rawlen < 1 + sizeof(expire) + sizeof(encoded_version)) return -1;
 
     if ((object_type = abbrev2ObjectType(ptr[0])) < 0) return -1;
     ptr++, len--;
@@ -121,6 +132,10 @@ int rocksDecodeMetaVal(const char *raw, size_t rawlen, int *pobject_type,
     ptr += sizeof(long long), len -= sizeof(long long);
     if (pexpire) *pexpire = expire;
 
+    encoded_version = *(uint64_t*)ptr;
+    if (pversion) *pversion = rocksDecodeVersion(encoded_version);
+    ptr += sizeof(encoded_version), len -= sizeof(encoded_version);
+
     if (pextend_len) *pextend_len = len;
     if (pextend) {
         *pextend = len > 0 ? ptr : NULL;
@@ -128,30 +143,52 @@ int rocksDecodeMetaVal(const char *raw, size_t rawlen, int *pobject_type,
 
     return 0;
 }
+
 typedef unsigned int keylen_t;
-sds rocksEncodeDataKey(redisDb *db, sds key, sds subkey) {
+
+static sds _rocksEncodeDataKey(redisDb *db, sds key, uint64_t version,
+        uint8_t subkeyflag, sds subkey) {
     int dbid = db->id;
     keylen_t keylen = key ? sdslen(key) : 0;
     keylen_t subkeylen = subkey ? sdslen(subkey) : 0;
-    size_t rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen+1+subkeylen;
+    uint64_t encoded_version = rocksEncodeVersion(version);
+    size_t rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen+
+        sizeof(encoded_version)+1+subkeylen;
     sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen), ptr = rawkey;
     memcpy(ptr, &dbid, sizeof(dbid)), ptr += sizeof(dbid);
     memcpy(ptr, &keylen, sizeof(keylen_t)), ptr += sizeof(keylen_t);
     memcpy(ptr, key, keylen), ptr += keylen;
-    if (subkey) {
-        memset(ptr,ROCKS_KEY_FLAG_SUBKEY,1), ptr += 1;
+    memcpy(ptr, &encoded_version, sizeof(encoded_version));
+    ptr += sizeof(encoded_version);
+    ptr[0] = subkeyflag, ptr++;
+    if (subkeyflag == ROCKS_KEY_FLAG_SUBKEY) {
         memcpy(ptr, subkey, subkeylen), ptr += subkeylen;
-    } else {
-        memset(ptr,ROCKS_KEY_FLAG_NONE,1), ptr += 1;
     }
     return rawkey;
 }
 
+sds rocksEncodeDataKey(redisDb *db, sds key, uint64_t version, sds subkey) {
+    if (subkey) {
+        return _rocksEncodeDataKey(db,key,version,ROCKS_KEY_FLAG_SUBKEY,subkey);
+    } else {
+        return _rocksEncodeDataKey(db,key,version,ROCKS_KEY_FLAG_NONE,NULL);
+    }
+}
+
+sds rocksEncodeDataRangeStartKey(redisDb *db, sds key, uint64_t version) {
+    return _rocksEncodeDataKey(db,key,version,ROCKS_KEY_FLAG_SUBKEY,shared.emptystring->ptr);
+}
+
+sds rocksEncodeDataRangeEndKey(redisDb *db, sds key, uint64_t version) {
+    return _rocksEncodeDataKey(db,key,version,ROCKS_KEY_FLAG_DELETE,NULL);
+}
+
 int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid,
-        const char **key, size_t *keylen,
+        const char **key, size_t *keylen, uint64_t *version,
         const char **subkey, size_t *subkeylen) {
     keylen_t keylen_;
-    if (raw == NULL || rawlen < sizeof(int)+sizeof(keylen_t)+1) return -1;
+    uint64_t encoded_version;
+    if (raw == NULL || rawlen < sizeof(int)+sizeof(keylen_t)+sizeof(encoded_version)+1) return -1;
     if (dbid) *dbid = *(int*)raw;
     raw += sizeof(int), rawlen -= sizeof(int);
     keylen_ = *(keylen_t*)raw;
@@ -160,10 +197,43 @@ int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid,
     if (key) *key = raw;
     if (rawlen < keylen_) return -1;
     raw += keylen_, rawlen -= keylen_;
+    if (rawlen < sizeof(encoded_version)) return -1;
+    if (version) {
+        encoded_version = *(uint64_t*)raw;
+        *version = rocksDecodeVersion(encoded_version);
+    }
+    raw += sizeof(encoded_version), rawlen -= sizeof(encoded_version);
     if (subkeylen) *subkeylen = rawlen - 1;
     if (subkey) {
         *subkey = raw[0] == ROCKS_KEY_FLAG_SUBKEY ? raw + 1 : NULL;
     }
+    return 0;
+}
+
+/* Note that metakey MUST be prefix of datakeys, rdb save key switch detection
+ * relay on that assumption. */
+sds rocksEncodeMetaKey(redisDb *db, sds key) {
+    int dbid = db->id;
+    keylen_t keylen = key ? sdslen(key) : 0;
+    size_t rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen;
+    sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen), ptr = rawkey;
+    memcpy(ptr, &dbid, sizeof(dbid)), ptr += sizeof(dbid);
+    memcpy(ptr, &keylen, sizeof(keylen_t)), ptr += sizeof(keylen_t);
+    memcpy(ptr, key, keylen), ptr += keylen;
+    return rawkey;
+}
+
+int rocksDecodeMetaKey(const char *raw, size_t rawlen, int *dbid,
+        const char **key, size_t *keylen) {
+    keylen_t keylen_;
+    if (raw == NULL || rawlen < sizeof(int)+sizeof(keylen_t)) return -1;
+    if (dbid) *dbid = *(int*)raw;
+    raw += sizeof(int), rawlen -= sizeof(int);
+    keylen_ = *(keylen_t*)raw;
+    if (keylen) *keylen = keylen_;
+    raw += sizeof(keylen_t), rawlen -= sizeof(keylen_t);
+    if (key) *key = raw;
+    if (rawlen < keylen_) return -1;
     return 0;
 }
 
@@ -192,12 +262,6 @@ sds rocksEncodeObjectMetaLen(unsigned long len) {
 long rocksDecodeObjectMetaLen(const char *raw, size_t rawlen) {
     if (rawlen != sizeof(unsigned long)) return -1;
     return *(long*)raw;
-}
-
-sds rocksGenerateEndKey(sds start_key) {
-    sds end_key = sdsdup(start_key);
-    end_key[sdslen(end_key) - 1] = (uint8_t)ROCKS_KEY_FLAG_DELETE;
-    return end_key;
 }
 
 sds encodeMetaScanKey(unsigned long cursor, int limit, sds seek) {
@@ -282,7 +346,7 @@ uint64_t decodeFixed64(const char *ptr) {
   }
 }
 
-int decodeDouble(char* val, double* score) {
+int decodeDouble(const char* val, double* score) {
     uint64_t decoded = decodeFixed64(val);
     if ((decoded >> 63) == 0) {
         decoded ^= 0xffffffffffffffff;
@@ -295,42 +359,60 @@ int decodeDouble(char* val, double* score) {
     return sizeof(value);
 }
 
-sds encodeScoreHead(sds rawkey, int dbid, sds key, keylen_t keylen) {
-    sds ptr = rawkey;
+sds _encodeScoreKey(int dbid, sds key, uint64_t version, uint8_t subkeyflag,
+        double score, sds subkey) {
+    uint64_t encoded_version = rocksEncodeVersion(version);
+    keylen_t keylen = key ? sdslen(key) : 0;
+    keylen_t scoresubkeylen, rawkeylen;
+    sds rawkey, ptr;
+
+    if (subkeyflag == ROCKS_KEY_FLAG_SUBKEY) {
+        serverAssert(subkey);
+        scoresubkeylen = sizeOfDouble;
+        scoresubkeylen += sdslen(subkey);
+    } else {
+        scoresubkeylen = 0;
+    } 
+
+    rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen+sizeof(version)+1+scoresubkeylen;
+    rawkey = sdsnewlen(SDS_NOINIT,rawkeylen), ptr = rawkey;
+
     memcpy(ptr, &dbid, sizeof(dbid)), ptr += sizeof(dbid);
     memcpy(ptr, &keylen, sizeof(keylen_t)), ptr += sizeof(keylen_t);
     memcpy(ptr, key, keylen), ptr += keylen;
-    return ptr;
-}
+    memcpy(ptr, &encoded_version, sizeof(encoded_version));
+    ptr += sizeof(encoded_version);
+    ptr[0] = subkeyflag, ptr++;
 
-sds encodeScorePrefix(redisDb* db, sds key) {
-    int dbid = db->id;
-    keylen_t keylen = key ? sdslen(key) : 0;
-    keylen_t rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen;
-    sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen);
-    encodeScoreHead(rawkey, dbid, key, keylen);
-    return rawkey;
-}
-
-sds encodeScoreKey(redisDb* db ,sds key, sds subkey, double score) {
-    int dbid = db->id;
-    keylen_t keylen = key ? sdslen(key) : 0;
-    keylen_t subkeylen = subkey ? sdslen(subkey): 0;
-    keylen_t rawkeylen =  sizeof(dbid)+sizeof(keylen)+keylen+sizeOfDouble+subkeylen;
-    sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen), 
-        ptr = encodeScoreHead(rawkey, dbid, key, keylen);
-    ptr += encodeDouble(ptr, score);
-    if (subkey) {
-        memcpy(ptr, subkey, subkeylen), ptr += subkeylen;
+    if (subkeyflag == ROCKS_KEY_FLAG_SUBKEY) {
+        ptr += encodeDouble(ptr,score);
+        memcpy(ptr,subkey,sdslen(subkey)), ptr += scoresubkeylen;
     }
+
     return rawkey;
 }
 
+sds encodeScoreRangeStart(redisDb* db, sds key, uint64_t version) {
+    return _encodeScoreKey(db->id,key,version,ROCKS_KEY_FLAG_NONE,0,NULL);
+}
 
+sds encodeScoreRangeEnd(redisDb* db, sds key, uint64_t version) {
+    return _encodeScoreKey(db->id,key,version,ROCKS_KEY_FLAG_DELETE,0,NULL);
+}
 
-int decodeScoreKey(char* raw, int rawlen, int* dbid, char** key, size_t* keylen, char** subkey, size_t* subkeylen, double* score) {
+sds encodeScoreKey(redisDb* db, sds key, uint64_t version, double score, sds subkey) {
+    if (subkey) {
+        return _encodeScoreKey(db->id,key,version,ROCKS_KEY_FLAG_SUBKEY,score,subkey);
+    } else {
+        return _encodeScoreKey(db->id,key,version,ROCKS_KEY_FLAG_NONE,0,NULL);
+    }
+}
+
+int decodeScoreKey(const char* raw, int rawlen, int* dbid, const char** key,
+        size_t* keylen, uint64_t *version, double* score, const char** subkey,
+        size_t* subkeylen) {
     keylen_t keylen_;
-    if (raw == NULL || rawlen < (int)(sizeof(int)+sizeof(keylen_t))) return -1;
+    if (raw == NULL || rawlen < (int)(sizeof(int)+sizeof(keylen_t)+sizeof(uint64_t)+1+sizeOfDouble)) return -1;
     if (dbid) *dbid = *(int*)raw;
     raw += sizeof(int), rawlen -= sizeof(int);
     keylen_ = *(keylen_t*)raw;
@@ -339,13 +421,25 @@ int decodeScoreKey(char* raw, int rawlen, int* dbid, char** key, size_t* keylen,
     if (key) *key = raw;
     if (rawlen < (int)keylen_) return -1;
     raw += keylen_, rawlen -= keylen_;
-    int double_offset = decodeDouble(raw, score);
-    raw += double_offset;
-    rawlen -= double_offset;
-    if (subkeylen) *subkeylen = rawlen;
-    if (subkey) {
-        *subkey = rawlen > 0 ? raw : NULL;
+    if (version) {
+        uint64_t encoded_version = *(uint64_t*)raw;
+        *version = rocksDecodeVersion(encoded_version);
     }
+    raw += sizeof(uint64_t), rawlen -= sizeof(uint64_t);
+    uint8_t subkeyflag = raw[0];
+    raw++, rawlen--;
+    if (subkeyflag == ROCKS_KEY_FLAG_SUBKEY) {
+        int double_offset = decodeDouble(raw, score);
+        raw += double_offset;
+        rawlen -= double_offset;
+        if (subkeylen) *subkeylen = rawlen;
+        if (subkey) *subkey = raw;
+    } else {
+        if (score) *score = 0;
+        if (subkeylen) *subkeylen = 0;
+        if (subkey) *subkey = NULL;
+    }
+
     return 0;
 }
 
@@ -407,50 +501,158 @@ int swapUtilTest(int argc, char **argv, int accurate) {
         sdsfree(raw);
     }
 
-    TEST("util - encode & decode key") {
+    TEST("util - decode & encode version") {
+        uint64_t V = 0x12345678;
+        test_assert(V == rocksDecodeVersion(rocksEncodeVersion(V)));
+    }
+
+    TEST("util - encode & decode data key") {
         sds key = sdsnew("key1");
         sds f1 = sdsnew("f1");
         int dbId = 123456789;
         const char *keystr = NULL, *subkeystr = NULL;
         size_t klen = 123456789, slen = 123456789;
         sds empty = sdsempty();
+        uint64_t version, V = 0x12345678;
 
-        // util - encode & decode no subkey
-        sds rocksKey = rocksEncodeDataKey(db,key,NULL);
-        rocksDecodeDataKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&subkeystr,&slen);
+        /* util - encode & decode no subkey */
+        sds rocksKey = rocksEncodeDataKey(db,key,V,NULL);
+        rocksDecodeDataKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&version,&subkeystr,&slen);
         test_assert(dbId == db->id);
         test_assert(memcmp(key,keystr,klen) == 0);
         test_assert(subkeystr == NULL);
+        test_assert(version == V);
         sdsfree(rocksKey);
-        // util - encode & decode with subkey
-        rocksKey = rocksEncodeDataKey(db,key,f1);
-        rocksDecodeDataKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&subkeystr,&slen);
+        /* util - encode & decode with subkey */
+        rocksKey = rocksEncodeDataKey(db,key,V,f1);
+        rocksDecodeDataKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&version,&subkeystr,&slen);
         test_assert(dbId == db->id);
         test_assert(memcmp(key,keystr,klen) == 0);
         test_assert(memcmp(f1,subkeystr,slen) == 0);
         test_assert(sdslen(f1) == slen);
+        test_assert(version == V);
         sdsfree(rocksKey);
-        // util - encode & decode with empty subkey
-        rocksKey = rocksEncodeDataKey(db,key,empty);
-        rocksDecodeDataKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&subkeystr,&slen);
+        /* util - encode & decode with empty subkey */
+        rocksKey = rocksEncodeDataKey(db,key,V,empty);
+        rocksDecodeDataKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&version,&subkeystr,&slen);
         test_assert(dbId == db->id);
         test_assert(memcmp(key,keystr,klen) == 0);
         test_assert(memcmp("",subkeystr,slen) == 0);
         test_assert(slen == 0);
+        test_assert(version == V);
         sdsfree(rocksKey);
-        // util - encode end key
-        sds start_key = rocksEncodeDataKey(db,key,NULL);
-        sds end_key = rocksGenerateEndKey(start_key);
+        /* util - encode end key */
+        sds start_key = rocksEncodeDataRangeStartKey(db,key,V);
+        sds end_key = rocksEncodeDataRangeEndKey(db,key,V);
         test_assert(sdscmp(start_key, end_key) < 0);
-        rocksKey = rocksEncodeDataKey(db,key,empty);
-        test_assert(sdscmp(rocksKey, start_key) > 0 && sdscmp(rocksKey, end_key) < 0);
+        rocksKey = rocksEncodeDataKey(db,key,V,empty);
+        test_assert(sdscmp(rocksKey, start_key) >= 0 && sdscmp(rocksKey, end_key) < 0);
         sdsfree(rocksKey);
 
-        rocksKey = rocksEncodeDataKey(db,key,f1);
+        rocksKey = rocksEncodeDataKey(db,key,V,f1);
         test_assert(sdscmp(rocksKey, start_key) > 0 && sdscmp(rocksKey, end_key) < 0);
         sdsfree(rocksKey);
 
         sdsfree(empty);
+    }
+
+    TEST("util - encode & decode meta") {
+        sds empty = sdsempty(), rocksKey, rocksVal;
+        sds key = sdsnew("key1");
+        sds EXT = sdsfromlonglong(666);
+        int dbId = 123456789, object_type;
+        const char *keystr = NULL, *extend;
+        size_t klen, extlen;
+        uint64_t version, V = 0x12345678;
+        long long expire, EXP = 10086;
+
+        /* util - encode & decode empty meta key */
+        rocksKey = rocksEncodeMetaKey(db,empty);
+        rocksDecodeMetaKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen);
+        test_assert(dbId == db->id);
+        test_assert(klen == 0);
+        sdsfree(rocksKey);
+
+        /* util - encode & decode meta key */
+        rocksKey = rocksEncodeMetaKey(db,key);
+        rocksDecodeMetaKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen);
+        test_assert(dbId == db->id);
+        test_assert(memcmp(key,keystr,klen) == 0 && klen == sdslen(key));
+        sdsfree(rocksKey);
+
+        /* util - encode & decode meta val */
+        rocksVal = rocksEncodeMetaVal(OBJ_HASH,EXP,V,EXT);
+        rocksDecodeMetaVal(rocksVal,sdslen(rocksVal),&object_type,&expire,&version,&extend,&extlen);
+        test_assert(object_type = OBJ_HASH);
+        test_assert(expire == EXP);
+        test_assert(version == V);
+        test_assert(extlen == sdslen(EXT) && memcmp(extend,EXT,extlen) == 0);
+        sdsfree(rocksKey);
+
+        sdsfree(empty), sdsfree(key), sdsfree(EXT);
+    }
+
+    TEST("util - encode & decode score key") {
+        sds empty = sdsempty(), subkey = sdsnew("subkey"), rocksKey;
+        sds key = sdsnew("key1");
+        int dbId = 123456789;
+        const char *keystr = NULL, *subkeystr;
+        size_t klen, slen;
+        uint64_t version, V = 0x12345678;
+        double score, SCORE = 0.25;
+        sds start_key, end_key;
+
+        rocksKey = encodeScoreKey(db,key,V,SCORE,empty);
+        decodeScoreKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&version,&score,&subkeystr,&slen);
+        test_assert(dbId == db->id);
+        test_assert(klen == sdslen(key) && memcmp(keystr,key,klen) == 0);
+        test_assert(version == V);
+        test_assert(score == SCORE);
+        test_assert(slen == 0);
+        sdsfree(rocksKey);
+
+        rocksKey = encodeScoreKey(db,key,V,SCORE,subkey);
+        decodeScoreKey(rocksKey,sdslen(rocksKey),&dbId,&keystr,&klen,&version,&score,&subkeystr,&slen);
+        test_assert(dbId == db->id);
+        test_assert(klen == sdslen(key) && memcmp(keystr,key,klen) == 0);
+        test_assert(version == V);
+        test_assert(score == SCORE);
+        test_assert(slen == sdslen(subkey) && memcmp(subkeystr,subkey,slen) == 0);
+
+        start_key = encodeScoreRangeStart(db,key,V);
+        end_key = encodeScoreRangeEnd(db,key,V);
+        test_assert(memcmp(rocksKey,start_key,sdslen(start_key)) > 0);
+        test_assert(memcmp(rocksKey,end_key,sdslen(end_key)) < 0);
+
+        sdsfree(rocksKey), sdsfree(start_key), sdsfree(end_key);
+        sdsfree(empty), sdsfree(subkey), sdsfree(key);
+    }
+
+    TEST("util - data & score constains") {
+        sds key = sdsnew("key"), empty = sdsempty(), subkey = sdsnew("subkey");
+        sds dataKey, metaKey;
+
+        /* rdb iter constains: meta key must be prefix of data key. */
+        metaKey = rocksEncodeMetaKey(db,key);
+
+        dataKey = rocksEncodeDataKey(db,key,0,empty);
+        test_assert(memcmp(metaKey,dataKey,sdslen(metaKey)) == 0);
+        sdsfree(dataKey);
+
+        dataKey = rocksEncodeDataKey(db,key,0,subkey);
+        test_assert(memcmp(metaKey,dataKey,sdslen(metaKey)) == 0);
+        sdsfree(dataKey);
+
+        dataKey = rocksEncodeDataKey(db,key,12345678,empty);
+        test_assert(memcmp(metaKey,dataKey,sdslen(metaKey)) == 0);
+        sdsfree(dataKey);
+
+        dataKey = rocksEncodeDataKey(db,key,12345678,subkey);
+        test_assert(memcmp(metaKey,dataKey,sdslen(metaKey)) == 0);
+        sdsfree(dataKey);
+
+        sdsfree(dataKey);
+        sdsfree(key), sdsfree(empty), sdsfree(subkey);
     }
 
     return error;

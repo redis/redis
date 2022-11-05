@@ -537,6 +537,7 @@ void swapInit() {
     int i;
 
     initStatsSwap();
+    swapInitVersion();
 
     server.evict_clients = zmalloc(server.dbnum*sizeof(client*));
     for (i = 0; i < server.dbnum; i++) {
@@ -627,6 +628,7 @@ void createSharedObjects(void);
 int initTestRedisServer() {
     server.maxmemory_policy = MAXMEMORY_FLAG_LFU;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
+    swapInitVersion();
     createSharedObjects();
     initTestRedisDb();
     return 1;

@@ -695,6 +695,22 @@ static inline int doSwapDelMeta(swapData *data) {
     return retval;
 }
 
+/* int doAuxDelMeta(swapRequest *req, int *del_meta) { */
+    /* swapData *data = req->data; */
+
+    /* if (req->intention == SWAP_DEL) { */
+        /* *del_meta = 1; */
+    /* } else if (req->intention == SWAP_IN && */
+            /* req->intention_flags == SWAP_EXEC_IN_DEL && */
+            /* swapDataMergedIsHot(data)) { */
+        /* *del_meta = 1; */
+    /* } else { */
+        /* *del_meta = 0; */
+    /* } */
+
+    /* return *del_meta ? doSwapDelMeta(data) : 0; */
+/* } */
+
 static void executeSwapDelRequest(swapRequest *req) {
     int i, numkeys, errcode = 0, action;
     int *cfs = NULL;
@@ -702,9 +718,6 @@ static void executeSwapDelRequest(swapRequest *req) {
     RIO _rio = {0}, *rio = &_rio;
     rocksdb_writebatch_t *wb;
     swapData *data = req->data;
-    errcode = doSwapDelMeta(data);
-    DEBUG_MSGS_APPEND(req->msgs,"exec-del.meta","errcode=%d",errcode);
-    if (errcode) goto end;
 
     if ((errcode = swapDataEncodeKeys(data,req->intention,req->datactx,
                 &action,&numkeys,&cfs,&rawkeys))) {
@@ -713,37 +726,33 @@ static void executeSwapDelRequest(swapRequest *req) {
     DEBUG_MSGS_APPEND(req->msgs,"exec-del-encodekeys",
             "action=%s, numkeys=%d", rocksActionName(action), numkeys);
 
-    if (numkeys == 0) goto end;
+    if (numkeys > 0) {
+        if (action == ROCKS_WRITE) {
+            wb = rocksdb_writebatch_create();
+            for (i = 0; i < numkeys; i++) {
+                rocksdb_writebatch_delete_cf(wb, rioGetCF(cfs[i]),
+                        rawkeys[i], sdslen(rawkeys[i]));
+            }
+            DEBUG_MSGS_APPEND(req->msgs,"exec-write","numkeys=%d.",numkeys);
+            RIOInitWrite(rio,wb);
+        } else if (action == ROCKS_DEL) {
+            serverAssert(numkeys == 1 && rawkeys);
+            DEBUG_MSGS_APPEND(req->msgs,"exec-del-del","rawkey=%s",rawkeys[0]);
+            RIOInitDel(rio,cfs[0],rawkeys[0]);
+            zfree(rawkeys), rawkeys = NULL;
+            zfree(cfs), cfs = NULL;
+        } else {
+            errcode = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
+            goto end;
+        }
 
-    if (action == ROCKS_WRITE) {
-        wb = rocksdb_writebatch_create();
-        for (i = 0; i < numkeys; i++) {
-            rocksdb_writebatch_delete_cf(wb, rioGetCF(cfs[i]),
-                    rawkeys[i], sdslen(rawkeys[i]));
+        updateStatsSwapRIO(req, rio);
+        if ((errcode = doRIO(rio))) {
+            goto end;
         }
-        DEBUG_MSGS_APPEND(req->msgs,"exec-write","numkeys=%d.",numkeys);
-        RIOInitWrite(rio,wb);
-    } else if (action == ROCKS_DEL) {
-        serverAssert(numkeys == 1 && rawkeys);
-        DEBUG_MSGS_APPEND(req->msgs,"exec-del-del","rawkey=%s",rawkeys[0]);
-        RIOInitDel(rio,cfs[0],rawkeys[0]);
-        zfree(rawkeys), rawkeys = NULL;
-        zfree(cfs), cfs = NULL;
-    } else if (action == ROCKS_MULTI_DELETERANGE) {
-        int* cfs_ = zmalloc(sizeof(int) * numkeys);
-        sds* rawkeys_ = zmalloc(sizeof(sds) * numkeys);
-        for(int i = 0; i < numkeys; i++) {
-            rawkeys_[i] = sdsdup(rawkeys[i]);
-            cfs_[i] = cfs[i];
-        }
-        RIOInitMultiDeleteRange(rio, numkeys, cfs_, rawkeys_);
-    } else {
-        errcode = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
-        goto end;
     }
 
-    updateStatsSwapRIO(req, rio);
-    if ((errcode = doRIO(rio))) {
+    if ((errcode = doSwapDelMeta(data))) {
         goto end;
     }
 
@@ -953,72 +962,31 @@ static int doSwapIntentionDel(swapRequest *req, int numkeys, int *cfs, sds *rawk
     return retval;
 }
 
-static int doSwapIntentionDelRange(swapRequest *req, int cf,sds start, sds end) {
-    RIO _rio = {0}, *rio = &_rio;
-    int retval;
-    int* cfs = zmalloc(sizeof(int) * 2);
-    cfs[0] = cfs[1] = cf;
-    sds* rawkeys = zmalloc(sizeof(sds) * 2);
-    rawkeys[0] = start;
-    rawkeys[1] = end;
-    RIOInitMultiDeleteRange(rio, 2, cfs, rawkeys);
-    updateStatsSwapRIO(req,rio);
-    retval = doRIO(rio);
-    RIODeinit(rio);
-    return retval;
-}
+int doAuxDelSubCustom(swapRequest *req, int action, int numkeys, int* cfs,
+    sds* rawkeys, sds* rawvals) {
 
-
-int rocksDel(swapRequest *req, int action, int search_numkeys, int* search_cfs,
-        sds* search_rawkeys,   int result_numkeys, int* result_cfs,
-        sds* result_rawkeys, sds* result_rawvals) {
-    if (result_numkeys == 0) return 0;
     int errcode = 0;
-    swapData *data = req->data;
-    UNUSED(search_numkeys);
-    if (data->type->rocksDel == NULL) {
-        switch (action) {
-            case ROCKS_MULTIGET:
-            case ROCKS_GET:
-            case ROCKS_RANGE:
-                if ((errcode = doSwapIntentionDel(req, result_numkeys,result_cfs,
-                                result_rawkeys))) {
-                    return errcode;
-                }
-            break;
-            case ROCKS_SCAN:
-                if ((errcode = doSwapIntentionDelRange(req,search_cfs[0],
-                                sdsdup(search_rawkeys[0]),
-                                rocksGenerateEndKey(search_rawkeys[0])))) {
-                    return errcode;
-                }
-            break;
-        }
-        if((errcode = doSwapDelMeta(data))) {
-            return errcode;
-        }
-        return errcode;
-    } 
     int outaction, outnum;
     int* outcfs = NULL;
     sds* outrawkeys = NULL;
-    serverAssert(data->type->rocksDel(data, req->datactx, action, result_numkeys,
-                result_cfs, result_rawkeys, result_rawvals, &outaction,
-                &outnum, &outcfs, &outrawkeys) == 0);
+
+    if ((errcode = req->data->type->rocksDel(req->data, req->datactx, action,
+                    numkeys, cfs, rawkeys, rawvals,
+                    &outaction, &outnum, &outcfs, &outrawkeys))) {
+        return errcode;
+    }
+
     switch(outaction) {
-        case ROCKS_WRITE:
-        {
-            if ((errcode = doSwapIntentionDel(req, outnum, outcfs, outrawkeys))) {
-                goto end;
-            }
+    case ROCKS_WRITE:
+        if ((errcode = doSwapIntentionDel(req, outnum, outcfs, outrawkeys))) {
+            goto end;
         }
         break;
-        default:
-            goto end;
+    default:
+        goto end;
         break;
     }
-    errcode = doSwapDelMeta(data);
-    
+
 end:
     if (outrawkeys) {
         for (int i = 0; i < outnum; i++) {
@@ -1029,6 +997,71 @@ end:
     if (outcfs) {
         zfree(outcfs);
     }
+    return errcode;
+}
+
+int doAuxDelSub(swapRequest *req, int action, int numkeys, int* cfs,
+        sds* rawkeys, sds* rawvals) {
+    if (req->data->type->rocksDel == NULL) {
+        return doSwapIntentionDel(req,numkeys,cfs,rawkeys);
+    } else {
+        return doAuxDelSubCustom(req,action,numkeys,cfs,rawkeys,rawvals);
+    }
+}
+
+/* do auxillary delete:
+ * - metacf: if (intention is DEL) or (intention is IN.DEL and key turned hot)
+ * - datacf: if intention is IN.DEL or corresponding score subkey deleted(zset)
+ * - scorecf: if intention is IN.DEL or correspoding data subkey deleted(zset)
+ */
+int doAuxDel(swapRequest *req, RIO *rio) {
+    sds *rawkeys, *rawvals;
+    int errcode, numkeys, *cfs, *tmpcfs = NULL, i;
+
+    switch (rio->action) {
+    case ROCKS_GET:
+        numkeys = 1;
+        cfs = &rio->get.cf;
+        rawkeys = &rio->get.rawkey;
+        rawvals = &rio->get.rawval;
+        break;
+    case ROCKS_MULTIGET:
+        numkeys = rio->multiget.numkeys;
+        cfs = rio->multiget.cfs;
+        rawkeys = rio->multiget.rawkeys;
+        rawvals = rio->multiget.rawvals;
+        break;
+    case ROCKS_SCAN:
+        tmpcfs = zmalloc(sizeof(int)*rio->scan.numkeys);
+        for (i = 0; i < rio->scan.numkeys; i++)
+            tmpcfs[i] = rio->scan.cf;
+
+        numkeys = rio->scan.numkeys;
+        cfs = tmpcfs;
+        rawkeys = rio->scan.rawkeys;
+        rawvals = rio->scan.rawvals;
+        break;
+    case ROCKS_RANGE:
+        tmpcfs = zmalloc(sizeof(int)*rio->range.numkeys);
+        for (i = 0; i < rio->range.numkeys; i++)
+            tmpcfs[i] = rio->range.cf;
+
+        numkeys = rio->range.numkeys;
+        cfs = tmpcfs;
+        rawkeys = rio->range.rawkeys;
+        rawvals = rio->range.rawvals;
+        break;
+    default:
+        numkeys = 0;
+        break;
+    }
+
+    if (numkeys == 0) return 0;
+
+    errcode = doAuxDelSub(req,rio->action,numkeys,cfs,rawkeys,rawvals);
+
+    if (tmpcfs) zfree(tmpcfs);
+
     return errcode;
 }
 
@@ -1058,12 +1091,6 @@ static void executeSwapInRequest(swapRequest *req) {
             goto end;
         }
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata","decoded=%p",(void*)decoded);
-
-        if (req->intention_flags & SWAP_EXEC_IN_DEL) {
-            if((errcode = rocksDel(req, action, numkeys, cfs, rawkeys,  rio->multiget.numkeys, rio->multiget.cfs, rio->multiget.rawkeys, rio->multiget.rawvals))) {
-                goto end;
-            }
-        }
     } else if (action == ROCKS_GET) {
         serverAssert(numkeys == 1);
         RIOInitGet(rio, cfs[0], rawkeys[0]);
@@ -1084,11 +1111,6 @@ static void executeSwapInRequest(swapRequest *req) {
         }
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata","decoded=%p",(void*)decoded);
 
-        if (req->intention_flags & SWAP_EXEC_IN_DEL) {
-            if((errcode = rocksDel(req, action, numkeys, cfs ,rawkeys,  1, &rio->get.cf, &(rio->get.rawkey), &(rio->get.rawval)))) {
-                goto end;
-            }
-        }
         /* rawkeys not moved, only rawkeys[0] moved, free when done. */
         zfree(cfs);
         zfree(rawkeys);
@@ -1109,12 +1131,6 @@ static void executeSwapInRequest(swapRequest *req) {
         zfree(tmpcfs);
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata", "decoded=%p",(void*)decoded);
 
-        if (req->intention_flags & SWAP_EXEC_IN_DEL) {
-            if ((errcode = rocksDel(req, action, numkeys, cfs, rawkeys, rio->scan.numkeys, cfs, rio->scan.rawkeys, rio->scan.rawvals))) {
-                goto end;
-            }
-            data->del_meta = 1;
-        }
         /* rawkeys not moved, only rawkeys[0] moved, free when done. */
         zfree(cfs);
         zfree(rawkeys);
@@ -1142,8 +1158,6 @@ static void executeSwapInRequest(swapRequest *req) {
         zfree(rawkeys);
     } else if (action == ROCKS_RANGE) {
         int *tmpcfs, i;
-        //cfs[1] == reverse
-        //numkeys == limit
         RIOInitRange(rio, cfs[0], rawkeys[0], rawkeys[1], cfs[1], numkeys);
         if ((errcode = doRIO(rio))) {
             goto end;
@@ -1157,11 +1171,8 @@ static void executeSwapInRequest(swapRequest *req) {
             goto end;
         }
         zfree(tmpcfs);
-        if (req->intention_flags & SWAP_EXEC_IN_DEL) {
-            if ((errcode = rocksDel(req, action, numkeys, cfs, rawkeys, rio->range.numkeys, cfs, rio->range.rawkeys, rio->range.rawvals))) {
-                goto end;
-            }
-        }
+        DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata", "decoded=%p",(void*)decoded);
+
         /* rawkeys not moved, only rawkeys[0] moved, free when done. */
         zfree(cfs);
         zfree(rawkeys);
@@ -1172,6 +1183,26 @@ static void executeSwapInRequest(swapRequest *req) {
 
     req->result = swapDataCreateOrMergeObject(data,decoded,req->datactx);
     DEBUG_MSGS_APPEND(req->msgs,"exec-in-createormerge","result=%p",(void*)req->result);
+
+    if (req->intention_flags & SWAP_EXEC_IN_DEL) {
+        int is_hot = swapDataMergedIsHot(data,req->result,req->datactx);
+
+        /* There is no need to delete subkey if meta gets deleted,
+         * subkeys will be deleted by compaction filter. */
+
+        if (is_hot) {
+            req->data->del_meta = 1;
+            errcode = doSwapDelMeta(data);
+            if (data->object_type != OBJ_STRING) {
+                /* String is not versioned */
+                goto end;
+            }
+        }
+
+        if ((errcode = doAuxDel(req,rio))) {
+            goto end;
+        }
+    }
 
 end:
     updateStatsSwapRIO(req,rio);
@@ -1431,7 +1462,7 @@ void mockNotifyCallback(swapRequest *req, void *pd) {
 int wholeKeyRocksDataExists(redisDb *db, robj *key) {
     size_t vlen;
     char *err = NULL, *rawval = NULL;
-    sds rawkey = rocksEncodeDataKey(db,key->ptr,NULL);
+    sds rawkey = rocksEncodeDataKey(db,key->ptr,0,NULL);
     rawval = rocksdb_get_cf(server.rocks->db, server.rocks->ropts,rioGetCF(DATA_CF),rawkey,sdslen(rawkey),&vlen,&err);
     serverAssert(err == NULL);
     zlibc_free(rawval);

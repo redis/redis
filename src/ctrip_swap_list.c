@@ -1066,8 +1066,8 @@ int metaListExclude(metaList *main, listMeta *delta) {
 }
 
 /* List object meta */
-objectMeta *createListObjectMeta(listMeta *list_meta) {
-    objectMeta *object_meta = createObjectMeta(OBJ_LIST);
+objectMeta *createListObjectMeta(uint64_t version, listMeta *list_meta) {
+    objectMeta *object_meta = createObjectMeta(OBJ_LIST,version);
     objectMetaSetPtr(object_meta,list_meta);
 	return object_meta;
 }
@@ -1313,7 +1313,7 @@ int listSwapAna(swapData *data, struct keyRequest *req,
                 listMetaAppendSegment(lm,SEGMENT_TYPE_HOT,
                         listGetInitialRidx(0),
                         listTypeLength(data->value));
-                data->new_meta = createListObjectMeta(lm);
+                data->new_meta = createListObjectMeta(swapGetAndIncrVersion(),lm);
             }
 
             list_meta = swapDataGetListMeta(data);
@@ -1357,10 +1357,11 @@ static inline sds listEncodeRidx(long ridx) {
     return sdsnewlen(&ridx,sizeof(ridx));
 }
 
-static inline sds listEncodeSubkey(redisDb *db, sds key, long ridx) {
+static inline sds listEncodeSubkey(redisDb *db, sds key, uint64_t version,
+        long ridx) {
     serverAssert(ridx >= 0);
     sds subkey = listEncodeRidx(ridx);
-    sds rawkey = rocksEncodeDataKey(db,key,subkey);
+    sds rawkey = rocksEncodeDataKey(db,key,version,subkey);
     sdsfree(subkey);
     return rawkey;
 }
@@ -1372,17 +1373,13 @@ static inline long listDecodeRidx(const char *str, size_t len) {
     return ridx;
 }
 
-static void listEncodeDeleteRange(swapData *data, sds *start, sds *end) {
-    *start = rocksEncodeDataKey(data->db,data->key->ptr,NULL);
-    *end = rocksGenerateEndKey(*start);
-}
-
 int listEncodeKeys(swapData *data, int intention, void *datactx_,
         int *action, int *numkeys, int **pcfs, sds **prawkeys) {
     listDataCtx *datactx = datactx_;
     listMeta *swap_meta = datactx->swap_meta;
     sds *rawkeys = NULL;
     int *cfs = NULL;
+    uint64_t version = swapDataObjectVersion(data);
 
     switch (intention) {
     case SWAP_IN:
@@ -1398,7 +1395,8 @@ int listEncodeKeys(swapData *data, int intention, void *datactx_,
             while (!listMetaIterFinished(&iter)) {
                 long ridx = listMetaIterCur(&iter,NULL);
                 cfs[neles] = DATA_CF;
-                rawkeys[neles] = listEncodeSubkey(data->db,data->key->ptr,ridx);
+                rawkeys[neles] = listEncodeSubkey(data->db,data->key->ptr,
+                        version,ridx);
                 neles++;
                 listMetaIterNext(&iter);
             }
@@ -1411,7 +1409,8 @@ int listEncodeKeys(swapData *data, int intention, void *datactx_,
             cfs = zmalloc(sizeof(int));
             rawkeys = zmalloc(sizeof(sds));
             cfs[0] = DATA_CF;
-            rawkeys[0] = rocksEncodeDataScanPrefix(data->db,data->key->ptr);
+            rawkeys[0] = rocksEncodeDataScanPrefix(data->db,data->key->ptr,
+                    version);
             *numkeys = 1;
             *pcfs = cfs;
             *prawkeys = rawkeys;
@@ -1419,21 +1418,10 @@ int listEncodeKeys(swapData *data, int intention, void *datactx_,
         }
         return 0;
     case SWAP_DEL:
-        if (swapDataPersisted(data)) {
-            int *cfs = zmalloc(sizeof(int)*2);
-            rawkeys = zmalloc(sizeof(sds)*2);
-            listEncodeDeleteRange(data,&rawkeys[0],&rawkeys[1]);
-            cfs[0] = cfs[1] = DATA_CF;
-            *numkeys = 2;
-            *pcfs = cfs;
-            *prawkeys = rawkeys;
-            *action = ROCKS_MULTI_DELETERANGE;
-        } else {
-            *action = 0;
-            *numkeys = 0;
-            *pcfs = NULL;
-            *prawkeys = NULL;
-        }
+        *action = 0;
+        *numkeys = 0;
+        *pcfs = NULL;
+        *prawkeys = NULL;
         return 0;
     case SWAP_OUT:
     default:
@@ -1463,9 +1451,10 @@ typedef struct encodeElementPd {
 
 void encodeElement(long ridx, MOVE robj *ele, void *pd_) {
     encodeElementPd *pd = pd_;
+    uint64_t version = swapDataObjectVersion(pd->data);
     pd->cfs[pd->num] = DATA_CF;
     pd->rawkeys[pd->num] = listEncodeSubkey(pd->data->db,
-            pd->data->key->ptr,ridx);
+            pd->data->key->ptr,version,ridx);
     pd->rawvals[pd->num] = listEncodeSubval(ele);
     pd->num++;
     decrRefCount(ele);
@@ -1509,6 +1498,7 @@ int listDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
     listMeta *meta = listMetaCreate();
     robj *list = createQuicklistObject();
     metaList *delta = metaListBuild(meta,list);
+    uint64_t version = swapDataObjectVersion(data);
 
     serverAssert(num >= 0);
     UNUSED(cfs);
@@ -1519,15 +1509,18 @@ int listDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
         const char *keystr, *subkeystr;
         size_t klen, slen;
         robj *subvalobj;
+        uint64_t subkey_version;
 
         if (rawvals[i] == NULL)
             continue;
         if (rocksDecodeDataKey(rawkeys[i],sdslen(rawkeys[i]),
-                &dbid,&keystr,&klen,&subkeystr,&slen) < 0)
+                &dbid,&keystr,&klen,&subkey_version,&subkeystr,&slen) < 0)
             continue;
         if (!swapDataPersisted(data))
             continue;
         if (slen != sizeof(ridx))
+            continue;
+        if (version != subkey_version)
             continue;
         ridx = listDecodeRidx(subkeystr,slen);
 
@@ -1799,6 +1792,8 @@ swapDataType listSwapDataType = {
     .cleanObject = listCleanObject,
     .beforeCall = listBeforeCall,
     .free = freeListSwapData,
+    .rocksDel = NULL,
+    .mergedIsHot = NULL, /*TODO impl*/
 };
 
 int swapDataSetupList(swapData *d, void **pdatactx) {
@@ -1970,13 +1965,13 @@ rdbKeySaveType listSaveType = {
     .save_deinit = listSaveDeinit,
 };
 
-int listSaveInit(rdbKeySaveData *save, const char *extend, size_t extlen) {
+int listSaveInit(rdbKeySaveData *save, uint64_t version, const char *extend, size_t extlen) {
     int retval = 0;
     save->type = &listSaveType;
     save->omtype = &listObjectMetaType;
     if (extend) { /* cold */
         serverAssert(save->object_meta == NULL && save->value == NULL);
-        retval = buildObjectMeta(OBJ_LIST,extend,extlen,&save->object_meta);
+        retval = buildObjectMeta(OBJ_LIST,version,extend,extlen,&save->object_meta);
     } else { /* warm */
         serverAssert(save->object_meta && save->value);
         save->iter = listSaveIterCreate(save->object_meta,save->value);
@@ -2026,7 +2021,7 @@ void listLoadStartWithValue(struct rdbKeyLoadData *load, rio *rdb, int *cf,
 
     *cf = META_CF;
     *rawkey = rocksEncodeMetaKey(load->db,load->key);
-    *rawval = rocksEncodeMetaVal(load->object_type,load->expire,extend);
+    *rawval = rocksEncodeMetaVal(load->object_type,load->expire,load->version,extend);
 
     sdsfree(extend);
 }
@@ -2052,7 +2047,7 @@ void listLoadStartList(struct rdbKeyLoadData *load, rio *rdb, int *cf,
 
     *cf = META_CF;
     *rawkey = rocksEncodeMetaKey(load->db,load->key);
-    *rawval = rocksEncodeMetaVal(load->object_type,load->expire,extend);
+    *rawval = rocksEncodeMetaVal(load->object_type,load->expire,load->version,extend);
     *error = 0;
 
     sdsfree(extend);
@@ -2090,7 +2085,7 @@ int listLoadWithValue(struct rdbKeyLoadData *load, rio *rdb, int *cf,
     ridx = listGetInitialRidx(load->loaded_fields);
 
     *cf = DATA_CF;
-    *rawkey = listEncodeSubkey(load->db,load->key,ridx);
+    *rawkey = listEncodeSubkey(load->db,load->key,load->version,ridx);
     *rawval = listEncodeSubval(ele);
     *error = 0;
 
@@ -2115,7 +2110,7 @@ int listLoadList(struct rdbKeyLoadData *load, rio *rdb, int *cf, sds *rawkey,
     ridx = listGetInitialRidx(load->loaded_fields);
 
     *cf = DATA_CF;
-    *rawkey = listEncodeSubkey(load->db,load->key,ridx);
+    *rawkey = listEncodeSubkey(load->db,load->key,load->version,ridx);
     *rawval = rdbval;
     *error = 0;
 
@@ -2523,9 +2518,9 @@ int swapListMetaTest(int argc, char *argv[], int accurate) {
         listMetaAppendSegment(lm,SEGMENT_TYPE_HOT,0,2);
         listMetaAppendSegment(lm,SEGMENT_TYPE_COLD,2,2);
         listMetaAppendSegment(lm,SEGMENT_TYPE_HOT,4,2);
-        objectMeta *object_meta = createListObjectMeta(lm);
+        objectMeta *object_meta = createListObjectMeta(0,lm);
         sds extend = objectMetaEncode(object_meta);
-        objectMeta *decoded_meta = createObjectMeta(OBJ_LIST);
+        objectMeta *decoded_meta = createObjectMeta(OBJ_LIST,0);
         test_assert(objectMetaDecode(decoded_meta,extend,sdslen(extend)) == 0);
         listMeta *decoded_lm = objectMetaGetPtr(decoded_meta);
         test_assert(listMetaLength(decoded_lm,SEGMENT_TYPE_BOTH) == 6);
@@ -2718,9 +2713,9 @@ int swapListMetaTest(int argc, char *argv[], int accurate) {
     listMetaAppendSegment(warmlm,SEGMENT_TYPE_HOT,0,1);     \
     listMetaAppendSegment(warmlm,SEGMENT_TYPE_COLD,1,2);    \
     listMetaAppendSegment(coldlm,SEGMENT_TYPE_COLD,0,3);    \
-    hotmeta = createListObjectMeta(hotlm);      \
-    warmmeta = createListObjectMeta(warmlm);    \
-    coldmeta = createListObjectMeta(coldlm);    \
+    hotmeta = createListObjectMeta(0,hotlm);      \
+    warmmeta = createListObjectMeta(0,warmlm);    \
+    coldmeta = createListObjectMeta(0,coldlm);    \
     puredata = createSwapData(db,purekey,pure); \
     hotdata = createSwapData(db,hotkey,hot);    \
     warmdata = createSwapData(db,warmkey,warm); \
@@ -2833,7 +2828,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
     TEST("list-data: encode/decode") {
         int action, numkeys, *cfs;
         sds *rawkeys, *rawvals,
-            rawkey0 = listEncodeSubkey(db,hotkey->ptr,0),
+            rawkey0 = listEncodeSubkey(db,hotkey->ptr,0,0),
             rawval0 = listEncodeSubval(ele1);
         metaList *decoded;
         listDataCtx *hotctx = hotdatactx;
@@ -2869,7 +2864,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
 
         listMeta *purelm = listMetaCreate();
         listMetaAppendSegment(purelm,SEGMENT_TYPE_HOT,0,3);
-        objectMeta *puremeta = createListObjectMeta(purelm);
+        objectMeta *puremeta = createListObjectMeta(0,purelm);
         swapDataSetNewObjectMeta(puredata,puremeta);  
         swap_meta = listMetaCreate();
         listMetaAppendSegment(swap_meta,SEGMENT_TYPE_COLD,1,2);
@@ -2935,7 +2930,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
 
         listMeta *purelm = listMetaCreate();
         listMetaAppendSegment(purelm,SEGMENT_TYPE_HOT,0,3);
-        objectMeta *puremeta = createListObjectMeta(purelm);
+        objectMeta *puremeta = createListObjectMeta(0,purelm);
         swapDataSetNewObjectMeta(puredata,puremeta);  
         swap_meta = listMetaCreate();
         listMetaAppendSegment(swap_meta,SEGMENT_TYPE_COLD,0,3);
@@ -2991,7 +2986,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         listMetaAppendSegment(meta,SEGMENT_TYPE_HOT,3,2);
         listMetaAppendSegment(meta,SEGMENT_TYPE_COLD,5,1);
         listMetaAppendSegment(meta,SEGMENT_TYPE_HOT,6,1);
-        object_meta = createListObjectMeta(meta);
+        object_meta = createListObjectMeta(0,meta);
 
         dbAdd(db,key,list);
         dbAddMeta(db,key,object_meta);
@@ -3044,7 +3039,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         listMetaAppendSegment(meta,SEGMENT_TYPE_COLD,2,2);
         listMetaAppendSegment(meta,SEGMENT_TYPE_HOT,4,1);
 
-        object_meta = createListObjectMeta(meta);
+        object_meta = createListObjectMeta(0,meta);
         dbAddMeta(db,key,object_meta);
 
         /* lindex */
@@ -3088,9 +3083,10 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         sds ele1raw = listEncodeSubval(ele1),
             ele2raw = listEncodeSubval(ele2),
             ele3raw = listEncodeSubval(ele3);
-        sds ele1key = listEncodeSubkey(db,hotkey->ptr,listGetInitialRidx(0)), 
-            ele2key = listEncodeSubkey(db,hotkey->ptr,listGetInitialRidx(1)),
-            ele3key = listEncodeSubkey(db,hotkey->ptr,listGetInitialRidx(2));
+        uint64_t V = server.swap_key_version;
+        sds ele1key = listEncodeSubkey(db,hotkey->ptr,V,listGetInitialRidx(0)),
+            ele2key = listEncodeSubkey(db,hotkey->ptr,V,listGetInitialRidx(1)),
+            ele3key = listEncodeSubkey(db,hotkey->ptr,V,listGetInitialRidx(2));
 
         /* save hot kvpair */
         rioInitWithBuffer(&rdb,sdsempty());
@@ -3116,7 +3112,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         listMetaAppendSegment(expected_meta,SEGMENT_TYPE_COLD,listGetInitialRidx(0),3);
         sds expected_metakey = rocksEncodeMetaKey(db,hotkey->ptr),
             expected_metaextend = encodeListMeta(expected_meta),
-            expected_metaval = rocksEncodeMetaVal(OBJ_LIST,-1,expected_metaextend);
+            expected_metaval = rocksEncodeMetaVal(OBJ_LIST,-1,V,expected_metaextend);
         listLoadStart(load,&rdb,&cf,&metakey,&metaval,&err);
         test_assert(cf == META_CF && err == 0);
         test_assert(!sdscmp(metakey,expected_metakey) && !sdscmp(metaval,expected_metaval));
@@ -3155,9 +3151,10 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         sds ele1rdbraw = rdbEncodeStringObject(ele1), ele1raw = listEncodeSubval(ele1),
             ele2rdbraw = rdbEncodeStringObject(ele2), ele2raw = listEncodeSubval(ele2),
             ele3rdbraw = rdbEncodeStringObject(ele3), ele3raw = listEncodeSubval(ele3);
-        sds ele1key = listEncodeSubkey(db,warmkey->ptr,listGetInitialRidx(0)),
-            ele2key = listEncodeSubkey(db,warmkey->ptr,listGetInitialRidx(1)),
-            ele3key = listEncodeSubkey(db,warmkey->ptr,listGetInitialRidx(2));
+        uint64_t V = server.swap_key_version;
+        sds ele1key = listEncodeSubkey(db,warmkey->ptr,V,listGetInitialRidx(0)),
+            ele2key = listEncodeSubkey(db,warmkey->ptr,V,listGetInitialRidx(1)),
+            ele3key = listEncodeSubkey(db,warmkey->ptr,V,listGetInitialRidx(2));
         sds ele1idx = listEncodeRidx(0),
             ele2idx = listEncodeRidx(1),
             ele3idx = listEncodeRidx(2);
@@ -3203,7 +3200,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         listMetaAppendSegment(expected_meta,SEGMENT_TYPE_COLD,listGetInitialRidx(0),3);
         sds expected_metakey = rocksEncodeMetaKey(db,warmkey->ptr),
             expected_metaextend = encodeListMeta(expected_meta),
-            expected_metaval = rocksEncodeMetaVal(OBJ_LIST,-1,expected_metaextend);
+            expected_metaval = rocksEncodeMetaVal(OBJ_LIST,-1,V,expected_metaextend);
 
         listLoadStart(load,&rdb,&cf,&metakey,&metaval,&err);
         test_assert(cf == META_CF && err == 0);
@@ -3245,9 +3242,10 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         sds ele1rdbraw = rdbEncodeStringObject(ele1), ele1raw = listEncodeSubval(ele1),
             ele2rdbraw = rdbEncodeStringObject(ele2), ele2raw = listEncodeSubval(ele2),
             ele3rdbraw = rdbEncodeStringObject(ele3), ele3raw = listEncodeSubval(ele3);
-        sds ele1key = listEncodeSubkey(db,coldkey->ptr,listGetInitialRidx(0)),
-            ele2key = listEncodeSubkey(db,coldkey->ptr,listGetInitialRidx(1)),
-            ele3key = listEncodeSubkey(db,coldkey->ptr,listGetInitialRidx(2));
+        uint64_t V = server.swap_key_version;
+        sds ele1key = listEncodeSubkey(db,coldkey->ptr,V,listGetInitialRidx(0)),
+            ele2key = listEncodeSubkey(db,coldkey->ptr,V,listGetInitialRidx(1)),
+            ele3key = listEncodeSubkey(db,coldkey->ptr,V,listGetInitialRidx(2));
         sds ele1idx = listEncodeRidx(0),
             ele2idx = listEncodeRidx(1),
             ele3idx = listEncodeRidx(2);
@@ -3307,7 +3305,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         listMetaAppendSegment(expected_meta,SEGMENT_TYPE_COLD,listGetInitialRidx(0),3);
         sds expected_metakey = rocksEncodeMetaKey(db,coldkey->ptr),
             expected_metaextend = encodeListMeta(expected_meta),
-            expected_metaval = rocksEncodeMetaVal(OBJ_LIST,-1,expected_metaextend);
+            expected_metaval = rocksEncodeMetaVal(OBJ_LIST,-1,V,expected_metaextend);
 
         listLoadStart(load,&rdb,&cf,&metakey,&metaval,&err);
         test_assert(cf == META_CF && err == 0);
@@ -3368,7 +3366,7 @@ int swapListUtilsTest(int argc, char *argv[], int accurate) {
         listMeta *meta = listMetaCreate(), *dbmeta;
         listMetaAppendSegment(meta,SEGMENT_TYPE_HOT,0,2);
         listMetaAppendSegment(meta,SEGMENT_TYPE_COLD,2,2);
-        objectMeta *object_meta = createListObjectMeta(meta);
+        objectMeta *object_meta = createListObjectMeta(0,meta);
         dbAddMeta(db,key,object_meta);
 
         ctripListTypePush(list,ele,LIST_TAIL,db,key);

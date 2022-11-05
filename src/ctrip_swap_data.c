@@ -183,6 +183,16 @@ inline int swapDataBeforeCall(swapData *d, client *c, void *datactx) {
         return 0;
 }
 
+inline int swapDataMergedIsHot(swapData *d, void *result, void *datactx) {
+    return d->type->mergedIsHot(d,result,datactx);
+}
+
+int swapDataObjectMergedIsHot(swapData *d, void *result, void *datactx) {
+    objectMeta *object_meta = swapDataObjectMeta(d);
+    robj *value = swapDataIsCold(d) ? result : d->value;
+    UNUSED(datactx);
+    return keyIsHot(object_meta,value);
+}
 
 inline void swapDataFree(swapData *d, void *datactx) {
     /* free extend */
@@ -198,10 +208,11 @@ inline void swapDataFree(swapData *d, void *datactx) {
 sds swapDataEncodeMetaVal(swapData *d) {
     sds extend = NULL, encoded;
     objectMeta *object_meta = swapDataObjectMeta(d);
+    uint64_t version = object_meta ? object_meta->version : SWAP_VERSION_ZERO;
     if (d->omtype->encodeObjectMeta) {
         extend = d->omtype->encodeObjectMeta(object_meta);
     }
-    encoded = rocksEncodeMetaVal(d->object_type,d->expire,extend);
+    encoded = rocksEncodeMetaVal(d->object_type,d->expire,version,extend);
     sdsfree(extend);
     return encoded;
 }
@@ -239,8 +250,7 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire,
         retval = swapDataSetupZSet(d, datactx);
         break;
     case OBJ_LIST:
-        /* list is disabled untill 1.0.1 */
-        retval = SWAP_ERR_SETUP_UNSUPPORTED;
+        retval = swapDataSetupList(d, datactx);
         break;
     case OBJ_STREAM:
         retval = SWAP_ERR_SETUP_UNSUPPORTED;
@@ -257,16 +267,17 @@ int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
     size_t extend_len;
     int retval = 0, object_type;
     long long expire;
+    uint64_t version;
     objectMeta *object_meta = NULL;
 
     retval = rocksDecodeMetaVal(rawval,sdslen(rawval),&object_type,&expire,
-            &extend,&extend_len);
+            &version,&extend,&extend_len);
     if (retval) return retval;
 
     retval = swapDataSetupMeta(d,object_type,expire,datactx);
     if (retval) return retval;
 
-    retval = buildObjectMeta(object_type,extend,extend_len,&object_meta);
+    retval = buildObjectMeta(object_type,version,extend,extend_len,&object_meta);
     if (retval) return SWAP_ERR_DATA_DECODE_META_FAILED;
 
     swapDataSetColdObjectMeta(d,object_meta/*moved*/);
