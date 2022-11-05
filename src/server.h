@@ -1708,10 +1708,11 @@ struct redisServer {
     int rocksdb_disk_error;
     int rocksdb_disk_error_since;
     int rocksdb_stats_interval;
-		struct rocks *rocks;
+    struct rocks *rocks;
     struct rocksdbUtilTaskManager* util_task_manager;
     /* swap threads */
     int swap_threads_num;
+    int total_swap_threads_num; /* swap_threads_num + extra_swap_threads_num */
     struct swapThread *swap_threads;
     /* async */
     struct asyncCompleteQueue *CQ;
@@ -1741,6 +1742,8 @@ struct redisServer {
     int debug_rio_latency; /* sleep debug_rio_latency ms to simulate ssd latency. */
     int debug_swapout_notify_latency; /* sleep debug_swapout_notify_latency ms
                                         to simulate notify queue blocked after swap out */
+    int debug_delay_before_exec_swap; /* sleep debug_delay_before_exec_swap ms before exec swap request */
+    int debug_rocksdb_init_latency; /* sleep debug_rocksdb_init_latency ms before init rocksdb */
     int debug_rio_error; /* mock rio error */
     /* repl swap */
     int repl_workers;   /* num of repl worker clients */

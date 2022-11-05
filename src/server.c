@@ -2849,6 +2849,8 @@ void initServerConfig(void) {
     server.debug_evict_keys = 0;
     server.debug_rio_latency = 0;
     server.debug_swapout_notify_latency = 0;
+    server.debug_delay_before_exec_swap = 0;
+    server.debug_rocksdb_init_latency = 0;
     server.debug_rio_error = 0;
 
     /* Failover related */

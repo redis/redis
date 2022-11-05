@@ -938,3 +938,24 @@ test {Kill rdb child process if its dumping RDB is not useful} {
         }
     }
 }
+
+test {swap on rocksdb flush and crash} {
+    start_server {tags "repl"} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        start_server {} {
+            r config set debug-delay-before-exec-swap 2000
+            r config set debug-init-rocksdb-latency 2000
+            r config set rocksdb-stats-interval 1
+            after 1000; # wait for rocksdb-stats-fresh job starting
+            r slaveof $master_host $master_port
+            wait_for_condition 100 5000 {
+                [lindex [r role] 0] eq {slave} && [string match {*master_link_status:up*} [r info replication]]
+            } else {
+                fail "repl fail"
+            }
+            r ping
+        }
+    }
+}

@@ -1236,8 +1236,9 @@ static inline int swapRequestIsMetaType(swapRequest *req) {
 static void executeSwapRequest(swapRequest *req) {
     serverAssert(req->errcode == 0);
 
-    updateStatsSwapStart(req);
-    /* do execute swap */ 
+    updateStatsSwapIntention(req);
+    if (server.debug_delay_before_exec_swap) usleep(server.debug_delay_before_exec_swap * 1000);
+    /* do execute swap */
     switch (req->intention) {
     case SWAP_NOP:
         doNotify(req,req->errcode);
@@ -1270,6 +1271,7 @@ void processSwapRequest(swapRequest *req) {
     int errcode = 0, intention;
     uint32_t intention_flags;
 
+    updateStatsSwapStart(req);
     if (!swapRequestIsMetaType(req)) {
          executeSwapRequest(req);
          return;

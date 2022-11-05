@@ -1102,6 +1102,7 @@ typedef struct swapStat {
 void initStatsSwap(void);
 void resetStatsSwap(void);
 void updateStatsSwapStart(swapRequest *req);
+void updateStatsSwapIntention(swapRequest *req);
 void updateStatsSwapRIO(swapRequest *req, RIO *rio);
 void updateStatsSwapFinish(swapRequest *req);
 

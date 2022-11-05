@@ -54,6 +54,8 @@ set ::disk_tests {
     swap/unit/lazydel
     swap/unit/swap_error
     swap/unit/multi
+    swap/unit/info
+    swap/unit/client
     unit/shutdown
     ctrip/gtid_merge
     ctrip/gtid

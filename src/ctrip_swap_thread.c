@@ -65,9 +65,9 @@ void *swapThreadMain (void *arg) {
 
 int swapThreadsInit() {
     int i;
-    int thread_num = server.swap_threads_num + 1;
-    server.swap_threads = zcalloc(sizeof(swapThread)*thread_num);
-    for (i = 0; i < thread_num; i++) {
+    server.total_swap_threads_num = server.swap_threads_num + 1;
+    server.swap_threads = zcalloc(sizeof(swapThread)*server.total_swap_threads_num);
+    for (i = 0; i < server.total_swap_threads_num; i++) {
         swapThread *thread = server.swap_threads+i;
         thread->id = i;
         thread->pending_reqs = listCreate();
@@ -85,8 +85,7 @@ int swapThreadsInit() {
 
 void swapThreadsDeinit() {
     int i, err;
-    int thread_num = server.swap_threads_num + 1;
-    for (i = 0; i < thread_num; i++) {
+    for (i = 0; i < server.total_swap_threads_num; i++) {
         swapThread *thread = server.swap_threads+i;
         listRelease(thread->pending_reqs);
         if (thread->thread_id == pthread_self()) continue;
@@ -124,7 +123,7 @@ void swapThreadsDispatch(swapRequest *req, int idx) {
 int swapThreadsDrained() {
     swapThread *rt;
     int drained = 1, i;
-    for (i = 0; i < server.swap_threads_num; i++) {
+    for (i = 0; i < server.total_swap_threads_num; i++) {
         rt = server.swap_threads+i;
 
         pthread_mutex_lock(&rt->lock);

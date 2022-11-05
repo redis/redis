@@ -273,7 +273,7 @@ void bufferedIterCompleteQueueFree(bufferedIterCompleteQueue *buffered_cq) {
 }
 
 rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
-    int error;
+    int error, i;
     rocksdb_iterator_t *data_iter = NULL, *meta_iter = NULL;
     rocksIter *it = zcalloc(sizeof(rocksIter));
     sds meta_start_key = NULL, data_start_key = NULL;
@@ -283,11 +283,23 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
     it->checkpoint_db = NULL;
 
     if (rocks->checkpoint != NULL) {
+        rocksdb_options_t* cf_opts[CF_COUNT];
+        for (i = 0; i < CF_COUNT; i++) {
+            /* disable cf cache since cache is useless for iterator */
+            cf_opts[i] = rocksdb_options_create_copy(server.rocks->cf_opts[i]);
+            rocksdb_block_based_table_options_t* block_opt = rocksdb_block_based_options_create();
+            rocksdb_block_based_options_set_no_block_cache(block_opt, 1);
+            rocksdb_options_set_block_based_table_factory(cf_opts[i], block_opt);
+            rocksdb_block_based_options_destroy(block_opt);
+        }
+
         char *errs[CF_COUNT] = {NULL};
         rocksdb_t* checkpoint_db = rocksdb_open_column_families(rocks->db_opts,
                 rocks->checkpoint_dir, CF_COUNT, swap_cf_names,
-                (const rocksdb_options_t *const *)server.rocks->cf_opts,
+                (const rocksdb_options_t *const *)cf_opts,
                 it->cf_handles, errs);
+        for (i = 0; i < CF_COUNT; i++) rocksdb_options_destroy(cf_opts[i]);
+
         if (errs[0] || errs[1] || errs[2]) {
             serverLog(LL_WARNING,
                     "[rocks] rocksdb open db fail, dir:%s, default_cf=%s, meta_cf=%s, score_cf=%s",

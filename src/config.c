@@ -2573,6 +2573,9 @@ standardConfig configs[] = {
     createIntConfig("swap-threads", NULL, IMMUTABLE_CONFIG, 4, 64, server.swap_threads_num, 4, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("jemalloc-max-bg-threads", NULL, IMMUTABLE_CONFIG, 4, 16, server.jemalloc_max_bg_threads, 4, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("debug-swapout-notify-latency", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.debug_swapout_notify_latency, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("debug-delay-before-exec-swap", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.debug_delay_before_exec_swap, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("debug-init-rocksdb-latency", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.debug_rocksdb_init_latency, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb-stats-interval", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.rocksdb_stats_interval, 2, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),

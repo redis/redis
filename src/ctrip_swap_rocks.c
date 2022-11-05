@@ -43,6 +43,7 @@ const char *swap_cf_names[CF_COUNT] = {data_cf_name, meta_cf_name, score_cf_name
 
 int rmdirRecursive(const char *path);
 int rocksInit() {
+    if (server.debug_rocksdb_init_latency) usleep(server.debug_rocksdb_init_latency * 1000);
     rocks *rocks = zcalloc(sizeof(struct rocks));
     char *errs[3] = {NULL}, dir[ROCKS_DIR_MAX_LEN];
 

@@ -169,6 +169,9 @@ void updateStatsSwapStart(swapRequest *req) {
     req->swap_memory += SWAP_REQUEST_MEMORY_OVERHEAD;
     atomicIncr(server.swap_inprogress_count,1);
     atomicIncr(server.swap_inprogress_memory,req->swap_memory);
+}
+
+void updateStatsSwapIntention(swapRequest *req) {
     atomicIncr(server.swap_stats[req->intention].count,1);
     atomicIncr(server.swap_stats[req->intention].memory,req->swap_memory);
 }
