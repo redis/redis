@@ -695,22 +695,6 @@ static inline int doSwapDelMeta(swapData *data) {
     return retval;
 }
 
-/* int doAuxDelMeta(swapRequest *req, int *del_meta) { */
-    /* swapData *data = req->data; */
-
-    /* if (req->intention == SWAP_DEL) { */
-        /* *del_meta = 1; */
-    /* } else if (req->intention == SWAP_IN && */
-            /* req->intention_flags == SWAP_EXEC_IN_DEL && */
-            /* swapDataMergedIsHot(data)) { */
-        /* *del_meta = 1; */
-    /* } else { */
-        /* *del_meta = 0; */
-    /* } */
-
-    /* return *del_meta ? doSwapDelMeta(data) : 0; */
-/* } */
-
 static void executeSwapDelRequest(swapRequest *req) {
     int i, numkeys, errcode = 0, action;
     int *cfs = NULL;
@@ -906,7 +890,7 @@ static void executeSwapOutRequest(swapRequest *req) {
     }
     DEBUG_MSGS_APPEND(req->msgs,"exec-out-cleanobject","ok");
 
-    if (req->intention_flags & SWAP_EXEC_OUT_META) {
+    if (data->db && data->key) {
         errcode = doSwapOutMeta(data);
 
 #ifdef SWAP_DEBUG

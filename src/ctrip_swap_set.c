@@ -1080,6 +1080,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         decoded_meta->dbid = decoded_data->dbid = db->id;
         decoded_meta->key = decoded_data->key = key1->ptr;
         decoded_meta->cf = META_CF, decoded_data->cf = DATA_CF;
+        decoded_meta->version = 0, decoded_data->version = 0;
         decoded_meta->object_type = OBJ_SET, decoded_meta->expire = -1;
         decoded_data->rdbtype = 0;
 

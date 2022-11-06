@@ -104,12 +104,29 @@ proc object_meta_len {r key} {
     }
 }
 
+proc object_meta_version {r key} {
+    if { [catch {$r swap object $key} e] } {
+        set _ 0
+    } else {
+        set str [$r swap object $key]
+        set meta_version [swap_object_property $str hot_meta version]
+        if {$meta_version == ""} {
+            set meta_version [swap_object_property $str cold_meta version]
+        }
+        if {$meta_version != ""} {
+            set _ $meta_version
+        } else {
+            set _ 0
+        }
+    }
+}
+
 proc rio_get_meta {r key} {
     lindex [$r swap rio-get meta [$r swap encode-meta-key $key ]] 0
 }
 
-proc rio_get_data {r key subkey} {
-    lindex [$r swap rio-get data [$r swap encode-data-key $key $subkey]] 0
+proc rio_get_data {r key version subkey} {
+    lindex [$r swap rio-get data [$r swap encode-data-key $key $version $subkey]] 0
 }
 
 proc get_info {r section line} {

@@ -109,6 +109,17 @@ int rdbKeySaveStart(struct rdbKeySaveData *save, rio *rdb) {
 
 /* return -1 if save failed. */
 int rdbKeySave(struct rdbKeySaveData *save, rio *rdb, decodedData *d) {
+    uint64_t version;
+
+    if (save->object_meta == NULL) {
+        /* string version is always ZERO */
+        version = SWAP_VERSION_ZERO;
+    } else {
+        version = save->object_meta->version;
+    }
+    /* skip obselete data key */
+    if (version != d->version) return 0;
+
     if (save->type->save) {
         int ret = save->type->save(save,rdb,d);
         /* Delay return if required (for testing) */
@@ -251,6 +262,13 @@ int rdbKeySaveDataInit(rdbKeySaveData *save, redisDb *db, decodedResult *dr) {
     robj *value, *key;
     objectMeta *object_meta;
     serverAssert(db->id == dr->dbid);
+
+    if (dr->cf != META_CF) {
+        /* skip orphan (sub)data keys: note that meta key is prefix of data
+         * subkey, so rocksIter always start init with meta key, except for
+         * orphan (sub)data key. */
+        return INIT_SAVE_SKIP;
+    }
 
     key = createStringObject(dr->key, sdslen(dr->key));
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
@@ -434,7 +452,7 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
         }
 
         /* There may be no rocks-meta for warm/hot hash(set/zset...), in
-         * which case cur is decodedData. note that rdbKeyDataInit only
+         * which case cur is decodedData. note that rdbKeySaveDataInit only
          * consumes decodedMeta. */
         if (cur->cf == DATA_CF) {
             if ((save_result = rdbKeySave(save,rdb,(decodedData*)cur)) == -1) {
@@ -904,7 +922,8 @@ int rdbKeyLoadDataInit(rdbKeyLoadData *load, int rdbtype,
     case RDB_TYPE_LIST:
     case RDB_TYPE_LIST_ZIPLIST:
     case RDB_TYPE_LIST_QUICKLIST:
-        listLoadInit(load);
+        /* listLoadInit(load); */
+        retval = SWAP_ERR_RDB_LOAD_UNSUPPORTED;
         break;
     case RDB_TYPE_ZSET:
     case RDB_TYPE_ZSET_2:

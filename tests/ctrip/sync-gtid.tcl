@@ -131,7 +131,8 @@ start_server {overrides {gtid-enabled yes}} {
             $R(0) RPUSH mylist a b c 1 2 3
 
             if {$::swap_mode == "disk"} {
-                wait_keyspace_cold $R(0)
+                # list disabled untill 1.0.1
+                catch { wait_keyspace_cold $R(0) }
             }
 
             set repl [attach_to_replication_stream]

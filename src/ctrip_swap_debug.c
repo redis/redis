@@ -52,11 +52,10 @@ static sds getSwapObjectInfo(robj *o) {
     }
 }
 
-static sds getSwapMetaInfo(int object_type, long long expire,
-        uint64_t version, objectMeta *m) {
+static sds getSwapMetaInfo(int object_type, long long expire,objectMeta *m) {
     if (object_type == -1) return sdsnew("<nil>");
-    sds info = sdscatprintf(sdsempty(),"object_type=%d,expire=%lld,version=%lu",
-            object_type,expire,version);
+    sds info = sdscatprintf(sdsempty(),"object_type=%d,expire=%lld",
+            object_type,expire);
     if (m) {
         sds omdump = dumpObjectMeta(m);
         info = sdscatprintf(info, ",at=%p,%s",(void*)m,omdump);
@@ -112,7 +111,7 @@ NULL
         long long hot_expire = getExpire(db,key), cold_expire = -1;
         sds meta_rawkey = NULL, meta_rawval = NULL;
         int hot_object_type = hot_meta ? hot_meta->object_type : -1;
-        uint64_t hot_version = hot_meta ? hot_meta->version : 0, cold_version;
+        uint64_t cold_version;
         int cold_object_type = -1;
 
         meta_rawkey = rocksEncodeMetaKey(db,key->ptr);
@@ -135,8 +134,8 @@ NULL
         }
 
         sds value_info = getSwapObjectInfo(value);
-        sds hot_meta_info = getSwapMetaInfo(hot_object_type,hot_expire,hot_version,hot_meta);
-        sds cold_meta_info = getSwapMetaInfo(cold_object_type,cold_expire,cold_version,cold_meta);
+        sds hot_meta_info = getSwapMetaInfo(hot_object_type,hot_expire,hot_meta);
+        sds cold_meta_info = getSwapMetaInfo(cold_object_type,cold_expire,cold_meta);
         sds info = sdscatprintf(sdsempty(),
                 "value: %s\nhot_meta: %s\ncold_meta: %s\n",
                 value_info,hot_meta_info,cold_meta_info);

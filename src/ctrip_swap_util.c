@@ -562,7 +562,7 @@ int swapUtilTest(int argc, char **argv, int accurate) {
         sds EXT = sdsfromlonglong(666);
         int dbId = 123456789, object_type;
         const char *keystr = NULL, *extend;
-        size_t klen, extlen;
+        size_t klen = 12345, extlen = 12345;
         uint64_t version, V = 0x12345678;
         long long expire, EXP = 10086;
 

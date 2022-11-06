@@ -156,7 +156,7 @@ sds dumpObjectMeta(objectMeta *object_meta) {
     }
 
     objectMetaType *omtype = getObjectMetaType(object_meta->object_type);
-    result = sdscatprintf(result,"version=%lu",object_meta->version);
+    result = sdscatprintf(result,"version=%lu,",object_meta->version);
     if (omtype == &lenObjectMetaType){
         result = sdscatprintf(result,"len=%ld",(long)object_meta->len);
     } else if (omtype == &listObjectMetaType) {

@@ -198,8 +198,9 @@ start_server {tags "bighash"} {
         r hdel hash12 a
         assert_equal [object_meta_len r hash12] 1
         r hdel hash12 1
-        assert {[rio_get_data r hash12 a] eq {}}
-        assert {[rio_get_data r hash12 1] eq {}}
+        set hash12_version [object_meta_version r hash12]
+        assert {[rio_get_data r hash12 $hash12_version a] eq {}}
+        assert {[rio_get_data r hash12 $hash12_version 1] eq {}}
         assert {[rio_get_meta r hash12] eq {}}
         catch {r swap object hash12} err
         assert_match "*ERR no such key*" $err

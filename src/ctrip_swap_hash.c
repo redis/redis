@@ -761,6 +761,8 @@ void hashLoadInit(rdbKeyLoadData *load) {
 #define SWAP_EVICT_STEP 2
 #define SWAP_EVICT_MEM  (1*1024*1024)
 
+#define INIT_SAVE_SKIP -2
+
 int swapDataHashTest(int argc, char **argv, int accurate) {
     UNUSED(argc), UNUSED(argv), UNUSED(accurate);
 
@@ -967,6 +969,8 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
     }
 
     TEST("hash - rdbLoad & rdbSave") {
+        int init_result;
+        uint64_t V0 = 0, V1 = 1, Vcur = 2;
         server.hash_max_ziplist_entries = 16;
         server.swap_big_hash_threshold = 0;
         int err = 0;
@@ -1001,7 +1005,8 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         sdsfree(subkey), sdsfree(subraw);
 
         sds coldraw,warmraw,hotraw;
-        objectMeta *object_meta = createHashObjectMeta(0,2);
+        objectMeta *object_meta = createHashObjectMeta(Vcur,2);
+        sds extend = hashObjectMetaType.encodeObjectMeta(object_meta);
 
         rio rdbcold, rdbwarm, rdbhot;
         rdbKeySaveData _save, *save = &_save;
@@ -1011,27 +1016,41 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         decoded_meta->cf = META_CF;
         decoded_meta->dbid = db->id;
         decoded_meta->expire = -1;
-        decoded_meta->extend = hashObjectMetaType.encodeObjectMeta(object_meta);
+        decoded_meta->version = Vcur;
+        decoded_meta->extend = extend;
         decoded_meta->key = myhash_key;
         decoded_meta->object_type = OBJ_HASH;
 
         rioInitWithBuffer(&rdbcold,sdsempty());
-        test_assert(!rdbKeySaveDataInit(save,db,(decodedResult*)decoded_meta));
-        test_assert(rdbKeySaveStart(save,&rdbcold) == 0);
 
         decodedData _decoded_fx, *decoded_fx = &_decoded_fx;
         decoded_fx->cf = DATA_CF;
         decoded_fx->dbid = db->id;
         decoded_fx->key = myhash_key;
         decoded_fx->rdbtype = rdbv2[0];
-        decoded_fx->subkey = f2;
-        decoded_fx->rdbraw = sdsnewlen(rdbv2+1, sdslen(rdbv2)-1);
+
+        /* cold: skip orphan subkey */
+        init_result = rdbKeySaveDataInit(save,db,(decodedResult*)decoded_fx);
+        test_assert(INIT_SAVE_SKIP == init_result);
+
+        test_assert(!rdbKeySaveDataInit(save,db,(decodedResult*)decoded_meta));
+        test_assert(rdbKeySaveStart(save,&rdbcold) == 0);
+
+        /* cold: skip old version subkey */
+        decoded_fx->version = V0;
+        test_assert(rdbKeySave(save,&rdbcold,decoded_fx) == 0);
+        decoded_fx->version = V1;
+        test_assert(rdbKeySave(save,&rdbcold,decoded_fx) == 0);
+
+        decoded_fx->version = Vcur;
+        decoded_fx->subkey = f2, decoded_fx->rdbraw = sdsnewlen(rdbv2+1, sdslen(rdbv2)-1);
         test_assert(rdbKeySave(save,&rdbcold,decoded_fx) == 0);
         sdsfree(decoded_fx->rdbraw);
 
         decoded_fx->key = myhash_key;
         decoded_fx->subkey = f1, decoded_fx->rdbraw = sdsnewlen(rdbv1+1,sdslen(rdbv1)-1);
         test_assert(rdbKeySave(save,&rdbcold,decoded_fx) == 0);
+        sdsfree(decoded_fx->rdbraw);
         coldraw = rdbcold.io.buffer.ptr;
 
         /* save warm */
@@ -1042,11 +1061,27 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         dbAdd(db,&keyobj,value);
         object_meta->len = 1;
         dbAddMeta(db,&keyobj,object_meta);
+
+        /* warm: skip orphan subkey */
+        init_result = rdbKeySaveDataInit(save,db,(decodedResult*)decoded_fx);
+        test_assert(INIT_SAVE_SKIP == init_result);
+
         test_assert(!rdbKeySaveDataInit(save,db,(decodedResult*)decoded_meta));
         test_assert(rdbKeySaveStart(save,&rdbwarm) == 0);
+
+        /* warm: skip old version subkey */
+        decoded_fx->version = V0;
         test_assert(rdbKeySave(save,&rdbwarm,decoded_fx) == 0);
-        warmraw = rdbwarm.io.buffer.ptr;
+        decoded_fx->version = V1;
+        test_assert(rdbKeySave(save,&rdbwarm,decoded_fx) == 0);
+
+        decoded_fx->version = Vcur;
+        decoded_fx->subkey = f1, decoded_fx->rdbraw = sdsnewlen(rdbv1+1,sdslen(rdbv1)-1);
+        test_assert(rdbKeySave(save,&rdbwarm,decoded_fx) == 0);
         sdsfree(decoded_fx->rdbraw);
+
+        warmraw = rdbwarm.io.buffer.ptr;
+        dbDelete(db,&keyobj);
 
         /* save hot */
         rioInitWithBuffer(&rdbhot,sdsempty());
@@ -1060,7 +1095,6 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         sdsfree(rdbv1), sdsfree(rdbv2);
         sdsfree(myhash_key);
     }
-
 
     TEST("hash - deinit") {
         sdsfree(f1), sdsfree(f2), sdsfree(f3), sdsfree(f4);

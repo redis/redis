@@ -252,8 +252,9 @@ sds zsetEncodeScoreKey(redisDb* db, sds key, uint64_t version,
 }
 
 sds zsetEncodeIntervalScoreKey(redisDb* db, int ex, sds key, uint64_t version,
-        sds subkey, double score) {
-    return encodeIntervalSds(ex, zsetEncodeScoreKey(db, key, version, subkey, score));
+        double score) {
+    return encodeIntervalSds(ex, zsetEncodeScoreKey(db, key, version,
+                shared.emptystring->ptr, score));
 }
 
 sds zsetEncodeIntervalKey(redisDb* db, int ex, sds key, uint64_t version,
@@ -298,18 +299,18 @@ int zsetEncodeKeys(swapData *data, int intention, void *datactx_,
                 rawkeys = zmalloc(sizeof(sds) * 2);
                 if (datactx->zs.rangespec->minex) {
                     rawkeys[0] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->minex,
-                        data->key->ptr, version, NULL, datactx->zs.rangespec->min);
+                        data->key->ptr, version, datactx->zs.rangespec->min);
                 } else {
                     rawkeys[0] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->minex,
-                        data->key->ptr, version, NULL, datactx->zs.rangespec->min - SCORE_DEVIATION);
+                        data->key->ptr, version, datactx->zs.rangespec->min - SCORE_DEVIATION);
                 }
                 
                 if (datactx->zs.rangespec->maxex) {
                     rawkeys[1] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->maxex,
-                        data->key->ptr, version, NULL, datactx->zs.rangespec->max);
+                        data->key->ptr, version, datactx->zs.rangespec->max);
                 } else {
                     rawkeys[1] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->maxex,
-                        data->key->ptr, version, NULL, datactx->zs.rangespec->max + SCORE_DEVIATION);
+                        data->key->ptr, version, datactx->zs.rangespec->max + SCORE_DEVIATION);
                 }
                 
             } else if(datactx->type == TYPE_ZL) {
