@@ -158,7 +158,6 @@ robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
     }
 
     if (value >= 0 && value < OBJ_SHARED_INTEGERS && valueobj == 0) {
-        incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
         if (value >= LONG_MIN && value <= LONG_MAX) {
@@ -636,7 +635,6 @@ robj *tryObjectEncoding(robj *o) {
             value < OBJ_SHARED_INTEGERS)
         {
             decrRefCount(o);
-            incrRefCount(shared.integers[value]);
             return shared.integers[value];
         } else {
             if (o->encoding == OBJ_ENCODING_RAW) {
