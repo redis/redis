@@ -448,35 +448,22 @@ REDIS_STATIC void _quicklistInsertNodeAfter(quicklist *quicklist,
     __quicklistInsertNode(quicklist, old_node, new_node, 1);
 }
 
-REDIS_STATIC int
-_quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
-                                               const int fill) {
-    if (fill >= 0)
-        return 0;
-
-    size_t offset = (-fill) - 1;
-    if (offset < (sizeof(optimization_level) / sizeof(*optimization_level))) {
-        if (sz <= optimization_level[offset]) {
-            return 1;
-        } else {
-            return 0;
-        }
-    } else {
-        return 0;
-    }
-}
-
-#define sizeMeetsSafetyLimit(sz) ((sz) <= SIZE_SAFETY_LIMIT)
-
-/* Calculate the size limit or length limit of the quicklist node
- * based on 'fill', and is also used to limit list listpack. */
-void quicklistSizeAndCountLimit(int fill, size_t *size, unsigned long *count) {
+/* Calculate the size limit or length limit of the quicklist node based on 'fill'. */
+void quicklistNodeLimit(int fill, size_t *size, unsigned int *count) {
     *size = SIZE_MAX;
-    *count = ULONG_MAX;
-    if (fill >= 0)
-        *count = fill;
-    else
-        *size = optimization_level[-fill - 1];
+    *count = UINT_MAX;
+    if (fill >= 0) {
+        /* Ensure that one node have at least one entry */
+        *count = (fill == 0) ? 1 : fill;
+    } else {
+        /* when we reach here we know that the limit is a size limit (which is
+         * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
+        size_t offset = (-fill) - 1;
+        if (offset < (sizeof(optimization_level) / sizeof(*optimization_level)))
+            *size = optimization_level[offset];
+        else
+            *size = SIZE_SAFETY_LIMIT;
+    }
 }
 
 REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
@@ -493,16 +480,12 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
      * Note: No need to check for overflow below since both `node->sz` and
      * `sz` are to be less than 1GB after the plain/large element check above. */
     size_t new_sz = node->sz + sz + SIZE_ESTIMATE_OVERHEAD;
-    if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
-        return 1;
-    /* when we return 1 above we know that the limit is a size limit (which is
-     * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
-    else if (!sizeMeetsSafetyLimit(new_sz))
+    size_t limit_size;
+    unsigned int limit_count;
+    quicklistNodeLimit(fill, &limit_size, &limit_count);
+    if (new_sz > limit_size || node->count >= limit_count)
         return 0;
-    else if ((int)node->count < fill)
-        return 1;
-    else
-        return 0;
+    return 1;
 }
 
 REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
@@ -517,16 +500,12 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
     /* approximate merged listpack size (- 7 to remove one listpack
      * header/trailer, see LP_HDR_SIZE and LP_EOF) */
     unsigned int merge_sz = a->sz + b->sz - 7;
-    if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(merge_sz, fill)))
-        return 1;
-    /* when we return 1 above we know that the limit is a size limit (which is
-     * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
-    else if (!sizeMeetsSafetyLimit(merge_sz))
+    size_t limit_size;
+    unsigned int limit_count;
+    quicklistNodeLimit(fill, &limit_size, &limit_count);
+    if (merge_sz > limit_size || (a->count + b->count) > limit_count)
         return 0;
-    else if ((int)(a->count + b->count) <= fill)
-        return 1;
-    else
-        return 0;
+    return 1;
 }
 
 #define quicklistNodeUpdateSz(node)                                            \
@@ -1973,7 +1952,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
     printf("Starting optimization offset at: %d\n", optimize_start);
 
     int options[] = {0, 1, 2, 3, 4, 5, 6, 10};
-    int fills[] = {-5, -4, -3, -2, -1, 0,
+    int fills[] = {-6, -5, -4, -3, -2, -1, 0,
                    1, 2, 32, 66, 128, 999};
     size_t option_count = sizeof(options) / sizeof(*options);
     int fill_count = (int)(sizeof(fills) / sizeof(*fills));
@@ -3185,6 +3164,21 @@ int quicklistTest(int argc, char *argv[], int flags) {
         assert(!quicklistBookmarkFind(ql, "0"));
         assert(!quicklistBookmarkFind(ql, "_test"));
         quicklistRelease(ql);
+    }
+
+    TEST("quicklist node limit") {
+        size_t limit_size;
+        unsigned int limit_count;
+        quicklistNodeLimit(0, &limit_size, &limit_count);
+        assert(limit_size == SIZE_MAX && limit_count == 1);
+        quicklistNodeLimit(999, &limit_size, &limit_count);
+        assert(limit_size == SIZE_MAX && limit_count == 999);
+        quicklistNodeLimit(-1, &limit_size, &limit_count);
+        assert(limit_size == 4096 && limit_count == UINT_MAX);
+        quicklistNodeLimit(-5, &limit_size, &limit_count);
+        assert(limit_size == 65536 && limit_count == UINT_MAX);
+        quicklistNodeLimit(-6, &limit_size, &limit_count);
+        assert(limit_size == 8192 && limit_count == UINT_MAX); /* SIZE_SAFETY_LIMIT */
     }
 
     if (flags & REDIS_TEST_LARGE_MEMORY) {
