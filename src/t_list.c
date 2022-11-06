@@ -44,7 +44,11 @@ static void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end,
 {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
 
-    size_t add_bytes = 0, add_length = 0;
+    size_t sz_limit;
+    unsigned long count_limit;
+    size_t add_bytes = 0;
+    size_t add_length = 0;
+
     if (argv) {
         for (int i = start; i <= end; i++) {
             if (!sdsEncodedObject(argv[i]))
@@ -54,9 +58,7 @@ static void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end,
         add_length = end - start + 1;
     }
 
-    size_t sz_limit;
-    unsigned int count_limit;
-    quicklistNodeLimit(server.list_max_listpack_size, &sz_limit, &count_limit);
+    quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
     if (lpBytes(o->ptr) + add_bytes > sz_limit || lpLength(o->ptr) + add_length > count_limit ||
         !lpSafeToAdd(o->ptr, add_bytes))
     {
@@ -88,7 +90,7 @@ static void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB 
     serverAssert(o->encoding == OBJ_ENCODING_QUICKLIST);
 
     size_t sz_limit;
-    unsigned int count_limit;
+    unsigned long count_limit;
     quicklist *ql = o->ptr;
 
     /* A quicklist can be converted to listpack only if it has only one packed node. */
@@ -97,9 +99,12 @@ static void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB 
 
     /* Check the length or size of the quicklist is below the threshold. */
     int threshold = shrinking ? 2 : 1;
-    quicklistNodeLimit(server.list_max_listpack_size, &sz_limit, &count_limit);
-    if (ql->head->sz > sz_limit/threshold || ql->count > count_limit/threshold)
+    quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
+    if ((sz_limit != SIZE_MAX && ql->head->sz > sz_limit/threshold) ||
+        (count_limit != ULONG_MAX && ql->count > count_limit/threshold))
+    {
         return;
+    }
 
     /* Invoke callback before conversion. */
     if (fn) fn(data);
