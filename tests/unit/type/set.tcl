@@ -1060,7 +1060,7 @@ start_server {
         # Tests involving large intsets
         set config_old [lindex [r config get set-max-intset-entries] 1]
         r config set set-max-intset-entries 1000000
-        test {SINTERSTORE performace - populate} {
+        test {SINTERSTORE performance - populate} {
             r del set1{t} set2{t} dstset{t}
             set j 0
             while {$j < 100000} {
@@ -1077,7 +1077,7 @@ start_server {
             assert_encoding intset set1{t}
             assert_encoding intset set2{t}
         }
-        test {SINTERSTORE performace - intset input, intset result} {
+        test {SINTERSTORE performance - intset input, intset result} {
             r sinterstore dstset{t} set1{t} set2{t}
             assert_encoding intset dstset{t}
         }
@@ -1085,12 +1085,12 @@ start_server {
         r sadd set2{t} xyz
         assert_encoding hashtable set1{t}
         assert_encoding hashtable set2{t}
-        test {SINTERSTORE performace - hashtable input, intset result} {
+        test {SINTERSTORE performance - hashtable input, intset result} {
             r sinterstore dstset{t} set1{t} set2{t}
             assert_encoding intset dstset{t}
         }
         r sadd set2{t} abc
-        test {SINTERSTORE performace - hastable input, hashtable result} {
+        test {SINTERSTORE performance - hastable input, hashtable result} {
             r sinterstore dstset{t} set1{t} set2{t}
             assert_encoding hashtable dstset{t}
         }
