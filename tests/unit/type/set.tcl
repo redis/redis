@@ -1056,6 +1056,47 @@ start_server {
                 assert_equal [array size s] 0
             }
         }
+
+        # Tests involving large intsets
+        set config_old [lindex [r config get set-max-intset-entries] 1]
+        r config set set-max-intset-entries 1000000
+        test {SINTERSTORE performace - populate} {
+            r del set1{t} set2{t} dstset{t}
+            set j 0
+            while {$j < 100000} {
+                # Add 100 elements in each SADD command to speeds up the test.
+                set elements {}
+                for {set i 0} {$i < 100 && $j < 100000} {incr i} {
+                    lappend elements $j
+                    incr j
+                }
+                r sadd set1{t} {*}$elements
+            }
+            assert_equal 100000 [r scard set1{t}]
+            r copy set1{t} set2{t}
+            assert_encoding intset set1{t}
+            assert_encoding intset set2{t}
+        }
+        test {SINTERSTORE performace - intset input, intset result} {
+            r sinterstore dstset{t} set1{t} set2{t}
+            assert_encoding intset dstset{t}
+        }
+        r sadd set1{t} abc
+        r sadd set2{t} xyz
+        assert_encoding hashtable set1{t}
+        assert_encoding hashtable set2{t}
+        test {SINTERSTORE performace - hashtable input, intset result} {
+            r sinterstore dstset{t} set1{t} set2{t}
+            assert_encoding intset dstset{t}
+        }
+        r sadd set2{t} abc
+        test {SINTERSTORE performace - hastable input, hashtable result} {
+            r sinterstore dstset{t} set1{t} set2{t}
+            assert_encoding hashtable dstset{t}
+        }
+        # cleanup
+        r del set1{t} set2{t} dstset{t}
+        r config set set-max-intset-entries $config_old
     }
 }
 
