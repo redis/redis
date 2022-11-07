@@ -1045,6 +1045,7 @@ typedef struct rocks {
     rocksdb_options_t *cf_opts[CF_COUNT];
     rocksdb_block_based_table_options_t *block_opts[CF_COUNT];
     rocksdb_column_family_handle_t *cf_handles[CF_COUNT];
+    rocksdb_compactionfilter_t *cf_compaction_filters[CF_COUNT];
     rocksdb_options_t *db_opts;
     rocksdb_readoptions_t *ropts;
     rocksdb_writeoptions_t *wopts;
@@ -1061,6 +1062,16 @@ typedef struct rocksdbMemOverhead {
   size_t memtable;
   size_t pinned_blocks;
 } rocksdbMemOverhead;
+
+/* compaction filter */
+typedef enum {
+  FILTER_STATE_CLOSE = 0,
+  FILTER_STATE_OPEN
+} filterState;
+int setFilterState(filterState state);
+rocksdb_compactionfilter_t* createDataCfCompactionFilter();
+rocksdb_compactionfilter_t* createMetaCfCompactionFilter();
+rocksdb_compactionfilter_t* createScoreCfCompactionFilter();
 
 int rocksInit(void);
 void rocksRelease(void);
@@ -1344,6 +1355,7 @@ int rdbLoadLenVerbatim(rio *rdb, sds *verbatim, int *isencoded, unsigned long lo
 #define ROCKS_KEY_FLAG_NONE 0x0
 #define ROCKS_KEY_FLAG_SUBKEY 0x1
 #define ROCKS_KEY_FLAG_DELETE 0xff
+sds encodeMetaKey(int dbid, const char* key, size_t key_len);
 sds rocksEncodeMetaKey(redisDb *db, sds key);
 int rocksDecodeMetaKey(const char *raw, size_t rawlen, int *dbid, const char **key, size_t *keylen);
 sds rocksEncodeDataKey(redisDb *db, sds key, uint64_t version, sds subkey);
@@ -1438,6 +1450,7 @@ int swapIterTest(int argc, char *argv[], int accurate);
 int metaScanTest(int argc, char *argv[], int accurate);
 int swapExpireTest(int argc, char *argv[], int accurate);
 int swapUtilTest(int argc, char **argv, int accurate);
+int swapFilterTest(int argc, char **argv, int accurate);
 int swapListMetaTest(int argc, char *argv[], int accurate);
 int swapListDataTest(int argc, char *argv[], int accurate);
 int swapListUtilsTest(int argc, char *argv[], int accurate);

@@ -212,15 +212,18 @@ int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid,
 
 /* Note that metakey MUST be prefix of datakeys, rdb save key switch detection
  * relay on that assumption. */
-sds rocksEncodeMetaKey(redisDb *db, sds key) {
-    int dbid = db->id;
-    keylen_t keylen = key ? sdslen(key) : 0;
+sds encodeMetaKey(int dbid, const char* key, size_t keylen_) {
+    keylen_t keylen = keylen_;
     size_t rawkeylen = sizeof(dbid)+sizeof(keylen)+keylen;
     sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen), ptr = rawkey;
     memcpy(ptr, &dbid, sizeof(dbid)), ptr += sizeof(dbid);
     memcpy(ptr, &keylen, sizeof(keylen_t)), ptr += sizeof(keylen_t);
     memcpy(ptr, key, keylen), ptr += keylen;
     return rawkey;
+}
+
+sds rocksEncodeMetaKey(redisDb *db, sds key) {    
+    return encodeMetaKey(db->id, key, key ? sdslen(key) : 0);
 }
 
 int rocksDecodeMetaKey(const char *raw, size_t rawlen, int *dbid,
@@ -649,8 +652,6 @@ int swapUtilTest(int argc, char **argv, int accurate) {
 
         dataKey = rocksEncodeDataKey(db,key,12345678,subkey);
         test_assert(memcmp(metaKey,dataKey,sdslen(metaKey)) == 0);
-        sdsfree(dataKey);
-
         sdsfree(dataKey);
         sdsfree(key), sdsfree(empty), sdsfree(subkey);
     }

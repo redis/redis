@@ -88,22 +88,29 @@ int rocksInit() {
 
     rocks->cf_opts[DATA_CF] = rocksdb_options_create();
     rocks->block_opts[DATA_CF] = rocksdb_block_based_options_create();
+    rocks->cf_compaction_filters[DATA_CF] = createDataCfCompactionFilter();
     rocksdb_block_based_options_set_block_size(rocks->block_opts[DATA_CF], 8*KB);
     rocksdb_options_set_block_based_table_factory(rocks->cf_opts[DATA_CF], rocks->block_opts[DATA_CF]);
+    rocksdb_options_set_compaction_filter(rocks->cf_opts[DATA_CF], rocks->cf_compaction_filters[DATA_CF]);
 
     rocks->cf_opts[META_CF] = rocksdb_options_create();
     rocks->block_opts[META_CF] = rocksdb_block_based_options_create();
+    rocks->cf_compaction_filters[META_CF] = createMetaCfCompactionFilter();
     rocksdb_block_based_options_set_block_size(rocks->block_opts[META_CF], 8*KB);
     rocksdb_cache_t *cache = rocksdb_cache_create_lru(512*MB);
     rocksdb_block_based_options_set_block_cache(rocks->block_opts[META_CF], cache);
     rocksdb_cache_destroy(cache);
     rocksdb_options_set_block_based_table_factory(rocks->cf_opts[META_CF], rocks->block_opts[META_CF]);
+    rocksdb_options_set_compaction_filter(rocks->cf_opts[META_CF], rocks->cf_compaction_filters[META_CF]);
 
     rocks->cf_opts[SCORE_CF] = rocksdb_options_create();
     rocks->block_opts[SCORE_CF] = rocksdb_block_based_options_create();
+    rocks->cf_compaction_filters[SCORE_CF] = createScoreCfCompactionFilter();
     rocksdb_block_based_options_set_block_size(rocks->block_opts[SCORE_CF], 8*KB);
     rocksdb_options_set_block_based_table_factory(rocks->cf_opts[SCORE_CF], rocks->block_opts[SCORE_CF]);
+    rocksdb_options_set_compaction_filter(rocks->cf_opts[SCORE_CF], rocks->cf_compaction_filters[SCORE_CF]);
 
+    setFilterState(FILTER_STATE_OPEN);
     rocks->db = rocksdb_open_column_families(rocks->db_opts, dir, CF_COUNT,
             swap_cf_names, (const rocksdb_options_t *const *)rocks->cf_opts,
             rocks->cf_handles, errs);
@@ -124,6 +131,7 @@ void rocksRelease() {
     snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocksdb_epoch);
     rocks *rocks = server.rocks;
     serverLog(LL_NOTICE, "[ROCKS] releasing rocksdb in (%s).",dir);
+    setFilterState(FILTER_STATE_CLOSE);
     for (i = 0; i < CF_COUNT; i++)
         rocksdb_block_based_options_destroy(rocks->block_opts[i]);
     for (i = 0; i < CF_COUNT; i++)
@@ -135,6 +143,9 @@ void rocksRelease() {
     rocksdb_readoptions_destroy(rocks->ropts);
     rocksReleaseSnapshot();
     rocksdb_close(rocks->db);
+    for (i = 0; i < CF_COUNT; i++) {
+        if (rocks->cf_compaction_filters[i]) rocksdb_compactionfilter_destroy(rocks->cf_compaction_filters[i]);
+    }
     zfree(rocks);
     server.rocks = NULL;
 }
