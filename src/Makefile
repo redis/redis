@@ -59,23 +59,15 @@ ifndef PYTHON
 PYTHON := $(shell which python3 || which python)
 endif
 
-# Default allocator defaults to Jemalloc if it's not an ARM
+# Default allocator defaults to Jemalloc on Linux and libc otherwise
 MALLOC=libc
-ifneq ($(uname_M),armv6l)
-ifneq ($(uname_M),armv7l)
 ifeq ($(uname_S),Linux)
 	MALLOC=jemalloc
 endif
-endif
-endif
 
 # To get ARM stack traces if Redis crashes we need a special C flag.
-ifneq (,$(filter aarch64 armv,$(uname_M)))
+ifneq (,$(filter aarch64 armv%,$(uname_M)))
         CFLAGS+=-funwind-tables
-else
-ifneq (,$(findstring armv,$(uname_M)))
-        CFLAGS+=-funwind-tables
-endif
 endif
 
 # Backwards compatibility for selecting an allocator
