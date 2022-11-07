@@ -369,6 +369,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                           RDB without replication buffer. */
 #define CLIENT_NO_EVICT (1ULL<<43) /* This client is protected against client
                                       memory eviction. */
+#define CLIENT_ALLOW_OOM (1ULL<<44) /* Client used by RM_Call is allowed to fully execute
+                                       scripts even when in OOM */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -433,6 +435,8 @@ typedef enum {
 #define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
 #define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
+#define SLAVE_STATE_RDB_TRANSMITTED 10 /* RDB file transmitted - This state is used only for
+                                        * a replica that only wants RDB without replication buffer  */
 
 /* Slave capabilities. */
 #define SLAVE_CAPA_NONE 0
@@ -564,13 +568,22 @@ typedef enum {
 #define PROPAGATE_AOF 1
 #define PROPAGATE_REPL 2
 
-/* Client pause types, larger types are more restrictive
- * pause types than smaller pause types. */
-typedef enum {
-    CLIENT_PAUSE_OFF = 0, /* Pause no commands */
-    CLIENT_PAUSE_WRITE,   /* Pause write commands */
-    CLIENT_PAUSE_ALL      /* Pause all commands */
-} pause_type;
+/* Actions pause types */
+#define PAUSE_ACTION_CLIENT_WRITE     (1<<0)
+#define PAUSE_ACTION_CLIENT_ALL       (1<<1) /* must be bigger than PAUSE_ACTION_CLIENT_WRITE */
+#define PAUSE_ACTION_EXPIRE           (1<<2)
+#define PAUSE_ACTION_EVICT            (1<<3)
+#define PAUSE_ACTION_REPLICA          (1<<4) /* pause replica traffic */
+
+/* common sets of actions to pause/unpause */
+#define PAUSE_ACTIONS_CLIENT_WRITE_SET (PAUSE_ACTION_CLIENT_WRITE|\
+                                        PAUSE_ACTION_EXPIRE|\
+                                        PAUSE_ACTION_EVICT|\
+                                        PAUSE_ACTION_REPLICA)
+#define PAUSE_ACTIONS_CLIENT_ALL_SET   (PAUSE_ACTION_CLIENT_ALL|\
+                                        PAUSE_ACTION_EXPIRE|\
+                                        PAUSE_ACTION_EVICT|\
+                                        PAUSE_ACTION_REPLICA)
 
 /* Client pause purposes. Each purpose has its own end time and pause type. */
 typedef enum {
@@ -581,7 +594,7 @@ typedef enum {
 } pause_purpose;
 
 typedef struct {
-    pause_type type;
+    uint32_t paused_actions; /* Bitmask of actions */
     mstime_t end;
 } pause_event;
 
@@ -727,6 +740,7 @@ typedef struct RedisModuleType {
     moduleTypeFreeEffortFunc2 free_effort2;
     moduleTypeUnlinkFunc2 unlink2;
     moduleTypeCopyFunc2 copy2;
+    moduleTypeAuxSaveFunc aux_save2;
     int aux_save_triggers;
     char name[10]; /* 9 bytes name + null term. Charset: A-Z a-z 0-9 _- */
 } moduleType;
@@ -784,6 +798,8 @@ struct RedisModuleIO {
     struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
     struct redisObject *key;    /* Optional name of key processed */
     int dbid;            /* The dbid of the key being processed, -1 when unknown. */
+    sds pre_flush_buffer; /* A buffer that should be flushed before next write operation
+                           * See rdbSaveSingleModuleAux for more details */
 };
 
 /* Macro to initialize an IO context. Note that the 'ver' field is populated
@@ -796,6 +812,7 @@ struct RedisModuleIO {
     iovar.key = keyptr; \
     iovar.dbid = db; \
     iovar.ctx = NULL; \
+    iovar.pre_flush_buffer = NULL; \
 } while(0)
 
 /* This is a structure used to export DEBUG DIGEST capabilities to Redis
@@ -911,6 +928,9 @@ typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
+    dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
+                                             * data, and should be unblocked if key is deleted (XREADEDGROUP).
+                                             * This is a subset of blocking_keys*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;                     /* Database ID */
@@ -1041,6 +1061,7 @@ typedef struct {
     list *selectors; /* A list of selectors this user validates commands
                         against. This list will always contain at least
                         one selector for backwards compatibility. */
+    robj *acl_string; /* cached string represent of ACLs */
 } user;
 
 /* With multiplexing we need to take per-client state.
@@ -1185,6 +1206,14 @@ typedef struct client {
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
 } client;
+
+/* ACL information */
+typedef struct aclInfo {
+    long long user_auth_failures; /* Auth failure counts on user level */
+    long long invalid_cmd_accesses; /* Invalid command accesses that user doesn't have permission to */
+    long long invalid_key_accesses; /* Invalid key accesses that user doesn't have permission to */
+    long long invalid_channel_accesses; /* Invalid channel accesses that user doesn't have permission to */
+} aclInfo;
 
 struct saveparam {
     time_t seconds;
@@ -1509,13 +1538,11 @@ struct redisServer {
     clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
-    long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     int in_nested_call;         /* If > 0, in a nested call of a call */
     rax *clients_index;         /* Active clients dictionary by client ID. */
-    pause_type client_pause_type;      /* True if clients are currently paused */
+    uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */
-    mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
-    pause_event *client_pause_per_purpose[NUM_PAUSE_PURPOSES];
+    pause_event client_pause_per_purpose[NUM_PAUSE_PURPOSES];
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
@@ -1851,6 +1878,7 @@ struct redisServer {
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
+    mstime_t cluster_ping_interval;    /* A debug configuration for setting how often cluster nodes send ping messages. */
     char *cluster_configfile; /* Cluster auto-generated config file name. */
     struct clusterState *cluster;  /* State of the cluster */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
@@ -1873,7 +1901,7 @@ struct redisServer {
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
-    unsigned long long cluster_link_sendbuf_limit_bytes;  /* Memory usage limit on individual link send buffers*/
+    unsigned long long cluster_link_msg_queue_limit_bytes;  /* Memory usage limit on individual link msg queue */
     int cluster_drop_packet_filter; /* Debug config that allows tactically
                                    * dropping packets of a specific type */
     /* Scripting */
@@ -1897,6 +1925,7 @@ struct redisServer {
                                      the old "requirepass" directive for
                                      backward compatibility with Redis <= 5. */
     int acl_pubsub_default;      /* Default ACL pub/sub channels flag */
+    aclInfo acl_info; /* ACL info */
     /* Assert & bug reporting */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
@@ -2410,7 +2439,8 @@ int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 
 /* Utils */
 long long ustime(void);
-long long mstime(void);
+mstime_t mstime(void);
+mstime_t commandTimeSnapshot(void);
 void getRandomHexChars(char *p, size_t len);
 void getRandomBytes(unsigned char *p, size_t len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
@@ -2464,6 +2494,7 @@ void addReplyOrErrorObject(client *c, robj *reply);
 void afterErrorReply(client *c, const char *s, size_t len, int flags);
 void addReplyErrorSdsEx(client *c, sds err, int flags);
 void addReplyErrorSds(client *c, sds err);
+void addReplyErrorSdsSafe(client *c, sds err);
 void addReplyError(client *c, const char *err);
 void addReplyErrorArity(client *c);
 void addReplyErrorExpireTime(client *c);
@@ -2508,10 +2539,11 @@ void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 void evictClients(void);
 int listenToPort(connListener *fds);
-void pauseClients(pause_purpose purpose, mstime_t end, pause_type type);
-void unpauseClients(pause_purpose purpose);
-int areClientsPaused(void);
-int checkClientPauseTimeoutAndReturnIfPaused(void);
+void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions_bitmask);
+void unpauseActions(pause_purpose purpose);
+uint32_t isPausedActions(uint32_t action_bitmask);
+uint32_t isPausedActionsWithUpdate(uint32_t action_bitmask);
+void updatePausedActions(void);
 void unblockPostponedClients();
 void processEventsWhileBlocked(void);
 void whileBlockedCron();
@@ -2582,7 +2614,7 @@ robj *listTypeDup(robj *o);
 int listTypeDelRange(robj *o, long start, long stop);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int *deleted);
+void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
@@ -2729,7 +2761,6 @@ int loadAppendOnlyFiles(aofManifest *am);
 void stopAppendOnly(void);
 int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
-ssize_t aofReadDiffFromParent(void);
 void killAppendOnlyChild(void);
 void restartAOFAfterSYNC();
 void aofLoadManifestFromDisk(void);
@@ -2785,18 +2816,20 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
 int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags);
 int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
+sds ACLStringSetUser(user *u, sds username, sds *argv, int argc);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
 const char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
-sds ACLDescribeUser(user *u);
+robj *ACLDescribeUser(user *u);
 void ACLLoadUsersAtStartup(void);
 void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser();
 void ACLFreeUserAndKillClients(user *u);
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object);
-const char* getAclErrorMessage(int acl_res);
+sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val, int verbose);
 void ACLUpdateDefaultUserPassword(sds password);
+sds genRedisInfoStringACLStats(sds info);
 
 /* Sorted sets data type */
 
@@ -3219,9 +3252,10 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids);
+void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids, int unblock_on_nokey);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
-void scanDatabaseForDeletedStreams(redisDb *emptied, redisDb *replaced_with);
+void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */
 void addClientToTimeoutTable(client *c);

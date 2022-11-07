@@ -35,7 +35,9 @@ struct clusterNode;
 typedef struct clusterLink {
     mstime_t ctime;             /* Link creation time */
     connection *conn;           /* Connection to remote node */
-    sds sndbuf;                 /* Packet send buffer */
+    list *send_msg_queue;        /* List of messages to be sent */
+    size_t head_msg_send_offset; /* Number of bytes already sent of message at head of queue */
+    unsigned long long send_msg_queue_mem; /* Memory in bytes used by message queue */
     char *rcvbuf;               /* Packet reception buffer */
     size_t rcvbuf_len;          /* Used size of rcvbuf */
     size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
@@ -383,6 +385,7 @@ static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 void clusterInit(void);
+void clusterInitListeners(void);
 void clusterCron(void);
 void clusterBeforeSleep(void);
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
