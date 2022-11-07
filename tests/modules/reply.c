@@ -3,6 +3,7 @@
  */
 
 #include "redismodule.h"
+#include <math.h>
 
 int rw_string(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
@@ -30,6 +31,9 @@ int rw_int(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 /* When one argument is given, it is returned as a double,
  * when two arguments are given, it returns a/b. */
 int rw_double(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc==1)
+        return RedisModule_ReplyWithDouble(ctx, NAN);
+
     if (argc != 2 && argc != 3) return RedisModule_WrongArity(ctx);
 
     double dbl, dbl2;

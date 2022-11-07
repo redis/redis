@@ -41,10 +41,12 @@ start_server {tags {"modules"}} {
         test "RESP$proto: RM_ReplyWithDouble: NaN" {
             if {$proto == 2} {
                 assert_equal "-nan" [r rw.double 0 0]
+                assert_equal "nan" [r rw.double]
             } else {
                 # TCL won't convert nan into a double, use readraw to verify the protocol
                 r readraw 1
                 assert_equal ",-nan" [r rw.double 0 0]
+                assert_equal ",nan" [r rw.double]
                 r readraw 0
             }
         }
