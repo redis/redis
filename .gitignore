@@ -40,3 +40,7 @@ deps/lua/src/liblua.a
 Makefile.dep
 .vscode/*
 .idea/*
+.ccls
+.ccls-cache/*
+compile_commands.json
+repack/*
