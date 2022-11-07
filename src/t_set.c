@@ -186,13 +186,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                  * the intset are of size maxelelen. This is an upper bound. */
                 setTypeConvert(set, OBJ_ENCODING_LISTPACK);
                 unsigned char *lp = set->ptr;
-                if (str == tmpbuf) {
-                    /* This came in as integer so we can avoid parsing it again.
-                     * TODO: Create and use lpFindInteger; don't go via string. */
-                    lp = lpAppendInteger(lp, llval);
-                } else {
-                    lp = lpAppend(lp, (unsigned char *)str, len);
-                }
+                lp = lpAppend(lp, (unsigned char *)str, len);
                 set->ptr = lp;
                 return 1;
             } else {

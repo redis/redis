@@ -340,7 +340,7 @@ start_server {
         }
     }
 
-    test "SINTERSTORE with two non-integer sets where result is intset" {
+    test "SINTERSTORE with two listpack sets where result is intset" {
         r del setres{t} set1{t} set2{t}
         r sadd set1{t} a b c 1 3 6 x y z
         r sadd set2{t} e f g 1 2 3 u v w
@@ -349,6 +349,35 @@ start_server {
         r sinterstore setres{t} set1{t} set2{t}
         assert_equal [list 1 3] [lsort [r smembers setres{t}]]
         assert_encoding intset setres{t}
+    }
+
+    test "SINTERSTORE with two hashtable sets where result is intset" {
+        r del setres{t} set1{t} set2{t}
+        r sadd set1{t} a b c 444 555 666
+        r sadd set2{t} e f g 111 222 333
+        set expected {}
+        for {set i 1} {$i < 130} {incr i} {
+            r sadd set1{t} $i
+            r sadd set2{t} $i
+            lappend expected $i
+        }
+        assert_encoding hashtable set1{t}
+        assert_encoding hashtable set2{t}
+        r sinterstore setres{t} set1{t} set2{t}
+        assert_equal [lsort $expected] [lsort [r smembers setres{t}]]
+        assert_encoding intset setres{t}
+    }
+
+    test "SUNION hashtable and listpack" {
+        # This adds code coverage for adding a non-sds string to a hashtable set
+        # which already contains the string.
+        r del set1{t} set2{t}
+        set union {abcdefghijklmnopqrstuvwxyz1234567890 a b c 1 2 3}
+        create_set set1{t} $union
+        create_set set2{t} {a b c}
+        assert_encoding hashtable set1{t}
+        assert_encoding listpack set2{t}
+        assert_equal [lsort $union] [lsort [r sunion set1{t} set2{t}]]
     }
 
     test "SDIFF with first set empty" {
@@ -632,6 +661,14 @@ start_server {
         }
     }
 
+    test "SPOP integer from listpack set" {
+        create_set myset {a 1 2 3 4 5 6 7}
+        assert_encoding listpack myset
+        set a [r spop myset]
+        set b [r spop myset]
+        assert {[string is digit $a] || [string is digit $b]}
+    }
+
     foreach {type contents} {
         listpack {a b c d e f g h i j k l m n o p q r s t u v w x y z}
         intset {1 10 11 12 13 14 15 16 17 18 19 2 20 21 22 23 24 25 26 3 4 5 6 7 8 9}
@@ -668,16 +705,20 @@ start_server {
         r spop nonexisting_key 100
     } {}
 
-    test "SPOP new implementation: code path #1" {
-        set content {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}
+    foreach {type content} {
+        intset   {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}
+        listpack {a 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}
+    } {
+    test "SPOP new implementation: code path #1 $type" {
         create_set myset $content
+        assert_encoding $type myset
         set res [r spop myset 30]
         assert {[lsort $content] eq [lsort $res]}
     }
 
-    test "SPOP new implementation: code path #2" {
-        set content {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}
+    test "SPOP new implementation: code path #2 $type" {
         create_set myset $content
+        assert_encoding $type myset
         set res [r spop myset 2]
         assert {[llength $res] == 2}
         assert {[r scard myset] == 18}
@@ -685,14 +726,15 @@ start_server {
         assert {[lsort $union] eq [lsort $content]}
     }
 
-    test "SPOP new implementation: code path #3" {
-        set content {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}
+    test "SPOP new implementation: code path #3 $type" {
         create_set myset $content
+        assert_encoding $type myset
         set res [r spop myset 18]
         assert {[llength $res] == 18}
         assert {[r scard myset] == 2}
         set union [concat [r smembers myset] $res]
         assert {[lsort $union] eq [lsort $content]}
+    }
     }
 
     test "SRANDMEMBER count of 0 is handled correctly" {
