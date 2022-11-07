@@ -221,15 +221,14 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
                    (command_type == COMMAND_SET))
         {
             *flags |= OBJ_SET_GET;
-        } else if (!strcasecmp(opt, "KEEPTTL") && !(*flags & OBJ_PERSIST) &&
+        } else if (!strcasecmp(opt, "KEEPTTL") && (command_type == COMMAND_SET) &&
             !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-            !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT) && (command_type == COMMAND_SET))
+            !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT))
         {
             *flags |= OBJ_KEEPTTL;
         } else if (!strcasecmp(opt,"PERSIST") && (command_type == COMMAND_GET) &&
                !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-               !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT) &&
-               !(*flags & OBJ_KEEPTTL))
+               !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT))
         {
             *flags |= OBJ_PERSIST;
         } else if ((opt[0] == 'e' || opt[0] == 'E') &&
