@@ -1090,7 +1090,7 @@ start_server {
             assert_encoding intset dstset{t}
         }
         r sadd set2{t} abc
-        test {SINTERSTORE performance - hastable input, hashtable result} {
+        test {SINTERSTORE performance - hashtable input, hashtable result} {
             r sinterstore dstset{t} set1{t} set2{t}
             assert_encoding hashtable dstset{t}
         }
