@@ -2280,23 +2280,19 @@ void xreadCommand(client *c) {
                                        "in XREADGROUP with GROUP "
                                        "option",(char*)key->ptr);
                 goto cleanup;
-	    }
+            }
             group = streamLookupCG(o->ptr,groupname->ptr);
             if (group == NULL) {
-               if (!mkgroup) {
-                  addReplyErrorFormat(c, "-NOGROUP No consumer "
-                                       "group '%s' in XREADGROUP with GROUP "
-                                       "option",(char*)groupname->ptr);
-                  goto cleanup;
-               }
-               streamID id;
-               id.ms = 0;
-               id.seq = 0;
-               group = streamCreateCG(o->ptr,groupname->ptr,strlen(groupname->ptr),&id,SCG_INVALID_ENTRIES_READ);
-               server.dirty++;
-               notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",key,c->db->id);
-           }
-           groups[id_idx] = group;
+                if (!mkgroup) {
+                    addReplyErrorFormat(c, "-NOGROUP No consumer "
+                                           "group '%s' in XREADGROUP with GROUP "
+                                           "option",(char*)groupname->ptr);
+                    goto cleanup;
+                }
+            }
+            if(!mkgroup) {
+                groups[id_idx] = group;
+            }
         }
 
         if (strcmp(c->argv[i]->ptr,"$") == 0) {
@@ -2334,6 +2330,25 @@ void xreadCommand(client *c) {
             goto cleanup;
     }
 
+    /* If MKGROUP option exists, we will assign the group as following whatever the group already exists or not */
+    if(mkgroup) {
+        for (int i = streams_arg + streams_count; i < c->argc; i++) {
+            int id_idx = i - streams_arg - streams_count;
+            robj *key = c->argv[i-streams_count];
+            robj *o = lookupKeyRead(c->db,key);
+            streamCG *group = streamLookupCG(o->ptr,groupname->ptr);
+            if (group == NULL) {
+                streamID id;
+                id.ms = 0;
+                id.seq = 0;
+                group = streamCreateCG(o->ptr,groupname->ptr,strlen(groupname->ptr),&id,SCG_INVALID_ENTRIES_READ);
+                server.dirty++;
+                notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",key,c->db->id);
+            }
+            groups[id_idx] = group;
+        }
+    }
+
     /* Try to serve the client synchronously. */
     size_t arraylen = 0;
     void *arraylen_ptr = NULL;
@@ -2361,7 +2376,7 @@ void xreadCommand(client *c) {
             } else if (s->length) {
                 /* We also want to serve a consumer in a consumer group
                  * synchronously in case the group top item delivered is smaller
-                 * than what the stream has inside. */ 
+                 * than what the stream has inside. */
                 streamID maxid, *last = &groups[i]->last_id;
                 streamLastValidID(s, &maxid);
                 if (streamCompareID(&maxid, last) > 0) {
@@ -2426,7 +2441,7 @@ void xreadCommand(client *c) {
             if (groups) server.dirty++;
         }
     }
-          
+
     /* We replied synchronously! Set the top array len and return to caller. */
     if (arraylen) {
         if (c->resp == 2)
@@ -2897,7 +2912,7 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XPENDING <key> <group> [[IDLE <idle>] <start> <stop> <count> [<consumer>]] [MKGROUP]
+/* XPENDING <key> <group> [MKGROUP] [[IDLE <idle>] <start> <stop> <count> [<consumer>]
  *
  * If start and stop are omitted, the command just outputs information about
  * the amount of pending messages for the key/group pair, together with
@@ -2917,7 +2932,7 @@ void xpendingCommand(client *c) {
     long long minidle = 0;
     int startex = 0, endex = 0;
     int j = 3;
-    int mkgroup = 0;   
+    int mkgroup = 0;
 
     if (c->argc > 10) {
         addReplyErrorObject(c,shared.syntaxerr);
@@ -2925,57 +2940,57 @@ void xpendingCommand(client *c) {
     }
 
     while(j < c->argc) {
-       if (!strcasecmp(c->argv[j]->ptr, "MKGROUP")) {
-          mkgroup = 1;
-	  j++;
-	  continue;
-       }
-       if (!strcasecmp(c->argv[j]->ptr, "IDLE")) {
-          if (j+1 == c->argc) {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return;
-          }
-          if (getLongLongFromObjectOrReply(c, c->argv[j+1], &minidle, NULL) == C_ERR)
-            return;
-          if (c->argc < 8) {
-            /* If IDLE was provided we must have at least 'start end count' */
-            addReplyErrorObject(c,shared.syntaxerr);
-            return;
-          }
-          /* Search for rest of arguments after 'IDLE <idle>' */
-	  j = j+2;
-       }
-       else {
-	  if (j+2 >= c->argc) {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return;
-          }
-	  /* count argument. */
-          if (getLongLongFromObjectOrReply(c,c->argv[j+2],&count,NULL) == C_ERR)
-            return;
-          if (count < 0) count = 0;
+        if (!strcasecmp(c->argv[j]->ptr, "MKGROUP")) {
+            mkgroup = 1;
+            j++;
+            continue;
+        }
+        if (!strcasecmp(c->argv[j]->ptr, "IDLE")) {
+            if (j+1 == c->argc) {
+                addReplyErrorObject(c,shared.syntaxerr);
+                return;
+            }
+            if (getLongLongFromObjectOrReply(c, c->argv[j+1], &minidle, NULL) == C_ERR)
+                return;
+            if (c->argc < 8) {
+                /* If IDLE was provided we must have at least 'start end count' */
+                addReplyErrorObject(c,shared.syntaxerr);
+                return;
+            }
+            /* Search for rest of arguments after 'IDLE <idle>' */
+	        j = j+2;
+        }
+        else {
+	        if (j+2 >= c->argc) {
+                addReplyErrorObject(c,shared.syntaxerr);
+                return;
+            }
+	        /* count argument. */
+            if (getLongLongFromObjectOrReply(c,c->argv[j+2],&count,NULL) == C_ERR)
+                return;
+            if (count < 0) count = 0;
             
-	  /* start and end arguments. */
-          if (streamParseIntervalIDOrReply(c,c->argv[j],&startid,&startex,0) != C_OK)
-            return;
-          if (startex && streamIncrID(&startid) != C_OK) {
-            addReplyError(c,"invalid start ID for the interval");
-            return;
-          } 
-          if (streamParseIntervalIDOrReply(c,c->argv[j+1],&endid,&endex,UINT64_MAX) != C_OK)
-            return;
-          if (endex && streamDecrID(&endid) != C_OK) {
-            addReplyError(c,"invalid end ID for the interval");
-            return;
-          }
+	        /* start and end arguments. */
+            if (streamParseIntervalIDOrReply(c,c->argv[j],&startid,&startex,0) != C_OK)
+                return;
+            if (startex && streamIncrID(&startid) != C_OK) {
+                addReplyError(c,"invalid start ID for the interval");
+                return;
+            } 
+            if (streamParseIntervalIDOrReply(c,c->argv[j+1],&endid,&endex,UINT64_MAX) != C_OK)
+                return;
+            if (endex && streamDecrID(&endid) != C_OK) {
+                addReplyError(c,"invalid end ID for the interval");
+                return;
+            }
 
-          j = j + 3;
-          if(j < c->argc && strcasecmp(c->argv[j]->ptr, "MKGROUP")) {
-             /* 'consumer' was provided */
-             consumername = c->argv[j];
-             j++;
-	  }
-       }
+            j = j + 3;
+            if(j < c->argc && strcasecmp(c->argv[j]->ptr, "MKGROUP")) {
+                /* 'consumer' was provided */
+                consumername = c->argv[j];
+                j++;
+            }
+        }
     }
 
     robj *o = lookupKeyRead(c->db,key);
@@ -3149,7 +3164,7 @@ void xpendingCommand(client *c) {
  *      after a big number of delivery attempts.
  *
  * 4. FORCE:
- *      Creates the pending message entry in the PEL even if certain
+ *      Create the pending message entry in the PEL even if certain
  *      specified IDs are not already in the PEL assigned to a different
  *      client. However the message must be exist in the stream, otherwise
  *      the IDs of non existing messages are ignored.
@@ -3165,6 +3180,8 @@ void xpendingCommand(client *c) {
  *      consumer group, the XCLAIM that gets propagated to give ownership
  *      to the consumer, is also used in order to update the group current
  *      ID.
+ * 7. MKGROUP:
+ *      Create a consumer group if it doesn't already exist
  *
  * The command returns an array of messages that the user
  * successfully claimed, so that the caller is able to understand
@@ -3180,7 +3197,7 @@ void xclaimCommand(client *c) {
     int mkgroup = 0;
 
     if(c->argc > 6 && !strcasecmp(c->argv[c->argc-1]->ptr,"MKGROUP")) {
-       mkgroup = 1;
+        mkgroup = 1;
     }
     
     if (getLongLongFromObjectOrReply(c,c->argv[4],&minidle,
@@ -3242,7 +3259,7 @@ void xclaimCommand(client *c) {
             j++;
             if (streamParseStrictIDOrReply(c,c->argv[j],&last_id,0,NULL) != C_OK) goto cleanup;
         } else if (!strcasecmp(opt,"MKGROUP")) {
-	    continue;
+	        continue;
         } else {
             addReplyErrorFormat(c,"Unrecognized XCLAIM option '%s'",opt);
             goto cleanup;
@@ -3252,11 +3269,11 @@ void xclaimCommand(client *c) {
     group = streamLookupCG(o->ptr,c->argv[2]->ptr);
     if (group == NULL) {
         if (!mkgroup) {
-	   addReplyErrorFormat(c, "-NOGROUP No consumer "
+	       addReplyErrorFormat(c, "-NOGROUP No consumer "
                                   "group '%s'", (char*)c->argv[2]->ptr);
            return;
-	}
-	streamID id;
+	    }
+        streamID id;
         id.ms = 0;
         id.seq = 0;
         group = streamCreateCG(o->ptr,c->argv[2]->ptr,strlen(c->argv[2]->ptr),&id,SCG_INVALID_ENTRIES_READ);
@@ -3454,14 +3471,14 @@ void xautoclaimCommand(client *c) {
     }
      
     if (checkType(c,o,OBJ_STREAM))
-            return; /* Type error. */
+        return; /* Type error. */
     group = streamLookupCG(o->ptr,c->argv[2]->ptr);
     
     if (group == NULL) {
         if (!mkgroup) {
-           addReplyErrorFormat(c, "-NOGROUP No consumer "
+            addReplyErrorFormat(c, "-NOGROUP No consumer "
                                   "group '%s'", (char*)c->argv[2]->ptr);
-           return;
+            return;
         }
         streamID id;
         id.ms = 0;
