@@ -130,7 +130,7 @@ start_server {
 	catch {[r XPENDING mystream_extra mygroup2 - + 10]} err
         assert_match {*No consumer group 'mygroup2'*} $err
 
-	set pending [r XPENDING mystream_extra mygroup2 - + 10 MKGROUP]
+	set pending [r XPENDING mystream_extra mygroup2 MKGROUP - + 10]
         assert {[llength $pending] == 0}
 	r XREADGROUP GROUP mygroup2 consumer-1 COUNT 10 STREAMS mystream_extra ">"
 	set pending [r XPENDING mystream_extra mygroup2 - + 10]

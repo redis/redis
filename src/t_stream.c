@@ -2939,11 +2939,10 @@ void xpendingCommand(client *c) {
         return;
     }
 
-    while(j < c->argc) {
+    if (c->argc >= 4) {
         if (!strcasecmp(c->argv[j]->ptr, "MKGROUP")) {
             mkgroup = 1;
             j++;
-            continue;
         }
         if (!strcasecmp(c->argv[j]->ptr, "IDLE")) {
             if (j+1 == c->argc) {
@@ -2960,35 +2959,32 @@ void xpendingCommand(client *c) {
             /* Search for rest of arguments after 'IDLE <idle>' */
             j = j+2;
         }
-        else {
-            if (j+2 >= c->argc) {
-                addReplyErrorObject(c,shared.syntaxerr);
-                return;
-            }
-            /* count argument. */
-            if (getLongLongFromObjectOrReply(c,c->argv[j+2],&count,NULL) == C_ERR)
-                return;
-            if (count < 0) count = 0;
+        if (j+2 >= c->argc) {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        }
+        /* count argument. */
+        if (getLongLongFromObjectOrReply(c,c->argv[j+2],&count,NULL) == C_ERR)
+            return;
+        if (count < 0) count = 0;
 
-            /* start and end arguments. */
-            if (streamParseIntervalIDOrReply(c,c->argv[j],&startid,&startex,0) != C_OK)
-                return;
-            if (startex && streamIncrID(&startid) != C_OK) {
-                addReplyError(c,"invalid start ID for the interval");
-                return;
-            } 
-            if (streamParseIntervalIDOrReply(c,c->argv[j+1],&endid,&endex,UINT64_MAX) != C_OK)
-                return;
-            if (endex && streamDecrID(&endid) != C_OK) {
-                addReplyError(c,"invalid end ID for the interval");
-                return;
-            }
-            j = j + 3;
-            if(j < c->argc && strcasecmp(c->argv[j]->ptr, "MKGROUP")) {
-                /* 'consumer' was provided */
-                consumername = c->argv[j];
-                j++;
-            }
+        /* start and end arguments. */
+        if (streamParseIntervalIDOrReply(c,c->argv[j],&startid,&startex,0) != C_OK)
+            return;
+        if (startex && streamIncrID(&startid) != C_OK) {
+            addReplyError(c,"invalid start ID for the interval");
+            return;
+        } 
+        if (streamParseIntervalIDOrReply(c,c->argv[j+1],&endid,&endex,UINT64_MAX) != C_OK)
+            return;
+        if (endex && streamDecrID(&endid) != C_OK) {
+            addReplyError(c,"invalid end ID for the interval");
+            return;
+        }
+        j = j + 3;
+        if(j < c->argc) {
+            /* 'consumer' was provided */
+            consumername = c->argv[j];
         }
     }
 
