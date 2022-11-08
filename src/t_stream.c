@@ -2974,7 +2974,7 @@ void xpendingCommand(client *c) {
         if (startex && streamIncrID(&startid) != C_OK) {
             addReplyError(c,"invalid start ID for the interval");
             return;
-        } 
+        }
         if (streamParseIntervalIDOrReply(c,c->argv[j+1],&endid,&endex,UINT64_MAX) != C_OK)
             return;
         if (endex && streamDecrID(&endid) != C_OK) {
