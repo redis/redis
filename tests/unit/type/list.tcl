@@ -2083,14 +2083,27 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         r config set list-max-listpack-size $origin_conf
     } {OK} {needs:debug}
 
-foreach type {listpack quicklist} {
-    if {$type eq "listpack"} {
-        set origin_config [config_get_set list-max-listpack-size 20]
-    } else {
-        set origin_config [config_get_set list-max-listpack-size -1]
+    test "List invalid list-max-listpack-size config" {
+        # ​When list-max-listpack-size is 0 we treat it as 1 and it'll
+        # still be listpack if there's a single element in the list.
+        r config set list-max-listpack-size 0
+        r DEL lst
+        r RPUSH lst a
+        assert_encoding listpack lst
+        r RPUSH lst b
+        assert_encoding quicklist lst
+
+        # When list-max-listpack-size < -5 we treat it as -5.
+        r config set list-max-listpack-size -6
+        r DEL lst
+        r RPUSH lst [string repeat "x" 60000]
+        assert_encoding listpack lst
+        # Converted to quicklist when the size of listpack exceed 65536
+        r RPUSH lst [string repeat "x" 5536]
+        assert_encoding quicklist lst
     }
 
-    test "List $type of various encodings" {
+    test "List of various encodings" {
         r del k
         r lpush k 127 ;# ZIP_INT_8B
         r lpush k 32767 ;# ZIP_INT_16B
@@ -2101,7 +2114,7 @@ foreach type {listpack quicklist} {
         r lpush k [string repeat x 31] ;# ZIP_STR_06B
         r lpush k [string repeat x 8191] ;# ZIP_STR_14B
         r lpush k [string repeat x 65535] ;# ZIP_STR_32B
-        assert_encoding $type k
+        assert_encoding quicklist k ;# exceeds the size limit of quicklist node
         set k [r lrange k 0 -1]
         set dump [r dump k]
 
@@ -2110,7 +2123,7 @@ foreach type {listpack quicklist} {
 
         config_set sanitize-dump-payload no mayfail
         r restore kk 0 $dump replace
-        assert_encoding $type kk
+        assert_encoding quicklist kk
         set kk [r lrange kk 0 -1]
 
         # try some forward and backward searches to make sure all encodings
@@ -2128,10 +2141,10 @@ foreach type {listpack quicklist} {
         set _ $k
     } {12 0 9223372036854775808 2147483647 32767 127}
 
-    test "List $type of various encodings - sanitize dump" {
+    test "List of various encodings - sanitize dump" {
         config_set sanitize-dump-payload yes mayfail
         r restore kk 0 $dump replace
-        assert_encoding $type kk
+        assert_encoding quicklist kk
         set k [r lrange k 0 -1]
         set kk [r lrange kk 0 -1]
 
@@ -2142,7 +2155,4 @@ foreach type {listpack quicklist} {
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
     } {12 0 9223372036854775808 2147483647 32767 127}
-    config_set list-max-listpack-size $origin_config
-} ;# foreach type
-
 } ;# stop servers

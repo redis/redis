@@ -448,35 +448,43 @@ REDIS_STATIC void _quicklistInsertNodeAfter(quicklist *quicklist,
     __quicklistInsertNode(quicklist, old_node, new_node, 1);
 }
 
-REDIS_STATIC int
-_quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
-                                               const int fill) {
-    if (fill >= 0)
-        return 0;
-
-    size_t offset = (-fill) - 1;
-    if (offset < (sizeof(optimization_level) / sizeof(*optimization_level))) {
-        if (sz <= optimization_level[offset]) {
-            return 1;
-        } else {
-            return 0;
-        }
-    } else {
-        return 0;
-    }
-}
-
 #define sizeMeetsSafetyLimit(sz) ((sz) <= SIZE_SAFETY_LIMIT)
 
 /* Calculate the size limit or length limit of the quicklist node
  * based on 'fill', and is also used to limit list listpack. */
-void quicklistSizeAndCountLimit(int fill, size_t *size, unsigned long *count) {
+void quicklistNodeLimit(int fill, size_t *size, unsigned int *count) {
     *size = SIZE_MAX;
-    *count = ULONG_MAX;
-    if (fill >= 0)
-        *count = fill;
+    *count = UINT_MAX;
+
+    if (fill >= 0) {
+        /* Ensure that one node have at least one entry */
+        *count = (fill == 0) ? 1 : fill;
+    } else {
+        size_t offset = (-fill) - 1;
+        size_t max_level = sizeof(optimization_level) / sizeof(*optimization_level);
+        if (offset >= max_level) offset = max_level - 1;
+        *size = optimization_level[offset];
+    }
+}
+
+/* Check if the limit of the quicklist node has been reached to determine if
+ * insertions, merges or other operations that would increase the size of
+ * the node can be performed. */
+int quicklistNodeMeetLimit(int fill, size_t new_sz, unsigned int new_count) {
+    size_t sz_limit;
+    unsigned int count_limit;
+    quicklistNodeLimit(fill, &sz_limit, &count_limit);
+
+    if (likely(sz_limit != SIZE_MAX && new_sz <= sz_limit))
+        return 0;
+    /* when we return 0 above we know that the limit is a size limit (which is
+     * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
+    else if (!sizeMeetsSafetyLimit(new_sz))
+        return 1;
+    else if (count_limit != UINT_MAX && new_count <= count_limit)
+        return 0;
     else
-        *size = optimization_level[-fill - 1];
+        return 1; 
 }
 
 REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
@@ -493,16 +501,9 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
      * Note: No need to check for overflow below since both `node->sz` and
      * `sz` are to be less than 1GB after the plain/large element check above. */
     size_t new_sz = node->sz + sz + SIZE_ESTIMATE_OVERHEAD;
-    if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
-        return 1;
-    /* when we return 1 above we know that the limit is a size limit (which is
-     * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
-    else if (!sizeMeetsSafetyLimit(new_sz))
+    if (quicklistNodeMeetLimit(fill, new_sz, node->count + 1))
         return 0;
-    else if ((int)node->count < fill)
-        return 1;
-    else
-        return 0;
+    return 1;
 }
 
 REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
@@ -517,16 +518,9 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
     /* approximate merged listpack size (- 7 to remove one listpack
      * header/trailer, see LP_HDR_SIZE and LP_EOF) */
     unsigned int merge_sz = a->sz + b->sz - 7;
-    if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(merge_sz, fill)))
-        return 1;
-    /* when we return 1 above we know that the limit is a size limit (which is
-     * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
-    else if (!sizeMeetsSafetyLimit(merge_sz))
+    if (quicklistNodeMeetLimit(fill, merge_sz, a->count + b->count))
         return 0;
-    else if ((int)(a->count + b->count) <= fill)
-        return 1;
-    else
-        return 0;
+    return 1;
 }
 
 #define quicklistNodeUpdateSz(node)                                            \

@@ -44,8 +44,6 @@ static void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end,
 {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
 
-    size_t sz_limit;
-    unsigned long count_limit;
     size_t add_bytes = 0;
     size_t add_length = 0;
 
@@ -58,9 +56,8 @@ static void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end,
         add_length = end - start + 1;
     }
 
-    quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
-    if (lpBytes(o->ptr) + add_bytes > sz_limit || lpLength(o->ptr) + add_length > count_limit ||
-        !lpSafeToAdd(o->ptr, add_bytes))
+    if (quicklistNodeMeetLimit(server.list_max_listpack_size,
+            lpBytes(o->ptr) + add_bytes, lpLength(o->ptr) + add_length))
     {
         /* Invoke callback before conversion. */
         if (fn) fn(data);
@@ -80,9 +77,10 @@ static void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end,
 
 /* Check the length and size of a quicklist to see if we need to convert it to listpack.
  *
- * 'shrinking' is 1 means that the conversion is due to a list shrinking, to avoid frequent conversions
- * of quicklist and listpack due to frequent insertion and deletion, we don't convert quicklist to 
- * listpack until its length or size is less than the threshold (half of the limit).
+ * 'shrinking' is 1 means that the conversion is due to a list shrinking, to avoid
+ * frequent conversions of quicklist and listpack due to frequent insertion and
+ * deletion, we don't convert quicklist to listpack until its length or size is
+ * below half of the limit.
  *
  * If callback is given the function is called in order for caller to do some work
  * before the list conversion. */
@@ -90,21 +88,20 @@ static void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB 
     serverAssert(o->encoding == OBJ_ENCODING_QUICKLIST);
 
     size_t sz_limit;
-    unsigned long count_limit;
+    unsigned int count_limit;
     quicklist *ql = o->ptr;
 
     /* A quicklist can be converted to listpack only if it has only one packed node. */
     if (ql->len != 1 || ql->head->container != QUICKLIST_NODE_CONTAINER_PACKED)
         return;
 
-    /* Check the length or size of the quicklist is below the threshold. */
-    int threshold = shrinking ? 2 : 1;
-    quicklistSizeAndCountLimit(server.list_max_listpack_size,&sz_limit,&count_limit);
-    if ((sz_limit != SIZE_MAX && ql->head->sz > sz_limit/threshold) ||
-        (count_limit != ULONG_MAX && ql->count > count_limit/threshold))
-    {
-        return;
+    /* Check the length or size of the quicklist is below the limit. */
+    quicklistNodeLimit(server.list_max_listpack_size, &sz_limit, &count_limit);
+    if (shrinking) {
+        sz_limit /= 2;
+        count_limit /= 2;
     }
+    if (ql->head->sz > sz_limit || ql->count > count_limit) return;
 
     /* Invoke callback before conversion. */
     if (fn) fn(data);
