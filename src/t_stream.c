@@ -3259,7 +3259,7 @@ void xclaimCommand(client *c) {
             j++;
             if (streamParseStrictIDOrReply(c,c->argv[j],&last_id,0,NULL) != C_OK) goto cleanup;
         } else if (!strcasecmp(opt,"MKGROUP")) {
-	        continue;
+            continue;
         } else {
             addReplyErrorFormat(c,"Unrecognized XCLAIM option '%s'",opt);
             goto cleanup;
@@ -3269,10 +3269,10 @@ void xclaimCommand(client *c) {
     group = streamLookupCG(o->ptr,c->argv[2]->ptr);
     if (group == NULL) {
         if (!mkgroup) {
-	       addReplyErrorFormat(c, "-NOGROUP No consumer "
-                                  "group '%s'", (char*)c->argv[2]->ptr);
-           return;
-	    }
+            addReplyErrorFormat(c, "-NOGROUP No consumer "
+                                   "group '%s'", (char*)c->argv[2]->ptr);
+            return;
+        }
         streamID id;
         id.ms = 0;
         id.seq = 0;
