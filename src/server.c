@@ -5578,6 +5578,13 @@ sds genRedisInfoString(const char *section) {
         info = genRocksInfoString(info);
     }
 
+    /* rocksdbDetail */
+    if (!strcasecmp(section,"rocksdbDetail") && 
+        server.swap_mode != SWAP_MODE_MEMORY) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = genRocksdbDetailString(info);
+    }
+
     /* Get info from modules.
      * if user asked for "everything" or "modules", or a specific section
      * that's not found yet. */

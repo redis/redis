@@ -849,6 +849,11 @@ sds genRocksInfoString(sds info) {
 	return info;
 }
 
+sds genRocksdbDetailString(sds info) {
+    info = sdscat(info, server.rocks->rocksdb_stats_cache);
+    return info;
+}
+
 #define ROCKSDB_DISK_USED_UPDATE_PERIOD 60
 #define ROCKSDB_DISK_HEALTH_DETECT_PERIOD 1
 

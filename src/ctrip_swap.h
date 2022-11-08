@@ -1087,6 +1087,7 @@ struct rocksdbMemOverhead *rocksGetMemoryOverhead();
 void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh);
 rocksdb_t *rocksGetDb(void);
 sds genRocksInfoString(sds info);
+sds genRocksdbDetailString(sds info);
 
 /* Repl */
 int submitReplClientRequests(client *c);
