@@ -23,6 +23,11 @@ start_server {tags {"external:skip"}} {
   set master_port [srv 0 port]
 
   test {Test client pause write during OOM and FLUSHALL ASYNC} {    
+
+    # maxmemory and policy will be adjusted after filling the DB for the first time     
+    r config set maxmemory 0
+    r config set maxmemory-policy noeviction
+    
     # measure cmd1 run-alone : used_memory_human:76.57M, used_memory_peak_human:77.62M, 
     set cmd1 [redisbenchmark $master_host $master_port " -t set -n 990000 -r 100000000 -d 1 -P 150"]
     
@@ -56,17 +61,18 @@ start_server {tags {"external:skip"}} {
     # assert_morethan [s used_memory_peak]  [s maxmemory]
   }
   
-  test {Test client pause write during OOM and UNLINK} {
-    # like previous test but this time with Unlink command. 
-    # Without this feature, the test will get failed    
-    
-    #r select 0
+  test {Test client pause write during OOM and lazyfree (UNLINK)} { 
+  
+    r select 0
+    # maxmemory and policy will be adjusted after filling the DB for the first time
+    r config set maxmemory 0
+    r config set maxmemory-policy noeviction
     
     # Prepare cmd2 in advance in order to run as fast as possible after flushall
     # measure cmd1 run-alone : used_memory_human:54.70M, used_memory_peak_human:55.75M
     set cmd1 [redisbenchmark $master_host $master_port " -r 2147483647 -n 1000000 HSET myhash __rand_int__ 1 -P 150"]
     # measure cmd2 run-alone : used_memory_human:20.96M, used_memory_peak_human:41.71M
-    set cmd2 [redisbenchmark $master_host $master_port "  -r 2147483647 -t set -n 20 -d 1000000 -P 1 -c 10"]
+    set cmd2 [redisbenchmark $master_host $master_port "  -r 2147483647 -t set -n 20 -d 1000000 -P 1 -c 5"]
 
     # Restart and fill up DB, with many small items
     common_bench_setup $cmd1
