@@ -110,6 +110,33 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
 #define ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE 10 /* % of stale keys after which
                                                    we do extra efforts. */
 
+/* Data used by the expire dict scan callback. */
+typedef struct {
+    redisDb *db;
+    long long now;
+    unsigned long sampled; /* num keys checked */
+    unsigned long expired; /* num keys expired */
+    long long ttl_sum; /* sum of ttl for key with ttl not yet expired */
+    int ttl_samples; /* num keys with ttl not yet expired */
+} expireScanData;
+
+void expireScanCallback(void *privdata, const dictEntry *const_de) {
+    dictEntry *de = (dictEntry *)const_de;
+    expireScanData *data = privdata;
+    long long ttl  = dictGetSignedIntegerVal(de) - data->now;
+    if (activeExpireCycleTryExpire(data->db, de, data->now)) {
+        data->expired++;
+        /* Propagate the DEL command */
+        postExecutionUnitOperations();
+    }
+    if (ttl > 0) {
+        /* We want the average TTL of keys yet not expired. */
+        data->ttl_sum += ttl;
+        data->ttl_samples++;
+    }
+    data->sampled++;
+}
+
 void activeExpireCycle(int type) {
     /* Adjust the running parameters according to the configured expire
      * effort. The default effort is 1, and the maximum configurable effort
@@ -186,10 +213,11 @@ void activeExpireCycle(int type) {
     serverAssert(server.also_propagate.numops == 0);
 
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
-        /* Expired and checked in a single loop. */
-        unsigned long expired, sampled;
+        /* Scan callback data including expired and checked count per iteration. */
+        expireScanData data;
 
         redisDb *db = server.db+(current_db % server.dbnum);
+        data.db = db;
 
         /* Increment the DB now so we are sure if we run out of time
          * in the current DB we'll restart from the next. This allows to
@@ -202,8 +230,6 @@ void activeExpireCycle(int type) {
          * is not fixed, but depends on the Redis configured "expire effort". */
         do {
             unsigned long num, slots;
-            long long now, ttl_sum;
-            int ttl_samples;
             iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
@@ -212,7 +238,7 @@ void activeExpireCycle(int type) {
                 break;
             }
             slots = dictSlots(db->expires);
-            now = mstime();
+            data.now = mstime();
 
             /* When there are less than 1% filled slots, sampling the key
              * space is expensive, so stop here waiting for better times...
@@ -220,12 +246,12 @@ void activeExpireCycle(int type) {
             if (slots > DICT_HT_INITIAL_SIZE &&
                 (num*100/slots < 1)) break;
 
-            /* The main collection cycle. Sample random keys among keys
+            /* The main collection cycle. Scan through keys among keys
              * with an expire set, checking for expired ones. */
-            expired = 0;
-            sampled = 0;
-            ttl_sum = 0;
-            ttl_samples = 0;
+            data.sampled = 0;
+            data.expired = 0;
+            data.ttl_sum = 0;
+            data.ttl_samples = 0;
 
             if (num > config_keys_per_loop)
                 num = config_keys_per_loop;
@@ -243,46 +269,17 @@ void activeExpireCycle(int type) {
             long max_buckets = num*20;
             long checked_buckets = 0;
 
-            while (sampled < num && checked_buckets < max_buckets) {
-                for (int table = 0; table < 2; table++) {
-                    if (table == 1 && !dictIsRehashing(db->expires)) break;
-
-                    unsigned long idx = db->expires_cursor;
-                    idx &= DICTHT_SIZE_MASK(db->expires->ht_size_exp[table]);
-                    dictEntry *de = db->expires->ht_table[table][idx];
-                    long long ttl;
-
-                    /* Scan the current bucket of the current table. */
-                    checked_buckets++;
-                    while(de) {
-                        /* Get the next entry now since this entry may get
-                         * deleted. */
-                        dictEntry *e = de;
-                        de = dictGetNext(de);
-
-                        ttl = dictGetSignedIntegerVal(e)-now;
-                        if (activeExpireCycleTryExpire(db,e,now)) {
-                            expired++;
-                            /* Propagate the DEL command */
-                            postExecutionUnitOperations();
-                        }
-                        if (ttl > 0) {
-                            /* We want the average TTL of keys yet
-                             * not expired. */
-                            ttl_sum += ttl;
-                            ttl_samples++;
-                        }
-                        sampled++;
-                    }
-                }
-                db->expires_cursor++;
+            while (data.sampled < num && checked_buckets < max_buckets) {
+                db->expires_cursor = dictScan(db->expires, db->expires_cursor,
+                                              expireScanCallback, NULL, &data);
+                checked_buckets++;
             }
-            total_expired += expired;
-            total_sampled += sampled;
+            total_expired += data.expired;
+            total_sampled += data.sampled;
 
             /* Update the average TTL stats for this database. */
-            if (ttl_samples) {
-                long long avg_ttl = ttl_sum/ttl_samples;
+            if (data.ttl_samples) {
+                long long avg_ttl = data.ttl_sum / data.ttl_samples;
 
                 /* Do a simple running average with a few samples.
                  * We just use the current estimate with a weight of 2%
@@ -305,8 +302,8 @@ void activeExpireCycle(int type) {
             /* We don't repeat the cycle for the current database if there are
              * an acceptable amount of stale keys (logically expired but yet
              * not reclaimed). */
-        } while (sampled == 0 ||
-                 (expired*100/sampled) > config_cycle_acceptable_stale);
+        } while (data.sampled == 0 ||
+                 (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale);
     }
 
     elapsed = ustime()-start;
