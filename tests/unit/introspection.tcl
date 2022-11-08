@@ -92,7 +92,7 @@ start_server {tags {"introspection"}} {
         } else {
             fail "bgsave did not stop in time"
         }
-    }
+    } {} {needs:save}
 
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
