@@ -75,7 +75,7 @@ start_server {tags {"modules"}} {
         r select 1
         assert_equal k3 [r mem.read k3 1]
         assert_equal k4 [r mem.read k4 0]
-    }
+    } {} {needs:save}
 
     test "datatype2: test aof rewrite" {
         r flushall

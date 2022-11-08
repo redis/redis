@@ -355,7 +355,7 @@ start_server {tags {"other external:skip"}} {
         # size is power of two and over 4098, so it is 8192
         r set k3 v3
         assert_match "*table size: 8192*" [r debug HTSTATS 9]
-    } {} {needs:debug needs:local-process}
+    } {} {needs:debug needs:local-process needs:save}
 }
 
 proc read_proc_title {pid} {

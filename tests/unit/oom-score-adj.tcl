@@ -54,7 +54,7 @@ if {$system_name eq {linux}} {
             } else {
                 fail "Set oom-score-adj of background child process is not ok"
             }
-        }
+        } {} {needs:save}
 
         # Failed oom-score-adj tests can only run unprivileged
         if {$user_id != 0} {

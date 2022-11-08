@@ -45,7 +45,7 @@ The following compatibility and capability tags are currently used:
 | `needs:config-maxmemory`  | Uses `CONFIG SET` to manipulate memory limit, eviction policies, etc. |
 | `needs:config-resetstat`  | Uses `CONFIG RESETSTAT` to reset statistics. |
 | `needs:reset`             | Uses `RESET` to reset client connections. |
-| `needs:save`              | Uses `SAVE` to create an RDB file. |
+| `needs:save`              | Uses `SAVE` or `BGSAVE` to create an RDB file. |
 
 When using an external server (`--host` and `--port`), filtering using the
 `external:skip` tags is done automatically.

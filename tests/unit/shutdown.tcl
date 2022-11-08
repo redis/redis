@@ -22,7 +22,7 @@ start_server {tags {"shutdown external:skip"}} {
 
         # Temp rdb file must be deleted
         assert {![file exists $temp_rdb]}
-    }
+    } {} {needs:save}
 }
 
 start_server {tags {"shutdown external:skip"}} {

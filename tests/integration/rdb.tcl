@@ -1,4 +1,4 @@
-tags {"rdb external:skip"} {
+tags {"rdb external:skip needs:save"} {
 
 set server_path [tmpdir "server.rdb-encoding-test"]
 
@@ -157,7 +157,7 @@ start_server {} {
         assert_lessthan 999 [s rdb_changes_since_last_save]
         # make sure the server is still writable
         r set x xx
-    }
+    } {OK} {needs:save}
 
     test {bgsave resets the change counter} {
         r config set rdb-key-save-delay 0
@@ -168,7 +168,7 @@ start_server {} {
             fail "bgsave not done"
         }
         assert_equal [s rdb_changes_since_last_save] 0
-    }
+    } {} {needs:save}
 }
 
 test {client freed during loading} {
@@ -353,7 +353,7 @@ start_server {overrides {save ""}} {
             }
             assert_morethan_equal $final_cow $cow_size
         }
-    }
+    } {} {needs:save}
 }
 } ;# system_name
 
@@ -408,7 +408,7 @@ start_server {} {
 
         # server is writable again
         r set x y
-    } {OK}
+    } {OK} {needs:save}
 }
 
 } ;# tags

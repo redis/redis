@@ -449,7 +449,7 @@ start_server {tags {"modules"}} {
 
         # server is writable again
         r set x y
-    } {OK}
+    } {OK} {needs:save}
 }
 
 start_server {tags {"modules"}} {
