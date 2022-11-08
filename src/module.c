@@ -62,6 +62,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <string.h>
 
 /* --------------------------------------------------------------------------
  * Private data structures used by the modules system. Those are data
@@ -444,7 +445,7 @@ struct ModuleConfig {
 void RM_FreeCallReply(RedisModuleCallReply *reply);
 void RM_CloseKey(RedisModuleKey *key);
 void autoMemoryCollect(RedisModuleCtx *ctx);
-robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *argvlenp, int *flags, va_list ap);
+robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
 static void moduleInitKeyTypeSpecific(RedisModuleKey *key);
@@ -978,6 +979,26 @@ void RM_ChannelAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
     res->numkeys++;
 }
 
+/* Returns 1 if name is valid, otherwise returns 0.
+ *
+ * We want to block some chars in module command names that we know can
+ * mess things up.
+ *
+ * There are these characters:
+ * ' ' (space) - issues with old inline protocol.
+ * '\r', '\n' (newline) - can mess up the protocol on acl error replies.
+ * '|' - sub-commands.
+ * '@' - ACL categories.
+ * '=', ',' - info and client list fields (':' handled by getSafeInfoString).
+ * */
+int isCommandNameValid(const char *name) {
+    const char *block_chars = " \r\n|@=,";
+
+    if (strpbrk(name, block_chars))
+        return 0;
+    return 1;
+}
+
 /* Helper for RM_CreateCommand(). Turns a string representing command
  * flags into the command flags used by the Redis core.
  *
@@ -1019,9 +1040,14 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
 
 /* Register a new command in the Redis server, that will be handled by
  * calling the function pointer 'cmdfunc' using the RedisModule calling
- * convention. The function returns REDISMODULE_ERR if the specified command
- * name is already busy or a set of invalid flags were passed, otherwise
- * REDISMODULE_OK is returned and the new command is registered.
+ * convention.
+ *
+ * The function returns REDISMODULE_ERR in these cases:
+ * - The specified command is already busy.
+ * - The command name contains some chars that are not allowed.
+ * - A set of invalid flags were passed.
+ *
+ * Otherwise REDISMODULE_OK is returned and the new command is registered.
  *
  * This function must be called during the initialization of the module
  * inside the RedisModule_OnLoad() function. Calling this function outside
@@ -1110,6 +1136,10 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
+        return REDISMODULE_ERR;
+
+    /* Check if the command name is valid. */
+    if (!isCommandNameValid(name))
         return REDISMODULE_ERR;
 
     /* Check if the command name is busy. */
@@ -1237,6 +1267,10 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     RedisModuleCommand *parent_cp = parent_cmd->module_cmd;
     if (parent_cp->func)
         return REDISMODULE_ERR; /* A parent command should be a pure container of subcommands */
+
+    /* Check if the command name is valid. */
+    if (!isCommandNameValid(name))
+        return REDISMODULE_ERR;
 
     /* Check if the command name is busy within the parent command. */
     sds declared_name = sdsnew(name);
@@ -3226,7 +3260,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
 
     /* Create the client and dispatch the command. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,NULL,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     va_end(ap);
     if (argv == NULL) return REDISMODULE_ERR;
 
@@ -3654,7 +3688,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
  * periodically in timer callbacks or other periodic callbacks.
  */
 int RM_AvoidReplicaTraffic() {
-    return checkClientPauseTimeoutAndReturnIfPaused();
+    return !!(isPausedActionsWithUpdate(PAUSE_ACTION_REPLICA));
 }
 
 /* Change the currently selected DB. Returns an error if the id
@@ -5643,7 +5677,7 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
 
 /* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
  * the RM_Call(), RM_Replicate() and other module APIs. Populates *argcp with the number of
- * items and *argvlenp with the length of the allocated argv.
+ * items (which equals to the length of the allocated argv).
  *
  * The integer pointed by 'flags' is populated with flags according
  * to special modifiers in "fmt".
@@ -5654,10 +5688,11 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
  *     "3" -> REDISMODULE_ARGV_RESP_3
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
  *     "C" -> REDISMODULE_ARGV_RUN_AS_USER
+ *     "M" -> REDISMODULE_ARGV_RESPECT_DENY_OOM
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
-robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *argvlenp, int *flags, va_list ap) {
+robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap) {
     int argc = 0, argv_size, j;
     robj **argv = NULL;
 
@@ -5734,7 +5769,6 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
         p++;
     }
     if (argcp) *argcp = argc;
-    if (argvlenp) *argvlenp = argv_size;
     return argv;
 
 fmterr:
@@ -5823,7 +5857,7 @@ fmterr:
 RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
     client *c = NULL;
     robj **argv = NULL;
-    int argc = 0, argv_len = 0, flags = 0;
+    int argc = 0, flags = 0;
     va_list ap;
     RedisModuleCallReply *reply = NULL;
     int replicate = 0; /* Replicate this command? */
@@ -5832,7 +5866,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* Handle arguments. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&argv_len,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
     error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
@@ -5856,8 +5890,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     c->flags |= CLIENT_DENY_BLOCKING;
     c->db = ctx->client->db;
     c->argv = argv;
-    c->argc = argc;
-    c->argv_len = argv_len;
+    /* We have to assign argv_len, which is equal to argc in that case (RM_Call)
+     * because we may be calling a command that uses rewriteClientCommandArgument */
+    c->argc = c->argv_len = argc;
     c->resp = 2;
     if (flags & REDISMODULE_ARGV_RESP_3) {
         c->resp = 3;
@@ -5934,6 +5969,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
                 goto cleanup;
             }
         }
+    } else {
+        /* if we aren't OOM checking in RM_Call, we want further executions from this client to also not fail on OOM */
+        c->flags |= CLIENT_ALLOW_OOM;
     }
 
     if (flags & REDISMODULE_ARGV_NO_WRITES) {
@@ -7030,7 +7068,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
 
     /* Emit the arguments into the AOF in Redis protocol format. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,NULL,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     va_end(ap);
     if (argv == NULL) {
         serverLog(LL_WARNING,

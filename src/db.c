@@ -1680,11 +1680,10 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
     if (flags & EXPIRE_AVOID_DELETE_EXPIRED)
         return 1;
 
-    /* If clients are paused, we keep the current dataset constant,
-     * but return to the client what we believe is the right state. Typically,
-     * at the end of the pause we will properly expire the key OR we will
-     * have failed over and the new primary will send us the expire. */
-    if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
+    /* If 'expire' action is paused, for whatever reason, then don't expire any key.
+     * Typically, at the end of the pause we will properly expire the key OR we
+     * will have failed over and the new primary will send us the expire. */
+    if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return 1;
 
     /* Delete the key */
     deleteExpiredKeyAndPropagate(db,key);
