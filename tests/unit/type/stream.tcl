@@ -823,6 +823,19 @@ start_server {tags {"stream"}} {
         r XADD mystream MAXLEN 0 * a b
         set err
     } {ERR *smaller*}
+
+    test {XSETID cannot set smaller ID than current MAXDELETEDID} {
+        r DEL x
+        r XADD x 1-1 a 1
+        r XADD x 1-2 b 2
+        r XADD x 1-3 c 3
+        r XDEL x 1-2
+        r XDEL x 1-3
+        set reply [r XINFO stream x]
+        assert_equal [dict get $reply max-deleted-entry-id] "1-3"
+        catch {r XSETID x "1-2" } err
+        set err
+    } {ERR *smaller*}
 }
 
 start_server {tags {"stream"}} {

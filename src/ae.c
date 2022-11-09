@@ -403,6 +403,11 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
          * some event fires. */
         numevents = aeApiPoll(eventLoop, tvp);
 
+        /* Don't process file events if not requested. */
+        if (!(flags & AE_FILE_EVENTS)) {
+            numevents = 0;
+        }
+
         /* After sleep callback. */
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
             eventLoop->aftersleep(eventLoop);

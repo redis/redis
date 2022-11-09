@@ -915,14 +915,16 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         } while (cursor &&
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
-    } else if (o->type == OBJ_SET) {
+    } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_INTSET) {
         int pos = 0;
         int64_t ll;
 
         while(intsetGet(o->ptr,pos++,&ll))
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
-    } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
+    } else if ((o->type == OBJ_HASH || o->type == OBJ_ZSET || o->type == OBJ_SET) &&
+               o->encoding == OBJ_ENCODING_LISTPACK)
+    {
         unsigned char *p = lpFirst(o->ptr);
         unsigned char *vstr;
         int64_t vlen;
@@ -1680,11 +1682,10 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
     if (flags & EXPIRE_AVOID_DELETE_EXPIRED)
         return 1;
 
-    /* If clients are paused, we keep the current dataset constant,
-     * but return to the client what we believe is the right state. Typically,
-     * at the end of the pause we will properly expire the key OR we will
-     * have failed over and the new primary will send us the expire. */
-    if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
+    /* If 'expire' action is paused, for whatever reason, then don't expire any key.
+     * Typically, at the end of the pause we will properly expire the key OR we
+     * will have failed over and the new primary will send us the expire. */
+    if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return 1;
 
     /* Delete the key */
     deleteExpiredKeyAndPropagate(db,key);

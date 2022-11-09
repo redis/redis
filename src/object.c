@@ -158,7 +158,6 @@ robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
     }
 
     if (value >= 0 && value < OBJ_SHARED_INTEGERS && valueobj == 0) {
-        incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
         if (value >= LONG_MIN && value <= LONG_MAX) {
@@ -255,6 +254,13 @@ robj *createIntsetObject(void) {
     return o;
 }
 
+robj *createSetListpackObject(void) {
+    unsigned char *lp = lpNew(0);
+    robj *o = createObject(OBJ_SET, lp);
+    o->encoding = OBJ_ENCODING_LISTPACK;
+    return o;
+}
+
 robj *createHashObject(void) {
     unsigned char *zl = lpNew(0);
     robj *o = createObject(OBJ_HASH, zl);
@@ -316,6 +322,7 @@ void freeSetObject(robj *o) {
         dictRelease((dict*) o->ptr);
         break;
     case OBJ_ENCODING_INTSET:
+    case OBJ_ENCODING_LISTPACK:
         zfree(o->ptr);
         break;
     default:
@@ -453,6 +460,8 @@ void dismissSetObject(robj *o, size_t size_hint) {
         dismissMemory(set->ht_table[1], DICTHT_SIZE(set->ht_size_exp[1])*sizeof(dictEntry*));
     } else if (o->encoding == OBJ_ENCODING_INTSET) {
         dismissMemory(o->ptr, intsetBlobLen((intset*)o->ptr));
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        dismissMemory(o->ptr, lpBytes((unsigned char *)o->ptr));
     } else {
         serverPanic("Unknown set encoding type");
     }
@@ -647,7 +656,6 @@ robj *tryObjectEncoding(robj *o) {
             value < OBJ_SHARED_INTEGERS)
         {
             decrRefCount(o);
-            incrRefCount(shared.integers[value]);
             return shared.integers[value];
         } else {
             if (o->encoding == OBJ_ENCODING_RAW) {
