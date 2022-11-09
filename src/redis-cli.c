@@ -3262,8 +3262,7 @@ void cliLoadPreferences(void) {
  * - HELLO with [AUTH username password]
  * - MIGRATE with [AUTH password] or [AUTH2 username password] 
  * - SENTINEL CONFIG SET sentinel-pass
- * - SENTINEL SET <mastername> auth-pass
-*/
+ * - SENTINEL SET <mastername> auth-pass */
 static int isSensitiveCommand(int argc, char **argv) {
     if (!strcasecmp(argv[0],"auth")) {
         return 1;
