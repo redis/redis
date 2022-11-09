@@ -3399,6 +3399,10 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
 
         rioInitWithFd(&rdb,rdb_pipe_write);
 
+        /* Close the reading part, so that if the parent crashes, the child will
+         * get a write error and exit. */
+        close(server.rdb_pipe_read);
+
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);
 

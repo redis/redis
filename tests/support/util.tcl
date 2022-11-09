@@ -627,6 +627,14 @@ proc get_child_pid {idx} {
     return $child_pid
 }
 
+proc process_is_alive pid {
+    if {[catch {exec ps -p $pid} err]} {
+        return 0
+    } else {
+        return 1
+    }
+}
+
 proc cmdrstat {cmd r} {
     if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [$r info commandstats] _ value]} {
         set _ $value
