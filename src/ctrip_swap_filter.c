@@ -59,7 +59,7 @@ int setFilterState(filterState state) {
 }
 
 
-static unsigned char metaVersionFilter(void* arg, int level, const char* rawkey,
+static unsigned char metaVersionFilter(void* arg, int level, int cf, const char* rawkey,
                                    size_t rawkey_length,
                                    int (*decodekey)(const char*, size_t , int* , const char**, size_t* ,uint64_t*)) {
     UNUSED(arg);
@@ -72,14 +72,16 @@ static unsigned char metaVersionFilter(void* arg, int level, const char* rawkey,
     filterState state;
     atomicGet(filter_state, state);
     if (state == FILTER_STATE_CLOSE) return 0;
+    updateCompactionFiltScanCount(cf);
     int retval = decodekey(rawkey, rawkey_length, &dbid, &key, &key_len, &key_version);
+    // serverLog(LL_WARNING, "%s %ld", key, key_len);
     if (retval != 0) return 0;
     /*  key_version == 0 when data type is string*/
     if (key_version == 0) return 0;
     sds meta_key = encodeMetaKey(dbid, key, key_len);
 
     char* err = NULL;
-    sds meta_val = rocksdbGet(server.rocks->ropts, META_CF, meta_key, &err);
+    sds meta_val = rocksdbGet(server.rocks->filter_meta_ropts, META_CF, meta_key, &err);
     if (err != NULL) {
         serverLog(LL_NOTICE, "[metaVersionFilter] rockget (%s) meta val fail: %s ", meta_key, err);
         goto end;
@@ -105,6 +107,7 @@ static unsigned char metaVersionFilter(void* arg, int level, const char* rawkey,
         result = 1;
     }   
 end: 
+    if (result == 1) updateCompactionFiltSuccessCount(cf);
     sdsfree(meta_key);
     if (meta_val != NULL) sdsfree(meta_val);
     if (err != NULL) zlibc_free(err);
@@ -128,7 +131,7 @@ static unsigned char dataFilterFilter(void* arg, int level, const char* rawkey,
     UNUSED(new_value);
     UNUSED(new_value_length);
     UNUSED(value_changed);
-    return metaVersionFilter(arg, level, rawkey, rawkey_length, decodeDataVersion);
+    return metaVersionFilter(arg, level, DATA_CF,rawkey, rawkey_length, decodeDataVersion);
 }
 
 rocksdb_compactionfilter_t* createDataCfCompactionFilter() {
@@ -166,7 +169,7 @@ static unsigned char scoreFilterFilter(void* arg, int level, const char* rawkey,
     UNUSED(new_value);
     UNUSED(new_value_length);
     UNUSED(value_changed);
-    return metaVersionFilter(arg, level, rawkey, rawkey_length, decodeScoreVersion);
+    return metaVersionFilter(arg, level, SCORE_CF,rawkey, rawkey_length, decodeScoreVersion);
 }
 
 rocksdb_compactionfilter_t* createScoreCfCompactionFilter() {
@@ -211,11 +214,12 @@ int swapFilterTest(int argc, char **argv, int accurate) {
 
     sds subkey = sdsnew("subkey");
     char* err = NULL;
+    long long filt_count, scan_count;
     TEST("exec: data compaction filter func") {
-
-        
         /* test1 no-meta filter */
         {
+            rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[DATA_CF], NULL, 0, NULL, 0);
+            resetStatsSwap();
             /* mock hash */
             sds rawkey = rocksEncodeDataKey(db, key1->ptr, 1, subkey );
             rocksdbPut(DATA_CF,rawkey,val1->ptr, &err);
@@ -226,10 +230,16 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             test_assert(err == NULL);
             test_assert(val == NULL);
             sdsfree(rawkey);
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].scan_count, scan_count);
+            test_assert(filt_count == 1);
+            test_assert(scan_count >= 1);
         }
 
         /* test2 metaversion > dataversion */
         {
+            rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[DATA_CF], NULL, 0, NULL, 0);
+            resetStatsSwap();
             /* mock hash data */
             sds rawkey = rocksEncodeDataKey(db, key1->ptr, 1, subkey);
             rocksdbPut(DATA_CF,rawkey,val1->ptr, &err);
@@ -254,12 +264,17 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             sdsfree(rawkey);
             sdsfree(rawmetakey);
             sdsfree(rawmetaval);
-
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].scan_count, scan_count);
+            test_assert(filt_count == 1);
+            test_assert(scan_count >= 1);
         }
 
 
         /* test3 metaversion <= dataversion */
         {
+            rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[DATA_CF], NULL, 0, NULL, 0);
+            resetStatsSwap();
             /* mock string data */
             sds rawkey = rocksEncodeDataKey(db, key1->ptr, 1, subkey);
             rocksdbPut(DATA_CF,rawkey,val1->ptr, &err);
@@ -298,10 +313,18 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             sdsfree(rawkey);
             sdsfree(rawmetakey);
             sdsfree(rawmetaval);
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].scan_count, scan_count);
+            test_assert(filt_count == 0);
+            test_assert(scan_count >= 1);
         }
 
         /* unknow data (unfilte) */
         {
+            /* clean stat */
+            rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[DATA_CF], NULL, 0, NULL, 0);
+            resetStatsSwap();
+
             sds unknow = sdsnew("foo");
             rocksdbPut(DATA_CF,unknow,val1->ptr, &err);
             test_assert(err == NULL);
@@ -309,16 +332,26 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[DATA_CF], NULL, 0, NULL, 0);
             sds val = rocksdbGet(server.rocks->ropts, DATA_CF, unknow, &err);
             test_assert(err == NULL);
-            test_assert(val != NULL);
+            test_assert(!strncmp(val, val1->ptr, sdslen(val1->ptr)));
             sdsfree(val);
+
             /* clean */
             rocksdbDelete(DATA_CF, unknow, &err);
             test_assert(err == NULL);
             sdsfree(unknow);
+            
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].scan_count, scan_count);
+            test_assert(filt_count == 0);
+            test_assert(scan_count >= 1);
         }
 
         /* meta version unknow */
         {
+            /* clean stat */
+            rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[DATA_CF], NULL, 0, NULL, 0);
+            resetStatsSwap();
+
             sds rawkey = rocksEncodeDataKey(db, key1->ptr, 1, subkey);
             rocksdbPut(DATA_CF,rawkey,val1->ptr, &err);
             test_assert(err == NULL);
@@ -340,10 +373,19 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             sdsfree(rawkey);
             sdsfree(rawmetaval);
             sdsfree(rawmetakey);
+
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].scan_count, scan_count);
+            test_assert(filt_count == 0);
+            test_assert(scan_count >= 1);
         }
 
         /* version == 0 => (type is string)   (unfilter) */
         {
+            /* clean stat */
+            rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[DATA_CF], NULL, 0, NULL, 0);
+            resetStatsSwap();
+
             sds rawkey = rocksEncodeDataKey(db, key1->ptr, 0, NULL);
             rocksdbPut(DATA_CF,rawkey,val1->ptr, &err);
             test_assert(err == NULL);
@@ -356,12 +398,18 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             rocksdbDelete(DATA_CF, rawkey, &err);
             test_assert(err == NULL);
             sdsfree(rawkey);
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[DATA_CF].scan_count, scan_count);
+            test_assert(filt_count == 0);
+            test_assert(scan_count >= 1);
         }
    }
 
    TEST("exec: score compaction filter -data") {
         /* test1 no-meta filter */
         {
+            rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[SCORE_CF], NULL, 0, NULL, 0);
+            resetStatsSwap();
             /* mock score data */
             sds rawscorekey = encodeScoreKey(db, key1->ptr,  1, 10, subkey);
             rocksdbPut(SCORE_CF,rawscorekey,val1->ptr, &err);
@@ -372,10 +420,18 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             test_assert(err == NULL);
             test_assert(val == NULL);
             sdsfree(rawscorekey);
+            /* check stat update */
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].scan_count, scan_count);
+            test_assert(filt_count == 1);
+            test_assert(scan_count == 1);
         }
 
         /* test2 metaversion > dataversion */
         {
+            rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[SCORE_CF], NULL, 0, NULL, 0);
+            resetStatsSwap();
+
             sds rawscorekey = encodeScoreKey(db, key1->ptr,  1, 10, subkey);
             rocksdbPut(SCORE_CF,rawscorekey,val1->ptr, &err);
             test_assert(err == NULL);
@@ -399,11 +455,19 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             sdsfree(rawmetakey);
             sdsfree(rawmetaval);
             sdsfree(extend);
+
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].scan_count, scan_count);
+            test_assert(filt_count == 1);
+            test_assert(scan_count == 1);
         }
 
 
         /* test3 metaversion <= dataversion */
         {
+            rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[SCORE_CF], NULL, 0, NULL, 0);
+            resetStatsSwap();
+
             sds rawscorekey = encodeScoreKey(db, key1->ptr, 1, 10, subkey);
             rocksdbPut(SCORE_CF,rawscorekey,val1->ptr, &err);
             test_assert(err == NULL);
@@ -420,6 +484,10 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             test_assert(err == NULL);
             test_assert(val != NULL);
             sdsfree(val);
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].scan_count, scan_count);
+            test_assert(filt_count == 0);
+            test_assert(scan_count == 1);
 
             /* mock string data && dataversion > metaversion */
             rawscorekey = encodeScoreKey(db, key1->ptr, 2, 10, subkey);
@@ -440,10 +508,17 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             sdsfree(rawscorekey);
             sdsfree(rawmetakey);
             sdsfree(rawmetaval);
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].scan_count, scan_count);
+            test_assert(filt_count == 0);
+            test_assert(scan_count >= 2);
         }
 
         /* unknow data (unfilte) */
         {
+            rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[SCORE_CF], NULL, 0, NULL, 0);
+            resetStatsSwap();
+
             sds unknow = sdsnew("foo");
             rocksdbPut(SCORE_CF,unknow,val1->ptr, &err);
             test_assert(err == NULL);
@@ -458,9 +533,17 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             test_assert(err == NULL);
             sdsfree(unknow);
 
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].scan_count, scan_count);
+            test_assert(filt_count == 0);
+            test_assert(scan_count == 1);
+
         }
         /* meta version unknow */
         {
+            rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[SCORE_CF], NULL, 0, NULL, 0);
+            resetStatsSwap();
+
             sds rawscorekey = encodeScoreKey(db, key1->ptr, 1, 10, subkey);\
             rocksdbPut(SCORE_CF,rawscorekey,val1->ptr, &err);
             test_assert(err == NULL);
@@ -482,6 +565,11 @@ int swapFilterTest(int argc, char **argv, int accurate) {
             sdsfree(rawmetakey);
             sdsfree(rawmetaval);
             sdsfree(rawscorekey);
+
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].filt_count, filt_count);
+            atomicGet(server.ror_stats->compaction_filter_stats[SCORE_CF].scan_count, scan_count);
+            test_assert(filt_count == 0);
+            test_assert(scan_count == 1);
         }
     }
     return error;

@@ -800,7 +800,9 @@ static void executeCompactRange(swapRequest *req) {
     char dir[ROCKS_DIR_MAX_LEN];
     snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocksdb_epoch);
     serverLog(LL_WARNING, "[rocksdb compact range before] dir(%s) size(%ld)", dir, get_dir_size(dir));
-    rocksdb_compact_range(server.rocks->db, NULL, 0, NULL, 0);
+    for (int i = 0; i < CF_COUNT; i++) {
+        rocksdb_compact_range_cf(server.rocks->db, server.rocks->cf_handles[i] ,NULL, 0, NULL, 0);
+    }
     serverLog(LL_WARNING, "[rocksdb compact range after] dir(%s) size(%ld)", dir, get_dir_size(dir));
     doNotify(req,0);
 }

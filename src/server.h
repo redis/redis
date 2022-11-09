@@ -142,7 +142,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define STATS_METRIC_NET_INPUT 1    /* Bytes read to network .*/
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
 #define STATS_METRIC_COUNT_MEM 3
-#define STATS_METRIC_COUNT_SWAP 30 /* define directly here to avoid dependcy cycle, will be checked later. */
+#define STATS_METRIC_COUNT_SWAP 36 /* define directly here to avoid dependcy cycle, will be checked later. */
 #define STATS_METRIC_COUNT (STATS_METRIC_COUNT_SWAP + STATS_METRIC_COUNT_MEM)
 
 /* Protocol and I/O related defines */
@@ -1726,8 +1726,7 @@ struct redisServer {
     client **scan_expire_clients; /* array of expire scan clients (one for each db). */
     client **ttl_clients; /* array of expire scan clients (one for each db). */
     client *mutex_client; /* exec op needed global swap lock */
-    struct swapStat *swap_stats; /* array of swap stats (one for each swap type). */
-    struct swapStat *rio_stats; /* array of swap stats (one for each swap type). */
+    struct rorStat *ror_stats; 
     int debug_evict_keys; /* num of keys to evict before calling cmd. */
     uint64_t req_submitted; /* whether request already submitted or not,
                             request will be executed with global swap lock */

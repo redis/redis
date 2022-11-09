@@ -85,6 +85,9 @@ int rocksInit() {
     }
 
     snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocksdb_epoch);
+    rocks->filter_meta_ropts = rocksdb_readoptions_create();
+    rocksdb_readoptions_set_verify_checksums(rocks->filter_meta_ropts, 0);
+    rocksdb_readoptions_set_fill_cache(rocks->filter_meta_ropts, 0);
 
     rocks->cf_opts[DATA_CF] = rocksdb_options_create();
     rocks->block_opts[DATA_CF] = rocksdb_block_based_options_create();
@@ -141,6 +144,7 @@ void rocksRelease() {
     rocksdb_options_destroy(rocks->db_opts);
     rocksdb_writeoptions_destroy(rocks->wopts);
     rocksdb_readoptions_destroy(rocks->ropts);
+    rocksdb_readoptions_destroy(rocks->filter_meta_ropts);
     rocksReleaseSnapshot();
     rocksdb_close(rocks->db);
     for (i = 0; i < CF_COUNT; i++) {

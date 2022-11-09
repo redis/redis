@@ -78,23 +78,32 @@ static inline size_t estimateRIOSwapMemory(RIO *rio) {
 
 void initStatsSwap() {
     int i, metric_offset;
-    server.swap_stats = zmalloc(SWAP_TYPES*sizeof(swapStat));
+    server.ror_stats = zmalloc(sizeof(rorStat));
+    server.ror_stats->swap_stats = zmalloc(SWAP_TYPES*sizeof(swapStat));
     for (i = 0; i < SWAP_TYPES; i++) {
         metric_offset = SWAP_SWAP_STATS_METRIC_OFFSET + i*SWAP_STAT_METRIC_SIZE;
-        server.swap_stats[i].name = swapIntentionName(i);
-        server.swap_stats[i].count = 0;
-        server.swap_stats[i].memory = 0;
-        server.swap_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
-        server.swap_stats[i].stats_metric_idx_memory = metric_offset+SWAP_STAT_METRIC_MEMORY;
+        server.ror_stats->swap_stats[i].name = swapIntentionName(i);
+        server.ror_stats->swap_stats[i].count = 0;
+        server.ror_stats->swap_stats[i].memory = 0;
+        server.ror_stats->swap_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
+        server.ror_stats->swap_stats[i].stats_metric_idx_memory = metric_offset+SWAP_STAT_METRIC_MEMORY;
     }
-    server.rio_stats = zmalloc(ROCKS_TYPES*sizeof(swapStat));
+    server.ror_stats->rio_stats = zmalloc(ROCKS_TYPES*sizeof(swapStat));
     for (i = 0; i < ROCKS_TYPES; i++) {
         metric_offset = SWAP_RIO_STATS_METRIC_OFFSET + i*SWAP_STAT_METRIC_SIZE;
-        server.rio_stats[i].name = rocksActionName(i);
-        server.rio_stats[i].count = 0;
-        server.rio_stats[i].memory = 0;
-        server.rio_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
-        server.rio_stats[i].stats_metric_idx_memory = metric_offset+SWAP_STAT_METRIC_MEMORY;
+        server.ror_stats->rio_stats[i].name = rocksActionName(i);
+        server.ror_stats->rio_stats[i].count = 0;
+        server.ror_stats->rio_stats[i].memory = 0;
+        server.ror_stats->rio_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
+        server.ror_stats->rio_stats[i].stats_metric_idx_memory = metric_offset+SWAP_STAT_METRIC_MEMORY;
+    }
+    server.ror_stats->compaction_filter_stats = zmalloc(sizeof(compactionFilterStat) * CF_COUNT);
+    for (i = 0; i < CF_COUNT; i++) {
+        metric_offset = SWAP_COMPACTION_FILTER_STATS_METRIC_OFFSET + i * COMPACTION_FILTER_METRIC_SIZE;
+        server.ror_stats->compaction_filter_stats[i].name = swap_cf_names[i];
+        server.ror_stats->compaction_filter_stats[i].filt_count = 0;
+        server.ror_stats->compaction_filter_stats[i].scan_count = 0;
+        server.ror_stats->compaction_filter_stats[i].stats_metric_idx_filte = metric_offset;
     }
 }
 
@@ -103,18 +112,27 @@ void trackSwapInstantaneousMetrics() {
     swapStat *s;
     size_t count, memory;
     for (i = 1; i < SWAP_TYPES; i++) {
-        s = server.swap_stats + i;
+        s = server.ror_stats->swap_stats + i;
         atomicGet(s->count,count);
         atomicGet(s->memory,memory);
         trackInstantaneousMetric(s->stats_metric_idx_count,count);
         trackInstantaneousMetric(s->stats_metric_idx_memory,memory);
     }
     for (i = 1; i < ROCKS_TYPES; i++) {
-        s = server.rio_stats + i;
+        s = server.ror_stats->rio_stats + i;
         atomicGet(s->count,count);
         atomicGet(s->memory,memory);
         trackInstantaneousMetric(s->stats_metric_idx_count,count);
         trackInstantaneousMetric(s->stats_metric_idx_memory,memory);
+    }
+    long long filt_count, scan_count;
+    compactionFilterStat* cfs;
+    for (i = 0; i < CF_COUNT; i++) {
+        cfs = server.ror_stats->compaction_filter_stats + i;
+        atomicGet(cfs->filt_count,filt_count);
+        trackInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_filt_count,filt_count);
+        atomicGet(cfs->scan_count,scan_count);
+        trackInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_SCAN_COUNT,scan_count);
     }
 }
 
@@ -132,7 +150,7 @@ sds genSwapInfoString(sds info) {
             server.swap_evict_inprogress_count);
 
     for (j = 1; j < SWAP_TYPES; j++) {
-        swapStat *s = &server.swap_stats[j];
+        swapStat *s = &server.ror_stats->swap_stats[j];
         atomicGet(s->count,count);
         atomicGet(s->memory,memory);
         info = sdscatprintf(info, "swap_%s:count=%ld,memory=%ld,ops=%lld,bps=%lld\r\n",
@@ -142,13 +160,24 @@ sds genSwapInfoString(sds info) {
     }
 
     for (j = 1; j < ROCKS_TYPES; j++) {
-        swapStat *s = &server.rio_stats[j];
+        swapStat *s = &server.ror_stats->rio_stats[j];
         atomicGet(s->count,count);
         atomicGet(s->memory,memory);
         info = sdscatprintf(info,"rio_%s:count=%ld,memory=%ld,ops=%lld,bps=%lld\r\n",
                 s->name,count,memory,
                 getInstantaneousMetric(s->stats_metric_idx_count),
                 getInstantaneousMetric(s->stats_metric_idx_memory));
+    }
+
+    for (j = 0; j < CF_COUNT; j++) {
+        compactionFilterStat *cfs = &server.ror_stats->compaction_filter_stats[j];
+        long long filt_count, scan_count;
+        atomicGet(cfs->filt_count,filt_count);
+        atomicGet(cfs->scan_count,scan_count);
+        info = sdscatprintf(info,"cf_%s:filt_count=%lld,scan_count=%lld,filt_ps=%lld,scan_ps=%lld\r\n",
+                cfs->name,filt_count,scan_count,
+                getInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_filt_count),
+                getInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_SCAN_COUNT));
     }
     return info;
 }
@@ -158,12 +187,16 @@ sds genSwapInfoString(sds info) {
 void resetStatsSwap() {
     int i;
     for (i = 0; i < SWAP_TYPES; i++) {
-        server.swap_stats[i].count = 0;
-        server.swap_stats[i].memory = 0;
+        server.ror_stats->swap_stats[i].count = 0;
+        server.ror_stats->swap_stats[i].memory = 0;
     }
     for (i = 0; i < ROCKS_TYPES; i++) {
-        server.rio_stats[i].count = 0;
-        server.rio_stats[i].memory = 0;
+        server.ror_stats->rio_stats[i].count = 0;
+        server.ror_stats->rio_stats[i].memory = 0;
+    }
+    for (i = 0; i < CF_COUNT; i++) {
+        server.ror_stats->compaction_filter_stats[i].filt_count = 0;
+        server.ror_stats->compaction_filter_stats[i].scan_count = 0;
     }
 }
 
@@ -174,8 +207,8 @@ void updateStatsSwapStart(swapRequest *req) {
 }
 
 void updateStatsSwapIntention(swapRequest *req) {
-    atomicIncr(server.swap_stats[req->intention].count,1);
-    atomicIncr(server.swap_stats[req->intention].memory,req->swap_memory);
+    atomicIncr(server.ror_stats->swap_stats[req->intention].count,1);
+    atomicIncr(server.ror_stats->swap_stats[req->intention].memory,req->swap_memory);
 }
 
 void updateStatsSwapFinish(swapRequest *req) {
@@ -188,11 +221,18 @@ void updateStatsSwapRIO(swapRequest *req, RIO *rio) {
     size_t rio_memory = estimateRIOSwapMemory(rio);
     req->swap_memory += rio_memory;
     atomicIncr(server.swap_inprogress_memory,rio_memory);
-    atomicIncr(server.swap_stats[intention].memory,rio_memory);
-    atomicIncr(server.rio_stats[action].count,1);
-    atomicIncr(server.rio_stats[action].memory,rio_memory);
+    atomicIncr(server.ror_stats->swap_stats[intention].memory,rio_memory);
+    atomicIncr(server.ror_stats->rio_stats[action].count,1);
+    atomicIncr(server.ror_stats->rio_stats[action].memory,rio_memory);
 }
 
+void updateCompactionFiltSuccessCount(int cf) {
+    atomicIncr(server.ror_stats->compaction_filter_stats[cf].filt_count, 1);
+}
+
+void updateCompactionFiltScanCount(int cf) {
+    atomicIncr(server.ror_stats->compaction_filter_stats[cf].scan_count, 1);
+}
 /* ----------------------------- ratelimit ------------------------------ */
 #define SWAP_RATELIMIT_DELAY_SLOW 1
 #define SWAP_RATELIMIT_DELAY_STOP 10

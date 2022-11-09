@@ -1049,6 +1049,7 @@ typedef struct rocks {
     rocksdb_options_t *db_opts;
     rocksdb_readoptions_t *ropts;
     rocksdb_writeoptions_t *wopts;
+    rocksdb_readoptions_t *filter_meta_ropts;
     const rocksdb_snapshot_t *snapshot;
     rocksdb_checkpoint_t* checkpoint;
     sds checkpoint_dir;
@@ -1117,14 +1118,19 @@ int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark)
 #define SWAP_STAT_METRIC_MEMORY 1
 #define SWAP_STAT_METRIC_SIZE 2
 
+#define COMPACTION_FILTER_METRIC_filt_count 0
+#define COMPACTION_FILTER_METRIC_SCAN_COUNT 1
+#define COMPACTION_FILTER_METRIC_SIZE 2
+
 #define SWAP_SWAP_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*SWAP_TYPES)
 #define SWAP_RIO_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*ROCKS_TYPES)
+#define SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT (COMPACTION_FILTER_METRIC_SIZE*CF_COUNT)
+
 /* stats metrics are ordered mem>swap>rio */ 
 #define SWAP_SWAP_STATS_METRIC_OFFSET STATS_METRIC_COUNT_MEM
 #define SWAP_RIO_STATS_METRIC_OFFSET (SWAP_SWAP_STATS_METRIC_OFFSET+SWAP_SWAP_STATS_METRIC_COUNT)
-
-#define SWAP_STATS_METRIC_COUNT (SWAP_SWAP_STATS_METRIC_COUNT+SWAP_RIO_STATS_METRIC_COUNT)
-
+#define SWAP_COMPACTION_FILTER_STATS_METRIC_OFFSET (SWAP_RIO_STATS_METRIC_OFFSET+SWAP_RIO_STATS_METRIC_COUNT)
+#define SWAP_STATS_METRIC_COUNT (SWAP_SWAP_STATS_METRIC_COUNT+SWAP_RIO_STATS_METRIC_COUNT+SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT)
 typedef struct swapStat {
     const char *name;
     redisAtomic size_t count;
@@ -1133,12 +1139,28 @@ typedef struct swapStat {
     int stats_metric_idx_memory;
 } swapStat;
 
+typedef struct compactionFilterStat {
+    const char *name;
+    redisAtomic long long filt_count;
+    redisAtomic long long scan_count;
+    int stats_metric_idx_filte;
+} compactionFilterStat;
+
+typedef struct rorStat {
+    struct swapStat *swap_stats; /* array of swap stats (one for each swap type). */
+    struct swapStat *rio_stats; /* array of rio stats (one for each rio type). */
+    struct compactionFilterStat *compaction_filter_stats;
+} rorStat;
+
 void initStatsSwap(void);
 void resetStatsSwap(void);
 void updateStatsSwapStart(swapRequest *req);
 void updateStatsSwapIntention(swapRequest *req);
 void updateStatsSwapRIO(swapRequest *req, RIO *rio);
 void updateStatsSwapFinish(swapRequest *req);
+
+void updateCompactionFiltSuccessCount(int cf);
+void updateCompactionFiltScanCount(int cf);
 
 void trackSwapInstantaneousMetrics();
 sds genSwapInfoString(sds info);
