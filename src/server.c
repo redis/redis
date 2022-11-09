@@ -5924,6 +5924,10 @@ int redisFork(int purpose) {
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         setupChildSignalHandlers();
         closeChildUnusedResourceAfterFork();
+        /* Close the reading part, so that if the parent crashes, the child will
+         * get a write error and exit. */
+        if (server.child_info_pipe[0] != -1)
+            close(server.child_info_pipe[0]);
     } else {
         /* Parent */
         server.stat_total_forks++;
