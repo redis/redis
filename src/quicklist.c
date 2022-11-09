@@ -469,22 +469,23 @@ void quicklistNodeLimit(int fill, size_t *size, unsigned int *count) {
 
 /* Check if the limit of the quicklist node has been reached to determine if
  * insertions, merges or other operations that would increase the size of
- * the node can be performed. */
-int quicklistNodeMeetLimit(int fill, size_t new_sz, unsigned int new_count) {
+ * the node can be performed.
+ * Return 1 if exceeds the limit, otherwise 0. */
+int quicklistNodeExceedsLimit(int fill, size_t new_sz, unsigned int new_count) {
     size_t sz_limit;
     unsigned int count_limit;
     quicklistNodeLimit(fill, &sz_limit, &count_limit);
 
-    if (likely(sz_limit != SIZE_MAX && new_sz <= sz_limit))
-        return 0;
-    /* when we return 0 above we know that the limit is a size limit (which is
-     * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
-    else if (!sizeMeetsSafetyLimit(new_sz))
-        return 1;
-    else if (count_limit != UINT_MAX && new_count <= count_limit)
-        return 0;
-    else
-        return 1; 
+    if (likely(sz_limit != SIZE_MAX)) {
+        return new_sz > sz_limit;
+    } else if (count_limit != UINT_MAX) {
+        /* when we reach here we know that the limit is a size limit (which is
+         * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
+        if (!sizeMeetsSafetyLimit(new_sz)) return 1;
+        return new_count > count_limit;
+    }
+
+    redis_unreachable();
 }
 
 REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
@@ -501,7 +502,7 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
      * Note: No need to check for overflow below since both `node->sz` and
      * `sz` are to be less than 1GB after the plain/large element check above. */
     size_t new_sz = node->sz + sz + SIZE_ESTIMATE_OVERHEAD;
-    if (quicklistNodeMeetLimit(fill, new_sz, node->count + 1))
+    if (unlikely(quicklistNodeExceedsLimit(fill, new_sz, node->count + 1)))
         return 0;
     return 1;
 }
@@ -518,7 +519,7 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
     /* approximate merged listpack size (- 7 to remove one listpack
      * header/trailer, see LP_HDR_SIZE and LP_EOF) */
     unsigned int merge_sz = a->sz + b->sz - 7;
-    if (quicklistNodeMeetLimit(fill, merge_sz, a->count + b->count))
+    if (unlikely(quicklistNodeExceedsLimit(fill, merge_sz, a->count + b->count)))
         return 0;
     return 1;
 }

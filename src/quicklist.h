@@ -193,7 +193,7 @@ unsigned long quicklistCount(const quicklist *ql);
 int quicklistCompare(quicklistEntry *entry, unsigned char *p2, const size_t p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
 void quicklistNodeLimit(int fill, size_t *size, unsigned int *count);
-int quicklistNodeMeetLimit(int fill, size_t new_sz, unsigned int new_count);
+int quicklistNodeExceedsLimit(int fill, size_t new_sz, unsigned int new_count);
 void quicklistRepr(unsigned char *ql, int full);
 
 /* bookmarks */

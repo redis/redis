@@ -56,7 +56,7 @@ static void listTypeTryConvertListpack(robj *o, robj **argv, int start, int end,
         add_length = end - start + 1;
     }
 
-    if (quicklistNodeMeetLimit(server.list_max_listpack_size,
+    if (quicklistNodeExceedsLimit(server.list_max_listpack_size,
             lpBytes(o->ptr) + add_bytes, lpLength(o->ptr) + add_length))
     {
         /* Invoke callback before conversion. */
