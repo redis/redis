@@ -100,7 +100,7 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     exit(1);
 }
 
-static ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
+ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
     return len;
@@ -1186,30 +1186,49 @@ int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     /* Save a module-specific aux value. */
     RedisModuleIO io;
-    int retval = rdbSaveType(rdb, RDB_OPCODE_MODULE_AUX);
-    if (retval == -1) return -1;
+    int retval = 0;
     moduleInitIOContext(io,mt,rdb,NULL,-1);
-    io.bytes += retval;
+
+    /* We save the AUX field header in a temporary buffer so we can support aux_save2 API.
+     * If aux_save2 is used the buffer will be flushed at the first time the module will perform
+     * a write operation to the RDB and will be ignored is case there was no writes. */
+    rio aux_save_headers_rio;
+    rioInitWithBuffer(&aux_save_headers_rio, sdsempty());
+
+    if (rdbSaveType(&aux_save_headers_rio, RDB_OPCODE_MODULE_AUX) == -1) goto error;
 
     /* Write the "module" identifier as prefix, so that we'll be able
      * to call the right module during loading. */
-    retval = rdbSaveLen(rdb,mt->id);
-    if (retval == -1) return -1;
-    io.bytes += retval;
+    if (rdbSaveLen(&aux_save_headers_rio,mt->id) == -1) goto error;
 
     /* write the 'when' so that we can provide it on loading. add a UINT opcode
      * for backwards compatibility, everything after the MT needs to be prefixed
      * by an opcode. */
-    retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_UINT);
-    if (retval == -1) return -1;
-    io.bytes += retval;
-    retval = rdbSaveLen(rdb,when);
-    if (retval == -1) return -1;
-    io.bytes += retval;
+    if (rdbSaveLen(&aux_save_headers_rio,RDB_MODULE_OPCODE_UINT) == -1) goto error;
+    if (rdbSaveLen(&aux_save_headers_rio,when) == -1) goto error;
 
     /* Then write the module-specific representation + EOF marker. */
-    mt->aux_save(&io,when);
+    if (mt->aux_save2) {
+        io.pre_flush_buffer = aux_save_headers_rio.io.buffer.ptr;
+        mt->aux_save2(&io,when);
+        if (io.pre_flush_buffer) {
+            /* aux_save did not save any data to the RDB.
+             * We will avoid saving any data related to this aux type
+             * to allow loading this RDB if the module is not present. */
+            sdsfree(io.pre_flush_buffer);
+            io.pre_flush_buffer = NULL;
+            return 0;
+        }
+    } else {
+        /* Write headers now, aux_save does not do lazy saving of the headers. */
+        retval = rdbWriteRaw(rdb, aux_save_headers_rio.io.buffer.ptr, sdslen(aux_save_headers_rio.io.buffer.ptr));
+        if (retval == -1) goto error;
+        io.bytes += retval;
+        sdsfree(aux_save_headers_rio.io.buffer.ptr);
+        mt->aux_save(&io,when);
+    }
     retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
+    serverAssert(!io.pre_flush_buffer);
     if (retval == -1)
         io.error = 1;
     else
@@ -1222,6 +1241,9 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     if (io.error)
         return -1;
     return io.bytes;
+error:
+    sdsfree(aux_save_headers_rio.io.buffer.ptr);
+    return -1;
 }
 
 ssize_t rdbSaveFunctions(rio *rdb) {

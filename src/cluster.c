@@ -89,6 +89,7 @@ list *clusterLookupNodeListByShardId(const char *shard_id);
 void clusterRemoveNodeFromShard(clusterNode *node);
 int auxShardIdSetter(clusterNode *n, void *value, int length);
 sds auxShardIdGetter(clusterNode *n, sds s);
+static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
 
 /* Links to the next and previous entries for keys in the same slot are stored
  * in the dict entry metadata. See Slot to Key API below. */
@@ -211,6 +212,13 @@ int auxShardIdSetter(clusterNode *n, void *value, int length) {
 sds auxShardIdGetter(clusterNode *n, sds s) {
     return sdscatprintf(s, "%.40s", n->shard_id);
 }
+
+/* clusterLink send queue blocks */
+typedef struct {
+    size_t totlen; /* Total length of this block including the message */
+    int refcount;  /* Number of cluster link send msg queues containing the message */
+    clusterMsg msg;
+} clusterMsgSendBlock;
 
 /* -----------------------------------------------------------------------------
  * Initialization
@@ -997,13 +1005,36 @@ void clusterReset(int hard) {
 /* -----------------------------------------------------------------------------
  * CLUSTER communication link
  * -------------------------------------------------------------------------- */
+static clusterMsgSendBlock *createClusterMsgSendBlock(int type, uint32_t msglen) {
+    uint32_t blocklen = msglen + sizeof(clusterMsgSendBlock) - sizeof(clusterMsg);
+    clusterMsgSendBlock *msgblock = zcalloc(blocklen);
+    msgblock->refcount = 1;
+    msgblock->totlen = blocklen;
+    server.stat_cluster_links_memory += blocklen;
+    clusterBuildMessageHdr(&msgblock->msg,type,msglen);
+    return msgblock;
+}
+
+static void clusterMsgSendBlockDecrRefCount(void *node) {
+    clusterMsgSendBlock *msgblock = (clusterMsgSendBlock*)node;
+    msgblock->refcount--;
+    serverAssert(msgblock->refcount >= 0);
+    if (msgblock->refcount == 0) {
+        server.stat_cluster_links_memory -= msgblock->totlen;
+        zfree(msgblock);
+    }
+}
 
 clusterLink *createClusterLink(clusterNode *node) {
     clusterLink *link = zmalloc(sizeof(*link));
     link->ctime = mstime();
-    link->sndbuf = sdsempty();
+    link->send_msg_queue = listCreate();
+    listSetFreeMethod(link->send_msg_queue, clusterMsgSendBlockDecrRefCount);
+    link->head_msg_send_offset = 0;
+    link->send_msg_queue_mem = sizeof(list);
     link->rcvbuf = zmalloc(link->rcvbuf_alloc = RCVBUF_INIT_LEN);
     link->rcvbuf_len = 0;
+    server.stat_cluster_links_memory += link->rcvbuf_alloc + link->send_msg_queue_mem;
     link->conn = NULL;
     link->node = node;
     /* Related node can only possibly be known at link creation time if this is an outbound link */
@@ -1022,7 +1053,9 @@ void freeClusterLink(clusterLink *link) {
         connClose(link->conn);
         link->conn = NULL;
     }
-    sdsfree(link->sndbuf);
+    server.stat_cluster_links_memory -= sizeof(list) + listLength(link->send_msg_queue)*sizeof(listNode);
+    listRelease(link->send_msg_queue);
+    server.stat_cluster_links_memory -= link->rcvbuf_alloc;
     zfree(link->rcvbuf);
     if (link->node) {
         if (link->node->link == link) {
@@ -2023,7 +2056,7 @@ int nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
         buf[NET_IP_STR_LEN-1] = '\0'; /* We are not sure the input is sane. */
         return C_OK;
     } else {
-        if (connAddrPeerName(link->conn, buf, NET_IP_STR_LEN, NULL) == C_ERR) {
+        if (connAddrPeerName(link->conn, buf, NET_IP_STR_LEN, NULL) == -1) {
             serverLog(LL_NOTICE, "Error converting peer IP to string: %s",
                 link->conn ? connGetLastError(link->conn) : "no link");
             return C_ERR;
@@ -2920,9 +2953,9 @@ int clusterProcessPacket(clusterLink *link) {
         resetManualFailover();
         server.cluster->mf_end = now + CLUSTER_MF_TIMEOUT;
         server.cluster->mf_slave = sender;
-        pauseClients(PAUSE_DURING_FAILOVER,
+        pauseActions(PAUSE_DURING_FAILOVER,
                      now + (CLUSTER_MF_TIMEOUT * CLUSTER_MF_PAUSE_MULT),
-                     CLIENT_PAUSE_WRITE);
+                     PAUSE_ACTIONS_CLIENT_WRITE_SET);
         serverLog(LL_WARNING,"Manual failover requested by replica %.40s.",
             sender->name);
         /* We need to send a ping message to the replica, as it would carry
@@ -2978,22 +3011,45 @@ void handleLinkIOError(clusterLink *link) {
     freeClusterLink(link);
 }
 
-/* Send data. This is handled using a trivial send buffer that gets
- * consumed by write(). We don't try to optimize this for speed too much
- * as this is a very low traffic channel. */
+/* Send the messages queued for the link. */
 void clusterWriteHandler(connection *conn) {
     clusterLink *link = connGetPrivateData(conn);
     ssize_t nwritten;
+    size_t totwritten = 0;
 
-    nwritten = connWrite(conn, link->sndbuf, sdslen(link->sndbuf));
-    if (nwritten <= 0) {
-        serverLog(LL_DEBUG,"I/O error writing to node link: %s",
-            (nwritten == -1) ? connGetLastError(conn) : "short write");
-        handleLinkIOError(link);
-        return;
+    while (totwritten < NET_MAX_WRITES_PER_EVENT && listLength(link->send_msg_queue) > 0) {
+        listNode *head = listFirst(link->send_msg_queue);
+        clusterMsgSendBlock *msgblock = (clusterMsgSendBlock*)head->value;
+        clusterMsg *msg = &msgblock->msg;
+        size_t msg_offset = link->head_msg_send_offset;
+        size_t msg_len = ntohl(msg->totlen);
+
+        nwritten = connWrite(conn, (char*)msg + msg_offset, msg_len - msg_offset);
+        if (nwritten <= 0) {
+            serverLog(LL_DEBUG,"I/O error writing to node link: %s",
+                (nwritten == -1) ? connGetLastError(conn) : "short write");
+            handleLinkIOError(link);
+            return;
+        }
+        if (msg_offset + nwritten < msg_len) {
+            /* If full message wasn't written, record the offset
+             * and continue sending from this point next time */
+            link->head_msg_send_offset += nwritten;
+            return;
+        }
+        serverAssert((msg_offset + nwritten) == msg_len);
+        link->head_msg_send_offset = 0;
+
+        /* Delete the node and update our memory tracking */
+        uint32_t blocklen = msgblock->totlen;
+        listDelNode(link->send_msg_queue, head);
+        server.stat_cluster_links_memory -= sizeof(listNode);
+        link->send_msg_queue_mem -= sizeof(listNode) + blocklen;
+
+        totwritten += nwritten;
     }
-    sdsrange(link->sndbuf,nwritten,-1);
-    if (sdslen(link->sndbuf) == 0)
+
+    if (listLength(link->send_msg_queue) == 0)
         connSetWriteHandler(link->conn, NULL);
 }
 
@@ -3067,9 +3123,17 @@ void clusterReadHandler(connection *conn) {
                 if (memcmp(hdr->sig,"RCmb",4) != 0 ||
                     ntohl(hdr->totlen) < CLUSTERMSG_MIN_LEN)
                 {
-                    serverLog(LL_WARNING,
-                        "Bad message length or signature received "
-                        "from Cluster bus.");
+                    char ip[NET_IP_STR_LEN];
+                    int port;
+                    if (connAddrPeerName(conn, ip, sizeof(ip), &port) == -1) {
+                        serverLog(LL_WARNING,
+                            "Bad message length or signature received "
+                            "on the Cluster bus.");
+                    } else {
+                        serverLog(LL_WARNING,
+                            "Bad message length or signature received "
+                            "on the Cluster bus from %s:%d", ip, port);
+                    }
                     handleLinkIOError(link);
                     return;
                 }
@@ -3092,9 +3156,11 @@ void clusterReadHandler(connection *conn) {
             size_t unused = link->rcvbuf_alloc - link->rcvbuf_len;
             if ((size_t)nread > unused) {
                 size_t required = link->rcvbuf_len + nread;
+                size_t prev_rcvbuf_alloc = link->rcvbuf_alloc;
                 /* If less than 1mb, grow to twice the needed size, if larger grow by 1mb. */
                 link->rcvbuf_alloc = required < RCVBUF_MAX_PREALLOC ? required * 2: required + RCVBUF_MAX_PREALLOC;
                 link->rcvbuf = zrealloc(link->rcvbuf, link->rcvbuf_alloc);
+                server.stat_cluster_links_memory += link->rcvbuf_alloc - prev_rcvbuf_alloc;
             }
             memcpy(link->rcvbuf + link->rcvbuf_len, buf, nread);
             link->rcvbuf_len += nread;
@@ -3106,8 +3172,10 @@ void clusterReadHandler(connection *conn) {
         if (rcvbuflen >= 8 && rcvbuflen == ntohl(hdr->totlen)) {
             if (clusterProcessPacket(link)) {
                 if (link->rcvbuf_alloc > RCVBUF_INIT_LEN) {
+                    size_t prev_rcvbuf_alloc = link->rcvbuf_alloc;
                     zfree(link->rcvbuf);
                     link->rcvbuf = zmalloc(link->rcvbuf_alloc = RCVBUF_INIT_LEN);
+                    server.stat_cluster_links_memory += link->rcvbuf_alloc - prev_rcvbuf_alloc;
                 }
                 link->rcvbuf_len = 0;
             } else {
@@ -3117,20 +3185,24 @@ void clusterReadHandler(connection *conn) {
     }
 }
 
-/* Put stuff into the send buffer.
+/* Put the message block into the link's send queue.
  *
  * It is guaranteed that this function will never have as a side effect
  * the link to be invalidated, so it is safe to call this function
  * from event handlers that will do stuff with the same link later. */
-void clusterSendMessage(clusterLink *link, unsigned char *msg, size_t msglen) {
-    if (sdslen(link->sndbuf) == 0 && msglen != 0)
+void clusterSendMessage(clusterLink *link, clusterMsgSendBlock *msgblock) {
+    if (listLength(link->send_msg_queue) == 0 && msgblock->msg.totlen != 0)
         connSetWriteHandlerWithBarrier(link->conn, clusterWriteHandler, 1);
 
-    link->sndbuf = sdscatlen(link->sndbuf, msg, msglen);
+    listAddNodeTail(link->send_msg_queue, msgblock);
+    msgblock->refcount++;
+
+    /* Update memory tracking */
+    link->send_msg_queue_mem += sizeof(listNode) + msgblock->totlen;
+    server.stat_cluster_links_memory += sizeof(listNode);
 
     /* Populate sent messages stats. */
-    clusterMsg *hdr = (clusterMsg*) msg;
-    uint16_t type = ntohs(hdr->type);
+    uint16_t type = ntohs(msgblock->msg.type);
     if (type < CLUSTERMSG_TYPE_COUNT)
         server.cluster->stats_bus_messages_sent[type]++;
 }
@@ -3141,7 +3213,7 @@ void clusterSendMessage(clusterLink *link, unsigned char *msg, size_t msglen) {
  * It is guaranteed that this function will never have as a side effect
  * some node->link to be invalidated, so it is safe to call this function
  * from event handlers that will do stuff with node links later. */
-void clusterBroadcastMessage(void *buf, size_t len) {
+void clusterBroadcastMessage(clusterMsgSendBlock *msgblock) {
     dictIterator *di;
     dictEntry *de;
 
@@ -3152,15 +3224,14 @@ void clusterBroadcastMessage(void *buf, size_t len) {
         if (!node->link) continue;
         if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
             continue;
-        clusterSendMessage(node->link,buf,len);
+        clusterSendMessage(node->link,msgblock);
     }
     dictReleaseIterator(di);
 }
 
 /* Build the message header. hdr must point to a buffer at least
  * sizeof(clusterMsg) in bytes. */
-void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
-    uint32_t totlen = 0;
+static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen) {
     uint64_t offset;
     clusterNode *master;
 
@@ -3171,7 +3242,6 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     master = (nodeIsSlave(myself) && myself->slaveof) ?
               myself->slaveof : myself;
 
-    memset(hdr,0,sizeof(*hdr));
     hdr->ver = htons(CLUSTER_PROTO_VER);
     hdr->sig[0] = 'R';
     hdr->sig[1] = 'C';
@@ -3217,18 +3287,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     if (nodeIsMaster(myself) && server.cluster->mf_end)
         hdr->mflags[0] |= CLUSTERMSG_FLAG0_PAUSED;
 
-    /* Compute the message length for certain messages. For other messages
-     * this is up to the caller. */
-    if (type == CLUSTERMSG_TYPE_FAIL) {
-        totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-        totlen += sizeof(clusterMsgDataFail);
-    } else if (type == CLUSTERMSG_TYPE_UPDATE) {
-        totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-        totlen += sizeof(clusterMsgDataUpdate);
-    }
-    hdr->totlen = htonl(totlen);
-    /* For PING, PONG, MEET and other variable length messages fixing the
-     * totlen field is up to the caller. */
+    hdr->totlen = htonl(msglen);
 }
 
 /* Set the i-th entry of the gossip section in the message pointed by 'hdr'
@@ -3252,8 +3311,6 @@ void clusterSetGossipEntry(clusterMsg *hdr, int i, clusterNode *n) {
 void clusterSendPing(clusterLink *link, int type) {
     static unsigned long long cluster_pings_sent = 0;
     cluster_pings_sent++;
-    unsigned char *buf;
-    clusterMsg *hdr;
     int gossipcount = 0; /* Number of gossip sections added so far. */
     int wanted; /* Number of gossip sections we want to append if possible. */
     int estlen; /* Upper bound on estimated packet length */
@@ -3307,13 +3364,11 @@ void clusterSendPing(clusterLink *link, int type) {
     /* Note: clusterBuildMessageHdr() expects the buffer to be always at least
      * sizeof(clusterMsg) or more. */
     if (estlen < (int)sizeof(clusterMsg)) estlen = sizeof(clusterMsg);
-    buf = zcalloc(estlen);
-    hdr = (clusterMsg*) buf;
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(type, estlen);
+    clusterMsg *hdr = &msgblock->msg;
 
-    /* Populate the header. */
     if (!link->inbound && type == CLUSTERMSG_TYPE_PING)
         link->node->ping_sent = mstime();
-    clusterBuildMessageHdr(hdr,type);
 
     /* Populate the gossip fields */
     int maxiterations = wanted*3;
@@ -3379,8 +3434,9 @@ void clusterSendPing(clusterLink *link, int type) {
     serverAssert(gossipcount < USHRT_MAX);
     hdr->count = htons(gossipcount);
     hdr->totlen = htonl(totlen);
-    clusterSendMessage(link,buf,totlen);
-    zfree(buf);
+
+    clusterSendMessage(link,msgblock);
+    clusterMsgSendBlockDecrRefCount(msgblock);
 }
 
 /* Send a PONG packet to every connected node that's not in handshake state
@@ -3420,20 +3476,15 @@ void clusterBroadcastPong(int target) {
     dictReleaseIterator(di);
 }
 
-/* Send a PUBLISH message.
- *
- * If link is NULL, then the message is broadcasted to the whole cluster.
+/* Create a PUBLISH message block.
  *
  * Sanitizer suppression: In clusterMsgDataPublish, sizeof(bulk_data) is 8.
  * As all the struct is used as a buffer, when more than 8 bytes are copied into
  * the 'bulk_data', sanitizer generates an out-of-bounds error which is a false
  * positive in this context. */
 REDIS_NO_SANITIZE("bounds")
-void clusterSendPublish(clusterLink *link, robj *channel, robj *message, uint16_t type) {
-    unsigned char *payload;
-    clusterMsg buf[1];
-    clusterMsg *hdr = (clusterMsg*) buf;
-    uint32_t totlen;
+clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, uint16_t type) {
+
     uint32_t channel_len, message_len;
 
     channel = getDecodedObject(channel);
@@ -3441,34 +3492,21 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message, uint16_
     channel_len = sdslen(channel->ptr);
     message_len = sdslen(message->ptr);
 
-    clusterBuildMessageHdr(hdr,type);
-    totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    totlen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
+    size_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+    msglen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(type, msglen);
 
+    clusterMsg *hdr = &msgblock->msg;
     hdr->data.publish.msg.channel_len = htonl(channel_len);
     hdr->data.publish.msg.message_len = htonl(message_len);
-    hdr->totlen = htonl(totlen);
-
-    /* Try to use the local buffer if possible */
-    if (totlen < sizeof(buf)) {
-        payload = (unsigned char*)buf;
-    } else {
-        payload = zmalloc(totlen);
-        memcpy(payload,hdr,sizeof(*hdr));
-        hdr = (clusterMsg*) payload;
-    }
     memcpy(hdr->data.publish.msg.bulk_data,channel->ptr,sdslen(channel->ptr));
     memcpy(hdr->data.publish.msg.bulk_data+sdslen(channel->ptr),
         message->ptr,sdslen(message->ptr));
 
-    if (link)
-        clusterSendMessage(link,payload,totlen);
-    else
-        clusterBroadcastMessage(payload,totlen);
-
     decrRefCount(channel);
     decrRefCount(message);
-    if (payload != (unsigned char*)buf) zfree(payload);
+    
+    return msgblock;
 }
 
 /* Send a FAIL message to all the nodes we are able to contact.
@@ -3477,27 +3515,34 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message, uint16_
  * we switch the node state to CLUSTER_NODE_FAIL and ask all the other
  * nodes to do the same ASAP. */
 void clusterSendFail(char *nodename) {
-    clusterMsg buf[1];
-    clusterMsg *hdr = (clusterMsg*) buf;
+    uint32_t msglen = sizeof(clusterMsg) - sizeof(union clusterMsgData)
+        + sizeof(clusterMsgDataFail);
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_FAIL, msglen);
 
-    clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAIL);
+    clusterMsg *hdr = &msgblock->msg;
     memcpy(hdr->data.fail.about.nodename,nodename,CLUSTER_NAMELEN);
-    clusterBroadcastMessage(buf,ntohl(hdr->totlen));
+
+    clusterBroadcastMessage(msgblock);
+    clusterMsgSendBlockDecrRefCount(msgblock);
 }
 
 /* Send an UPDATE message to the specified link carrying the specified 'node'
  * slots configuration. The node name, slots bitmap, and configEpoch info
  * are included. */
 void clusterSendUpdate(clusterLink *link, clusterNode *node) {
-    clusterMsg buf[1];
-    clusterMsg *hdr = (clusterMsg*) buf;
-
     if (link == NULL) return;
-    clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_UPDATE);
+
+    uint32_t msglen = sizeof(clusterMsg) - sizeof(union clusterMsgData)
+        + sizeof(clusterMsgDataUpdate);
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_UPDATE, msglen);
+
+    clusterMsg *hdr = &msgblock->msg;
     memcpy(hdr->data.update.nodecfg.nodename,node->name,CLUSTER_NAMELEN);
     hdr->data.update.nodecfg.configEpoch = htonu64(node->configEpoch);
     memcpy(hdr->data.update.nodecfg.slots,node->slots,sizeof(node->slots));
-    clusterSendMessage(link,(unsigned char*)buf,ntohl(hdr->totlen));
+
+    clusterSendMessage(link,msgblock);
+    clusterMsgSendBlockDecrRefCount(msgblock);
 }
 
 /* Send a MODULE message.
@@ -3505,36 +3550,22 @@ void clusterSendUpdate(clusterLink *link, clusterNode *node) {
  * If link is NULL, then the message is broadcasted to the whole cluster. */
 void clusterSendModule(clusterLink *link, uint64_t module_id, uint8_t type,
                        const char *payload, uint32_t len) {
-    unsigned char *heapbuf;
-    clusterMsg buf[1];
-    clusterMsg *hdr = (clusterMsg*) buf;
-    uint32_t totlen;
+    uint32_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+    msglen += sizeof(clusterMsgModule) - 3 + len;
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_MODULE, msglen);
 
-    clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_MODULE);
-    totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    totlen += sizeof(clusterMsgModule) - 3 + len;
-
+    clusterMsg *hdr = &msgblock->msg;
     hdr->data.module.msg.module_id = module_id; /* Already endian adjusted. */
     hdr->data.module.msg.type = type;
     hdr->data.module.msg.len = htonl(len);
-    hdr->totlen = htonl(totlen);
-
-    /* Try to use the local buffer if possible */
-    if (totlen < sizeof(buf)) {
-        heapbuf = (unsigned char*)buf;
-    } else {
-        heapbuf = zmalloc(totlen);
-        memcpy(heapbuf,hdr,sizeof(*hdr));
-        hdr = (clusterMsg*) heapbuf;
-    }
     memcpy(hdr->data.module.msg.bulk_data,payload,len);
 
     if (link)
-        clusterSendMessage(link,heapbuf,totlen);
+        clusterSendMessage(link,msgblock);
     else
-        clusterBroadcastMessage(heapbuf,totlen);
+        clusterBroadcastMessage(msgblock);
 
-    if (heapbuf != (unsigned char*)buf) zfree(heapbuf);
+    clusterMsgSendBlockDecrRefCount(msgblock);
 }
 
 /* This function gets a cluster node ID string as target, the same way the nodes
@@ -3567,8 +3598,12 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
  * Publish this message across the slot (primary/replica).
  * -------------------------------------------------------------------------- */
 void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
+    clusterMsgSendBlock *msgblock;
+
     if (!sharded) {
-        clusterSendPublish(NULL, channel, message, CLUSTERMSG_TYPE_PUBLISH);
+        msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISH);
+        clusterBroadcastMessage(msgblock);
+        clusterMsgSendBlockDecrRefCount(msgblock);
         return;
     }
 
@@ -3577,12 +3612,14 @@ void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
     list *nodes_for_slot = clusterGetNodesInMyShard(server.cluster->myself);
     serverAssert(nodes_for_slot != NULL);
     listRewind(nodes_for_slot, &li);
+    msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
     while((ln = listNext(&li))) {
         clusterNode *node = listNodeValue(ln);
         if (node != myself) {
-            clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
+            clusterSendMessage(node->link,msgblock);
         }
     }
+    clusterMsgSendBlockDecrRefCount(msgblock);
 }
 
 /* -----------------------------------------------------------------------------
@@ -3596,44 +3633,38 @@ void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
  * Note that we send the failover request to everybody, master and slave nodes,
  * but only the masters are supposed to reply to our query. */
 void clusterRequestFailoverAuth(void) {
-    clusterMsg buf[1];
-    clusterMsg *hdr = (clusterMsg*) buf;
-    uint32_t totlen;
+    uint32_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST, msglen);
 
-    clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST);
+    clusterMsg *hdr = &msgblock->msg;
     /* If this is a manual failover, set the CLUSTERMSG_FLAG0_FORCEACK bit
      * in the header to communicate the nodes receiving the message that
      * they should authorized the failover even if the master is working. */
     if (server.cluster->mf_end) hdr->mflags[0] |= CLUSTERMSG_FLAG0_FORCEACK;
-    totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    hdr->totlen = htonl(totlen);
-    clusterBroadcastMessage(buf,totlen);
+    clusterBroadcastMessage(msgblock);
+    clusterMsgSendBlockDecrRefCount(msgblock);
 }
 
 /* Send a FAILOVER_AUTH_ACK message to the specified node. */
 void clusterSendFailoverAuth(clusterNode *node) {
-    clusterMsg buf[1];
-    clusterMsg *hdr = (clusterMsg*) buf;
-    uint32_t totlen;
-
     if (!node->link) return;
-    clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK);
-    totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    hdr->totlen = htonl(totlen);
-    clusterSendMessage(node->link,(unsigned char*)buf,totlen);
+
+    uint32_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK, msglen);
+
+    clusterSendMessage(node->link,msgblock);
+    clusterMsgSendBlockDecrRefCount(msgblock);
 }
 
 /* Send a MFSTART message to the specified node. */
 void clusterSendMFStart(clusterNode *node) {
-    clusterMsg buf[1];
-    clusterMsg *hdr = (clusterMsg*) buf;
-    uint32_t totlen;
-
     if (!node->link) return;
-    clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_MFSTART);
-    totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    hdr->totlen = htonl(totlen);
-    clusterSendMessage(node->link,(unsigned char*)buf,totlen);
+
+    uint32_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_MFSTART, msglen);
+
+    clusterSendMessage(node->link,msgblock);
+    clusterMsgSendBlockDecrRefCount(msgblock);
 }
 
 /* Vote for the node asking for our vote if there are the conditions. */
@@ -4196,9 +4227,9 @@ void clusterHandleSlaveMigration(int max_slaves) {
  * startup or to abort a manual failover in progress. */
 void resetManualFailover(void) {
     if (server.cluster->mf_slave) {
-        /* We were a master failing over, so we paused clients. Regardless
-         * of the outcome we unpause now to allow traffic again. */
-        unpauseClients(PAUSE_DURING_FAILOVER);
+        /* We were a master failing over, so we paused clients and related actions.
+         * Regardless of the outcome we unpause now to allow traffic again. */
+        unpauseActions(PAUSE_DURING_FAILOVER);
     }
     server.cluster->mf_end = 0; /* No manual failover in progress. */
     server.cluster->mf_can_start = 0;
@@ -4284,27 +4315,13 @@ static int clusterNodeCronHandleReconnect(clusterNode *node, mstime_t handshake_
     return 0;
 }
 
-static void resizeClusterLinkBuffer(clusterLink *link) {
-     /* If unused space is a lot bigger than the used portion of the buffer then free up unused space.
-      * We use a factor of 4 because of the greediness of sdsMakeRoomFor (used by sdscatlen). */
-    if (link != NULL && sdsavail(link->sndbuf) / 4 > sdslen(link->sndbuf)) {
-        link->sndbuf = sdsRemoveFreeSpace(link->sndbuf);
-    }
-}
-
-/* Resize the send buffer of a node if it is wasting
- * enough space. */
-static void clusterNodeCronResizeBuffers(clusterNode *node) {
-    resizeClusterLinkBuffer(node->link);
-    resizeClusterLinkBuffer(node->inbound_link);
-}
-
 static void freeClusterLinkOnBufferLimitReached(clusterLink *link) {
-    if (link == NULL || server.cluster_link_sendbuf_limit_bytes == 0) {
+    if (link == NULL || server.cluster_link_msg_queue_limit_bytes == 0) {
         return;
     }
-    unsigned long long mem_link = sdsalloc(link->sndbuf);
-    if (mem_link > server.cluster_link_sendbuf_limit_bytes) {
+
+    unsigned long long mem_link = link->send_msg_queue_mem;
+    if (mem_link > server.cluster_link_msg_queue_limit_bytes) {
         serverLog(LL_WARNING, "Freeing cluster link(%s node %.40s, used memory: %llu) due to "
                 "exceeding send buffer memory limit.", link->inbound ? "from" : "to",
                 link->node ? link->node->name : "", mem_link);
@@ -4317,20 +4334,6 @@ static void freeClusterLinkOnBufferLimitReached(clusterLink *link) {
 static void clusterNodeCronFreeLinkOnBufferLimitReached(clusterNode *node) {
     freeClusterLinkOnBufferLimitReached(node->link);
     freeClusterLinkOnBufferLimitReached(node->inbound_link);
-}
-
-static size_t getClusterLinkMemUsage(clusterLink *link) {
-    if (link != NULL) {
-        return sizeof(clusterLink) + sdsalloc(link->sndbuf) + link->rcvbuf_alloc;
-    } else {
-        return 0;
-    }
-}
-
-/* Update memory usage statistics of all current cluster links */
-static void clusterNodeCronUpdateClusterLinksMemUsage(clusterNode *node) {
-    server.stat_cluster_links_memory += getClusterLinkMemUsage(node->link);
-    server.stat_cluster_links_memory += getClusterLinkMemUsage(node->inbound_link);
 }
 
 /* This is executed 10 times every second */
@@ -4359,21 +4362,13 @@ void clusterCron(void) {
 
     /* Clear so clusterNodeCronHandleReconnect can count the number of nodes in PFAIL. */
     server.cluster->stats_pfail_nodes = 0;
-    /* Clear so clusterNodeCronUpdateClusterLinksMemUsage can count the current memory usage of all cluster links. */
-    server.stat_cluster_links_memory = 0;
     /* Run through some of the operations we want to do on each cluster node. */
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
-        /* The sequence goes:
-         * 1. We try to shrink link buffers if possible.
-         * 2. We free the links whose buffers are still oversized after possible shrinking.
-         * 3. We update the latest memory usage of cluster links.
-         * 4. We immediately attempt reconnecting after freeing links.
-         */
-        clusterNodeCronResizeBuffers(node);
+        /* We free the inbound or outboud link to the node if the link has an
+         * oversized message send queue and immediately try reconnecting. */
         clusterNodeCronFreeLinkOnBufferLimitReached(node);
-        clusterNodeCronUpdateClusterLinksMemUsage(node);
         /* The protocol is that function(s) below return non-zero if the node was
          * terminated.
          */
@@ -5184,10 +5179,10 @@ void addReplyClusterLinkDescription(client *c, clusterLink *link) {
     addReplyBulkCString(c, events);
 
     addReplyBulkCString(c, "send-buffer-allocated");
-    addReplyLongLong(c, sdsalloc(link->sndbuf));
+    addReplyLongLong(c, link->send_msg_queue_mem);
 
     addReplyBulkCString(c, "send-buffer-used");
-    addReplyLongLong(c, sdslen(link->sndbuf));
+    addReplyLongLong(c, link->send_msg_queue_mem);
 }
 
 /* Add to the output buffer of the given client an array of cluster link descriptions,
