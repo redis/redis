@@ -1766,6 +1766,11 @@ struct redisServer {
     list *swap_paused_keyrequests;
     list *swap_resumed_keyrequests;
     uint64_t swap_key_version;
+    list *swap_perflog;
+    uint64_t swap_perflog_entry_id;
+    unsigned long long swap_perflog_log_slower_than;
+    unsigned long swap_perflog_max_len;
+    int swap_perflog_sample_ratio;
 
     /* gtid executed */
     int gtid_enabled;  /* Is gtid enabled? */

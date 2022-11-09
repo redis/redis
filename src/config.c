@@ -2576,6 +2576,7 @@ standardConfig configs[] = {
     createIntConfig("debug-delay-before-exec-swap", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.debug_delay_before_exec_swap, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("debug-init-rocksdb-latency", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.debug_rocksdb_init_latency, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb-stats-interval", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.rocksdb_stats_interval, 2, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("swap-perflog-sample-ratio", NULL, MODIFIABLE_CONFIG, 0, 100, server.swap_perflog_sample_ratio, 0, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -2584,6 +2585,7 @@ standardConfig configs[] = {
     createULongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, 1000, INTEGER_CONFIG, NULL, NULL), /* Default: keys with more than 1000 fields will be processed separately */
     createULongConfig("slowlog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.slowlog_max_len, 128, INTEGER_CONFIG, NULL, NULL),
     createULongConfig("acllog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.acllog_max_len, 128, INTEGER_CONFIG, NULL, NULL),
+    createULongConfig("swap-perflog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.swap_perflog_max_len, 128, INTEGER_CONFIG, NULL, NULL),
 
     /* Long Long configs */
     createLongLongConfig("lua-time-limit", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.lua_time_limit, 5000, INTEGER_CONFIG, NULL, NULL),/* milliseconds */
@@ -2602,6 +2604,7 @@ standardConfig configs[] = {
     createULongLongConfig("swap-evict-step-max-memory", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_evict_step_max_memory, 1*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1mb */
     createULongLongConfig("swap-big-hash-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_big_hash_threshold, 256*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 256k */
     createULongLongConfig("swap-max-iter-rate", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_max_iter_rate, 0, MEMORY_CONFIG, NULL, NULL), /* Default: unlimited */
+    createULongLongConfig("swap-perflog-log-slower-than", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_perflog_log_slower_than, 10000, INTEGER_CONFIG, NULL, NULL),
 
     /* Size_t configs */
     createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, 512, INTEGER_CONFIG, NULL, NULL),

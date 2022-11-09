@@ -681,6 +681,7 @@ int doRIO(RIO *rio) {
 
 
 static void doNotify(swapRequest *req, int errcode) {
+    perflogSampleEnd(&req->samplectx);
     req->errcode = errcode;
     req->notify_cb(req, req->notify_pd);
 }
@@ -1286,6 +1287,7 @@ void processSwapRequest(swapRequest *req) {
     int errcode = 0, intention;
     uint32_t intention_flags;
 
+    perflogSampleStart(&req->samplectx,req);
     updateStatsSwapStart(req);
     if (!swapRequestIsMetaType(req)) {
          executeSwapRequest(req);
@@ -1430,6 +1432,8 @@ swapRequest *swapRequestNew(keyRequest *key_request, int intention,
 #ifdef SWAP_DEBUG
     req->msgs = msgs;
 #endif
+    req->errcode = 0;
+    memset(&req->samplectx,0,sizeof(req->samplectx));
     return req;
 }
 

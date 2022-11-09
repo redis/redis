@@ -538,6 +538,7 @@ void swapInit() {
 
     initStatsSwap();
     swapInitVersion();
+    perflogInit();
 
     server.evict_clients = zmalloc(server.dbnum*sizeof(client*));
     for (i = 0; i < server.dbnum; i++) {
