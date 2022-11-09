@@ -46,6 +46,7 @@
         "reply_schema": {
             "oneOf": [
                 {
+                    "description": "Summary form, in case `FULL` was not given.",
                     "type": "array",
                     "items": {
                         "type": "object",
@@ -115,6 +116,7 @@
                     }
                 },
                 {
+                    "description": "Extended form, in case `FULL` was given.",
                     "type": "array",
                     "items": {
                         "type": "object",

@@ -165,13 +165,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
 
         if {!$deferred} {
             if {$blocking} {
-                set response [::redis::redis_read_reply $id $fd]
-                set interpreter $::redis::response_interpreters($id)
-                if {$interpreter ne 0} {
-                    return [$interpreter $id $response]
-                } else {
-                    return $response
-                }
+                return [::redis::redis_read_reply $id $fd]
             } else {
                 # Every well formed reply read will pop an element from this
                 # list and use it as a callback. So pipelining is supported
@@ -344,7 +338,7 @@ proc ::redis::redis_read_verbatim_str fd {
     return [string range $v 4 end]
 }
 
-proc ::redis::redis_read_reply {id fd} {
+proc ::redis::redis_read_reply_logic {id fd} {
     if {$::redis::readraw($id)} {
         return [redis_read_line $fd]
     }
@@ -379,6 +373,16 @@ proc ::redis::redis_read_reply {id fd} {
                 return -code error "Bad protocol, '$type' as reply type byte"
             }
         }
+    }
+}
+
+proc ::redis::redis_read_reply_logic {id fd} {
+    set response [redis_read_reply_logic $id $fd]
+    set interpreter $::redis::response_interpreters($id)
+    if {$interpreter ne 0} {
+        return [$interpreter $id $response]
+    } else {
+        return $response
     }
 }
 

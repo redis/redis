@@ -44,6 +44,7 @@
         "reply_schema": {
             "oneOf": [
                 {
+                    "description": "Extended form, in case `start` was given.",
                     "type": "array",
                     "items": {
                         "type": "array",
@@ -71,6 +72,7 @@
                     }
                 },
                 {
+                    "description": "Summary form, in case `start` was not given.",
                     "type": "array",
                     "minItems": 4,
                     "maxItems": 4,

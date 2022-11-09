@@ -37,6 +37,8 @@
         ],
         "reply_schema": {
             "type": "object",
+            "description": "Map of fields and their values stored in the hash, or an empty list when key does not exist.",
+            "notes": "In RESP2 this is returned as a flat array",
             "additionalProperties": {
                 "type": "string"
             }

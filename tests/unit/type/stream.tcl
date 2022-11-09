@@ -49,6 +49,28 @@ proc streamSimulateXRANGE {items start end} {
 
 set content {} ;# Will be populated with Tcl side copy of the stream content.
 
+proc stream_response_interpreter {id response} {
+    puts "HEREEEEE"
+    if {!$::force_resp3 || $::redis::testing_resp3($id) == 1} {
+        return $response
+    }
+    puts $response
+    if  {[string is list $response] && ([llength $response]&1) == 0 && [llength [lindex $response 0]] ne 2} {
+        set tuparray {}
+        foreach {key val} $response {
+            set tmp {}
+            lappend tmp $key
+            lappend tmp $val
+            lappend tuparray $tmp
+        }
+        puts $response
+        puts "EDIT"
+        puts $tuparray
+        return $tuparray
+    }
+    return $response
+}
+
 start_server {
     tags {"stream"}
 } {
@@ -370,7 +392,9 @@ start_server {
     }
 
     test "Blocking XREAD for stream that ran dry (issue #5299)" {
+
         set rd [redis_deferring_client]
+        $rd set_response_interpreter stream_response_interpreter
 
         # Add a entry then delete it, now stream's last_id is 666.
         r DEL mystream
@@ -386,10 +410,16 @@ start_server {
         assert_error ERR*equal*smaller* {r XADD mystream 666 key value}
 
         # Entered blocking state and then release because of the new entry.
+
         $rd XREAD BLOCK 0 STREAMS mystream 665
+
         wait_for_blocked_clients_count 1
         r XADD mystream 667 key value
+
+
         assert_equal [$rd read] {{mystream {{667-0 {key value}}}}}
+
+        $rd reset_response_interpreter
 
         $rd close
     }
