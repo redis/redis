@@ -565,6 +565,8 @@ start_server {
     foreach resp {3 2} {
         if {[lsearch $::denytags "resp3"] >= 0} {
             if {$resp == 3} {continue}
+        } elseif {$::force_resp3} {
+            if {$resp == 2} {continue}
         } else {
             r hello $resp
         }
@@ -1269,7 +1271,6 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             r del blist1{t} blist2{t}
             r set blist2{t} nolist{t}
             bpop_command_two_key $rd $pop blist1{t} blist2{t} 1
-            $rd $pop blist1{t} blist2{t} 1
             assert_error "WRONGTYPE*" {$rd read}
             $rd close
         }
@@ -1304,19 +1305,18 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         }
     }
 
-foreach {pop} {BLPOP BLMPOP_LEFT} {
-    test "$pop inside a transaction" {
-        r del xlist
-        r lpush xlist foo
-        r lpush xlist bar
-        r multi
-
-        bpop_command r $pop xlist 0
-        bpop_command r $pop xlist 0
-        bpop_command r $pop xlist 0
-        r exec
-    } {{xlist bar} {xlist foo} {}}
-}
+    foreach {pop} {BLPOP BLMPOP_LEFT} {
+        test "$pop inside a transaction" {
+            r del x2list
+            r lpush x2list foo
+            r lpush x2list bar
+            r multi
+            bpop_command r $pop x2list 0
+            bpop_command r $pop x2list 0
+            bpop_command r $pop x2list 0
+            r exec
+        } {{x2list bar} {x2list foo} {}}
+    }
 
     test {BLMPOP propagate as pop with count command to replica} {
         set rd [redis_deferring_client]

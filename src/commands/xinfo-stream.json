@@ -47,104 +47,42 @@
             "oneOf": [
                 {
                     "description": "Summary form, in case `FULL` was not given.",
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "length": {
-                                "type": "integer"
-                            },
-                            "radix-tree-keys": {
-                                "type": "integer"
-                            },
-                            "radix-tree-nodes": {
-                                "type": "integer"
-                            },
-                            "last-generated-id": {
-                                "type": "string",
-                                "pattern": "[0-9]+-[0-9]+"
-                            },
-                            "max-deleted-entry-id": {
-                                "type": "string",
-                                "pattern": "[0-9]+-[0-9]+"
-                            },
-                            "entries-added": {
-                                "type": "integer"
-                            },
-                            "groups": {
-                                "type": "integer"
-                            },
-                            "first-entry": {
-                                "type": "array",
-                                "minItems": 2,
-                                "maxItems": 2,
-                                "items": [
-                                    {
-                                        "description": "Entry ID",
-                                        "type": "string",
-                                        "pattern": "[0-9]+-[0-9]+"
-                                    },
-                                    {
-                                        "description": "Data",
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
-                                    }
-                                ]
-                            },
-                            "last-entry": {
-                                "type": "array",
-                                "minItems": 2,
-                                "maxItems": 2,
-                                "items": [
-                                    {
-                                        "description": "Entry ID",
-                                        "type": "string",
-                                        "pattern": "[0-9]+-[0-9]+"
-                                    },
-                                    {
-                                        "description": "Data",
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
-                                    }
-                                ]
-                            }
-                        }
-                    }
-                },
-                {
-                    "description": "Extended form, in case `FULL` was given.",
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "length": {
-                                "type": "integer"
-                            },
-                            "radix-tree-keys": {
-                                "type": "integer"
-                            },
-                            "radix-tree-nodes": {
-                                "type": "integer"
-                            },
-                            "last-generated-id": {
-                                "type": "string",
-                                "pattern": "[0-9]+-[0-9]+"
-                            },
-                            "max-deleted-entry-id": {
-                                "type": "string",
-                                "pattern": "[0-9]+-[0-9]+"
-                            },
-                            "entries-added": {
-                                "type": "integer"
-                            },
-                            "entries": {
-                                "type": "array",
-                                "uniqueItems": true,
-                                "items": {
+                    "type": "object",
+                    "additionalProperties":false,
+                    "properties": {
+                        "length": {
+                            "type": "integer"
+                        },
+                        "radix-tree-keys": {
+                            "type": "integer"
+                        },
+                        "radix-tree-nodes": {
+                            "type": "integer"
+                        },
+                        "last-generated-id": {
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "max-deleted-entry-id": {
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "recorded-first-entry-id": {
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "entries-added": {
+                            "type": "integer"
+                        },
+                        "groups": {
+                            "type": "integer"
+                        },
+                        "first-entry": {
+                            "oneOf": [
+                                {
+                                    "type": "null"
+                                },
+                                {
                                     "type": "array",
                                     "minItems": 2,
                                     "maxItems": 2,
@@ -163,105 +101,185 @@
                                         }
                                     ]
                                 }
-                            },
-                            "groups": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {
-                                            "type": "string"
-                                        },
-                                        "last-delivered-id": {
+                            ]
+                        },
+                        "last-entry": {
+                            "oneOf": [
+                                {
+                                    "type": "null"
+                                },
+                                {
+                                    "type": "array",
+                                    "minItems": 2,
+                                    "maxItems": 2,
+                                    "items": [
+                                        {
+                                            "description": "Entry ID",
                                             "type": "string",
                                             "pattern": "[0-9]+-[0-9]+"
                                         },
-                                        "entries-read": {
-                                            "oneOf": [
-                                                {
-                                                    "type": "null"
-                                                },
-                                                {
-                                                    "type": "integer"
-                                                }
-                                            ]
-                                        },
-                                        "lag": {
-                                            "oneOf": [
-                                                {
-                                                    "type": "null"
-                                                },
-                                                {
-                                                    "type": "integer"
-                                                }
-                                            ]
-                                        },
-                                        "pel-count": {
-                                            "type": "integer"
-                                        },
-                                        "pending": {
+                                        {
+                                            "description": "Data",
                                             "type": "array",
                                             "items": {
-                                                "type": "array",
-                                                "minItems": 4,
-                                                "maxItems": 4,
-                                                "items": [
-                                                    {
-                                                        "description": "Entry ID",
-                                                        "type": "string",
-                                                        "pattern": "[0-9]+-[0-9]+"
-                                                    },
-                                                    {
-                                                        "description": "Consumer name",
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "description": "Delivery timestamp",
-                                                        "type": "integer"
-                                                    },
-                                                    {
-                                                        "description": "Delivery count",
-                                                        "type": "integer"
-                                                    }
-                                                ]
+                                                "type": "string"
                                             }
-                                        },
-                                        "consumers": {
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                },
+                {
+                    "description": "Extended form, in case `FULL` was given.",
+                    "type": "object",
+                    "additionalProperties":false,
+                    "properties": {
+                        "length": {
+                            "type": "integer"
+                        },
+                        "radix-tree-keys": {
+                            "type": "integer"
+                        },
+                        "radix-tree-nodes": {
+                            "type": "integer"
+                        },
+                        "last-generated-id": {
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "max-deleted-entry-id": {
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "recorded-first-entry-id": {
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "entries-added": {
+                            "type": "integer"
+                        },
+                        "entries": {
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "items": [
+                                    {
+                                        "description": "Entry ID",
+                                        "type": "string",
+                                        "pattern": "[0-9]+-[0-9]+"
+                                    },
+                                    {
+                                        "description": "Data",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        "groups": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "last-delivered-id": {
+                                        "type": "string",
+                                        "pattern": "[0-9]+-[0-9]+"
+                                    },
+                                    "entries-read": {
+                                        "oneOf": [
+                                            {
+                                                "type": "null"
+                                            },
+                                            {
+                                                "type": "integer"
+                                            }
+                                        ]
+                                    },
+                                    "lag": {
+                                        "oneOf": [
+                                            {
+                                                "type": "null"
+                                            },
+                                            {
+                                                "type": "integer"
+                                            }
+                                        ]
+                                    },
+                                    "pel-count": {
+                                        "type": "integer"
+                                    },
+                                    "pending": {
+                                        "type": "array",
+                                        "items": {
                                             "type": "array",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "name": {
-                                                        "type": "string"
-                                                    },
-                                                    "seen-time": {
-                                                        "type": "integer"
-                                                    },
-                                                    "pel-count": {
-                                                        "type": "integer"
-                                                    },
-                                                    "pending": {
+                                            "minItems": 4,
+                                            "maxItems": 4,
+                                            "items": [
+                                                {
+                                                    "description": "Entry ID",
+                                                    "type": "string",
+                                                    "pattern": "[0-9]+-[0-9]+"
+                                                },
+                                                {
+                                                    "description": "Consumer name",
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "description": "Delivery timestamp",
+                                                    "type": "integer"
+                                                },
+                                                {
+                                                    "description": "Delivery count",
+                                                    "type": "integer"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "consumers": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "seen-time": {
+                                                    "type": "integer"
+                                                },
+                                                "pel-count": {
+                                                    "type": "integer"
+                                                },
+                                                "pending": {
+                                                    "type": "array",
+                                                    "items": {
                                                         "type": "array",
-                                                        "items": {
-                                                            "type": "array",
-                                                            "minItems": 3,
-                                                            "maxItems": 3,
-                                                            "items": [
-                                                                {
-                                                                    "description": "Entry ID",
-                                                                    "type": "string",
-                                                                    "pattern": "[0-9]+-[0-9]+"
-                                                                },
-                                                                {
-                                                                    "description": "Delivery timestamp",
-                                                                    "type": "integer"
-                                                                },
-                                                                {
-                                                                    "description": "Delivery count",
-                                                                    "type": "integer"
-                                                                }
-                                                            ]
-                                                        }
+                                                        "minItems": 3,
+                                                        "maxItems": 3,
+                                                        "items": [
+                                                            {
+                                                                "description": "Entry ID",
+                                                                "type": "string",
+                                                                "pattern": "[0-9]+-[0-9]+"
+                                                            },
+                                                            {
+                                                                "description": "Delivery timestamp",
+                                                                "type": "integer"
+                                                            },
+                                                            {
+                                                                "description": "Delivery count",
+                                                                "type": "integer"
+                                                            }
+                                                        ]
                                                     }
                                                 }
                                             }

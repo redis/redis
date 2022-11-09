@@ -2866,6 +2866,35 @@ struct redisCommandArg BLMOVE_Args[] = {
 {0}
 };
 
+/* BLMOVE_ReplySchema_oneOf_0 reply schema */
+struct commandReplySchemaElement BLMOVE_ReplySchema_oneOf_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The popped element."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema BLMOVE_ReplySchema_oneOf_0 = {BLMOVE_ReplySchema_oneOf_0_elements,.length=2};
+
+/* BLMOVE_ReplySchema_oneOf_1 reply schema */
+struct commandReplySchemaElement BLMOVE_ReplySchema_oneOf_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Operation timed-out"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema BLMOVE_ReplySchema_oneOf_1 = {BLMOVE_ReplySchema_oneOf_1_elements,.length=2};
+
+/* BLMOVE_ReplySchema_oneOf array reply schema */
+struct commandReplySchema *BLMOVE_ReplySchema_oneOf[] = {
+&BLMOVE_ReplySchema_oneOf_0,
+&BLMOVE_ReplySchema_oneOf_1,
+};
+
+/* BLMOVE_ReplySchema reply schema */
+struct commandReplySchemaElement BLMOVE_ReplySchema_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=BLMOVE_ReplySchema_oneOf,.length=2}},
+};
+
+struct commandReplySchema BLMOVE_ReplySchema = {BLMOVE_ReplySchema_elements,.length=1};
+
 /********** BLMPOP ********************/
 
 /* BLMPOP history */
@@ -2890,6 +2919,69 @@ struct redisCommandArg BLMPOP_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+/* BLMPOP_ReplySchema_oneOf_0 reply schema */
+struct commandReplySchemaElement BLMPOP_ReplySchema_oneOf_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Operation timed-out"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema BLMPOP_ReplySchema_oneOf_0 = {BLMPOP_ReplySchema_oneOf_0_elements,.length=2};
+
+/* BLMPOP_ReplySchema_oneOf_1_items_0 reply schema */
+struct commandReplySchemaElement BLMPOP_ReplySchema_oneOf_1_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="List key from which elements were popped."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema BLMPOP_ReplySchema_oneOf_1_items_0 = {BLMPOP_ReplySchema_oneOf_1_items_0_elements,.length=2};
+
+/* BLMPOP_ReplySchema_oneOf_1_items_1_items reply schema */
+struct commandReplySchemaElement BLMPOP_ReplySchema_oneOf_1_items_1_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema BLMPOP_ReplySchema_oneOf_1_items_1_items = {BLMPOP_ReplySchema_oneOf_1_items_1_items_elements,.length=1};
+
+/* BLMPOP_ReplySchema_oneOf_1_items_1 reply schema */
+struct commandReplySchemaElement BLMPOP_ReplySchema_oneOf_1_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Array of popped elements."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=1},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&BLMPOP_ReplySchema_oneOf_1_items_1_items},
+};
+
+struct commandReplySchema BLMPOP_ReplySchema_oneOf_1_items_1 = {BLMPOP_ReplySchema_oneOf_1_items_1_elements,.length=4};
+
+/* BLMPOP_ReplySchema_oneOf_1_items array reply schema */
+struct commandReplySchema *BLMPOP_ReplySchema_oneOf_1_items[] = {
+&BLMPOP_ReplySchema_oneOf_1_items_0,
+&BLMPOP_ReplySchema_oneOf_1_items_1,
+};
+
+/* BLMPOP_ReplySchema_oneOf_1 reply schema */
+struct commandReplySchemaElement BLMPOP_ReplySchema_oneOf_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The key from which elements were popped and the popped elements"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=BLMPOP_ReplySchema_oneOf_1_items,.length=2}},
+};
+
+struct commandReplySchema BLMPOP_ReplySchema_oneOf_1 = {BLMPOP_ReplySchema_oneOf_1_elements,.length=5};
+
+/* BLMPOP_ReplySchema_oneOf array reply schema */
+struct commandReplySchema *BLMPOP_ReplySchema_oneOf[] = {
+&BLMPOP_ReplySchema_oneOf_0,
+&BLMPOP_ReplySchema_oneOf_1,
+};
+
+/* BLMPOP_ReplySchema reply schema */
+struct commandReplySchemaElement BLMPOP_ReplySchema_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=BLMPOP_ReplySchema_oneOf,.length=2}},
+};
+
+struct commandReplySchema BLMPOP_ReplySchema = {BLMPOP_ReplySchema_elements,.length=1};
 
 /********** BLPOP ********************/
 
@@ -7658,556 +7750,600 @@ struct redisCommandArg XINFO_STREAM_Args[] = {
 {0}
 };
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_length reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_length_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_length reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_length_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_length = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_length_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_length = {XINFO_STREAM_ReplySchema_oneOf_0_properties_length_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_keys reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_keys_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_keys_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_nodes reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_nodes_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_nodes_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_generated_id reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_generated_id_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 {"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_generated_id_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_max_deleted_entry_id reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_max_deleted_entry_id_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 {"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_max_deleted_entry_id_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_entries_added reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_entries_added_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_entries_added_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_groups reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_groups_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_groups reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_groups_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_groups = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_groups_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_groups = {XINFO_STREAM_ReplySchema_oneOf_0_properties_groups_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_0 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_0_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_0_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_0_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_0_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 {"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_0 = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_0_elements,.length=3};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_0 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_0_elements,.length=3};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_items reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_items_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_items_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Data"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1 = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_elements,.length=3};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_elements,.length=3};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items array reply schema */
-struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items[] = {
-&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_0,
-&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1,
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items[] = {
+&XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_0,
+&XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1,
 };
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
 {"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items,.length=2}},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items,.length=2}},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_elements,.length=4};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_elements,.length=4};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_0 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_0_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf[] = {
+&XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_0,
+&XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1,
+};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf,.length=2}},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_0_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 {"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_0 = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_0_elements,.length=3};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_0 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_0_elements,.length=3};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_items reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_items_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_items_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Data"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1 = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_elements,.length=3};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_elements,.length=3};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items array reply schema */
-struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items[] = {
-&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_0,
-&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1,
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items[] = {
+&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_0,
+&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1,
 };
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
 {"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items,.length=2}},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items,.length=2}},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_elements,.length=4};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_elements,.length=4};
 
-/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_elements[] = {
-{"length",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_length},
-{"radix-tree-keys",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_keys},
-{"radix-tree-nodes",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_nodes},
-{"last-generated-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_generated_id},
-{"max-deleted-entry-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_max_deleted_entry_id},
-{"entries-added",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_entries_added},
-{"groups",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_groups},
-{"first-entry",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry},
-{"last-entry",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry},
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf[] = {
+&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0,
+&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1,
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_elements,.length=9};
-
-/* XINFO_STREAM_ReplySchema_oneOf_0_items reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_elements[] = {
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
-{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties},
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf,.length=2}},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items = {XINFO_STREAM_ReplySchema_oneOf_0_items_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_properties reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_properties_elements[] = {
+{"length",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_length},
+{"radix-tree-keys",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys},
+{"radix-tree-nodes",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes},
+{"last-generated-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id},
+{"max-deleted-entry-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id},
+{"recorded-first-entry-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id},
+{"entries-added",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added},
+{"groups",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_groups},
+{"first-entry",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry},
+{"last-entry",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_properties = {XINFO_STREAM_ReplySchema_oneOf_0_properties_elements,.length=10};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0 reply schema */
 struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Summary form, in case `FULL` was not given."},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
+{"additionalProperties",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=0},
+{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_properties},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_0_elements,.length=3};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_0_elements,.length=4};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_length reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_length_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_length reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_length_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_length = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_length_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_length = {XINFO_STREAM_ReplySchema_oneOf_1_properties_length_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_keys reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_keys_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_keys_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_nodes reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_nodes_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_nodes_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_last_generated_id reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_last_generated_id_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 {"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_last_generated_id_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_max_deleted_entry_id reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_max_deleted_entry_id_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 {"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_max_deleted_entry_id_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_added reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_added_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_added_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_0 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_0_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_0_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 {"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_0_elements,.length=3};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_0_elements,.length=3};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_items reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_items_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_items_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Data"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_elements,.length=3};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_elements,.length=3};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items array reply schema */
-struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items[] = {
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_0,
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1,
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items[] = {
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_0,
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1,
 };
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
 {"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items,.length=2}},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items,.length=2}},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_elements,.length=4};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_elements,.length=4};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_elements,.length=3};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_entries = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_elements,.length=3};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 {"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_0 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_0_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_0_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_0_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_0_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_1 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_1_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_1_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_1_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_1_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf array reply schema */
-struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf[] = {
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_0,
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_1,
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf[] = {
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_0,
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_1,
 };
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_elements[] = {
-{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf,.length=2}},
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf,.length=2}},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_0 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_0_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_0_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_0_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_0_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_1 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_1_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_1_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_1_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_1_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf array reply schema */
-struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf[] = {
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_0,
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_1,
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf[] = {
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_0,
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_1,
 };
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_elements[] = {
-{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf,.length=2}},
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf,.length=2}},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pel_count reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pel_count_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pel_count_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_0 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_0_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_0_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 {"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_0_elements,.length=3};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_0_elements,.length=3};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_1 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_1_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Consumer name"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_1_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_1_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_2 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_2_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_2 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_2_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Delivery timestamp"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_2 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_2_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_2 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_2_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_3 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_3_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_3 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_3_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Delivery count"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_3 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_3_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_3 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_3_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items array reply schema */
-struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items[] = {
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_0,
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_1,
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_2,
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_3,
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items[] = {
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_0,
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_1,
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_2,
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_3,
 };
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=4},
 {"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=4},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items,.length=4}},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items,.length=4}},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_elements,.length=4};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_elements,.length=4};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_name reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_name_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_name_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_seen_time reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_seen_time_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_seen_time = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_seen_time_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pel_count reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pel_count_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pel_count_elements,.length=1};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count_elements,.length=1};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_0 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_0_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_0_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 {"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_0_elements,.length=3};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_0_elements,.length=3};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_1 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_1_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Delivery timestamp"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_1_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_1_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_2 reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_2_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_2 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_2_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Delivery count"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_2 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_2_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_2 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_2_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items array reply schema */
-struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items[] = {
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_0,
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_1,
-&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_2,
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items[] = {
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_0,
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_1,
+&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_2,
 };
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
 {"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3},
 {"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items,.length=3}},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items,.length=3}},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_elements,.length=4};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_elements,.length=4};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_elements[] = {
-{"name",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_name},
-{"seen-time",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_seen_time},
-{"pel-count",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pel_count},
-{"pending",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending},
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_elements[] = {
+{"name",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name},
+{"seen-time",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time},
+{"pel-count",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count},
+{"pending",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_elements,.length=4};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_elements,.length=4};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
-{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties},
+{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_elements[] = {
-{"name",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name},
-{"last-delivered-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id},
-{"entries-read",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read},
-{"lag",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag},
-{"pel-count",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pel_count},
-{"pending",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending},
-{"consumers",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers},
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_elements[] = {
+{"name",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name},
+{"last-delivered-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id},
+{"entries-read",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read},
+{"lag",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag},
+{"pel-count",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count},
+{"pending",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending},
+{"consumers",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_elements,.length=7};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_elements,.length=7};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
-{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties},
+{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_elements[] = {
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties_groups = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_elements,.length=2};
 
-/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_elements[] = {
-{"length",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_length},
-{"radix-tree-keys",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_keys},
-{"radix-tree-nodes",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_nodes},
-{"last-generated-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_last_generated_id},
-{"max-deleted-entry-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_max_deleted_entry_id},
-{"entries-added",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_added},
-{"entries",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries},
-{"groups",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups},
+/* XINFO_STREAM_ReplySchema_oneOf_1_properties reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_properties_elements[] = {
+{"length",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_length},
+{"radix-tree-keys",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys},
+{"radix-tree-nodes",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes},
+{"last-generated-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id},
+{"max-deleted-entry-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id},
+{"recorded-first-entry-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id},
+{"entries-added",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added},
+{"entries",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries},
+{"groups",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_elements,.length=8};
-
-/* XINFO_STREAM_ReplySchema_oneOf_1_items reply schema */
-struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_elements[] = {
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
-{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties},
-};
-
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_properties = {XINFO_STREAM_ReplySchema_oneOf_1_properties_elements,.length=9};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1 reply schema */
 struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Extended form, in case `FULL` was given."},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
+{"additionalProperties",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=0},
+{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_properties},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_elements,.length=3};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_elements,.length=4};
 
 /* XINFO_STREAM_ReplySchema_oneOf array reply schema */
 struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf[] = {
@@ -9117,9 +9253,31 @@ struct redisCommandArg SUBSTR_Args[] = {
 /* EXEC tips */
 #define EXEC_tips NULL
 
+/* EXEC_ReplySchema_oneOf_0 reply schema */
+struct commandReplySchemaElement EXEC_ReplySchema_oneOf_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Each element being the reply to each of the commands in the atomic transaction."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+};
+
+struct commandReplySchema EXEC_ReplySchema_oneOf_0 = {EXEC_ReplySchema_oneOf_0_elements,.length=2};
+
+/* EXEC_ReplySchema_oneOf_1 reply schema */
+struct commandReplySchemaElement EXEC_ReplySchema_oneOf_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The transaction was aborted because a `WATCH`ed key was touched"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema EXEC_ReplySchema_oneOf_1 = {EXEC_ReplySchema_oneOf_1_elements,.length=2};
+
+/* EXEC_ReplySchema_oneOf array reply schema */
+struct commandReplySchema *EXEC_ReplySchema_oneOf[] = {
+&EXEC_ReplySchema_oneOf_0,
+&EXEC_ReplySchema_oneOf_1,
+};
+
 /* EXEC_ReplySchema reply schema */
 struct commandReplySchemaElement EXEC_ReplySchema_elements[] = {
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=EXEC_ReplySchema_oneOf,.length=2}},
 };
 
 struct commandReplySchema EXEC_ReplySchema = {EXEC_ReplySchema_elements,.length=1};
@@ -9242,8 +9400,8 @@ struct redisCommand redisCommandTable[] = {
 {"pfmerge","Merge N different HyperLogLogs into a single one.","O(N) to merge N HyperLogLogs, but with high constant times.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFMERGE_History,PFMERGE_tips,pfmergeCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_HYPERLOGLOG,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=PFMERGE_Args},
 {"pfselftest","An internal command for testing HyperLogLog values","N/A","2.8.9",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFSELFTEST_History,PFSELFTEST_tips,pfselftestCommand,1,CMD_ADMIN,ACL_CATEGORY_HYPERLOGLOG},
 /* list */
-{"blmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMOVE_History,BLMOVE_tips,blmoveCommand,6,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BLMOVE_Args},
-{"blmpop","Pop elements from a list, or block until one is available","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMPOP_History,BLMPOP_tips,blmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BLMPOP_Args},
+{"blmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMOVE_History,BLMOVE_tips,blmoveCommand,6,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BLMOVE_Args,.reply_schema=&BLMOVE_ReplySchema},
+{"blmpop","Pop elements from a list, or block until one is available","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMPOP_History,BLMPOP_tips,blmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BLMPOP_Args,.reply_schema=&BLMPOP_ReplySchema},
 {"blpop","Remove and get the first element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLPOP_History,BLPOP_tips,blpopCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BLPOP_Args},
 {"brpop","Remove and get the last element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BRPOP_History,BRPOP_tips,brpopCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BRPOP_Args},
 {"brpoplpush","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","2.2.0",CMD_DOC_DEPRECATED,"`BLMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0",COMMAND_GROUP_LIST,BRPOPLPUSH_History,BRPOPLPUSH_tips,brpoplpushCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BRPOPLPUSH_Args},

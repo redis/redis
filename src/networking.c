@@ -1795,8 +1795,15 @@ static void reqresAppendArg(client *c, char *arg, size_t arg_len) {
 }
 
 static void reqresAppendArgv(client *c) {
-    robj **argv = c->original_argv ? c->original_argv : c->argv;
-    int argc = c->original_argv ? c->original_argc : c->argc;
+    robj **argv = c->argv;
+    int argc = c->argc;
+
+    if (c->original_argv) {
+        if (!(c->argv && !strcasecmp((char*)c->argv[0]->ptr, "exec"))) {
+            argv = c->original_argv;
+            argc = c->original_argc;
+        }
+    }
 
     if (argc == 0)
         return;

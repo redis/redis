@@ -50,11 +50,9 @@ proc streamSimulateXRANGE {items start end} {
 set content {} ;# Will be populated with Tcl side copy of the stream content.
 
 proc stream_response_interpreter {id response} {
-    puts "HEREEEEE"
     if {!$::force_resp3 || $::redis::testing_resp3($id) == 1} {
         return $response
     }
-    puts $response
     if  {[string is list $response] && ([llength $response]&1) == 0 && [llength [lindex $response 0]] ne 2} {
         set tuparray {}
         foreach {key val} $response {
@@ -63,9 +61,6 @@ proc stream_response_interpreter {id response} {
             lappend tmp $val
             lappend tuparray $tmp
         }
-        puts $response
-        puts "EDIT"
-        puts $tuparray
         return $tuparray
     }
     return $response
@@ -341,8 +336,10 @@ start_server {
     }
 
     test {XREAD with non empty stream} {
+        r set_response_interpreter stream_response_interpreter
         set res [r XREAD COUNT 1 STREAMS mystream 0-0]
-        assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {item 0}}
+        r reset_response_interpreter
+        assert_equal [lrange [lindex $res 0 1 0 1] 0 1] {item 0}
     }
 
     test {Non blocking XREAD with empty streams} {
@@ -352,7 +349,9 @@ start_server {
 
     test {XREAD with non empty second stream} {
         insert_into_stream_key mystream{t}
+        r set_response_interpreter stream_response_interpreter
         set res [r XREAD COUNT 1 STREAMS nostream{t} mystream{t} 0-0 0-0]
+        r reset_response_interpreter
         assert {[lindex $res 0 0] eq {mystream{t}}}
         assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {item 0}}
     }
@@ -363,7 +362,9 @@ start_server {
         $rd XREAD BLOCK 20000 STREAMS s1{t} s2{t} s3{t} $ $ $
         wait_for_blocked_client
         r XADD s2{t} * new abcd1234
+        $rd set_response_interpreter stream_response_interpreter
         set res [$rd read]
+        $rd reset_response_interpreter
         assert {[lindex $res 0 0] eq {s2{t}}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
         $rd close
@@ -373,7 +374,9 @@ start_server {
         set rd [redis_deferring_client]
         $rd XREAD BLOCK 20000 STREAMS s1{t} s2{t} s3{t} $ 0-0 $
         r XADD s2{t} * foo abcd1234
+        $rd set_response_interpreter stream_response_interpreter
         set res [$rd read]
+        $rd reset_response_interpreter
         assert {[lindex $res 0 0] eq {s2{t}}}
         assert {[lindex $res 0 1 0 1] eq {old abcd1234}}
         $rd close
@@ -392,9 +395,7 @@ start_server {
     }
 
     test "Blocking XREAD for stream that ran dry (issue #5299)" {
-
         set rd [redis_deferring_client]
-        $rd set_response_interpreter stream_response_interpreter
 
         # Add a entry then delete it, now stream's last_id is 666.
         r DEL mystream
@@ -410,17 +411,12 @@ start_server {
         assert_error ERR*equal*smaller* {r XADD mystream 666 key value}
 
         # Entered blocking state and then release because of the new entry.
-
         $rd XREAD BLOCK 0 STREAMS mystream 665
-
         wait_for_blocked_clients_count 1
         r XADD mystream 667 key value
-
-
+        $rd set_response_interpreter stream_response_interpreter
         assert_equal [$rd read] {{mystream {{667-0 {key value}}}}}
-
         $rd reset_response_interpreter
-
         $rd close
     }
 
@@ -434,7 +430,9 @@ start_server {
         r DEL s1
         r exec
         r XADD s1 * new abcd1234
+        $rd set_response_interpreter stream_response_interpreter
         set res [$rd read]
+        $rd reset_response_interpreter
         assert {[lindex $res 0 0] eq {s1}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
         $rd close
@@ -452,7 +450,9 @@ start_server {
         r exec
         r DEL s1
         r XADD s1 * new abcd1234
+        $rd set_response_interpreter stream_response_interpreter
         set res [$rd read]
+        $rd reset_response_interpreter
         assert {[lindex $res 0 0] eq {s1}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
         $rd close
@@ -464,7 +464,9 @@ start_server {
         $rd XREAD BLOCK 20000 STREAMS s2 s2 s2 $ $ $
         wait_for_blocked_clients_count 1
         r XADD s2 * new abcd1234
+        $rd set_response_interpreter stream_response_interpreter
         set res [$rd read]
+        $rd reset_response_interpreter
         assert {[lindex $res 0 0] eq {s2}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
         $rd close
@@ -480,7 +482,9 @@ start_server {
         r XADD s2 * field two
         r XADD s2 * field three
         r EXEC
+        $rd set_response_interpreter stream_response_interpreter
         set res [$rd read]
+        $rd reset_response_interpreter
         assert {[lindex $res 0 0] eq {s2}}
         assert {[lindex $res 0 1 0 1] eq {field one}}
         assert {[lindex $res 0 1 1 1] eq {field two}}
@@ -590,7 +594,9 @@ start_server {
         r XADD x 1-1 f v
         r XADD x 1-18446744073709551615 f v
         r XADD x 2-1 f v
+        r set_response_interpreter stream_response_interpreter
         set res [r XREAD BLOCK 0 STREAMS x 1-18446744073709551615]
+        r reset_response_interpreter
         assert {[lindex $res 0 1 0] == {2-1 {f v}}}
     }
 
@@ -602,7 +608,9 @@ start_server {
         r XADD x 1-1 f v
         r XADD x 1-18446744073709551615 f v
         r XADD x 2-1 f v
+        $rd set_response_interpreter stream_response_interpreter
         set res [$rd read]
+        $rd reset_response_interpreter
         assert {[lindex $res 0 1 0] == {2-1 {f v}}}
         $rd close
     }

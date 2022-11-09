@@ -85,7 +85,7 @@ class Response(object):
                 field = Response(f)
                 assert isinstance(field.json, str)
                 value = Response(f)
-                self.json[str(field)] = value.json
+                self.json[str(field)[1:-1]] = value.json
 
     def __str__(self):
         return json.dumps(self.json)
@@ -143,12 +143,12 @@ if __name__ == '__main__':
                     jsonschema.validate(instance=res.json, schema=req.schema)
                 except jsonschema.ValidationError as err:
                     print("JSON schema validation error on %s: %s" % (filename, err))
-                    print("Command: %s" % req.command())
+                    print("Command: %s" % req.command)
                     try:
                         print("Response: %s" % res)
                     except UnicodeDecodeError as err:
                        print("Response: (unprintable)")
-                    print("Schema: %s" % json.dumps(schema, indent=2))
+                    print("Schema: %s" % json.dumps(req.schema, indent=2))
                     exit(1)
         
     print("Done.")

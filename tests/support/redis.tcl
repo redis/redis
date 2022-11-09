@@ -280,7 +280,7 @@ proc ::redis::redis_multi_bulk_read {id fd} {
     set err {}
     for {set i 0} {$i < $count} {incr i} {
         if {[catch {
-            lappend l [redis_read_reply $id $fd]
+            lappend l [redis_read_reply_logic $id $fd]
         } e] && $err eq {}} {
             set err $e
         }
@@ -296,8 +296,8 @@ proc ::redis::redis_read_map {id fd} {
     set err {}
     for {set i 0} {$i < $count} {incr i} {
         if {[catch {
-            set k [redis_read_reply $id $fd] ; # key
-            set v [redis_read_reply $id $fd] ; # value
+            set k [redis_read_reply_logic $id $fd] ; # key
+            set v [redis_read_reply_logic $id $fd] ; # value
             dict set d $k $v
         } e] && $err eq {}} {
             set err $e
@@ -376,7 +376,7 @@ proc ::redis::redis_read_reply_logic {id fd} {
     }
 }
 
-proc ::redis::redis_read_reply_logic {id fd} {
+proc ::redis::redis_read_reply {id fd} {
     set response [redis_read_reply_logic $id $fd]
     set interpreter $::redis::response_interpreters($id)
     if {$interpreter ne 0} {
