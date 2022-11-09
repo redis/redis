@@ -3260,7 +3260,10 @@ void cliLoadPreferences(void) {
  * - ACL SETUSER
  * - CONFIG SET masterauth/masteruser/requirepass
  * - HELLO with [AUTH username password]
- * - MIGRATE with [AUTH password] or [AUTH2 username password] */
+ * - MIGRATE with [AUTH password] or [AUTH2 username password] 
+ * - SENTINEL CONFIG SET sentinel-pass
+ * - SENTINEL SET <mastername> auth-pass
+*/
 static int isSensitiveCommand(int argc, char **argv) {
     if (!strcasecmp(argv[0],"auth")) {
         return 1;
@@ -3304,6 +3307,17 @@ static int isSensitiveCommand(int argc, char **argv) {
             } else if (!strcasecmp(argv[j],"keys") && moreargs) {
                 return 0;
             }
+        }
+    } else if (argc > 4 && !strcasecmp(argv[0], "sentinel")) {
+        /* SENTINEL CONFIG SET sentinel-pass */
+        if (!strcasecmp(argv[1], "config") && !strcasecmp(argv[2], "set") && !strcasecmp(argv[3], "sentinel-pass")) {
+            return 1;
+        }
+        /* SENTINEL SET <mastername> auth-pass */
+        else if (!strcasecmp(argv[1], "set") && !strcasecmp(argv[3], "auth-pass")) {
+            return 1;
+        } else {
+            return 0;
         }
     }
     return 0;
