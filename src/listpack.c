@@ -1063,6 +1063,55 @@ unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
     return lp;
 }
 
+/* Delete the elements 'ps' passed as an array of 'count' element pointers and
+ * return the resulting listpack. The elements must be given in the same order
+ * as they apper in the listpack. */
+unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned long count) {
+    if (count == 0) return lp;
+    unsigned char *dst = ps[0];
+    size_t total_bytes = lpGetTotalBytes(lp);
+    unsigned char *lp_end = lp + total_bytes; /* After the EOF element. */
+    assert(lp_end[-1] == LP_EOF);
+    /*
+     * ----+--------+-----------+--------+---------+-----+---+
+     * ... | Delete | Keep      | Delete | Keep    | ... |EOF|
+     * ... |xxxxxxxx|           |xxxxxxxx|         | ... |   |
+     * ----+--------+-----------+--------+---------+-----+---+
+     *     ^        ^           ^                            ^
+     *     |        |           |                            |
+     *     ps[i]    |           ps[i+1]                      |
+     *     skip     keep_start  keep_end                     lp_end
+     *
+     * The loop memmoves the bytes between keep_start and keep_end to dst.
+     */
+    for (unsigned long i = 0; i < count; i++) {
+        unsigned char *skip = ps[i];
+        assert(skip != NULL && skip[0] != LP_EOF);
+        unsigned char *keep_start = lpSkip(skip);
+        unsigned char *keep_end;
+        if (i + 1 < count) {
+            keep_end = ps[i + 1];
+            /* Deleting consecutive elements. Nothing to keep between them. */
+            if (keep_start == keep_end) continue;
+        } else {
+            /* Keep the rest of the listpack including the EOF marker. */
+            keep_end = lp_end;
+        }
+        assert(keep_end > keep_start);
+        size_t bytes_to_keep = keep_end - keep_start;
+        memmove(dst, keep_start, bytes_to_keep);
+        dst += bytes_to_keep;
+    }
+    /* Update total size and num elements. */
+    size_t deleted_bytes = lp_end - dst;
+    total_bytes -= deleted_bytes;
+    assert(lp[total_bytes - 1] == LP_EOF);
+    lpSetTotalBytes(lp, total_bytes);
+    uint32_t numele = lpGetNumElements(lp);
+    if (numele != LP_HDR_NUMELE_UNKNOWN) lpSetNumElements(lp, numele - count);
+    return lpShrinkToFit(lp);
+}
+
 /* Merge listpacks 'first' and 'second' by appending 'second' to 'first'.
  *
  * NOTE: The larger listpack is reallocated to contain the new merged listpack.
@@ -1383,6 +1432,43 @@ void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *k
     val->sval = lpGetValue(p, &(val->slen), &(val->lval));
 }
 
+/* Randomly select 'count' entries and store them in the 'entries' array, which
+ * needs to have space for 'count' listpackEntry structs. The order is random
+ * and duplicates are possible. */
+void lpRandomEntries(unsigned char *lp, unsigned int count, listpackEntry *entries) {
+    struct pick {
+        unsigned int index;
+        unsigned int order;
+    } *picks = lp_malloc(count * sizeof(struct pick));
+    unsigned int total_size = lpLength(lp);
+    assert(total_size);
+    for (unsigned int i = 0; i < count; i++) {
+        picks[i].index = rand() % total_size;
+        picks[i].order = i;
+    }
+
+    /* Sort by index. */
+    qsort(picks, count, sizeof(struct pick), uintCompare);
+
+    /* Iterate over listpack in index order and store the values in the entries
+     * array respecting the original order. */
+    unsigned char *p = lpFirst(lp);
+    unsigned int j = 0; /* index in listpack */
+    for (unsigned int i = 0; i < count; i++) {
+        /* Advance listpack pointer to until we reach 'index' listpack. */
+        while (j < picks[i].index) {
+            p = lpNext(lp, p);
+            j++;
+        }
+        int storeorder = picks[i].order;
+        unsigned int len = 0;
+        long long llval = 0;
+        unsigned char *str = lpGetValue(p, &len, &llval);
+        lpSaveValue(str, len, llval, &entries[storeorder]);
+    }
+    lp_free(picks);
+}
+
 /* Randomly select count of key value pairs and store into 'keys' and
  * 'vals' args. The order of the picked entries is random, and the selections
  * are non-unique (repetitions are possible).
@@ -1449,32 +1535,81 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
     if (count > total_size)
         count = total_size;
 
-    /* To only iterate once, every time we try to pick a member, the probability
-     * we pick it is the quotient of the count left we want to pick and the
-     * count still we haven't visited in the dict, this way, we could make every
-     * member be equally picked.*/
     p = lpFirst(lp);
     unsigned int picked = 0, remaining = count;
     while (picked < count && p) {
-        double randomDouble = ((double)rand()) / RAND_MAX;
-        double threshold = ((double)remaining) / (total_size - index);
-        if (randomDouble <= threshold) {
+        assert((p = lpNextRandom(lp, p, &index, remaining, 1)));
+        key = lpGetValue(p, &klen, &klval);
+        lpSaveValue(key, klen, klval, &keys[picked]);
+        assert((p = lpNext(lp, p)));
+        index++;
+        if (vals) {
             key = lpGetValue(p, &klen, &klval);
-            lpSaveValue(key, klen, klval, &keys[picked]);
-            assert((p = lpNext(lp, p)));
-            if (vals) {
-                key = lpGetValue(p, &klen, &klval);
-                lpSaveValue(key, klen, klval, &vals[picked]);
-            }
-            remaining--;
-            picked++;
-        } else {
-            assert((p = lpNext(lp, p)));
+            lpSaveValue(key, klen, klval, &vals[picked]);
         }
         p = lpNext(lp, p);
+        remaining--;
+        picked++;
         index++;
     }
     return picked;
+}
+
+/* Iterates forward to the "next random" element, given we are yet to pick
+ * 'remaining' unique elements between the starting element 'p' (inclusive) and
+ * the end of the list. The 'index' needs to be initialized according to the
+ * current zero-based index matching the position of the starting element 'p'
+ * and is updated to match the returned element's zero-based index. If
+ * 'even_only' is nonzero, an element with an even index is picked, which is
+ * useful if the listpack represents a key-value pair sequence.
+ *
+ * Note that this function can return p. In order to skip the previously
+ * returned element, you need to call lpNext() or lpDelete() after each call to
+ * lpNextRandom(). Idea:
+ *
+ *     assert(remaining <= lpLength(lp));
+ *     p = lpFirst(lp);
+ *     i = 0;
+ *     while (remaining > 0) {
+ *         p = lpNextRandom(lp, p, &i, remaining--, 0);
+ *
+ *         // ... Do stuff with p ...
+ *
+ *         p = lpNext(lp, p);
+ *         i++;
+ *     }
+ */
+unsigned char *lpNextRandom(unsigned char *lp, unsigned char *p, unsigned int *index,
+                            unsigned int remaining, int even_only)
+{
+    /* To only iterate once, every time we try to pick a member, the probability
+     * we pick it is the quotient of the count left we want to pick and the
+     * count still we haven't visited. This way, we could make every member be
+     * equally likely to be picked. */
+    unsigned int i = *index;
+    unsigned int total_size = lpLength(lp);
+    while (i < total_size && p != NULL) {
+        if (even_only && i % 2 != 0) {
+            p = lpNext(lp, p);
+            i++;
+            continue;
+        }
+
+        /* Do we pick this element? */
+        unsigned int available = total_size - i;
+        if (even_only) available /= 2;
+        double randomDouble = ((double)rand()) / RAND_MAX;
+        double threshold = ((double)remaining) / available;
+        if (randomDouble <= threshold) {
+            *index = i;
+            return p;
+        }
+
+        p = lpNext(lp, p);
+        i++;
+    }
+
+    return NULL;
 }
 
 /* Print info of listpack which is used in debugCommand */
@@ -1902,6 +2037,21 @@ int listpackTest(int argc, char *argv[], int flags) {
         zfree(lp);
     }
 
+    TEST("Batch delete") {
+        unsigned char *lp = createList(); /* char *mixlist[] = {"hello", "foo", "quux", "1024"} */
+        assert(lpLength(lp) == 4); /* Pre-condition */
+        unsigned char *p0 = lpFirst(lp),
+            *p1 = lpNext(lp, p0),
+            *p2 = lpNext(lp, p1),
+            *p3 = lpNext(lp, p2);
+        unsigned char *ps[] = {p0, p1, p3};
+        lp = lpBatchDelete(lp, ps, 3);
+        assert(lpLength(lp) == 1);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[2], strlen(mixlist[2]));
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        lpFree(lp);
+    }
+
     TEST("Delete foo while iterating") {
         lp = createList();
         p = lpFirst(lp);
@@ -2046,6 +2196,82 @@ int listpackTest(int argc, char *argv[], int flags) {
         verifyEntry(lpSeek(lp3, 4), (unsigned char*)"4294967296", 10);
         verifyEntry(lpSeek(lp3, -1), (unsigned char*)"much much longer non integer", 28);
         zfree(lp3);
+    }
+
+    TEST("lpNextRandom normal usage") {
+        /* Create some data */
+        unsigned char *lp = lpNew(0);
+        unsigned char buf[100] = "asdf";
+        unsigned int size = 100;
+        for (size_t i = 0; i < size; i++) {
+            lp = lpAppend(lp, buf, i);
+        }
+        assert(lpLength(lp) == size);
+
+        /* Pick a subset of the elements of every possible subset size */
+        for (unsigned int count = 0; count <= size; count++) {
+            unsigned int remaining = count;
+            unsigned char *p = lpFirst(lp);
+            unsigned char *prev = NULL;
+            unsigned index = 0;
+            while (remaining > 0) {
+                assert(p != NULL);
+                p = lpNextRandom(lp, p, &index, remaining--, 0);
+                assert(p != NULL);
+                assert(p != prev);
+                prev = p;
+                p = lpNext(lp, p);
+                index++;
+            }
+        }
+    }
+
+    TEST("lpNextRandom corner cases") {
+        unsigned char *lp = lpNew(0);
+        unsigned i = 0;
+
+        /* Pick from empty listpack returns NULL. */
+        assert(lpNextRandom(lp, NULL, &i, 2, 0) == NULL);
+
+        /* Add some elements and find their pointers within the listpack. */
+        lp = lpAppend(lp, (unsigned char *)"abc", 3);
+        lp = lpAppend(lp, (unsigned char *)"def", 3);
+        lp = lpAppend(lp, (unsigned char *)"ghi", 3);
+        assert(lpLength(lp) == 3);
+        unsigned char *p0 = lpFirst(lp);
+        unsigned char *p1 = lpNext(lp, p0);
+        unsigned char *p2 = lpNext(lp, p1);
+        assert(lpNext(lp, p2) == NULL);
+
+        /* Pick zero elements returns NULL. */
+        i = 0; assert(lpNextRandom(lp, lpFirst(lp), &i, 0, 0) == NULL);
+
+        /* Pick all returns all. */
+        i = 0; assert(lpNextRandom(lp, p0, &i, 3, 0) == p0 && i == 0);
+        i = 1; assert(lpNextRandom(lp, p1, &i, 2, 0) == p1 && i == 1);
+        i = 2; assert(lpNextRandom(lp, p2, &i, 1, 0) == p2 && i == 2);
+
+        /* Pick more than one when there's only one left returns the last one. */
+        i = 2; assert(lpNextRandom(lp, p2, &i, 42, 0) == p2 && i == 2);
+
+        /* Pick all even elements returns p0 and p2. */
+        i = 0; assert(lpNextRandom(lp, p0, &i, 10, 1) == p0 && i == 0);
+        i = 1; assert(lpNextRandom(lp, p1, &i, 10, 1) == p2 && i == 2);
+
+        /* Don't crash even for bad index. */
+        for (int j = 0; j < 100; j++) {
+            unsigned char *p;
+            switch (j % 4) {
+            case 0: p = p0; break;
+            case 1: p = p1; break;
+            case 2: p = p2; break;
+            case 3: p = NULL; break;
+            }
+            i = j % 7;
+            unsigned int remaining = j % 5;
+            p = lpNextRandom(lp, p, &i, remaining, 0);
+            assert(p == p0 || p == p1 || p == p2 || p == NULL);
+        }
     }
 
     TEST("Random pair with one element") {

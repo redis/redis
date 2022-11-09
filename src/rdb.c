@@ -665,6 +665,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,RDB_TYPE_SET_INTSET);
         else if (o->encoding == OBJ_ENCODING_HT)
             return rdbSaveType(rdb,RDB_TYPE_SET);
+        else if (o->encoding == OBJ_ENCODING_LISTPACK)
+            return rdbSaveType(rdb,RDB_TYPE_SET_LISTPACK);
         else
             serverPanic("Unknown set encoding");
     case OBJ_ZSET:
@@ -857,6 +859,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             size_t l = intsetBlobLen((intset*)o->ptr);
 
             if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            nwritten += n;
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            size_t l = lpBytes((unsigned char *)o->ptr);
+            if ((n = rdbSaveRawString(rdb, o->ptr, l)) == -1) return -1;
             nwritten += n;
         } else {
             serverPanic("Unknown set encoding");
@@ -1690,19 +1696,21 @@ static int _listZiplistEntryConvertAndValidate(unsigned char *p, unsigned int he
 }
 
 /* callback for to check the listpack doesn't have duplicate records */
-static int _lpPairsEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
+static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
     struct {
+        int pairs;
         long count;
         dict *fields;
     } *data = userdata;
 
     if (data->fields == NULL) {
         data->fields = dictCreate(&hashDictType);
-        dictExpand(data->fields, head_count/2);
+        dictExpand(data->fields, data->pairs ? head_count/2 : head_count);
     }
 
-    /* Even records are field names, add to dict and check that's not a dup */
-    if (((data->count) & 1) == 0) {
+    /* If we're checking pairs, then even records are field names. Otherwise
+     * we're checking all elements. Add to dict and check that's not a dup */
+    if (!data->pairs || ((data->count) & 1) == 0) {
         unsigned char *str;
         int64_t slen;
         unsigned char buf[LP_INTBUF_SIZE];
@@ -1722,21 +1730,24 @@ static int _lpPairsEntryValidation(unsigned char *p, unsigned int head_count, vo
 
 /* Validate the integrity of the listpack structure.
  * when `deep` is 0, only the integrity of the header is validated.
- * when `deep` is 1, we scan all the entries one by one. */
-int lpPairsValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep) {
+ * when `deep` is 1, we scan all the entries one by one.
+ * when `pairs` is 0, all elements need to be unique (it's a set)
+ * when `pairs` is 1, odd elements need to be unique (it's a key-value map) */
+int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int pairs) {
     if (!deep)
         return lpValidateIntegrity(lp, size, 0, NULL, NULL);
 
     /* Keep track of the field names to locate duplicate ones */
     struct {
+        int pairs;
         long count;
         dict *fields; /* Initialisation at the first callback. */
-    } data = {0, NULL};
+    } data = {pairs, 0, NULL};
 
-    int ret = lpValidateIntegrity(lp, size, 1, _lpPairsEntryValidation, &data);
+    int ret = lpValidateIntegrity(lp, size, 1, _lpEntryValidation, &data);
 
     /* make sure we have an even number of records. */
-    if (data.count & 1)
+    if (pairs && data.count & 1)
         ret = 0;
 
     if (data.fields) dictRelease(data.fields);
@@ -1813,6 +1824,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         }
 
         /* Load every single element of the set */
+        size_t maxelelen = 0, sumelelen = 0;
         for (i = 0; i < len; i++) {
             long long llval;
             sds sdsele;
@@ -1821,6 +1833,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 decrRefCount(o);
                 return NULL;
             }
+            size_t elelen = sdslen(sdsele);
+            sumelelen += elelen;
+            if (elelen > maxelelen) maxelelen = elelen;
 
             if (o->encoding == OBJ_ENCODING_INTSET) {
                 /* Fetch integer value from element. */
@@ -1833,10 +1848,45 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         sdsfree(sdsele);
                         return NULL;
                     }
+                } else if (setTypeSize(o) < server.set_max_listpack_entries &&
+                           maxelelen <= server.set_max_listpack_value &&
+                           lpSafeToAdd(NULL, sumelelen))
+                {
+                    /* We checked if it's safe to add one large element instead
+                     * of many small ones. It's OK since lpSafeToAdd doesn't
+                     * care about individual elements, only the total size. */
+                    setTypeConvert(o, OBJ_ENCODING_LISTPACK);
                 } else {
                     setTypeConvert(o,OBJ_ENCODING_HT);
                     if (dictTryExpand(o->ptr,len) != DICT_OK) {
                         rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
+                        sdsfree(sdsele);
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                }
+            }
+
+            /* This will also be called when the set was just converted
+             * to a listpack encoded set. */
+            if (o->encoding == OBJ_ENCODING_LISTPACK) {
+                if (setTypeSize(o) < server.set_max_listpack_entries &&
+                    elelen <= server.set_max_listpack_value &&
+                    lpSafeToAdd(o->ptr, elelen))
+                {
+                    unsigned char *p = lpFirst(o->ptr);
+                    if (p && lpFind(o->ptr, p, (unsigned char*)sdsele, elelen, 0)) {
+                        rdbReportCorruptRDB("Duplicate set members detected");
+                        decrRefCount(o);
+                        sdsfree(sdsele);
+                        return NULL;
+                    }
+                    o->ptr = lpAppend(o->ptr, (unsigned char *)sdsele, elelen);
+                } else {
+                    setTypeConvert(o, OBJ_ENCODING_HT);
+                    if (dictTryExpand(o->ptr, len) != DICT_OK) {
+                        rdbReportCorruptRDB("OOM in dictTryExpand %llu",
+                                            (unsigned long long)len);
                         sdsfree(sdsele);
                         decrRefCount(o);
                         return NULL;
@@ -2126,6 +2176,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == RDB_TYPE_SET_INTSET   ||
+               rdbtype == RDB_TYPE_SET_LISTPACK ||
                rdbtype == RDB_TYPE_ZSET_ZIPLIST ||
                rdbtype == RDB_TYPE_ZSET_LISTPACK ||
                rdbtype == RDB_TYPE_HASH_ZIPLIST ||
@@ -2243,6 +2294,20 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 if (intsetLen(o->ptr) > server.set_max_intset_entries)
                     setTypeConvert(o,OBJ_ENCODING_HT);
                 break;
+            case RDB_TYPE_SET_LISTPACK:
+                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+                if (!lpValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation, 0)) {
+                    rdbReportCorruptRDB("Set listpack integrity check failed.");
+                    zfree(encoded);
+                    o->ptr = NULL;
+                    decrRefCount(o);
+                    return NULL;
+                }
+                o->type = OBJ_SET;
+                o->encoding = OBJ_ENCODING_LISTPACK;
+                if (setTypeSize(o) > server.set_max_listpack_entries)
+                    setTypeConvert(o, OBJ_ENCODING_HT);
+                break;
             case RDB_TYPE_ZSET_ZIPLIST:
                 {
                     unsigned char *lp = lpNew(encoded_len);
@@ -2272,7 +2337,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
             case RDB_TYPE_ZSET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!lpPairsValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation)) {
+                if (!lpValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation, 1)) {
                     rdbReportCorruptRDB("Zset listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
@@ -2318,7 +2383,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
             case RDB_TYPE_HASH_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!lpPairsValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation)) {
+                if (!lpValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation, 1)) {
                     rdbReportCorruptRDB("Hash listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
