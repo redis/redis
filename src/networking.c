@@ -3835,7 +3835,7 @@ void updatePausedActions(void) {
 
     /* If the pause type is less restrictive than before, we unblock all clients
      * so they are reprocessed (may get re-paused). */
-    uint32_t mask_cli = (PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_CLIENT_ALL);
+    uint32_t mask_cli = (PAUSE_ACTION_CLIENT_DENYOOM|PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_CLIENT_ALL);
     if ((server.paused_actions & mask_cli) < (prev_paused_actions & mask_cli)) {
         unblockPostponedClients();
     }
@@ -3909,11 +3909,6 @@ void unpauseActions(pause_purpose purpose) {
     server.client_pause_per_purpose[purpose].end = 0;
     server.client_pause_per_purpose[purpose].paused_actions = 0;
     updatePausedActions();
-}
-
-/* Returns bitmask of paused actions */
-uint32_t isPausedActions(uint32_t actions_bitmask) {
-    return (server.paused_actions & actions_bitmask);
 }
 
 /* Returns bitmask of paused actions */

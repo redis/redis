@@ -1168,14 +1168,14 @@ void cronUpdateMemoryStats() {
 
 /* Pause clients on write as long as OOM and pending lazy-free jobs in background.
  * By doing so the server might avoid unnecessary eviction or rejection. */
-static void ClientWritePauseDuringOOM() {
+static void clientWritePauseDuringOOM() {
     
     /* if OOM and available pending lazyfree jobs then pause client-write to avoid overloading. 
      * Pause also evictions, since we might reach below maxmemory after lazyfree */
     if ((getMaxmemoryState(NULL,NULL,NULL,NULL) == C_ERR) &&
         (bioPendingJobsOfType(BIO_LAZY_FREE))) {
         pauseActions(PAUSE_OOM_THROTTLE,LLONG_MAX, 
-                     PAUSE_ACTION_EVICT | PAUSE_ACTION_CLIENT_WRITE );
+                     PAUSE_ACTION_EVICT | PAUSE_ACTION_CLIENT_DENYOOM );
     } else {
         /* If not OOM && lazy-free, then unpause clients */
         unpauseActions(PAUSE_OOM_THROTTLE);
@@ -1582,7 +1582,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     }
 
     /* Pause clients on write as long as OOM and pending lazy-free jobs in background */
-    ClientWritePauseDuringOOM();
+    clientWritePauseDuringOOM();
 
     /* Handle precise timeouts of blocked clients. */
     handleBlockedClientsTimeout();
@@ -3820,7 +3820,7 @@ int processCommand(client *c) {
         /* Pause clients on write as long as OOM and pending lazy-free jobs in background
          * - If we initiated a pause then isSafeToPerformEvictions will prevent the eviction in the later call
          * - if we initiated a pause, and this is a write command, it'll get postponed later in processCommand.*/
-        ClientWritePauseDuringOOM();
+        clientWritePauseDuringOOM();
 
         int out_of_memory = (performEvictions() == EVICT_FAIL);
 
@@ -3983,13 +3983,16 @@ int processCommand(client *c) {
 
     /* If the server is paused, block the client until
      * the pause has ended. Replicas are never paused. */
-    if (!(c->flags & CLIENT_SLAVE) && 
-        ((isPausedActions(PAUSE_ACTION_CLIENT_ALL)) ||
-        ((isPausedActions(PAUSE_ACTION_CLIENT_WRITE)) && is_may_replicate_command)))
-    {
-        c->bpop.timeout = 0;
-        blockClient(c,BLOCKED_POSTPONE);
-        return C_OK;       
+    if (isPausedActions(PAUSE_ACTION_CLIENT_DENYOOM|PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_CLIENT_ALL)) {
+        if (!(c->flags & CLIENT_SLAVE) &&
+            ((isPausedActions(PAUSE_ACTION_CLIENT_ALL)) ||
+             ((is_may_replicate_command) &&
+              ((isPausedActions(PAUSE_ACTION_CLIENT_WRITE)) ||
+               (isPausedActions(PAUSE_ACTION_CLIENT_DENYOOM) && (is_denyoom_command)))))) {
+            c->bpop.timeout = 0;
+            blockClient(c, BLOCKED_POSTPONE);
+            return C_OK;
+        }
     }
 
     /* Exec the command */
