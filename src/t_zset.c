@@ -1535,9 +1535,8 @@ long zsetRank(robj *zobj, sds ele, int reverse, double *output_score) {
         }
 
         if (eptr != NULL) {
-            if (output_score) {
+            if (output_score) 
                 *output_score = zzlGetScore(sptr);
-            }
             if (reverse)
                 return llen-rank;
             else
@@ -1557,9 +1556,8 @@ long zsetRank(robj *zobj, sds ele, int reverse, double *output_score) {
             rank = zslGetRank(zsl,score,ele);
             /* Existing elements always have a rank. */
             serverAssert(rank != 0);
-            if (output_score) {
+            if (output_score)
                 *output_score = score;
-            }
             if (reverse)
                 return llen-rank;
             else
