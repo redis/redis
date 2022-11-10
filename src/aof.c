@@ -2229,7 +2229,10 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     /* Record timestamp at the beginning of rewriting AOF. */
     if (server.aof_timestamp_enabled) {
         sds ts = genAofTimestampAnnotationIfNeeded(1);
-        if (rioWrite(aof,ts,sdslen(ts)) == 0) { sdsfree(ts); goto werr; }
+        if (rioWrite(aof, ts, sdslen(ts)) == 0) {
+            sdsfree(ts);
+            goto werr;
+        }
         sdsfree(ts);
     }
 
@@ -2237,83 +2240,85 @@ int rewriteAppendOnlyFileRio(rio *aof) {
 
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
-        redisDb *db = server.db+j;
-        dict *d = db->dict;
-        if (dictSize(d) == 0) continue;
-        di = dictGetSafeIterator(d);
+        redisDb *db = server.db + j;
+        for (int k = 0; k < db->dict_count; k++) {
+            dict *d = db->dict[k];
+            if (dictSize(d) == 0) continue;
+            di = dictGetSafeIterator(d);
 
-        /* SELECT the new DB */
-        if (rioWrite(aof,selectcmd,sizeof(selectcmd)-1) == 0) goto werr;
-        if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
+            /* SELECT the new DB */
+            if (rioWrite(aof, selectcmd, sizeof(selectcmd) - 1) == 0) goto werr;
+            if (rioWriteBulkLongLong(aof, j) == 0) goto werr;
 
-        /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
-            sds keystr;
-            robj key, *o;
-            long long expiretime;
-            size_t aof_bytes_before_key = aof->processed_bytes;
+            /* Iterate this DB writing every entry */
+            while ((de = dictNext(di)) != NULL) {
+                sds keystr;
+                robj key, *o;
+                long long expiretime;
+                size_t aof_bytes_before_key = aof->processed_bytes;
 
-            keystr = dictGetKey(de);
-            o = dictGetVal(de);
-            initStaticStringObject(key,keystr);
+                keystr = dictGetKey(de);
+                o = dictGetVal(de);
+                initStaticStringObject(key, keystr);
 
-            expiretime = getExpire(db,&key);
+                expiretime = getExpire(db, &key);
 
-            /* Save the key and associated value */
-            if (o->type == OBJ_STRING) {
-                /* Emit a SET command */
-                char cmd[]="*3\r\n$3\r\nSET\r\n";
-                if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                /* Key and value */
-                if (rioWriteBulkObject(aof,&key) == 0) goto werr;
-                if (rioWriteBulkObject(aof,o) == 0) goto werr;
-            } else if (o->type == OBJ_LIST) {
-                if (rewriteListObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_SET) {
-                if (rewriteSetObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_ZSET) {
-                if (rewriteSortedSetObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_HASH) {
-                if (rewriteHashObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_STREAM) {
-                if (rewriteStreamObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_MODULE) {
-                if (rewriteModuleObject(aof,&key,o,j) == 0) goto werr;
-            } else {
-                serverPanic("Unknown object type");
-            }
-
-            /* In fork child process, we can try to release memory back to the
-             * OS and possibly avoid or decrease COW. We give the dismiss
-             * mechanism a hint about an estimated size of the object we stored. */
-            size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
-            if (server.in_fork_child) dismissObject(o, dump_size);
-
-            /* Save the expire time */
-            if (expiretime != -1) {
-                char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
-                if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                if (rioWriteBulkObject(aof,&key) == 0) goto werr;
-                if (rioWriteBulkLongLong(aof,expiretime) == 0) goto werr;
-            }
-
-            /* Update info every 1 second (approximately).
-             * in order to avoid calling mstime() on each iteration, we will
-             * check the diff every 1024 keys */
-            if ((key_count++ & 1023) == 0) {
-                long long now = mstime();
-                if (now - updated_time >= 1000) {
-                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, "AOF rewrite");
-                    updated_time = now;
+                /* Save the key and associated value */
+                if (o->type == OBJ_STRING) {
+                    /* Emit a SET command */
+                    char cmd[] = "*3\r\n$3\r\nSET\r\n";
+                    if (rioWrite(aof, cmd, sizeof(cmd) - 1) == 0) goto werr;
+                    /* Key and value */
+                    if (rioWriteBulkObject(aof, &key) == 0) goto werr;
+                    if (rioWriteBulkObject(aof, o) == 0) goto werr;
+                } else if (o->type == OBJ_LIST) {
+                    if (rewriteListObject(aof, &key, o) == 0) goto werr;
+                } else if (o->type == OBJ_SET) {
+                    if (rewriteSetObject(aof, &key, o) == 0) goto werr;
+                } else if (o->type == OBJ_ZSET) {
+                    if (rewriteSortedSetObject(aof, &key, o) == 0) goto werr;
+                } else if (o->type == OBJ_HASH) {
+                    if (rewriteHashObject(aof, &key, o) == 0) goto werr;
+                } else if (o->type == OBJ_STREAM) {
+                    if (rewriteStreamObject(aof, &key, o) == 0) goto werr;
+                } else if (o->type == OBJ_MODULE) {
+                    if (rewriteModuleObject(aof, &key, o, j) == 0) goto werr;
+                } else {
+                    serverPanic("Unknown object type");
                 }
-            }
 
-            /* Delay before next key if required (for testing) */
-            if (server.rdb_key_save_delay)
-                debugDelay(server.rdb_key_save_delay);
+                /* In fork child process, we can try to release memory back to the
+                 * OS and possibly avoid or decrease COW. We give the dismiss
+                 * mechanism a hint about an estimated size of the object we stored. */
+                size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
+                if (server.in_fork_child) dismissObject(o, dump_size);
+
+                /* Save the expire time */
+                if (expiretime != -1) {
+                    char cmd[] = "*3\r\n$9\r\nPEXPIREAT\r\n";
+                    if (rioWrite(aof, cmd, sizeof(cmd) - 1) == 0) goto werr;
+                    if (rioWriteBulkObject(aof, &key) == 0) goto werr;
+                    if (rioWriteBulkLongLong(aof, expiretime) == 0) goto werr;
+                }
+
+                /* Update info every 1 second (approximately).
+                 * in order to avoid calling mstime() on each iteration, we will
+                 * check the diff every 1024 keys */
+                if ((key_count++ & 1023) == 0) {
+                    long long now = mstime();
+                    if (now - updated_time >= 1000) {
+                        sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, "AOF rewrite");
+                        updated_time = now;
+                    }
+                }
+
+                /* Delay before next key if required (for testing) */
+                if (server.rdb_key_save_delay)
+                    debugDelay(server.rdb_key_save_delay);
+            }
+            dictReleaseIterator(di);
+            di = NULL;
         }
-        dictReleaseIterator(di);
-        di = NULL;
     }
     return C_OK;
 

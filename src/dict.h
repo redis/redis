@@ -44,7 +44,16 @@
 #define DICT_OK 0
 #define DICT_ERR 1
 
-typedef struct dictEntry dictEntry; /* opaque */
+typedef struct dictEntry {
+    void *key;
+    union {
+        void *val;
+        uint64_t u64;
+        int64_t s64;
+        double d;
+    } v;
+    struct dictEntry *next;     /* Next entry in the same hash bucket. */
+} dictEntry;
 
 typedef struct dict dict;
 
@@ -68,14 +77,6 @@ typedef struct dictType {
     unsigned int keys_are_odd:1;
     /* TODO: Add a 'keys_are_even' flag and use a similar optimization if that
      * flag is set. */
-
-    /* Allow each dict and dictEntry to carry extra caller-defined metadata. The
-     * extra memory is initialized to 0 when allocated. */
-    size_t (*dictEntryMetadataBytes)(dict *d);
-    size_t (*dictMetadataBytes)(void);
-    /* Optional callback called after an entry has been reallocated (due to
-     * active defrag). Only called if the entry has metadata. */
-    void (*afterReplaceEntry)(dict *d, dictEntry *entry);
 } dictType;
 
 #define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
@@ -138,11 +139,6 @@ typedef struct {
         (d)->type->keyCompare((d), key1, key2) : \
         (key1) == (key2))
 
-#define dictEntryMetadataSize(d) ((d)->type->dictEntryMetadataBytes     \
-                                  ? (d)->type->dictEntryMetadataBytes(d) : 0)
-#define dictMetadataSize(d) ((d)->type->dictMetadataBytes               \
-                             ? (d)->type->dictMetadataBytes() : 0)
-
 #define dictHashKey(d, key) ((d)->type->hashFunction(key))
 #define dictSlots(d) (DICTHT_SIZE((d)->ht_size_exp[0])+DICTHT_SIZE((d)->ht_size_exp[1]))
 #define dictSize(d) ((d)->ht_used[0]+(d)->ht_used[1])
@@ -165,6 +161,7 @@ typedef enum {
 
 /* API */
 dict *dictCreate(dictType *type);
+dict **dictCreateMultiple(dictType *type, int count);
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
 void *dictMetadata(dict *d);
@@ -223,6 +220,7 @@ unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *pri
 unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
 uint64_t dictGetHash(dict *d, const void *key);
 dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
+unsigned long rev(unsigned long v);
 
 #ifdef REDIS_TEST
 int dictTest(int argc, char *argv[], int flags);

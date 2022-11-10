@@ -1236,26 +1236,21 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        long long keyscount = dictSize(db->dict);
+        long long keyscount = dbSize(db);
         if (keyscount==0) continue;
 
         mh->total_keys += keyscount;
         mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
         mh->db[mh->num_dbs].dbid = j;
 
-        mem = dictMemUsage(db->dict) +
-              dictSize(db->dict) * sizeof(robj);
+        mem = keyscount * sizeof(dictEntry) +
+              dbSlots(db) * sizeof(dictEntry*) +
+              keyscount * sizeof(robj);
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 
         mem = dictMemUsage(db->expires);
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
-        mem_total+=mem;
-
-        /* Account for the slot to keys map in cluster mode */
-        mem = dictSize(db->dict) * dictEntryMetadataSize(db->dict) +
-              dictMetadataSize(db->dict);
-        mh->db[mh->num_dbs].overhead_ht_slot_to_keys = mem;
         mem_total+=mem;
 
         mh->num_dbs++;
@@ -1541,14 +1536,13 @@ NULL
                 return;
             }
         }
-        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
+        if ((de = dictFind(getDict(c->db, c->argv[2]->ptr),c->argv[2]->ptr)) == NULL) {
             addReplyNull(c);
             return;
         }
         size_t usage = objectComputeSize(c->argv[2],dictGetVal(de),samples,c->db->id);
         usage += sdsZmallocSize(dictGetKey(de));
         usage += dictEntryMemUsage();
-        usage += dictMetadataSize(c->db->dict);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();

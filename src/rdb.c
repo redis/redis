@@ -1301,9 +1301,8 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     redisDb *db = server.db + dbid;
-    dict *d = db->dict;
-    if (dictSize(d) == 0) return 0;
-    di = dictGetSafeIterator(d);
+    unsigned long long int db_size = dbSize(db);
+    if (db_size == 0) return 0;
 
     /* Write the SELECT DB opcode */
     if ((res = rdbSaveType(rdb,RDB_OPCODE_SELECTDB)) < 0) goto werr;
@@ -1312,8 +1311,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     written += res;
 
     /* Write the RESIZE DB opcode. */
-    uint64_t db_size, expires_size;
-    db_size = dictSize(db->dict);
+    uint64_t expires_size;
     expires_size = dictSize(db->expires);
     if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
     written += res;
@@ -1322,37 +1320,42 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
     written += res;
 
-    /* Iterate this DB writing every entry */
-    while((de = dictNext(di)) != NULL) {
-        sds keystr = dictGetKey(de);
-        robj key, *o = dictGetVal(de);
-        long long expire;
-        size_t rdb_bytes_before_key = rdb->processed_bytes;
+    for (int i = 0; i < db->dict_count; i++) {
+        dict *d = db->dict[i];
+        if (!dictSize(d)) continue;
+        di = dictGetSafeIterator(d);
+        /* Iterate this DB writing every entry */
+        while ((de = dictNext(di)) != NULL) {
+            sds keystr = dictGetKey(de);
+            robj key, *o = dictGetVal(de);
+            long long expire;
+            size_t rdb_bytes_before_key = rdb->processed_bytes;
 
-        initStaticStringObject(key,keystr);
-        expire = getExpire(db,&key);
-        if ((res = rdbSaveKeyValuePair(rdb, &key, o, expire, dbid)) < 0) goto werr;
-        written += res;
+            initStaticStringObject(key, keystr);
+            expire = getExpire(db, &key);
+            if ((res = rdbSaveKeyValuePair(rdb, &key, o, expire, dbid)) < 0) goto werr;
+            written += res;
 
-        /* In fork child process, we can try to release memory back to the
-         * OS and possibly avoid or decrease COW. We give the dismiss
-         * mechanism a hint about an estimated size of the object we stored. */
-        size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
-        if (server.in_fork_child) dismissObject(o, dump_size);
+            /* In fork child process, we can try to release memory back to the
+             * OS and possibly avoid or decrease COW. We give the dismiss
+             * mechanism a hint about an estimated size of the object we stored. */
+            size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
+            if (server.in_fork_child) dismissObject(o, dump_size);
 
-        /* Update child info every 1 second (approximately).
-         * in order to avoid calling mstime() on each iteration, we will
-         * check the diff every 1024 keys */
-        if (((*key_counter)++ & 1023) == 0) {
-            long long now = mstime();
-            if (now - info_updated_time >= 1000) {
-                sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, *key_counter, pname);
-                info_updated_time = now;
+            /* Update child info every 1 second (approximately).
+             * in order to avoid calling mstime() on each iteration, we will
+             * check the diff every 1024 keys */
+            if (((*key_counter)++ & 1023) == 0) {
+                long long now = mstime();
+                if (now - info_updated_time >= 1000) {
+                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, *key_counter, pname);
+                    info_updated_time = now;
+                }
             }
         }
-    }
 
-    dictReleaseIterator(di);
+        dictReleaseIterator(di);
+    } 
     return written;
 
 werr:
@@ -3063,7 +3066,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            dictExpand(db->dict,db_size);
+//            dictExpand(db->dict,db_size); // FIXME (vitarb) potentially approximate number of keys per slot in cluster mode https://sim.amazon.com/issues/ELMO-63800
             dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {

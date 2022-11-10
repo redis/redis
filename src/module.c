@@ -4007,7 +4007,7 @@ void RM_ResetDataset(int restart_aof, int async) {
 
 /* Returns the number of keys in the current db. */
 unsigned long long RM_DbSize(RedisModuleCtx *ctx) {
-    return dictSize(ctx->client->db->dict);
+    return dbSize(ctx->client->db);
 }
 
 /* Returns a name of a random key, or NULL if current db is empty. */
@@ -10365,7 +10365,7 @@ int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanC
     }
     int ret = 1;
     ScanCBData data = { ctx, privdata, fn };
-    cursor->cursor = dictScan(ctx->client->db->dict, cursor->cursor, moduleScanCallback, &data);
+//    cursor->cursor = dictScan(ctx->client->db->dict, cursor->cursor, moduleScanCallback, &data); FIXME (vitarb) https://sim.amazon.com/issues/ELMO-63799
     if (cursor->cursor == 0) {
         cursor->done = 1;
         ret = 0;

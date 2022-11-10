@@ -285,34 +285,37 @@ void computeDatasetDigest(unsigned char *final) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
+        int hasEntries = 0;
+        for (int k = 0; k < db->dict_count; k++) {
+            if (dictSize(db->dict[k]) == 0) continue;
+            hasEntries = 1;
+            di = dictGetSafeIterator(db->dict[k]);
 
-        if (dictSize(db->dict) == 0) continue;
-        di = dictGetSafeIterator(db->dict);
+            /* Iterate this DB writing every entry */
+            while ((de = dictNext(di)) != NULL) {
+                sds key;
+                robj *keyobj, *o;
 
-        /* hash the DB id, so the same dataset moved in a different
-         * DB will lead to a different digest */
-        aux = htonl(j);
-        mixDigest(final,&aux,sizeof(aux));
+                memset(digest, 0, 20); /* This key-val digest */
+                key = dictGetKey(de);
+                keyobj = createStringObject(key, sdslen(key));
 
-        /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
-            sds key;
-            robj *keyobj, *o;
+                mixDigest(digest, key, sdslen(key));
 
-            memset(digest,0,20); /* This key-val digest */
-            key = dictGetKey(de);
-            keyobj = createStringObject(key,sdslen(key));
+                o = dictGetVal(de);
+                xorObjectDigest(db, keyobj, digest, o);
 
-            mixDigest(digest,key,sdslen(key));
-
-            o = dictGetVal(de);
-            xorObjectDigest(db,keyobj,digest,o);
-
-            /* We can finally xor the key-val digest to the final digest */
-            xorDigest(final,digest,20);
-            decrRefCount(keyobj);
+                /* We can finally xor the key-val digest to the final digest */
+                xorDigest(final, digest, 20);
+                decrRefCount(keyobj);
+            }
+            dictReleaseIterator(di);
         }
-        dictReleaseIterator(di);
+        if (hasEntries) {
+            /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
+            aux = htonl(j);
+            mixDigest(final, &aux, sizeof(aux));
+        }
     }
 }
 
@@ -604,7 +607,7 @@ NULL
         robj *val;
         char *strenc;
 
-        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
+        if ((de = dictFind(getDict(c->db, c->argv[2]->ptr),c->argv[2]->ptr)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -656,7 +659,7 @@ NULL
         robj *val;
         sds key;
 
-        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
+        if ((de = dictFind(getDict(c->db, c->argv[2]->ptr), c->argv[2]->ptr)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -712,7 +715,7 @@ NULL
         if (getPositiveLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
 
-        dictExpand(c->db->dict,keys);
+//        dictExpand(c->db->dict,keys); FIXME (vitarb) find right dicts to expand https://sim.amazon.com/issues/ELMO-63796
         long valsize = 0;
         if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
             return;
@@ -757,7 +760,7 @@ NULL
             /* We don't use lookupKey because a debug command should
              * work on logically expired keys */
             dictEntry *de;
-            robj *o = ((de = dictFind(c->db->dict,c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
+            robj *o = ((de = dictFind(getDict(c->db, c->argv[j]->ptr),c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
             if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
 
             sds d = sdsempty();
@@ -895,7 +898,7 @@ NULL
         }
 
         stats = sdscatprintf(stats,"[Dictionary HT]\n");
-        dictGetStats(buf,sizeof(buf),server.db[dbid].dict);
+//        dictGetStats(buf,sizeof(buf),server.db[dbid].dict); FIXME (vitarb) get aggregated stats https://sim.amazon.com/issues/ELMO-63798
         stats = sdscat(stats,buf);
 
         stats = sdscatprintf(stats,"[Expires HT]\n");
@@ -1871,7 +1874,7 @@ void logCurrentClient(client *cc, const char *title) {
         dictEntry *de;
 
         key = getDecodedObject(cc->argv[1]);
-        de = dictFind(cc->db->dict, key->ptr);
+        de = dictFind(getDict(cc->db, key->ptr), key->ptr);
         if (de) {
             val = dictGetVal(de);
             serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);

@@ -194,6 +194,16 @@ dict *dictCreate(dictType *type)
     return d;
 }
 
+/* Create an array of dictionaries */
+dict **dictCreateMultiple(dictType *type, int count)
+{
+    dict **d = zmalloc(sizeof(dict*) * count);
+    for (int i = 0; i < count; i++) {
+        d[i] = dictCreate(type);
+    }
+    return d;
+}
+
 /* Initialize the hash table */
 int _dictInit(dict *d, dictType *type)
 {
@@ -295,7 +305,7 @@ int dictTryExpand(dict *d, unsigned long size) {
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
-    if (dict_can_resize == DICT_RESIZE_AVOID && 
+    if (dict_can_resize == DICT_RESIZE_AVOID &&
         (DICTHT_SIZE(d->ht_size_exp[1]) / DICTHT_SIZE(d->ht_size_exp[0]) < dict_force_resize_ratio))
     {
         return 0;
@@ -469,9 +479,7 @@ dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
     int htidx = dictIsRehashing(d) ? 1 : 0;
     assert(bucket >= &d->ht_table[htidx][0] &&
            bucket <= &d->ht_table[htidx][DICTHT_SIZE_MASK(d->ht_size_exp[htidx])]);
-    size_t metasize = dictEntryMetadataSize(d);
     if (d->type->no_value) {
-        assert(!metasize); /* Entry metadata + no value not supported. */
         if (d->type->keys_are_odd && !*bucket) {
             /* We can store the key directly in the destination bucket without the
              * allocated entry.
@@ -491,11 +499,8 @@ dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
          * Insert the element in top, with the assumption that in a database
          * system it is more likely that recently added entries are accessed
          * more frequently. */
-        entry = zmalloc(sizeof(*entry) + metasize);
+        entry = zmalloc(sizeof(*entry));
         assert(entryIsNormal(entry)); /* Check alignment of allocation */
-        if (metasize > 0) {
-            memset(dictEntryMetadata(entry), 0, metasize);
-        }
         entry->key = key;
         entry->next = *bucket;
     }
@@ -1173,7 +1178,7 @@ dictEntry *dictGetFairRandomKey(dict *d) {
 
 /* Function to reverse bits. Algorithm from:
  * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
-static unsigned long rev(unsigned long v) {
+unsigned long rev(unsigned long v) {
     unsigned long s = CHAR_BIT * sizeof(v); // bit size; must be power of 2
     unsigned long mask = ~0UL;
     while ((s >>= 1) > 0) {
