@@ -124,10 +124,12 @@ sds genSwapInfoString(sds info) {
     info = sdscatprintf(info,
             "swap_inprogress_count:%ld\r\n"
             "swap_inprogress_memory:%ld\r\n"
-            "swap_error:%ld\r\n",
+            "swap_error:%ld\r\n"
+            "swap_inprogress_evict_count:%d\r\n",
             server.swap_inprogress_count,
             server.swap_inprogress_memory,
-            server.swap_error);
+            server.swap_error,
+            server.swap_evict_inprogress_count);
 
     for (j = 1; j < SWAP_TYPES; j++) {
         swapStat *s = &server.swap_stats[j];

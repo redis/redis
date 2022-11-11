@@ -2577,6 +2577,7 @@ standardConfig configs[] = {
     createIntConfig("debug-init-rocksdb-latency", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.debug_rocksdb_init_latency, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb-stats-interval", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.rocksdb_stats_interval, 2, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("swap-perflog-sample-ratio", NULL, MODIFIABLE_CONFIG, 0, 100, server.swap_perflog_sample_ratio, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("swap-evict-inprogress-limit", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.swap_evict_inprogress_limit, 64, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),

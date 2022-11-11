@@ -1771,6 +1771,8 @@ struct redisServer {
     unsigned long long swap_perflog_log_slower_than;
     unsigned long swap_perflog_max_len;
     int swap_perflog_sample_ratio;
+    int swap_evict_inprogress_limit;
+    int swap_evict_inprogress_count;
 
     /* gtid executed */
     int gtid_enabled;  /* Is gtid enabled? */

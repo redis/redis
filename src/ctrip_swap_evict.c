@@ -139,6 +139,8 @@ void evictClientKeyRequestFinished(client *c, swapCtx *ctx) {
     clientUnholdKey(c,key);
     clientReleaseRequestLocks(c,ctx);
     decrRefCount(key);
+
+    server.swap_evict_inprogress_count--;
 }
 
 int submitEvictClientRequest(client *c, robj *key) {
@@ -151,6 +153,8 @@ int submitEvictClientRequest(client *c, robj *key) {
     submitClientKeyRequests(c,&result,evictClientKeyRequestFinished);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
+
+    server.swap_evict_inprogress_count++;
     return 1;
 }
 
@@ -337,3 +341,4 @@ void debugSwapOutCommand(client *c) {
     }
     addReplyLongLong(c, nevict);
 }
+

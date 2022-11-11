@@ -501,6 +501,19 @@ static unsigned long evictionTimeLimitUs() {
     return ULONG_MAX;   /* No limit to eviction time */
 }
 
+static inline int reachedSwapEvictInprogressLimit(size_t mem_tofree) {
+    /* Disabled if swap-evict-inprogress-limit is -1 */
+    if (server.swap_evict_inprogress_limit < 0) return 0;
+
+    /* Base inprogress limit is threads num, increase one every 10MB */
+    int inprogress_limit = server.swap_threads_num + mem_tofree/(10*1024*1024);
+
+    if (inprogress_limit > server.swap_evict_inprogress_limit)
+        inprogress_limit = server.swap_evict_inprogress_limit;
+
+    return server.swap_evict_inprogress_count >= inprogress_limit;
+}
+
 /* Check that memory usage is within the current "maxmemory" limit.  If over
  * "maxmemory", attempt to free memory by evicting data (if it's safe to do so).
  *
@@ -588,6 +601,14 @@ int performEvictions(void) {
         redisDb *db;
         dict *dict;
         dictEntry *de;
+
+        if (reachedSwapEvictInprogressLimit(mem_tofree)) {
+            if (!isEvictionProcRunning) {
+                isEvictionProcRunning = 1;
+                aeCreateTimeEvent(server.el, 0, evictionTimeProc, NULL, NULL);
+            }
+            break;
+        }
 
         if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) ||
             server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
@@ -739,6 +760,7 @@ int performEvictions(void) {
             goto cant_free; /* nothing to free... */
         }
     }
+
     /* at this point, the memory is OK, or we have reached the time limit */
     result = (isEvictionProcRunning) ? EVICT_RUNNING : EVICT_OK;
 
