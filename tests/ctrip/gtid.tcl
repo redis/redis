@@ -101,6 +101,12 @@ start_server {tags {"gtid"} overrides {gtid-enabled yes}} {
         assert_equal [string match {1-*} $value] 1  
     } 
 
+    test "GTID.LWM 0" {
+        assert_equal [dict get [get_gtid r] "A"] "1-3"
+        r gtid.lwm A 0
+        assert_equal [dict get [get_gtid r] "A"] "1-3"
+    }
+    
     test "GTID.LWM" {
         assert_equal [string match {*all:*A:1-100*} [r info gtid]] 0
         r gtid.lwm A 100

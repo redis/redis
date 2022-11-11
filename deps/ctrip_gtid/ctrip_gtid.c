@@ -1228,6 +1228,7 @@ char* uuidDecode(char* src, size_t src_len, long long* gno, int* rpl_sid_len) {
  *      gtidSetFree(gtid_set);
  */
 void gtidSetRaise(gtidSet* gtid_set, const char* rpl_sid, size_t rpl_sid_len, rpl_gno watermark) {
+    if (watermark == 0) return;
     uuidSet *cur = gtidSetFindUuidSet(gtid_set, rpl_sid, rpl_sid_len);
     if (cur == NULL) {
         cur = uuidSetNewRange(rpl_sid, rpl_sid_len, 1, watermark);

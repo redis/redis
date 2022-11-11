@@ -998,6 +998,18 @@
         gtid_str[len] = '\0';
         //Raise A & B to 5, C to 10, towards C:1-10,B:3:7,A:1-2
         assert(strcmp(gtid_str, "A:1-5,B:1-5:7,C:1-10") == 0);
+        gtidSetFree(gtid_set);
+
+        /* raise 0*/
+        gtid_set = gtidSetNew();
+        gtidSetAdd(gtid_set, "A", 1, 0);
+        len = gtidSetEncode(gtid_set, gtid_str);
+        gtid_str[len] = '\0';
+        assert(strcmp(gtid_str, "A:0") == 0);
+        gtidSetRaise(gtid_set, "A", 1, 0);
+        len = gtidSetEncode(gtid_set, gtid_str);
+        gtid_str[len] = '\0';
+        assert(strcmp(gtid_str, "A:0") == 0);
 
         return 1;
     }
