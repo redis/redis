@@ -631,6 +631,7 @@ proc process_is_alive pid {
     if {[catch {exec ps -p $pid} err]} {
         return 0
     } else {
+        if {[string match "*<defunct>*" $err]} { return 0 }
         return 1
     }
 }
