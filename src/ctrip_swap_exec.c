@@ -806,7 +806,11 @@ static void executeCompactRange(swapRequest *req) {
 }
 
 static void executeGetRocksdbStats(swapRequest* req) {
-    req->finish_pd = rocksdb_property_value(server.rocks->db, "rocksdb.stats");
+    char** result = zmalloc(sizeof(char*) * CF_COUNT);
+    for(int i = 0; i < CF_COUNT; i++) {
+        result[i] = rocksdb_property_value_cf(server.rocks->db, server.rocks->cf_handles[i], "rocksdb.stats");
+    }
+    req->finish_pd = result;
     doNotify(req,0);
 }
 

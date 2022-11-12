@@ -47,6 +47,8 @@
 #define meta_cf_name "meta"
 #define score_cf_name "score"
 extern const char *swap_cf_names[CF_COUNT];
+#define rocksdb_stats_section "rocksdb.stats"
+#define rocksdb_stats_section_len 13
 
 /* Delete key in rocksdb after right after swap in. */
 #define SWAP_IN_DEL (1U<<0)
@@ -1046,13 +1048,13 @@ typedef struct rocks {
     rocksdb_block_based_table_options_t *block_opts[CF_COUNT];
     rocksdb_column_family_handle_t *cf_handles[CF_COUNT];
     rocksdb_compactionfilter_t *cf_compaction_filters[CF_COUNT];
+    char** rocksdb_stats_cache;
     rocksdb_options_t *db_opts;
     rocksdb_readoptions_t *ropts;
     rocksdb_writeoptions_t *wopts;
     const rocksdb_snapshot_t *snapshot;
     rocksdb_checkpoint_t* checkpoint;
     sds checkpoint_dir;
-    char* rocksdb_stats_cache;
 } rocks;
 
 typedef struct rocksdbMemOverhead {
@@ -1087,7 +1089,7 @@ struct rocksdbMemOverhead *rocksGetMemoryOverhead();
 void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh);
 rocksdb_t *rocksGetDb(void);
 sds genRocksInfoString(sds info);
-sds genRocksdbDetailString(sds info);
+sds genRocksdbStatsString(sds section, sds info);
 
 /* Repl */
 int submitReplClientRequests(client *c);

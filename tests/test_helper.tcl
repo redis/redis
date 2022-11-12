@@ -14,6 +14,7 @@ source tests/support/ctrip_util.tcl
 source tests/swap/support/util.tcl
 
 set ::disk_tests {
+    swap/integration/info_rocksdb_stats
     swap/integration/concurrency
     swap/integration/multi_bighash
     swap/integration/concurrent
