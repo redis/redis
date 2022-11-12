@@ -772,7 +772,7 @@ test "diskless replication child being killed is collected" {
 }
 
 foreach mdl {yes no} {
-    test "replication dies when parent is killed - diskless: $mdl" {
+    test "replication child dies when parent is killed - diskless: $mdl" {
         # when master is killed, make sure the fork child can detect that and exit
         start_server {tags {"repl"}} {
             set master [srv 0 client]
