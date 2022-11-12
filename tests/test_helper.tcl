@@ -56,6 +56,7 @@ set ::disk_tests {
     swap/unit/multi
     swap/unit/info
     swap/unit/client
+    swap/unit/debug
     unit/shutdown
     ctrip/gtid_merge
     ctrip/gtid

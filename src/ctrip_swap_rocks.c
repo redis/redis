@@ -288,42 +288,125 @@ int rocksFlushAll() {
     return 0;
 }
 
-rocksdb_t *rocksGetDb() {
-    return server.rocks->db;
+static int parseCfNames(const char *cfnames,
+        rocksdb_column_family_handle_t *handles[CF_COUNT],
+        const char *names[CF_COUNT+1]) {
+    int i = 0, ret = 0;
+    char *ptr, *saveptr, *dupnames = NULL;
+
+    if (cfnames == NULL || strlen(cfnames) == 0) {
+        memcpy(handles,server.rocks->cf_handles,sizeof(void*)*CF_COUNT);
+        if (names) memcpy(names,swap_cf_names,sizeof(void*)*CF_COUNT);
+        goto end;
+    }
+
+    dupnames = sdsnew(cfnames);
+    for (ptr = strtok_r(dupnames,", ",&saveptr);
+            ptr != NULL && i < CF_COUNT;
+            ptr = strtok_r(NULL,", ",&saveptr)) {
+        if (!strcasecmp(ptr,data_cf_name)) {
+            handles[i] = server.rocks->cf_handles[DATA_CF];
+            if (names) names[i] = data_cf_name;
+        } else if (!strcasecmp(ptr,meta_cf_name)) {
+            handles[i] = server.rocks->cf_handles[META_CF];
+            if (names) names[i] = meta_cf_name;
+        } else if (!strcasecmp(ptr,score_cf_name)) {
+            handles[i] = server.rocks->cf_handles[SCORE_CF];
+            if (names) names[i] = score_cf_name;
+        } else {
+            ret = -1;
+            goto end;
+        }
+
+        i++;
+    }
+
+end:
+    if (dupnames) sdsfree(dupnames);
+    return ret;
+}
+
+int rocksdbPropertyInt(const char *cfnames, const char *propname,
+        uint64_t *out_val) {
+    int ret = 0, i = 0;
+    uint64_t sum = 0, val = 0;
+    rocksdb_column_family_handle_t *handle, *cfhandles[CF_COUNT+1] = {NULL};
+
+    if ((ret = parseCfNames(cfnames,cfhandles,NULL)))
+        return ret;
+
+    while ((handle = cfhandles[i++])) {
+        if ((ret = rocksdb_property_int_cf(server.rocks->db,handle,
+                        propname,&val))) {
+            break;
+        }
+        sum += val;
+    }
+    *out_val = sum;
+
+    return ret;
+}
+
+sds rocksdbPropertyValue(const char *cfnames, const char *propname) {
+    int ret = 0, i = 0;
+    sds result = NULL;
+    char *tmp;
+    const char *names[CF_COUNT+1] = {NULL};
+    rocksdb_column_family_handle_t *handle, *handles[CF_COUNT+1] = {NULL};
+
+    if ((ret = parseCfNames(cfnames,handles,names))) {
+        goto end;
+    }
+
+    result = sdsempty();
+    while ((handle = handles[i])) {
+        if ((tmp = rocksdb_property_value_cf(server.rocks->db,handle,
+                        propname))) {
+            result = sdscat(result,"[");
+            result = sdscat(result,names[i]);
+            result = sdscat(result,"]:");
+            result = sdscat(result,tmp);
+            result = sdscat(result,"\r\n");
+            zlibc_free(tmp);
+        }
+        i++;
+    }
+
+end:
+    return result;
 }
 
 struct rocksdbMemOverhead *rocksGetMemoryOverhead() {
     rocksdbMemOverhead *mh;
-    rocksdb_t *db;
     size_t total = 0, mem;
 
     if (server.rocks->db == NULL)
         return NULL;
 
     mh = zmalloc(sizeof(struct rocksdbMemOverhead));
-    db = server.rocks->db;
-    if (!rocksdb_property_int(db, "rocksdb.cur-size-all-mem-tables", &mem)) {
+
+    if (!rocksdbPropertyInt(NULL, "rocksdb.cur-size-all-mem-tables", &mem)) {
         mh->memtable = mem;
         total += mem;
     } else {
         mh->memtable = -1;
     }
 
-    if (!rocksdb_property_int(db, "rocksdb.block-cache-usage", &mem)) {
+    if (!rocksdbPropertyInt(NULL, "rocksdb.block-cache-usage", &mem)) {
         mh->block_cache = mem;
         total += mem;
     } else {
         mh->block_cache = -1;
     }
 
-    if (!rocksdb_property_int(db, "rocksdb.estimate-table-readers-mem", &mem)) {
+    if (!rocksdbPropertyInt(NULL, "rocksdb.estimate-table-readers-mem", &mem)) {
         mh->index_and_filter = mem;
         total += mem;
     } else {
         mh->index_and_filter = -1;
     }
 
-    if (!rocksdb_property_int(db, "rocksdb.block-cache-pinned-usage", &mem)) {
+    if (!rocksdbPropertyInt(NULL, "rocksdb.block-cache-pinned-usage", &mem)) {
         mh->pinned_blocks = mem;
         total += mem;
     } else {

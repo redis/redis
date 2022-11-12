@@ -1085,9 +1085,10 @@ void rocksUseSnapshot(void);
 void rocksReleaseSnapshot(void);
 struct rocksdbMemOverhead *rocksGetMemoryOverhead();
 void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh);
-rocksdb_t *rocksGetDb(void);
 sds genRocksInfoString(sds info);
 sds genRocksdbDetailString(sds info);
+int rocksdbPropertyInt(const char *cfnames, const char *propname, uint64_t *out_val);
+sds rocksdbPropertyValue(const char *cfnames, const char *propname);
 
 /* Repl */
 int submitReplClientRequests(client *c);
