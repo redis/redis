@@ -1365,7 +1365,7 @@ void freeClient(client *c) {
 
     /* If a client is protected, yet we need to free it right now, make sure
      * to at least use asynchronous freeing. */
-    if (c->flags & CLIENT_PROTECTED) {
+    if (c->flags & CLIENT_PROTECTED || c->flags & CLIENT_SWAP_UNLOCKING) {
         freeClientAsync(c);
         return;
     }

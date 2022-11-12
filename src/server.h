@@ -288,6 +288,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_REPL_RDBONLY (1ULL<<42) /* This client is a replica that only wants
                                           RDB without replication buffer. */
 #define CLIENT_SWAPPING (1ULL<<43) /* The client is waiting swap. */
+#define CLIENT_SWAP_UNLOCKING (1ULL<<44) /* Client is releasing swap lock. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */

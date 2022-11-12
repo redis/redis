@@ -251,9 +251,9 @@ void continueProcessCommand(client *c) {
     clientUnholdKeys(c);
     /* post command */
     commandProcessed(c);
-    protectClient(c);
+    c->flags |= CLIENT_SWAP_UNLOCKING;
     clientReleaseRequestLocks(c,NULL/*ctx unused*/);
-    unprotectClient(c);
+    c->flags &= ~CLIENT_SWAP_UNLOCKING;
 
     /* pipelined command might already read into querybuf, if process not
      * restarted, pending commands would not be processed again. */
