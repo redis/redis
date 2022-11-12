@@ -816,7 +816,7 @@ int swapThreadsDrained();
 
 static inline const char *rocksActionName(int action) {
   const char *name = "?";
-  const char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "SCAN", "DELETERANGE", "ITERATE"};
+  const char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "SCAN", "DELETERANGE", "ITERATE", "RANGE"};
   if (action >= 0 && (size_t)action < sizeof(actions)/sizeof(char*))
     name = actions[action];
   return name;
