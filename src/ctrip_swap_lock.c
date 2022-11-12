@@ -108,7 +108,7 @@ requestListener *requestListenerCreate(requestListeners *listeners,
  * released. so we pass pdfree to listener to free it. */
 void requestListenerPushEntry(requestListeners *listeners,
         requestListener *listener, redisDb *db, robj *key, requestProceed cb,
-        client *c, void *pd, freefunc pdfree, void *msgs) {
+        client *c, void *pd, freefunc pdfree, void *msgs, int blocking) {
     requestListenerEntry *entry;
     UNUSED(msgs);
 
@@ -136,6 +136,8 @@ void requestListenerPushEntry(requestListeners *listeners,
     entry->c = c;
     entry->pd = pd;
     entry->pdfree = pdfree;
+    if (blocking && server.swap_debug) elapsedStart(&entry->lock_timer);
+    else entry->lock_timer = 0;
 #ifdef SWAP_DEBUG
     entry->msgs = msgs;
 #endif
@@ -349,6 +351,9 @@ static inline int proceed(requestListeners *listeners,
         DEBUG_MSGS_APPEND(entry->msgs,"wait-proceed","entry=%s",
                 requestListenerEntryDump(entry));
         listener->proceeded++;
+        if (entry->lock_timer) {
+            metricDebugInfo(SWAP_DEBUG_LOCK_WAIT, elapsedUs(entry->lock_timer));
+        }
         entry->proceed(listeners,entry->db,entry->key,
                 entry->c,entry->pd);
         proceeded++;
@@ -410,7 +415,7 @@ void requestGetIOAndLock(int64_t txid, redisDb *db, robj *key, requestProceed cb
     blocking = listenersWaitWouldBlock(txid,listeners);
 
     listener = requestBindListener(txid,listeners);
-    requestListenerPushEntry(listeners,listener,db,key,cb,c,pd,pdfree,msgs);
+    requestListenerPushEntry(listeners,listener,db,key,cb,c,pd,pdfree,msgs,blocking);
 
 #ifdef SWAP_DEBUG
     sds dump = requestListenersDump(listeners);

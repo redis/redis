@@ -632,12 +632,14 @@ void dumpRIO(RIO *rio) {
 
 int doRIO(RIO *rio) {
     int ret;
+    monotime io_timer;
     if (server.debug_rio_latency) usleep(server.debug_rio_latency*1000);
     if (server.debug_rio_error > 0) {
         server.debug_rio_error--;
         return SWAP_ERR_EXEC_RIO_FAIL;
     }
 
+    elapsedStart(&io_timer);
     switch (rio->action) {
     case ROCKS_GET:
         ret = doRIOGet(rio);
@@ -675,12 +677,14 @@ int doRIO(RIO *rio) {
     dumpRIO(rio);
 #endif
 
+    updateStatsSwapRIOFinish(rio, elapsedUs(io_timer));
     return ret ? SWAP_ERR_EXEC_RIO_FAIL : 0;
 }
 
 
 
 static void doNotify(swapRequest *req, int errcode) {
+    updateStatsSwapNotify(req);
     req->errcode = errcode;
     req->notify_cb(req, req->notify_pd);
 }
@@ -1257,7 +1261,6 @@ static inline int swapRequestIsMetaType(swapRequest *req) {
 static void executeSwapRequest(swapRequest *req) {
     serverAssert(req->errcode == 0);
 
-    updateStatsSwapIntention(req);
     if (server.debug_delay_before_exec_swap) usleep(server.debug_delay_before_exec_swap * 1000);
     /* do execute swap */
     switch (req->intention) {
@@ -1436,6 +1439,10 @@ swapRequest *swapRequestNew(keyRequest *key_request, int intention,
 #ifdef SWAP_DEBUG
     req->msgs = msgs;
 #endif
+    req->errcode = 0;
+    req->swap_timer = 0;
+    req->swap_queue_timer = 0;
+    req->notify_queue_timer = 0;
     return req;
 }
 
@@ -1497,6 +1504,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
     robj *key1 = createStringObject("key1",4);
     robj *val1 = createStringObject("val1",4);
     initTestRedisDb();
+    monotonicInit();
     redisDb *db = server.db;
     long long EXPIRE = 3000000000LL * 1000;
 

@@ -53,7 +53,11 @@ void *swapThreadMain (void *arg) {
         listRewind(processing_reqs, &li);
         atomicSetWithSync(thread->is_running_rio, 1);
         while ((ln = listNext(&li))) {
-            processSwapRequest(listNodeValue(ln));
+            swapRequest *req = listNodeValue(ln);
+            if (req->swap_queue_timer) {
+                metricDebugInfo(SWAP_DEBUG_SWAP_QUEUE_WAIT, elapsedUs(req->swap_queue_timer));
+            }
+            processSwapRequest(req);
         }
 
         atomicSetWithSync(thread->is_running_rio, 0);
@@ -113,6 +117,7 @@ void swapThreadsDispatch(swapRequest *req, int idx) {
     } else {
         serverAssert(idx <= server.swap_threads_num);
     }
+    if (server.swap_debug) elapsedStart(&req->swap_queue_timer);
     swapThread *t = server.swap_threads+idx;
     pthread_mutex_lock(&t->lock);
     listAddNodeTail(t->pending_reqs,req);

@@ -777,6 +777,9 @@ typedef struct swapRequest {
   swapDebugMsgs *msgs;
 #endif
   int errcode;
+  monotime swap_timer;
+  monotime swap_queue_timer;
+  monotime notify_queue_timer;
 } swapRequest;
 
 swapRequest *swapRequestNew(keyRequest *key_request, int intention, uint32_t intention_flags, swapCtx *swapCtx, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
@@ -816,12 +819,27 @@ int swapThreadsDrained();
 #define ROCKS_RANGE             9
 #define ROCKS_TYPES             10
 
+#define SWAP_DEBUG_LOCK_WAIT            0
+#define SWAP_DEBUG_SWAP_QUEUE_WAIT      1
+#define SWAP_DEBUG_NOTIFY_QUEUE_WAIT    2
+#define SWAP_DEBUG_NOTIFY_QUEUE_HANDLES 3
+#define SWAP_DEBUG_NOTIFY_QUEUE_HANDLE_TIME 4
+#define SWAP_DEBUG_INFO_TYPE            5
+
 static inline const char *rocksActionName(int action) {
   const char *name = "?";
   const char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "SCAN", "DELETERANGE", "ITERATE", "RANGE"};
   if (action >= 0 && (size_t)action < sizeof(actions)/sizeof(char*))
     name = actions[action];
   return name;
+}
+
+static inline const char *swapDebugName(int type) {
+    const char *name = "?";
+    const char *names[] = {"LOCK_WAIT", "SWAP_QUEUE_WAIT", "NOTIFY_QUEUE_WAIT", "NOTIFT_QUEUE_HANDLES", "NOTIFT_QUEUE_HANDLE_TIME"};
+    if (type >= 0 && (size_t)type < sizeof(names)/sizeof(char*))
+        name = names[type];
+    return name;
 }
 
 typedef struct RIO {
@@ -957,6 +975,7 @@ typedef struct requestListenerEntry {
   requestProceed proceed;
   void *pd;
   freefunc pdfree;
+  monotime lock_timer;
 #ifdef SWAP_DEBUG
   swapDebugMsgs *msgs;
 #endif
@@ -1119,7 +1138,12 @@ int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark)
 
 #define SWAP_STAT_METRIC_COUNT 0
 #define SWAP_STAT_METRIC_MEMORY 1
-#define SWAP_STAT_METRIC_SIZE 2
+#define SWAP_STAT_METRIC_TIME 2
+#define SWAP_STAT_METRIC_SIZE 3
+
+#define SWAP_DEBUG_COUNT 0
+#define SWAP_DEBUG_VALUE 1
+#define SWAP_DEBUG_SIZE 2
 
 #define COMPACTION_FILTER_METRIC_filt_count 0
 #define COMPACTION_FILTER_METRIC_SCAN_COUNT 1
@@ -1128,18 +1152,23 @@ int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark)
 #define SWAP_SWAP_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*SWAP_TYPES)
 #define SWAP_RIO_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*ROCKS_TYPES)
 #define SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT (COMPACTION_FILTER_METRIC_SIZE*CF_COUNT)
+#define SWAP_DEBUG_METRIC_COUNT (SWAP_DEBUG_SIZE*SWAP_DEBUG_INFO_TYPE)
 
 /* stats metrics are ordered mem>swap>rio */ 
 #define SWAP_SWAP_STATS_METRIC_OFFSET STATS_METRIC_COUNT_MEM
 #define SWAP_RIO_STATS_METRIC_OFFSET (SWAP_SWAP_STATS_METRIC_OFFSET+SWAP_SWAP_STATS_METRIC_COUNT)
 #define SWAP_COMPACTION_FILTER_STATS_METRIC_OFFSET (SWAP_RIO_STATS_METRIC_OFFSET+SWAP_RIO_STATS_METRIC_COUNT)
-#define SWAP_STATS_METRIC_COUNT (SWAP_SWAP_STATS_METRIC_COUNT+SWAP_RIO_STATS_METRIC_COUNT+SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT)
+#define SWAP_DEBUG_STATS_METRIC_OFFSET (SWAP_COMPACTION_FILTER_STATS_METRIC_OFFSET+SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT)
+#define SWAP_STATS_METRIC_COUNT (SWAP_SWAP_STATS_METRIC_COUNT+SWAP_RIO_STATS_METRIC_COUNT+SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT+SWAP_DEBUG_METRIC_COUNT)
+
 typedef struct swapStat {
     const char *name;
     redisAtomic size_t count;
     redisAtomic size_t memory;
+    redisAtomic size_t time;
     int stats_metric_idx_count;
     int stats_metric_idx_memory;
+    int stats_metric_idx_time;
 } swapStat;
 
 typedef struct compactionFilterStat {
@@ -1158,12 +1187,22 @@ typedef struct rorStat {
 void initStatsSwap(void);
 void resetStatsSwap(void);
 void updateStatsSwapStart(swapRequest *req);
-void updateStatsSwapIntention(swapRequest *req);
+void updateStatsSwapNotify(swapRequest *req);
 void updateStatsSwapRIO(swapRequest *req, RIO *rio);
+void updateStatsSwapRIOFinish(RIO *rio, long duration);
 void updateStatsSwapFinish(swapRequest *req);
 
 void updateCompactionFiltSuccessCount(int cf);
 void updateCompactionFiltScanCount(int cf);
+typedef
+struct swapDebugInfo {
+    const char *name;
+    redisAtomic size_t count;
+    redisAtomic size_t value;
+    int metric_idx_count;
+    int metric_idx_value;
+} swapDebugInfo;
+void metricDebugInfo(int type, long val);
 
 void trackSwapInstantaneousMetrics();
 sds genSwapInfoString(sds info);

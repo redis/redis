@@ -33,6 +33,8 @@ int asyncCompleteQueueProcess(asyncCompleteQueue *cq) {
     listIter li;
     listNode *ln;
     list *processing_reqs = listCreate();
+    monotime process_timer;
+    if (server.swap_debug) elapsedStart(&process_timer);
 
     pthread_mutex_lock(&cq->lock);
     listRewind(cq->complete_queue, &li);
@@ -45,6 +47,9 @@ int asyncCompleteQueueProcess(asyncCompleteQueue *cq) {
     listRewind(processing_reqs, &li);
     while ((ln = listNext(&li))) {
         swapRequest *req = listNodeValue(ln);
+        if (req->notify_queue_timer) {
+            metricDebugInfo(SWAP_DEBUG_NOTIFY_QUEUE_WAIT, elapsedUs(req->notify_queue_timer));
+        }
         /* currently async mode are only used by cmd swap. */
         finishSwapRequest(req);
         req->finish_cb(req->data, req->finish_pd, req->errcode);
@@ -54,6 +59,10 @@ int asyncCompleteQueueProcess(asyncCompleteQueue *cq) {
 
     processed = listLength(processing_reqs);
     listRelease(processing_reqs);
+    if (server.swap_debug) {
+        metricDebugInfo(SWAP_DEBUG_NOTIFY_QUEUE_HANDLES, processed);
+        metricDebugInfo(SWAP_DEBUG_NOTIFY_QUEUE_HANDLE_TIME, elapsedUs(process_timer));
+    }
     return processed;
 }
 
@@ -135,6 +144,7 @@ void asyncSwapRequestNotifyCallback(struct swapRequest *req, void *pd) {
 }
 
 void asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequest *req) {
+    if (server.swap_debug) elapsedStart(&req->notify_queue_timer);
     pthread_mutex_lock(&cq->lock);
     listAddNodeTail(cq->complete_queue, req);
     pthread_mutex_unlock(&cq->lock);

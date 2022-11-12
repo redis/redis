@@ -2852,6 +2852,7 @@ void initServerConfig(void) {
     server.debug_delay_before_exec_swap = 0;
     server.debug_rocksdb_init_latency = 0;
     server.debug_rio_error = 0;
+    server.swap_debug = 0;
 
     /* Failover related */
     server.failover_end_time = 0;

@@ -2496,6 +2496,7 @@ standardConfig configs[] = {
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
     createBoolConfig("slave-repl-all", NULL, MODIFIABLE_CONFIG, server.repl_slave_repl_all, 0, NULL, NULL),
+    createBoolConfig("swap-debug", NULL, MODIFIABLE_CONFIG, server.swap_debug, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
