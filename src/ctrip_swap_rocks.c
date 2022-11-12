@@ -121,8 +121,8 @@ int rocksInit() {
         serverLog(LL_WARNING, "[ROCKS] rocksdb open failed: default_cf=%s, meta_cf=%s, score_cf=%s", errs[0], errs[1], errs[2]);
         return -1;
     }
-
     serverLog(LL_NOTICE, "[ROCKS] opened rocks data in (%s).", dir);
+    rocks->rocksdb_stats_cache = NULL;
     server.rocks = rocks;
     return 0;
 }
@@ -141,6 +141,12 @@ void rocksRelease() {
         rocksdb_options_destroy(rocks->cf_opts[i]);
     for (i = 0; i < CF_COUNT; i++)
         rocksdb_column_family_handle_destroy(rocks->cf_handles[i]);
+    if (rocks->rocksdb_stats_cache != NULL) {
+        for (i = 0; i < CF_COUNT; i++)
+            zlibc_free(rocks->rocksdb_stats_cache[i]);
+        zfree(rocks->rocksdb_stats_cache);
+    }
+    
     rocksdb_options_destroy(rocks->db_opts);
     rocksdb_writeoptions_destroy(rocks->wopts);
     rocksdb_readoptions_destroy(rocks->ropts);
@@ -928,7 +934,7 @@ sds genRocksInfoString(sds info) {
             server.swap_error);
 
     // # ROCKSDB  (MOCK TROCKS)
-    char* rocksdb_stats = server.rocks->rocksdb_stats_cache;
+    char* rocksdb_stats = server.rocks->rocksdb_stats_cache? server.rocks->rocksdb_stats_cache[DATA_CF]: NULL;
     info = compactLevelsInfo(info, rocksdb_stats);
     info = cumulativeInfo(info, rocksdb_stats);
     info = intervalInfo(info, rocksdb_stats);
@@ -936,8 +942,45 @@ sds genRocksInfoString(sds info) {
 	return info;
 }
 
-sds genRocksdbDetailString(sds info) {
-    info = sdscat(info, server.rocks->rocksdb_stats_cache);
+sds infoCfStats(int cf, sds info) {
+    if (server.rocks->rocksdb_stats_cache) {
+        info = sdscatfmt(info, "=================== %s rocksdb.stats ===================\n", swap_cf_names[cf]);
+        info = sdscat(info, server.rocks->rocksdb_stats_cache[cf]);
+    }
+    return info;
+}
+
+sds genRocksdbStatsString(sds section, sds info) {
+    if (sdslen(section) == rocksdb_stats_section_len) {
+        info = infoCfStats(DATA_CF, info);
+        return info;
+    }
+    int count = 0;
+    sds* section_splits = sdssplitlen(section + rocksdb_stats_section_len + 1, sdslen(section) - rocksdb_stats_section_len - 1, ".", 1, &count); 
+    if (count == 0) {
+        info = infoCfStats(DATA_CF, info);
+    }
+    int handled_cf[CF_COUNT] = {0,0,0};
+    
+    for(int i = 0; i < count; i++) {
+        sds type = section_splits[i];
+        int handled = 0;
+        for (int j = 0; j < CF_COUNT; j++) {
+            if(strcasecmp(type, swap_cf_names[j]) == 0) {
+                if (handled_cf[j]) {continue;}
+                info = infoCfStats(j, info);
+                handled_cf[j] = 1;
+                handled = 1;
+            }
+        }
+        if (handled == 0) {
+            //default
+            if (handled_cf[DATA_CF]) {continue;}
+            info = infoCfStats(DATA_CF, info);
+            handled_cf[DATA_CF] = 1;
+        }
+    }
+    sdsfreesplitres(section_splits, count);
     return info;
 }
 

@@ -160,8 +160,11 @@ void getRocksdbStatsDone(swapData *data, void *pd, int errcode) {
     UNUSED(data),UNUSED(pd),UNUSED(errcode);
     if (pd != NULL) {
         if (server.rocks->rocksdb_stats_cache != NULL)  {
-            zlibc_free(server.rocks->rocksdb_stats_cache);
+            for(int i = 0; i < CF_COUNT; i++) {
+                zlibc_free(server.rocks->rocksdb_stats_cache[i]);
+            }
         }
+        zfree(server.rocks->rocksdb_stats_cache);
         server.rocks->rocksdb_stats_cache = pd;
     }
     server.util_task_manager->stats[GET_ROCKSDB_STATS_TASK].stat = ROCKSDB_UTILS_TASK_DONE;
