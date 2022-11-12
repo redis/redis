@@ -1140,10 +1140,6 @@ struct redisCommand redisCommandTable[] = {
     "admin no-script",
     0,NULL,getKeyRequestsNone,SWAP_NOP,0,0,0,0,0,0,0},
 
-    {"perflog",perflogCommand,-2,
-    "admin random ok-loading ok-stale",
-    0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
-
     {"gtid", gtidCommand, -3,
      "write use-memory ",
      0,NULL,getKeyRequestsGtid,SWAP_NOP/*not used*/,0,0,0,0,0,0,0},

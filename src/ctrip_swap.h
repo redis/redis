@@ -554,37 +554,6 @@ void processResumedClientKeyRequests(void);
 #define REQ_SUBMITTED_BGSAVE (1ULL<<0)
 #define REQ_SUBMITTED_REPL_START (1ULL<<1)
 
-typedef struct cmdSwapCtx {
-  long long duration_lock;
-  long long duration_swap;
-  long long duration_call;
-} cmdSwapCtx;
-
-/* Perf log */
-#define PERLOG_IDENTITY_MAX 128
-typedef struct perflogEntry {
-  char identity[PERLOG_IDENTITY_MAX];
-  uint64_t id;
-  time_t time;
-  long long duration;
-  sds perf_report;
-  sds iostats_report;
-} perflogEntry;
-
-void perflogInit(void);
-void perflogCommand(client *c);
-
-typedef struct {
-  int disabled;
-  int started;
-  monotime timer;
-  rocksdb_perfcontext_t *perfctx;
-  struct swapRequest *req;
-} perflogSampleContext;
-
-void perflogSampleStart(perflogSampleContext *samplectx, struct swapRequest *req);
-void perflogSampleEnd(perflogSampleContext *samplectx);
-
 /* String */
 typedef struct wholeKeySwapData {
   swapData d;
@@ -806,7 +775,6 @@ typedef struct swapRequest {
   swapDebugMsgs *msgs;
 #endif
   int errcode;
-  perflogSampleContext samplectx;
 } swapRequest;
 
 swapRequest *swapRequestNew(keyRequest *key_request, int intention, uint32_t intention_flags, swapCtx *swapCtx, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
