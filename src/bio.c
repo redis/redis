@@ -61,16 +61,35 @@
 #include "server.h"
 #include "bio.h"
 
-static pthread_t bio_threads[BIO_NUM_OPS];
-static pthread_mutex_t bio_mutex[BIO_NUM_OPS];
-static pthread_cond_t bio_newjob_cond[BIO_NUM_OPS];
-static list *bio_jobs[BIO_NUM_OPS];
+static char* bio_worker_title[] = {
+    "bio_close_file",
+    "bio_aof_fsync",
+    "bio_lazy_free",
+};
+
+#define BIO_WORKER_NUM (sizeof(bio_worker_title) / sizeof(*bio_worker_title))
+
+static int bio_job_to_worker[] = {
+    [BIO_CLOSE_FILE] = 0,
+    [BIO_AOF_FSYNC] = 1,
+    [BIO_LAZY_FREE] = 2,
+};
+
+static pthread_t bio_threads[BIO_WORKER_NUM];
+static pthread_mutex_t bio_mutex[BIO_WORKER_NUM];
+static pthread_cond_t bio_newjob_cond[BIO_WORKER_NUM];
+static list *bio_jobs[BIO_WORKER_NUM];
 
 /* This structure represents a background Job. It is only used locally to this
  * file as the API does not expose the internals at all. */
 typedef union bio_job {
+    struct {
+        int type; /* Job-type tag. This needs to appear as the first element in all union members. */
+    } header;
+
     /* Job specific arguments.*/
     struct {
+        int type;
         int fd; /* Fd for file based background jobs */
         long long offset; /* A job-specific offset, if applicable */
         unsigned need_fsync:1; /* A flag to indicate that a fsync is required before
@@ -78,6 +97,7 @@ typedef union bio_job {
     } fd_args;
 
     struct {
+        int type;
         lazy_free_fn *free_fn; /* Function that will free the provided arguments */
         void *free_args[]; /* List of arguments to be passed to the free function */
     } free_args;
@@ -94,10 +114,10 @@ void bioInit(void) {
     pthread_attr_t attr;
     pthread_t thread;
     size_t stacksize;
-    int j;
+    unsigned long j;
 
     /* Initialization of state vars and objects */
-    for (j = 0; j < BIO_NUM_OPS; j++) {
+    for (j = 0; j < BIO_WORKER_NUM; j++) {
         pthread_mutex_init(&bio_mutex[j],NULL);
         pthread_cond_init(&bio_newjob_cond[j],NULL);
         bio_jobs[j] = listCreate();
@@ -112,8 +132,8 @@ void bioInit(void) {
 
     /* Ready to spawn our threads. We use the single argument the thread
      * function accepts in order to pass the job ID the thread is
-     * responsible of. */
-    for (j = 0; j < BIO_NUM_OPS; j++) {
+     * responsible for. */
+    for (j = 0; j < BIO_WORKER_NUM; j++) {
         void *arg = (void*)(unsigned long) j;
         if (pthread_create(&thread,&attr,bioProcessBackgroundJobs,arg) != 0) {
             serverLog(LL_WARNING,"Fatal: Can't initialize Background Jobs.");
@@ -124,10 +144,12 @@ void bioInit(void) {
 }
 
 void bioSubmitJob(int type, bio_job *job) {
-    pthread_mutex_lock(&bio_mutex[type]);
-    listAddNodeTail(bio_jobs[type],job);
-    pthread_cond_signal(&bio_newjob_cond[type]);
-    pthread_mutex_unlock(&bio_mutex[type]);
+    job->header.type = type;
+    unsigned long worker = bio_job_to_worker[type];
+    pthread_mutex_lock(&bio_mutex[worker]);
+    listAddNodeTail(bio_jobs[worker],job);
+    pthread_cond_signal(&bio_newjob_cond[worker]);
+    pthread_mutex_unlock(&bio_mutex[worker]);
 }
 
 void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
@@ -163,33 +185,23 @@ void bioCreateFsyncJob(int fd, long long offset) {
 
 void *bioProcessBackgroundJobs(void *arg) {
     bio_job *job;
-    unsigned long type = (unsigned long) arg;
+    unsigned long worker = (unsigned long) arg;
     sigset_t sigset;
 
-    /* Check that the type is within the right interval. */
-    if (type >= BIO_NUM_OPS) {
+    /* Check that the worker is within the right interval. */
+    if (worker >= BIO_WORKER_NUM) {
         serverLog(LL_WARNING,
-            "Warning: bio thread started with wrong type %lu",type);
+                  "Warning: bio thread started with wrong worker index %lu", worker);
         return NULL;
     }
 
-    switch (type) {
-    case BIO_CLOSE_FILE:
-        redis_set_thread_title("bio_close_file");
-        break;
-    case BIO_AOF_FSYNC:
-        redis_set_thread_title("bio_aof_fsync");
-        break;
-    case BIO_LAZY_FREE:
-        redis_set_thread_title("bio_lazy_free");
-        break;
-    }
+    redis_set_thread_title(bio_worker_title[worker]);
 
     redisSetCpuAffinity(server.bio_cpulist);
 
     makeThreadKillable();
 
-    pthread_mutex_lock(&bio_mutex[type]);
+    pthread_mutex_lock(&bio_mutex[worker]);
     /* Block SIGALRM so we are sure that only the main thread will
      * receive the watchdog signal. */
     sigemptyset(&sigset);
@@ -202,24 +214,24 @@ void *bioProcessBackgroundJobs(void *arg) {
         listNode *ln;
 
         /* The loop always starts with the lock hold. */
-        if (listLength(bio_jobs[type]) == 0) {
-            pthread_cond_wait(&bio_newjob_cond[type],&bio_mutex[type]);
+        if (listLength(bio_jobs[worker]) == 0) {
+            pthread_cond_wait(&bio_newjob_cond[worker], &bio_mutex[worker]);
             continue;
         }
         /* Pop the job from the queue. */
-        ln = listFirst(bio_jobs[type]);
+        ln = listFirst(bio_jobs[worker]);
         job = ln->value;
         /* It is now possible to unlock the background system as we know have
          * a stand alone job structure to process.*/
-        pthread_mutex_unlock(&bio_mutex[type]);
+        pthread_mutex_unlock(&bio_mutex[worker]);
 
         /* Process the job accordingly to its type. */
-        if (type == BIO_CLOSE_FILE) {
+        if (job->header.type == BIO_CLOSE_FILE) {
             if (job->fd_args.need_fsync) {
                 redis_fsync(job->fd_args.fd);
             }
             close(job->fd_args.fd);
-        } else if (type == BIO_AOF_FSYNC) {
+        } else if (job->header.type == BIO_AOF_FSYNC) {
             /* The fd may be closed by main thread and reused for another
              * socket, pipe, or file. We just ignore these errno because
              * aof fsync did not really fail. */
@@ -238,7 +250,7 @@ void *bioProcessBackgroundJobs(void *arg) {
                 atomicSet(server.aof_bio_fsync_status,C_OK);
                 atomicSet(server.pot_fsynced_reploff, job->fd_args.offset);
             }
-        } else if (type == BIO_LAZY_FREE) {
+        } else if (job->header.type == BIO_LAZY_FREE) {
             job->free_args.free_fn(job->free_args.free_args);
         } else {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");
@@ -247,17 +259,29 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
-        pthread_mutex_lock(&bio_mutex[type]);
-        listDelNode(bio_jobs[type],ln);
+        pthread_mutex_lock(&bio_mutex[worker]);
+        listDelNode(bio_jobs[worker], ln);
     }
 }
 
 /* Return the number of pending jobs of the specified type. */
 unsigned long bioPendingJobsOfType(int type) {
-    unsigned long long val;
-    pthread_mutex_lock(&bio_mutex[type]);
-    val = listLength(bio_jobs[type]);
-    pthread_mutex_unlock(&bio_mutex[type]);
+    unsigned long long val = 0;
+    unsigned long worker = bio_job_to_worker[type];
+    listIter li;
+    listNode *ln;
+
+    /* A worker can execute jobs of different types, so we must examine its jobs
+     * list and only count those we're interested in. */
+    pthread_mutex_lock(&bio_mutex[worker]);
+    listRewind(bio_jobs[worker],&li);
+    while((ln = listNext(&li))) {
+        bio_job *job = (bio_job *) listNodeValue(ln);
+        if (job->header.type == type)
+            val++;
+    }
+    pthread_mutex_unlock(&bio_mutex[worker]);
+
     return val;
 }
 
@@ -266,18 +290,19 @@ unsigned long bioPendingJobsOfType(int type) {
  * Currently Redis does this only on crash (for instance on SIGSEGV) in order
  * to perform a fast memory check without other threads messing with memory. */
 void bioKillThreads(void) {
-    int err, j;
+    int err;
+    unsigned long j;
 
-    for (j = 0; j < BIO_NUM_OPS; j++) {
+    for (j = 0; j < BIO_WORKER_NUM; j++) {
         if (bio_threads[j] == pthread_self()) continue;
         if (bio_threads[j] && pthread_cancel(bio_threads[j]) == 0) {
             if ((err = pthread_join(bio_threads[j],NULL)) != 0) {
                 serverLog(LL_WARNING,
-                    "Bio thread for job type #%d can not be joined: %s",
+                    "Bio worker thread #%lu can not be joined: %s",
                         j, strerror(err));
             } else {
                 serverLog(LL_WARNING,
-                    "Bio thread for job type #%d terminated",j);
+                    "Bio worker thread #%lu terminated",j);
             }
         }
     }
