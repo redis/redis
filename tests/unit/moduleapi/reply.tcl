@@ -28,6 +28,29 @@ start_server {tags {"modules"}} {
             assert_equal 3.141 [r rw.double 3.141]
         }
 
+        test "RESP$proto: RM_ReplyWithDouble: inf" {
+            if {$proto == 2} {
+                assert_equal "inf" [r rw.double inf]
+                assert_equal "-inf" [r rw.double -inf]
+            } else {
+                assert_equal Inf [r rw.double inf]
+                assert_equal -Inf [r rw.double -inf]
+            }
+        }
+
+        test "RESP$proto: RM_ReplyWithDouble: NaN" {
+            if {$proto == 2} {
+                assert_equal "-nan" [r rw.double 0 0]
+                assert_equal "nan" [r rw.double]
+            } else {
+                # TCL won't convert nan into a double, use readraw to verify the protocol
+                r readraw 1
+                assert_equal ",-nan" [r rw.double 0 0]
+                assert_equal ",nan" [r rw.double]
+                r readraw 0
+            }
+        }
+
         set ld 0.00000000000000001
         test "RESP$proto: RM_ReplyWithLongDouble: a float reply" {
             if {$proto == 2} {
