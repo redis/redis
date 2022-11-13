@@ -1173,20 +1173,20 @@ static void clientWritePauseDuringOOM() {
      * Pause also evictions, since we might reach below maxmemory after lazyfree */
     if ((getMaxmemoryState(NULL,NULL,NULL,NULL) == C_ERR) &&
         (bioPendingJobsOfType(BIO_LAZY_FREE))) {
-        if (!server.current_client_paused_oom_time) {
+        if (!server.stat_current_client_paused_oom_time) {
             pauseActions(PAUSE_OOM_THROTTLE, LLONG_MAX,
                          PAUSE_ACTION_EVICT | PAUSE_ACTION_CLIENT_DENYOOM);
             
-            elapsedStart(&server.current_client_paused_oom_time);
+            elapsedStart(&server.stat_current_client_paused_oom_time);
         }
     } else {
-        if (server.current_client_paused_oom_time) {
+        if (server.stat_current_client_paused_oom_time) {
             /* If not OOM && lazy-free, then unpause clients */
             unpauseActions(PAUSE_OOM_THROTTLE);
             
             /* update statistics & reset current_client_paused_oom_time  */
-            server.stat_total_client_paused_oom_time += elapsedUs(server.current_client_paused_oom_time);
-            server.current_client_paused_oom_time = 0;
+            server.stat_total_client_paused_oom_time += elapsedUs(server.stat_current_client_paused_oom_time);
+            server.stat_current_client_paused_oom_time = 0;
         }
     }
 }
@@ -2389,7 +2389,7 @@ void resetServerStats(void) {
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_total_client_paused_oom_time = 0;
-    server.current_client_paused_oom_time = 0;
+    server.stat_current_client_paused_oom_time = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
     server.stat_active_defrag_hits = 0;
@@ -3992,14 +3992,13 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* If the server is paused, block the client until
-     * the pause has ended. Replicas are never paused. */
+    /* If the server is paused, block the client until the pause has ended. Replicas never paused.
+     * First if, though looks redundant, optimized for the case that none is paused */
     if (isPausedActions(PAUSE_ACTION_CLIENT_DENYOOM|PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_CLIENT_ALL)) {
         if (!(c->flags & CLIENT_SLAVE) &&
             ((isPausedActions(PAUSE_ACTION_CLIENT_ALL)) ||
-             ((is_may_replicate_command) &&
-              ((isPausedActions(PAUSE_ACTION_CLIENT_WRITE)) ||
-               (isPausedActions(PAUSE_ACTION_CLIENT_DENYOOM) && (is_denyoom_command)))))) {
+             ((is_may_replicate_command) && (isPausedActions(PAUSE_ACTION_CLIENT_WRITE))) ||
+             (isPausedActions(PAUSE_ACTION_CLIENT_DENYOOM) && (is_denyoom_command)))) {
             c->bpop.timeout = 0;
             blockClient(c, BLOCKED_POSTPONE);
             return C_OK;
@@ -5723,9 +5722,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
-        long long stat_total_client_paused_oom_time = server.stat_total_client_paused_oom_time +
-            (server.current_client_paused_oom_time ?
-             (long long) elapsedUs(server.current_client_paused_oom_time): 0);    
+        long long current_client_paused_oom_time = server.stat_current_client_paused_oom_time ?
+             (long long) elapsedUs(server.stat_current_client_paused_oom_time): 0;    
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
@@ -5764,6 +5762,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_eviction_exceeded_time:%lld\r\n"
             "current_eviction_exceeded_time:%lld\r\n"
             "total_client_paused_during_oom_time:%lld\r\n"
+            "current_client_paused_during_oom_time:%lld\r\n"
             "keyspace_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n"
             "pubsub_channels:%ld\r\n"
@@ -5814,7 +5813,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_evictedclients,
             (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
             current_eviction_exceeded_time / 1000,
-            stat_total_client_paused_oom_time / 1000,
+            (server.stat_total_client_paused_oom_time + current_client_paused_oom_time) / 1000,
+            current_client_paused_oom_time / 1000,
             server.stat_keyspace_hits,
             server.stat_keyspace_misses,
             dictSize(server.pubsub_channels),

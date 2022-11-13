@@ -3912,6 +3912,11 @@ void unpauseActions(pause_purpose purpose) {
 }
 
 /* Returns bitmask of paused actions */
+uint32_t isPausedActions(uint32_t bitmask) {
+    return (server.paused_actions & bitmask); 
+}
+
+/* Returns bitmask of paused actions */
 uint32_t isPausedActionsWithUpdate(uint32_t actions_bitmask) {
     if (!(server.paused_actions & actions_bitmask)) return 0;
     updatePausedActions();
