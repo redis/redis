@@ -1577,6 +1577,8 @@ struct redisServer {
     long long stat_evictedclients;  /* Number of evicted clients */
     long long stat_total_eviction_exceeded_time;  /* Total time over the memory limit, unit us */
     monotime stat_last_eviction_exceeded_time;  /* Timestamp of current eviction start, unit us */
+    long long stat_total_client_paused_oom_time; /* Total time client paused during OOM, unit us */
+    monotime current_client_paused_oom_time; /* Timestamp of current client paused during OOM start, else 0, unit us */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
     long long stat_keyspace_misses; /* Number of failed lookups of keys */
     long long stat_active_defrag_hits;      /* number of allocations moved */

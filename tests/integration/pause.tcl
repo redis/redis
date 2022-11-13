@@ -53,8 +53,8 @@ start_server {tags {"external:skip"}} {
         # Expected no -OOM error
         assert_match {} [s errorstat_OOM]
         
-        # Expected OOM recorded. In comment to avoid flakiness (left for manual testing)
-        # assert_morethan [s used_memory_peak]  [s maxmemory]
+        # Expected client paused during OOM. In comment to avoid flakiness (left for manual testing)
+        # assert_morethan [s total_client_paused_during_oom_time] 0
         
         # restore defaults     
         r config set maxmemory 0
@@ -94,9 +94,9 @@ start_server {tags {"external:skip"}} {
         # Expected no -OOM error
         assert_match {} [s errorstat_OOM]
         
-        # Expected OOM recorded. In comment to avoid flakiness (left for manual testing)
-        # assert_morethan [s used_memory_peak]  [s maxmemory]
-        
+        # Expected client paused during OOM. In comment to avoid flakiness (left for manual testing)
+        # assert_morethan [s total_client_paused_during_oom_time] 0
+
         # restore defaults     
         r config set maxmemory 0
         r config set maxmemory-policy noeviction
