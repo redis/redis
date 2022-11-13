@@ -193,7 +193,7 @@ client *createClient(connection *conn) {
     c->bpop.numreplicas = 0;
     c->bpop.reploffset = 0;
     c->woff = 0;
-    c->watched_keys = listCreate();
+    c->watched_key_index = listCreate();
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
     c->pubsub_patterns = listCreate();
     c->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
@@ -1582,7 +1582,7 @@ void freeClient(client *c) {
 
     /* UNWATCH all the keys */
     unwatchAllKeys(c);
-    listRelease(c->watched_keys);
+    listRelease(c->watched_key_index);
 
     /* Unsubscribe from all the pubsub channels */
     pubsubUnsubscribeAllChannels(c,0);

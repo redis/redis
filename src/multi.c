@@ -259,15 +259,26 @@ void execCommand(client *c) {
  *
  * The implementation uses a per-DB hash table mapping keys to list of clients
  * WATCHing those keys, so that given a key that is going to be modified
- * we can mark all the associated clients as dirty.
+ * we can mark all the associated clients as dirty. We can name this list as
+ * CLIENTS_LIST, so that hash table mapping keys to CLIENTS_LISTs.
  *
  * Also every client contains a list of WATCHed keys so that's possible to
- * un-watch such keys when the client is freed or when UNWATCH is called. */
+ * un-watch such keys when the client is freed or when UNWATCH is called.
+ * We can name this list as KEYS_LIST, so that every client has a KEYS_LIST.
+ *
+ * When UNWATCH is called for a client, we need to empty the KEYS_LIST of that
+ * client, and for each key we need to remove the client from the corresponding
+ * CLIENTS_LIST of that key. But we do not need to traverse the CLIENTS_LIST:
+ * The CLIENTS_LIST saves a structure named watchedKey(in which saves the key,
+ * client and db information), but the KEYS_LIST, however, doesn't save the key
+ * directly. The KEYS_LIST node saves a reference to the list node in CLIENTS_LIST,
+ * and from that list node we can reach the watchedKey. So in this way, when
+ * UNWATCH is called, we can traverse the KEYS_LIST, and as the node in KEYS_LIST
+ * saves the reference to the node in CLIENTS_LIST so we can remove it from CLIENTS_LSIT
+ * in O(1) time.
+ *
+ * KEYS_LIST works as a index of nodes in CLIENTS_LIST. */
 
-/* In the client->watched_keys list we need to use watchedKey structures
- * as in order to identify a key in Redis we need both the key name and the
- * DB. This struct is also referenced from db->watched_keys dict, where the
- * values are lists of watchedKey pointers. */
 typedef struct watchedKey {
     robj *key;
     redisDb *db;
@@ -279,12 +290,13 @@ typedef struct watchedKey {
 void watchForKey(client *c, robj *key) {
     list *clients = NULL;
     listIter li;
-    listNode *ln;
+    listNode *index, *ln;
     watchedKey *wk;
 
     /* Check if we are already watching for this key */
-    listRewind(c->watched_keys,&li);
-    while((ln = listNext(&li))) {
+    listRewind(c->watched_key_index,&li);
+    while((index = listNext(&li))) {
+        ln = listNodeValue(index);
         wk = listNodeValue(ln);
         if (wk->db == c->db && equalStringObjects(key,wk->key))
             return; /* Key already watched */
@@ -296,40 +308,41 @@ void watchForKey(client *c, robj *key) {
         dictAdd(c->db->watched_keys,key,clients);
         incrRefCount(key);
     }
-    /* Add the new key to the list of keys watched by this client */
     wk = zmalloc(sizeof(*wk));
     wk->key = key;
     wk->client = c;
     wk->db = c->db;
     wk->expired = keyIsExpired(c->db, key);
     incrRefCount(key);
-    listAddNodeTail(c->watched_keys,wk);
+    /* Add the client's wk to the list of clients watching this key */
     listAddNodeTail(clients,wk);
+    /* Add the reference of list node to the client->wacthed list */
+    listAddNodeTail(c->watched_key_index, clients->tail);
 }
 
 /* Unwatch all the keys watched by this client. To clean the EXEC dirty
  * flag is up to the caller. */
 void unwatchAllKeys(client *c) {
     listIter li;
-    listNode *ln;
+    listNode *index, *ln;
 
-    if (listLength(c->watched_keys) == 0) return;
-    listRewind(c->watched_keys,&li);
-    while((ln = listNext(&li))) {
+    if (listLength(c->watched_key_index) == 0) return;
+    listRewind(c->watched_key_index,&li);
+    while((index = listNext(&li))) {
         list *clients;
         watchedKey *wk;
 
-        /* Lookup the watched key -> clients list and remove the client's wk
-         * from the list */
+        /* Remove the client's wk from the list of clients watching the key */
+        ln = listNodeValue(index);
         wk = listNodeValue(ln);
         clients = dictFetchValue(wk->db->watched_keys, wk->key);
         serverAssertWithInfo(c,NULL,clients != NULL);
-        listDelNode(clients,listSearchKey(clients,wk));
+        listDelNode(clients, ln);
         /* Kill the entry at all if this was the only client */
         if (listLength(clients) == 0)
             dictDelete(wk->db->watched_keys, wk->key);
-        /* Remove this watched key from the client->watched list */
-        listDelNode(c->watched_keys,ln);
+        /* Remove reference of this watched key from the client->watched list */
+        listDelNode(c->watched_key_index, index);
         decrRefCount(wk->key);
         zfree(wk);
     }
@@ -339,11 +352,12 @@ void unwatchAllKeys(client *c) {
  * were expired already when WATCH was called are ignored. */
 int isWatchedKeyExpired(client *c) {
     listIter li;
-    listNode *ln;
+    listNode *index, *ln;
     watchedKey *wk;
-    if (listLength(c->watched_keys) == 0) return 0;
-    listRewind(c->watched_keys,&li);
-    while ((ln = listNext(&li))) {
+    if (listLength(c->watched_key_index) == 0) return 0;
+    listRewind(c->watched_key_index,&li);
+    while ((index = listNext(&li))) {
+        ln = listNodeValue(index);
         wk = listNodeValue(ln);
         if (wk->expired) continue; /* was expired when WATCH was called */
         if (keyIsExpired(wk->db, wk->key)) return 1;
@@ -473,7 +487,7 @@ void unwatchCommand(client *c) {
 size_t multiStateMemOverhead(client *c) {
     size_t mem = c->mstate.argv_len_sums;
     /* Add watched keys overhead, Note: this doesn't take into account the watched keys themselves, because they aren't managed per-client. */
-    mem += listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));
+    mem += listLength(c->watched_key_index) * (sizeof(listNode) + sizeof(watchedKey));
     /* Reserved memory for queued multi commands. */
     mem += c->mstate.alloc_count * sizeof(multiCmd);
     return mem;
