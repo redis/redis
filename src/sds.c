@@ -310,6 +310,7 @@ sds sdsRemoveFreeSpace(sds s) {
     void *sh, *newsh;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
+    size_t usable;
     size_t len = sdslen(s);
     size_t avail = sdsavail(s);
     sh = (char*)s-oldhdrlen;
@@ -327,11 +328,11 @@ sds sdsRemoveFreeSpace(sds s) {
      * only if really needed. Otherwise if the change is huge, we manually
      * reallocate the string to use the different header type. */
     if (oldtype==type || type > SDS_TYPE_8) {
-        newsh = s_realloc(sh, oldhdrlen+len+1);
+        newsh = s_realloc_usable(sh, oldhdrlen+len+1,&usable);
         if (newsh == NULL) return NULL;
         s = (char*)newsh+oldhdrlen;
     } else {
-        newsh = s_malloc(hdrlen+len+1);
+        newsh = s_malloc_usable(hdrlen+len+1,&usable);
         if (newsh == NULL) return NULL;
         memcpy((char*)newsh+hdrlen, s, len+1);
         s_free(sh);
@@ -339,7 +340,10 @@ sds sdsRemoveFreeSpace(sds s) {
         s[-1] = type;
         sdssetlen(s, len);
     }
-    sdssetalloc(s, len);
+    usable = usable - hdrlen - 1;
+    if (usable > sdsTypeMaxSize(type)) 
+        usable = sdsTypeMaxSize(type);
+    sdssetalloc(s, usable);
     return s;
 }
 
