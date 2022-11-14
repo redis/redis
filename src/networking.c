@@ -2339,9 +2339,11 @@ int processMultibulkBuffer(client *c) {
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
             {
-                c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
-                c->argv_len_sum += c->bulklen;
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
+                robj* o = createObject(OBJ_STRING,c->querybuf);
+                trimStringObjectIfNeeded(o);
+                c->argv[c->argc++] = o;
+                c->argv_len_sum += c->bulklen;
                 /* Assume that if we saw a fat argument we'll see another one
                  * likely... */
                 c->querybuf = sdsnewlen(SDS_NOINIT,c->bulklen+2);

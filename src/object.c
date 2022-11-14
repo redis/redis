@@ -672,17 +672,6 @@ robj *tryObjectEncoding(robj *o) {
         return emb;
     }
 
-    /* We can't encode the object...
-     *
-     * Do the last try, and at least optimize the SDS string inside
-     * the string object to require little space, in case there
-     * is more than 10% of free space at the end of the SDS string.
-     *
-     * We do that only for relatively large strings as this branch
-     * is only entered if the length of the string is greater than
-     * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
-    trimStringObjectIfNeeded(o);
-
     /* Return the original object. */
     return o;
 }
