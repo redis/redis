@@ -44,11 +44,13 @@ start_server {tags {"modules"}} {
 
         test "RESP$proto: RM_ReplyWithDouble: NaN" {
             if {$proto == 2} {
+                # nan on ARM, -nan on others, so here we match ignoring case and sign
                 assert_match_nocase "*nan" [r rw.double 0 0]
                 assert_equal "nan" [r rw.double]
             } else {
                 # TCL won't convert nan into a double, use readraw to verify the protocol
                 r readraw 1
+                # nan on ARM, -nan on others, so here we match ignoring case and sign
                 assert_match_nocase ",*nan" [r rw.double 0 0]
                 assert_equal ",nan" [r rw.double]
                 r readraw 0
