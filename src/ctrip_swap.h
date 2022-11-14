@@ -1111,6 +1111,7 @@ sds genRocksInfoString(sds info);
 sds genRocksdbStatsString(sds section, sds info);
 int rocksdbPropertyInt(const char *cfnames, const char *propname, uint64_t *out_val);
 sds rocksdbPropertyValue(const char *cfnames, const char *propname);
+char *rocksdbVersion(void);
 
 
 /* Repl */

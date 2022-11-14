@@ -33,7 +33,7 @@ int asyncCompleteQueueProcess(asyncCompleteQueue *cq) {
     listIter li;
     listNode *ln;
     list *processing_reqs = listCreate();
-    monotime process_timer;
+    monotime process_timer = 0;
     if (server.swap_debug) elapsedStart(&process_timer);
 
     pthread_mutex_lock(&cq->lock);

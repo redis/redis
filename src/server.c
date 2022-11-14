@@ -4906,7 +4906,7 @@ sds genRedisInfoString(const char *section) {
             REDIS_VERSION,
             XREDIS_VERSION,
             SWAP_VERSION,
-            ROCKSDB_VERSION,
+            rocksdbVersion(),
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
             redisBuildIdString(),
@@ -5584,7 +5584,9 @@ sds genRedisInfoString(const char *section) {
         (strlen(section) == rocksdb_stats_section_len || section[rocksdb_stats_section_len] == '.') &&
         server.swap_mode != SWAP_MODE_MEMORY) {
         if (sections++) info = sdscat(info,"\r\n");
-        info = genRocksdbStatsString(section, info);
+        sds section_dup = sdsnew(section);
+        info = genRocksdbStatsString(section_dup, info);
+        sdsfree(section_dup);
     }
 
     /* Get info from modules.

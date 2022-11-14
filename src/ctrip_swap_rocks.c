@@ -35,6 +35,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include "release.h"
 
 #define KB 1024
 #define MB (1024*1024)
@@ -1034,3 +1035,8 @@ void rocksCron() {
 
     rocks_cron_loops++;
 }
+
+char *rocksdbVersion(void) {
+    return ROCKSDB_VERSION;
+}
+
