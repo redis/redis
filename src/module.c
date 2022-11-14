@@ -8321,7 +8321,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
              * up to the specific event setup to change it when it makes
              * sense. For instance for FLUSHDB events we select the correct
              * DB automatically. */
-            selectDb(ctx.client, 0);
+            if (!real_client_used)
+                selectDb(ctx.client, 0);
 
             /* Event specific context and data pointer setup. */
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
