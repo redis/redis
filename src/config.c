@@ -3300,7 +3300,7 @@ NULL
  *----------------------------------------------------------------------------*/
 
 void configResetStatCommand(client *c) {
-    resetServerStats();
+    resetServerStats(0);
     resetCommandTableStats(server.commands);
     resetErrorTableStats();
     addReply(c,shared.ok);

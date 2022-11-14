@@ -2375,7 +2375,7 @@ int listenToPort(connListener *sfd) {
 /* Resets the stats that we expose via INFO or other means that we want
  * to reset via CONFIG RESETSTAT. The function is also used in order to
  * initialize these fields in initServer() at server startup. */
-void resetServerStats(void) {
+void resetServerStats(int init_flow) {
     int j;
 
     server.stat_numcommands = 0;
@@ -2389,7 +2389,13 @@ void resetServerStats(void) {
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_total_client_paused_oom_time = 0;
-    server.stat_current_client_paused_oom_time = 0;
+    /* Following value play dual roles. As stat and as a flag. 
+     * If not init_flow and non-zero, then Update its value to current time (keep it set) */
+    if ((!init_flow) && (server.stat_current_client_paused_oom_time)) {
+        elapsedStart(&server.stat_current_client_paused_oom_time) ;
+    } else {
+        server.stat_current_client_paused_oom_time = 0;
+    }           
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
     server.stat_active_defrag_hits = 0;
@@ -2562,7 +2568,7 @@ void initServer(void) {
     server.rdb_last_load_keys_expired = 0;
     server.rdb_last_load_keys_loaded = 0;
     server.dirty = 0;
-    resetServerStats();
+    resetServerStats(1);
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
@@ -3997,8 +4003,8 @@ int processCommand(client *c) {
     if (isPausedActions(PAUSE_ACTION_CLIENT_DENYOOM|PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_CLIENT_ALL)) {
         if (!(c->flags & CLIENT_SLAVE) &&
             ((isPausedActions(PAUSE_ACTION_CLIENT_ALL)) ||
-             ((is_may_replicate_command) && (isPausedActions(PAUSE_ACTION_CLIENT_WRITE))) ||
-             (isPausedActions(PAUSE_ACTION_CLIENT_DENYOOM) && (is_denyoom_command)))) {
+             (isPausedActions(PAUSE_ACTION_CLIENT_WRITE) && is_may_replicate_command) ||
+             (isPausedActions(PAUSE_ACTION_CLIENT_DENYOOM) && is_denyoom_command))) {
             c->bpop.timeout = 0;
             blockClient(c, BLOCKED_POSTPONE);
             return C_OK;
