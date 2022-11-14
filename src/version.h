@@ -1,4 +1,4 @@
 #define REDIS_VERSION "6.2.6"
 #define REDIS_VERSION_NUM 0x00060206
-#define SWAP_VERSION "0.1.0"
-#define ROCKSDB_VERSION "6.22.1"
+#define SWAP_VERSION "1.0.0"
+#define ROCKSDB_VERSION "7.7.3"
