@@ -33,8 +33,12 @@ start_server {tags {"modules"}} {
                 assert_equal "inf" [r rw.double inf]
                 assert_equal "-inf" [r rw.double -inf]
             } else {
-                assert_equal Inf [r rw.double inf]
-                assert_equal -Inf [r rw.double -inf]
+                # TCL convert inf to different results on different platforms, e.g. inf on mac
+                # and Inf on others, so use readraw to verify the protocol
+                r readraw 1
+                assert_equal ",inf" [r rw.double inf]
+                assert_equal ",-inf" [r rw.double -inf]
+                r readraw 0
             }
         }
 
