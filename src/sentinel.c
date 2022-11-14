@@ -3192,7 +3192,7 @@ const char* getLogLevel(){
     return "unknown";
 }
 
-/* SENTINEL CONFIG SET <option> */
+/* SENTINEL CONFIG SET <option> <value>*/
 void sentinelConfigSetCommand(client *c) {
     robj *o = c->argv[3];
     robj *val = c->argv[4];
@@ -3223,6 +3223,17 @@ void sentinelConfigSetCommand(client *c) {
         sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
             NULL : sdsdup(val->ptr);
         drop_conns = 1;
+    } else if (!strcasecmp(o->ptr, "loglevel")) {
+        if (!strcasecmp(val->ptr, "debug"))
+            server.verbosity = LL_DEBUG;
+        else if (!strcasecmp(val->ptr, "verbose"))
+            server.verbosity = LL_VERBOSE;
+        else if (!strcasecmp(val->ptr, "notice"))
+            server.verbosity = LL_NOTICE;
+        else if (!strcasecmp(val->ptr, "warning"))
+            server.verbosity = LL_WARNING;
+        else
+            goto badfmt;
     } else {
         addReplyErrorFormat(c, "Invalid argument '%s' to SENTINEL CONFIG SET",
                             (char *) o->ptr);
