@@ -25,6 +25,7 @@ tags "modules" {
             r client kill skipme yes
             # assert server is still up
             assert_equal [r ping] PONG
+            $rd close
         } 
 
         test {Test module cron hook} {
