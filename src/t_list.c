@@ -674,6 +674,45 @@ void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long 
     listElementsRemoved(c, key, where, o, rangelen, signal, deleted);
 }
 
+void addListQuicklistRangeReply(client *c, robj *o, int from, int rangelen, int reverse) {
+    /* Return the result in form of a multi-bulk reply */
+    addReplyArrayLen(c,rangelen);
+
+    int direction = reverse ? AL_START_TAIL : AL_START_HEAD;
+    quicklistIter *iter = quicklistGetIteratorAtIdx(o->ptr, direction, from);
+    while(rangelen--) {
+        quicklistEntry qe;
+        serverAssert(quicklistNext(iter, &qe)); /* fail on corrupt data */
+        if (qe.value) {
+            addReplyBulkCBuffer(c,qe.value,qe.sz);
+        } else {
+            addReplyBulkLongLong(c,qe.longval);
+        }
+    }
+    quicklistReleaseIterator(iter);
+}
+
+void addListListpackRangeReply(client *c, robj *o, int from, int rangelen, int reverse) {
+    unsigned char *p = lpSeek(o->ptr, from);
+    unsigned char *vstr;
+    unsigned int vlen;
+    long long lval;
+
+    /* Return the result in form of a multi-bulk reply */
+    addReplyArrayLen(c,rangelen);
+
+    while(rangelen--) {
+        serverAssert(p); /* fail on corrupt data */
+        vstr = lpGetValue(p, &vlen, &lval);
+        if (vstr) {
+            addReplyBulkCBuffer(c,vstr,vlen);
+        } else {
+            addReplyBulkLongLong(c,lval);
+        }
+        p = reverse ? lpPrev(o->ptr,p) : lpNext(o->ptr,p);
+    }
+}
+
 /* A helper for replying with a list's range between the inclusive start and end
  * indexes as multi-bulk, with support for negative indexes. Note that start
  * must be less than end or an empty array is returned. When the reverse
@@ -696,28 +735,14 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
     if (end >= llen) end = llen-1;
     rangelen = (end-start)+1;
 
-    /* Return the result in form of a multi-bulk reply */
-    addReplyArrayLen(c,rangelen);
 
     int from = reverse ? end : start;
-    int direction = reverse ? LIST_HEAD : LIST_TAIL;
-    listTypeIterator *iter = listTypeInitIterator(o,from,direction);
-
-    while(rangelen--) {
-        listTypeEntry entry;
-        unsigned char *vstr;
-        size_t vlen;
-        long long lval;
-
-        serverAssert(listTypeNext(iter, &entry)); /* fail on corrupt data */
-        vstr = listTypeGetValue(&entry,&vlen,&lval);
-        if (vstr) {
-            addReplyBulkCBuffer(c,vstr,vlen);
-        } else {
-            addReplyBulkLongLong(c,lval);
-        }
-    }
-    listTypeReleaseIterator(iter);
+    if (o->encoding == OBJ_ENCODING_QUICKLIST)
+        addListQuicklistRangeReply(c, o, from, rangelen, reverse);
+    else if (o->encoding == OBJ_ENCODING_LISTPACK)
+        addListListpackRangeReply(c, o, from, rangelen, reverse);
+    else
+        serverPanic("Unknown list encoding");
 }
 
 /* A housekeeping helper for list elements popping tasks.
