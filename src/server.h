@@ -399,6 +399,14 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                     buffer configuration. Just the first
                                     three: normal, slave, pubsub. */
 
+/*Monitor flags*/
+#define MONITOR_ADDR 1
+#define MONITOR_USER 2
+#define MONITOR_ID 3
+#define MONITOR_COMMAND 4
+#define MONITOR_KEY 5
+#define MONITOR_MATCH 6
+
 /* Slave replication state. Used in server.repl_state for slaves to remember
  * what to do next. */
 typedef enum {
@@ -2349,6 +2357,19 @@ typedef struct {
     dictIterator *di;
     dictEntry *de;
 } hashTypeIterator;
+
+/* Structure to hold monitors iteration abstraction. */
+typedef struct {
+    client *monitor;
+    list *filter_content;
+
+} monitorObject;
+
+/* Structure to hold monitorObject's filter_content iteration abstraction. */
+typedef struct {
+    int type;
+    sds content;
+} monitorFilterContent;
 
 #include "stream.h"  /* Stream data type header file. */
 
