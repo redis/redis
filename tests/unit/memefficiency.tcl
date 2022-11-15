@@ -37,7 +37,7 @@ start_server {tags {"memefficiency external:skip"}} {
 }
 
 run_solo {defrag} {
-start_server {tags {"defrag external:skip needs:save"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag" {
             r config set hz 100

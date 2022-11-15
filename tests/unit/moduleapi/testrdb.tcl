@@ -39,7 +39,7 @@ tags "modules" {
             # make sure server started successfully without the module.
             assert_equal {1} [r get x]
         }
-    } {} {needs:save}
+    }
 
     test {aux that saves no data are saved to the rdb when aux_save is used} {
         set server_path [tmpdir "server.module-testrdb"]
@@ -54,7 +54,7 @@ tags "modules" {
             assert_equal {1} [r get x]
             assert_equal {2} [r testrdb.get.n_aux_load_called]
         }
-    } {} {needs:save}
+    }
 
     foreach test_case {6 7} {
     # 6 == 0110 - use aux_save before and after key space with data

@@ -69,7 +69,7 @@ start_server {tags {"dismiss external:skip"}} {
         r bgsave
         waitForBgsave r
         assert_equal $item [r lpop mylist]
-    } {} {needs:save}
+    }
 
     test {dismiss client query buffer} {
         # Big pending query buffer
@@ -82,7 +82,7 @@ start_server {tags {"dismiss external:skip"}} {
 
         r bgsave
         waitForBgsave r
-    } {} {needs:save}
+    }
 
     test {dismiss replication backlog} {
         set master [srv 0 client]
@@ -97,5 +97,5 @@ start_server {tags {"dismiss external:skip"}} {
             $master bgsave
             waitForBgsave $master
         }
-    } {} {needs:save}
+    }
 }

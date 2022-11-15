@@ -1087,7 +1087,7 @@ tags {"external:skip"} {
             r set k3 v3
             r debug loadaof
             assert_equal v3 [r get k3]
-        } {} {needs:save}
+        }
 
         test "AOF will trigger limit when AOFRW fails many times" {
             # Clear all data and trigger a successful AOFRW, so we can let 
@@ -1171,7 +1171,7 @@ tags {"external:skip"} {
             r debug loadaof
             set d2 [r debug digest]
             assert {$d1 eq $d2}
-        } {} {needs:save} ;# `needs:save` tag needed because the last test
+        }
 
         start_server {overrides {aof-use-rdb-preamble {yes} appendonly {no}}} {
             set dir [get_redis_dir]

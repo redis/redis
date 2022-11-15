@@ -208,7 +208,7 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
         while {[s aof_rewrite_scheduled] eq 1} {
             after 100
         }
-    } {} {needs:save}
+    }
 
     test {BGREWRITEAOF is refused if already in progress} {
         r config set aof-use-rdb-preamble yes
