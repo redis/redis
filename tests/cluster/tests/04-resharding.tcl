@@ -6,6 +6,45 @@
 source "../tests/includes/init-tests.tcl"
 source "../../../tests/support/cli.tcl"
 
+# TODO: Once cluster tests are fully migrated under "make test",
+# slot-stats-helper.tcl file can be created for exporting common functions.
+# This is applicable for the following helper functions,
+# which are repeatedly defined under tests/unit/cluster/slot-stats.tcl
+# 1) initialize_expected_slots_dict
+# 2) get_slot_stats_slot
+# 3) get_slot_stats_key_count
+
+proc initialize_expected_slots_dict {} {
+    set expected_slots [dict create]
+    for {set i 0} {$i < 16384} {incr i 1} {
+        dict set expected_slots $i 0
+    }
+    return $expected_slots
+}
+
+proc get_slot_stats_slot {slot_stats slot_index} {
+    assert {[expr $slot_index%2] == 0}
+    return [lindex $slot_stats $slot_index 0]
+}
+
+proc get_slot_stats_key_count {slot_stats slot_index} {
+    assert {[expr $slot_index%2] == 0}
+    return [lindex $slot_stats [expr {$slot_index+1}] 1]
+}
+
+proc assert_slot_stats_against_logical_content {expected_slots_to_key_count} {
+    foreach_redis_id id {
+        set slot_stats [R $id CLUSTER SLOT-STATS]
+        set slot_stats_length [llength $slot_stats]
+        for {set i 0} {$i < $slot_stats_length} {incr i 2} {
+            set slot [get_slot_stats_slot $slot_stats $i]
+            set key_count [get_slot_stats_key_count $slot_stats $i]
+            set key_count_expected [dict get $expected_slots_to_key_count $slot]
+            assert {$key_count == $key_count_expected}
+        }
+    }
+}
+
 test "Create a 5 nodes cluster" {
     create_cluster 5 5
 }
@@ -56,6 +95,8 @@ set numkeys 50000
 set numops 200000
 set start_node_port [get_instance_attrib redis 0 port]
 set cluster [redis_cluster 127.0.0.1:$start_node_port]
+set expected_slots_to_key_count [initialize_expected_slots_dict]
+
 if {$::tls} {
     # setup a non-TLS cluster client to the TLS cluster
     set plaintext_port [get_instance_attrib redis 0 plaintext-port]
@@ -96,10 +137,17 @@ test "Cluster consistency during live resharding" {
                 &] 0]
         }
 
-        # Write random data to random list.
+        # Prepare the target key for RPUSH.
         set listid [randomInt $numkeys]
         set key "key:$listid"
+        set key_exists [$cluster EXISTS $key]
+        if {$key_exists == 0} {
+            set key_slot [$cluster CLUSTER KEYSLOT $key]
+            dict incr expected_slots_to_key_count $key_slot 1
+        }
         incr ele
+
+        # Write random data to random list.
         # We write both with Lua scripts and with plain commands.
         # This way we are able to stress Lua -> Redis command invocation
         # as well, that has tests to prevent Lua to write into wrong
@@ -137,6 +185,10 @@ test "Verify $numkeys keys for consistency with logical content" {
     }
 }
 
+test "Verify CLUSTER SLOT-STATS for consistency with logical content" {
+    assert_slot_stats_against_logical_content $expected_slots_to_key_count
+}
+
 test "Terminate and restart all the instances" {
     foreach_redis_id id {
         # Stop AOF so that an initial AOFRW won't prevent the instance from terminating
@@ -157,6 +209,10 @@ test "Verify $numkeys keys after the restart" {
             fail "Key $key expected to hold '$value' but actual content is [$cluster lrange $key 0 -1]"
         }
     }
+}
+
+test "Verify CLUSTER SLOT-STATS after the restart" {
+    assert_slot_stats_against_logical_content $expected_slots_to_key_count
 }
 
 test "Disable AOF in all the instances" {
