@@ -70,6 +70,7 @@ unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long 
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num);
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num);
+unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned long count);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);
 unsigned long lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
@@ -90,6 +91,9 @@ unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen);
 void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *key, listpackEntry *val);
 void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals);
 unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals);
+void lpRandomEntries(unsigned char *lp, unsigned int count, listpackEntry *entries);
+unsigned char *lpNextRandom(unsigned char *lp, unsigned char *p, unsigned int *index,
+                            unsigned int remaining, int even_only);
 int lpSafeToAdd(unsigned char* lp, size_t add);
 void lpRepr(unsigned char *lp);
 

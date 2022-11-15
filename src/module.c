@@ -8094,7 +8094,6 @@ void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8
         if (r->module_id == module_id) {
             RedisModuleCtx ctx;
             moduleCreateContext(&ctx, r->module, REDISMODULE_CTX_TEMP_CLIENT);
-            selectDb(ctx.client, 0);
             r->callback(&ctx,sender_id,type,payload,len);
             moduleFreeContext(&ctx);
             return;
@@ -10907,11 +10906,6 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             RedisModuleClientInfoV1 civ1;
             RedisModuleReplicationInfoV1 riv1;
             RedisModuleModuleChangeV1 mcv1;
-            /* Start at DB zero by default when calling the handler. It's
-             * up to the specific event setup to change it when it makes
-             * sense. For instance for FLUSHDB events we select the correct
-             * DB automatically. */
-            selectDb(ctx.client, 0);
 
             /* Event specific context and data pointer setup. */
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
@@ -11396,7 +11390,6 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
     }
     RedisModuleCtx ctx;
     moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
-    selectDb(ctx.client, 0);
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         serverLog(LL_WARNING,
             "Module %s initialization failed. Module not loaded",path);

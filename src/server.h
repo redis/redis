@@ -1850,6 +1850,8 @@ struct redisServer {
     size_t hash_max_listpack_entries;
     size_t hash_max_listpack_value;
     size_t set_max_intset_entries;
+    size_t set_max_listpack_entries;
+    size_t set_max_listpack_value;
     size_t zset_max_listpack_entries;
     size_t zset_max_listpack_value;
     size_t hll_sparse_max_bytes;
@@ -2331,6 +2333,7 @@ typedef struct {
     int encoding;
     int ii; /* intset iterator */
     dictIterator *di;
+    unsigned char *lpi; /* listpack iterator */
 } setTypeIterator;
 
 /* Structure to hold hash iteration abstraction. Note that iteration over
@@ -2655,6 +2658,7 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly);
 robj *createQuicklistObject(void);
 robj *createSetObject(void);
 robj *createIntsetObject(void);
+robj *createSetListpackObject(void);
 robj *createHashObject(void);
 robj *createZsetObject(void);
 robj *createZsetListpackObject(void);
@@ -2980,9 +2984,9 @@ int setTypeRemove(robj *subject, sds value);
 int setTypeIsMember(robj *subject, sds value);
 setTypeIterator *setTypeInitIterator(robj *subject);
 void setTypeReleaseIterator(setTypeIterator *si);
-int setTypeNext(setTypeIterator *si, sds *sdsele, int64_t *llele);
+int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
 sds setTypeNextObject(setTypeIterator *si);
-int setTypeRandomElement(robj *setobj, sds *sdsele, int64_t *llele);
+int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
 unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
 unsigned long setTypeSize(const robj *subject);
 void setTypeConvert(robj *subject, int enc);
