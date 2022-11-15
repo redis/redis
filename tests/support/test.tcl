@@ -31,13 +31,6 @@ proc assert_match {pattern value {detail ""}} {
     }
 }
 
-proc assert_match_nocase {pattern value {detail ""}} {
-    if {![string match -nocase $pattern $value]} {
-        set context "(context: [info frame -1])"
-        error "assertion:Expected '$value' to match (no case) '$pattern' $context $detail"
-    }
-}
-
 proc assert_failed {expected_err detail} {
      if {$detail ne ""} {
         set detail "(detail: $detail)"
