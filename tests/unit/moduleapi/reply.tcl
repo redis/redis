@@ -43,14 +43,16 @@ start_server {tags {"modules"}} {
         }
 
         test "RESP$proto: RM_ReplyWithDouble: NaN" {
+            # On some platforms one of these can be -nan but we don't care since they are
+            # synonym, so here we match ignoring the sign
             if {$proto == 2} {
-                assert_equal "-nan" [r rw.double 0 0]
-                assert_equal "nan" [r rw.double]
+                assert_match "*nan" [r rw.double 0 0]
+                assert_match "*nan" [r rw.double]
             } else {
                 # TCL won't convert nan into a double, use readraw to verify the protocol
                 r readraw 1
-                assert_equal ",-nan" [r rw.double 0 0]
-                assert_equal ",nan" [r rw.double]
+                assert_match ",*nan" [r rw.double 0 0]
+                assert_match ",*nan" [r rw.double]
                 r readraw 0
             }
         }
