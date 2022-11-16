@@ -773,6 +773,8 @@ start_server {tags {"stream"}} {
     }
 
     test {XSETID can set a specific ID} {
+        r DEL mystream
+        r XADD mystream 1-0 a b
         r XSETID mystream "200-0"
         set reply [r XINFO stream mystream]
         assert_equal [dict get $reply last-generated-id] "200-0"
@@ -914,15 +916,17 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
     }
 
     test {Stream can be rewrite into AOF correctly after XDEL lastid} {
-        r XSETID mystream 0-0
+        r DEL mystream
+        r XADD mystream 0-1 a b
+        r XSETID mystream 0-1
         r XADD mystream 1-1 a b
         r XADD mystream 2-2 a b
-        assert {[dict get [r xinfo stream mystream] length] == 2}
+        assert {[dict get [r xinfo stream mystream] length] == 3}
         r XDEL mystream 2-2
         r bgrewriteaof
         waitForBgrewriteaof r
-        #r debug loadaof
-        assert {[dict get [r xinfo stream mystream] length] == 1}
+        r debug loadaof
+        assert {[dict get [r xinfo stream mystream] length] == 2}
         assert_equal [dict get [r xinfo stream mystream] last-generated-id] "2-2"
     }
 }
