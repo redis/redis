@@ -148,14 +148,14 @@ start_server {tags {"maxmemory external:skip"}} {
         r config set maxmemory 0
         r set a 1
         assert {[r object refcount a] > 1}
-    }
+    } {} {needs:debug}
 
     test "With maxmemory and non-LRU policy integers are still shared" {
         r config set maxmemory 1073741824
         r config set maxmemory-policy allkeys-random
         r set a 1
         assert {[r object refcount a] > 1}
-    }
+    } {} {needs:debug}
 
     test "With maxmemory and LRU policy integers are not shared" {
         r config set maxmemory 1073741824
@@ -166,7 +166,7 @@ start_server {tags {"maxmemory external:skip"}} {
         assert {[r object refcount a] == 1}
         assert {[r object refcount b] == 1}
         r config set maxmemory 0
-    }
+    } {OK} {needs:debug}
 
     foreach policy {
         allkeys-random allkeys-lru allkeys-lfu volatile-lru volatile-lfu volatile-random volatile-ttl

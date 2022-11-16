@@ -254,7 +254,7 @@ start_server {tags {"keyspace"}} {
         assert_refcount 1 mynewlist{t}
         r del mylist{t}
         assert_equal $digest [debug_digest_value mynewlist{t}]
-    }
+    } {} {needs:debug}
 
     foreach type {intset listpack hashtable} {
         test {COPY basic usage for $type set} {
@@ -276,7 +276,7 @@ start_server {tags {"keyspace"}} {
             assert_refcount 1 newset1{t}
             r del set1{t}
             assert_equal $digest [debug_digest_value newset1{t}]
-        }
+        } {} {needs:debug}
     }
 
     test {COPY basic usage for listpack sorted set} {
@@ -290,7 +290,7 @@ start_server {tags {"keyspace"}} {
         assert_refcount 1 newzset1{t}
         r del zset1{t}
         assert_equal $digest [debug_digest_value newzset1{t}]
-    }
+    } {} {needs:debug}
 
      test {COPY basic usage for skiplist sorted set} {
         r del zset2{t} newzset2{t}
@@ -308,7 +308,7 @@ start_server {tags {"keyspace"}} {
         r del zset2{t}
         assert_equal $digest [debug_digest_value newzset2{t}]
         r config set zset-max-ziplist-entries $original_max
-    }
+    } {OK} {needs:debug}
 
     test {COPY basic usage for listpack hash} {
         r del hash1{t} newhash1{t}
@@ -321,7 +321,7 @@ start_server {tags {"keyspace"}} {
         assert_refcount 1 newhash1{t}
         r del hash1{t}
         assert_equal $digest [debug_digest_value newhash1{t}]
-    }
+    } {} {needs:debug}
 
     test {COPY basic usage for hashtable hash} {
         r del hash2{t} newhash2{t}
@@ -339,7 +339,7 @@ start_server {tags {"keyspace"}} {
         r del hash2{t}
         assert_equal $digest [debug_digest_value newhash2{t}]
         r config set hash-max-ziplist-entries $original_max
-    }
+    } {OK} {needs:debug}
 
     test {COPY basic usage for stream} {
         r del mystream{t} mynewstream{t}
@@ -353,7 +353,7 @@ start_server {tags {"keyspace"}} {
         assert_refcount 1 mynewstream{t}
         r del mystream{t}
         assert_equal $digest [debug_digest_value mynewstream{t}]
-    }
+    } {} {needs:debug}
 
     test {COPY basic usage for stream-cgroups} {
         r del x{t}
@@ -381,9 +381,10 @@ start_server {tags {"keyspace"}} {
         r del x{t}
         assert_equal $info [r xinfo stream newx{t} full]
         r flushdb
-    }
+    } {OK} {needs:debug}
 
     test {MOVE basic usage} {
+        r flushall
         r set mykey foobar
         r move mykey 10
         set res {}
