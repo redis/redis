@@ -1173,20 +1173,24 @@ static void clientWritePauseDuringOOM() {
      * Pause also evictions, since we might reach below maxmemory after lazyfree */
     if ((getMaxmemoryState(NULL,NULL,NULL,NULL) == C_ERR) &&
         (bioPendingJobsOfType(BIO_LAZY_FREE))) {
-        if (!server.stat_current_client_paused_oom_time) {
+        if (!server.is_pause_write_clients_oom) {
             pauseActions(PAUSE_OOM_THROTTLE, LLONG_MAX,
                          PAUSE_ACTION_EVICT | PAUSE_ACTION_CLIENT_DENYOOM);
             
             elapsedStart(&server.stat_current_client_paused_oom_time);
+            server.is_pause_write_clients_oom = 1;
         }
     } else {
-        if (server.stat_current_client_paused_oom_time) {
+        if (server.is_pause_write_clients_oom) {
             /* If not OOM && lazy-free, then unpause clients */
             unpauseActions(PAUSE_OOM_THROTTLE);
-            
-            /* update statistics & reset current_client_paused_oom_time  */
-            server.stat_total_client_paused_oom_time += elapsedUs(server.stat_current_client_paused_oom_time);
-            server.stat_current_client_paused_oom_time = 0;
+            if (server.stat_current_client_paused_oom_time) {
+                /* update statistics & reset current_client_paused_oom_time  */
+                server.stat_total_client_paused_oom_time += elapsedUs(
+                        server.stat_current_client_paused_oom_time);
+                server.stat_current_client_paused_oom_time = 0;
+            }
+            server.is_pause_write_clients_oom = 0;
         }
     }
 }
@@ -2375,7 +2379,7 @@ int listenToPort(connListener *sfd) {
 /* Resets the stats that we expose via INFO or other means that we want
  * to reset via CONFIG RESETSTAT. The function is also used in order to
  * initialize these fields in initServer() at server startup. */
-void resetServerStats(int init_flow) {
+void resetServerStats() {
     int j;
 
     server.stat_numcommands = 0;
@@ -2389,13 +2393,7 @@ void resetServerStats(int init_flow) {
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_total_client_paused_oom_time = 0;
-    /* Following value play dual roles. As stat and as a flag. 
-     * If not init_flow and non-zero, then Update its value to current time (keep it set) */
-    if ((!init_flow) && (server.stat_current_client_paused_oom_time)) {
-        elapsedStart(&server.stat_current_client_paused_oom_time) ;
-    } else {
-        server.stat_current_client_paused_oom_time = 0;
-    }           
+    server.stat_current_client_paused_oom_time = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
     server.stat_active_defrag_hits = 0;
@@ -2485,6 +2483,7 @@ void initServer(void) {
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.paused_actions = 0;
+    server.is_pause_write_clients_oom = 0;
     memset(server.client_pause_per_purpose, 0,
            sizeof(server.client_pause_per_purpose));
     server.postponed_clients = listCreate();
@@ -2568,7 +2567,7 @@ void initServer(void) {
     server.rdb_last_load_keys_expired = 0;
     server.rdb_last_load_keys_loaded = 0;
     server.dirty = 0;
-    resetServerStats(1);
+    resetServerStats();
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
