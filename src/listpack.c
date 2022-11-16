@@ -2231,6 +2231,7 @@ int listpackTest(int argc, char *argv[], int flags) {
                 index++;
             }
         }
+        lpFree(lp);
     }
 
     TEST("lpNextRandom corner cases") {
@@ -2279,6 +2280,7 @@ int listpackTest(int argc, char *argv[], int flags) {
             p = lpNextRandom(lp, p, &i, remaining, 0);
             assert(p == p0 || p == p1 || p == p2 || p == NULL);
         }
+        lpFree(lp);
     }
 
     TEST("Random pair with one element") {

@@ -28,6 +28,35 @@ start_server {tags {"modules"}} {
             assert_equal 3.141 [r rw.double 3.141]
         }
 
+        test "RESP$proto: RM_ReplyWithDouble: inf" {
+            if {$proto == 2} {
+                assert_equal "inf" [r rw.double inf]
+                assert_equal "-inf" [r rw.double -inf]
+            } else {
+                # TCL convert inf to different results on different platforms, e.g. inf on mac
+                # and Inf on others, so use readraw to verify the protocol
+                r readraw 1
+                assert_equal ",inf" [r rw.double inf]
+                assert_equal ",-inf" [r rw.double -inf]
+                r readraw 0
+            }
+        }
+
+        test "RESP$proto: RM_ReplyWithDouble: NaN" {
+            # On some platforms one of these can be -nan but we don't care since they are
+            # synonym, so here we match ignoring the sign
+            if {$proto == 2} {
+                assert_match "*nan" [r rw.double 0 0]
+                assert_match "*nan" [r rw.double]
+            } else {
+                # TCL won't convert nan into a double, use readraw to verify the protocol
+                r readraw 1
+                assert_match ",*nan" [r rw.double 0 0]
+                assert_match ",*nan" [r rw.double]
+                r readraw 0
+            }
+        }
+
         set ld 0.00000000000000001
         test "RESP$proto: RM_ReplyWithLongDouble: a float reply" {
             if {$proto == 2} {
