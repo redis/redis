@@ -233,6 +233,13 @@ robj *createQuicklistObject(void) {
     return o;
 }
 
+robj *createListListpackObject(void) {
+    unsigned char *lp = lpNew(0);
+    robj *o = createObject(OBJ_LIST,lp);
+    o->encoding = OBJ_ENCODING_LISTPACK;
+    return o;
+}
+
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType);
     robj *o = createObject(OBJ_SET,d);
@@ -302,6 +309,8 @@ void freeStringObject(robj *o) {
 void freeListObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistRelease(o->ptr);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        lpFree(o->ptr);
     } else {
         serverPanic("Unknown list encoding type");
     }
@@ -423,6 +432,8 @@ void dismissListObject(robj *o, size_t size_hint) {
                 node = node->next;
             }
         }
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
     } else {
         serverPanic("Unknown list encoding type");
     }
@@ -1005,6 +1016,8 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
                 samples++;
             } while ((node = node->next) && samples < sample_size);
             asize += (double)elesize/samples*ql->len;
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {
             serverPanic("Unknown list encoding");
         }

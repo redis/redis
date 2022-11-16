@@ -1775,42 +1775,40 @@ int rioWriteBulkObject(rio *r, robj *obj) {
 int rewriteListObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = listTypeLength(o);
 
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklist *list = o->ptr;
-        quicklistIter *li = quicklistGetIterator(list, AL_START_HEAD);
-        quicklistEntry entry;
-
-        while (quicklistNext(li,&entry)) {
-            if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
-                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
-                    !rioWriteBulkString(r,"RPUSH",5) ||
-                    !rioWriteBulkObject(r,key)) 
-                {
-                    quicklistReleaseIterator(li);
-                    return 0;
-                }
+    listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
+    listTypeEntry entry;
+    while (listTypeNext(li,&entry)) {
+        if (count == 0) {
+            int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
+                AOF_REWRITE_ITEMS_PER_CMD : items;
+            if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                !rioWriteBulkString(r,"RPUSH",5) ||
+                !rioWriteBulkObject(r,key)) 
+            {
+                listTypeReleaseIterator(li);
+                return 0;
             }
-
-            if (entry.value) {
-                if (!rioWriteBulkString(r,(char*)entry.value,entry.sz)) {
-                    quicklistReleaseIterator(li);
-                    return 0;
-                }
-            } else {
-                if (!rioWriteBulkLongLong(r,entry.longval)) {
-                    quicklistReleaseIterator(li);
-                    return 0;
-                }
-            }
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-            items--;
         }
-        quicklistReleaseIterator(li);
-    } else {
-        serverPanic("Unknown list encoding");
+
+        unsigned char *vstr;
+        size_t vlen;
+        long long lval;
+        vstr = listTypeGetValue(&entry,&vlen,&lval);
+        if (vstr) {
+            if (!rioWriteBulkString(r,(char*)vstr,vlen)) {
+                listTypeReleaseIterator(li);
+                return 0;
+            }
+        } else {
+            if (!rioWriteBulkLongLong(r,lval)) {
+                listTypeReleaseIterator(li);
+                return 0;
+            }
+        }
+        if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+        items--;
     }
+    listTypeReleaseIterator(li);
     return 1;
 }
 

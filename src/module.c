@@ -625,9 +625,7 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
 
     switch(type) {
     case REDISMODULE_KEYTYPE_LIST:
-        obj = createQuicklistObject();
-        quicklistSetOptions(obj->ptr, server.list_max_listpack_size,
-                            server.list_compress_depth);
+        obj = createListListpackObject();
         break;
     case REDISMODULE_KEYTYPE_ZSET:
         obj = createZsetListpackObject();
@@ -658,6 +656,14 @@ static void moduleFreeKeyIterator(RedisModuleKey *key) {
     default: serverAssert(0); /* No key->iter for other types. */
     }
     key->iter = NULL;
+}
+
+/* Callback for listTypeTryConversion().
+ * Frees list iterator and sets it to NULL. */
+static void moduleFreeListIterator(void *data) {
+    RedisModuleKey *key = (RedisModuleKey*)data;
+    serverAssert(key->value->type == OBJ_LIST);
+    if (key->iter) moduleFreeKeyIterator(key);
 }
 
 /* This function is called in low-level API implementation functions in order
@@ -4148,7 +4154,7 @@ int moduleListIteratorSeek(RedisModuleKey *key, long index, int mode) {
 
     /* Seek the iterator to the requested index. */
     unsigned char dir = key->u.list.index < index ? LIST_TAIL : LIST_HEAD;
-    listTypeSetIteratorDirection(key->iter, dir);
+    listTypeSetIteratorDirection(key->iter, &key->u.list.entry, dir);
     while (key->u.list.index != index) {
         serverAssert(listTypeNext(key->iter, &key->u.list.entry));
         key->u.list.index += dir == LIST_HEAD ? -1 : 1;
@@ -4183,6 +4189,7 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     if (key->value && key->value->type != OBJ_LIST) return REDISMODULE_ERR;
     if (key->iter) moduleFreeKeyIterator(key);
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_LIST);
+    listTypeTryConversionAppend(key->value, &ele, 0, 0, moduleFreeListIterator, key);
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     return REDISMODULE_OK;
@@ -4216,7 +4223,8 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     robj *decoded = getDecodedObject(ele);
     decrRefCount(ele);
-    moduleDelKeyIfEmpty(key);
+    if (!moduleDelKeyIfEmpty(key))
+        listTypeTryConversion(key->value, LIST_CONV_SHRINKING, moduleFreeListIterator, key);
     autoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,decoded);
     return decoded;
 }
@@ -4270,6 +4278,11 @@ int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
+    if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    }
+    listTypeTryConversionAppend(key->value, &value, 0, 0, moduleFreeListIterator, key);
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeReplace(&key->u.list.entry, value);
         /* A note in quicklist.c forbids use of iterator after insert, so
@@ -4315,6 +4328,7 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
         /* Insert before the first element => push head. */
         return RM_ListPush(key, REDISMODULE_LIST_HEAD, value);
     }
+    listTypeTryConversionAppend(key->value, &value, 0, 0, moduleFreeListIterator, key);
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         int where = index < 0 ? LIST_TAIL : LIST_HEAD;
         listTypeInsert(&key->u.list.entry, value, where);
@@ -4341,6 +4355,8 @@ int RM_ListDelete(RedisModuleKey *key, long index) {
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeDelete(key->iter, &key->u.list.entry);
         if (moduleDelKeyIfEmpty(key)) return REDISMODULE_OK;
+        listTypeTryConversion(key->value, LIST_CONV_SHRINKING, moduleFreeListIterator, key);
+        if (!key->iter) return REDISMODULE_OK; /* Return ASAP if iterator has been freed */
         if (listTypeNext(key->iter, &key->u.list.entry)) {
             /* After delete entry at position 'index', we need to update
              * 'key->u.list.index' according to the following cases:

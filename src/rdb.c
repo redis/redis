@@ -656,7 +656,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_STRING:
         return rdbSaveType(rdb,RDB_TYPE_STRING);
     case OBJ_LIST:
-        if (o->encoding == OBJ_ENCODING_QUICKLIST)
+        if (o->encoding == OBJ_ENCODING_QUICKLIST || o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb, RDB_TYPE_LIST_QUICKLIST_2);
         else
             serverPanic("Unknown list encoding");
@@ -828,6 +828,16 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 }
                 node = node->next;
             }
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            unsigned char *lp = o->ptr;
+
+            /* Save list listpack as a fake quicklist that only has a single node. */
+            if ((n = rdbSaveLen(rdb,1)) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveLen(rdb,QUICKLIST_NODE_CONTAINER_PACKED)) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveRawString(rdb,lp,lpBytes(lp))) == -1) return -1;
+            nwritten += n;
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -1802,6 +1812,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             decrRefCount(dec);
             decrRefCount(ele);
         }
+
+        listTypeTryConversion(o,LIST_CONV_AUTO,NULL,NULL);
     } else if (rdbtype == RDB_TYPE_SET) {
         /* Read Set value */
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
@@ -2173,6 +2185,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             decrRefCount(o);
             goto emptykey;
         }
+
+        listTypeTryConversion(o,LIST_CONV_AUTO,NULL,NULL);
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == RDB_TYPE_SET_INTSET   ||
