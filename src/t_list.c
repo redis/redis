@@ -674,6 +674,9 @@ void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long 
     listElementsRemoved(c, key, where, o, rangelen, signal, deleted);
 }
 
+/* Extracted from `addListRangeReply()` to reply with a quicklist list.
+ * Note that the purpose is to make the methods small so that the
+ * code in the loop can be inlined better to improve performance. */
 void addListQuicklistRangeReply(client *c, robj *o, int from, int rangelen, int reverse) {
     /* Return the result in form of a multi-bulk reply */
     addReplyArrayLen(c,rangelen);
@@ -692,6 +695,9 @@ void addListQuicklistRangeReply(client *c, robj *o, int from, int rangelen, int 
     quicklistReleaseIterator(iter);
 }
 
+/* Extracted from `addListRangeReply()` to reply with a listpack list.
+ * Note that the purpose is to make the methods small so that the
+ * code in the loop can be inlined better to improve performance. */
 void addListListpackRangeReply(client *c, robj *o, int from, int rangelen, int reverse) {
     unsigned char *p = lpSeek(o->ptr, from);
     unsigned char *vstr;
@@ -734,7 +740,6 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
     }
     if (end >= llen) end = llen-1;
     rangelen = (end-start)+1;
-
 
     int from = reverse ? end : start;
     if (o->encoding == OBJ_ENCODING_QUICKLIST)
