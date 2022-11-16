@@ -590,7 +590,7 @@ int swapUtilTest(int argc, char **argv, int accurate) {
         test_assert(expire == EXP);
         test_assert(version == V);
         test_assert(extlen == sdslen(EXT) && memcmp(extend,EXT,extlen) == 0);
-        sdsfree(rocksKey);
+        sdsfree(rocksVal);
 
         sdsfree(empty), sdsfree(key), sdsfree(EXT);
     }

@@ -634,9 +634,9 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
     int j;
 
     if (server.swap_mode != SWAP_MODE_MEMORY) {
-        if (target != NULL) holdKey(c->db,target,0);
+        if (target != NULL) dbHoldKey(c->db,target,0);
         for (j = 0; j < numkeys; j++) {
-            holdKey(c->db,keys[j],0);
+            dbHoldKey(c->db,keys[j],0);
         }
     }
 
@@ -691,11 +691,11 @@ void unblockClientWaitingData(client *c) {
 
     if (server.swap_mode != SWAP_MODE_MEMORY) {
         /* TODO see issues/17 for more detail. */
-        if (c->bpop.target) unholdKey(c->db,c->bpop.target);
+        if (c->bpop.target) dbUnholdKey(c->db,c->bpop.target);
 
         di = dictGetIterator(c->bpop.keys);
         while((de = dictNext(di)) != NULL) {
-            unholdKey(c->db,dictGetKey(de));
+            dbUnholdKey(c->db,dictGetKey(de));
         }
         dictReleaseIterator(di);
     }

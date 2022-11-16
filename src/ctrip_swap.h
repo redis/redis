@@ -1046,11 +1046,11 @@ void tryEvictKeyAsapLater(redisDb *db, robj *key);
 void evictCommand(client *c);
 int evictAsap();
 void debugEvictKeys();
-void holdKey(redisDb *db, robj *key, int64_t swap);
-void unholdKey(redisDb *db, robj *key);
-void clientHoldKey(client *c, robj *key, int64_t swap);
+void dbHoldKey(redisDb *db, robj *key, int64_t swap);
+void dbUnholdKey(redisDb *db, robj *key);
+void clientHoldKey(client *c, int dbid, robj *key, int64_t swap);
 void clientUnholdKeys(client *c);
-void clientUnholdKey(client *c, robj *key);
+void clientUnholdKey(client *c, int dbid, robj *key);
 
 /* Expire */
 int submitExpireClientRequest(client *c, robj *key, int force);
@@ -1521,6 +1521,7 @@ int swapFilterTest(int argc, char **argv, int accurate);
 int swapListMetaTest(int argc, char *argv[], int accurate);
 int swapListDataTest(int argc, char *argv[], int accurate);
 int swapListUtilsTest(int argc, char *argv[], int accurate);
+int swapHoldTest(int argc, char *argv[], int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 

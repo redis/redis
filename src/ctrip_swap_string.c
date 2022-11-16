@@ -42,9 +42,8 @@ objectMetaType wholekeyObjectMetaType = {
 };
 
 /* ------------------- whole key swap data ----------------------------- */
-int wholeKeySwapAna(swapData *data_, struct keyRequest *req,
+int wholeKeySwapAna(swapData *data, struct keyRequest *req,
         int *intention, uint32_t *intention_flags, void *datactx) {
-    wholeKeySwapData *data = (wholeKeySwapData*)data_;
     int cmd_intention = req->cmd_intention;
     uint32_t cmd_intention_flags = req->cmd_intention_flags;
 
@@ -56,7 +55,7 @@ int wholeKeySwapAna(swapData *data_, struct keyRequest *req,
         *intention_flags = 0;
         break;
     case SWAP_IN:
-        if (!data->d.value) {
+        if (!data->value) {
             *intention = SWAP_IN;
             if ((cmd_intention_flags & SWAP_IN_DEL) ||
                     (cmd_intention_flags & SWAP_IN_DEL_MOCK_VALUE)) {
@@ -64,7 +63,7 @@ int wholeKeySwapAna(swapData *data_, struct keyRequest *req,
             } else {
                 *intention_flags = 0;
             }
-        } else if (data->d.value) {
+        } else if (data->value) {
             if ((cmd_intention_flags & SWAP_IN_DEL) ||
                     (cmd_intention_flags & SWAP_IN_DEL_MOCK_VALUE)) {
                 *intention = SWAP_DEL;
@@ -79,14 +78,14 @@ int wholeKeySwapAna(swapData *data_, struct keyRequest *req,
         }
         break;
     case SWAP_OUT:
-        if (data->d.value) {
-            if (data->d.value->dirty) {
+        if (data->value) {
+            if (data->value->dirty) {
                 *intention = SWAP_OUT;
                 *intention_flags = SWAP_EXEC_OUT_META;
             } else {
                 /* Not dirty: swapout right away without swap. */
-                swapDataTurnCold(data_);
-                swapDataSwapOut(data_, NULL);
+                swapDataTurnCold(data);
+                swapDataSwapOut(data, NULL);
                 *intention = SWAP_NOP;
                 *intention_flags = 0;
             }
@@ -201,13 +200,12 @@ static robj *createSwapInObject(MOVE robj *newval) {
     return swapin;
 }
 
-int wholeKeySwapIn(swapData *data_, MOVE void *result, void *datactx) {
-    wholeKeySwapData *data = (wholeKeySwapData*)data_;
+int wholeKeySwapIn(swapData *data, MOVE void *result, void *datactx) {
     UNUSED(datactx);
     robj *swapin;
-    serverAssert(data->d.value == NULL);
+    serverAssert(data->value == NULL);
     swapin = createSwapInObject(result);
-    dbAdd(data->d.db,data->d.key,swapin);
+    dbAdd(data->db,data->key,swapin);
     return 0;
 }
 

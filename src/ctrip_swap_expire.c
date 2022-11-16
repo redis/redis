@@ -31,11 +31,12 @@
 /* Passive expire */
 void expireClientKeyRequestFinished(client *c, swapCtx *ctx) {
     robj *key = ctx->key_request->key;
+    int dbid = ctx->key_request->dbid;
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
     incrRefCount(key);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c,key);
+    clientUnholdKey(c,dbid,key);
     clientReleaseRequestLocks(c,ctx);
     decrRefCount(key);
 }
@@ -204,11 +205,12 @@ void scanExpireEmpty(scanExpire *scan_expire) {
 void metaScan4ScanExpireRequestFinished(client *c, swapCtx *ctx) {
     UNUSED(ctx);
     robj *key = ctx->key_request->key;
+    int dbid = ctx->key_request->dbid;
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
     incrRefCount(key);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c,key);
+    clientUnholdKey(c,dbid,key);
     clientReleaseRequestLocks(c,ctx);
     decrRefCount(key);
 }
@@ -404,9 +406,9 @@ list *slave_expiring_keys = NULL;
  * multiple times if key is cold. */ 
 void slaveExpireClientKeyRequestFinished(client *c, swapCtx *ctx) {
     redisDb *db = c->db;
-    int dbid = db->id;
     uint64_t dbids;
     robj *key = ctx->key_request->key;
+    int dbid = ctx->key_request->dbid;
     long long expire = getExpire(db,key);
     dictEntry *dbids_entry = dictFind(slaveKeysWithExpire,key->ptr);
 
@@ -439,7 +441,7 @@ void slaveExpireClientKeyRequestFinished(client *c, swapCtx *ctx) {
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c,key);
+    clientUnholdKey(c,dbid,key);
     clientReleaseRequestLocks(c,ctx);
     decrRefCount(key);
 }

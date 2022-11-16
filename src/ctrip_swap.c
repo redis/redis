@@ -275,8 +275,6 @@ void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
             "key=%s, keyrequests_count=%d, errcode=%d",
             key?(sds)key->ptr:"<nil>", c->keyrequests_count, ctx->errcode);
     c->keyrequests_count--;
-    /* if (c->cmd->proc != evictCommand) */
-        /* serverLog(LL_WARNING,"< client:%ld, cmd:%s key:%s",c->id, c->cmd->name, key? (sds)key->ptr:"nil"); */
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
     keyRequestBeforeCall(c,ctx);
     if (c->keyrequests_count == 0) {
@@ -332,7 +330,7 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
     uint32_t swap_intention_flags;
     long long expire;
     uint32_t cmd_intention_flags = ctx->key_request->cmd_intention_flags;
-    UNUSED(reason), UNUSED(c);
+    UNUSED(reason);
     
 #ifdef SWAP_DEBUG
     msgs = &ctx->msgs;
@@ -349,7 +347,7 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
 
 	/* handle metascan request. */
     if (isMetaScanRequest(cmd_intention_flags)) {
-        data = createSwapData(c->db,NULL,NULL);
+        data = createSwapData(db,NULL,NULL);
         retval = swapDataSetupMetaScan(data,cmd_intention_flags,c,&datactx);
         swapCtxSetSwapData(ctx,data,datactx);
         if (retval) {
@@ -446,19 +444,18 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
     for (int i = 0; i < result->num; i++) {
         void *msgs = NULL;
         keyRequest *key_request = result->key_requests + i;
-        redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
+        redisDb *db = key_request->level == REQUEST_LEVEL_SVR ?
+            NULL : server.db + key_request->dbid;
         robj *key = key_request->key;
-        swapCtx *ctx = swapCtxCreate(c,key_request,cb); /*key_request moved.*/
+        swapCtx *ctx = swapCtxCreate(c,key_request,cb);
 
-        if (key) clientHoldKey(c,key,0);
+        if (key) clientHoldKey(c,key_request->dbid,key,0);
 #ifdef SWAP_DEBUG
         msgs = &ctx->msgs;
 #endif
         DEBUG_MSGS_APPEND(&ctx->msgs,"request-wait", "key=%s",
                 key ? (sds)key->ptr : "<nil>");
 
-        /* if (c->cmd->proc != evictCommand) */
-            /* serverLog(LL_WARNING,"> client:%ld cmd:%s key:%s",c->id, c->cmd->name,key?(sds)key->ptr:"nil"); */
         requestGetIOAndLock(txid,db,key,keyRequestProceed,c,ctx,
                 (freefunc)swapCtxFree,msgs);
     }
@@ -660,6 +657,7 @@ int swapTest(int argc, char **argv, int accurate) {
   /* result += swapListMetaTest(argc, argv, accurate);
   result += swapListDataTest(argc, argv, accurate);
   result += swapListUtilsTest(argc, argv, accurate); */
+  result += swapHoldTest(argc, argv, accurate);
   return result;
 }
 #endif
