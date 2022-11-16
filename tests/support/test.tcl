@@ -103,8 +103,21 @@ proc assert_type {type key} {
 }
 
 proc assert_refcount {ref key} {
+    if {[lsearch $::denytags "needs:debug"] >= 0} {
+        return
+    }
+
     set val [r object refcount $key]
     assert_equal $ref $val
+}
+
+proc assert_refcount_morethan {key ref} {
+    if {[lsearch $::denytags "needs:debug"] >= 0} {
+        return
+    }
+
+    set val [r object refcount $key]
+    assert_morethan $val $ref
 }
 
 # Wait for the specified condition to be true, with the specified number of
