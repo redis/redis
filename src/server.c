@@ -4363,6 +4363,62 @@ typedef struct replyFlagNames {
     const char *name;
 } replyFlagNames;
 
+replyFlagNames commandFlags[] = {
+  {CMD_WRITE,             "write"},
+  {CMD_READONLY,          "readonly"},
+  {CMD_DENYOOM,           "denyoom"},
+  {CMD_MODULE,            "module"},
+  {CMD_ADMIN,             "admin"},
+  {CMD_PUBSUB,            "pubsub"},
+  {CMD_NOSCRIPT,          "noscript"},
+  {CMD_BLOCKING,          "blocking"},
+  {CMD_LOADING,           "loading"},
+  {CMD_STALE,             "stale"},
+  {CMD_SKIP_MONITOR,      "skip_monitor"},
+  {CMD_SKIP_SLOWLOG,      "skip_slowlog"},
+  {CMD_ASKING,            "asking"},
+  {CMD_FAST,              "fast"},
+  {CMD_NO_AUTH,           "no_auth"},
+  /* {CMD_MAY_REPLICATE,     "may_replicate"},, Hidden on purpose */
+  /* {CMD_SENTINEL,          "sentinel"}, Hidden on purpose */
+  /* {CMD_ONLY_SENTINEL,     "only_sentinel"}, Hidden on purpose */
+  {CMD_NO_MANDATORY_KEYS, "no_mandatory_keys"},
+  /* {CMD_PROTECTED,         "protected"}, Hidden on purpose */
+  {CMD_NO_ASYNC_LOADING,  "no_async_loading"},
+  {CMD_NO_MULTI,          "no_multi"},
+  {CMD_MOVABLE_KEYS,      "movablekeys"},
+  {CMD_ALLOW_BUSY,        "allow_busy"},
+  {0,NULL}
+};
+
+replyFlagNames docFlags[] = {
+  {CMD_DOC_DEPRECATED,         "deprecated"},
+  {CMD_DOC_SYSCMD,             "syscmd"},
+  {0,NULL}
+};
+
+replyFlagNames keyArgsFlags[] = {
+  {CMD_KEY_RO,              "RO"},
+  {CMD_KEY_RW,              "RW"},
+  {CMD_KEY_OW,              "OW"},
+  {CMD_KEY_RM,              "RM"},
+  {CMD_KEY_ACCESS,          "access"},
+  {CMD_KEY_UPDATE,          "update"},
+  {CMD_KEY_INSERT,          "insert"},
+  {CMD_KEY_DELETE,          "delete"},
+  {CMD_KEY_NOT_KEY,         "not_key"},
+  {CMD_KEY_INCOMPLETE,      "incomplete"},
+  {CMD_KEY_VARIABLE_FLAGS,  "variable_flags"},
+  {0,NULL}
+};
+
+replyFlagNames argFlags[] = {
+  {CMD_ARG_OPTIONAL,          "optional"},
+  {CMD_ARG_MULTIPLE,          "multiple"},
+  {CMD_ARG_MULTIPLE_TOKEN,    "multiple_token"},
+  {0,NULL}
+};
+
 /* Helper function to output flags. */
 void addReplyCommandFlags(client *c, uint64_t flags, replyFlagNames *replyFlags) {
     int count = 0, j=0;
@@ -4382,64 +4438,6 @@ void addReplyCommandFlags(client *c, uint64_t flags, replyFlagNames *replyFlags)
     }
 }
 
-void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
-    replyFlagNames flagNames[] = {
-        {CMD_WRITE,             "write"},
-        {CMD_READONLY,          "readonly"},
-        {CMD_DENYOOM,           "denyoom"},
-        {CMD_MODULE,            "module"},
-        {CMD_ADMIN,             "admin"},
-        {CMD_PUBSUB,            "pubsub"},
-        {CMD_NOSCRIPT,          "noscript"},
-        {CMD_BLOCKING,          "blocking"},
-        {CMD_LOADING,           "loading"},
-        {CMD_STALE,             "stale"},
-        {CMD_SKIP_MONITOR,      "skip_monitor"},
-        {CMD_SKIP_SLOWLOG,      "skip_slowlog"},
-        {CMD_ASKING,            "asking"},
-        {CMD_FAST,              "fast"},
-        {CMD_NO_AUTH,           "no_auth"},
-        /* {CMD_MAY_REPLICATE,     "may_replicate"},, Hidden on purpose */
-        /* {CMD_SENTINEL,          "sentinel"}, Hidden on purpose */
-        /* {CMD_ONLY_SENTINEL,     "only_sentinel"}, Hidden on purpose */
-        {CMD_NO_MANDATORY_KEYS, "no_mandatory_keys"},
-        /* {CMD_PROTECTED,         "protected"}, Hidden on purpose */
-        {CMD_NO_ASYNC_LOADING,  "no_async_loading"},
-        {CMD_NO_MULTI,          "no_multi"},
-        {CMD_MOVABLE_KEYS,      "movablekeys"},
-        {CMD_ALLOW_BUSY,        "allow_busy"},
-        {0,NULL}
-    };
-    addReplyCommandFlags(c, cmd->flags, flagNames);
-}
-
-void addReplyDocFlagsForCommand(client *c, struct redisCommand *cmd) {
-    replyFlagNames docFlagNames[] = {
-        {CMD_DOC_DEPRECATED,         "deprecated"},
-        {CMD_DOC_SYSCMD,             "syscmd"},
-        {0,NULL}
-    };
-    addReplyCommandFlags(c, cmd->doc_flags, docFlagNames);
-}
-
-void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
-    replyFlagNames docFlagNames[] = {
-        {CMD_KEY_RO,              "RO"},
-        {CMD_KEY_RW,              "RW"},
-        {CMD_KEY_OW,              "OW"},
-        {CMD_KEY_RM,              "RM"},
-        {CMD_KEY_ACCESS,          "access"},
-        {CMD_KEY_UPDATE,          "update"},
-        {CMD_KEY_INSERT,          "insert"},
-        {CMD_KEY_DELETE,          "delete"},
-        {CMD_KEY_NOT_KEY,         "not_key"},
-        {CMD_KEY_INCOMPLETE,      "incomplete"},
-        {CMD_KEY_VARIABLE_FLAGS,  "variable_flags"},
-        {0,NULL}
-    };
-    addReplyCommandFlags(c, flags, docFlagNames);
-}
-
 /* Must match redisCommandArgType */
 const char *ARG_TYPE_STR[] = {
     "string",
@@ -4452,16 +4450,6 @@ const char *ARG_TYPE_STR[] = {
     "oneof",
     "block",
 };
-
-void addReplyFlagsForArg(client *c, uint64_t flags) {
-    replyFlagNames argFlagNames[] = {
-        {CMD_ARG_OPTIONAL,          "optional"},
-        {CMD_ARG_MULTIPLE,          "multiple"},
-        {CMD_ARG_MULTIPLE_TOKEN,    "multiple_token"},
-        {0,NULL}
-    };
-    addReplyCommandFlags(c, flags, argFlagNames);
-}
 
 void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_args) {
     addReplyArrayLen(c, num_args);
@@ -4514,7 +4502,7 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
         }
         if (args[j].flags) {
             addReplyBulkCString(c, "flags");
-            addReplyFlagsForArg(c, args[j].flags);
+            addReplyCommandFlags(c, args[j].flags, argFlags);
         }
         if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
             addReplyBulkCString(c, "arguments");
@@ -4578,7 +4566,7 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
         }
 
         addReplyBulkCString(c, "flags");
-        addReplyFlagsForKeyArgs(c,cmd->key_specs[i].flags);
+        addReplyCommandFlags(c, cmd->key_specs[i].flags, keyArgsFlags);
 
         addReplyBulkCString(c, "begin_search");
         switch (cmd->key_specs[i].begin_search_type) {
@@ -4721,7 +4709,7 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
         addReplyArrayLen(c, 10);
         addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
         addReplyLongLong(c, cmd->arity);
-        addReplyFlagsForCommand(c, cmd);
+        addReplyCommandFlags(c, cmd->flags, commandFlags);
         addReplyLongLong(c, firstkey);
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
@@ -4771,7 +4759,7 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     }
     if (cmd->doc_flags) {
         addReplyBulkCString(c, "doc_flags");
-        addReplyDocFlagsForCommand(c, cmd);
+        addReplyCommandFlags(c, cmd->doc_flags, docFlags);
     }
     if (cmd->deprecated_since) {
         addReplyBulkCString(c, "deprecated_since");
@@ -4828,7 +4816,7 @@ void getKeysSubcommandImpl(client *c, int with_flags) {
             } else {
                 addReplyArrayLen(c,2);
                 addReplyBulk(c,c->argv[result.keys[j].pos+2]);
-                addReplyFlagsForKeyArgs(c,result.keys[j].flags);
+                addReplyCommandFlags(c, result.keys[j].flags, keyArgsFlags);
             }
         }
     }
