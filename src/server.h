@@ -91,6 +91,9 @@ typedef struct redisObject robj;
 #include "endianconv.h"
 #include "crc64.h"
 
+/* helpers */
+#define numElements(x) (sizeof(x)/sizeof((x)[0]))
+
 /* min/max */
 #undef min
 #undef max
@@ -3301,6 +3304,7 @@ uint64_t dictSdsCaseHash(const void *key);
 int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
 int dictSdsKeyCaseCompare(dict *d, const void *key1, const void *key2);
 void dictSdsDestructor(dict *d, void *val);
+void dictListDestructor(dict *d, void *val);
 void *dictSdsDup(dict *d, const void *key);
 
 /* Git SHA1 */
