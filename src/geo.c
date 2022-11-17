@@ -210,33 +210,22 @@ void addReplyDoubleDistance(client *c, double d) {
 }
 
 /* Helper function for geoGetPointsInRange(): given a sorted set score
- * representing a point, and a GeoShape, appends this entry as a geoPoint
- * into the specified geoArray only if the point is within the search area.
+ * representing a point, and a GeoShape, checks if the point is within the search area.
  *
- * returns C_OK if the point is included, or C_ERR if it is outside. */
-int geoAppendIfWithinShape(geoArray *ga, GeoShape *shape, double score, sds member) {
-    double distance = 0, xy[2];
-
+ * returns C_OK if the point is within search area, or C_ERR if it is outside. */
+int geoWithinShape(GeoShape *shape, double score, double *xy, double *distance) {
     if (!decodeGeohash(score,xy)) return C_ERR; /* Can't decode. */
     /* Note that geohashGetDistanceIfInRadiusWGS84() takes arguments in
      * reverse order: longitude first, latitude later. */
     if (shape->type == CIRCULAR_TYPE) {
         if (!geohashGetDistanceIfInRadiusWGS84(shape->xy[0], shape->xy[1], xy[0], xy[1],
-                                               shape->t.radius*shape->conversion, &distance)) return C_ERR;
+                                               shape->t.radius*shape->conversion, distance)) return C_ERR;
     } else if (shape->type == RECTANGLE_TYPE) {
         if (!geohashGetDistanceIfInRectangle(shape->t.r.width * shape->conversion,
                                              shape->t.r.height * shape->conversion,
-                                             shape->xy[0], shape->xy[1], xy[0], xy[1], &distance))
+                                             shape->xy[0], shape->xy[1], xy[0], xy[1], distance))
             return C_ERR;
     }
-
-    /* Append the new element. */
-    geoPoint *gp = geoArrayAppend(ga);
-    gp->longitude = xy[0];
-    gp->latitude = xy[1];
-    gp->dist = distance;
-    gp->member = member;
-    gp->score = score;
     return C_OK;
 }
 
@@ -257,8 +246,6 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
     /* That's: min <= val < max */
     zrangespec range = { .min = min, .max = max, .minex = 0, .maxex = 1 };
     size_t origincount = ga->used;
-    sds member;
-
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
@@ -274,6 +261,8 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
 
         sptr = lpNext(zl, eptr);
         while (eptr) {
+            double xy[2];
+            double distance = 0;
             score = zzlGetScore(sptr);
 
             /* If we fell out of range, break. */
@@ -281,10 +270,17 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
                 break;
 
             vstr = lpGetValue(eptr, &vlen, &vlong);
-            member = (vstr == NULL) ? sdsfromlonglong(vlong) :
-                                      sdsnewlen(vstr,vlen);
-            if (geoAppendIfWithinShape(ga,shape,score,member)
-                == C_ERR) sdsfree(member);
+            if (geoWithinShape(shape,score, xy, &distance)
+                == C_OK) {
+                /* Append the new element. */
+                geoPoint *gp = geoArrayAppend(ga);
+                gp->longitude = xy[0];
+                gp->latitude = xy[1];
+                gp->dist = distance;
+                gp->member = (vstr == NULL) ? sdsfromlonglong(vlong) :
+                         sdsnewlen(vstr,vlen);
+                gp->score = score;
+            }
             if (ga->used && limit && ga->used >= limit) break;
             zzlNext(zl, &eptr, &sptr);
         }
@@ -299,14 +295,21 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
         }
 
         while (ln) {
-            sds ele = ln->ele;
+            double xy[2];
+            double distance = 0;
             /* Abort when the node is no longer in range. */
             if (!zslValueLteMax(ln->score, &range))
                 break;
-
-            ele = sdsdup(ele);
-            if (geoAppendIfWithinShape(ga,shape,ln->score,ele)
-                == C_ERR) sdsfree(ele);
+            if (geoWithinShape(shape,ln->score, xy, &distance)
+                == C_OK) {
+                /* Append the new element. */
+                geoPoint *gp = geoArrayAppend(ga);
+                gp->longitude = xy[0];
+                gp->latitude = xy[1];
+                gp->dist = distance;
+                gp->member = sdsdup(ln->ele);
+                gp->score = ln->score;
+            }
             if (ga->used && limit && ga->used >= limit) break;
             ln = ln->level[0].forward;
         }
