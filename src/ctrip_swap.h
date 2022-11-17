@@ -1238,13 +1238,13 @@ typedef struct rocksIter{
     redisDb *db;
     struct rocks *rocks;
     pthread_t io_thread;
-    int io_thread_exited;
-    pthread_mutex_t io_thread_exit_mutex;
     bufferedIterCompleteQueue *buffered_cq;
     rocksdb_column_family_handle_t *cf_handles[CF_COUNT];
     rocksdb_iterator_t *data_iter;
     rocksdb_iterator_t *meta_iter;
     rocksdb_t* checkpoint_db;
+    sds data_endkey;
+    sds meta_endkey;
 } rocksIter;
 
 rocksIter *rocksCreateIter(struct rocks *rocks, redisDb *db);
@@ -1438,6 +1438,8 @@ sds rocksEncodeObjectMetaLen(unsigned long len);
 long rocksDecodeObjectMetaLen(const char *raw, size_t rawlen);
 sds encodeMetaScanKey(unsigned long cursor, int limit, sds seek);
 int decodeMetaScanKey(sds meta_scan_key, unsigned long *cursor, int *limit, const char **seek, size_t *seeklen);
+sds rocksEncodeDbRangeStartKey(int dbid);
+sds rocksEncodeDbRangeEndKey(int dbid);
 
 #define sizeOfDouble (BYTE_ORDER == BIG_ENDIAN? sizeof(double):8)
 int encodeDouble(char* buf, double value);

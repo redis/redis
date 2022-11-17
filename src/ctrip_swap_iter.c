@@ -113,6 +113,15 @@ static inline void iterResultInit(iterResult *result,
 
 #define ITER_RATE_LIMIT_INTERVAL_MS 100
 
+static inline int rocksdbIterValid(rocksdb_iterator_t *iter, sds endkey) {
+    const char *rawkey;
+    size_t rklen, len;
+    if (!rocksdb_iter_valid(iter)) return 0;
+    rawkey = rocksdb_iter_key(iter,&rklen);
+    len = rklen < sdslen(endkey) ? rklen : sdslen(endkey);
+    return memcmp(endkey,rawkey,len) > 0;
+}
+
 void *rocksIterIOThreadMain(void *arg) {
     rocksIter *it = arg;
     size_t meta_itered = 0, data_itered = 0, accumulated_memory = 0;
@@ -134,8 +143,8 @@ void *rocksIterIOThreadMain(void *arg) {
                   *data_rawkey = NULL, *data_rawval = NULL;
             size_t meta_rklen, meta_rvlen, data_rklen, data_rvlen;
 
-            meta_valid = rocksdb_iter_valid(it->meta_iter);
-            data_valid = rocksdb_iter_valid(it->data_iter);
+            meta_valid = rocksdbIterValid(it->meta_iter,it->meta_endkey);
+            data_valid = rocksdbIterValid(it->data_iter,it->data_endkey);
             if (!meta_valid && !data_valid) {
                 rocksIterNotifyFinshed(it);
                 serverLog(LL_WARNING,
@@ -219,10 +228,6 @@ void *rocksIterIOThreadMain(void *arg) {
             }
         }
     }
-
-    pthread_mutex_lock(&it->io_thread_exit_mutex);
-    it->io_thread_exited = 1;
-    pthread_mutex_unlock(&it->io_thread_exit_mutex);
 
     serverLog(LL_WARNING, "Rocks iter thread exit.");
 
@@ -323,8 +328,8 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
         goto err;
     }
 
-    data_start_key = rocksEncodeDataKey(db,NULL,0,NULL);
-    meta_start_key = rocksEncodeMetaKey(db,NULL);
+    data_start_key = rocksEncodeDbRangeStartKey(db->id);
+    meta_start_key = rocksEncodeDbRangeStartKey(db->id);
     rocksdb_iter_seek(data_iter,data_start_key,sdslen(data_start_key));
     rocksdb_iter_seek(meta_iter,meta_start_key,sdslen(meta_start_key));
     sdsfree(data_start_key);
@@ -332,13 +337,12 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
 
     it->data_iter = data_iter;
     it->meta_iter = meta_iter;
+    it->data_endkey = rocksEncodeDbRangeEndKey(db->id);
+    it->meta_endkey = rocksEncodeDbRangeEndKey(db->id);
 
     it->buffered_cq = bufferedIterCompleteQueueNew(ITER_BUFFER_CAPACITY_DEFAULT);
 
-    pthread_mutex_init(&it->io_thread_exit_mutex, NULL);
-    it->io_thread_exited = 0;
     if ((error = pthread_create(&it->io_thread, NULL, rocksIterIOThreadMain, it))) {
-        it->io_thread_exited = 1;
         serverLog(LL_WARNING, "Create rocksdb iterator thread failed: %s.", strerror(error));
         goto err;
     }
@@ -400,24 +404,17 @@ void rocksReleaseIter(rocksIter *it) {
 
     if (it == NULL) return;
 
-    pthread_mutex_lock(&it->io_thread_exit_mutex);
-    if (!it->io_thread_exited) {
-        if (it->io_thread) {
-            if (pthread_cancel(it->io_thread) == 0) {
-                if ((err = pthread_join(it->io_thread, NULL)) != 0) {
-                    serverLog(LL_WARNING, "Iter io thread can't be joined: %s",
-                            strerror(err));
-                } else {
-                    serverLog(LL_WARNING, "Iter io thread terminated.");
-                }
+    if (it->io_thread) {
+        if (pthread_cancel(it->io_thread) == 0) {
+            if ((err = pthread_join(it->io_thread, NULL)) != 0) {
+                serverLog(LL_WARNING, "Iter io thread can't be joined: %s",
+                        strerror(err));
+            } else {
+                serverLog(LL_WARNING, "Iter io thread terminated.");
             }
-            it->io_thread = 0;
         }
-        it->io_thread_exited = 1;
+        it->io_thread = 0;
     }
-    pthread_mutex_unlock(&it->io_thread_exit_mutex);
-
-    pthread_mutex_destroy(&it->io_thread_exit_mutex);
 
     if (it->buffered_cq) {
         bufferedIterCompleteQueueFree(it->buffered_cq);
@@ -438,6 +435,16 @@ void rocksReleaseIter(rocksIter *it) {
     if (it->meta_iter) {
         rocksdb_iter_destroy(it->meta_iter);
         it->meta_iter = NULL;
+    }
+
+    if (it->data_endkey) {
+        sdsfree(it->data_endkey);
+        it->data_endkey = NULL;
+    }
+
+    if (it->meta_endkey) {
+        sdsfree(it->meta_endkey);
+        it->meta_endkey = NULL;
     }
 
     if (it->checkpoint_db != NULL) {
@@ -470,29 +477,80 @@ void dbg_rocksdb_put_cf(
     rocksdb_put_cf(db,options,column_family,key,keylen,val,vallen,errptr);
 }
 
-#define PUT_META(object_type,key_,expire) do {              \
+#define PUT_META(redisdb,object_type,key_,expire) do {      \
     char *err = NULL;                                       \
-    sds keysds = rocksEncodeMetaKey(db, key_);              \
+    sds keysds = rocksEncodeMetaKey(redisdb, key_);         \
     sds valsds = rocksEncodeMetaVal(object_type,expire,0,NULL);\
     rocksdb_put_cf(server.rocks->db,server.rocks->wopts,    \
             server.rocks->cf_handles[META_CF],              \
             keysds,sdslen(keysds),valsds,sdslen(valsds),&err);\
     serverAssert(err == NULL);                              \
+    sdsfree(keysds), sdsfree(valsds);                       \
 } while (0)
 
-#define PUT_DATA(key_,subkey_,val_) do {                    \
+#define PUT_DATA(redisdb,key_,subkey_,val_) do {           \
     char *err = NULL;                                       \
-    sds keysds = rocksEncodeDataKey(db,key_,0,subkey_);     \
+    sds keysds = rocksEncodeDataKey(redisdb,key_,0,subkey_);\
     sds valsds = rocksEncodeValRdb(val_);                   \
     rocksdb_put_cf(server.rocks->db,server.rocks->wopts,    \
             server.rocks->cf_handles[DATA_CF],              \
             keysds,sdslen(keysds),valsds,sdslen(valsds),&err);\
     serverAssert(err == NULL);                              \
+    sdsfree(keysds), sdsfree(valsds);                       \
 } while (0)
 
 int doRocksdbFlush();
 void initServerConfig(void);
 int rdbSaveRocksIterDecode(rocksIter *it, decodedResult *decoded, rdbSaveRocksStats *stats);
+
+void prepareDataForDb(redisDb *db) {
+    sds ha = sdsnew("ha"), h = sdsnew("h"), field_a = sdsnew("a");
+    robj *val = createStringObject("val", 4);
+
+    PUT_META(db,OBJ_STRING,ha,-1);
+    PUT_DATA(db,ha,NULL,val);
+    PUT_META(db,OBJ_HASH,h,-1);
+    PUT_DATA(db,h,field_a,val);
+
+    sdsfree(ha), sdsfree(h), sdsfree(field_a);
+    decrRefCount(val);
+}
+
+void validateRocksIterForDb(redisDb *db) {
+    decodedResult decoded_ = {0}, *decoded = &decoded_;
+    rocksIter *it = rocksCreateIter(server.rocks,db);
+    rdbSaveRocksStats stats_ = {0}, *stats = &stats_;
+    sds ha = sdsnew("ha"), h = sdsnew("h"), field_a = sdsnew("a");
+
+    serverAssert(rocksIterSeekToFirst(it));
+    rdbSaveRocksIterDecode(it,decoded,stats);
+    serverAssert(decoded->cf == META_CF);
+    serverAssert(!sdscmp(decoded->key,h));
+    decodedResultDeinit(decoded);
+
+    serverAssert(rocksIterNext(it));
+    rdbSaveRocksIterDecode(it,decoded,stats);
+    serverAssert(decoded->cf == DATA_CF);
+    serverAssert(!sdscmp(decoded->key, h));
+    decodedResultDeinit(decoded);
+
+    serverAssert(rocksIterNext(it));
+    rdbSaveRocksIterDecode(it,decoded,stats);
+    serverAssert(decoded->cf == META_CF);
+    serverAssert(!sdscmp(decoded->key, ha));
+    decodedResultDeinit(decoded);
+
+    serverAssert(rocksIterNext(it));
+    rdbSaveRocksIterDecode(it,decoded,stats);
+    serverAssert(decoded->cf == DATA_CF);
+    serverAssert(!sdscmp(decoded->key, ha));
+    decodedResultDeinit(decoded);
+
+    serverAssert(!rocksIterNext(it));
+
+    rocksReleaseIter(it);
+    sdsfree(ha), sdsfree(h), sdsfree(field_a);
+}
 
 int swapIterTest(int argc, char *argv[], int accurate) {
     UNUSED(argc), UNUSED(argv), UNUSED(accurate);
@@ -500,13 +558,8 @@ int swapIterTest(int argc, char *argv[], int accurate) {
     int error = 0;
     server.hz = 10;
 
-    sds ha = sdsnew("ha"), h = sdsnew("h"), field_a = sdsnew("a");
-    robj *val = createStringObject("val", 4);
-    rdbSaveRocksStats stats_ = {0}, *stats = &stats_;
-    decodedResult decoded_ = {0}, *decoded = &decoded_;
-
     initTestRedisDb();
-    redisDb *db = server.db;
+    redisDb *db = server.db, *db1 = server.db+1;
 
     TEST("iter: init") {
         initServerConfig();
@@ -515,35 +568,17 @@ int swapIterTest(int argc, char *argv[], int accurate) {
     }
 
     TEST("iter: basic") {
-        PUT_META(OBJ_STRING,ha,-1);
-        PUT_DATA(ha,NULL,val);
-        PUT_META(OBJ_HASH,h,-1);
-        PUT_DATA(h,field_a,val);
+        prepareDataForDb(db);
         doRocksdbFlush();
+        validateRocksIterForDb(db);
+    }
 
-        rocksIter *it = rocksCreateIter(server.rocks,db);
-        serverAssert(rocksIterSeekToFirst(it));
-        rdbSaveRocksIterDecode(it,decoded,stats);
-        serverAssert(decoded->cf == META_CF);
-        serverAssert(!sdscmp(decoded->key,h));
-        decodedResultDeinit(decoded);
-
-        serverAssert(rocksIterNext(it));
-        rdbSaveRocksIterDecode(it,decoded,stats);
-        serverAssert(decoded->cf == DATA_CF);
-        serverAssert(!sdscmp(decoded->key, h));
-
-        serverAssert(rocksIterNext(it));
-        rdbSaveRocksIterDecode(it,decoded,stats);
-        serverAssert(decoded->cf == META_CF);
-        serverAssert(!sdscmp(decoded->key, ha));
-
-        serverAssert(rocksIterNext(it));
-        rdbSaveRocksIterDecode(it,decoded,stats);
-        serverAssert(decoded->cf == DATA_CF);
-        serverAssert(!sdscmp(decoded->key, ha));
-
-        serverAssert(!rocksIterNext(it));
+    TEST("iter: multi db") {
+        prepareDataForDb(db);
+        prepareDataForDb(db1);
+        doRocksdbFlush();
+        validateRocksIterForDb(db);
+        validateRocksIterForDb(db1);
     }
 
     return error;

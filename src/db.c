@@ -768,14 +768,6 @@ void selectCommand(client *c) {
         return;
     }
 
-    if (server.swap_mode != SWAP_MODE_MEMORY)  {
-        /* currently only db 0 are supported in swap/disk mode. */
-        if (id != 0) {
-            addReplyError(c,"DB index is out of range");
-            return;
-        }
-    }
-
     if (selectDb(c,id) == C_ERR) {
         addReplyError(c,"DB index is out of range");
     } else {

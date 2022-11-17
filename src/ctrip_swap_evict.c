@@ -133,8 +133,10 @@ void clientUnholdKeys(client *c) {
         int dbid = 0;
 
         while (dbids && dbid < server.dbnum) {
-            redisDb *db = server.db+dbid;
-            dbUnholdKey(db,key);
+            if ((dbids & 1) != 0) {
+                redisDb *db = server.db+dbid;
+                dbUnholdKey(db,key);
+            }
             dbid++;
             dbids >>= 1;
         }
@@ -411,6 +413,10 @@ int swapHoldTest(int argc, char *argv[], int accurate) {
         test_assert(!keyIsHolded(db1,key1));
         dbUnholdKey(db1,key2);
         test_assert(!keyIsHolded(db1,key2));
+
+        test_assert(dictSize(c->hold_keys) == 0);
+        test_assert(dictSize(db1->hold_keys) == 0);
+        test_assert(dictSize(db2->hold_keys) == 0);
     }
 
     TEST("hold: client hold & unhold key") {
@@ -430,7 +436,38 @@ int swapHoldTest(int argc, char *argv[], int accurate) {
 
         clientUnholdKey(c,0,key1);
         test_assert(!keyIsHolded(db1,key1));
+
         test_assert(dictSize(c->hold_keys) == 0);
+        test_assert(dictSize(db1->hold_keys) == 0);
+        test_assert(dictSize(db2->hold_keys) == 0);
+    }
+
+    TEST("hold: client unhold keys") {
+        clientHoldKey(c,0,key1,0);
+        clientHoldKey(c,1,key2,0);
+        clientUnholdKeys(c);
+        test_assert(!keyIsHolded(db1,key1));
+        test_assert(!keyIsHolded(db2,key2));
+        test_assert(dictSize(db1->hold_keys) == 0);
+        test_assert(dictSize(db2->hold_keys) == 0);
+
+        clientHoldKey(c,0,key1,0);
+        clientHoldKey(c,0,key1,0);
+        clientHoldKey(c,1,key1,0);
+        clientHoldKey(c,1,key1,0);
+        clientHoldKey(c,0,key2,0);
+        clientHoldKey(c,0,key2,0);
+        clientHoldKey(c,1,key2,0);
+        clientHoldKey(c,1,key2,0);
+        clientUnholdKeys(c);
+        test_assert(!keyIsHolded(db1,key1));
+        test_assert(!keyIsHolded(db2,key1));
+        test_assert(!keyIsHolded(db1,key2));
+        test_assert(!keyIsHolded(db2,key2));
+
+        test_assert(dictSize(c->hold_keys) == 0);
+        test_assert(dictSize(db1->hold_keys) == 0);
+        test_assert(dictSize(db2->hold_keys) == 0);
     }
 
     TEST("hold: client cant unhold not-holded key") {

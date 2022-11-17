@@ -146,9 +146,8 @@ int rocksDecodeMetaVal(const char *raw, size_t rawlen, int *pobject_type,
 
 typedef unsigned int keylen_t;
 
-static sds _rocksEncodeDataKey(redisDb *db, sds key, uint64_t version,
+static sds _rocksEncodeDataKey(int dbid, sds key, uint64_t version,
         uint8_t subkeyflag, sds subkey) {
-    int dbid = db->id;
     keylen_t keylen = key ? sdslen(key) : 0;
     keylen_t subkeylen = subkey ? sdslen(subkey) : 0;
     uint64_t encoded_version = rocksEncodeVersion(version);
@@ -169,18 +168,28 @@ static sds _rocksEncodeDataKey(redisDb *db, sds key, uint64_t version,
 
 sds rocksEncodeDataKey(redisDb *db, sds key, uint64_t version, sds subkey) {
     if (subkey) {
-        return _rocksEncodeDataKey(db,key,version,ROCKS_KEY_FLAG_SUBKEY,subkey);
+        return _rocksEncodeDataKey(db->id,key,version,ROCKS_KEY_FLAG_SUBKEY,subkey);
     } else {
-        return _rocksEncodeDataKey(db,key,version,ROCKS_KEY_FLAG_NONE,NULL);
+        return _rocksEncodeDataKey(db->id,key,version,ROCKS_KEY_FLAG_NONE,NULL);
     }
 }
 
 sds rocksEncodeDataRangeStartKey(redisDb *db, sds key, uint64_t version) {
-    return _rocksEncodeDataKey(db,key,version,ROCKS_KEY_FLAG_SUBKEY,shared.emptystring->ptr);
+    return _rocksEncodeDataKey(db->id,key,version,ROCKS_KEY_FLAG_SUBKEY,shared.emptystring->ptr);
 }
 
 sds rocksEncodeDataRangeEndKey(redisDb *db, sds key, uint64_t version) {
-    return _rocksEncodeDataKey(db,key,version,ROCKS_KEY_FLAG_DELETE,NULL);
+    return _rocksEncodeDataKey(db->id,key,version,ROCKS_KEY_FLAG_DELETE,NULL);
+}
+
+sds rocksEncodeDbRangeStartKey(int dbid) {
+    sds rawkey = sdsnewlen(SDS_NOINIT,sizeof(dbid));
+    memcpy(rawkey, &dbid, sizeof(dbid));
+    return rawkey;
+}
+
+sds rocksEncodeDbRangeEndKey(int dbid) {
+    return rocksEncodeDbRangeStartKey(dbid+1);
 }
 
 int rocksDecodeDataKey(const char *raw, size_t rawlen, int *dbid,

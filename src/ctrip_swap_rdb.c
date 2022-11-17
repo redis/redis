@@ -398,9 +398,6 @@ int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
     decodedResultInit(next);
     int iter_valid; /* true if current iter value is valid. */
 
-    /* TODO rocksCreateIter Fail if open multiple time. */
-    if (db->id != 0) return C_OK;
-
     if (!(it = rocksCreateIter(server.rocks,db))) {
         serverLog(LL_WARNING, "Create rocks iterator failed.");
         return C_ERR;
@@ -531,7 +528,7 @@ saveend:
     serverLog(LL_NOTICE,"Rdb save keys from rocksdb finished: %s",stats_dump);
     sdsfree(stats_dump);
 
-    // if (it) rocksReleaseIter(it);
+    if (it) rocksReleaseIter(it);
 
     return C_OK;
 
