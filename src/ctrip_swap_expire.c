@@ -47,7 +47,7 @@ int submitExpireClientRequest(client *c, robj *key, int force) {
     getKeyRequestsAppendSubkeyResult(&result,REQUEST_LEVEL_KEY,key,0,NULL,
             c->cmd->intention,cmd_intention_flags,c->db->id);
     c->keyrequests_count++;
-    submitClientKeyRequests(c,&result,expireClientKeyRequestFinished);
+    submitClientKeyRequests(c,&result,expireClientKeyRequestFinished,NULL);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
     return 1;
@@ -220,7 +220,7 @@ void startMetaScan4ScanExpire(client *c) {
     getKeyRequestsAppendSubkeyResult(&result,REQUEST_LEVEL_KEY,key,0,NULL,
             SWAP_IN,SWAP_METASCAN_EXPIRE,c->db->id);
     c->keyrequests_count++;
-    submitClientKeyRequests(c,&result,metaScan4ScanExpireRequestFinished);
+    submitClientKeyRequests(c,&result,metaScan4ScanExpireRequestFinished,NULL);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
 }
@@ -475,7 +475,7 @@ int submitSlaveExpireClientRequest(client *c, robj *key) {
     getKeyRequestsAppendSubkeyResult(&result,REQUEST_LEVEL_KEY,key,0,NULL,
             c->cmd->intention,c->cmd->intention_flags,c->db->id);
     c->keyrequests_count++;
-    submitClientKeyRequests(c,&result,slaveExpireClientKeyRequestFinished);
+    submitClientKeyRequests(c,&result,slaveExpireClientKeyRequestFinished,NULL);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
     return 1;

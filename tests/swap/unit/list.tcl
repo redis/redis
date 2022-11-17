@@ -115,3 +115,114 @@ start_server {tags {"list"} overrides {save ""}} {
     }
 }
 
+start_server {tags {"target"}} {
+    test "target" {
+        r config set swap-debug-evict-keys 0
+        r lpush target a 
+        set rd1 [redis_deferring_client]
+        $rd1 brpoplpush src target 0 
+        # r evict target 
+        wait_for_condition 10 200 {
+            [r swap.evict target] == 1
+        } else {
+            fail "swap.evict target fail"
+        }
+        wait_key_cold r target
+        r lpush src b
+        assert_equal "b a" [r lrange target 0 -1]
+    }
+}
+
+start_server {tags {"repl"}} {
+    r config set swap-debug-evict-keys 0
+    test " lpush + (swap start) + del + (swap end) + lpush " {
+        r rpush target a 
+        set rd1 [redis_deferring_client]
+        $rd1 brpoplpush src target 0 
+        wait_for_condition 10 200 {
+            [r swap.evict target] == 1
+        } else {
+            fail "swap.evict target fail"
+        }
+        set rd2 [redis_deferring_client]
+        $rd2 lpush src b 
+        r del src 
+        $rd2 lpush src a 
+        assert_equal [$rd1 read] a
+    }
+
+    test " lpush + (swap start) + del + (change type) + (swap end) + del + lpush " {
+        r rpush target a 
+        set rd1 [redis_deferring_client]
+        $rd1 brpoplpush src target 0 
+        wait_for_condition 10 200 {
+            [r swap.evict target] == 1
+        } else {
+            fail "swap.evict target fail"
+        }
+        set rd2 [redis_deferring_client]
+        $rd2 lpush src b 
+        r del src 
+        $rd2 set src v 
+        r del src 
+        $rd2 lpush src a 
+        
+        assert_equal [$rd1 read] a
+    }
+    
+}
+
+start_server {tags {"repl"}} {
+    test " brpoplpush update swapunblock version" {
+        assert_equal [status r swap_unblock_version] 0
+        set rd1 [redis_deferring_client]
+        $rd1 brpoplpush src target 5 
+        wait_for_condition 100 20 {
+            [status r swap_unblock_version] == 1
+        } else {
+            fail "brpoplpush can't update version"
+        }
+    }
+    test " blmove update swapunblock version" {
+        assert_equal [status r swap_unblock_version] 1
+        set rd1 [redis_deferring_client]
+        $rd1 blmove src target right left 5
+        wait_for_condition 100 20 {
+            [status r swap_unblock_version] == 2
+        } else {
+            fail "brpoplpush can't update version"
+        }
+    }
+
+    test "swapunblock total count status" {
+        r config set swap-debug-evict-keys 0
+        r rpush target a 
+        assert_equal [status r swap_unblock_total_count] 0
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        $rd1 brpoplpush src target 0 
+        wait_for_condition 10 200 {
+            [r swap.evict target] == 1
+        } else {
+            fail "swap.evict target fail"
+        }
+        wait_key_cold r target
+        r config set swap-debug-rio-delay-micro 100000
+        r lpush src b 
+        wait_for_condition 10 50 {
+            [status r swap_unblock_swapping_count] == 1
+        } else {
+            fail "no swapping"
+        }
+        # assert_equal 
+        # $rd2 brpoplpush a b 5 
+        assert_equal [status r swap_unblock_total_count] 1
+        $rd2 brpoplpush a b 5 
+        wait_for_condition 10 50 {
+            [status r swap_unblock_swapping_count] == 0
+        } else {
+            fail "unblock fail"
+        }
+        assert_equal [status r swap_unblock_retry_count]  1
+    }
+}

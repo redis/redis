@@ -639,38 +639,54 @@ void getKeyRequestsAppendRangeResult(getKeyRequestsResult *result, int level,
 
 /* There are no command with more that 2 ranges request. */
 #define GETKEYS_RESULT_SEGMENTS_MAX_LEN 2
-
-int getKeyRequestsSingleKeyWithRanges(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result, int key_index, 
-        int arg_rewrite0, int arg_rewrite1, int num_ranges, ...) {
-    va_list ap;
+int _getKeyRequestsSingleKeyWithRangesGeneric(int dbid, int intention, int intention_flags, 
+            robj *key, struct getKeyRequestsResult *result, int arg_rewrite0, 
+            int arg_rewrite1, int num_ranges, va_list ap) {
+ 
     int i, capacity = GETKEYS_RESULT_SEGMENTS_MAX_LEN;
-    robj *key;
     range *ranges = NULL;
 
-    UNUSED(cmd), UNUSED(argc);
     serverAssert(capacity >= num_ranges);
-
     ranges = zmalloc(capacity*sizeof(range));
     getKeyRequestsPrepareResult(result,result->num+1);
 
-    key = argv[key_index];
     incrRefCount(key);
     
-    va_start(ap,num_ranges);
     for (i = 0; i < num_ranges; i++) {
         long start = va_arg(ap,long);
         long end = va_arg(ap,long);
         ranges[i].start = start;
         ranges[i].end = end;
     }
-    va_end(ap);
             
     getKeyRequestsAppendRangeResult(result,REQUEST_LEVEL_KEY,key,
-            arg_rewrite0,arg_rewrite1,num_ranges,ranges,cmd->intention,
-            cmd->intention_flags,dbid);
+            arg_rewrite0,arg_rewrite1,num_ranges,ranges,intention,
+            intention_flags,dbid);
 
     return 0;
+}
+
+int getKeyRequestsSwapBlockedLmove(int dbid, int intention, int intention_flags, 
+            robj *key, struct getKeyRequestsResult *result, int arg_rewrite0, 
+            int arg_rewrite1, int num_ranges, ...) {
+    va_list ap;
+    va_start(ap, num_ranges);
+    int code = _getKeyRequestsSingleKeyWithRangesGeneric(dbid, intention, intention_flags, 
+        key, result, arg_rewrite0, arg_rewrite1, num_ranges, ap);
+    va_end(ap);
+    return code;
+}
+
+int getKeyRequestsSingleKeyWithRanges(int dbid, struct redisCommand *cmd, robj **argv,
+         int argc, struct getKeyRequestsResult *result, int key_index, 
+         int arg_rewrite0, int arg_rewrite1, int num_ranges, ...) {
+    UNUSED(argc);
+    va_list ap;
+    va_start(ap, num_ranges);
+    int code = _getKeyRequestsSingleKeyWithRangesGeneric(dbid, cmd->intention, cmd->intention_flags, 
+        argv[key_index], result, arg_rewrite0, arg_rewrite1, num_ranges, ap);
+    va_end(ap);
+    return code;
 }
 
 int getKeyRequestsLpop(int dbid, struct redisCommand *cmd, robj **argv,

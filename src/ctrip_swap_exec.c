@@ -1334,7 +1334,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
     key1_req->b.num_subkeys = 0;
     key1_req->key = createStringObject("key1",4);
     key1_req->b.subkeys = NULL;
-    swapCtx *ctx = swapCtxCreate(NULL,key1_req,NULL);
+    swapCtx *ctx = swapCtxCreate(NULL,key1_req,NULL,NULL);
 
     TEST("exec: init") {
         initServerConfig();

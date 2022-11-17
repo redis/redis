@@ -13,11 +13,6 @@ source tests/support/util.tcl
 source tests/support/ctrip_util.tcl
 source tests/swap/support/util.tcl
 
-set ::remove_holdkey_fail_tests {
-    unit/type/list
-    swap/unit/list
-}
-
 set ::disk_tests {
     swap/integration/zset
     swap/integration/info_rocksdb_stats
@@ -43,7 +38,8 @@ set ::disk_tests {
     swap/ported/psync2-reg
     swap/unit/swap_mode
     swap/unit/dbsize
-    swap/unit/lock  
+    swap/unit/lock
+    swap/unit/list
     swap/unit/dirty
     swap/unit/expire
     swap/unit/rdb
@@ -81,6 +77,7 @@ set ::disk_tests {
     unit/info
     unit/type/string
     unit/type/incr
+    unit/type/list
     unit/type/list-2
     unit/type/list-3
     unit/type/hash

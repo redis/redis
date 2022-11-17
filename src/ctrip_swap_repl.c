@@ -287,7 +287,7 @@ int submitReplWorkerClientRequest(client *wc) {
     getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
     getKeyRequests(wc, &result);
     wc->keyrequests_count = result.num;
-    submitClientKeyRequests(wc,&result,replWorkerClientKeyRequestFinished);
+    submitClientKeyRequests(wc,&result,replWorkerClientKeyRequestFinished,NULL);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
     return result.num;

@@ -139,7 +139,7 @@ void processResumedClientKeyRequests(void) {
         serverAssert(ln != NULL);
         clientKeyRequests *ckr = listNodeValue(ln);
         listDelNode(server.swap_resumed_keyrequests,ln);
-        submitClientKeyRequests(ckr->c,ckr->result,ckr->cb);
+        submitClientKeyRequests(ckr->c,ckr->result,ckr->cb,NULL);
         freeClientKeyRequests(ckr);
     }
 }
@@ -178,7 +178,7 @@ static int pauseClientKeyRequestsIfNeeded(client *c, getKeyRequestsResult *resul
  * - swapRequest managed by async/sync complete queue (not by swapCtx).
  * swapCtx released when keyRequest finishes. */
 swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
-        clientKeyRequestFinished finished) {
+        clientKeyRequestFinished finished, void* pd) {
     swapCtx *ctx = zcalloc(sizeof(swapCtx));
     ctx->c = c;
     moveKeyRequest(ctx->key_request,key_request);
@@ -194,6 +194,7 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
             c->cmd->name,MAX_MSG/2,key);
     swapDebugMsgsInit(&ctx->msgs, identity);
 #endif
+    ctx->pd = pd;
     return ctx;
 }
 
@@ -447,7 +448,7 @@ noswap:
 }
 
 void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
-        clientKeyRequestFinished cb) {
+        clientKeyRequestFinished cb, void* ctx_pd) {
     int64_t txid = server.swap_txid++;
 
     if (pauseClientKeyRequestsIfNeeded(c,result,cb))
@@ -462,8 +463,8 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         redisDb *db = key_request->level == REQUEST_LEVEL_SVR ?
             NULL : server.db + key_request->dbid;
         robj *key = key_request->key;
-        swapCtx *ctx = swapCtxCreate(c,key_request,cb);
 
+        swapCtx *ctx = swapCtxCreate(c,key_request,cb, ctx_pd);
 #ifdef SWAP_DEBUG
         msgs = &ctx->msgs;
 #endif
@@ -483,7 +484,7 @@ int submitNormalClientRequests(client *c) {
     getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
     getKeyRequests(c,&result);
     c->keyrequests_count = result.num;
-    submitClientKeyRequests(c,&result,normalClientKeyRequestFinished);
+    submitClientKeyRequests(c,&result,normalClientKeyRequestFinished,NULL);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
     return result.num;
@@ -506,7 +507,7 @@ int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark)
     getKeyRequestsPrepareResult(&result,1);
     getKeyRequestsAppendSubkeyResult(&result,REQUEST_LEVEL_SVR,NULL,0,NULL,
                                c->cmd->intention,c->cmd->intention_flags,c->db->id);
-    submitClientKeyRequests(c,&result,locked_op);
+    submitClientKeyRequests(c,&result,locked_op,NULL);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
     return 1;
@@ -609,6 +610,8 @@ void swapInit() {
     swapLockCreate();
 
     server.swap_scan_sessions = swapScanSessionsCreate(server.swap_scan_session_bits);
+
+    server.swap_unblock_ctx = createSwapUnblockCtx();
 }
 
 

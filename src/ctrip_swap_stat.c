@@ -169,6 +169,7 @@ sds genSwapInfoString(sds info) {
     info = genSwapReplInfoString(info);
     info = genSwapThreadInfoString(info);
     info = genSwapScanSessionStatString(info);
+    info = genSwapUnblockInfoString(info);
     return info;
 }
 
@@ -228,6 +229,19 @@ sds genSwapExecInfoString(sds info) {
         }
         info = sdscatprintf(info, "\r\n");
     }
+    return info;
+}
+
+sds genSwapUnblockInfoString(sds info) {
+    info = sdscatprintf(info,
+            "swap_unblock_version:%lld\r\n"
+            "swap_unblock_total_count:%lld\r\n"
+            "swap_unblock_swapping_count:%lld\r\n"
+            "swap_unblock_retry_count:%lld\r\n",
+            server.swap_unblock_ctx->version,
+            server.swap_unblock_ctx->swap_total_count,
+            server.swap_unblock_ctx->swapping_count,
+            server.swap_unblock_ctx->swap_retry_count);
     return info;
 }
 

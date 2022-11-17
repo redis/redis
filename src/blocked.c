@@ -64,6 +64,7 @@
 #include "slowlog.h"
 #include "latency.h"
 #include "monotonic.h"
+#include "ctrip_swap.h"
 
 int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto);
 int getListPositionFromObjectOrReply(client *c, robj *arg, int *position);
@@ -286,7 +287,7 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
             robj *dstkey = receiver->bpop.target;
             int wherefrom = receiver->bpop.listpos.wherefrom;
             int whereto = receiver->bpop.listpos.whereto;
-            robj *value = listTypePop(o, wherefrom);
+            robj *value = ctripListTypePop(o, wherefrom, rl->db, rl->key);
 
             if (value) {
                 /* Protect receiver->bpop.target, that will be
@@ -302,7 +303,7 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                 {
                     /* If we failed serving the client we need
                      * to also undo the POP operation. */
-                    listTypePush(o,value,wherefrom);
+                    ctripListTypePush(o,value,wherefrom, rl->db, rl->key);
                 }
                 updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
                 unblockClient(receiver);
@@ -314,8 +315,8 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
             }
         }
     }
-
-    if (listTypeLength(o) == 0) {
+    objectMeta *om = lookupMeta(rl->db, rl->key);
+    if (ctripListTypeLength(o, om) == 0) {
         dbDelete(rl->db,rl->key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",rl->key,rl->db->id);
     }
@@ -580,7 +581,7 @@ void handleClientsBlockedOnKeys(void) {
 
             if (o != NULL) {
                 if (o->type == OBJ_LIST)
-                    serveClientsBlockedOnListKey(o,rl);
+                    swapServeClientsBlockedOnListKey(o,rl);
                 else if (o->type == OBJ_ZSET)
                     serveClientsBlockedOnSortedSetKey(o,rl);
                 else if (o->type == OBJ_STREAM)
@@ -671,6 +672,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         listAddNodeTail(l,c);
         bki->listnode = listLast(l);
     }
+    incrSwapUnBlockCtxVersion();
     blockClient(c,btype);
 }
 

@@ -546,9 +546,10 @@ typedef struct swapCtx {
 #ifdef SWAP_DEBUG
   swapDebugMsgs msgs;
 #endif
+  void *pd;
 } swapCtx;
 
-swapCtx *swapCtxCreate(client *c, keyRequest *key_request, clientKeyRequestFinished finished);
+swapCtx *swapCtxCreate(client *c, keyRequest *key_request, clientKeyRequestFinished finished, void* pd);
 void swapCtxSetSwapData(swapCtx *ctx, MOVE swapData *data, MOVE void *datactx);
 void swapCtxFree(swapCtx *ctx);
 
@@ -1203,12 +1204,15 @@ void continueProcessCommand(client *c);
 int replClientSwap(client *c);
 int replClientDiscardDispatchedCommands(client *c);
 void replClientDiscardSwappingState(client *c);
-void submitClientKeyRequests(client *c, getKeyRequestsResult *result, clientKeyRequestFinished cb);
+void submitClientKeyRequests(client *c, getKeyRequestsResult *result, clientKeyRequestFinished cb, void* ctx_pd);
 int submitNormalClientRequests(client *c);
 void keyRequestBeforeCall(client *c, swapCtx *ctx);
 void swapMutexopCommand(client *c);
 int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark);
-
+uint64_t dictEncObjHash(const void *key);
+int dictEncObjKeyCompare(void *privdata, const void *key1,
+        const void *key2);
+void dictObjectDestructor(void *privdata, void *val);
 
 /* Swap rate limit */
 #define SWAP_RL_NO      0
@@ -1308,6 +1312,7 @@ void trackSwapInstantaneousMetrics();
 sds genSwapInfoString(sds info);
 sds genSwapStorageInfoString(sds info);
 sds genSwapExecInfoString(sds info);
+sds genSwapUnblockInfoString(sds info);
 
 int swapRateLimitState(void);
 int swapRateLimit(client *c);
@@ -1626,6 +1631,26 @@ void swapTraceNotify(swapTrace *trace, int intention);
 void swapTraceCallback(swapTrace *trace);
 void swapCmdSwapFinished(swapCmdTrace *swap_cmd);
 void attachSwapTracesToSlowlog(void *ptr, swapCmdTrace *swap_cmd);
+
+/* swap block*/
+typedef struct swapUnblockCtx  {
+  long long version;
+  client** unblock_clients;
+  /* status */
+  long long swap_total_count;
+  long long swapping_count;
+  long long swap_retry_count;
+  long long swap_err_count;
+} swapUnblockCtx ;
+
+swapUnblockCtx* createSwapUnblockCtx();
+void releaseSwapUnblockCtx(swapUnblockCtx* block);
+void swapServeClientsBlockedOnListKey(robj *o, readyList *rl);
+int getKeyRequestsSwapBlockedLmove(int dbid, int intention, int intention_flags, 
+            robj *key, struct getKeyRequestsResult *result, int arg_rewrite0, 
+            int arg_rewrite1, int num_ranges, ...);
+int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto);
+void incrSwapUnBlockCtxVersion();
 
 #ifdef REDIS_TEST
 

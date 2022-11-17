@@ -1817,6 +1817,9 @@ struct redisServer {
     int rocksdb_data_compression; /* rocksdb compresssion type: no/snappy/zlib. */
     int rocksdb_meta_compression;
 
+    /* swap block*/
+    struct swapUnblockCtx* swap_unblock_ctx;
+
     /* gtid executed */
     int gtid_enabled;  /* Is gtid enabled? */
     int gtid_enabled_config_sync_with_master;  /* Keep slave gtid-enabled config in sync with master? */
@@ -2672,6 +2675,7 @@ void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, struct listPos *listpos, streamID *ids);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us);
+void serveClientsBlockedOnListKey(robj *o, readyList *rl);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */
 void addClientToTimeoutTable(client *c);

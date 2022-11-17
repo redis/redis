@@ -446,6 +446,8 @@ start_server {
       $rd2 blmove list2 list3 left right 0
 
       r rpush list1 foo
+      assert_equal foo [$rd1 read]
+      assert_equal foo [$rd2 read]
 
       assert_equal {} [r lrange list1 0 -1]
       assert_equal {} [r lrange list2 0 -1]
