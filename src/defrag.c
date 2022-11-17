@@ -329,62 +329,6 @@ long activeDefragList(list *l, int val_type) {
     return defragged;
 }
 
-/* Defrag a list of sds values and a dict with the same sds keys */
-long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
-    long defragged = 0;
-    sds newsds, sdsele;
-    listNode *ln, *newln;
-    dictIterator *di;
-    dictEntry *de;
-    /* Defrag the list and it's sds values */
-    for (ln = l->head; ln; ln = ln->next) {
-        if ((newln = activeDefragAlloc(ln))) {
-            if (newln->prev)
-                newln->prev->next = newln;
-            else
-                l->head = newln;
-            if (newln->next)
-                newln->next->prev = newln;
-            else
-                l->tail = newln;
-            ln = newln;
-            defragged++;
-        }
-        sdsele = ln->value;
-        if ((newsds = activeDefragSds(sdsele))) {
-            /* When defragging an sds value, we need to update the dict key */
-            uint64_t hash = dictGetHash(d, newsds);
-            dictEntry **deref = dictFindEntryRefByPtrAndHash(d, sdsele, hash);
-            if (deref)
-                dictSetKey(d, *deref, newsds);
-            ln->value = newsds;
-            defragged++;
-        }
-    }
-
-    /* Defrag the dict values (keys were already handled) */
-    di = dictGetIterator(d);
-    while((de = dictNext(di)) != NULL) {
-        if (dict_val_type == DEFRAG_SDS_DICT_VAL_IS_SDS) {
-            sds newsds, sdsele = dictGetVal(de);
-            if ((newsds = activeDefragSds(sdsele)))
-                dictSetVal(d, de, newsds), defragged++;
-        } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_IS_STROB) {
-            robj *newele, *ele = dictGetVal(de);
-            if ((newele = activeDefragStringOb(ele, &defragged)))
-                dictSetVal(d, de, newele);
-        } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
-            void *newptr, *ptr = dictGetVal(de);
-            if ((newptr = activeDefragAlloc(ptr)))
-                dictSetVal(d, de, newptr), defragged++;
-        }
-        defragged += dictIterDefragEntry(di);
-    }
-    dictReleaseIterator(di);
-
-    return defragged;
-}
-
 /* Utility function that replaces an old key pointer in the dictionary with a
  * new pointer. Additionally, we try to defrag the dictEntry in that dict.
  * Oldkey may be a dead pointer and should not be accessed (we get a
