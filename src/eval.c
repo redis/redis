@@ -385,10 +385,15 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
     int evalsha = c->cmd->proc == evalShaCommand || c->cmd->proc == evalShaRoCommand;
     if (evalsha && sdslen(c->argv[1]->ptr) != 40)
         return cmd_flags;
-    evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
-    char *lua_cur_script = funcname + 2;
-    dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
+    dictEntry *de = NULL;
     uint64_t script_flags;
+    // We only need to call the expensive function evalCalcFunctionName
+    // if we're handling EVALSHA related commands
+    if (evalsha){
+        evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
+        char *lua_cur_script = funcname + 2;
+        de = dictFind(lctx.lua_scripts, lua_cur_script);
+    }
     if (!de) {
         if (evalsha)
             return cmd_flags;
