@@ -597,6 +597,7 @@ typedef enum {
 
 typedef struct {
     uint32_t paused_actions; /* Bitmask of actions */
+    mstime_t start;
     mstime_t end;
 } pause_event;
 
@@ -1579,7 +1580,6 @@ struct redisServer {
     long long stat_total_eviction_exceeded_time;  /* Total time over the memory limit, unit us */
     monotime stat_last_eviction_exceeded_time;  /* Timestamp of current eviction start, unit us */
     long long stat_total_client_paused_oom_time; /* Total time client paused during OOM, unit us */
-    monotime stat_current_client_paused_oom_time; /* Timestamp of current client paused during OOM start, else 0, unit us */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
     long long stat_keyspace_misses; /* Number of failed lookups of keys */
     long long stat_active_defrag_hits;      /* number of allocations moved */
@@ -2542,7 +2542,7 @@ void disconnectSlaves(void);
 void evictClients(void);
 int listenToPort(connListener *fds);
 void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions_bitmask);
-void unpauseActions(pause_purpose purpose);
+long long unpauseActions(pause_purpose purpose);
 uint32_t isPausedActions(uint32_t bitmask);
 uint32_t isPausedActionsWithUpdate(uint32_t action_bitmask);
 void updatePausedActions(void);

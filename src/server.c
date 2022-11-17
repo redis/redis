@@ -1173,25 +1173,12 @@ static void clientWritePauseDuringOOM() {
      * Pause also evictions, since we might reach below maxmemory after lazyfree */
     if ((getMaxmemoryState(NULL,NULL,NULL,NULL) == C_ERR) &&
         (bioPendingJobsOfType(BIO_LAZY_FREE))) {
-        if (!server.is_pause_write_clients_oom) {
             pauseActions(PAUSE_OOM_THROTTLE, LLONG_MAX,
                          PAUSE_ACTION_EVICT | PAUSE_ACTION_CLIENT_DENYOOM);
-            
-            elapsedStart(&server.stat_current_client_paused_oom_time);
-            server.is_pause_write_clients_oom = 1;
-        }
     } else {
-        if (server.is_pause_write_clients_oom) {
-            /* If not OOM && lazy-free, then unpause clients */
-            unpauseActions(PAUSE_OOM_THROTTLE);
-            if (server.stat_current_client_paused_oom_time) {
-                /* update statistics & reset current_client_paused_oom_time  */
-                server.stat_total_client_paused_oom_time += elapsedUs(
-                        server.stat_current_client_paused_oom_time);
-                server.stat_current_client_paused_oom_time = 0;
-            }
-            server.is_pause_write_clients_oom = 0;
-        }
+        /* If not OOM && lazy-free, then unpause clients */
+        long long elapsed_msec = unpauseActions(PAUSE_OOM_THROTTLE);
+        server.stat_total_client_paused_oom_time += elapsed_msec;
     }
 }
 
@@ -2393,7 +2380,6 @@ void resetServerStats() {
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_total_client_paused_oom_time = 0;
-    server.stat_current_client_paused_oom_time = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
     server.stat_active_defrag_hits = 0;
@@ -5724,11 +5710,12 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
 
     /* Stats */
     if (all_sections  || (dictFind(section_dict,"stats") != NULL)) {
+        pause_event *pause_oom_ev = &(server.client_pause_per_purpose[PAUSE_OOM_THROTTLE]);
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
-        long long current_client_paused_oom_time = server.stat_current_client_paused_oom_time ?
-             (long long) elapsedUs(server.stat_current_client_paused_oom_time): 0;    
+        long long current_client_paused_oom_time = (pause_oom_ev->end < server.mstime) ?
+            0 : server.mstime - pause_oom_ev->start;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
@@ -5818,8 +5805,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_evictedclients,
             (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
             current_eviction_exceeded_time / 1000,
-            (server.stat_total_client_paused_oom_time + current_client_paused_oom_time) / 1000,
-            current_client_paused_oom_time / 1000,
+            server.stat_total_client_paused_oom_time + current_client_paused_oom_time,
+            current_client_paused_oom_time,
             server.stat_keyspace_hits,
             server.stat_keyspace_misses,
             dictSize(server.pubsub_channels),
