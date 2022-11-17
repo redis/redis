@@ -91,6 +91,9 @@ typedef struct redisObject robj;
 #include "endianconv.h"
 #include "crc64.h"
 
+/* helpers */
+#define numElements(x) (sizeof(x)/sizeof((x)[0]))
+
 /* min/max */
 #undef min
 #undef max
@@ -1850,6 +1853,8 @@ struct redisServer {
     size_t hash_max_listpack_entries;
     size_t hash_max_listpack_value;
     size_t set_max_intset_entries;
+    size_t set_max_listpack_entries;
+    size_t set_max_listpack_value;
     size_t zset_max_listpack_entries;
     size_t zset_max_listpack_value;
     size_t hll_sparse_max_bytes;
@@ -2316,12 +2321,15 @@ typedef struct {
     robj *subject;
     unsigned char encoding;
     unsigned char direction; /* Iteration direction */
-    quicklistIter *iter;
+
+    unsigned char *lpi; /* listpack iterator */
+    quicklistIter *iter; /* quicklist iterator */
 } listTypeIterator;
 
 /* Structure for an entry while iterating over a list. */
 typedef struct {
     listTypeIterator *li;
+    unsigned char *lpe; /* Entry in listpack */
     quicklistEntry entry; /* Entry in quicklist */
 } listTypeEntry;
 
@@ -2331,6 +2339,7 @@ typedef struct {
     int encoding;
     int ii; /* intset iterator */
     dictIterator *di;
+    unsigned char *lpi; /* listpack iterator */
 } setTypeIterator;
 
 /* Structure to hold hash iteration abstraction. Note that iteration over
@@ -2600,18 +2609,27 @@ robj *listTypePop(robj *subject, int where);
 unsigned long listTypeLength(const robj *subject);
 listTypeIterator *listTypeInitIterator(robj *subject, long index, unsigned char direction);
 void listTypeReleaseIterator(listTypeIterator *li);
-void listTypeSetIteratorDirection(listTypeIterator *li, unsigned char direction);
+void listTypeSetIteratorDirection(listTypeIterator *li, listTypeEntry *entry, unsigned char direction);
 int listTypeNext(listTypeIterator *li, listTypeEntry *entry);
 robj *listTypeGet(listTypeEntry *entry);
+unsigned char *listTypeGetValue(listTypeEntry *entry, size_t *vlen, long long *lval);
 void listTypeInsert(listTypeEntry *entry, robj *value, int where);
 void listTypeReplace(listTypeEntry *entry, robj *value);
 int listTypeEqual(listTypeEntry *entry, robj *o);
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 robj *listTypeDup(robj *o);
-int listTypeDelRange(robj *o, long start, long stop);
+void listTypeDelRange(robj *o, long start, long stop);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted);
+typedef enum {
+    LIST_CONV_AUTO,
+    LIST_CONV_GROWING,
+    LIST_CONV_SHRINKING,
+} list_conv_type;
+typedef void (*beforeConvertCB)(void *data);
+void listTypeTryConversion(robj *o, list_conv_type lct, beforeConvertCB fn, void *data);
+void listTypeTryConversionAppend(robj *o, robj **argv, int start, int end, beforeConvertCB fn, void *data);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
@@ -2653,8 +2671,10 @@ robj *createStringObjectFromLongLong(long long value);
 robj *createStringObjectFromLongLongForValue(long long value);
 robj *createStringObjectFromLongDouble(long double value, int humanfriendly);
 robj *createQuicklistObject(void);
+robj *createListListpackObject(void);
 robj *createSetObject(void);
 robj *createIntsetObject(void);
+robj *createSetListpackObject(void);
 robj *createHashObject(void);
 robj *createZsetObject(void);
 robj *createZsetListpackObject(void);
@@ -2980,9 +3000,9 @@ int setTypeRemove(robj *subject, sds value);
 int setTypeIsMember(robj *subject, sds value);
 setTypeIterator *setTypeInitIterator(robj *subject);
 void setTypeReleaseIterator(setTypeIterator *si);
-int setTypeNext(setTypeIterator *si, sds *sdsele, int64_t *llele);
+int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
 sds setTypeNextObject(setTypeIterator *si);
-int setTypeRandomElement(robj *setobj, sds *sdsele, int64_t *llele);
+int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
 unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
 unsigned long setTypeSize(const robj *subject);
 void setTypeConvert(robj *subject, int enc);
@@ -3284,6 +3304,7 @@ uint64_t dictSdsCaseHash(const void *key);
 int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
 int dictSdsKeyCaseCompare(dict *d, const void *key1, const void *key2);
 void dictSdsDestructor(dict *d, void *val);
+void dictListDestructor(dict *d, void *val);
 void *dictSdsDup(dict *d, const void *key);
 
 /* Git SHA1 */
