@@ -92,7 +92,7 @@ start_server {tags {"introspection"}} {
         } else {
             fail "bgsave did not stop in time"
         }
-    }
+    } {} {needs:save}
 
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
@@ -111,6 +111,19 @@ start_server {tags {"introspection"}} {
         $rd read ;# Discard the OK
         r eval {redis.call('set',KEYS[1],ARGV[1])} 1 foo bar
         assert_match {*eval*} [$rd read]
+        assert_match {*lua*"set"*"foo"*"bar"*} [$rd read]
+        $rd close
+    }
+
+    test {MONITOR can log commands issued by functions} {
+        r function load replace {#!lua name=test
+            redis.register_function('test', function() return redis.call('set', 'foo', 'bar') end)
+        }
+        set rd [redis_deferring_client]
+        $rd monitor
+        $rd read ;# Discard the OK
+        r fcall test 0
+        assert_match {*fcall*test*} [$rd read]
         assert_match {*lua*"set"*"foo"*"bar"*} [$rd read]
         $rd close
     }
