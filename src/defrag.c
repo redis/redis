@@ -149,35 +149,6 @@ luaScript *activeDefragLuaScript(luaScript *script, long *defragged) {
     return ret;
 }
 
-/* Defrag helper for dictEntries to be used during dict iteration (called on
- * each step). Returns a stat of how many pointers were moved. */
-long dictIterDefragEntry(dictIterator *iter) {
-    /* This function is a little bit dirty since it messes with the internals
-     * of the dict and it's iterator, but the benefit is that it is very easy
-     * to use, and require no other changes in the dict. */
-    long defragged = 0;
-    /* Handle the next entry (if there is one), and update the pointer in the
-     * current entry. */
-    if (iter->nextEntry) {
-        dictEntry *newde = activeDefragAlloc(iter->nextEntry);
-        if (newde) {
-            defragged++;
-            iter->nextEntry = newde;
-            dictSetNext(iter->entry, newde);
-        }
-    }
-    /* handle the case of the first entry in the hash bucket. */
-    if (iter->d->ht_table[iter->table][iter->index] == iter->entry) {
-        dictEntry *newde = activeDefragAlloc(iter->entry);
-        if (newde) {
-            iter->entry = newde;
-            iter->d->ht_table[iter->table][iter->index] = newde;
-            defragged++;
-        }
-    }
-    return defragged;
-}
-
 /* Defrag helper for dict main allocations (dict struct, and hash tables).
  * receives a pointer to the dict* and implicitly updates it when the dict
  * struct itself was moved. Returns a stat of how many pointers were moved. */
@@ -279,38 +250,49 @@ long activeDefragZsetEntry(zset *zs, dictEntry *de) {
 #define DEFRAG_SDS_DICT_VAL_VOID_PTR 3
 #define DEFRAG_SDS_DICT_VAL_LUA_SCRIPT 4
 
+typedef struct {
+    dict *dict;
+    int val_type;
+    long defragged;
+} activeDefragSdsDictData;
+
+void activeDefragSdsDictCallback(void *privdata, const dictEntry *_de) {
+    dictEntry *de = (dictEntry*)_de;
+    activeDefragSdsDictData *data = privdata;
+    dict *d = data->dict;
+    int val_type = data->val_type;
+    sds sdsele = dictGetKey(de), newsds;
+    if ((newsds = activeDefragSds(sdsele)))
+        dictSetKey(d, de, newsds), data->defragged++;
+    /* defrag the value */
+    if (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS) {
+        sdsele = dictGetVal(de);
+        if ((newsds = activeDefragSds(sdsele)))
+            dictSetVal(d, de, newsds), data->defragged++;
+    } else if (val_type == DEFRAG_SDS_DICT_VAL_IS_STROB) {
+        robj *newele, *ele = dictGetVal(de);
+        if ((newele = activeDefragStringOb(ele, &data->defragged)))
+            dictSetVal(d, de, newele);
+    } else if (val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
+        void *newptr, *ptr = dictGetVal(de);
+        if ((newptr = activeDefragAlloc(ptr)))
+            dictSetVal(d, de, newptr), data->defragged++;
+    } else if (val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT) {
+        void *newptr, *ptr = dictGetVal(de);
+        if ((newptr = activeDefragLuaScript(ptr, &data->defragged)))
+            dictSetVal(d, de, newptr);
+    }
+}
+
 /* Defrag a dict with sds key and optional value (either ptr, sds or robj string) */
 long activeDefragSdsDict(dict* d, int val_type) {
-    dictIterator *di;
-    dictEntry *de;
-    long defragged = 0;
-    di = dictGetIterator(d);
-    while((de = dictNext(di)) != NULL) {
-        sds sdsele = dictGetKey(de), newsds;
-        if ((newsds = activeDefragSds(sdsele)))
-            dictSetKey(d, de, newsds), defragged++;
-        /* defrag the value */
-        if (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS) {
-            sdsele = dictGetVal(de);
-            if ((newsds = activeDefragSds(sdsele)))
-                dictSetVal(d, de, newsds), defragged++;
-        } else if (val_type == DEFRAG_SDS_DICT_VAL_IS_STROB) {
-            robj *newele, *ele = dictGetVal(de);
-            if ((newele = activeDefragStringOb(ele, &defragged)))
-                dictSetVal(d, de, newele);
-        } else if (val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
-            void *newptr, *ptr = dictGetVal(de);
-            if ((newptr = activeDefragAlloc(ptr)))
-                dictSetVal(d, de, newptr), defragged++;
-        } else if (val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT) {
-            void *newptr, *ptr = dictGetVal(de);
-            if ((newptr = activeDefragLuaScript(ptr, &defragged)))
-                dictSetVal(d, de, newptr);
-        }
-        defragged += dictIterDefragEntry(di);
-    }
-    dictReleaseIterator(di);
-    return defragged;
+    activeDefragSdsDictData data = {d, val_type, 0};
+    unsigned long cursor = 0;
+    do {
+        cursor = dictScan(d, cursor, activeDefragSdsDictCallback,
+                          defragDictBucketCallback, &data);
+    } while (cursor != 0);
+    return data.defragged;
 }
 
 /* Defrag a list of ptr, sds or robj string values */
@@ -344,62 +326,6 @@ long activeDefragList(list *l, int val_type) {
                 ln->value = newptr, defragged++;
         }
     }
-    return defragged;
-}
-
-/* Defrag a list of sds values and a dict with the same sds keys */
-long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
-    long defragged = 0;
-    sds newsds, sdsele;
-    listNode *ln, *newln;
-    dictIterator *di;
-    dictEntry *de;
-    /* Defrag the list and it's sds values */
-    for (ln = l->head; ln; ln = ln->next) {
-        if ((newln = activeDefragAlloc(ln))) {
-            if (newln->prev)
-                newln->prev->next = newln;
-            else
-                l->head = newln;
-            if (newln->next)
-                newln->next->prev = newln;
-            else
-                l->tail = newln;
-            ln = newln;
-            defragged++;
-        }
-        sdsele = ln->value;
-        if ((newsds = activeDefragSds(sdsele))) {
-            /* When defragging an sds value, we need to update the dict key */
-            uint64_t hash = dictGetHash(d, newsds);
-            dictEntry **deref = dictFindEntryRefByPtrAndHash(d, sdsele, hash);
-            if (deref)
-                dictSetKey(d, *deref, newsds);
-            ln->value = newsds;
-            defragged++;
-        }
-    }
-
-    /* Defrag the dict values (keys were already handled) */
-    di = dictGetIterator(d);
-    while((de = dictNext(di)) != NULL) {
-        if (dict_val_type == DEFRAG_SDS_DICT_VAL_IS_SDS) {
-            sds newsds, sdsele = dictGetVal(de);
-            if ((newsds = activeDefragSds(sdsele)))
-                dictSetVal(d, de, newsds), defragged++;
-        } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_IS_STROB) {
-            robj *newele, *ele = dictGetVal(de);
-            if ((newele = activeDefragStringOb(ele, &defragged)))
-                dictSetVal(d, de, newele);
-        } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
-            void *newptr, *ptr = dictGetVal(de);
-            if ((newptr = activeDefragAlloc(ptr)))
-                dictSetVal(d, de, newptr), defragged++;
-        }
-        defragged += dictIterDefragEntry(di);
-    }
-    dictReleaseIterator(di);
-
     return defragged;
 }
 

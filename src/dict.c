@@ -647,11 +647,6 @@ double dictIncrDoubleVal(dictEntry *de, double val) {
     return de->v.d += val;
 }
 
-/* Only used when the next in hash bucket has been reallocated. */
-void dictSetNext(dictEntry *de, dictEntry *next) {
-    de->next = next;
-}
-
 /* A pointer to the metadata section within the dict entry. */
 void *dictMetadata(dictEntry *de) {
     return &de->metadata;
