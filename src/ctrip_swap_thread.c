@@ -118,6 +118,7 @@ void swapThreadsDispatch(swapRequest *req, int idx) {
         serverAssert(idx <= server.swap_threads_num);
     }
     if (server.swap_debug_trace_latency) elapsedStart(&req->swap_queue_timer);
+    if (req->trace) swapTraceDispatch(req->trace);
     swapThread *t = server.swap_threads+idx;
     pthread_mutex_lock(&t->lock);
     listAddNodeTail(t->pending_reqs,req);
@@ -185,11 +186,11 @@ int submitUtilTask(int type, void* pd, sds* error) {
     switch (type) {
         case COMPACT_RANGE_TASK:
             submitSwapDataRequest(SWAP_MODE_ASYNC,SWAP_UTILS,0,NULL,
-                    NULL,NULL,compactRangeDone,pd,NULL,server.swap_threads_num);
+                    NULL,NULL,NULL,compactRangeDone,pd,NULL,server.swap_threads_num);
             break;
         case GET_ROCKSDB_STATS_TASK:
             submitSwapDataRequest(SWAP_MODE_ASYNC, SWAP_UTILS,1,NULL,
-                    NULL,NULL,getRocksdbStatsDone,pd,NULL,server.swap_threads_num);
+                    NULL,NULL,NULL,getRocksdbStatsDone,pd,NULL,server.swap_threads_num);
             break;
         default:
             break;

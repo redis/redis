@@ -235,6 +235,7 @@ void replWorkerClientKeyRequestFinished(client *wc, swapCtx *ctx) {
     /* Flag swap finished, note that command processing will be defered to
      * processFinishedReplCommands becasue there might be unfinished preceeding swap. */
     wc->keyrequests_count--;
+    swapCmdSwapFinished(ctx->key_request->swap_cmd);
     if (wc->keyrequests_count == 0) wc->CLIENT_REPL_SWAPPING = 0;
 
     processFinishedReplCommands();

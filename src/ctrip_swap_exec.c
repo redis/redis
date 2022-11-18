@@ -704,6 +704,7 @@ int doRIO(RIO *rio) {
 
 static void doNotify(swapRequest *req, int errcode) {
     updateStatsSwapNotify(req);
+    if (req->trace) swapTraceNotify(req->trace, req->intention);
     req->errcode = errcode;
     req->notify_cb(req, req->notify_pd);
 }
@@ -1318,6 +1319,7 @@ void processSwapRequest(swapRequest *req) {
     uint32_t intention_flags;
 
     updateStatsSwapStart(req);
+    if (req->trace) swapTraceProcess(req->trace);
     if (!swapRequestIsMetaType(req)) {
          executeSwapRequest(req);
          return;
@@ -1434,20 +1436,20 @@ static inline void submitSwapRequest(int mode,swapRequest *req, int idx) {
 }
 
 void submitSwapMetaRequest(int mode,keyRequest *key_request, swapCtx *ctx, swapData* data,
-        void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs, int idx) {
-    swapRequest *req = swapRequestNew(key_request,-1,-1,ctx,data,datactx,cb,pd,msgs);
+        void *datactx, swapTrace *trace, swapRequestFinishedCallback cb, void *pd, void *msgs, int idx) {
+    swapRequest *req = swapRequestNew(key_request,-1,-1,ctx,data,datactx,trace,cb,pd,msgs);
     submitSwapRequest(mode,req,idx);
 }
 
 void submitSwapDataRequest(int mode, int intention,
-        uint32_t intention_flags, swapCtx *ctx, swapData* data, void *datactx,
+        uint32_t intention_flags, swapCtx *ctx, swapData* data, void *datactx, swapTrace *trace,
         swapRequestFinishedCallback cb, void *pd, void *msgs, int idx) {
-    swapRequest *req = swapRequestNew(NULL,intention,intention_flags,ctx,data,datactx,cb,pd,msgs);
+    swapRequest *req = swapRequestNew(NULL,intention,intention_flags,ctx,data,datactx,trace,cb,pd,msgs);
     submitSwapRequest(mode,req,idx);
 }
 
 swapRequest *swapRequestNew(keyRequest *key_request, int intention,
-        uint32_t intention_flags, swapCtx *ctx, swapData *data, void *datactx,
+        uint32_t intention_flags, swapCtx *ctx, swapData *data, void *datactx,swapTrace *trace,
         swapRequestFinishedCallback cb, void *pd, void *msgs) {
     swapRequest *req = zcalloc(sizeof(swapRequest));
     UNUSED(msgs);
@@ -1468,6 +1470,7 @@ swapRequest *swapRequestNew(keyRequest *key_request, int intention,
     req->swap_timer = 0;
     req->swap_queue_timer = 0;
     req->notify_queue_timer = 0;
+    req->trace = trace;
     return req;
 }
 
@@ -1592,7 +1595,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        test_assert(val1 != NULL);
        test_assert(getExpire(db,key1) == EXPIRE);
        swapData *data = createWholeKeySwapDataWithExpire(db,key1,val1,EXPIRE,NULL);
-       swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,ctx,data,NULL,NULL,NULL,NULL);
+       swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,ctx,data,NULL,NULL,NULL,NULL,NULL);
        req->notify_cb = mockNotifyCallback;
        req->notify_pd = NULL;
        processSwapRequest(req);
@@ -1609,7 +1612,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        swapData *data = createSwapData(db,key1,NULL);
        key1_req->cmd_intention = SWAP_IN;
        key1_req->cmd_intention_flags = 0;
-       swapRequest *req = swapRequestNew(key1_req,-1,-1,ctx,data,NULL,NULL,NULL,NULL);
+       swapRequest *req = swapRequestNew(key1_req,-1,-1,ctx,data,NULL,NULL,NULL,NULL,NULL);
        req->notify_cb = mockNotifyCallback;
        req->notify_pd = NULL;
        processSwapRequest(req);
@@ -1625,7 +1628,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        /* rely on data swap out to rocksdb by previous case */
        val1 = lookupKey(db,key1,LOOKUP_NOTOUCH);
        swapData *data = createWholeKeySwapData(db,key1,val1,NULL);
-       swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_DEL,0,ctx,data,NULL,NULL,NULL,NULL);
+       swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_DEL,0,ctx,data,NULL,NULL,NULL,NULL,NULL);
        req->notify_cb = mockNotifyCallback;
        req->notify_pd = NULL;
        executeSwapRequest(req);
@@ -1643,7 +1646,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
 
        /* swap out hot key1 */
        swapData *out_data = createWholeKeySwapData(db,key1,val1,NULL);
-       swapRequest *out_req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,ctx,out_data,NULL,NULL,NULL,NULL);
+       swapRequest *out_req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,ctx,out_data,NULL,NULL,NULL,NULL,NULL);
        out_req->notify_cb = mockNotifyCallback;
        out_req->notify_pd = NULL;
        processSwapRequest(out_req);
@@ -1658,7 +1661,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        swapData *in_del_data = createSwapData(db,key1,NULL);
        key1_req->cmd_intention = SWAP_IN;
        key1_req->cmd_intention_flags = SWAP_IN_DEL;
-       swapRequest *in_del_req = swapRequestNew(key1_req,-1,-1,ctx,in_del_data,NULL,NULL,NULL,NULL);
+       swapRequest *in_del_req = swapRequestNew(key1_req,-1,-1,ctx,in_del_data,NULL,NULL,NULL,NULL,NULL);
        in_del_req->notify_cb = mockNotifyCallback;
        in_del_req->notify_pd = NULL;
        processSwapRequest(in_del_req);

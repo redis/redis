@@ -109,7 +109,7 @@ void blockClient(client *c, int btype) {
  * in order to update the total command duration, log the command into
  * the Slow log if needed, and log the reply duration event if needed. */
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us){
-    const ustime_t total_cmd_duration = c->duration + blocked_us + reply_us;
+    const ustime_t total_cmd_duration = c->duration + c->swap_duration + blocked_us + reply_us;
     c->lastcmd->microseconds += total_cmd_duration;
 
     /* Log the command into the Slow log if needed. */

@@ -73,6 +73,8 @@ void copyKeyRequest(keyRequest *dst, keyRequest *src) {
     dst->cmd_intention_flags = src->cmd_intention_flags;
     dst->dbid = src->dbid;
     dst->type = src->type;
+    dst->swap_cmd = src->swap_cmd;
+    dst->trace = src->trace;
 
     switch (src->type) {
     case KEYREQUEST_TYPE_KEY:
@@ -118,6 +120,8 @@ void moveKeyRequest(keyRequest *dst, keyRequest *src) {
     dst->cmd_intention_flags = src->cmd_intention_flags;
     dst->dbid = src->dbid;
     dst->type = src->type;
+    dst->swap_cmd = src->swap_cmd;
+    dst->trace = src->trace;
 
     switch (src->type) {
     case KEYREQUEST_TYPE_KEY:
@@ -292,6 +296,22 @@ void getKeyRequestsAppendSubkeyResult(getKeyRequestsResult *result, int level,
     key_request->type = KEYREQUEST_TYPE_SUBKEY;
     key_request->b.num_subkeys = num_subkeys;
     key_request->b.subkeys = subkeys;
+    key_request->swap_cmd = NULL;
+    key_request->trace = NULL;
+}
+
+inline void getKeyRequestsAttachSwapTrace(getKeyRequestsResult * result, swapCmdTrace *swap_cmd,
+                                   int from, int count) {
+    if (server.swap_debug_trace_latency) {
+        initSwapTraces(swap_cmd, count);
+        for (int i = 0; i < count; i++) {
+            result->key_requests[from + i].swap_cmd = swap_cmd;
+            result->key_requests[from + i].trace = swap_cmd->swap_traces + i;
+        }
+    } else {
+        swap_cmd->swap_cnt = count;
+        for (int i = 0; i < count; i++) result->key_requests[from + i].swap_cmd = swap_cmd;
+    }
 }
 
 void releaseKeyRequests(getKeyRequestsResult *result) {
@@ -349,6 +369,7 @@ static inline int clientSwitchDb(client *c, int argidx) {
 
 void getKeyRequests(client *c, getKeyRequestsResult *result) {
     getKeyRequestsPrepareResult(result, MAX_KEYREQUESTS_BUFFER);
+    swapCmdTrace *swap_cmd;
 
     if ((c->flags & CLIENT_MULTI) && 
             !(c->flags & (CLIENT_DIRTY_CAS | CLIENT_DIRTY_EXEC)) &&
@@ -358,6 +379,7 @@ void getKeyRequests(client *c, getKeyRequestsResult *result) {
         int i, orig_argc;
         redisDb *orig_db;
         struct redisCommand *orig_cmd;
+        int need_swap = 0;
 
         orig_argv = c->argv;
         orig_argc = c->argc;
@@ -378,6 +400,13 @@ void getKeyRequests(client *c, getKeyRequestsResult *result) {
 
             getSingleCmdKeyRequests(c, result);
 
+            int requests_delta = result->num - prev_keyrequest_num;
+            if (requests_delta) {
+                need_swap = 1;
+                swap_cmd = createSwapCmdTrace();
+                getKeyRequestsAttachSwapTrace(result,swap_cmd,prev_keyrequest_num,requests_delta);
+                c->mstate.commands[i].swap_cmd = swap_cmd;
+            }
             for (int j = prev_keyrequest_num; j < result->num; j++) {
                 result->key_requests[j].list_arg_rewrite[0].mstate_idx = i;
                 result->key_requests[j].list_arg_rewrite[1].mstate_idx = i;
@@ -393,9 +422,18 @@ void getKeyRequests(client *c, getKeyRequestsResult *result) {
         c->argc = orig_argc;
         c->cmd = orig_cmd;
         c->db = orig_db;
+        if (need_swap) c->swap_cmd = createSwapCmdTrace();
     } else {
+        int prev_keyrequest_num = result->num;
         getSingleCmdKeyRequests(c, result);
+        int requests_delta = result->num - prev_keyrequest_num;
+        if (requests_delta) {
+            swap_cmd = createSwapCmdTrace();
+            getKeyRequestsAttachSwapTrace(result,swap_cmd,prev_keyrequest_num,requests_delta);
+            c->swap_cmd = swap_cmd;
+        }
     }
+    result->swap_cmd = c->swap_cmd;
 }
 
 int getKeyRequestsNone(int dbid, struct redisCommand *cmd, robj **argv, int argc,

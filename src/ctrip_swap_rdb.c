@@ -667,7 +667,7 @@ void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
             ctx->batch.index);
 
     /* Submit to rio thread. */
-    submitSwapDataRequest(SWAP_MODE_PARALLEL_SYNC,SWAP_OUT,0,NULL,data,NULL,
+    submitSwapDataRequest(SWAP_MODE_PARALLEL_SYNC,SWAP_OUT,0,NULL,data,NULL,NULL,
             ctripRdbLoadWriteFinished,NULL,msgs,-1);
 }
 

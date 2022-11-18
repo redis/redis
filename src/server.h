@@ -759,11 +759,15 @@ typedef struct redisDb {
  * in cluster.h. */
 typedef struct dbBackup dbBackup;
 
+typedef struct swapCmdTrace swapCmdTrace;
+typedef struct swapTrace swapTrace;
+
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
     robj **argv;
     int argc;
     struct redisCommand *cmd;
+    swapCmdTrace *swap_cmd;
 } multiCmd;
 
 typedef struct multiState {
@@ -989,6 +993,8 @@ typedef struct client {
 
     /* swap */
     int keyrequests_count;
+    swapCmdTrace *swap_cmd;
+    long swap_duration; /* microseconds used in swap */
     int swap_result;
     dict *hold_keys;
     voidfuncptr client_swap_finished_cb;

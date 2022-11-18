@@ -50,6 +50,7 @@ void freeClientMultiState(client *c) {
         for (i = 0; i < mc->argc; i++)
             decrRefCount(mc->argv[i]);
         zfree(mc->argv);
+        if (mc->swap_cmd) swapCmdTraceFree(mc->swap_cmd);
     }
     zfree(c->mstate.commands);
 }
@@ -70,6 +71,7 @@ void queueMultiCommand(client *c) {
             sizeof(multiCmd)*(c->mstate.count+1));
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
+    mc->swap_cmd = NULL;
     mc->argc = c->argc;
     mc->argv = zmalloc(sizeof(robj*)*c->argc);
     memcpy(mc->argv,c->argv,sizeof(robj*)*c->argc);
@@ -163,6 +165,7 @@ void execCommand(client *c) {
     robj **orig_argv;
     int orig_argc;
     struct redisCommand *orig_cmd;
+    swapCmdTrace *orig_cmd_trace;
     int was_master = server.masterhost == NULL;
 
     if (!(c->flags & CLIENT_MULTI)) {
@@ -205,11 +208,14 @@ void execCommand(client *c) {
     orig_argv = c->argv;
     orig_argc = c->argc;
     orig_cmd = c->cmd;
+    orig_cmd_trace = c->swap_cmd;
     addReplyArrayLen(c,c->mstate.count);
     for (j = 0; j < c->mstate.count; j++) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
         c->cmd = c->mstate.commands[j].cmd;
+        c->swap_cmd = c->mstate.commands[j].swap_cmd;
+        if (c->swap_cmd) c->swap_cmd->swap_submitted_time = orig_cmd_trace->swap_submitted_time;
 
         /* ACL permissions are also checked at the time of execution in case
          * they were changed after the commands were queued. */
@@ -247,6 +253,7 @@ void execCommand(client *c) {
         c->mstate.commands[j].argc = c->argc;
         c->mstate.commands[j].argv = c->argv;
         c->mstate.commands[j].cmd = c->cmd;
+        c->mstate.commands[j].swap_cmd = c->swap_cmd;
     }
 
     // restore old DENY_BLOCKING value
@@ -256,6 +263,7 @@ void execCommand(client *c) {
     c->argv = orig_argv;
     c->argc = orig_argc;
     c->cmd = orig_cmd;
+    c->swap_cmd = orig_cmd_trace;
     discardTransaction(c);
 
     /* Make sure the EXEC command will be propagated as well if MULTI

@@ -1166,7 +1166,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"ctrip.get_robj", gtidGetRobjCommand, 2, 
      "read-only fast no-script", 
-     0, NULL,NULL,SWAP_IN,0,1,1,1,0,0,0}
+     0, NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+
+    {"swap.slowlog", swapSlowlogCommand, -2,
+     "admin random ok-loading ok-stale",
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 };
 
 /*============================ Utility functions ============================ */
@@ -3905,6 +3909,8 @@ void call(client *c, int flags) {
     c->cmd->proc(c);
     const long duration = elapsedUs(call_timer);
     c->duration = duration;
+    const long swap_duration = c->swap_cmd ? c->swap_cmd->swap_finished_time - c->swap_cmd->swap_submitted_time : 0L;
+    c->swap_duration = swap_duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -3957,7 +3963,7 @@ void call(client *c, int flags) {
     /* Log the command into the Slow log if needed.
      * If the client is blocked we will handle slowlog when it is unblocked. */
     if ((flags & CMD_CALL_SLOWLOG) && !(c->flags & CLIENT_BLOCKED))
-        slowlogPushCurrentCommand(c, real_cmd, duration);
+        slowlogPushCurrentCommand(c, real_cmd, duration + swap_duration);
 
     /* Send the command to clients in MONITOR mode if applicable.
      * Administrative commands are considered too dangerous to be shown. */

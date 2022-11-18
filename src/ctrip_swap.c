@@ -273,6 +273,7 @@ void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
             "key=%s, keyrequests_count=%d, errcode=%d",
             key?(sds)key->ptr:"<nil>", c->keyrequests_count, ctx->errcode);
     c->keyrequests_count--;
+    swapCmdSwapFinished(ctx->key_request->swap_cmd);
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
     keyRequestBeforeCall(c,ctx);
     if (c->keyrequests_count == 0) {
@@ -374,7 +375,7 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
 
     if (value == NULL) {
         submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
-                ctx,data,datactx,keyRequestSwapFinished,ctx,msgs,-1);
+                ctx,data,datactx,ctx->key_request->trace,keyRequestSwapFinished,ctx,msgs,-1);
         return;
     }
 
@@ -416,7 +417,7 @@ allset:
             swapIntentionName(swap_intention));
 
     submitSwapDataRequest(SWAP_MODE_ASYNC,swap_intention,swap_intention_flags,
-            ctx,data,datactx,keyRequestSwapFinished,ctx,msgs,-1);
+            ctx,data,datactx,ctx->key_request->trace,keyRequestSwapFinished,ctx,msgs,-1);
 
     return;
 
@@ -429,6 +430,7 @@ noswap:
     }
 
     /* noswap is kinda swapfinished. */
+    if (ctx->key_request->trace) ctx->key_request->trace->swap_dispatch_time = getMonotonicUs();
     keyRequestSwapFinished(data,ctx,ctx->errcode);
 
     return;
@@ -443,6 +445,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
 
     pauseClientSwapIfNeeded(c);
 
+    if (result->swap_cmd) swapCmdSwapSubmitted(result->swap_cmd);
     for (int i = 0; i < result->num; i++) {
         void *msgs = NULL;
         keyRequest *key_request = result->key_requests + i;
@@ -458,6 +461,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         DEBUG_MSGS_APPEND(&ctx->msgs,"request-wait", "key=%s",
                 key ? (sds)key->ptr : "<nil>");
 
+        if (key_request->trace) swapTraceLock(key_request->trace);
         requestGetIOAndLock(txid,db,key,keyRequestProceed,c,ctx,
                 (freefunc)swapCtxFree,msgs);
     }
@@ -466,6 +470,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
 /* Returns submited keyrequest count, if any keyrequest submitted, command
  * gets called in contiunueProcessCommand instead of normal call(). */
 int submitNormalClientRequests(client *c) {
+    serverAssert(c->swap_cmd == NULL);
     getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
     getKeyRequests(c,&result);
     c->keyrequests_count = result.num;

@@ -174,6 +174,8 @@ typedef struct keyRequest{
     } zl; /* zset lex */
   };
   argRewriteRequest list_arg_rewrite[2];
+  swapCmdTrace *swap_cmd;
+  swapTrace *trace;
 } keyRequest;
 
 void copyKeyRequest(keyRequest *dst, keyRequest *src);
@@ -256,11 +258,12 @@ int getKeyRequestsGtid(int dbid, struct redisCommand *cmd, robj **argv, int argc
 int getKeyRequestsGtidAuto(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
 
-#define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYREQUESTS_BUFFER}
+#define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, NULL, 0, MAX_KEYREQUESTS_BUFFER}
 
 typedef struct getKeyRequestsResult {
 	keyRequest buffer[MAX_KEYREQUESTS_BUFFER];
 	keyRequest *key_requests;
+	swapCmdTrace *swap_cmd;
 	int num;
 	int size;
 } getKeyRequestsResult;
@@ -268,6 +271,7 @@ typedef struct getKeyRequestsResult {
 void getKeyRequestsPrepareResult(getKeyRequestsResult *result, int numswaps);
 void getKeyRequestsAppendSubkeyResult(getKeyRequestsResult *result, int level, MOVE robj *key, int num_subkeys, MOVE robj **subkeys, int cmd_intention, int cmd_intention_flags, int dbid);
 void getKeyRequestsFreeResult(getKeyRequestsResult *result);
+void getKeyRequestsAttachSwapTrace(getKeyRequestsResult * result, swapCmdTrace *swap_cmd, int from_include, int to_exclude);
 
 void getKeyRequestsAppendRangeResult(getKeyRequestsResult *result, int level, MOVE robj *key, int arg_rewrite0, int arg_rewrite1, int num_ranges, MOVE range *ranges, int cmd_intention, int cmd_intention_flags, int dbid);
 
@@ -780,14 +784,15 @@ typedef struct swapRequest {
   monotime swap_timer;
   monotime swap_queue_timer;
   monotime notify_queue_timer;
+  swapTrace *trace;
 } swapRequest;
 
-swapRequest *swapRequestNew(keyRequest *key_request, int intention, uint32_t intention_flags, swapCtx *swapCtx, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
+swapRequest *swapRequestNew(keyRequest *key_request, int intention, uint32_t intention_flags, swapCtx *swapCtx, swapData *data, void *datactx, swapTrace *trace, swapRequestFinishedCallback cb, void *pd, void *msgs);
 void swapRequestFree(swapRequest *req);
 void processSwapRequest(swapRequest *req);
 void finishSwapRequest(swapRequest *req);
-void submitSwapDataRequest(int mode, int intention, uint32_t intention_flags, swapCtx *ctx, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs, int thread_idx);
-void submitSwapMetaRequest(int mode, keyRequest *key_request, swapCtx *ctx, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs, int thread_idx);
+void submitSwapDataRequest(int mode, int intention, uint32_t intention_flags, swapCtx *ctx, swapData* data, void *datactx, swapTrace *trace, swapRequestFinishedCallback cb, void *pd, void *msgs, int thread_idx);
+void submitSwapMetaRequest(int mode, keyRequest *key_request, swapCtx *ctx, swapData* data, void *datactx, swapTrace *trace, swapRequestFinishedCallback cb, void *pd, void *msgs, int thread_idx);
 
 /* Threads (encode/rio/decode/finish) */
 #define SWAP_THREADS_DEFAULT     4
@@ -1493,6 +1498,41 @@ typedef struct rocksdbUtilTaskManager{
 } rocksdbUtilTaskManager;
 rocksdbUtilTaskManager* createRocksdbUtilTaskManager();
 int submitUtilTask(int type, void* ctx, sds* error);
+
+/* swap trace */
+#define SLOWLOG_ENTRY_MAX_TRACE 16
+void swapSlowlogCommand(client *c);
+
+struct swapTrace {
+    int intention;
+    monotime swap_lock_time;
+    monotime swap_dispatch_time;
+    monotime swap_process_time;
+    monotime swap_notify_time;
+    monotime swap_callback_time;
+};
+
+struct swapCmdTrace {
+    int swap_cnt;
+    int finished_swap_cnt;
+    monotime swap_submitted_time;
+    monotime swap_finished_time;
+    swapTrace *swap_traces;
+};
+
+swapCmdTrace *createSwapCmdTrace();
+void initSwapTraces(swapCmdTrace *swap_cmd, int swap_cnt);
+void swapCmdTraceFree(swapCmdTrace *trace);
+void swapCmdSwapSubmitted(swapCmdTrace *swap_cmd);
+void swapTraceLock(swapTrace *trace);
+void swapTraceDispatch(swapTrace *trace);
+void swapTraceProcess(swapTrace *trace);
+void swapTraceDispatch(swapTrace *trace);
+void swapTraceProcess(swapTrace *trace);
+void swapTraceNotify(swapTrace *trace, int intention);
+void swapTraceCallback(swapTrace *trace);
+void swapCmdSwapFinished(swapCmdTrace *swap_cmd);
+void attachSwapTracesToSlowlog(void *ptr, swapCmdTrace *swap_cmd);
 
 #ifdef REDIS_TEST
 

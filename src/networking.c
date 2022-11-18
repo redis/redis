@@ -197,6 +197,7 @@ client *createClient(connection *conn) {
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
     c->keyrequests_count = 0;
+    c->swap_cmd = NULL;
     c->swap_result = 0;
     c->hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
     c->cmd_reploff = -1;
@@ -213,6 +214,7 @@ client *createClient(connection *conn) {
     c->swap_errcode = 0;
     c->swap_arg_rewrites = argRewritesCreate();
     c->gtid_in_merge = 0;
+    c->duration = 0;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);
@@ -1734,6 +1736,10 @@ void resetClient(client *c) {
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
+    if (c->swap_cmd) {
+        swapCmdTraceFree(c->swap_cmd);
+        c->swap_cmd = NULL;
+    }
 
     /* We clear the ASKING flag as well if we are not inside a MULTI, and
      * if what we just executed is not the ASKING command itself. */
