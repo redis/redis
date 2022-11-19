@@ -54,19 +54,39 @@ int rocksInit() {
     rocks->db_opts = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(rocks->db_opts, 1); 
     rocksdb_options_set_create_missing_column_families(rocks->db_opts, 1);
-    rocksdb_options_set_max_write_buffer_number(rocks->db_opts, 6);
     rocksdb_options_optimize_for_point_lookup(rocks->db_opts, 1);
 
     rocksdb_options_set_min_write_buffer_number_to_merge(rocks->db_opts, 2);
-    rocksdb_options_set_max_write_buffer_number(rocks->db_opts, 6);
+    rocksdb_options_set_max_write_buffer_number(rocks->db_opts, server.rocksdb_max_write_buffer_number);
     rocksdb_options_set_level0_file_num_compaction_trigger(rocks->db_opts, 2);
-    rocksdb_options_set_target_file_size_base(rocks->db_opts, 32*MB);
+    rocksdb_options_set_target_file_size_base(rocks->db_opts, server.rocksdb_target_file_size_base);
     rocksdb_options_set_max_bytes_for_level_base(rocks->db_opts, 256*MB);
 
-    rocksdb_options_set_max_background_compactions(rocks->db_opts, 4); /* default 1 */
+    rocksdb_options_set_max_background_compactions(rocks->db_opts, server.rocksdb_max_background_compactions); /* default 1 */
+    rocksdb_options_set_max_background_flushes(rocks->db_opts, server.rocksdb_max_background_flushes); /* default -1 */
+    rocksdb_options_set_max_subcompactions(rocks->db_opts, server.rocksdb_max_subcompactions); /* default 1 */
     rocksdb_options_compaction_readahead_size(rocks->db_opts, 2*1024*1024); /* default 0 */
     rocksdb_options_set_optimize_filters_for_hits(rocks->db_opts, 1); /* default false */
-    rocksdb_options_set_compression(rocks->db_opts, server.rocksdb_compression);
+    rocksdb_options_set_max_open_files(rocks->db_opts,server.rocksdb_max_open_files);
+    rocksdb_options_set_write_buffer_size(rocks->db_opts,server.rocksdb_write_buffer_size);
+    rocksdb_options_set_enable_pipelined_write(rocks->db_opts,server.rocksdb_enable_pipelined_write);
+    rocksdb_options_set_level0_slowdown_writes_trigger(rocks->db_opts,server.rocksdb_level0_slowdown_writes_trigger);
+    rocksdb_options_set_disable_auto_compactions(rocks->db_opts,server.rocksdb_disable_auto_compactions);
+
+    if (server.rocksdb_compression >= 0) {
+        rocksdb_options_set_compression(rocks->db_opts, server.rocksdb_compression);
+    } else {
+        int level_values[7] = {
+            rocksdb_no_compression,
+            rocksdb_no_compression,
+            rocksdb_snappy_compression,
+            rocksdb_snappy_compression,
+            rocksdb_snappy_compression,
+            rocksdb_snappy_compression,
+            rocksdb_snappy_compression,
+        };
+        rocksdb_options_set_compression_per_level(rocks->db_opts, level_values, 7);
+    }
 
     rocks->ropts = rocksdb_readoptions_create();
     rocksdb_readoptions_set_verify_checksums(rocks->ropts, 0);
@@ -91,27 +111,42 @@ int rocksInit() {
     rocksdb_readoptions_set_verify_checksums(rocks->filter_meta_ropts, 0);
     rocksdb_readoptions_set_fill_cache(rocks->filter_meta_ropts, 0);
 
-    rocks->cf_opts[DATA_CF] = rocksdb_options_create();
+    rocks->cf_opts[DATA_CF] = rocksdb_options_create_copy(rocks->db_opts);
     rocks->block_opts[DATA_CF] = rocksdb_block_based_options_create();
     rocks->cf_compaction_filters[DATA_CF] = createDataCfCompactionFilter();
-    rocksdb_block_based_options_set_block_size(rocks->block_opts[DATA_CF], 8*KB);
+    rocksdb_block_based_options_set_block_size(rocks->block_opts[DATA_CF], server.rocksdb_block_size);
+    rocksdb_block_based_options_set_cache_index_and_filter_blocks(rocks->block_opts[DATA_CF], server.rocksdb_cache_index_and_filter_blocks);
+
+    rocksdb_cache_t *data_cache = rocksdb_cache_create_lru(server.rocksdb_data_block_cache_size);
+    rocksdb_block_based_options_set_block_cache(rocks->block_opts[DATA_CF], data_cache);
+    rocksdb_cache_destroy(data_cache);
+
     rocksdb_options_set_block_based_table_factory(rocks->cf_opts[DATA_CF], rocks->block_opts[DATA_CF]);
     rocksdb_options_set_compaction_filter(rocks->cf_opts[DATA_CF], rocks->cf_compaction_filters[DATA_CF]);
 
-    rocks->cf_opts[META_CF] = rocksdb_options_create();
+    rocks->cf_opts[META_CF] = rocksdb_options_create_copy(rocks->db_opts);
     rocks->block_opts[META_CF] = rocksdb_block_based_options_create();
     rocks->cf_compaction_filters[META_CF] = createMetaCfCompactionFilter();
-    rocksdb_block_based_options_set_block_size(rocks->block_opts[META_CF], 8*KB);
-    rocksdb_cache_t *cache = rocksdb_cache_create_lru(512*MB);
-    rocksdb_block_based_options_set_block_cache(rocks->block_opts[META_CF], cache);
-    rocksdb_cache_destroy(cache);
+    rocksdb_block_based_options_set_block_size(rocks->block_opts[META_CF], server.rocksdb_block_size);
+    rocksdb_block_based_options_set_cache_index_and_filter_blocks(rocks->block_opts[META_CF], server.rocksdb_cache_index_and_filter_blocks);
+
+    rocksdb_cache_t *meta_cache = rocksdb_cache_create_lru(server.rocksdb_meta_block_cache_size);
+    rocksdb_block_based_options_set_block_cache(rocks->block_opts[META_CF], meta_cache);
+    rocksdb_cache_destroy(meta_cache);
+
     rocksdb_options_set_block_based_table_factory(rocks->cf_opts[META_CF], rocks->block_opts[META_CF]);
     rocksdb_options_set_compaction_filter(rocks->cf_opts[META_CF], rocks->cf_compaction_filters[META_CF]);
 
-    rocks->cf_opts[SCORE_CF] = rocksdb_options_create();
+    rocks->cf_opts[SCORE_CF] = rocksdb_options_create_copy(rocks->db_opts);
     rocks->block_opts[SCORE_CF] = rocksdb_block_based_options_create();
     rocks->cf_compaction_filters[SCORE_CF] = createScoreCfCompactionFilter();
-    rocksdb_block_based_options_set_block_size(rocks->block_opts[SCORE_CF], 8*KB);
+    rocksdb_block_based_options_set_block_size(rocks->block_opts[SCORE_CF], server.rocksdb_block_size);
+    rocksdb_block_based_options_set_cache_index_and_filter_blocks(rocks->block_opts[SCORE_CF], server.rocksdb_cache_index_and_filter_blocks);
+
+    rocksdb_cache_t *score_cache = rocksdb_cache_create_lru(server.rocksdb_data_block_cache_size);
+    rocksdb_block_based_options_set_block_cache(rocks->block_opts[DATA_CF], score_cache);
+    rocksdb_cache_destroy(score_cache);
+
     rocksdb_options_set_block_based_table_factory(rocks->cf_opts[SCORE_CF], rocks->block_opts[SCORE_CF]);
     rocksdb_options_set_compaction_filter(rocks->cf_opts[SCORE_CF], rocks->cf_compaction_filters[SCORE_CF]);
 

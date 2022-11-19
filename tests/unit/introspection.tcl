@@ -157,10 +157,24 @@ start_server {tags {"introspection"}} {
             bgsave_cpulist
             set-proc-title
             swap-mode
-            rocksdb-compression
             jemalloc-max-bg-threads
             swap-threads
             gtid-enabled 
+            rocksdb.meta.block_cache_size
+            rocksdb.data.block_cache_size
+            rocksdb.max_open_files
+            rocksdb.write_buffer_size
+            rocksdb.target_file_size_base
+            rocksdb.max_write_buffer_number
+            rocksdb.max_background_compactions
+            rocksdb.max_background_flushes
+            rocksdb.max_subcompactions
+            rocksdb.block_size
+            rocksdb.cache_index_and_filter_blocks
+            rocksdb.enable_pipelined_write
+            rocksdb.level0_slowdown_writes_trigger
+            rocksdb.disable_auto_compactions
+            rocksdb.compression
         }
 
         if {!$::tls} {

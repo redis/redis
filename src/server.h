@@ -1760,7 +1760,6 @@ struct redisServer {
     int swap_evict_step_max_subkeys; /* max subkeys evict in one step. */
     unsigned long long swap_evict_step_max_memory; /* max memory evict in one step. */
     unsigned long long swap_repl_max_rocksdb_read_bps; /* max rocksdb iterator read bps. */ 
-    int rocksdb_compression; /* rocksdb compresssion type: no/snappy/zlib. */
     int64_t swap_txid; /* swap txid. */
     int swap_pause_type;
     list *swap_paused_keyrequests;
@@ -1768,6 +1767,23 @@ struct redisServer {
     uint64_t swap_key_version;
     int swap_evict_inprogress_limit;
     int swap_evict_inprogress_count;
+
+    /* rocksdb configs */
+    unsigned long long rocksdb_meta_block_cache_size;
+    unsigned long long rocksdb_data_block_cache_size;
+    int rocksdb_max_open_files;
+    unsigned long long rocksdb_write_buffer_size;
+    unsigned long long rocksdb_target_file_size_base;
+    int rocksdb_max_write_buffer_number;
+    int rocksdb_max_background_compactions;
+    int rocksdb_max_background_flushes;
+    int rocksdb_max_subcompactions;
+    int rocksdb_block_size;
+    int rocksdb_cache_index_and_filter_blocks;
+    int rocksdb_enable_pipelined_write;
+    int rocksdb_level0_slowdown_writes_trigger;
+    int rocksdb_disable_auto_compactions;
+    int rocksdb_compression; /* rocksdb compresssion type: no/snappy/zlib. */
 
     /* gtid executed */
     int gtid_enabled;  /* Is gtid enabled? */
