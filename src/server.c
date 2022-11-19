@@ -3456,7 +3456,7 @@ void initServer(void) {
     server.repl_good_slaves_count = 0;
     server.swap_inprogress_count = 0;
     server.swap_inprogress_memory = 0;
-    server.swap_error = 0;
+    server.swap_error_count = 0;
     server.in_swap_cb = 0;
 
     /* Create the timer callback, this is our way to process many background
@@ -5558,29 +5558,29 @@ sds genRedisInfoString(const char *section) {
         }
     }
 
-   /* Swaps */
-    if (allsections || !strcasecmp(section,"swaps")) {
+   /* Swap */
+    if (allsections || defsections || !strcasecmp(section,"swap")) {
         if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info, "# Swaps\r\n");
+        info = sdscatprintf(info, "# Swap\r\n");
         info = genSwapInfoString(info);
     }
 
-   /* ScanExpire */
-    if (allsections || !strcasecmp(section,"scanexpire")) {
+   /* Swap.Scanexpire */
+    if (allsections || !strcasecmp(section,"swap.scanexpire")) {
         if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info, "# ScanExpire\r\n");
-        info = genScanExpireInfoString(info);
+        info = sdscatprintf(info, "# Swap.Scanexpire\r\n");
+        info = genSwapScanExpireInfoString(info);
     }
 
-    /* Rocks */
-    if ((allsections || defsections || !strcasecmp(section,"rocks")) &&
+    /* Rocksdb */
+    if ((allsections || defsections || !strcasecmp(section,"rocksdb")) &&
             server.swap_mode != SWAP_MODE_MEMORY) {
         if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info, "# Rocks\r\n");
-        info = genRocksInfoString(info);
+        info = sdscatprintf(info, "# Rocksdb\r\n");
+        info = genRocksdbInfoString(info);
     }
 
-    /* rocksdb.stats */
+    /* Rocksdb.stats */
     if (!strncasecmp(section,rocksdb_stats_section, rocksdb_stats_section_len) && 
         (strlen(section) == rocksdb_stats_section_len || section[rocksdb_stats_section_len] == '.') &&
         server.swap_mode != SWAP_MODE_MEMORY) {

@@ -747,7 +747,7 @@ void scanExpireEmpty(scanExpire *scan_expire);
 
 void scanexpireCommand(client *c);
 int scanExpireDbCycle(redisDb *db, int type, long long timelimit);
-sds genScanExpireInfoString(sds info);
+sds genSwapScanExpireInfoString(sds info);
 
 void expireSlaveKeysSwapMode(void);
 
@@ -1107,7 +1107,7 @@ void rocksUseSnapshot(void);
 void rocksReleaseSnapshot(void);
 struct rocksdbMemOverhead *rocksGetMemoryOverhead();
 void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh);
-sds genRocksInfoString(sds info);
+sds genRocksdbInfoString(sds info);
 sds genRocksdbStatsString(sds section, sds info);
 int rocksdbPropertyInt(const char *cfnames, const char *propname, uint64_t *out_val);
 sds rocksdbPropertyValue(const char *cfnames, const char *propname);
@@ -1207,6 +1207,8 @@ void metricDebugInfo(int type, long val);
 
 void trackSwapInstantaneousMetrics();
 sds genSwapInfoString(sds info);
+sds genSwapStorageInfoString(sds info);
+sds genSwapExecInfoString(sds info);
 
 int swapRateLimitState(void);
 int swapRateLimit(client *c);
@@ -1466,7 +1468,7 @@ size_t ctripDbSize(redisDb *db);
 
 static inline void clientSwapError(client *c, int swap_errcode) {
   if (c && swap_errcode) {
-    atomicIncr(server.swap_error,1);
+    atomicIncr(server.swap_error_count,1);
     c->swap_errcode = swap_errcode;
   }
 }

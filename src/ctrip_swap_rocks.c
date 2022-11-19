@@ -578,7 +578,7 @@ sds compactLevelInfo(sds info, int level , char* rocksdb_stats) {
 
     end:
     info = sdscatprintf(info,
-        "# L%d\r\n"
+        "# Rocksdb.L%d\r\n"
         "TotalFiles:%s\r\n"
         "CompactingFiles:%s\r\n"
         "Size(GB):%.2f\r\n"
@@ -842,7 +842,7 @@ sds rocksdbStatsInfo(sds info, char* type, char* rocksdb_stats) {
     }
 end:
     info = sdscatprintf(info, 
-        "# %s\r\n"
+        "# Rocksdb.%s\r\n"
         "%s_writes_num(K):%.3f\r\n"
         "%s_writes_keys(K):%.3f\r\n"
         "%s_writes_commit_group(K):%.3f\r\n"
@@ -894,49 +894,54 @@ sds intervalInfo(sds info, char* rocksdb_stats) {
     return rocksdbStatsInfo(info, "interval", rocksdb_stats);
 }
 
-sds genRocksInfoString(sds info) {
+sds genSwapStorageInfoString(sds info) {
 	char *err;
-	size_t used_db_size = 0, swap_max_db_size = 0,
-           disk_capacity = 0, used_disk_size = 0;
-	size_t sequence = 0;
-	float used_db_percent = 0, used_disk_percent = 0;
+	size_t swap_used_db_size = 0, swap_max_db_size = 0,
+           swap_disk_capacity = 0, swap_used_disk_size = 0;
+	float swap_used_db_percent = 0, swap_used_disk_percent = 0;
 	rocksdb_t *db = server.rocks->db;
 	const char *begin_key = "\x0", *end_key = "\xff";
 	const size_t begin_key_len = 1, end_key_len = 1;
 	struct statvfs stat;
 
 	if (db) {
-		sequence = rocksdb_get_latest_sequence_number(db);
-		rocksdb_approximate_sizes(db,1,&begin_key,&begin_key_len,&end_key,&end_key_len,&used_db_size,&err);
+		rocksdb_approximate_sizes(db,1,&begin_key,&begin_key_len,&end_key,&end_key_len,&swap_used_db_size,&err);
 		swap_max_db_size = server.swap_max_db_size;
-		if (swap_max_db_size) used_db_percent = (float)(used_db_size) * 100/swap_max_db_size;
+		if (swap_max_db_size) swap_used_db_percent = (float)(swap_used_db_size) * 100/swap_max_db_size;
 	}
 
 	if (statvfs(ROCKS_DATA, &stat) == 0) {
-		disk_capacity = stat.f_blocks * stat.f_frsize;
-		used_disk_size = (stat.f_blocks - stat.f_bavail) * stat.f_frsize;
-		if (disk_capacity) used_disk_percent = (float)used_disk_size * 100 / disk_capacity;
+		swap_disk_capacity = stat.f_blocks * stat.f_frsize;
+		swap_used_disk_size = (stat.f_blocks - stat.f_bavail) * stat.f_frsize;
+		if (swap_disk_capacity) swap_used_disk_percent = (float)swap_used_disk_size * 100 / swap_disk_capacity;
 	} 
 
 	info = sdscatprintf(info,
-			"sequence:%lu\r\n"
-			"used_db_size:%lu\r\n"
+			"swap_used_db_size:%lu\r\n"
 			"swap_max_db_size:%lu\r\n"
-			"used_percent:%0.2f%%\r\n"
-			"used_disk_size:%lu\r\n"
-			"disk_capacity:%lu\r\n"
-			"used_disk_percent:%0.2f%%\r\n"
-            "swap_error:%lu\r\n",
-			sequence,
-			used_db_size,
+			"swap_used_db_percent:%0.2f%%\r\n"
+			"swap_used_disk_size:%lu\r\n"
+			"swap_disk_capacity:%lu\r\n"
+			"swap_used_disk_percent:%0.2f%%\r\n"
+            "swap_error_count:%ld\r\n",
+			swap_used_db_size,
 			swap_max_db_size,
-			used_db_percent,
-			used_disk_size,
-			disk_capacity,
-			used_disk_percent,
-            server.swap_error);
+			swap_used_db_percent,
+			swap_used_disk_size,
+			swap_disk_capacity,
+			swap_used_disk_percent,
+            server.swap_error_count);
 
-    // # ROCKSDB  (MOCK TROCKS)
+    return info;
+}
+
+sds genRocksdbInfoString(sds info) {
+	size_t sequence = 0;
+	rocksdb_t *db = server.rocks->db;
+
+	if (db) sequence = rocksdb_get_latest_sequence_number(db);
+	info = sdscatprintf(info,"rocksdb_sequence:%lu\r\n",sequence);
+
     char* rocksdb_stats = server.rocks->rocksdb_stats_cache? server.rocks->rocksdb_stats_cache[DATA_CF]: NULL;
     info = compactLevelsInfo(info, rocksdb_stats);
     info = cumulativeInfo(info, rocksdb_stats);

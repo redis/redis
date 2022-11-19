@@ -1735,7 +1735,7 @@ struct redisServer {
     /* swap rate limiting */
     redisAtomic size_t swap_inprogress_count; /* swap request inprogress count */
     redisAtomic size_t swap_inprogress_memory;  /* swap consumed memory in bytes */
-    redisAtomic size_t swap_error;  /* swap error count */
+    redisAtomic size_t swap_error_count;  /* swap error count */
     unsigned long long swap_inprogress_memory_slowdown; /* swap memory to slowdown swap requests */
     unsigned long long swap_inprogress_memory_stop; /* swap memory to (almost) stop swap requests */
     int swap_maxmemory_oom_percentage; /* reject denyoom commands if server used more memory than

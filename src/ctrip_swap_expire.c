@@ -359,34 +359,58 @@ void scanexpireCommand(client *c) {
 
 size_t objectComputeSize(robj *o, size_t sample_size);
 
-/* TODO support multi-db */
-sds genScanExpireInfoString(sds info) {
-	redisDb *db0 = server.db + 0;
-	scanExpire *scan_expire = db0->scan_expire;
-    size_t used_memory = sizeof(scanExpire) +  sizeof(expireCandidates);
-    if (scan_expire->candidates && scan_expire->candidates->zobj) {
-        used_memory += objectComputeSize(scan_expire->candidates->zobj,8);
+sds genSwapScanExpireInfoString(sds info) {
+    redisDb *db;
+    scanExpire *scan_expire;
+    size_t used_memory = 0, candidates_count = 0, scan_per_sec = 0,
+           expired_per_sec = 0;
+    double stale_percent = 0;
+    int limit = 0;
+    long long estimated_cycle_seconds = 0, scan_time_used = 0,
+         expire_time_used = 0;
+
+    for (int dbid = 0; dbid < server.dbnum; dbid++) {
+        db = server.db + dbid;
+        scan_expire = db->scan_expire;
+
+        if (!scan_expire || !scan_expire->candidates)
+            continue;
+
+        used_memory += sizeof(scanExpire) + sizeof(expireCandidates);
+        if (scan_expire->candidates->zobj) {
+            used_memory += objectComputeSize(scan_expire->candidates->zobj,8);
+            candidates_count += expireCandidatesSize(scan_expire->candidates);
+        }
+        if (stale_percent < scan_expire->stale_percent)
+            stale_percent = scan_expire->stale_percent;
+        if (limit < scan_expire->limit) 
+            limit = scan_expire->limit;
+        estimated_cycle_seconds += scan_expire->stat_estimated_cycle_seconds;
+        scan_per_sec += scan_expire->stat_scan_per_sec;
+        expired_per_sec += scan_expire->stat_expired_per_sec;
+        scan_time_used += scan_expire->stat_scan_time_used;
+        expire_time_used += scan_expire->stat_expire_time_used;
     }
 
 	info = sdscatprintf(info,
-			"used_memory_scan_expire:%ld\r\n"
-			"scan_expire_candidates:%ld\r\n"
-			"scan_expire_stale_perc:%.2f%%\r\n"
-			"scan_expire_scan_limit:%d\r\n"
-			"scan_expire_estimated_cycle_seconds:%lld\r\n"
-			"scan_expire_scan_key_per_second:%ld\r\n"
-			"scan_expire_expired_key_per_second:%ld\r\n"
-			"scan_expire_scan_used_time:%lld\r\n"
-			"scan_expire_expire_used_time:%lld\r\n",
+			"swap_scan_expire_used_memory:%ld\r\n"
+			"swap_scan_expire_candidates:%ld\r\n"
+			"swap_scan_expire_stale_perc:%.2f%%\r\n"
+			"swap_scan_expire_scan_limit:%d\r\n"
+			"swap_scan_expire_estimated_cycle_seconds:%lld\r\n"
+			"swap_scan_expire_scan_key_per_second:%ld\r\n"
+			"swap_scan_expire_expired_key_per_second:%ld\r\n"
+			"swap_scan_expire_scan_used_time:%lld\r\n"
+			"swap_scan_expire_expire_used_time:%lld\r\n",
             used_memory,
-            expireCandidatesSize(scan_expire->candidates),
-            scan_expire->stale_percent*100,
-            scan_expire->limit,
-            scan_expire->stat_estimated_cycle_seconds,
-            scan_expire->stat_scan_per_sec,
-            scan_expire->stat_expired_per_sec,
-            scan_expire->stat_scan_time_used,
-            scan_expire->stat_expire_time_used);
+            candidates_count,
+            stale_percent*100,
+            limit,
+            estimated_cycle_seconds,
+            scan_per_sec,
+            expired_per_sec,
+            scan_time_used,
+            expire_time_used);
     return info;
 }
 

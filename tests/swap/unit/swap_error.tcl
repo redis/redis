@@ -17,23 +17,23 @@ start_server {tags {"swap error"}} {
             $master evict key
             after 100
             assert ![object_is_cold $master key]
-            assert {[get_info $master swaps swap_error] eq 1}
+            assert {[get_info $master swap swap_error_count] eq 1}
 
             $slave swap rio-error 1
             $slave evict key
             after 100
             assert ![object_is_cold $slave key]
-            assert {[get_info $slave swaps swap_error] eq 1}
+            assert {[get_info $slave swap swap_error_count] eq 1}
 
             $master evict key
             wait_key_cold $master key
             assert [object_is_cold $master key]
-            assert {[get_info $master swaps swap_error] eq 1}
+            assert {[get_info $master swap swap_error_count] eq 1}
 
             $slave evict key
             wait_key_cold $slave key
             assert [object_is_cold $slave key]
-            assert {[get_info $slave swaps swap_error] eq 1}
+            assert {[get_info $slave swap swap_error_count] eq 1}
 
             $master swap rio-error 1
             catch {$master get key} {e}

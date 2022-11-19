@@ -111,11 +111,11 @@ start_server {tags "bighash"} {
         r hmset hash10 a a b b 1 1 2 2 
         r evict hash10
         wait_key_cold r hash10
-        set old_swap_out_count [get_info_property r Swaps swap_OUT count]
+        set old_swap_out_count [get_info_property r Swap swap_OUT count]
         r hgetall hash10
         r evict hash10
         # evict clean hash triggers no swapout
-        assert_equal $old_swap_out_count [get_info_property r Swaps swap_OUT count]
+        assert_equal $old_swap_out_count [get_info_property r Swap swap_OUT count]
 
         assert_equal [llength [r hkeys hash10]] 4
         r evict hash10
@@ -157,16 +157,16 @@ start_server {tags "bighash"} {
         assert_equal [r hlen hash11] 4
 
         # clean bighash swapout does not triggers swap
-        set orig_swap_out_count [get_info_property r swaps swap_OUT count]
+        set orig_swap_out_count [get_info_property r Swap swap_OUT count]
 
         r evict hash11
         assert ![object_is_dirty r hash11]
-        assert_equal $orig_swap_out_count [get_info_property r Swaps swap_OUT count]
+        assert_equal $orig_swap_out_count [get_info_property r Swap swap_OUT count]
 
         # clean bighash swapout does not triggers swap
         assert_equal [r hmget hash11 b 2] {b 2}
         assert ![object_is_dirty r hash11]
-        assert_equal $orig_swap_out_count [get_info_property r Swaps swap_OUT count]
+        assert_equal $orig_swap_out_count [get_info_property r Swap swap_OUT count]
 
         # clean bighash swapout fields can be retrieved from rocksdb
         assert_equal [r hget hash11 1] {1}
@@ -181,7 +181,7 @@ start_server {tags "bighash"} {
         after 200
         assert [object_is_dirty r hash11]
         assert_equal [r hlen hash11] 4
-        assert {[get_info_property r Swaps swap_OUT count] > $orig_swap_out_count}
+        assert {[get_info_property r Swap swap_OUT count] > $orig_swap_out_count}
 
         r config set swap-evict-step-max-subkeys $old_swap_max_subkeys
     }

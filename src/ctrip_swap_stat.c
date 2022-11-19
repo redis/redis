@@ -165,17 +165,21 @@ void trackSwapInstantaneousMetrics() {
 }
 
 sds genSwapInfoString(sds info) {
+    info = genSwapStorageInfoString(info);
+    info = genSwapExecInfoString(info);
+    return info;
+}
+
+sds genSwapExecInfoString(sds info) {
     int j;
     long long ops, total_latency;
     size_t count, memory;
     info = sdscatprintf(info,
             "swap_inprogress_count:%ld\r\n"
             "swap_inprogress_memory:%ld\r\n"
-            "swap_error:%ld\r\n"
             "swap_inprogress_evict_count:%d\r\n",
             server.swap_inprogress_count,
             server.swap_inprogress_memory,
-            server.swap_error,
             server.swap_evict_inprogress_count);
 
     for (j = 1; j < SWAP_TYPES; j++) {
@@ -195,7 +199,7 @@ sds genSwapInfoString(sds info) {
         atomicGet(s->memory,memory);
         ops = getInstantaneousMetric(s->stats_metric_idx_count);
         total_latency = getInstantaneousMetric(s->stats_metric_idx_time);
-        info = sdscatprintf(info,"rio_%s:count=%ld,memory=%ld,ops=%lld,bps=%lld,latency_po=%lld\r\n",
+        info = sdscatprintf(info,"swap_rio_%s:count=%ld,memory=%ld,ops=%lld,bps=%lld,latency_po=%lld\r\n",
                 s->name,count,memory,
                 ops, getInstantaneousMetric(s->stats_metric_idx_memory), ops > 0 ? total_latency/ops : 0);
     }
@@ -205,7 +209,7 @@ sds genSwapInfoString(sds info) {
         long long filt_count, scan_count;
         atomicGet(cfs->filt_count,filt_count);
         atomicGet(cfs->scan_count,scan_count);
-        info = sdscatprintf(info,"cf_%s:filt_count=%lld,scan_count=%lld,filt_ps=%lld,scan_ps=%lld\r\n",
+        info = sdscatprintf(info,"swap_compaction_filter_%s:filt_count=%lld,scan_count=%lld,filt_ps=%lld,scan_ps=%lld\r\n",
                 cfs->name,filt_count,scan_count,
                 getInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_filt_count),
                 getInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_SCAN_COUNT));
