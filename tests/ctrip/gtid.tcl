@@ -184,3 +184,44 @@ start_server {tags {"gtid"} overrides} {
         assert_equal [dict get [get_gtid r] [status r run_id]] 1-200000
     }
 }
+
+if {$::swap_mode != "disk" } {
+    #swap disk can't select 1
+    start_server {tags {"repl"} overrides} {
+        set master [srv 0 client]
+        $master config set repl-diskless-sync-delay 1
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        $master config set gtid-enabled yes
+        set repl [attach_to_replication_stream]
+        start_server {tags {"slave"}} {
+            set slave [srv 0 client]
+            $slave slaveof $master_host $master_port
+            wait_for_sync $slave
+            $master multi
+            $master select 1 
+            $master select 2
+            $master set k v
+            $master select 3
+            $master set k v1
+            $master exec 
+
+            assert_replication_stream $repl {
+                {select 2}
+                {multi}
+                {set k v}
+                {select 3}
+                {set k v1}
+                {gtid * 2 exec}
+            }
+            after 1000
+
+            assert_equal [$slave get k] {}
+            $slave select 2
+            assert_equal [$slave get k] v
+            $slave select 3
+            assert_equal [$slave get k] v1
+
+        }
+    }
+}
