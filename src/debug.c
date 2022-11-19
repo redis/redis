@@ -919,8 +919,8 @@ NULL
         sds property_value = rocksdbPropertyValue(cfnames,c->argv[2]->ptr);
         addReplyBulkCString(c, property_value);
         if (property_value) sdsfree(property_value);
-    } else if (!strcasecmp(c->argv[1]->ptr,"set-debug-rio-latency") && c->argc == 3) {
-        server.debug_rio_latency = atoi(c->argv[2]->ptr);
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-swap-debug-rio-delay") && c->argc == 3) {
+        server.swap_debug_rio_delay = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);

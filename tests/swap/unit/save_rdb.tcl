@@ -1,5 +1,5 @@
 start_server {tags {"swap string"} keep_persistence true} {
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
     test {"save + restart_server"} {
         r set k v
         r evict k 

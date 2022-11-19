@@ -1,5 +1,5 @@
 start_server {tags {"swap string"}} {
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
     test {swap out string} {
         r set k v
         r evict k
@@ -14,7 +14,7 @@ start_server {tags {"swap string"}} {
 
 
 start_server {tags {"swap  small hash"}} {
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
     test {swap out hash} {
         r hset h k v
         r evict h

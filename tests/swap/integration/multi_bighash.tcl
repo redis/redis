@@ -5,8 +5,7 @@ start_server {tags {"repl"}} {
     set port [srv 0 port]
     test "evit big hash(max-subkeys + 1)" {
         
-        r config set swap-big-hash-threshold 1
-        r config set debug-evict-keys 0
+        r config set swap-debug-evict-keys 0
         r config set swap-evict-step-max-subkeys 1
         r config set hash-max-ziplist-entries 1000000000
         set num 4
@@ -123,8 +122,7 @@ start_server {tags {"repl"}} {
     set port1 [srv 0 port]
     test "evit big hash(max-subkeys + 1)" {
         
-        r config set swap-big-hash-threshold 1
-        r config set debug-evict-keys 0
+        r config set swap-debug-evict-keys 0
         r config set swap-evict-step-max-subkeys 1
         r config set hash-max-ziplist-entries 1000000000
         set num 4
@@ -155,8 +153,7 @@ start_server {tags {"repl"}} {
             set host [srv 0 host]
             set port [srv 0 port]
             r slaveof $host1 $port1
-            r config set swap-big-hash-threshold 1
-            r config set debug-evict-keys 0
+            r config set swap-debug-evict-keys 0
             r config set swap-evict-step-max-subkeys 1
             r config set hash-max-ziplist-entries 1000000000
             wait_for_condition 50 3000 {

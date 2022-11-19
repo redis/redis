@@ -22,7 +22,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl bgsa
             $master config set repl-backlog-ttl $backlog_ttl
             $master config set repl-diskless-sync $mdl
             $master config set repl-diskless-sync-delay 1
-            $master config set debug-swapout-notify-latency 100
+            $master config set swap-debug-swapout-notify-delay 100
             $slave config set repl-diskless-load $sdl
 
             set load_handle0 [start_bg_complex_data $master_host $master_port 0 100000]
@@ -98,7 +98,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl bgsa
                 } else {
                     fail "Slave still not connected after some time"
                 }
-                if {$::debug_evict_keys} {
+                if {$::swap_debug_evict_keys} {
                     wait_for_condition 100 100 {
                         [$master dbsize] == [$slave dbsize]
                     } else {

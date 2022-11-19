@@ -151,7 +151,7 @@ void trackSwapInstantaneousMetrics() {
         atomicGet(cfs->scan_count,scan_count);
         trackInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_SCAN_COUNT,scan_count);
     }
-    if (server.swap_debug) {
+    if (server.swap_debug_trace_latency) {
         swapDebugInfo *d;
         size_t cnt, val;
         for (i = 0; i < SWAP_DEBUG_INFO_TYPE; i++) {
@@ -210,10 +210,10 @@ sds genSwapInfoString(sds info) {
                 getInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_filt_count),
                 getInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_SCAN_COUNT));
     }
-    if (server.swap_debug) {
+    if (server.swap_debug_trace_latency) {
         swapDebugInfo *d;
         long long cnt, val;
-        info = sdscatprintf(info, "swap_debug:");
+        info = sdscatprintf(info, "swap_debug_trace_latency:");
         for (j = 0; j < SWAP_DEBUG_INFO_TYPE; j++) {
             d = &server.swap_debug_info[j];
             cnt = getInstantaneousMetric(d->metric_idx_count);
@@ -296,9 +296,11 @@ void updateCompactionFiltScanCount(int cf) {
 #define SWAP_RATELIMIT_DELAY_STOP 10
 
 int swapRateLimitState() {
-    if (server.swap_inprogress_memory < server.swap_memory_slowdown) {
+    if (server.swap_inprogress_memory <
+            server.swap_inprogress_memory_slowdown) {
         return SWAP_RL_NO;
-    } else if (server.swap_inprogress_memory < server.swap_memory_stop) {
+    } else if (server.swap_inprogress_memory <
+            server.swap_inprogress_memory_stop) {
         return SWAP_RL_SLOW;
     } else {
         return SWAP_RL_STOP;
@@ -315,7 +317,7 @@ int swapRateLimit(client *c) {
         delay = 0;
         break;
     case SWAP_RL_SLOW:
-        pct = ((float)server.swap_inprogress_memory - server.swap_memory_slowdown) / ((float)server.swap_memory_stop - server.swap_memory_slowdown);
+        pct = ((float)server.swap_inprogress_memory - server.swap_inprogress_memory_slowdown) / ((float)server.swap_inprogress_memory_stop - server.swap_inprogress_memory_slowdown);
         delay = (int)(SWAP_RATELIMIT_DELAY_SLOW + pct*(SWAP_RATELIMIT_DELAY_STOP - SWAP_RATELIMIT_DELAY_SLOW));
         break;
     case SWAP_RL_STOP:

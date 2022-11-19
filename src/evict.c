@@ -564,7 +564,7 @@ int performEvictions(void) {
     /* Pause eviction if there are too much swap in progress, Note:
      * - reject only when swapping inflight, otherwise server won't recover. */
     if (eviction_swap_pause) {
-        unsigned long long limit = server.maxmemory_oom_percentage*server.maxmemory/100;
+        unsigned long long limit = server.swap_maxmemory_oom_percentage*server.maxmemory/100;
 
 		if (!isEvictionProcRunning) {
 			isEvictionProcRunning = 1;

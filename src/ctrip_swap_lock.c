@@ -136,7 +136,7 @@ void requestListenerPushEntry(requestListeners *listeners,
     entry->c = c;
     entry->pd = pd;
     entry->pdfree = pdfree;
-    if (blocking && server.swap_debug) elapsedStart(&entry->lock_timer);
+    if (blocking && server.swap_debug_trace_latency) elapsedStart(&entry->lock_timer);
     else entry->lock_timer = 0;
 #ifdef SWAP_DEBUG
     entry->msgs = msgs;

@@ -1,6 +1,6 @@
 test "dbsize" {
     start_server {tags {"dbsize - zset"}} {
-        r config set debug-evict-keys 0
+        r config set swap-debug-evict-keys 0
         r config set swap-evict-step-max-subkeys 1
         test "dbsize zset" {
             r zadd zset 10 a 20 b  
@@ -20,7 +20,7 @@ test "dbsize" {
 
 
     start_server {tags {"dbsize hash"}} {
-        r config set debug-evict-keys 0
+        r config set swap-debug-evict-keys 0
         r config set swap-evict-step-max-subkeys 1
         test "dbsize hash" {
             r hset hash a 1 b 2 
@@ -38,7 +38,7 @@ test "dbsize" {
     }
 
     start_server {tags {"dbsize set"}} {
-        r config set debug-evict-keys 0
+        r config set swap-debug-evict-keys 0
         r config set swap-evict-step-max-subkeys 1
         test "dbsize set" {
             r sadd set a b
@@ -56,7 +56,7 @@ test "dbsize" {
     }
 
     start_server {tags {"dbsize set"}} {
-        r config set debug-evict-keys 0
+        r config set swap-debug-evict-keys 0
         r config set swap-evict-step-max-subkeys 1
         test "dbsize set" {
             r sadd set a b
@@ -74,7 +74,7 @@ test "dbsize" {
     }
 
     start_server {tags {"dbsize list"}} {
-        r config set debug-evict-keys 0
+        r config set swap-debug-evict-keys 0
         r config set swap-evict-step-max-subkeys 1
         test "dbsize list" {
             r LPUSH list a b

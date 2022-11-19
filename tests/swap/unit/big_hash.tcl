@@ -1,5 +1,4 @@
 start_server {tags {"hash"}} {
-    r config set swap-big-hash-threshold 1
     test {HSET/HLEN - Small hash creation} {
         array set smallhash {}
         for {set i 0} {$i < 8} {incr i} {
@@ -799,8 +798,7 @@ start_server {tags {"hash"}} {
 
 start_server {tags {"bugfix"}} {
     test {bugfix - delete range: end key comes before start key} {
-        r config set debug-evict-keys 0
-        r config set swap-big-hash-threshold 40
+        r config set swap-debug-evict-keys 0
 
         set limit 300
 

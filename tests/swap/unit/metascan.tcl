@@ -1,5 +1,5 @@
 start_server {tags "metascan"} {
-    r config set debug-evict-keys 0; # evict manually
+    r config set swap-debug-evict-keys 0; # evict manually
 
     test {scan with invalid cursor} {
         catch {r scan a count 1} e

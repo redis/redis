@@ -74,7 +74,7 @@ start_server {tags {"repl"}} {
             r set test 1 EX 100
             r incrbyfloat test 0.1
             after 1000
-            if {!$::debug_evict_keys} {
+            if {!$::swap_debug_evict_keys} {
                 assert_equal [$A debug digest] [$B debug digest]
             } else {
                 assert_equal [$A ttl test] [$B ttl test]
@@ -379,7 +379,7 @@ start_server {tags {"repl"}} {
             stop_write_load $load_handle0
 
             # number of keys
-            if {$::debug_evict_keys} {
+            if {$::swap_debug_evict_keys} {
                 wait_for_condition 500 100 {
                     [$master debug digest-keys] eq [$slave debug digest-keys]
                 } else {
@@ -732,7 +732,7 @@ start_server {tags {"repl"}} {
                         }
 
                         # Check digests
-                        if {$::debug_evict_keys} {
+                        if {$::swap_debug_evict_keys} {
                             set digest [$master debug digest-keys]
                             set digest0 [$replica debug digest-keys]
                         } else {

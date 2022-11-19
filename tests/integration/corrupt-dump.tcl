@@ -45,7 +45,7 @@ test {corrupt payload: hash with valid zip list header, invalid entry len} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         if {$::swap} {
             # otherwise tryEvictKey may trigger server to exit, causing case fail
-            r config set debug-evict-keys 0
+            r config set swap-debug-evict-keys 0
         }
         r config set sanitize-dump-payload no
         r restore key 0 "\x0D\x1B\x1B\x00\x00\x00\x16\x00\x00\x00\x04\x00\x00\x02\x61\x00\x04\x02\x62\x00\x04\x14\x63\x00\x04\x02\x64\x00\xFF\x09\x00\xD9\x10\x54\x92\x15\xF5\x5F\x52"
@@ -69,7 +69,7 @@ test {corrupt payload: valid zipped hash header, dup records} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         if {$::swap} {
             # otherwise tryEvictKey may trigger server to exit, causing case fail
-            r config set debug-evict-keys 0
+            r config set swap-debug-evict-keys 0
         }
         r config set sanitize-dump-payload no
         r restore key 0 "\x0D\x1B\x1B\x00\x00\x00\x16\x00\x00\x00\x04\x00\x00\x02\x61\x00\x04\x02\x62\x00\x04\x02\x61\x00\x04\x02\x64\x00\xFF\x09\x00\xA1\x98\x36\x78\xCC\x8E\x93\x2E"

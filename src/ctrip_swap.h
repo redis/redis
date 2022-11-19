@@ -1045,7 +1045,7 @@ int tryEvictKey(redisDb *db, robj *key, int *evict_result);
 void tryEvictKeyAsapLater(redisDb *db, robj *key);
 void evictCommand(client *c);
 int evictAsap();
-void debugEvictKeys();
+void swapDebugEvictKeys();
 void dbHoldKey(redisDb *db, robj *key, int64_t swap);
 void dbUnholdKey(redisDb *db, robj *key);
 void clientHoldKey(client *c, int dbid, robj *key, int64_t swap);

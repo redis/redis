@@ -2081,7 +2081,7 @@ void commandProcessed(client *c) {
 
     /* To reuse test cases with extensive swap actions, we try to evict
      * configured num of key after executing command. */
-    if (server.debug_evict_keys) debugEvictKeys();
+    if (server.swap_debug_evict_keys) swapDebugEvictKeys();
 
     serverLog(LL_DEBUG, "< commandProcessed");
     if (server.swap_mode == SWAP_MODE_MEMORY) {

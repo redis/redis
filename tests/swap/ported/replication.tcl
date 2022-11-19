@@ -74,7 +74,7 @@ start_server {tags {"repl"}} {
             r set test 1 EX 100
             r incrbyfloat test 0.1
             after 1000
-            if {!$::debug_evict_keys} {
+            if {!$::swap_debug_evict_keys} {
                 assert_equal [$A debug digest] [$B debug digest]
             } else {
                 assert_equal [$A ttl test] [$B ttl test]
@@ -379,7 +379,7 @@ start_server {tags {"repl"}} {
             stop_write_load $load_handle0
 
             # number of keys
-            if {$::debug_evict_keys} {
+            if {$::swap_debug_evict_keys} {
                 wait_for_condition 500 100 {
                     [$master dbsize] eq [$slave dbsize] && [$master dbsize] > 0
                 } else {
@@ -945,9 +945,9 @@ test {swap on rocksdb flush and crash} {
         set master_host [srv 0 host]
         set master_port [srv 0 port]
         start_server {} {
-            r config set debug-delay-before-exec-swap 2000
-            r config set debug-init-rocksdb-latency 2000
-            r config set rocksdb-stats-interval 1
+            r config set swap-debug-before-exec-swap-delay 2000
+            r config set swap-debug-init-rocksdb-delay 2000
+            r config set swap-rocksdb-stats-collect-interval-ms 1000
             after 1000; # wait for rocksdb-stats-fresh job starting
             r slaveof $master_host $master_port
             wait_for_condition 100 5000 {

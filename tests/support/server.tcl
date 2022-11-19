@@ -417,8 +417,8 @@ proc start_server {options {code undefined}} {
         dict unset config $directive
     }
 
-    if {$::swap && $::debug_evict_keys != 0} {
-        dict set config "debug-evict-keys" $::debug_evict_keys
+    if {$::swap && $::swap_debug_evict_keys != 0} {
+        dict set config "swap-debug-evict-keys" $::swap_debug_evict_keys
     }
 
     # write new configuration to temporary file

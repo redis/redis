@@ -329,21 +329,21 @@ int evictAsap() {
     return evicted;
 }
 
-void debugEvictKeys() {
-    int i = 0, j, debug_evict_keys = server.debug_evict_keys;
-    if (debug_evict_keys < 0) debug_evict_keys = INT_MAX;
+void swapDebugEvictKeys() {
+    int i = 0, j, swap_debug_evict_keys = server.swap_debug_evict_keys;
+    if (swap_debug_evict_keys < 0) swap_debug_evict_keys = INT_MAX;
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db + j;
         dictEntry *de;
         dictIterator *di = dictGetSafeIterator(db->dict);
-        while ((de = dictNext(di)) && i++ < debug_evict_keys) {
+        while ((de = dictNext(di)) && i++ < swap_debug_evict_keys) {
             sds key = dictGetKey(de);
             robj *keyobj = createStringObject(key,sdslen(key));
             tryEvictKey(db, keyobj, NULL);
             decrRefCount(keyobj);
         }
         dictReleaseIterator(di);
-        if (i >= debug_evict_keys) return;
+        if (i >= swap_debug_evict_keys) return;
     }
 }
 

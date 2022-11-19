@@ -64,7 +64,7 @@ start_server {overrides {save ""} tags {"other"}} {
                 r flushdb
                 createComplexDataset r $numops
                 set dump [csvdump r]
-                if {!$::debug_evict_keys} {
+                if {!$::swap_debug_evict_keys} {
                     r debug swapout
                 }
                 set sha1 [r debug digest]
@@ -220,7 +220,7 @@ start_server {overrides {save ""} tags {"other"}} {
     }
 }
 
-if {!$::debug_evict_keys} {
+if {!$::swap_debug_evict_keys} {
 start_server {tags {"other"}} {
     test {Don't rehash if redis has child proecess} {
         r config set save ""

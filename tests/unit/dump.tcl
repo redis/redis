@@ -328,7 +328,7 @@ start_server {tags {"dump"}} {
             set ret [r -1 migrate $second_host $second_port "" $::target_db 5000 keys a b c d e f g h i l m n o p q]
 
             assert {[$first dbsize] == 0}
-            if {$::debug_evict_keys} {
+            if {$::swap_debug_evict_keys} {
                 wait_for_condition  100 20 {
                     [$second dbsize] == 15
                 } else {
@@ -353,7 +353,7 @@ start_server {tags {"dump"}} {
             catch {r -1 migrate $second_host $second_port "" $::target_db 5000 keys a b c d e f g h i l m n o p q} e
 
             assert {[$first dbsize] == 2}
-             if {$::debug_evict_keys} {
+             if {$::swap_debug_evict_keys} {
                 wait_for_condition  100 20 {
                     [$second dbsize] == 15
                 } else {

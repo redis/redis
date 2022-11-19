@@ -1,5 +1,5 @@
 start_server {tags {"swap string"}} {
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
     test {swap out string} {
         r set k v
         r pexpire k 200
@@ -25,7 +25,7 @@ start_server {tags {"swap string"}} {
 
 start_server {tags "expire"} {
     # control evict manually
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
 
     # TODO enable when active expire ready
     # test {cold key active expire} {

@@ -1,5 +1,5 @@
 start_server {tags {"swap string"}} {
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
     test {swap out string} {
         r set k v
         for {set j 0} {$j < 100} {incr j} {
@@ -18,7 +18,7 @@ start_server {tags {"swap string"}} {
 }
 
 start_server {tags {"swap string"}} {
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
     test {swap out string} {
         r hset h k v
         for {set j 0} {$j < 100} {incr j} {

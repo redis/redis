@@ -1,6 +1,5 @@
 start_server {tags "bighash"} {
-    r config set debug-evict-keys 0
-    r config set swap-big-hash-threshold 1
+    r config set swap-debug-evict-keys 0
 
     test {swapin entire hash} {
         r hmset hash1 a a b b 1 1 2 2
@@ -125,10 +124,8 @@ start_server {tags "bighash"} {
     }
 
     test {bighash dirty & meta} {
-        set old_swap_threshold [lindex [r config get swap-big-hash-threshold] 1]
         set old_swap_max_subkeys [lindex [r config get swap-evict-step-max-subkeys] 1]
 
-        r config set swap-big-hash-threshold 1
         r config set swap-evict-step-max-subkeys 2
 
         # bighash are initialized as dirty
@@ -186,7 +183,6 @@ start_server {tags "bighash"} {
         assert_equal [r hlen hash11] 4
         assert {[get_info_property r Swaps swap_OUT count] > $orig_swap_out_count}
 
-        r config set swap-big-hash-threshold $old_swap_threshold
         r config set swap-evict-step-max-subkeys $old_swap_max_subkeys
     }
 
@@ -271,8 +267,7 @@ start_server {tags "bighash"} {
 
 start_server {tags {"evict big hash, check hlen"}} {
     test {check meta on hash evict} {
-        r config set debug-evict-keys 0
-        r config set swap-big-hash-threshold 1
+        r config set swap-debug-evict-keys 0
         r config set swap-evict-step-max-subkeys 2
         r hmset myhash a a b b c c d d e e f f g g h h
         assert_equal [r hlen myhash] 8
@@ -290,8 +285,7 @@ start_server {tags {"evict big hash, check hlen"}} {
 
 test {big hash check reload1} {
     start_server {tags {"evict big hash, check reload"}} {
-        r config set debug-evict-keys 0
-        r config set swap-big-hash-threshold 1
+        r config set swap-debug-evict-keys 0
         r config set swap-evict-step-max-subkeys 2
         r hmset myhash a a b b c c d d e e f f g g h h
         assert_equal [r hlen myhash] 8
@@ -313,8 +307,7 @@ test {big hash check reload1} {
 
 test {big hash random get check reload} {
     start_server {tags {"evict big hash, check reload"}} {
-        r config set debug-evict-keys 0
-        r config set swap-big-hash-threshold 1
+        r config set swap-debug-evict-keys 0
         r config set swap-evict-step-max-subkeys 2
 
         set test_count 1000
@@ -341,8 +334,7 @@ test {big hash random get check reload} {
 
 test {two big hash check reload1} {
     start_server {tags {"evict big hash, check reload"}} {
-        r config set debug-evict-keys 0
-        r config set swap-big-hash-threshold 1
+        r config set swap-debug-evict-keys 0
         r config set swap-evict-step-max-subkeys 2
         r config set save ""
         r hmset myhash a a b b c c d d e e f f g g h h

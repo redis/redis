@@ -93,7 +93,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
                 } else {
                     fail "Slave still not connected after some time"
                 }  
-                if {$::debug_evict_keys} {
+                if {$::swap_debug_evict_keys} {
                     wait_for_condition 100 100 {
                         [$master dbsize] == [$slave dbsize]
                     } else {

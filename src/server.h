@@ -1566,7 +1566,7 @@ struct redisServer {
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
-    unsigned long long max_db_size;     /* Max number of disk bytes to use */
+    unsigned long long swap_max_db_size;     /* Max number of disk bytes to use */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Precision of random sampling */
@@ -1708,7 +1708,7 @@ struct redisServer {
     int rocksdb_epoch;
     int rocksdb_disk_error;
     int rocksdb_disk_error_since;
-    int rocksdb_stats_interval;
+    int swap_rocksdb_stats_collect_interval_ms;
     struct rocks *rocks;
     struct rocksdbUtilTaskManager* util_task_manager;
     /* swap threads */
@@ -1729,24 +1729,24 @@ struct redisServer {
     client *mutex_client; /* exec op needed global swap lock */
     struct rorStat *ror_stats;
     struct swapDebugInfo *swap_debug_info;
-    int debug_evict_keys; /* num of keys to evict before calling cmd. */
+    int swap_debug_evict_keys; /* num of keys to evict before calling cmd. */
     uint64_t req_submitted; /* whether request already submitted or not,
                             request will be executed with global swap lock */
     /* swap rate limiting */
     redisAtomic size_t swap_inprogress_count; /* swap request inprogress count */
     redisAtomic size_t swap_inprogress_memory;  /* swap consumed memory in bytes */
     redisAtomic size_t swap_error;  /* swap error count */
-    unsigned long long swap_memory_slowdown; /* swap memory to slowdown swap requests */
-    unsigned long long swap_memory_stop; /* swap memory to (almost) stop swap requests */
-    int maxmemory_oom_percentage; /* reject denyoom commands if server used more memory than
-                                  maxmemory*maxmemory_oom_percentage */
-    int debug_rio_latency; /* sleep debug_rio_latency ms to simulate ssd latency. */
-    int debug_swapout_notify_latency; /* sleep debug_swapout_notify_latency ms
+    unsigned long long swap_inprogress_memory_slowdown; /* swap memory to slowdown swap requests */
+    unsigned long long swap_inprogress_memory_stop; /* swap memory to (almost) stop swap requests */
+    int swap_maxmemory_oom_percentage; /* reject denyoom commands if server used more memory than
+                                  maxmemory*swap_maxmemory_oom_percentage */
+    int swap_debug_rio_delay; /* sleep swap_debug_rio_delay ms to simulate ssd delay. */
+    int swap_debug_swapout_notify_delay; /* sleep swap_debug_swapout_notify_delay ms
                                         to simulate notify queue blocked after swap out */
-    int debug_delay_before_exec_swap; /* sleep debug_delay_before_exec_swap ms before exec swap request */
-    int debug_rocksdb_init_latency; /* sleep debug_rocksdb_init_latency ms before init rocksdb */
-    int debug_rio_error; /* mock rio error */
-    int swap_debug;
+    int swap_debug_before_exec_swap_delay; /* sleep swap_debug_before_exec_swap_delay ms before exec swap request */
+    int swap_debug_init_rocksdb_delay; /* sleep swap_debug_init_rocksdb_delay ms before init rocksdb */
+    int swap_debug_rio_error; /* mock rio error */
+    int swap_debug_trace_latency;
     /* repl swap */
     int repl_workers;   /* num of repl worker clients */
     list *repl_worker_clients_free; /* free clients for repl(slaveof & peerof) swap. */
@@ -1760,8 +1760,7 @@ struct redisServer {
     /* big object */
     int swap_evict_step_max_subkeys; /* max subkeys evict in one step. */
     unsigned long long swap_evict_step_max_memory; /* max memory evict in one step. */
-    unsigned long long swap_big_hash_threshold; /* encode as big hash if memory exceeds threshold. */
-    unsigned long long swap_max_iter_rate; /* max swap iter rate. */ 
+    unsigned long long swap_repl_max_rocksdb_read_bps; /* max rocksdb iterator read bps. */ 
     int rocksdb_compression; /* rocksdb compresssion type: no/snappy/zlib. */
     int64_t swap_txid; /* swap txid. */
     int swap_pause_type;

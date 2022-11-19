@@ -208,7 +208,7 @@ set ::loop 0
 set ::tlsdir "tests/tls"
 set ::swap 0
 set ::target_db 9
-set ::debug_evict_keys 0
+set ::swap_debug_evict_keys 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -772,7 +772,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::swap 1
         if {$::swap_mode == "disk"} {
             set ::all_tests $::disk_tests
-            set ::debug_evict_keys -1
+            set ::swap_debug_evict_keys -1
             set ::target_db 0
         } 
         incr j

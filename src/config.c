@@ -2496,7 +2496,7 @@ standardConfig configs[] = {
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
     createBoolConfig("slave-repl-all", NULL, MODIFIABLE_CONFIG, server.repl_slave_repl_all, 0, NULL, NULL),
-    createBoolConfig("swap-debug", NULL, MODIFIABLE_CONFIG, server.swap_debug, 0, NULL, NULL),
+    createBoolConfig("swap-debug-trace-latency", NULL, MODIFIABLE_CONFIG, server.swap_debug_trace_latency, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -2566,17 +2566,17 @@ standardConfig configs[] = {
     createIntConfig("hz", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.config_hz, CONFIG_DEFAULT_HZ, INTEGER_CONFIG, NULL, updateHZ),
     createIntConfig("min-replicas-to-write", "min-slaves-to-write", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_to_write, 0, INTEGER_CONFIG, NULL, updateGoodSlaves),
     createIntConfig("min-replicas-max-lag", "min-slaves-max-lag", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_max_lag, 10, INTEGER_CONFIG, NULL, updateGoodSlaves),
-    createIntConfig("debug-evict-keys", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.debug_evict_keys, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("swap-debug-evict-keys", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.swap_debug_evict_keys, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("ps-parallism-rdb", NULL, MODIFIABLE_CONFIG, 4, 16384, server.ps_parallism_rdb, 32, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("maxmemory-oom-percentage", NULL, MODIFIABLE_CONFIG, 100, INT_MAX, server.maxmemory_oom_percentage, 200, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("swap-maxmemory-oom-percentage", NULL, MODIFIABLE_CONFIG, 100, INT_MAX, server.swap_maxmemory_oom_percentage, 200, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("swap-evict-step-max-subkeys", NULL, MODIFIABLE_CONFIG, 0, 65536, server.swap_evict_step_max_subkeys, 1024, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("debug-rio-latency", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.debug_rio_latency, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("swap-debug-rio-delay", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.swap_debug_rio_delay, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("swap-threads", NULL, IMMUTABLE_CONFIG, 4, 64, server.swap_threads_num, 4, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("jemalloc-max-bg-threads", NULL, IMMUTABLE_CONFIG, 4, 16, server.jemalloc_max_bg_threads, 4, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("debug-swapout-notify-latency", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.debug_swapout_notify_latency, 0, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("debug-delay-before-exec-swap", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.debug_delay_before_exec_swap, 0, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("debug-init-rocksdb-latency", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.debug_rocksdb_init_latency, 0, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("rocksdb-stats-interval", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.rocksdb_stats_interval, 2, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("swap-debug-swapout-notify-delay", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.swap_debug_swapout_notify_delay, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("swap-debug-before-exec-swap-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.swap_debug_before_exec_swap_delay, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("swap-debug-init-rocksdb-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.swap_debug_init_rocksdb_delay, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("swap-rocksdb-stats-collect-interval-ms", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.swap_rocksdb_stats_collect_interval_ms, 2000, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("swap-evict-inprogress-limit", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.swap_evict_inprogress_limit, 64, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
@@ -2598,12 +2598,11 @@ standardConfig configs[] = {
 
     /* Unsigned Long Long configs */
     createULongLongConfig("maxmemory", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory, 0, MEMORY_CONFIG, NULL, updateMaxmemory),
-    createULongLongConfig("max-db-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.max_db_size, 0, MEMORY_CONFIG, NULL, NULL),
-    createULongLongConfig("swap-memory-slowdown", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_memory_slowdown, 64*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 64mb */
-    createULongLongConfig("swap-memory-stop", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_memory_stop, 128*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 128mb */
+    createULongLongConfig("swap-max-db-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_max_db_size, 0, MEMORY_CONFIG, NULL, NULL),
+    createULongLongConfig("swap-inprogress-memory-slowdown", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_inprogress_memory_slowdown, 64*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 64mb */
+    createULongLongConfig("swap-inprogress-memory-stop", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_inprogress_memory_stop, 128*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 128mb */
     createULongLongConfig("swap-evict-step-max-memory", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_evict_step_max_memory, 1*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1mb */
-    createULongLongConfig("swap-big-hash-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_big_hash_threshold, 256*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 256k */
-    createULongLongConfig("swap-max-iter-rate", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_max_iter_rate, 0, MEMORY_CONFIG, NULL, NULL), /* Default: unlimited */
+    createULongLongConfig("swap-repl-max-rocksdb-read-bps", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_repl_max_rocksdb_read_bps, 0, MEMORY_CONFIG, NULL, NULL), /* Default: unlimited */
 
     /* Size_t configs */
     createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, 512, INTEGER_CONFIG, NULL, NULL),

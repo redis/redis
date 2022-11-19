@@ -44,7 +44,8 @@ const char *swap_cf_names[CF_COUNT] = {data_cf_name, meta_cf_name, score_cf_name
 
 int rmdirRecursive(const char *path);
 int rocksInit() {
-    if (server.debug_rocksdb_init_latency) usleep(server.debug_rocksdb_init_latency * 1000);
+    if (server.swap_debug_init_rocksdb_delay)
+        usleep(server.swap_debug_init_rocksdb_delay * 1000);
     rocks *rocks = zcalloc(sizeof(struct rocks));
     char *errs[3] = {NULL}, dir[ROCKS_DIR_MAX_LEN];
 
@@ -895,7 +896,8 @@ sds intervalInfo(sds info, char* rocksdb_stats) {
 
 sds genRocksInfoString(sds info) {
 	char *err;
-	size_t used_db_size = 0, max_db_size = 0, disk_capacity = 0, used_disk_size = 0;
+	size_t used_db_size = 0, swap_max_db_size = 0,
+           disk_capacity = 0, used_disk_size = 0;
 	size_t sequence = 0;
 	float used_db_percent = 0, used_disk_percent = 0;
 	rocksdb_t *db = server.rocks->db;
@@ -906,8 +908,8 @@ sds genRocksInfoString(sds info) {
 	if (db) {
 		sequence = rocksdb_get_latest_sequence_number(db);
 		rocksdb_approximate_sizes(db,1,&begin_key,&begin_key_len,&end_key,&end_key_len,&used_db_size,&err);
-		max_db_size = server.max_db_size;
-		if (max_db_size) used_db_percent = (float)(used_db_size) * 100/max_db_size;
+		swap_max_db_size = server.swap_max_db_size;
+		if (swap_max_db_size) used_db_percent = (float)(used_db_size) * 100/swap_max_db_size;
 	}
 
 	if (statvfs(ROCKS_DATA, &stat) == 0) {
@@ -919,7 +921,7 @@ sds genRocksInfoString(sds info) {
 	info = sdscatprintf(info,
 			"sequence:%lu\r\n"
 			"used_db_size:%lu\r\n"
-			"max_db_size:%lu\r\n"
+			"swap_max_db_size:%lu\r\n"
 			"used_percent:%0.2f%%\r\n"
 			"used_disk_size:%lu\r\n"
 			"disk_capacity:%lu\r\n"
@@ -927,7 +929,7 @@ sds genRocksInfoString(sds info) {
             "swap_error:%lu\r\n",
 			sequence,
 			used_db_size,
-			max_db_size,
+			swap_max_db_size,
 			used_db_percent,
 			used_disk_size,
 			disk_capacity,
@@ -998,9 +1000,9 @@ void rocksCron() {
                     "rocksdb.total-sst-files-size", &property_int)) {
             server.rocksdb_disk_used = property_int;
         }
-        if (server.max_db_size && server.rocksdb_disk_used > server.max_db_size) {
-            serverLog(LL_WARNING, "Rocksdb disk usage exceeds max_db_size %lld > %lld.",
-                    server.rocksdb_disk_used, server.max_db_size);
+        if (server.swap_max_db_size && server.rocksdb_disk_used > server.swap_max_db_size) {
+            serverLog(LL_WARNING, "Rocksdb disk usage exceeds swap_max_db_size %lld > %lld.",
+                    server.rocksdb_disk_used, server.swap_max_db_size);
         }
     }
 
@@ -1029,7 +1031,9 @@ void rocksCron() {
         if (fp) fclose(fp);
     }
 
-    if (rocks_cron_loops % server.rocksdb_stats_interval == 0) {
+    int collect_interval_second = server.swap_rocksdb_stats_collect_interval_ms/1000;
+    if (collect_interval_second <= 0) collect_interval_second = 1;
+    if (rocks_cron_loops % collect_interval_second == 0) {
         submitUtilTask(GET_ROCKSDB_STATS_TASK, NULL, NULL);
     }
 

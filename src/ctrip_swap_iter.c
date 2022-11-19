@@ -210,10 +210,10 @@ void *rocksIterIOThreadMain(void *arg) {
             signal = ((data_itered + meta_itered) & (ITER_NOTIFY_BATCH-1)) ? 0 : 1;
             rocksIterNotifyReady(it, signal);
 
-            if (server.swap_max_iter_rate && signal &&
+            if (server.swap_repl_max_rocksdb_read_bps && signal &&
                     mstime() - last_ratelimit_time >
                     ITER_RATE_LIMIT_INTERVAL_MS) {
-                mstime_t minimal_timespan = accumulated_memory*1000/server.swap_max_iter_rate;
+                mstime_t minimal_timespan = accumulated_memory*1000/server.swap_repl_max_rocksdb_read_bps;
                 mstime_t elapsed_timespan = mstime() - last_ratelimit_time;
                 mstime_t sleep_timespan = minimal_timespan - elapsed_timespan;
                 if (sleep_timespan > 0) {

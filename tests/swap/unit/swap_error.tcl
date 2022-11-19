@@ -5,8 +5,8 @@ start_server {tags {"swap error"}} {
         set master_port [srv -1 port]
         set slave [srv 0 client]
 
-        $master config set debug-evict-keys 0
-        $slave config set debug-evict-keys 0
+        $master config set swap-debug-evict-keys 0
+        $slave config set swap-debug-evict-keys 0
         $slave replicaof $master_host $master_port
         wait_for_sync $slave
 

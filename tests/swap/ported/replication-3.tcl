@@ -60,7 +60,7 @@ start_server {tags {"repl"}} {
             r -1 set key1 1 ex 5
             r -1 set key2 2 ex 5
             r -1 set key3 3 ex 5
-            if {$::debug_evict_keys} {
+            if {$::swap_debug_evict_keys} {
                 wait_for_condition 100 20 {
                     [r -1 dbsize] == 3
                 } else {

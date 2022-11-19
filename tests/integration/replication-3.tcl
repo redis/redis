@@ -21,7 +21,7 @@ start_server {tags {"repl"}} {
             } else {
                 fail "wait sync"
             }
-            if {$::debug_evict_keys} {
+            if {$::swap_debug_evict_keys} {
                 set slave_digest [r -1 debug digest-keys]
                 set master_digest [r -1 debug digest-keys]
             } else {
@@ -57,7 +57,7 @@ start_server {tags {"repl"}} {
 
             r -1 set key2 2 ex 5
             r -1 set key3 3 ex 5
-            if {$::debug_evict_keys} {
+            if {$::swap_debug_evict_keys} {
                 wait_for_condition 100 20 {
                     [r -1 dbsize] == 3
                 } else {
@@ -114,7 +114,7 @@ start_server {tags {"repl"}} {
                 }
             }
 
-            if {$::debug_evict_keys} {
+            if {$::swap_debug_evict_keys} {
                 ## evict mode not support rewriteaof
                 # wait_for_condition 500 100 {
                 #     [r dbsize] == $numops &&
@@ -177,7 +177,7 @@ start_server {tags {"repl"}} {
                 fail "Replication not started."
             }
 
-            if {$::debug_evict_keys} {
+            if {$::swap_debug_evict_keys} {
                 wait_for_condition 500 100 {
                     [r debug digest-keys] eq [r -1 debug digest-keys]
                 } else {

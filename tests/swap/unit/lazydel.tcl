@@ -1,6 +1,5 @@
 start_server {tags "expire"} {
-    r config set debug-evict-keys 0
-    r config set swap-big-hash-threshold 1
+    r config set swap-debug-evict-keys 0
 
     test {filter lazy deleted cold key} {
         r hmset filter00 a a b b 1 1 2 2 

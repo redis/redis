@@ -1,5 +1,5 @@
 start_server {tags "multi"} {
-    r config set debug-evict-keys 0; # evict manually
+    r config set swap-debug-evict-keys 0; # evict manually
 
     test {transaction reserves cmd intention flag} {
         r set key val

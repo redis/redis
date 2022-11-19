@@ -1,6 +1,6 @@
 
 start_server {tags {"swap string"}} {
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
     test {swap out string} {
         set host [srv 0 host]
         set port [srv 0 port]
@@ -65,7 +65,7 @@ start_server {tags {"swap string"}} {
 
 
 start_server {tags {"swap hash"}} {
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
     test {swap hash} {
         set host [srv 0 host]
         set port [srv 0 port]

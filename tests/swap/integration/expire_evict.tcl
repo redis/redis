@@ -1,5 +1,5 @@
 start_server {tags {"perform eviction"}} {
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
 
     test {limit maxmemory to trigger eviction} {
         set maxmemory [s used_memory]
@@ -125,7 +125,7 @@ start_server {tags {"perform eviction"}} {
 } 
 
 start_server {tags {"swap string"}} {
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
 
     test {swap out string} {
         for {set j 0} {$j < 60} {incr j} {

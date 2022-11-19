@@ -2644,7 +2644,7 @@ void createSharedObjects(void) {
     shared.noautherr = createObject(OBJ_STRING,sdsnew(
         "-NOAUTH Authentication required.\r\n"));
     shared.outofdiskerr = createObject(OBJ_STRING,sdsnew(
-        "-ERR command not allowed when used disk > 'max-db-size'.\r\n"));
+        "-ERR command not allowed when used disk > 'swap-max-db-size'.\r\n"));
     shared.rocksdbdiskerr = createObject(OBJ_STRING,sdsnew(
         "-ERR command not allowed when rocksdb disk error.\r\n"));
     shared.oomerr = createObject(OBJ_STRING,sdsnew(
@@ -2845,14 +2845,14 @@ void initServerConfig(void) {
     server.repl_no_slaves_since = time(NULL);
 
     /* swap */
-    server.max_db_size = 0;
-    server.debug_evict_keys = 0;
-    server.debug_rio_latency = 0;
-    server.debug_swapout_notify_latency = 0;
-    server.debug_delay_before_exec_swap = 0;
-    server.debug_rocksdb_init_latency = 0;
-    server.debug_rio_error = 0;
-    server.swap_debug = 0;
+    server.swap_max_db_size = 0;
+    server.swap_debug_evict_keys = 0;
+    server.swap_debug_rio_delay = 0;
+    server.swap_debug_swapout_notify_delay = 0;
+    server.swap_debug_before_exec_swap_delay = 0;
+    server.swap_debug_init_rocksdb_delay = 0;
+    server.swap_debug_rio_error = 0;
+    server.swap_debug_trace_latency = 0;
 
     /* Failover related */
     server.failover_end_time = 0;
@@ -3535,7 +3535,7 @@ void InitServerLast() {
     server.rocksdb_epoch = 0;
     server.rocksdb_disk_error = 0;
     server.rocksdb_disk_error_since = 0;
-    server.rocksdb_stats_interval = 2;
+    server.swap_rocksdb_stats_collect_interval_ms = 2000;
     server.swap_txid = 0;
     server.swap_pause_type = CLIENT_PAUSE_OFF;
     server.swap_paused_keyrequests = listCreate();
@@ -4325,7 +4325,8 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    if (server.max_db_size && server.rocksdb_disk_used > server.max_db_size &&
+    if (server.swap_max_db_size && 
+            server.rocksdb_disk_used > server.swap_max_db_size &&
             (server.masterhost == NULL && 
              !(c->flags & CLIENT_MASTER)) &&
             (c->cmd->flags & CMD_DENYOOM)) {

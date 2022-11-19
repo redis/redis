@@ -1,5 +1,5 @@
 start_server {tags "del"} {
-    r config set debug-evict-keys 0
+    r config set swap-debug-evict-keys 0
 
     test {delete hot key} {
         r psetex foo 100 bar

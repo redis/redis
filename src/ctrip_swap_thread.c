@@ -117,7 +117,7 @@ void swapThreadsDispatch(swapRequest *req, int idx) {
     } else {
         serverAssert(idx <= server.swap_threads_num);
     }
-    if (server.swap_debug) elapsedStart(&req->swap_queue_timer);
+    if (server.swap_debug_trace_latency) elapsedStart(&req->swap_queue_timer);
     swapThread *t = server.swap_threads+idx;
     pthread_mutex_lock(&t->lock);
     listAddNodeTail(t->pending_reqs,req);

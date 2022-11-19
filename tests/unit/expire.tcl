@@ -158,7 +158,7 @@ start_server {tags {"expire"}} {
         r psetex key1 500 a
         r psetex key2 500 a
         r psetex key3 500 a
-        if {$::debug_evict_keys} {
+        if {$::swap_debug_evict_keys} {
             wait_for_condition 100 20 {
                 [r dbsize] == 3
             } else {
@@ -170,7 +170,7 @@ start_server {tags {"expire"}} {
         # fairly sure that all the three keys should be evicted after
         # one second.
         after 1000
-        if {$::debug_evict_keys} {
+        if {$::swap_debug_evict_keys} {
             wait_for_condition 100 20 {
                 [r dbsize] == 0
             } else {
@@ -187,7 +187,7 @@ start_server {tags {"expire"}} {
         r psetex key1 500 a
         r psetex key2 500 a
         r psetex key3 500 a
-        if {$::debug_evict_keys} {
+        if {$::swap_debug_evict_keys} {
             wait_for_condition 100 20 {
                 [r dbsize] == 3
             } else {
@@ -229,7 +229,7 @@ start_server {tags {"expire"}} {
         r set e c
         r set s c
         r set foo b
-        if {$::debug_evict_keys} {
+        if {$::swap_debug_evict_keys} {
             wait_keyspace_cold r
         }
         lsort [lindex [r scan 1] 1]

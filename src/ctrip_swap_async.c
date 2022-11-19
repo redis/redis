@@ -34,7 +34,7 @@ int asyncCompleteQueueProcess(asyncCompleteQueue *cq) {
     listNode *ln;
     list *processing_reqs = listCreate();
     monotime process_timer = 0;
-    if (server.swap_debug) elapsedStart(&process_timer);
+    if (server.swap_debug_trace_latency) elapsedStart(&process_timer);
 
     pthread_mutex_lock(&cq->lock);
     listRewind(cq->complete_queue, &li);
@@ -59,7 +59,7 @@ int asyncCompleteQueueProcess(asyncCompleteQueue *cq) {
 
     processed = listLength(processing_reqs);
     listRelease(processing_reqs);
-    if (server.swap_debug) {
+    if (server.swap_debug_trace_latency) {
         metricDebugInfo(SWAP_DEBUG_NOTIFY_QUEUE_HANDLES, processed);
         metricDebugInfo(SWAP_DEBUG_NOTIFY_QUEUE_HANDLE_TIME, elapsedUs(process_timer));
     }
@@ -144,7 +144,7 @@ void asyncSwapRequestNotifyCallback(struct swapRequest *req, void *pd) {
 }
 
 void asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequest *req) {
-    if (server.swap_debug) elapsedStart(&req->notify_queue_timer);
+    if (server.swap_debug_trace_latency) elapsedStart(&req->notify_queue_timer);
     pthread_mutex_lock(&cq->lock);
     listAddNodeTail(cq->complete_queue, req);
     pthread_mutex_unlock(&cq->lock);

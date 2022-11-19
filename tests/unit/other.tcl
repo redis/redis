@@ -299,7 +299,7 @@ start_server {overrides {save ""} tags {"other"}} {
     }
 }
 
-if {!$::debug_evict_keys} {
+if {!$::swap_debug_evict_keys} {
 start_server {tags {"other"}} {
     test {Don't rehash if redis has child proecess} {
         r config set save ""

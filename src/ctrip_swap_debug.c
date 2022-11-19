@@ -225,7 +225,7 @@ NULL
         if (count > INT_MAX || count < 0) {
             addReplyError(c,"rio-error count invalid");
         } else {
-            server.debug_rio_error = (int)count;
+            server.swap_debug_rio_error = (int)count;
             addReply(c,shared.ok);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"reset-stats") && c->argc == 2) {

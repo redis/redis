@@ -367,8 +367,8 @@ start_server {
 
     test "SINTER with same integer elements but different encoding" {
         # close evict before test or else set2 may transform to intset on swapping
-        set old_debug_evict [lindex [r config get debug-evict-keys] 1]
-        r config set debug-evict-keys 0
+        set old_debug_evict [lindex [r config get swap-debug-evict-keys] 1]
+        r config set swap-debug-evict-keys 0
         r del set1 set2
         r sadd set1 1 2 3
         r sadd set2 1 2 3 a
@@ -376,7 +376,7 @@ start_server {
         assert_encoding intset set1
         assert_encoding hashtable set2
         set rst [r sinter set1 set2]
-        r config set debug-evict-keys $old_debug_evict
+        r config set swap-debug-evict-keys $old_debug_evict
         set _ $rst
     } {1 2 3}
 

@@ -972,7 +972,6 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         int init_result;
         uint64_t V0 = 0, V1 = 1, Vcur = 2;
         server.hash_max_ziplist_entries = 16;
-        server.swap_big_hash_threshold = 0;
         int err = 0;
         sds myhash_key = sdsnew("myhash");
         robj *myhash = createHashObject();
