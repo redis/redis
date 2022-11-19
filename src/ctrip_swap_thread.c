@@ -184,11 +184,11 @@ int submitUtilTask(int type, void* pd, sds* error) {
     server.util_task_manager->stats[type].stat = ROCKSDB_UTILS_TASK_DOING;
     switch (type) {
         case COMPACT_RANGE_TASK:
-            submitSwapDataRequest(SWAP_MODE_ASYNC,ROCKSDB_UTILS,0,NULL,
+            submitSwapDataRequest(SWAP_MODE_ASYNC,SWAP_UTILS,0,NULL,
                     NULL,NULL,compactRangeDone,pd,NULL,server.swap_threads_num);
             break;
         case GET_ROCKSDB_STATS_TASK:
-            submitSwapDataRequest(SWAP_MODE_ASYNC, ROCKSDB_UTILS,1,NULL,
+            submitSwapDataRequest(SWAP_MODE_ASYNC, SWAP_UTILS,1,NULL,
                     NULL,NULL,getRocksdbStatsDone,pd,NULL,server.swap_threads_num);
             break;
         default:

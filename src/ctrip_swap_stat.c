@@ -118,6 +118,7 @@ void initStatsSwap() {
         server.swap_debug_info[i].metric_idx_count = metric_offset+SWAP_DEBUG_COUNT;
         server.swap_debug_info[i].metric_idx_value = metric_offset+SWAP_DEBUG_VALUE;
     }
+    server.swap_hit_stats = zcalloc(sizeof(swapHitStat));
 }
 
 void trackSwapInstantaneousMetrics() {
@@ -166,6 +167,7 @@ void trackSwapInstantaneousMetrics() {
 
 sds genSwapInfoString(sds info) {
     info = genSwapStorageInfoString(info);
+    info = genSwapHitInfoString(info);
     info = genSwapExecInfoString(info);
     return info;
 }
@@ -245,6 +247,35 @@ void resetStatsSwap() {
         server.ror_stats->compaction_filter_stats[i].filt_count = 0;
         server.ror_stats->compaction_filter_stats[i].scan_count = 0;
     }
+}
+
+void resetSwapHitStat() {
+    atomicSet(server.swap_hit_stats->stat_swapin_attempt_count,0);
+    atomicSet(server.swap_hit_stats->stat_swapin_not_found_count,0);
+    atomicSet(server.swap_hit_stats->stat_swapin_no_io_count,0);
+}
+
+sds genSwapHitInfoString(sds info) {
+    double memory_hit_perc = 0, keyspace_hit_perc = 0;
+    long long attempt, noio, notfound;
+
+    atomicGet(server.swap_hit_stats->stat_swapin_attempt_count,attempt);
+    atomicGet(server.swap_hit_stats->stat_swapin_no_io_count,noio);
+    atomicGet(server.swap_hit_stats->stat_swapin_not_found_count,notfound);
+
+    if (attempt) {
+        memory_hit_perc = ((double)noio/attempt)*100;
+        keyspace_hit_perc = ((double)(attempt - notfound)/attempt)*100;
+    }
+
+    info = sdscatprintf(info,
+            "swap_swapin_attempt_count:%lld\r\n"
+            "swap_swapin_not_found_count:%lld\r\n"
+            "swap_swapin_no_io_count:%lld\r\n"
+            "swap_swapin_memory_hit_perc:%.2f%%\r\n"
+            "swap_swapin_keyspace_hit_perc:%.2f%%\r\n",
+            attempt,notfound,noio,memory_hit_perc,keyspace_hit_perc);
+    return info;
 }
 
 void metricDebugInfo(int type, long val) {

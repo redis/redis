@@ -230,6 +230,7 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"reset-stats") && c->argc == 2) {
         resetStatsSwap();
+        resetSwapHitStat();
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"compact") && c->argc == 2) {
         sds error = NULL;

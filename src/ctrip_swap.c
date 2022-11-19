@@ -233,7 +233,6 @@ void continueProcessCommand(client *c) {
 	c->flags &= ~CLIENT_SWAPPING;
     server.current_client = c;
 
-    server.in_swap_cb = 1;
 	if (c->swap_errcode) {
         replySwapFailed(c);
         c->swap_errcode = 0;
@@ -244,7 +243,6 @@ void continueProcessCommand(client *c) {
 		if (listLength(server.ready_keys))
 			handleClientsBlockedOnKeys();
 	}
-    server.in_swap_cb = 0;
 
     /* unhold keys for current command. */
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_CMD);
@@ -370,6 +368,10 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
         swapDataMarkPropagateExpire(data);
     }
 
+    if (isSwapHitStatKeyRequest(ctx->key_request)) {
+        atomicIncr(server.swap_hit_stats->stat_swapin_attempt_count,1);
+    }
+
     if (value == NULL) {
         submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
                 ctx,data,datactx,keyRequestSwapFinished,ctx,msgs,-1);
@@ -421,9 +423,9 @@ allset:
 noswap:
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed",
             "no swap needed: %s", reason);
-    if (ctx->key_request->cmd_intention == SWAP_IN &&
-            reason_num == NOSWAP_REASON_SWAPANADECIDED) {
-        server.stat_memory_hits++;
+    if (isSwapHitStatKeyRequest(ctx->key_request) 
+            && reason_num == NOSWAP_REASON_SWAPANADECIDED) {
+        atomicIncr(server.swap_hit_stats->stat_swapin_no_io_count,1);
     }
 
     /* noswap is kinda swapfinished. */

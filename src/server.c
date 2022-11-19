@@ -3245,7 +3245,6 @@ void resetServerStats(void) {
     server.stat_evictedkeys = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
-    server.stat_memory_hits = 0;
     server.stat_active_defrag_hits = 0;
     server.stat_active_defrag_misses = 0;
     server.stat_active_defrag_key_hits = 0;
@@ -3457,7 +3456,6 @@ void initServer(void) {
     server.swap_inprogress_count = 0;
     server.swap_inprogress_memory = 0;
     server.swap_error_count = 0;
-    server.in_swap_cb = 0;
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
@@ -5241,7 +5239,6 @@ sds genRedisInfoString(const char *section) {
             "expire_cycle_cpu_milliseconds:%lld\r\n"
             "evicted_keys:%lld\r\n"
             "keyspace_hits:%lld\r\n"
-            "swap_memory_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n"
             "pubsub_channels:%ld\r\n"
             "pubsub_patterns:%lu\r\n"
@@ -5280,7 +5277,6 @@ sds genRedisInfoString(const char *section) {
             server.stat_expire_cycle_time_used/1000,
             server.stat_evictedkeys,
             server.stat_keyspace_hits,
-            server.stat_memory_hits,
             server.stat_keyspace_misses,
             dictSize(server.pubsub_channels),
             dictSize(server.pubsub_patterns),

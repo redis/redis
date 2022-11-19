@@ -86,7 +86,7 @@ extern const char *swap_cf_names[CF_COUNT];
 #define SWAP_IN     1
 #define SWAP_OUT    2
 #define SWAP_DEL    3
-#define ROCKSDB_UTILS 4
+#define SWAP_UTILS  4
 #define SWAP_TYPES  5
 
 static inline const char *swapIntentionName(int intention) {
@@ -1178,6 +1178,20 @@ typedef struct compactionFilterStat {
     redisAtomic long long scan_count;
     int stats_metric_idx_filte;
 } compactionFilterStat;
+
+typedef struct swapHitStat {
+    redisAtomic long long stat_swapin_attempt_count;
+    redisAtomic long long stat_swapin_not_found_count;
+    redisAtomic long long stat_swapin_no_io_count;
+} swapHitStat;
+
+static inline int isSwapHitStatKeyRequest(keyRequest *kr) {
+    return kr && kr->cmd_intention == SWAP_IN && 
+        !isMetaScanRequest(kr->cmd_intention_flags);
+}
+
+void resetSwapHitStat(void);
+sds genSwapHitInfoString(sds info);
 
 typedef struct rorStat {
     struct swapStat *swap_stats; /* array of swap stats (one for each swap type). */

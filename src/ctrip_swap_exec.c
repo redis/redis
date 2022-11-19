@@ -1278,7 +1278,7 @@ static void executeSwapRequest(swapRequest *req) {
     case SWAP_DEL: 
         executeSwapDelRequest(req);
         break;
-    case ROCKSDB_UTILS:
+    case SWAP_UTILS:
         executeRocksdbUtils(req);
         break;
     default:
@@ -1309,6 +1309,9 @@ void processSwapRequest(swapRequest *req) {
 
     /* key confirmed not exists, no need to execute swap request. */
     if (!swapDataAlreadySetup(req->data)) {
+        if (isSwapHitStatKeyRequest(req->key_request)) {
+            atomicIncr(server.swap_hit_stats->stat_swapin_not_found_count,1);
+        }
         goto end;
     }
 

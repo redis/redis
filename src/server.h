@@ -1339,7 +1339,6 @@ struct redisServer {
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
-    long long stat_memory_hits;   /* Number of successful lookups of db.dict */
     long long stat_keyspace_misses; /* Number of failed lookups of keys */
     long long stat_active_defrag_hits;      /* number of allocations moved */
     long long stat_active_defrag_misses;    /* number of allocations scanned but not moved */
@@ -1721,13 +1720,13 @@ struct redisServer {
     struct parallelSync *parallel_sync;
     unsigned long long rocksdb_disk_used; /* rocksd disk usage bytes, updated every 1 minute. */
 		/* swaps */
-    int in_swap_cb; /* flag whether call is in swap callback */
     client **evict_clients; /* array of evict clients (one for each db). */
     client **expire_clients; /* array of rocks expire clients (one for each db). */
     client **scan_expire_clients; /* array of expire scan clients (one for each db). */
     client **ttl_clients; /* array of expire scan clients (one for each db). */
     client *mutex_client; /* exec op needed global swap lock */
     struct rorStat *ror_stats;
+    struct swapHitStat *swap_hit_stats;
     struct swapDebugInfo *swap_debug_info;
     int swap_debug_evict_keys; /* num of keys to evict before calling cmd. */
     uint64_t req_submitted; /* whether request already submitted or not,
