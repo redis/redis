@@ -129,6 +129,7 @@ void afterPropagateExec() {
  * implementation for more information. */
 void execCommandPropagateMulti(int dbid) {
     beforePropagateMulti();
+    server.db_at_multi = server.db + dbid;
     propagate(server.multiCommand,dbid,&shared.multi,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
 }
@@ -200,7 +201,6 @@ void execCommand(client *c) {
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
 
     server.in_exec = 1;
-    server.db_at_multi = c->db;
 
     orig_argv = c->argv;
     orig_argc = c->argc;
