@@ -339,7 +339,14 @@ static void getSingleCmdKeyRequests(client *c, getKeyRequestsResult *result) {
     _getSingleCmdKeyRequests(c->db->id,c->cmd,c->argv,c->argc,result);
 }
 
-/*TODO support select in multi/exec */
+static inline int clientSwitchDb(client *c, int argidx) {
+    long long dbid;
+    if (getLongLongFromObject(c->argv[argidx],&dbid)) return C_ERR;
+    if (dbid < 0 || dbid > server.dbnum)  return C_ERR;
+    selectDb(c,dbid);
+    return C_OK;
+}
+
 void getKeyRequests(client *c, getKeyRequestsResult *result) {
     getKeyRequestsPrepareResult(result, MAX_KEYREQUESTS_BUFFER);
 
@@ -358,10 +365,8 @@ void getKeyRequests(client *c, getKeyRequestsResult *result) {
         orig_db = c->db;
 
         if (isGtidExecCommand(c)) {
-            long long dbid;
-            if (getLongLongFromObject(c->argv[2],&dbid)) return;
-            if (dbid < 0 || dbid > server.dbnum)  return;
-            c->db = server.db + dbid;
+            if (clientSwitchDb(c,2) != C_OK)
+                return;
         }
 
         for (i = 0; i < c->mstate.count; i++) {
@@ -376,6 +381,11 @@ void getKeyRequests(client *c, getKeyRequestsResult *result) {
             for (int j = prev_keyrequest_num; j < result->num; j++) {
                 result->key_requests[j].list_arg_rewrite[0].mstate_idx = i;
                 result->key_requests[j].list_arg_rewrite[1].mstate_idx = i;
+            }
+
+            if (c->cmd->proc == selectCommand) {
+                if (clientSwitchDb(c,1) != C_OK)
+                    return;
             }
         }
 
@@ -1388,6 +1398,74 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(result.key_requests[8].l.ranges[0].start == 3 && result.key_requests[2].l.ranges[0].end == 3);
         test_assert(result.key_requests[8].list_arg_rewrite[0].mstate_idx == 7);
         test_assert(result.key_requests[8].list_arg_rewrite[0].arg_idx == 4);
+
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+        discardTransaction(c);
+    }
+
+    TEST("cmd: select in multi/exec") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        selectDb(c,1);
+
+        c->flags |= CLIENT_MULTI;
+        rewriteResetClientCommandCString(c,3,"MGET","KEY1","KEY2");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,7,"GTID","A:2","1","/*COMMENT*/","MGET","KEY1","KEY2");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,2,"SELECT","3");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,6,"GTID","A:1","2","LINDEX","LIST","3");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,5,"HDEL","HASH","F1","F2","F3");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,2,"SELECT","4");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,3,"LINDEX","LIST","3");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,7,"GTID","A:2","5","/*COMMENT*/","MGET","KEY1","KEY2");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,5,"GTID.AUTO","/*COMMENT*/","LINDEX","LIST","3");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,4,"GTID","A:10","10","EXEC");
+
+        getKeyRequests(c,&result);
+
+        test_assert(result.num == 10);
+        test_assert(c->db->id == 1);
+
+        test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY1"));
+        test_assert(result.key_requests[0].dbid == 10);
+        test_assert(!strcmp(result.key_requests[1].key->ptr, "KEY2"));
+        test_assert(result.key_requests[1].dbid == 10);
+
+        test_assert(!strcmp(result.key_requests[2].key->ptr, "KEY1"));
+        test_assert(result.key_requests[2].dbid == 1);
+        test_assert(!strcmp(result.key_requests[3].key->ptr, "KEY2"));
+        test_assert(result.key_requests[3].dbid == 1);
+
+        test_assert(!strcmp(result.key_requests[4].key->ptr, "LIST"));
+        test_assert(result.key_requests[4].list_arg_rewrite[0].mstate_idx == 3);
+        test_assert(result.key_requests[4].list_arg_rewrite[0].arg_idx == 5);
+        test_assert(result.key_requests[4].dbid == 2);
+
+        test_assert(!strcmp(result.key_requests[5].key->ptr, "HASH"));
+        test_assert(result.key_requests[5].dbid == 3);
+
+        test_assert(!strcmp(result.key_requests[6].key->ptr, "LIST"));
+        test_assert(result.key_requests[6].list_arg_rewrite[0].mstate_idx == 6);
+        test_assert(result.key_requests[6].list_arg_rewrite[0].arg_idx == 2);
+        test_assert(result.key_requests[6].dbid == 4);
+
+        test_assert(!strcmp(result.key_requests[7].key->ptr, "KEY1"));
+        test_assert(result.key_requests[7].dbid == 5);
+        test_assert(!strcmp(result.key_requests[8].key->ptr, "KEY2"));
+        test_assert(result.key_requests[8].dbid == 5);
+
+        test_assert(!strcmp(result.key_requests[9].key->ptr, "LIST"));
+        test_assert(result.key_requests[9].dbid == 4);
+        test_assert(result.key_requests[9].list_arg_rewrite[0].mstate_idx == 8);
+        test_assert(result.key_requests[9].list_arg_rewrite[0].arg_idx == 4);
 
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);

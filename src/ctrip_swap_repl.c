@@ -67,9 +67,47 @@ void replClientDiscardSwappingState(client *c) {
     serverLog(LL_NOTICE, "discarded: swapping repl client (reploff=%lld, read_reploff=%lld)", c->reploff, c->read_reploff);
 }
 
+static void replClientUpdateSelectedDb(client *c) {
+    int dbid = -1;
+    long long value;
+
+    if (c->flags & CLIENT_MULTI) {
+        for (int i = 0; i < c->mstate.count; i++) {
+            if (c->mstate.commands[i].cmd->proc == selectCommand) {
+                if (getLongLongFromObject(c->mstate.commands[i].argv[1],
+                            &value) == C_OK) {
+                    /* The last select in multi will take effect. */
+                    dbid = value;
+                }
+            }
+        }
+    } else {
+        if (c->cmd->proc == selectCommand) {
+            if (getLongLongFromObject(c->argv[1],&value) == C_OK) {
+                dbid = value;
+            }
+        }
+    }
+
+    if (dbid < 0) {
+        /* repl client db not updated */
+    } else if (dbid >= server.dbnum) {
+        serverLog(LL_WARNING,"repl client select db out of range %d",dbid);
+    } else {
+        selectDb(c,dbid);
+    }
+}
+
 /* Move command from repl client to repl worker client. */
 static void replCommandDispatch(client *wc, client *c) {
     if (wc->argv) zfree(wc->argv);
+
+    wc->db = c->db;
+
+    /* master client selected db are pass to worker clients when dispatch,
+     * so we need to keep track of the selected db as if commands are
+     * executed by master clients instantly. */
+    replClientUpdateSelectedDb(c);
 
     wc->argc = c->argc, c->argc = 0;
     wc->argv = c->argv, c->argv = NULL;
@@ -86,7 +124,7 @@ static void replCommandDispatch(client *wc, client *c) {
         initClientMultiState(c);
     }
 
-    /* Swapping count is dispatched command count. Note that free repl
+    /* keyrequest_count is dispatched command count. Note that free repl
      * client would be defered untill swapping count drops to 0. */
     c->keyrequests_count++;
 }
@@ -140,7 +178,6 @@ static void processFinishedReplCommands() {
                 handleClientsBlockedOnKeys();
         }
 
-        c->db = wc->db;
         c->cmd = backup_cmd;
 
         commandProcessed(wc);

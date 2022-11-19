@@ -768,6 +768,15 @@ void selectCommand(client *c) {
         return;
     }
 
+    if (server.swap_mode != SWAP_MODE_MEMORY && (c->flags & CLIENT_LUA)) {
+        /* dbid is determined when parsing command in swap mode, currently
+         * command parsing cant understand lua script, so select command
+         * within eval script is disabled for now. */
+        addReplyErrorFormat(c,
+                "select command is not allowed from scripts in disk mode");
+        return;
+    }
+
     if (selectDb(c,id) == C_ERR) {
         addReplyError(c,"DB index is out of range");
     } else {
