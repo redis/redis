@@ -1120,19 +1120,19 @@ struct redisCommand redisCommandTable[] = {
 
     {"gtid", gtidCommand, -3,
      "write use-memory ",
-     0,NULL,1,1,1,0,0,0},
+     0,NULL,0,0,0,0,0,0},
 
     {"gtid.lwm", gtidLwmCommand, 3,
      "write use-memory ",
-     0,NULL,1,1,1,0,0,0},
+     0,NULL,0,0,0,0,0,0},
     
     {"gtid.auto", gtidAutoCommand, -3,
      "write use-memory ",
-     0,NULL,1,1,1,0,0,0},
+     0,NULL,0,0,0,0,0,0},
 
     {"ctrip.merge_start", ctripMergeStartCommand, -1,
      "write use-memory",
-     0,NULL,1,1,1,0,0,0},
+     0,NULL,0,0,0,0,0,0},
     
     {"ctrip.merge", ctripMergeCommand, -1,
      "write use-memory ",
@@ -1140,7 +1140,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"ctrip.merge_end", ctripMergeEndCommand, -2,
      "write use-memory ",
-     0,NULL,1,1,1,0,0,0},
+     0,NULL,0,0,0,0,0,0},
 
     {"ctrip.get_robj", gtidGetRobjCommand, 2, 
      "read-only fast no-script", 

@@ -248,7 +248,7 @@ int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, in
         "%d", dbid));
     }
     if(cmd == server.gtidAutoCommand) {
-        for(int i = 0; i < argc; i++) {
+        for(int i = 0; i < argc - 1; i++) {
             gtidArgv[i + 3] = argv[i + 1];
         }
         propagate(server.gtidCommand, dbid, gtidArgv, argc + 2, flags);
