@@ -170,7 +170,7 @@ start_server {overrides {save ""} tags {"swap" "select"}} {
         set slave [srv 0 client]
 
         test {multi-db repl by rdb} {
-            $master config set debug-evict-keys 0
+            $master config set swap-debug-evict-keys 0
 
             for {set db 0} {$db < 5} {incr db} {
                 $master select $db
@@ -185,12 +185,12 @@ start_server {overrides {save ""} tags {"swap" "select"}} {
                     $master hmset hash-$count f1 db-$db f2 db-$db f3 db-$db f4 db-$db f5 db-$db f6 db-$db f7 db-$db f8 db-$db
 
                     if {$count < 25} {
-                        $master config set debug-evict-keys 1024
+                        $master config set swap-evict-step-max-subkeys 1024
                         $master evict hash-$count
                     }
 
                     if {$count < 50} {
-                        $master config set debug-evict-keys 4
+                        $master config set swap-evict-step-max-subkeys 4
                         $master evict hash-$count 
                     }
                 }
