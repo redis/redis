@@ -36,7 +36,8 @@ typedef void lazy_free_fn(void *args[]);
 void bioInit(void);
 unsigned long bioPendingJobsOfType(int type);
 void bioKillThreads(void);
-void bioCreateCloseJob(int fd, int need_fsync);
+void bioCreateCloseJob(int fd);
+void bioCreateCloseAofJob(int fd, long long offset);
 void bioCreateFsyncJob(int fd, long long offset);
 void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...);
 
@@ -45,6 +46,7 @@ enum {
     BIO_CLOSE_FILE = 0,
     BIO_AOF_FSYNC,
     BIO_LAZY_FREE,
+    BIO_CLOSE_AOF,
     BIO_NUM_OPS
 };
 

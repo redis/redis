@@ -49,7 +49,7 @@ int aofFileExist(char *filename);
 int rewriteAppendOnlyFile(char *filename);
 aofManifest *aofLoadManifestFromFile(sds am_filepath);
 void aofManifestFreeAndUpdate(aofManifest *am);
-void aof_background_fsync_and_close(int fd);
+void aof_background_fsync_and_close(int fd, long long offset);
 
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
@@ -831,7 +831,7 @@ int openNewIncrAofForAppend(void) {
      * the fsync as long as we grantee it happens, and in fsync always the file
      * is already synced at this point so fsync doesn't matter. */
     if (server.aof_fd != -1) {
-        aof_background_fsync_and_close(server.aof_fd);
+        aof_background_fsync_and_close(server.aof_fd, server.master_repl_offset);
         server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
     }
@@ -924,8 +924,8 @@ void aof_background_fsync(int fd) {
 }
 
 /* Close the fd on the basis of aof_background_fsync. */
-void aof_background_fsync_and_close(int fd) {
-    bioCreateCloseJob(fd, 1);
+void aof_background_fsync_and_close(int fd, long long offset) {
+    bioCreateCloseAofJob(fd, offset);
 }
 
 /* Kills an AOFRW child process if exists */
