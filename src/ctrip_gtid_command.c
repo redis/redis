@@ -521,15 +521,16 @@ void ctripMergeCommand(client* c) {
         //expire timeout
         decrRefCount(val); 
     } else {
+        sds keydup = sdsdup(key->ptr); /* moved to db.dict by dbAddRDBLoad */
         /* Add the new object in the hash table */
-        int added = dbAddRDBLoad(c->db,(sds)key->ptr,val);
+        int added = dbAddRDBLoad(c->db,keydup,val);
         if (!added) {
             /**
              * When it's set we allow new keys to replace the current
                     keys with the same name.
              */
             dbSyncDelete(c->db,key);
-            dbAddRDBLoad(c->db,(sds)key->ptr,val);
+            dbAddRDBLoad(c->db,keydup,val);
         }
 
         /* Set the expire time if needed */
