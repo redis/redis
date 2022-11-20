@@ -49,11 +49,9 @@ void dbHoldKey(redisDb *db, robj *key, int64_t swap) {
     if ((de = dictFind(db->hold_keys, key))) {
         hc = dictGetSignedIntegerVal(de);
         dictSetSignedIntegerVal(de, HC_HOLD(hc, swap));
-        serverLog(LL_DEBUG, "h %s (%ld,%ld)", (sds)key->ptr, HC_HOLD_COUNT(hc), HC_SWAP_COUNT(hc));
     } else {
         incrRefCount(key);
         dictAdd(db->hold_keys, key, (void*)HC_INIT(1, swap));
-        serverLog(LL_DEBUG, "h %s (%ld,%ld)", (sds)key->ptr, (int64_t)1, swap);
     }
 }
 
@@ -101,8 +99,6 @@ void dbUnholdKey(redisDb *db, robj *key) {
     } else {
         doDbUnholdKey(db, key, hc);
     }
-    serverLog(LL_DEBUG, "u %s (%ld,%ld)", (sds)key->ptr, HC_HOLD_COUNT(hc),
-            HC_SWAP_COUNT(hc));
 }
 
 void clientUnholdKey(client *c, int dbid, robj *key) {
@@ -258,14 +254,12 @@ static const char* evictResultToString(int evict_result) {
 /* EVICT is a special command that getswaps returns nothing ('cause we don't
  * need to swap anything before command executes) but does swap out(PUT)
  * inside command func. Note that EVICT is the command of fake evict clients */
-void evictCommand(client *c) {
+void swapEvictCommand(client *c) {
     int i, nevict = 0, evict_result;
 
     for (i = 1; i < c->argc; i++) {
         evict_result = 0;
         nevict += tryEvictKey(c->db,c->argv[i],&evict_result);
-        serverLog(LL_NOTICE, "evict %s: %s.", (sds)c->argv[i]->ptr,
-                evictResultToString(evict_result));
     }
 
     addReplyLongLong(c, nevict);

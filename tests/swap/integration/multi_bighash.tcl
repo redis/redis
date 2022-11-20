@@ -13,52 +13,52 @@ start_server {tags {"repl"}} {
         for {set j 0} {$j < $num} {incr j} {
             r hset key $j $value
         }        
-        r evict key
+        r swap.evict key
         set load_handler1 [start_run_load  $host $port 10 0 {
             $r1 hget key 1
-            $r1 evict key
+            $r1 swap.evict key
         }]
         set load_handler2 [start_run_load  $host $port 10 0 {
             $r1 hget key 1
-            $r1 evict key
+            $r1 swap.evict key
         }]
         set load_handler3 [start_run_load  $host $port 10 0 {
             $r1 hget key 2
-            $r1 evict key 
+            $r1 swap.evict key 
         }]
         set load_handler4 [start_run_load  $host $port 10 0 {
             $r1 hget key 3
-            $r1 evict key 
+            $r1 swap.evict key 
         }]
         set load_handler5 [start_run_load  $host $port 10 0 {
             $r1 hget key 0
-            $r1 evict key 
+            $r1 swap.evict key 
         }]
         set load_handler6 [start_run_load  $host $port 10 0 {
-            $r1 evict key
-            $r1 evict key8
-            $r1 evict key9
-            $r1 evict key 
+            $r1 swap.evict key
+            $r1 swap.evict key8
+            $r1 swap.evict key9
+            $r1 swap.evict key 
         }]
         set load_handler7 [start_run_load  $host $port 10 0 {
-            $r1 evict key
-            $r1 evict key0
-            $r1 evict key1
-            $r1 evict key2
-            $r1 evict key 
+            $r1 swap.evict key
+            $r1 swap.evict key0
+            $r1 swap.evict key1
+            $r1 swap.evict key2
+            $r1 swap.evict key 
         }]
         set load_handler8 [start_run_load  $host $port 10 0 {
-            $r1 evict key
-            $r1 evict key3
-            $r1 evict key4
-            $r1 evict key 
+            $r1 swap.evict key
+            $r1 swap.evict key3
+            $r1 swap.evict key4
+            $r1 swap.evict key 
         }]
         set load_handler9 [start_run_load  $host $port 10 0 {
-            $r1 evict key
-            $r1 evict key5
-            $r1 evict key6
-            $r1 evict key7
-            $r1 evict key 
+            $r1 swap.evict key
+            $r1 swap.evict key5
+            $r1 swap.evict key6
+            $r1 swap.evict key7
+            $r1 swap.evict key 
         }]
 
         set load_handler10 [start_run_load  $host $port 10 0 {
@@ -67,7 +67,7 @@ start_server {tags {"repl"}} {
             $r1 set key4 v 
             $r1 set key8 v 
             $r1 exec
-            $r1 evict key 
+            $r1 swap.evict key 
         }]
         set load_handler11 [start_run_load  $host $port 10 0 {
             $r1 multi
@@ -76,7 +76,7 @@ start_server {tags {"repl"}} {
             $r1 set key3 v 
             $r1 set key6 v 
             $r1 exec
-            $r1 evict key 
+            $r1 swap.evict key 
         }]
         set load_handler12 [start_run_load  $host $port 10 0 {
             $r1 multi
@@ -84,7 +84,7 @@ start_server {tags {"repl"}} {
             $r1 set key5 v
             $r1 set key7 v
             $r1 exec
-            $r1 evict key 
+            $r1 swap.evict key 
         }]
         set load_handler13 [start_run_load  $host $port 10 0 {
             $r1 multi
@@ -93,7 +93,7 @@ start_server {tags {"repl"}} {
             $r1 set key0 v
             $r1 set key1 v
             $r1 exec
-            $r1 evict key 
+            $r1 swap.evict key 
         }]
         after 10000
         stop_write_load $load_handler1
@@ -133,7 +133,7 @@ start_server {tags {"repl"}} {
         for {set j 0} {$j < $num} {incr j} {
             r hset key $j $value
             if {[expr $j % 4] == 0} {
-                if {[r evict key] == 0} {
+                if {[r swap.evict key] == 0} {
                     incr fail_n
                 }
             }
@@ -184,29 +184,29 @@ start_server {tags {"repl"}} {
                 after 1
             }]
             set load_handler1 [start_run_load  $host $port 100 0 {
-                $r1 evict key
-                $r1 evict key0  
-                $r1 evict key9 
+                $r1 swap.evict key
+                $r1 swap.evict key0  
+                $r1 swap.evict key9 
             }]
             set load_handler2 [start_run_load  $host $port 100 0 {
-                $r1 evict key
-                $r1 evict key1  
-                $r1 evict key5 
-                $r1 evict key8
+                $r1 swap.evict key
+                $r1 swap.evict key1  
+                $r1 swap.evict key5 
+                $r1 swap.evict key8
             }]
             set load_handler3 [start_run_load  $host $port 100 0 {
-                $r1 evict key
-                $r1 evict key2  
-                $r1 evict key7
+                $r1 swap.evict key
+                $r1 swap.evict key2  
+                $r1 swap.evict key7
             }]
             set load_handler4 [start_run_load  $host $port 100 0 {
-                $r1 evict key
-                $r1 evict key3 
-                $r1 evict key4
-                $r1 evict key6
+                $r1 swap.evict key
+                $r1 swap.evict key3 
+                $r1 swap.evict key4
+                $r1 swap.evict key6
             }]
             set load_handler5 [start_run_load  $host $port 100 0 {
-                $r1 evict key
+                $r1 swap.evict key
             }]
             
             after 100000

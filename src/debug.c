@@ -909,16 +909,6 @@ NULL
         mallctl_string(c, c->argv+2, c->argc-2);
         return;
 #endif
-    } else if (!strcasecmp(c->argv[1]->ptr,"rocksdb-property-int") && c->argc >= 3) {
-        uint64_t property_int = 0;
-        const char *cfnames = c->argc > 3 ? c->argv[3]->ptr : NULL;
-        rocksdbPropertyInt(cfnames,c->argv[2]->ptr,&property_int);
-        addReplyLongLong(c, property_int);
-    } else if (!strcasecmp(c->argv[1]->ptr,"rocksdb-property-value") && c->argc >= 3) {
-        const char *cfnames = c->argc > 3 ? c->argv[3]->ptr : NULL;
-        sds property_value = rocksdbPropertyValue(cfnames,c->argv[2]->ptr);
-        addReplyBulkCString(c, property_value);
-        if (property_value) sdsfree(property_value);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-swap-debug-rio-delay") && c->argc == 3) {
         server.swap_debug_rio_delay = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);

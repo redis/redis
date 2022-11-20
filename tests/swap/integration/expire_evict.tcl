@@ -131,7 +131,7 @@ start_server {tags {"swap string"}} {
         for {set j 0} {$j < 60} {incr j} {
             r setex k 1 v 
             after 999
-            r evict k 
+            r swap.evict k 
             after 1
             r get k
             after 10

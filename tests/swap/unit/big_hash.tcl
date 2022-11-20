@@ -804,7 +804,7 @@ start_server {tags {"bugfix"}} {
 
         for {set i 0} {$i <= $limit} {incr i} {
             r hmset myhash-$i a a b b c c
-            r evict myhash-$i
+            r swap.evict myhash-$i
         }
 
         wait_keyspace_cold r
@@ -815,7 +815,7 @@ start_server {tags {"bugfix"}} {
 
         for {set i 0} {$i <= $limit} {incr i} {
             r hset myhash-$i 1 1 
-            r evict myhash-$i
+            r swap.evict myhash-$i
         }
 
         for {set i 0} {$i <= $limit} {incr i} {

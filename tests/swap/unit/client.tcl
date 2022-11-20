@@ -8,7 +8,7 @@ start_server {tags "clients"} {
         set r2 [redis $host $port]
         $r1 blocking 0
         $r1 sadd s1 m1 m2 m3
-        $r1 evict s1
+        $r1 swap.evict s1
         $r1 sismember s1 m1
         $r2 multi
         $r2 slaveof no one

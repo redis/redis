@@ -555,7 +555,7 @@ start_server {tags {"zset"}} {
                 proc remrangebyscore {min max} {
                     create_zset zset {1 a 2 b 3 c 4 d 5 e}
                     assert_equal 1 [r exists zset]
-                    r evict zset
+                    r swap.evict zset
                     r zremrangebyscore zset $min $max
                 }
 
@@ -1166,10 +1166,10 @@ start_server {tags {"zset"}} {
                     lappend aux $score
                     r zadd kv $score $i
                 }
-                r evict kv
+                r swap.evict kv
                 r set kv a 
                 assert_equal [r get kv] a
-                r evict kv 
+                r swap.evict kv 
                 r del kv 
                 r debug reload 
                 assert_equal [r type kv] {none}

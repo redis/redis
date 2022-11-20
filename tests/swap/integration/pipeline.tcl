@@ -11,7 +11,7 @@ start_server {tags {"swap string"}} {
             } {
                 $r write [format_command get k]
             } {
-                $r write [format_command evict k]
+                $r write [format_command swap.evict k]
             } {
                 $r write [format_command del k]
             } {
@@ -22,7 +22,7 @@ start_server {tags {"swap string"}} {
             } {
                 $r write [format_command get k]
             } {
-                $r write [format_command evict k]
+                $r write [format_command swap.evict k]
             } {
                 $r write [format_command del k]
             } {
@@ -36,7 +36,7 @@ start_server {tags {"swap string"}} {
             } {
                 $r write [format_command get k]
             } {
-                $r write [format_command evict k]
+                $r write [format_command swap.evict k]
             } {
                 $r write [format_command del k]
             } {
@@ -47,7 +47,7 @@ start_server {tags {"swap string"}} {
             } {
                 $r write [format_command get k]
             } {
-                $r write [format_command evict k]
+                $r write [format_command swap.evict k]
             } {
                 $r write [format_command del k]
             } {
@@ -76,7 +76,7 @@ start_server {tags {"swap hash"}} {
             } {
                 $r write [format_command hget h k]
             } {
-                $r write [format_command evict k]
+                $r write [format_command swap.evict k]
             } {
                 $r write [format_command del k]
             } {
@@ -89,7 +89,7 @@ start_server {tags {"swap hash"}} {
             } {
                 $r write [format_command hget h k]
             } {
-                $r write [format_command evict k]
+                $r write [format_command swap.evict k]
             } {
                 $r write [format_command hdel h k]
             } {
@@ -106,7 +106,7 @@ start_server {tags {"swap hash"}} {
             } {
                 $r write [format_command get k]
             } {
-                $r write [format_command evict k]
+                $r write [format_command swap.evict k]
             } {
                 $r write [format_command hdel h k]
             }  {
@@ -119,7 +119,7 @@ start_server {tags {"swap hash"}} {
             } {
                 $r write [format_command get k]
             } {
-                $r write [format_command evict k]
+                $r write [format_command swap.evict k]
             } {
                 $r write [format_command del k]
             } {

@@ -100,6 +100,10 @@ void swapCommand(client *c) {
 "    Reset swap stats.",
 "COMPACT",
 "   COMPACT rocksdb",
+"ROCKSDB-PROPERTY-INT <rocksdb-prop-name> [<cfname,cfname...>]",
+"    Get rocksdb property value (int type)",
+"ROCKSDB-PROPERTY-VALUE <rocksdb-prop-name> [<cfname,cfname...>]",
+"    Get rocksdb property value (string type)",
 NULL
         };
         addReplyHelp(c, help);
@@ -239,6 +243,16 @@ NULL
         } else {
             addReplyErrorSds(c,error);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"rocksdb-property-int") && c->argc >= 3) {
+        uint64_t property_int = 0;
+        const char *cfnames = c->argc > 3 ? c->argv[3]->ptr : NULL;
+        rocksdbPropertyInt(cfnames,c->argv[2]->ptr,&property_int);
+        addReplyLongLong(c, property_int);
+    } else if (!strcasecmp(c->argv[1]->ptr,"rocksdb-property-value") && c->argc >= 3) {
+        const char *cfnames = c->argc > 3 ? c->argv[3]->ptr : NULL;
+        sds property_value = rocksdbPropertyValue(cfnames,c->argv[2]->ptr);
+        addReplyBulkCString(c, property_value);
+        if (property_value) sdsfree(property_value);
     } else {
         addReplySubcommandSyntaxError(c);
         return;

@@ -177,7 +177,7 @@ start_server {overrides {save ""} tags {"swap" "select"}} {
                 for {set count 0} {$count < 100} {incr count} {
                     $master set kv-$count db-$db 
                     if {$count < 50} {
-                        $master evict kv-$count
+                        $master swap.evict kv-$count
                     }
                 }
 
@@ -186,12 +186,12 @@ start_server {overrides {save ""} tags {"swap" "select"}} {
 
                     if {$count < 25} {
                         $master config set swap-evict-step-max-subkeys 1024
-                        $master evict hash-$count
+                        $master swap.evict hash-$count
                     }
 
                     if {$count < 50} {
                         $master config set swap-evict-step-max-subkeys 4
-                        $master evict hash-$count 
+                        $master swap.evict hash-$count 
                     }
                 }
             }

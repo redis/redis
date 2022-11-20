@@ -5,24 +5,24 @@ start_server {tags {"concurrency "}} {
     set master_port [srv 0 port]
     set load_handle0 [start_run_load $master_host $master_port 0 1000000 {
         $r RPUSH mylist "one"
-        $r evict mylist
+        $r swap.evict mylist
         after 1
     }]
     set load_handle1 [start_run_load $master_host $master_port 0 1000000 {
         $r LPUSH mylist "two"
-        $r evict mylist
+        $r swap.evict mylist
         after 1
     }]
 
     set load_handle2 [start_run_load $master_host $master_port 0 1000000 {
         $r RPUSH mylist1 "one"
-        $r evict mylist1
+        $r swap.evict mylist1
         after 1
     }]
 
     set load_handle3 [start_run_load $master_host $master_port 0 1000000 {
         $r LPUSH mylist1 "two"
-        $r evict mylist1
+        $r swap.evict mylist1
         after 1
     }]
     set load_handle4 [start_run_load $master_host $master_port 0 1000000 {

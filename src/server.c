@@ -1120,15 +1120,15 @@ struct redisCommand redisCommandTable[] = {
 
     /* evict command used by shared fake to identify swap does
      * not need any swap before command proc, but triggers swap in proc. */
-	{"evict",evictCommand,-2,
+	{"swap.evict",swapEvictCommand,-2,
 	 "read-only fast",
      0,NULL,getKeyRequestsNone,SWAP_OUT,0,1,-1,1,0,0,0},
 
-	{"expired",expiredCommand,1,
+	{"swap.expired",swapExpiredCommand,1,
 	 "write fast @keyspace",
 	 0,NULL,getKeyRequestsNone,SWAP_NOP,0,1,-1,1,0,0,0},
 
-    {"scanexpire",scanexpireCommand,1,
+    {"swap.scanexpire",swapScanexpireCommand,1,
      "read-only no-script @keyspace",
      0,NULL,NULL,SWAP_NOP,0,1,-1,1,0,0,0},
 
@@ -1136,7 +1136,7 @@ struct redisCommand redisCommandTable[] = {
 	 "read-only fast",
 	 0,NULL,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
-    {"mutexop",mutexopCommand,1,
+    {"swap.mutexop",swapMutexopCommand,1,
     "admin no-script",
     0,NULL,getKeyRequestsNone,SWAP_NOP,0,0,0,0,0,0,0},
 

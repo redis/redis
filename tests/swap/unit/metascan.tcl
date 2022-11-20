@@ -10,7 +10,7 @@ start_server {tags "metascan"} {
 
     test {scan with unsuccessive cold cursor} {
         r mset a a b b c c
-        r evict a b c
+        r swap.evict a b c
         wait_key_cold r a
         wait_key_cold r b
         wait_key_cold r c
@@ -25,7 +25,7 @@ start_server {tags "metascan"} {
 
     test {scan switch from hot to cold rewinds cold cursor} {
         r mset a a b b c c
-        r evict a b c
+        r swap.evict a b c
         wait_key_cold r a
         wait_key_cold r b
         wait_key_cold r c
@@ -41,7 +41,7 @@ start_server {tags "metascan"} {
         r set key val
         assert_equal [r scan 0] {1 key}
         assert_equal [r scan 1] {0 {}}
-        r evict key
+        r swap.evict key
         wait_key_cold r key
         assert_equal [r scan 0] {1 {}}
         assert_equal [r scan 1] {0 key}
@@ -50,7 +50,7 @@ start_server {tags "metascan"} {
 
     test {randomkey in multi} {
         r set key val
-        r evict key
+        r swap.evict key
         wait_key_cold r key
         r multi
         r randomkey
@@ -61,7 +61,7 @@ start_server {tags "metascan"} {
 
     test {scan in multi} {
         r set key val
-        r evict key
+        r swap.evict key
         wait_key_cold r key
         assert {[rio_get_meta r key] != ""}
         r multi

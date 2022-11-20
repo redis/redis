@@ -73,7 +73,7 @@ int scanMetaExpireIfNeeded(redisDb *db, scanMeta *meta) {
     return 1;
 }
 
-void expiredCommand(client *c) {
+void swapExpiredCommand(client *c) {
     addReply(c, shared.ok);
 }
 
@@ -353,7 +353,7 @@ update_stats:
     return timelimit_exit;
 }
 
-void scanexpireCommand(client *c) {
+void swapScanexpireCommand(client *c) {
     addReply(c,shared.ok);
 }
 

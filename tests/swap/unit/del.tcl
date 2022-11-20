@@ -13,7 +13,7 @@ start_server {tags "del"} {
         r set foo bar
         assert_match {*keys=1,*} [r info keyspace]
 
-        r evict foo
+        r swap.evict foo
         wait_key_cold r foo
         assert {[rio_get_meta r foo] != ""}
 
@@ -28,7 +28,7 @@ start_server {tags "del"} {
 
     test {delete cold key} {
         r psetex foo 1000 bar
-        r evict foo
+        r swap.evict foo
         wait_key_cold r foo
         assert {[rio_get_meta r foo] != ""}
         r del foo
@@ -52,7 +52,7 @@ start_server {tags "del"} {
     test {del expired cold key} {
         r debug set-active-expire 0
         r psetex foo 100 bar
-        r evict foo
+        r swap.evict foo
         after 110
         assert {[rio_get_meta r foo] != ""}
         assert_equal [r del foo] 0

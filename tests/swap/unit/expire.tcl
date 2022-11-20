@@ -4,7 +4,7 @@ start_server {tags {"swap string"}} {
         r set k v
         r pexpire k 200
         assert_match "*keys=1,*" [r info keyspace] 
-        r evict k
+        r swap.evict k
         wait_key_cold r k
         after 500
         assert_match [r get k] {}
@@ -13,7 +13,7 @@ start_server {tags {"swap string"}} {
     test {scan trigger cold key expire} {
         set wait_cold_time 200
         r psetex foo $wait_cold_time bar
-        r evict foo
+        r swap.evict foo
         wait_key_cold r foo
         assert_equal [lindex [r scan 1] 1] {foo}
         after $wait_cold_time
@@ -30,7 +30,7 @@ start_server {tags "expire"} {
     # TODO enable when active expire ready
     # test {cold key active expire} {
         # r psetex foo 100 bar
-        # r evict foo
+        # r swap.evict foo
         # after 400
         # assert_equal [r dbsize] 0
         # assert {[rio_get_meta r foo] == ""}
@@ -39,7 +39,7 @@ start_server {tags "expire"} {
     test {cold key passive expire} {
         r debug set-active-expire 0
         r psetex foo 100 bar
-        r evict foo
+        r swap.evict foo
         after 150
         assert_equal [r ttl foo] -2
         assert {[rio_get_meta r foo] == ""}
@@ -49,7 +49,7 @@ start_server {tags "expire"} {
     test {cold key expire scaned} {
         r debug set-active-expire 0
         r psetex foo 100 bar
-        r evict foo
+        r swap.evict foo
         after 150
         set res [r scan 0]
         assert_equal [lindex $res 0] 1
@@ -66,7 +66,7 @@ start_server {tags "expire"} {
 
     test {hot key(non-dirty) active expire} {
         r psetex foo 500 bar
-        r evict foo
+        r swap.evict foo
         wait_key_cold r foo
         assert {[rio_get_meta r foo] != ""}
         assert_equal [r get foo] bar
@@ -88,7 +88,7 @@ start_server {tags "expire"} {
         r debug set-active-expire 0
 
         r psetex foo 500 bar
-        r evict foo
+        r swap.evict foo
         wait_key_cold r foo
         assert {[rio_get_meta r foo] != ""}
         assert_equal [r get foo] bar
@@ -103,7 +103,7 @@ start_server {tags "expire"} {
     test {hot key expire scaned} {
         r debug set-active-expire 0
         r psetex foo 100 bar
-        r evict foo
+        r swap.evict foo
         after 150
         set res [r scan 0]
         assert_equal [lindex $res 0] 1

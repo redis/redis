@@ -146,7 +146,7 @@ start_server {} {
         # veirfy that bgsave failed, by checking that the change counter is still high
         assert_lessthan 999 [s rdb_changes_since_last_save]
         # make sure the server is still writable
-        r set x xx
+        catch {r set x xx}
     }
 
     test {bgsave resets the change counter} {

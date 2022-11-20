@@ -745,7 +745,7 @@ scanExpire *scanExpireCreate();
 void scanExpireFree(scanExpire *scan_expire);
 void scanExpireEmpty(scanExpire *scan_expire);
 
-void scanexpireCommand(client *c);
+void swapScanexpireCommand(client *c);
 int scanExpireDbCycle(redisDb *db, int type, long long timelimit);
 sds genSwapScanExpireInfoString(sds info);
 
@@ -1043,7 +1043,7 @@ void clientReleaseRequestLocks(client *c, swapCtx *ctx);
 
 int tryEvictKey(redisDb *db, robj *key, int *evict_result);
 void tryEvictKeyAsapLater(redisDb *db, robj *key);
-void evictCommand(client *c);
+void swapEvictCommand(client *c);
 int evictAsap();
 void swapDebugEvictKeys();
 void dbHoldKey(redisDb *db, robj *key, int64_t swap);
@@ -1124,7 +1124,7 @@ void replClientDiscardSwappingState(client *c);
 void submitClientKeyRequests(client *c, getKeyRequestsResult *result, clientKeyRequestFinished cb);
 int submitNormalClientRequests(client *c);
 void keyRequestBeforeCall(client *c, swapCtx *ctx);
-void mutexopCommand(client *c);
+void swapMutexopCommand(client *c);
 int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark);
 
 
@@ -1467,7 +1467,7 @@ robj *unshareStringValue(robj *value);
 size_t objectEstimateSize(robj *o);
 size_t keyEstimateSize(redisDb *db, robj *key);
 void swapCommand(client *c);
-void expiredCommand(client *c);
+void swapExpiredCommand(client *c);
 const char *strObjectType(int type);
 int timestampIsExpired(mstime_t expire);
 size_t ctripDbSize(redisDb *db);

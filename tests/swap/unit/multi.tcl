@@ -3,7 +3,7 @@ start_server {tags "multi"} {
 
     test {transaction reserves cmd intention flag} {
         r set key val
-        r evict key
+        r swap.evict key
         wait_key_cold r key
         assert {[rio_get_meta r key] != ""}
         r multi

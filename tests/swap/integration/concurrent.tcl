@@ -11,7 +11,7 @@ start_server {tags {"swap string"}} {
             } {
                 $r get k 
             } {
-                $r evict k
+                $r swap.evict k
             } {
                 $r del k
             } {
@@ -24,7 +24,7 @@ start_server {tags {"swap string"}} {
             } {
                 $r get k 
             } {
-                $r evict k
+                $r swap.evict k
             } {
                 $r del k
             } {
@@ -53,7 +53,7 @@ start_server {tags {"swap hash"}} {
             } {
                 $r hget h k1
             } {
-                $r evict k
+                $r swap.evict k
             } {
                 $r del k
             } {
@@ -69,7 +69,7 @@ start_server {tags {"swap hash"}} {
             } {
                 $r hget h k1
             } {
-                $r evict h
+                $r swap.evict h
             } {
                 $r del h
             } {

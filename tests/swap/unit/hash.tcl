@@ -3,7 +3,7 @@ start_server {tags "bighash"} {
 
     test {swapin entire hash} {
         r hmset hash1 a a b b 1 1 2 2
-        r evict hash1
+        r swap.evict hash1
         wait_key_cold r hash1
         assert_equal [lsort [r hgetall hash1]] {1 1 2 2 a a b b}
         r del hash1
@@ -11,7 +11,7 @@ start_server {tags "bighash"} {
 
     test {swapin specific hash fields} {
         r hmset hash2 a a b b 1 1 2 2
-        r evict hash2
+        r swap.evict hash2
         wait_key_cold r hash2
         # cold - not exists fields
         assert_equal [r hmget hash2 not_exist 99] {{} {}}
@@ -30,7 +30,7 @@ start_server {tags "bighash"} {
 
     test {IN.meta} {
         r hmset hash3 a a b b 1 1 2 2
-        r evict hash3
+        r swap.evict hash3
         wait_key_cold r hash3
         assert_equal [r hlen hash3] 4
         assert_equal [llength [r hkeys hash3]] 4
@@ -48,7 +48,7 @@ start_server {tags "bighash"} {
         assert_equal [r exists hash4] 0
 
         r hmset hash5 a a b b 1 1 2 2
-        r evict hash5
+        r swap.evict hash5
         wait_key_cold r hash5
         r del hash5
         assert_equal [r exists hash5] 0
@@ -57,7 +57,7 @@ start_server {tags "bighash"} {
 
     test {active expire cold hash} {
         r hmset hash6 a a b b 1 1 2 2
-        r evict hash6
+        r swap.evict hash6
         wait_key_cold r hash6
         r pexpire hash6 10
         after 100
@@ -76,7 +76,7 @@ start_server {tags "bighash"} {
     test {lazy expire cold hash} {
         r debug set-active-expire 0
         r hmset hash8 a a b b 1 1 2 2
-        r evict hash8
+        r swap.evict hash8
         wait_key_cold r hash8
         r pexpire hash8 10
         after 100
@@ -96,7 +96,7 @@ start_server {tags "bighash"} {
 
     test {lazy del obseletes rocksdb data} {
         r hmset hash11 a a b b 1 1 2 2 
-        r evict hash11
+        r swap.evict hash11
         wait_key_cold r hash11
         set meta_raw [r swap rio-get meta [r swap encode-meta-key hash11]]
         assert {$meta_raw != {{}}}
@@ -109,16 +109,16 @@ start_server {tags "bighash"} {
 
     test {evict clean hash triggers no swap} {
         r hmset hash10 a a b b 1 1 2 2 
-        r evict hash10
+        r swap.evict hash10
         wait_key_cold r hash10
         set old_swap_out_count [get_info_property r Swap swap_OUT count]
         r hgetall hash10
-        r evict hash10
+        r swap.evict hash10
         # evict clean hash triggers no swapout
         assert_equal $old_swap_out_count [get_info_property r Swap swap_OUT count]
 
         assert_equal [llength [r hkeys hash10]] 4
-        r evict hash10
+        r swap.evict hash10
         assert_equal [llength  [r hvals hash10]] 4
         r del hash10
     }
@@ -133,13 +133,13 @@ start_server {tags "bighash"} {
         assert [object_is_dirty r hash11]
 
         # dirty bighash partial evict remains dirty
-        r evict hash11
+        r swap.evict hash11
         wait_key_warm r hash11
         assert [object_is_dirty r hash11]
         assert_equal [object_meta_len r hash11] 2
 
         # dirty bighash all evict
-        r evict hash11
+        r swap.evict hash11
         wait_key_cold r hash11
         assert ![object_is_dirty r hash11]
         assert_equal [object_meta_len r hash11] 4
@@ -159,7 +159,7 @@ start_server {tags "bighash"} {
         # clean bighash swapout does not triggers swap
         set orig_swap_out_count [get_info_property r Swap swap_OUT count]
 
-        r evict hash11
+        r swap.evict hash11
         assert ![object_is_dirty r hash11]
         assert_equal $orig_swap_out_count [get_info_property r Swap swap_OUT count]
 
@@ -177,7 +177,7 @@ start_server {tags "bighash"} {
 
         # dirty bighash evict triggers swapout
         after 200
-        assert_equal [r evict hash11] 1
+        assert_equal [r swap.evict hash11] 1
         after 200
         assert [object_is_dirty r hash11]
         assert_equal [r hlen hash11] 4
@@ -188,7 +188,7 @@ start_server {tags "bighash"} {
 
     test {bighash hdel & del} {
         r hmset hash12 a a 1 1
-        assert_equal [r evict hash12] 1
+        assert_equal [r swap.evict hash12] 1
         wait_key_cold r hash12
         assert_equal [object_meta_len r hash12] 2
         r hdel hash12 a
@@ -204,7 +204,7 @@ start_server {tags "bighash"} {
 
     test {hdel warm key} {
         r hmset hash13 a a b b c c 1 1 2 2 3 3 
-        assert_equal [r evict hash13] 1
+        assert_equal [r swap.evict hash13] 1
         wait_key_cold r hash13
         assert_equal [r hmget hash13 a b 1 2] {a b 1 2}
         assert_equal [object_meta_len r hash13] 2
@@ -220,11 +220,11 @@ start_server {tags "bighash"} {
     test {big hash deletes other key by mistake} {
         r hmset hash_aa foo bar        
         # hash_aa is encoded as: h|1|7hash_aa
-        r evict hash_aa
+        r swap.evict hash_aa
         wait_key_cold r hash_aa        
         r hmset hash_a foo bar
         # hash_a is encoded as: h|2|6hash_a
-        r evict hash_a
+        r swap.evict hash_a
         wait_key_cold r hash_a
         # if hash subkey is encoded enc_type|version|keylen|key|subkey
         # (commit 72322eea3), then delete range is [ h|1, h|2|7|hash_aa ),
@@ -235,10 +235,10 @@ start_server {tags "bighash"} {
     }
     test {hdel & reload} {
         r hmset hash14 a a b b c c 1 1 2 2 3 3 
-        assert_equal [r evict hash14] 1
+        assert_equal [r swap.evict hash14] 1
         wait_key_cold r hash14
         # evict cold
-        r evict hash14
+        r swap.evict hash14
         wait_key_cold r hash14
         # reload cold
         r debug reload
@@ -257,7 +257,7 @@ start_server {tags "bighash"} {
 
     test {hdel cold field untill hash empty} {
         r hset hash15 a a
-        r evict hash15
+        r swap.evict hash15
         r hget hash15 b
         r hdel hash15 a
         catch {r swap object hash15} e
@@ -271,11 +271,11 @@ start_server {tags {"evict big hash, check hlen"}} {
         r config set swap-evict-step-max-subkeys 2
         r hmset myhash a a b b c c d d e e f f g g h h
         assert_equal [r hlen myhash] 8
-        assert_equal [r evict myhash] 1
+        assert_equal [r swap.evict myhash] 1
         after 100
         assert_equal [r hlen myhash] 8
         after 100
-        assert_equal [r evict myhash] 1
+        assert_equal [r swap.evict myhash] 1
         after 100
         assert_equal [r hlen myhash] 8
         after 100
@@ -289,10 +289,10 @@ test {big hash check reload1} {
         r config set swap-evict-step-max-subkeys 2
         r hmset myhash a a b b c c d d e e f f g g h h
         assert_equal [r hlen myhash] 8
-        assert_equal [r evict myhash] 1
+        assert_equal [r swap.evict myhash] 1
         for {set j 0} { $j < 3} {incr j} {
             after 100
-            assert_equal [r evict myhash] 1
+            assert_equal [r swap.evict myhash] 1
 
         } 
         after 1000
@@ -318,7 +318,7 @@ test {big hash random get check reload} {
             } 
             set evict_count  [randomInt [expr $hlen/2]]
             for {set j 0} {$j < $evict_count} {incr j} {
-                r evict  myhash
+                r swap.evict  myhash
             }
             set get_count [randomInt $hlen]
             for {set j 0} {$j < $get_count} {incr j} {
@@ -341,10 +341,10 @@ test {two big hash check reload1} {
         assert_equal [r hlen myhash] 8
         r hmset myhash1 a a b b c c
         assert_equal [r hlen myhash1] 3
-        assert_equal [r evict myhash1] 1
+        assert_equal [r swap.evict myhash1] 1
         for {set j 0} { $j < 4} {incr j} {
             after 100
-            assert_equal [r evict myhash] 1
+            assert_equal [r swap.evict myhash] 1
         } 
         after 1000
         puts [r debug reload]

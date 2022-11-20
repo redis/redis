@@ -475,7 +475,7 @@ int submitNormalClientRequests(client *c) {
     return result.num;
 }
 
-void mutexopCommand(client *c) {
+void swapMutexopCommand(client *c) {
     addReply(c, shared.ok);
 }
 
@@ -543,7 +543,7 @@ void swapInit() {
     server.evict_clients = zmalloc(server.dbnum*sizeof(client*));
     for (i = 0; i < server.dbnum; i++) {
         client *c = createClient(NULL);
-        c->cmd = lookupCommandByCString("EVICT");
+        c->cmd = lookupCommandByCString("SWAP.EVICT");
         c->db = server.db+i;
         c->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
         server.evict_clients[i] = c;
@@ -553,7 +553,7 @@ void swapInit() {
     for (i = 0; i < server.dbnum; i++) {
         client *c = createClient(NULL);
         c->db = server.db+i;
-        c->cmd = lookupCommandByCString("EXPIRED");
+        c->cmd = lookupCommandByCString("SWAP.EXPIRED");
         c->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
         server.expire_clients[i] = c;
     }
@@ -562,7 +562,7 @@ void swapInit() {
     for (i = 0; i < server.dbnum; i++) {
         client *c = createClient(NULL);
         c->db = server.db+i;
-        c->cmd = lookupCommandByCString("scanexpire");
+        c->cmd = lookupCommandByCString("SWAP.SCANEXPIRE");
         c->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
         server.scan_expire_clients[i] = c;
     }
@@ -577,7 +577,7 @@ void swapInit() {
     }
 
     server.mutex_client = createClient(NULL);
-    server.mutex_client->cmd = lookupCommandByCString("mutexop");
+    server.mutex_client->cmd = lookupCommandByCString("SWAP.MUTEXOP");
     server.mutex_client->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
 
     server.repl_workers = 256;
@@ -592,7 +592,6 @@ void swapInit() {
 
     server.rdb_load_ctx = NULL;
     server.request_listeners = serverRequestListenersCreate();
-
 }
 
 
