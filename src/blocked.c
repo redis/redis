@@ -519,8 +519,8 @@ static void releaseBlockedEntry(client *c, dictEntry *de, int remove_key) {
         unblock_on_nokey_entry = dictFind(c->db->blocking_keys_unblock_on_nokey,key);
         /* it is not possible to have a client blocked on nokey with no matching entry */
         serverAssertWithInfo(c,key,unblock_on_nokey_entry != NULL);
-        if(!dictIncrUnsignedIntegerVal(unblock_on_nokey_entry, -1)) {
-        /* in case the count is zero, we can delete the entry */
+        if (!dictIncrUnsignedIntegerVal(unblock_on_nokey_entry, -1)) {
+            /* in case the count is zero, we can delete the entry */
              dictDelete(c->db->blocking_keys_unblock_on_nokey,key);
         }
     }
