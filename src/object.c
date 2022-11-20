@@ -1252,7 +1252,8 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mem_total+=mem;
 
         /* Account for the slot to keys map in cluster mode */
-        mem = dictSize(db->dict) * dictMetadataSize(db->dict);
+        mem = dictSize(db->dict) * dictEntryMetadataSize(db->dict) +
+              dictMetadataSize(db->dict);
         mh->db[mh->num_dbs].overhead_ht_slot_to_keys = mem;
         mem_total+=mem;
 

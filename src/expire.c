@@ -271,7 +271,7 @@ void activeExpireCycle(int type) {
 
             while (data.sampled < num && checked_buckets < max_buckets) {
                 db->expires_cursor = dictScan(db->expires, db->expires_cursor,
-                                              expireScanCallback, NULL, &data);
+                                              expireScanCallback, &data);
                 checked_buckets++;
             }
             total_expired += data.expired;

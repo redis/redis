@@ -93,9 +93,9 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
 /* Links to the next and previous entries for keys in the same slot are stored
  * in the dict entry metadata. See Slot to Key API below. */
 #define dictEntryNextInSlot(de) \
-    (((clusterDictEntryMetadata *)dictMetadata(de))->next)
+    (((clusterDictEntryMetadata *)dictEntryMetadata(de))->next)
 #define dictEntryPrevInSlot(de) \
-    (((clusterDictEntryMetadata *)dictMetadata(de))->prev)
+    (((clusterDictEntryMetadata *)dictEntryMetadata(de))->prev)
 
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
@@ -7327,7 +7327,7 @@ void slotToKeyDelEntry(dictEntry *entry, redisDb *db) {
 
 /* Updates neighbour entries when an entry has been replaced (e.g. reallocated
  * during active defrag). */
-void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
+void slotToKeyReplaceEntry(dict *d, dictEntry *entry) {
     dictEntry *next = dictEntryNextInSlot(entry);
     dictEntry *prev = dictEntryPrevInSlot(entry);
     if (next != NULL) {
@@ -7339,6 +7339,8 @@ void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
         /* The replaced entry was the first in the list. */
         sds key = dictGetKey(entry);
         unsigned int hashslot = keyHashSlot(key, sdslen(key));
+        clusterDictMetadata *dictmeta = dictMetadata(d);
+        redisDb *db = dictmeta->db;
         slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
         slot_to_keys->head = entry;
     }
@@ -7347,6 +7349,8 @@ void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
 /* Initialize slots-keys map of given db. */
 void slotToKeyInit(redisDb *db) {
     db->slots_to_keys = zcalloc(sizeof(clusterSlotToKeyMapping));
+    clusterDictMetadata *dictmeta = dictMetadata(db->dict);
+    dictmeta->db = db;
 }
 
 /* Empty slots-keys map of given db. */

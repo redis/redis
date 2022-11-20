@@ -399,11 +399,22 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
 /* Returns the size of the DB dict entry metadata in bytes. In cluster mode, the
  * metadata is used for constructing a doubly linked list of the dict entries
  * belonging to the same cluster slot. See the Slot to Key API in cluster.c. */
-size_t dictEntryMetadataSize(dict *d) {
+size_t dbDictEntryMetadataSize(dict *d) {
     UNUSED(d);
     /* NOTICE: this also affects overhead_ht_slot_to_keys in getMemoryOverheadData.
      * If we ever add non-cluster related data here, that code must be modified too. */
     return server.cluster_enabled ? sizeof(clusterDictEntryMetadata) : 0;
+}
+
+/* Returns the size of the DB dict metadata in bytes. In cluster mode, we store
+ * a pointer to the db in the main db dict, used for updating the slot-to-key
+ * mapping when a dictEntry is reallocated. */
+size_t dbDictMetadataSize(void) {
+    return server.cluster_enabled ? sizeof(clusterDictMetadata) : 0;
+}
+
+void dbDictAfterReplaceEntry(dict *d, dictEntry *de) {
+    if (server.cluster_enabled) slotToKeyReplaceEntry(d, de);
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -460,7 +471,9 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
-    dictEntryMetadataSize       /* size of entry metadata in bytes */
+    dbDictEntryMetadataSize,    /* size of entry metadata in bytes */
+    dbDictMetadataSize,         /* size of dict metadata in bytes */
+    dbDictAfterReplaceEntry     /* notify entry moved/reallocated */
 };
 
 /* Db->expires */

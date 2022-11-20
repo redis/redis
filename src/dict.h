@@ -56,9 +56,13 @@ typedef struct dictType {
     void (*keyDestructor)(dict *d, void *key);
     void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
-    /* Allow a dictEntry to carry extra caller-defined metadata.  The
-     * extra memory is initialized to 0 when a dictEntry is allocated. */
+    /* Allow each dict and dictEntry to carry extra caller-defined metadata. The
+     * extra memory is initialized to 0 when allocated. */
     size_t (*dictEntryMetadataBytes)(dict *d);
+    size_t (*dictMetadataBytes)(void);
+    /* Optional callback called after an entry has been reallocated (due to
+     * active defrag). Only called if the entry has metadata. */
+    void (*afterReplaceEntry)(dict *d, dictEntry *entry);
 } dictType;
 
 #define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
@@ -75,6 +79,10 @@ struct dict {
     /* Keep small vars at end for optimal (minimal) struct padding */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
     signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
+
+    void *metadata[];           /* An arbitrary number of bytes (starting at a
+                                 * pointer-aligned address) of size as defined
+                                 * by dictType's dictEntryBytes. */
 };
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
@@ -91,7 +99,7 @@ typedef struct dictIterator {
 } dictIterator;
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
-typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
+typedef void *(dictDefragAllocFunction)(void *ptr);
 
 /* This is the initial size of every hash table */
 #define DICT_HT_INITIAL_EXP      2
@@ -112,8 +120,10 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
         (d)->type->keyCompare((d), key1, key2) : \
         (key1) == (key2))
 
-#define dictMetadataSize(d) ((d)->type->dictEntryMetadataBytes \
-                             ? (d)->type->dictEntryMetadataBytes(d) : 0)
+#define dictEntryMetadataSize(d) ((d)->type->dictEntryMetadataBytes     \
+                                  ? (d)->type->dictEntryMetadataBytes(d) : 0)
+#define dictMetadataSize(d) ((d)->type->dictMetadataBytes               \
+                             ? (d)->type->dictMetadataBytes() : 0)
 
 #define dictHashKey(d, key) ((d)->type->hashFunction(key))
 #define dictSlots(d) (DICTHT_SIZE((d)->ht_size_exp[0])+DICTHT_SIZE((d)->ht_size_exp[1]))
@@ -139,6 +149,7 @@ typedef enum {
 dict *dictCreate(dictType *type);
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
+void *dictMetadata(dict *d);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
 dictEntry *dictAddOrFind(dict *d, void *key);
@@ -160,15 +171,13 @@ void dictSetDoubleVal(dictEntry *de, double val);
 int64_t dictIncrSignedIntegerVal(dictEntry *de, int64_t val);
 uint64_t dictIncrUnsignedIntegerVal(dictEntry *de, uint64_t val);
 double dictIncrDoubleVal(dictEntry *de, double val);
-void *dictMetadata(dictEntry *de);
+void *dictEntryMetadata(dictEntry *de);
 void *dictGetKey(const dictEntry *de);
 void *dictGetVal(const dictEntry *de);
 int64_t dictGetSignedIntegerVal(const dictEntry *de);
 uint64_t dictGetUnsignedIntegerVal(const dictEntry *de);
 double dictGetDoubleVal(const dictEntry *de);
 double *dictGetDoubleValPtr(dictEntry *de);
-dictEntry *dictGetNext(const dictEntry *de);
-dictEntry **dictGetNextRef(dictEntry *de);
 size_t dictMemUsage(const dict *d);
 size_t dictEntryMemUsage(void);
 dictIterator *dictGetIterator(dict *d);
@@ -190,9 +199,10 @@ int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
 void dictSetHashFunctionSeed(uint8_t *seed);
 uint8_t *dictGetHashFunctionSeed(void);
-unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, dictScanBucketFunction *bucketfn, void *privdata);
+unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *privdata);
+unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dictDefragAllocFunction *allocfn, void *privdata);
 uint64_t dictGetHash(dict *d, const void *key);
-dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
+dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 
 #ifdef REDIS_TEST
 int dictTest(int argc, char *argv[], int flags);

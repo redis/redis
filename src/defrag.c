@@ -45,10 +45,6 @@
  * pointers are worthwhile moving and which aren't */
 int je_get_defrag_hint(void* ptr);
 
-/* forward declarations*/
-void defragDictBucketCallback(dict *d, dictEntry **bucketref);
-dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged);
-
 /* Defrag helper for generic allocations.
  *
  * returns NULL in case the allocation wasn't moved.
@@ -289,8 +285,8 @@ long activeDefragSdsDict(dict* d, int val_type) {
     activeDefragSdsDictData data = {d, val_type, 0};
     unsigned long cursor = 0;
     do {
-        cursor = dictScan(d, cursor, activeDefragSdsDictCallback,
-                          defragDictBucketCallback, &data);
+        cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
+                                activeDefragAlloc, &data);
     } while (cursor != 0);
     return data.defragged;
 }
@@ -327,29 +323,6 @@ long activeDefragList(list *l, int val_type) {
         }
     }
     return defragged;
-}
-
-/* Utility function that replaces an old key pointer in the dictionary with a
- * new pointer. Additionally, we try to defrag the dictEntry in that dict.
- * Oldkey may be a dead pointer and should not be accessed (we get a
- * pre-calculated hash value). Newkey may be null if the key pointer wasn't
- * moved. Return value is the dictEntry if found, or NULL if not found.
- * NOTE: this is very ugly code, but it let's us avoid the complication of
- * doing a scan on another dict. */
-dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged) {
-    dictEntry **deref = dictFindEntryRefByPtrAndHash(d, oldkey, hash);
-    if (deref) {
-        dictEntry *de = *deref;
-        dictEntry *newde = activeDefragAlloc(de);
-        if (newde) {
-            de = *deref = newde;
-            (*defragged)++;
-        }
-        if (newkey)
-            dictSetKey(d, de, newkey);
-        return de;
-    }
-    return NULL;
 }
 
 long activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
@@ -453,7 +426,7 @@ long scanLaterZset(robj *ob, unsigned long *cursor) {
     zset *zs = (zset*)ob->ptr;
     dict *d = zs->dict;
     scanLaterZsetData data = {zs, 0};
-    *cursor = dictScan(d, *cursor, scanLaterZsetCallback, defragDictBucketCallback, &data);
+    *cursor = dictScanDefrag(d, *cursor, scanLaterZsetCallback, activeDefragAlloc, &data);
     return data.defragged;
 }
 
@@ -476,7 +449,7 @@ long scanLaterSet(robj *ob, unsigned long *cursor) {
         return 0;
     dict *d = ob->ptr;
     scanLaterDictData data = {d, 0};
-    *cursor = dictScan(d, *cursor, scanLaterSetCallback, defragDictBucketCallback, &data);
+    *cursor = dictScanDefrag(d, *cursor, scanLaterSetCallback, activeDefragAlloc, &data);
     return data.defragged;
 }
 
@@ -497,7 +470,7 @@ long scanLaterHash(robj *ob, unsigned long *cursor) {
         return 0;
     dict *d = ob->ptr;
     scanLaterDictData data = {d, 0};
-    *cursor = dictScan(d, *cursor, scanLaterHashCallback, defragDictBucketCallback, &data);
+    *cursor = dictScanDefrag(d, *cursor, scanLaterHashCallback, activeDefragAlloc, &data);
     return data.defragged;
 }
 
@@ -777,14 +750,17 @@ long defragKey(redisDb *db, dictEntry *de) {
 
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
-    if (newsds)
-        defragged++, dictSetKey(db->dict, de, newsds);
-    if (dictSize(db->expires)) {
-         /* Dirty code:
-          * I can't search in db->expires for that key after i already released
-          * the pointer it holds it won't be able to do the string compare */
-        uint64_t hash = dictGetHash(db->dict, dictGetKey(de));
-        replaceSatelliteDictKeyPtrAndOrDefragDictEntry(db->expires, keysds, newsds, hash, &defragged);
+    if (newsds) {
+        defragged++;
+        dictSetKey(db->dict, de, newsds);
+        if (dictSize(db->expires)) {
+            /* We can't search in db->expires for that key after we've released
+             * the pointer it holds, since it won't be able to do the string
+             * compare, but we can find the entry using key hash and pointer. */
+            uint64_t hash = dictGetHash(db->dict, newsds);
+            dictEntry *expire_de = dictFindEntryByPtrAndHash(db->expires, keysds, hash);
+            if (expire_de) dictSetKey(db->expires, expire_de, newsds);
+        }
     }
 
     /* Try to defrag robj and / or string value. */
@@ -856,20 +832,12 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
     server.stat_active_defrag_scanned++;
 }
 
-/* Defrag scan callback for each hash table bucket,
- * used in order to defrag the dictEntry allocations. */
-void defragDictBucketCallback(dict *d, dictEntry **bucketref) {
-    while (bucketref && *bucketref) {
-        dictEntry *de = *bucketref, *newde;
-        if ((newde = activeDefragAlloc(de))) {
-            *bucketref = newde;
-            if (server.cluster_enabled && d == server.db[0].dict) {
-                /* Cluster keyspace dict. Update slot-to-entries mapping. */
-                slotToKeyReplaceEntry(newde, server.db);
-            }
-        }
-        bucketref = dictGetNextRef(*bucketref);
-    }
+/* Dummy scan callback used when defragging the expire dictionary. We only
+ * defrag the entries, which is done per bucket. */
+void defragExpireScanCallback(void *privdata, const dictEntry *de) {
+    UNUSED(privdata);
+    UNUSED(de);
+    server.stat_active_defrag_scanned++;
 }
 
 /* Utility function to get the fragmentation ratio from jemalloc.
@@ -1037,6 +1005,7 @@ void computeDefragCycles() {
 void activeDefragCycle(void) {
     static int current_db = -1;
     static unsigned long cursor = 0;
+    static unsigned long expires_cursor = 0;
     static redisDb *db = NULL;
     static long long start_scan, start_stat;
     unsigned int iterations = 0;
@@ -1082,7 +1051,7 @@ void activeDefragCycle(void) {
 
     do {
         /* if we're not continuing a scan from the last call or loop, start a new one */
-        if (!cursor) {
+        if (!cursor && !expires_cursor) {
             /* finish any leftovers from previous db before moving to the next one */
             if (db && defragLaterStep(db, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
@@ -1129,16 +1098,32 @@ void activeDefragCycle(void) {
                 break; /* this will exit the function and we'll continue on the next cycle */
             }
 
-            cursor = dictScan(db->dict, cursor, defragScanCallback, defragDictBucketCallback, db);
+            /* Scan the keyspace dict unless we're scanning the expire dict. */
+            if (!expires_cursor)
+                cursor = dictScanDefrag(db->dict,
+                                        cursor,
+                                        defragScanCallback,
+                                        activeDefragAlloc,
+                                        db);
+
+            /* When done scanning the keyspace dict, we scan the expire dict. */
+            if (!cursor)
+                expires_cursor = dictScanDefrag(db->expires,
+                                                expires_cursor,
+                                                defragExpireScanCallback,
+                                                activeDefragAlloc,
+                                                NULL);
 
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
              * (if we have a lot of pointers in one hash bucket or rehashing),
              * check if we reached the time limit.
              * But regardless, don't start a new db in this loop, this is because after
              * the last db we call defragOtherGlobals, which must be done in one cycle */
-            if (!cursor || (++iterations > 16 ||
-                            server.stat_active_defrag_hits - prev_defragged > 512 ||
-                            server.stat_active_defrag_scanned - prev_scanned > 64)) {
+            if (!(cursor || expires_cursor) ||
+                ++iterations > 16 ||
+                server.stat_active_defrag_hits - prev_defragged > 512 ||
+                server.stat_active_defrag_scanned - prev_scanned > 64)
+            {
                 if (!cursor || ustime() > endtime) {
                     quit = 1;
                     break;
@@ -1147,7 +1132,7 @@ void activeDefragCycle(void) {
                 prev_defragged = server.stat_active_defrag_hits;
                 prev_scanned = server.stat_active_defrag_scanned;
             }
-        } while(cursor && !quit);
+        } while((cursor || expires_cursor) && !quit);
     } while(!quit);
 
     latencyEndMonitor(latency);
