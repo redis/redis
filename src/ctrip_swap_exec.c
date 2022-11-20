@@ -182,6 +182,24 @@ void RIODeinit(RIO *rio) {
         zfree(rio->iterate.rawvals);
         rio->iterate.rawvals = NULL;
         break;
+    case  ROCKS_RANGE:
+        if (rio->range.start) {
+            sdsfree(rio->range.start);
+            rio->range.start = NULL;
+        }
+        if (rio->range.end) {
+            sdsfree(rio->range.end);
+            rio->range.end = NULL;
+        }
+        for (i = 0; i < rio->range.numkeys; i++) {
+            if (rio->range.rawkeys) sdsfree(rio->range.rawkeys[i]);
+            if (rio->range.rawvals) sdsfree(rio->range.rawvals[i]);
+        }
+        zfree(rio->range.rawkeys);
+        rio->range.rawkeys = NULL;
+        zfree(rio->range.rawvals);
+        rio->range.rawvals = NULL;
+        break;
     default:
         break;
     }
@@ -1051,12 +1069,14 @@ int doAuxDel(swapRequest *req, RIO *rio) {
         break;
     }
 
-    if (numkeys == 0) return 0;
+    if (numkeys == 0) {
+        if (tmpcfs) zfree(tmpcfs);
+        return 0;
+    }
 
     errcode = doAuxDelSub(req,rio->action,numkeys,cfs,rawkeys,rawvals);
 
     if (tmpcfs) zfree(tmpcfs);
-
     return errcode;
 }
 
