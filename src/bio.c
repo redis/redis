@@ -275,6 +275,7 @@ void *bioProcessBackgroundJobs(void *arg) {
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[worker]);
         listDelNode(bio_jobs[worker], ln);
+        pthread_cond_signal(&bio_newjob_cond[worker]);
     }
 }
 
@@ -297,6 +298,17 @@ unsigned long bioPendingJobsOfType(int type) {
     pthread_mutex_unlock(&bio_mutex[worker]);
 
     return val;
+}
+
+/* Wait for the job queue of the worker for jobs of specified type to become empty. */
+void bioDrainWorker(int job_type) {
+    unsigned long worker = bio_job_to_worker[job_type];
+
+    pthread_mutex_lock(&bio_mutex[worker]);
+    while (listLength(bio_jobs[worker]) > 0) {
+        pthread_cond_wait(&bio_newjob_cond[worker], &bio_mutex[worker]);
+    }
+    pthread_mutex_unlock(&bio_mutex[worker]);
 }
 
 /* Kill the running bio threads in an unclean way. This function should be

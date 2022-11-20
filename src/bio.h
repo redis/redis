@@ -35,6 +35,7 @@ typedef void lazy_free_fn(void *args[]);
 /* Exported API */
 void bioInit(void);
 unsigned long bioPendingJobsOfType(int type);
+void bioDrainWorker(int job_type);
 void bioKillThreads(void);
 void bioCreateCloseJob(int fd);
 void bioCreateCloseAofJob(int fd, long long offset);
