@@ -420,7 +420,7 @@ start_server {
         # now place a client blocked on non-existing key as list
         $rd2 BLPOP mystream 0
         
-        # wait untill we verify the client is blocked
+        # wait until we verify the client is blocked
         wait_for_blocked_clients_count 1
         
         # verify we only have 1 regular blocking key
@@ -434,11 +434,10 @@ start_server {
         # block another client on xreadgroup 
         $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream ">"
         
-        # wait untill we verify we have 2 blocked clients (one for the list and one for the stream)
+        # wait until we verify we have 2 blocked clients (one for the list and one for the stream)
         wait_for_blocked_clients_count 2
         
         # verify we have 1 blocking key which also have clients blocked on nokey condition
-        
         assert_equal 1 [getInfoProperty [r info clients] tot_blocking_keys]
         assert_equal 1 [getInfoProperty [r info clients] tot_blocking_keys_on_nokey]
 
@@ -451,7 +450,7 @@ start_server {
         # close the only left client and make sure we have no more blocking keys
         $rd2 close
         
-        # wait untill we verify we have no more blocked clients
+        # wait until we verify we have no more blocked clients
         wait_for_blocked_clients_count 0
         
         assert_equal 0 [getInfoProperty [r info clients] tot_blocking_keys]
