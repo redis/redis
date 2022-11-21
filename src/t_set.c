@@ -1493,8 +1493,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             }
             if (j == setnum) {
                 /* There is no other set with this element. Add it. */
-                setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
-                cardinality++;
+                cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
             }
         }
         setTypeReleaseIterator(si);

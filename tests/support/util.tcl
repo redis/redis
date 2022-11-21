@@ -731,6 +731,7 @@ proc generate_fuzzy_traffic_on_key {key duration} {
             set err [format "%s" $err] ;# convert to string for pattern matching
             if {[string match "*SIGTERM*" $err]} {
                 puts "command caused test to hang? $cmd"
+                puts "list of commands sent: $sent"
                 exit 1
             }
         }
