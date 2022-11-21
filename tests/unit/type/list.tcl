@@ -1172,7 +1172,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {pexpireat k *}
             {exec}
             {del k}
-        }  
+        }
         close_replication_stream $repl
         # Restore server and client state
         r debug set-active-expire 1
