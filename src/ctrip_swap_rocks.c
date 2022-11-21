@@ -188,7 +188,6 @@ void rocksRelease() {
     rocksdb_writeoptions_destroy(rocks->wopts);
     rocksdb_readoptions_destroy(rocks->ropts);
     rocksdb_readoptions_destroy(rocks->filter_meta_ropts);
-    rocksReleaseSnapshot();
     rocksdb_close(rocks->db);
     for (i = 0; i < CF_COUNT; i++) {
         if (rocks->cf_compaction_filters[i]) rocksdb_compactionfilter_destroy(rocks->cf_compaction_filters[i]);
@@ -196,29 +195,6 @@ void rocksRelease() {
     zfree(rocks);
     server.rocks = NULL;
 }
-
-void rocksReinit() {
-    rocksdb_checkpoint_t* checkpoint = server.rocks->checkpoint;
-    sds checkpoint_dir = server.rocks->checkpoint_dir;
-    server.rocks->checkpoint = NULL;
-    server.rocks->checkpoint_dir = NULL;
-    rocksRelease();
-    server.rocksdb_epoch++;
-    rocksInit();
-    server.rocks->checkpoint = checkpoint;
-    server.rocks->checkpoint_dir = checkpoint_dir;
-}
-
-void rocksCreateSnapshot() {
-    rocks *rocks = server.rocks;
-    if (rocks->snapshot) {
-        serverLog(LL_WARNING, "[rocks] release snapshot before create.");
-        rocksdb_release_snapshot(rocks->db, rocks->snapshot);
-    }
-    rocks->snapshot = rocksdb_create_snapshot(rocks->db);
-    serverLog(LL_NOTICE, "[rocks] create rocksdb snapshot ok.");
-}
-
 
 void rocksReleaseCheckpoint() {
     rocks *rocks = server.rocks; 
@@ -234,7 +210,6 @@ void rocksReleaseCheckpoint() {
         sdsfree(rocks->checkpoint_dir);
         rocks->checkpoint_dir = NULL;
     }
-    
 }
 
 int rocksCreateCheckpoint(sds checkpoint_dir) {
@@ -264,25 +239,6 @@ error:
     } 
     sdsfree(checkpoint_dir);
     return 0;
-}
-
-void rocksUseSnapshot() {
-    rocks *rocks = server.rocks;
-    if (rocks->snapshot) {
-        rocksdb_readoptions_set_snapshot(rocks->ropts, rocks->snapshot);
-        serverLog(LL_NOTICE, "[rocks] use snapshot read ok.");
-    } else {
-        serverLog(LL_WARNING, "[rocks] use snapshot read failed: snapshot not exists.");
-    }
-}
-
-void rocksReleaseSnapshot() {
-    rocks *rocks = server.rocks;
-    if (rocks->snapshot) {
-        serverLog(LL_NOTICE, "[rocks] relase snapshot ok.");
-        rocksdb_release_snapshot(rocks->db, rocks->snapshot);
-        rocks->snapshot = NULL;
-    }
 }
 
 int rmdirRecursive(const char *path) {
@@ -324,15 +280,42 @@ int rmdirRecursive(const char *path) {
 	return r;
 }
 
-int rocksFlushAll() {
-    char odir[ROCKS_DIR_MAX_LEN];
+int rocksFlushDB(int dbid) {
+    int startdb, enddb, retval = 0, i;
+    sds startkey = NULL, endkey = NULL;
+    char *err = NULL;
 
-    snprintf(odir,ROCKS_DIR_MAX_LEN,"%s/%d",ROCKS_DATA,server.rocksdb_epoch);
+    serverAssert(dbid >= -1 && dbid < server.dbnum);
+
     asyncCompleteQueueDrain(-1);
-    rocksReinit();
-    rmdirRecursive(odir);
-    serverLog(LL_NOTICE,"[ROCKS] remove rocks data in (%s).",odir);
-    return 0;
+
+    if (dbid == -1) {
+        startdb = 0;
+        enddb = server.dbnum-1;
+    } else {
+        startdb = enddb = dbid;
+    }
+
+    startkey = rocksEncodeDbRangeStartKey(startdb);
+    endkey = rocksEncodeDbRangeEndKey(enddb);
+
+    for (i = 0; i < CF_COUNT; i++) {
+        rocksdb_delete_range_cf(server.rocks->db,server.rocks->wopts,
+                server.rocks->cf_handles[i],startkey,sdslen(startkey),
+                endkey,sdslen(endkey), &err);
+        if (err != NULL) {
+            retval = -1;
+            serverLog(LL_WARNING,
+                    "[ROCKS] flush db(%d) by delete_range fail:%s",dbid,err);
+        }
+    }
+    serverLog(LL_WARNING, "[ROCKS] flushdb %d by delete_range [%s, %s): %s.",
+        dbid, startkey, endkey, retval == 0 ? "ok": "fail");
+
+    if (startkey) sdsfree(startkey);
+    if (endkey) sdsfree(endkey);
+
+    return retval;
 }
 
 static int parseCfNames(const char *cfnames,

@@ -1546,7 +1546,6 @@ int swapExecTest(int argc, char *argv[], int accurate) {
         dbAdd(db,key1,val1);
         setExpire(NULL,db,key1,EXPIRE);
         if (!server.rocks) rocksInit();
-        else rocksReinit();
         initStatsSwap();
     }
 

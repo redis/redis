@@ -1097,14 +1097,10 @@ rocksdb_compactionfilter_t* createScoreCfCompactionFilter();
 
 int rocksInit(void);
 void rocksRelease(void);
-void rocksReinit(void);
-int rocksFlushAll(void);
+int rocksFlushDB(int dbid);
 void rocksCron(void);
-void rocksCreateSnapshot(void);
 int rocksCreateCheckpoint(sds checkpoint_dir);
 void rocksReleaseCheckpoint(void);
-void rocksUseSnapshot(void);
-void rocksReleaseSnapshot(void);
 struct rocksdbMemOverhead *rocksGetMemoryOverhead();
 void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh);
 sds genRocksdbInfoString(sds info);

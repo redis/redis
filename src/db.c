@@ -462,8 +462,8 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     }
 
     if (server.swap_mode != SWAP_MODE_MEMORY) {
-        if ((rocksFlushAll()))
-            serverLog(LL_WARNING, "[ROCKS] flushd all rocks db failed.");
+        if ((rocksFlushDB(dbnum)))
+            serverLog(LL_WARNING,"[ROCKS] flushd rocks db(%d) failed.",dbnum);
     }
 
     /* Fire the flushdb modules event. */

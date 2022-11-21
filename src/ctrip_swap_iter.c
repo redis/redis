@@ -564,7 +564,6 @@ int swapIterTest(int argc, char *argv[], int accurate) {
     TEST("iter: init") {
         initServerConfig();
         if (!server.rocks) rocksInit();
-        else rocksReinit();
     }
 
     TEST("iter: basic") {
