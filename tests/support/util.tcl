@@ -666,8 +666,6 @@ proc generate_fuzzy_traffic_on_key {key duration} {
     set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands]
 
     set type [r type $key]
-    set dump [r dump $key]
-    set printable_dump [string2printable $dump]
     set cmds [dict get $commands $type]
     set start_time [clock seconds]
     set sent {}
@@ -732,10 +730,15 @@ proc generate_fuzzy_traffic_on_key {key duration} {
         } else {
             set err [format "%s" $err] ;# convert to string for pattern matching
             if {[string match "*SIGTERM*" $err]} {
-                puts "command caused test to hang? $cmd"
-                puts "list of commands sent: $sent"
-                puts "$key payload: $printable_dump"
-                exit 1
+                puts "commands caused test to hang:"
+                foreach cmd $sent {
+                    foreach arg $cmd {
+                        puts -nonewline "[string2printable $arg] "
+                    }
+                    puts ""
+                }
+                # Re-raise, let handler up the stack take care of this.
+                error $err $::errorInfo
             }
         }
     }
