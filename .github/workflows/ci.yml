@@ -86,4 +86,32 @@ jobs:
           make -j8
     - name: make test
       run: make test-disk
+   swap-asan:
+    strategy:
+      matrix:
+        platform: [ubuntu-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+    - uses: actions/checkout@v2
+      with:
+          submodules: true
+    - name: get rocksdb sha
+      id: rocksdb-sha
+      run: |
+        echo "::set-output name=sha::$(cd deps/rocksdb && git rev-parse HEAD)"
+      shell: bash
+    - name: cache rocksdb
+      id: cache-rocksdb
+      uses: actions/cache@v3
+      with:
+        path: deps/rocksdb
+        key: ${{ runner.os }}-rocksdb-${{ steps.rocksdb-sha.outputs.sha }}
+    - name: make
+      run: |
+          sudo apt-get update
+          sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
+          make SANTIZER=address -j8
+    - name: make test
+      run: make test-disk
+
 

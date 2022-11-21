@@ -2396,6 +2396,7 @@ int updateGtidEnabled(int val, int prev, const char **err) {
         rpl_gno next = uuidSetNext(server.current_uuid, 0);
         uuidSet* newUuidSet = uuidSetNewRange(server.current_uuid->rpl_sid, strlen(server.current_uuid->rpl_sid), 1, next + (SKIP_GTID - 1));
         serverAssert(uuidSetAppendUuidSet(server.current_uuid, newUuidSet) == 1);
+        uuidSetFree(newUuidSet);
         len = uuidSetEncode(server.current_uuid, buf);
         buf[len] = '\0';
         serverLog(LL_WARNING, "open gtidEnabled skip gtid(%s)", buf);
