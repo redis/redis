@@ -576,7 +576,6 @@ static void handleClientsBlockedOnKey(readyList *rl) {
 
 /* block a client due to wait command */
 void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas) {
-
     c->bstate.timeout = timeout;
     c->bstate.reploffset = offset;
     c->bstate.numreplicas = numreplicas;
