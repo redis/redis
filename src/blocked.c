@@ -65,22 +65,6 @@
 #include "latency.h"
 #include "monotonic.h"
 
-/* The following structure represents a node in the server.ready_keys list,
- * where we accumulate all the keys that had clients blocked with a blocking
- * operation such as B[LR]POP, but received new data in the context of the
- * last executed command.
- *
- * After the execution of every command or script, we iterate over this list to check
- * if as a result we should serve data to clients blocked, unblocking them.
- * Note that server.ready_keys will not have duplicates as there dictionary
- * also called ready_keys in every structure representing a Redis database,
- * where we make sure to remember if a given key was already added in the
- * server.ready_keys list. */
-typedef struct readyList {
-    redisDb *db;
-    robj *key;
-} readyList;
-
 /* forward declarations */
 static void unblockClientWaitingData(client *c);
 static void handleClientsBlockedOnKey(readyList *rl);
