@@ -40,7 +40,12 @@ test "New master [join $addr {:}] role matches" {
 
 test "Update log level" {
     set current_loglevel [S 0 SENTINEL CONFIG GET loglevel]
-    assert {[lindex $current_loglevel 1] == {notice}}
+    if {$::tls} {
+        # In spawn_instance, we set loglevel to debug for tls.
+        assert {[lindex $current_loglevel 1] == {debug}}
+    } else {
+        assert {[lindex $current_loglevel 1] == {notice}}
+    }
     S 0 SENTINEL CONFIG SET loglevel warning
     set updated_loglevel [S 0 SENTINEL CONFIG GET loglevel]
     assert {[lindex $updated_loglevel 1] == {warning}}
