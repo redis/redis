@@ -12562,7 +12562,6 @@ const char *RM_GetCurrentCommandName(RedisModuleCtx *ctx) {
  * defrag callback.
  */
 struct RedisModuleDefragCtx {
-    long defragged;
     long long int endtime;
     unsigned long *cursor;
     struct redisObject *key; /* Optional name of key processed, NULL when unknown. */
@@ -12651,11 +12650,8 @@ int RM_DefragCursorGet(RedisModuleDefragCtx *ctx, unsigned long *cursor) {
  * be used again.
  */
 void *RM_DefragAlloc(RedisModuleDefragCtx *ctx, void *ptr) {
-    void *newptr = activeDefragAlloc(ptr);
-    if (newptr)
-        ctx->defragged++;
-
-    return newptr;
+    UNUSED(ctx);
+    return activeDefragAlloc(ptr);
 }
 
 /* Defrag a RedisModuleString previously allocated by RM_Alloc, RM_Calloc, etc.
@@ -12669,7 +12665,8 @@ void *RM_DefragAlloc(RedisModuleDefragCtx *ctx, void *ptr) {
  * on the Redis side is dropped as soon as the command callback returns).
  */
 RedisModuleString *RM_DefragRedisModuleString(RedisModuleDefragCtx *ctx, RedisModuleString *str) {
-    return activeDefragStringOb(str, &ctx->defragged);
+    UNUSED(ctx);
+    return activeDefragStringOb(str);
 }
 
 
@@ -12678,11 +12675,11 @@ RedisModuleString *RM_DefragRedisModuleString(RedisModuleDefragCtx *ctx, RedisMo
  * Returns a zero value (and initializes the cursor) if no more needs to be done,
  * or a non-zero value otherwise.
  */
-int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged, int dbid) {
+int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, int dbid) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
 
-    RedisModuleDefragCtx defrag_ctx = { 0, endtime, cursor, key, dbid};
+    RedisModuleDefragCtx defrag_ctx = { endtime, cursor, key, dbid};
 
     /* Invoke callback. Note that the callback may be missing if the key has been
      * replaced with a different type since our last visit.
@@ -12691,7 +12688,6 @@ int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long en
     if (mt->defrag)
         ret = mt->defrag(&defrag_ctx, key, &mv->value);
 
-    *defragged += defrag_ctx.defragged;
     if (!ret) {
         *cursor = 0;    /* No more work to do */
         return 0;
@@ -12706,7 +12702,7 @@ int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long en
  * Returns 1 if the operation has been completed or 0 if it needs to
  * be scheduled for late defrag.
  */
-int moduleDefragValue(robj *key, robj *value, long *defragged, int dbid) {
+int moduleDefragValue(robj *key, robj *value, int dbid) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
 
@@ -12715,7 +12711,6 @@ int moduleDefragValue(robj *key, robj *value, long *defragged, int dbid) {
      */
     moduleValue *newmv = activeDefragAlloc(mv);
     if (newmv) {
-        (*defragged)++;
         value->ptr = mv = newmv;
     }
 
@@ -12733,29 +12728,24 @@ int moduleDefragValue(robj *key, robj *value, long *defragged, int dbid) {
         return 0;  /* Defrag later */
     }
 
-    RedisModuleDefragCtx defrag_ctx = { 0, 0, NULL, key, dbid};
+    RedisModuleDefragCtx defrag_ctx = { 0, NULL, key, dbid };
     mt->defrag(&defrag_ctx, key, &mv->value);
-    (*defragged) += defrag_ctx.defragged;
     return 1;
 }
 
 /* Call registered module API defrag functions */
-long moduleDefragGlobals(void) {
+void moduleDefragGlobals(void) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
-    long defragged = 0;
 
     while ((de = dictNext(di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
         if (!module->defrag_cb)
             continue;
-        RedisModuleDefragCtx defrag_ctx = { 0, 0, NULL, NULL, -1};
+        RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
         module->defrag_cb(&defrag_ctx);
-        defragged += defrag_ctx.defragged;
     }
     dictReleaseIterator(di);
-
-    return defragged;
 }
 
 /* Returns the name of the key currently being processed.
