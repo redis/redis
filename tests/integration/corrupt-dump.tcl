@@ -800,6 +800,15 @@ test {corrupt payload: fuzzer findings - valgrind fishy value warning} {
     }
 }
 
+test {corrupt payload: fuzzer findings - empty set listpack} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r restore _key 0 "\x14\x25\x25\x00\x00\x00\x00\x00\x02\x01\x82\x5F\x37\x03\x06\x01\x82\x5F\x35\x03\x82\x5F\x33\x03\x00\x01\x82\x5F\x31\x03\x82\x5F\x39\x03\x04\xA9\x08\x01\xFF\x0B\x00\xA3\x26\x49\xB4\x86\xB0\x0F\x41"} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
 
 } ;# tags
 

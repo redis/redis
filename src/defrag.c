@@ -868,16 +868,21 @@ long defragKey(redisDb *db, dictEntry *de) {
     } else if (ob->type == OBJ_LIST) {
         if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
             defragged += defragQuicklist(db, de);
+        } else if (ob->encoding == OBJ_ENCODING_LISTPACK) {
+            if ((newzl = activeDefragAlloc(ob->ptr)))
+                defragged++, ob->ptr = newzl;
         } else {
             serverPanic("Unknown list encoding");
         }
     } else if (ob->type == OBJ_SET) {
         if (ob->encoding == OBJ_ENCODING_HT) {
             defragged += defragSet(db, de);
-        } else if (ob->encoding == OBJ_ENCODING_INTSET) {
-            intset *newis, *is = ob->ptr;
-            if ((newis = activeDefragAlloc(is)))
-                defragged++, ob->ptr = newis;
+        } else if (ob->encoding == OBJ_ENCODING_INTSET ||
+                   ob->encoding == OBJ_ENCODING_LISTPACK)
+        {
+            void *newptr, *ptr = ob->ptr;
+            if ((newptr = activeDefragAlloc(ptr)))
+                defragged++, ob->ptr = newptr;
         } else {
             serverPanic("Unknown set encoding");
         }

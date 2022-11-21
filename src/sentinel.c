@@ -616,10 +616,16 @@ int sentinelAddrOrHostnameEqual(sentinelAddr *a, sentinelAddr *b) {
 int sentinelAddrEqualsHostname(sentinelAddr *a, char *hostname) {
     char ip[NET_IP_STR_LEN];
 
-    /* We always resolve the hostname and compare it to the address */
+    /* Try resolve the hostname and compare it to the address */
     if (anetResolve(NULL, hostname, ip, sizeof(ip),
-                    sentinel.resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR)
-        return 0;
+                    sentinel.resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR) {
+
+        /* If failed resolve then compare based on hostnames. That is our best effort as
+         * long as the server is unavailable for some reason. It is fine since Redis 
+         * instance cannot have multiple hostnames for a given setup */
+        return !strcasecmp(sentinel.resolve_hostnames ? a->hostname : a->ip, hostname);
+    }
+    /* Compare based on address */
     return !strcasecmp(a->ip, ip);
 }
 
@@ -3176,7 +3182,17 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
 
 /* =========================== SENTINEL command ============================= */
 
-/* SENTINEL CONFIG SET <option> */
+const char* getLogLevel() {
+   switch (server.verbosity) {
+    case LL_DEBUG: return "debug";
+    case LL_VERBOSE: return "verbose";
+    case LL_NOTICE: return "notice";
+    case LL_WARNING: return "warning";
+    }
+    return "unknown";
+}
+
+/* SENTINEL CONFIG SET <option> <value>*/
 void sentinelConfigSetCommand(client *c) {
     robj *o = c->argv[3];
     robj *val = c->argv[4];
@@ -3207,6 +3223,17 @@ void sentinelConfigSetCommand(client *c) {
         sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
             NULL : sdsdup(val->ptr);
         drop_conns = 1;
+    } else if (!strcasecmp(o->ptr, "loglevel")) {
+        if (!strcasecmp(val->ptr, "debug"))
+            server.verbosity = LL_DEBUG;
+        else if (!strcasecmp(val->ptr, "verbose"))
+            server.verbosity = LL_VERBOSE;
+        else if (!strcasecmp(val->ptr, "notice"))
+            server.verbosity = LL_NOTICE;
+        else if (!strcasecmp(val->ptr, "warning"))
+            server.verbosity = LL_WARNING;
+        else
+            goto badfmt;
     } else {
         addReplyErrorFormat(c, "Invalid argument '%s' to SENTINEL CONFIG SET",
                             (char *) o->ptr);
@@ -3269,6 +3296,11 @@ void sentinelConfigGetCommand(client *c) {
         matches++;
     }
 
+    if (stringmatch(pattern, "loglevel", 1)) {
+        addReplyBulkCString(c, "loglevel");
+        addReplyBulkCString(c, getLogLevel());
+        matches++;
+    }
     setDeferredMapLen(c, replylen, matches);
 }
 

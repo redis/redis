@@ -1054,7 +1054,7 @@ static int luaRedisSetReplCommand(lua_State *lua) {
     serverAssert(rctx); /* Only supported inside script invocation */
 
     if (argc != 1) {
-        luaPushError(lua, "redis.set_repl() requires two arguments.");
+        luaPushError(lua, "redis.set_repl() requires one argument.");
          return luaError(lua);
     }
 

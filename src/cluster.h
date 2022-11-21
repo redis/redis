@@ -35,7 +35,9 @@ struct clusterNode;
 typedef struct clusterLink {
     mstime_t ctime;             /* Link creation time */
     connection *conn;           /* Connection to remote node */
-    sds sndbuf;                 /* Packet send buffer */
+    list *send_msg_queue;        /* List of messages to be sent */
+    size_t head_msg_send_offset; /* Number of bytes already sent of message at head of queue */
+    unsigned long long send_msg_queue_mem; /* Memory in bytes used by message queue */
     char *rcvbuf;               /* Packet reception buffer */
     size_t rcvbuf_len;          /* Used size of rcvbuf */
     size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
@@ -115,6 +117,7 @@ typedef struct clusterNodeFailReport {
 typedef struct clusterNode {
     mstime_t ctime; /* Node object creation time. */
     char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
+    char shard_id[CLUSTER_NAMELEN]; /* shard id, hex string, sha1-size */
     int flags;      /* CLUSTER_NODE_... */
     uint64_t configEpoch; /* Last configEpoch observed for this node */
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
@@ -173,6 +176,7 @@ typedef struct clusterState {
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
     int size;             /* Num of master nodes with at least one slot */
     dict *nodes;          /* Hash table of name -> clusterNode structures */
+    dict *shards;         /* Hash table of shard_id -> list (of nodes) structures */
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
@@ -254,6 +258,7 @@ typedef struct {
 typedef enum {
     CLUSTERMSG_EXT_TYPE_HOSTNAME,
     CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE,
+    CLUSTERMSG_EXT_TYPE_SHARDID,
 } clusterMsgPingtypes; 
 
 /* Helper function for making sure extensions are eight byte aligned. */
@@ -271,12 +276,17 @@ typedef struct {
 static_assert(sizeof(clusterMsgPingExtForgottenNode) % 8 == 0, "");
 
 typedef struct {
+    char shard_id[CLUSTER_NAMELEN]; /* The shard_id, 40 bytes fixed. */
+} clusterMsgPingExtShardId;
+
+typedef struct {
     uint32_t length; /* Total length of this extension message (including this header) */
     uint16_t type; /* Type of this extension message (see clusterMsgPingExtTypes) */
     uint16_t unused; /* 16 bits of padding to make this structure 8 byte aligned. */
     union {
         clusterMsgPingExtHostname hostname;
         clusterMsgPingExtForgottenNode forgotten_node;
+        clusterMsgPingExtShardId shard_id;
     } ext[]; /* Actual extension information, formatted so that the data is 8 
               * byte aligned, regardless of its content. */
 } clusterMsgPingExt;

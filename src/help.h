@@ -1125,7 +1125,7 @@ struct commandHelp {
     11,
     "2.8.9" },
     { "PFMERGE",
-    "destkey sourcekey [sourcekey ...]",
+    "destkey [sourcekey [sourcekey ...]]",
     "Merge N different HyperLogLogs into a single one.",
     11,
     "2.8.9" },
