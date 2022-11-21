@@ -822,6 +822,7 @@ test {corrupt payload: fuzzer findings - set with duplicate elements causes sdif
         r config set sanitize-dump-payload no
         assert_equal {OK} [r restore _key 0 "\x14\x25\x25\x00\x00\x00\x0A\x00\x06\x01\x82\x5F\x35\x03\x04\x01\x82\x5F\x31\x03\x82\x5F\x33\x03\x00\x01\x82\x5F\x39\x03\x82\x5F\x33\x03\x08\x01\x02\x01\xFF\x0B\x00\x31\xBE\x7D\x41\x01\x03\x5B\xEC" replace]
         assert_equal 10 [r scard _key]
+        assert_equal {0 2 4 6 8 _1 _3 _3 _5 _9} [lsort [r smembers _key]]
         assert_equal {0 2 4 6 8 _1 _3 _5 _9} [lsort [r sdiff _key]]
     }
 }
