@@ -63,19 +63,16 @@ perf-trocks2:
     - sudo -E
       suite=10G_hash
       setup=cold
-      configs=swap-big-hash-threshold=1000
       cases=hgetall-100thd,hgetall-1wqps,hget-100thd,hget-1wqps
       ${CI_PROJECT_DIR}/utils/perf/perf-ror.sh
     - sudo -E
       suite=10G_hash
       setup=warm
-      configs=swap-big-hash-threshold=1000
       cases=hgetall-100thd,hgetall-1wqps,hget-100thd,hget-1wqps
       ${CI_PROJECT_DIR}/utils/perf/perf-ror.sh
     - sudo -E
       suite=10G_hash
       setup=hot
-      configs=swap-big-hash-threshold=1000
       cases=hgetall-100thd,hgetall-1wqps,hget-100thd,hget-1wqps
       ${CI_PROJECT_DIR}/utils/perf/perf-ror.sh
   artifacts:

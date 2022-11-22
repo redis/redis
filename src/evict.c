@@ -506,7 +506,7 @@ static inline int reachedSwapEvictInprogressLimit(size_t mem_tofree) {
     if (server.swap_evict_inprogress_limit < 0) return 0;
 
     /* Base inprogress limit is threads num, increase one every 10MB */
-    int inprogress_limit = server.swap_threads_num + mem_tofree/(10*1024*1024);
+    int inprogress_limit = server.swap_threads_num + mem_tofree/(server.swap_evict_inprogress_growth_rate);
 
     if (inprogress_limit > server.swap_evict_inprogress_limit)
         inprogress_limit = server.swap_evict_inprogress_limit;

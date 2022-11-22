@@ -1772,6 +1772,7 @@ struct redisServer {
     list *swap_resumed_keyrequests;
     uint64_t swap_key_version;
     int swap_evict_inprogress_limit;
+    int swap_evict_inprogress_growth_rate;
     int swap_evict_inprogress_count;
 
     /* rocksdb configs */
