@@ -1092,6 +1092,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
 
         test_assert(setSaveStart(saveData, &rdbcold) == 0);
         decoded_data->subkey = f2, decoded_data->rdbraw = sdsnewlen(rdbv2+1,sdslen(rdbv2)-1);
+        decoded_data->version = saveData->object_meta->version;
         test_assert(rdbKeySave(saveData,&rdbcold,decoded_data) == 0);
         decoded_data->subkey = f1, decoded_data->rdbraw = sdsnewlen(rdbv1+1,sdslen(rdbv1)-1);
         test_assert(rdbKeySave(saveData,&rdbcold,decoded_data) == 0);
@@ -1105,6 +1106,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         dbAddMeta(db, key1, createSetObjectMeta(0,1));
         test_assert(rdbKeySaveDataInit(saveData, db, (decodedResult*)decoded_meta) == 0);
         test_assert(rdbKeySaveStart(saveData,&rdbwarm) == 0);
+        decoded_data->version = saveData->object_meta->version;
         test_assert(rdbKeySave(saveData,&rdbwarm,decoded_data) == 0);
         warmraw = rdbwarm.io.buffer.ptr;
 
