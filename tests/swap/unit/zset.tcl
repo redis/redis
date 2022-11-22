@@ -1895,3 +1895,32 @@ start_server {tags {"zset"}} {
     }
     swap_zset 1
 }
+
+proc wait_evict {r key} {
+    set maxtries 10
+    while {[incr maxtries -1] >= 0} {
+        $r evict $key 
+        wait_for_condition 10 10 {
+            [string match {*value: <nil>*} [$r swap object $key]]
+        } else {
+            continue 
+        }
+        break 
+    }
+    if {$maxtries == -1} {
+        fail "evict fail"
+    }
+
+}
+
+start_server {tags {"hotfix zset zrem - zlen error bug"}} {
+    r config set debug-evict-keys 0
+    r zadd zset 10 a 
+    r zadd zset 20 b 
+    wait_evict r zset 
+    assert_equal [r ZREVRANK zset c] {}
+    r zrem zset 10 
+    wait_evict r zset 
+    r zadd zset 30 c 
+    assert_equal [r ZREVRANK zset c] 0
+}

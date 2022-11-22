@@ -119,33 +119,35 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
             }
         } else { /* keyrequests with subkeys */
             objectMeta *meta = swapDataObjectMeta(data);
-            if (meta->len == 0) {
+            if (req->cmd_intention_flags == SWAP_IN_DEL) {
+                datactx->bdc.num = 0;
+                datactx->bdc.subkeys = zmalloc(req->b.num_subkeys * sizeof(robj *));
+                /* ZREM: even if field is hot (exists in value), we still
+                    * need to do ROCKS_DEL on those fields. */
+                for (int i = 0; i < req->b.num_subkeys; i++) {
+                    robj *subkey = req->b.subkeys[i];
+                    incrRefCount(subkey);
+                    datactx->bdc.subkeys[datactx->bdc.num++] = subkey;
+                }
+                *intention = SWAP_IN;
+                *intention_flags = SWAP_EXEC_IN_DEL;
+            } else if (meta->len == 0) {
                 *intention = SWAP_NOP;
                 *intention_flags = 0;
             } else {
                 datactx->bdc.num = 0;
-                datactx->bdc.subkeys = zmalloc(req->b.num_subkeys * sizeof(robj*));
+                datactx->bdc.subkeys = zmalloc(req->b.num_subkeys * sizeof(robj *));
                 for (int i = 0; i < req->b.num_subkeys; i++) {
                     robj *subkey = req->b.subkeys[i];
-                    /* HDEL: even if field is hot (exists in value), we still
-                    * need to do ROCKS_DEL on those fields. */
                     double score;
-                    if (cmd_intention_flags == SWAP_IN_DEL
-                        || cmd_intention_flags & SWAP_IN_OVERWRITE ||
-                            data->value == NULL || 
-                        zsetScore(data->value, subkey->ptr, &score) == C_ERR) {
+                    if (data->value == NULL || zsetScore(data->value, subkey->ptr, &score) == C_ERR) {
                         incrRefCount(subkey);
                         datactx->bdc.subkeys[datactx->bdc.num++] = subkey;
                     }
                 }
                 *intention = datactx->bdc.num > 0 ? SWAP_IN : SWAP_NOP;
-                if (cmd_intention_flags == SWAP_IN_DEL) {
-                    *intention_flags = SWAP_EXEC_IN_DEL;
-                } else {
-                    *intention_flags = 0;
-                }
+                *intention_flags = 0;
             }
-            
         }
         break;
     case SWAP_OUT:

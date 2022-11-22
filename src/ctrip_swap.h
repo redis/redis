@@ -465,6 +465,7 @@ static inline int swapDataPersisted(swapData *d) {
 static inline void swapDataObjectMetaModifyLen(swapData *d, int delta) {
     objectMeta *object_meta = swapDataObjectMeta(d);
     object_meta->len += delta;
+    serverAssert(object_meta->len >= 0);
 }
 static inline void swapDataObjectMetaSetPtr(swapData *d, void *ptr) {
     objectMeta *object_meta = swapDataObjectMeta(d);
