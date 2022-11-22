@@ -95,9 +95,25 @@ start_server {tags {"zset"} overrides {save ""}} {
                         } {
                             $r1 ZCOUNT $myzset $min $max
                         } {
-                            $r1 zrangebyscore $myzset $d +inf
+                            $r1 ZRANGEBYSCORE $myzset $d +inf
                         } {
-                            $r1 zrangebyscore $myzset -inf $d 
+                            $r1 ZRANGEBYSCORE $myzset -inf $d 
+                        }  {
+                            $r1 ZRANGEBYLEX $myzset $cmin $cmax
+                        } {
+                            $r1 ZREVRANGE  $myzset -2 -1
+                        } {
+                            $r1 ZREVRANGEBYLEX  $myzset $cmax $cmin
+                        } {
+                            $r1 ZRANGE $myzset $d +inf BYSCORE
+                        } {
+                            $r1 ZRANGE $myzset -inf $d  BYSCORE
+                        } {
+                            $r1 ZRANGE $myzset $cmin $cmax  BYLEX
+                        } {
+                            $r1 ZRANDMEMBER $myzset -5 
+                        }  {
+                            $r1 ZSCORE $myzset $v
                         }
 
                         $r1 ZREMRANGEBYRANK $myzset $zset_max_length -1

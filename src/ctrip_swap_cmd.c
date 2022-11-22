@@ -936,6 +936,7 @@ int getKeyRequestsZrangeGeneric(int dbid, struct redisCommand *cmd, robj **argv,
             zrangespec* spec = zmalloc(sizeof(zrangespec));
             /* code */
             if (zslParseRange(minobj, maxobj, spec) != C_OK) {
+                decrRefCount(key);
                 zfree(spec);
                 return C_ERR;
             }
@@ -946,6 +947,7 @@ int getKeyRequestsZrangeGeneric(int dbid, struct redisCommand *cmd, robj **argv,
         {
             zlexrangespec* lexrange = zmalloc(sizeof(zlexrangespec));
             if (zslParseLexRange(minobj, maxobj, lexrange) != C_OK) {
+                decrRefCount(key);
                 zfree(lexrange);
                 return C_ERR;
             }

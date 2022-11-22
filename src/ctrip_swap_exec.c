@@ -195,9 +195,9 @@ void RIODeinit(RIO *rio) {
             if (rio->range.rawkeys) sdsfree(rio->range.rawkeys[i]);
             if (rio->range.rawvals) sdsfree(rio->range.rawvals[i]);
         }
-        zfree(rio->range.rawkeys);
+        if (rio->range.rawkeys) zfree(rio->range.rawkeys);
         rio->range.rawkeys = NULL;
-        zfree(rio->range.rawvals);
+        if (rio->range.rawvals) zfree(rio->range.rawvals);
         rio->range.rawvals = NULL;
         break;
     default:
