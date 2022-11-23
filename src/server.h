@@ -100,6 +100,13 @@ typedef struct redisObject robj;
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
+/* Offset of a member in a struct */
+#define member_offset(struct_name, member_name) ((size_t)&(((struct_name *)0)->member_name))
+
+/* Get the pointer of the outer struct from a member address */
+#define member2struct(struct_name, member_name, member_addr) \
+            ((struct_name *)((uint8_t*)member_addr - member_offset(struct_name, member_name)))
+
 /* Error codes */
 #define C_OK                    0
 #define C_ERR                   -1
