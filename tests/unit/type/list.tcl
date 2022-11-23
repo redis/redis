@@ -2169,4 +2169,116 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
     } {12 0 9223372036854775808 2147483647 32767 127}
+    
+    test "Unblock fairness is kept while pipelining" {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        
+        # delete the list in case already exists
+        r del mylist
+        
+        # block a client on the list
+        $rd1 BLPOP mylist 0
+        wait_for_blocked_clients_count 1
+        
+        # pipline on other client a list push and a blocking pop
+        # we should expect the fainess to be kept and have $rd1
+        # being unblocked
+        set buf ""
+        append buf "LPUSH mylist 1\r\n"
+        append buf "BLPOP mylist 0\r\n"
+        $rd2 write $buf
+        $rd2 flush
+        
+        # we check that we still have 1 blocked client
+        # and that the first blocked client has been served
+        assert_equal [$rd1 read] {mylist 1}
+        assert_equal [$rd2 read] {1}
+        wait_for_blocked_clients_count 1
+        
+        # We no unblock the last client and verify it was served last 
+        r LPUSH mylist 2
+        wait_for_blocked_clients_count 0
+        assert_equal [$rd2 read] {mylist 2}
+        
+        $rd1 close
+        $rd2 close
+    }
+    
+    test "Unblock fairness is kept during nested unblock" {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        set rd3 [redis_deferring_client]
+        
+        # delete the list in case already exists
+        r del l1 l2 l3
+        
+        # block a client on the list
+        $rd1 BRPOPLPUSH l1 l3 0
+        wait_for_blocked_clients_count 1
+        
+        $rd2 BLPOP l2 0
+        wait_for_blocked_clients_count 2
+        
+        $rd3 BLMPOP 0 2 l2 l3 LEFT COUNT 1
+        wait_for_blocked_clients_count 3
+        
+        r multi
+        r lpush l1 1
+        r lpush l2 2
+        r exec
+        
+        wait_for_blocked_clients_count 0
+        
+        assert_equal [$rd1 read] {1}
+        assert_equal [$rd2 read] {l2 2}
+        assert_equal [$rd3 read] {l3 1}
+        
+        $rd1 close
+        $rd2 close
+        $rd3 close
+    }
+    
+    test "Blocking command acounted only once in commandstats" {
+        # cleanup first
+        r del mylist
+        
+        # create a test client
+        set rd [redis_deferring_client]
+        
+        # reset the server stats
+        r config resetstat
+        
+        # block a client on the list
+        $rd BLPOP mylist 0
+        wait_for_blocked_clients_count 1
+        assert {[regexp {calls=1,usec=([0-9]+),.*,rejected_calls=0,failed_calls=0} [cmdrstat blpop r] - duration_before]}
+        
+        # unblock the list
+        r LPUSH mylist 1
+        wait_for_blocked_clients_count 0
+        assert {[regexp {calls=1,usec=([0-9]+),.*,rejected_calls=0,failed_calls=0} [cmdrstat blpop r] - duration_after]}
+        assert_lessthan $duration_before $duration_after
+        
+        $rd close
+    }
+    
+    test "Blocking command acounted only once in commandstats after timeout" {
+        # cleanup first
+        r del mylist
+        
+        # create a test client
+        set rd [redis_deferring_client]
+        
+        # reset the server stats
+        r config resetstat
+        
+        # block a client on the list
+        $rd BLPOP mylist 1
+        wait_for_blocked_clients_count 0
+        
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdrstat blpop r]
+        
+        $rd close
+    }
 } ;# stop servers

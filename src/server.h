@@ -348,7 +348,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_LUA_DEBUG_SYNC (1<<26)  /* EVAL debugging without fork() */
 #define CLIENT_MODULE (1<<27) /* Non connected client used by some module. */
 #define CLIENT_PROTECTED (1<<28) /* Client should not be freed for now. */
-/* #define CLIENT_... (1<<29) currently unused, feel free to use in the future */
+#define CLIENT_REPROCESSING_COMMAND (1<<29) /* Command is processes again after being blocked on the previous attempt */
 #define CLIENT_PENDING_COMMAND (1<<30) /* Indicates the client has a fully
                                         * parsed command ready for execution. */
 #define CLIENT_TRACKING (1ULL<<31) /* Client enabled keys tracking in order to
@@ -1530,6 +1530,7 @@ struct redisServer {
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     int in_nested_call;         /* If > 0, in a nested call of a call */
+    int in_handling_blocked_clients; /* Indicate we are in the process of unblocking clients (to avoid recursive calls) */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */

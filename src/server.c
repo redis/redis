@@ -2444,6 +2444,7 @@ void initServer(void) {
     server.replication_allowed = 1;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
+    server.in_handling_blocked_clients = 0;
     server.ready_keys = listCreate();
     server.tracking_pending_keys = listCreate();
     server.clients_waiting_acks = listCreate();
@@ -3376,7 +3377,13 @@ void call(client *c, int flags) {
     else
         duration = ustime() - call_timer;
 
-    c->duration = duration;
+    /* In case we are reprocessing the command after the client was unblocked,
+     * we accumulate the duration to the total duration this client was already running until
+     * it was blocked. */
+    if (!(c->flags & CLIENT_REPROCESSING_COMMAND))
+        c->duration = duration;
+    else
+        c->duration += duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -3416,23 +3423,22 @@ void call(client *c, int flags) {
      * c->cmd and c->lastcmd may be different, in case of MULTI-EXEC or
      * re-written commands such as EXPIRE, GEOADD, etc. */
 
-    /* Record the latency this command induced on the main thread.
-     * unless instructed by the caller not to log. (happens when processing
-     * a MULTI-EXEC from inside an AOF). */
-    if (flags & CMD_CALL_SLOWLOG) {
+    /* Log the command into the Slow log if needed and ecord the latency this command
+     * induced on the main thread unless instructed by the caller not to log.
+     * (happens when processing a MULTI-EXEC from inside an AOF).
+     * If the client is blocked we will handle slowlog when it is unblocked.
+     */
+    if ((flags & CMD_CALL_SLOWLOG) && !(c->flags & CLIENT_BLOCKED)) {
         char *latency_event = (real_cmd->flags & CMD_FAST) ?
                                "fast-command" : "command";
-        latencyAddSampleIfNeeded(latency_event,duration/1000);
+        latencyAddSampleIfNeeded(latency_event,c->duration/1000);
+        slowlogPushCurrentCommand(c, real_cmd, c->duration);
     }
 
-    /* Log the command into the Slow log if needed.
-     * If the client is blocked we will handle slowlog when it is unblocked. */
-    if ((flags & CMD_CALL_SLOWLOG) && !(c->flags & CLIENT_BLOCKED))
-        slowlogPushCurrentCommand(c, real_cmd, duration);
-
-    /* Send the command to clients in MONITOR mode if applicable.
+    /* Send the command to clients in MONITOR mode if applicable,
+     * unless the client is unblocked and retring to process the command.
      * Administrative commands are considered too dangerous to be shown. */
-    if (!(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)) && !(c->flags & CLIENT_UNBLOCKED)) {
+    if (!(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)) && !(c->flags & CLIENT_REPROCESSING_COMMAND)) {
         robj **argv = c->original_argv ? c->original_argv : c->argv;
         int argc = c->original_argv ? c->original_argc : c->argc;
         replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
@@ -3445,15 +3451,17 @@ void call(client *c, int flags) {
 
     /* populate the per-command statistics that we show in INFO commandstats. */
     if (flags & CMD_CALL_STATS) {
-        real_cmd->microseconds += duration;
-        /* In case we are in the process of unblocking a client on keys,
-         * we are going to reprocess a command which was already process once so we do not want to account
-         * for the command twice */
-        if (!(c->flags & CLIENT_UNBLOCKED))
+        /* We want to increment the number of calls stats only once.
+         * why? because the blocked command can also be timedout or cancel, and we would still
+         * want to count for it. however we do want to accumulate the command processing time
+         * only after it is unblocked. */
+        if (!(c->flags & CLIENT_REPROCESSING_COMMAND))
             real_cmd->calls++;
-        /* If the client is blocked we will handle latency stats when it is unblocked. */
+
+        real_cmd->microseconds += duration;
+        /* If the client is blocked we will handle latency stats and duration when it is unblocked. */
         if (server.latency_tracking_enabled && !(c->flags & CLIENT_BLOCKED))
-            updateCommandLatencyHistogram(&(real_cmd->latency_histogram), duration*1000);
+            updateCommandLatencyHistogram(&(real_cmd->latency_histogram), c->duration*1000);
     }
 
     /* Propagate the command into the AOF and replication link.
@@ -3514,7 +3522,8 @@ void call(client *c, int flags) {
         }
     }
 
-    server.stat_numcommands++;
+    if (!(c->flags & CLIENT_REPROCESSING_COMMAND))
+        server.stat_numcommands++;
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */

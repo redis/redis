@@ -291,6 +291,13 @@ void disconnectAllBlockedClients(void) {
  * be used only for a single type, like virtually any Redis application will
  * do, the function is already fair. */
 void handleClientsBlockedOnKeys(void) {
+
+    /* In case we are already in the process of unblocking clients we should
+     * not make a recursive call, in order to prevent breaking fairness. */
+    if (server.in_handling_blocked_clients)
+        return;
+    server.in_handling_blocked_clients = 1;
+
     /* This function is called only when also_propagate is in its basic state
      * (i.e. not from call(), module context, etc.) */
     serverAssert(server.also_propagate.numops == 0);
@@ -328,6 +335,8 @@ void handleClientsBlockedOnKeys(void) {
     serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
     server.core_propagates = prev_core_propagates;
+
+    server.in_handling_blocked_clients = 0;
 }
 
 /* Set a client in blocking mode for the specified key, with the specified timeout.
@@ -603,11 +612,12 @@ static void unblockClientOnKey(client *c, robj *key) {
 
     unblockClient(c);
     /* In case this client was blocked on keys during command
-     * we need to
-     */
+     * we need to re process the command again*/
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
+        c->flags |= CLIENT_REPROCESSING_COMMAND;
         processCommandAndResetClient(c);
+        c->flags &= ~CLIENT_REPROCESSING_COMMAND;
     }
 }
 
