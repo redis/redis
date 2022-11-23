@@ -660,9 +660,9 @@ int swapTest(int argc, char **argv, int accurate) {
   result += swapExpireTest(argc, argv, accurate);
   result += swapUtilTest(argc, argv, accurate);
   result += swapFilterTest(argc, argv, accurate);
-  /* result += swapListMetaTest(argc, argv, accurate);
+  result += swapListMetaTest(argc, argv, accurate);
   result += swapListDataTest(argc, argv, accurate);
-  result += swapListUtilsTest(argc, argv, accurate); */
+  result += swapListUtilsTest(argc, argv, accurate);
   result += swapHoldTest(argc, argv, accurate);
   return result;
 }

@@ -919,8 +919,7 @@ int rdbKeyLoadDataInit(rdbKeyLoadData *load, int rdbtype,
     case RDB_TYPE_LIST:
     case RDB_TYPE_LIST_ZIPLIST:
     case RDB_TYPE_LIST_QUICKLIST:
-        /* listLoadInit(load); */
-        retval = SWAP_ERR_RDB_LOAD_UNSUPPORTED;
+        listLoadInit(load);
         break;
     case RDB_TYPE_ZSET:
     case RDB_TYPE_ZSET_2:

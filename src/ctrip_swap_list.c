@@ -1779,6 +1779,71 @@ void freeListSwapData(swapData *data_, void *datactx_) {
     zfree(datactx);
 }
 
+int listMetaMergedIsHot(listMeta *main_meta, listMeta *delta_meta) {
+    int i = 0, j = 0, ishot = 1;
+    long cold_left, cold_right;
+    listMeta emptymeta = {0};
+    segment *mseg, *dseg;
+
+    if (main_meta == NULL) main_meta = &emptymeta;
+    if (delta_meta == NULL) delta_meta = &emptymeta;
+
+    while (i < main_meta->num && ishot) {
+        mseg = main_meta->segments+i;
+
+        if (mseg->type == SEGMENT_TYPE_HOT) {
+            i++;
+            continue;
+        }
+
+        /* mseg is continously hot in delta_meta */
+        cold_left = mseg->index;
+        cold_right = mseg->index + mseg->len;
+
+        while (cold_left < cold_right) {
+
+            if (j >= delta_meta->num) {
+                ishot = 0;
+                break;
+            }
+
+            dseg = delta_meta->segments+j;
+
+            if (dseg->index + dseg->len <= cold_left) {
+                /* skip none-overlapping segment, note that we dont care
+                 * whether segment type is cold or hot. */
+                j++;
+                continue;
+            }
+
+            if (dseg->type == SEGMENT_TYPE_COLD) {
+                ishot = 0;
+                break;
+            }
+
+            if  (cold_left < dseg->index) {
+                ishot = 0;
+                break;
+            }
+
+            cold_left = dseg->index + dseg->len;
+        }
+
+        i++;
+    }
+
+    return ishot;
+}
+
+int listMergedIsHot(swapData *d, void *result, void *datactx) {
+    listMeta *main_meta, *delta_meta;
+    metaList *delta = result;
+    UNUSED(datactx);
+    main_meta = swapDataGetListMeta(d);
+    delta_meta = delta ? delta->meta : NULL;
+    return listMetaMergedIsHot(main_meta,delta_meta);
+}
+
 swapDataType listSwapDataType = {
     .name = "list",
     .swapAna = listSwapAna,
@@ -1793,7 +1858,7 @@ swapDataType listSwapDataType = {
     .beforeCall = listBeforeCall,
     .free = freeListSwapData,
     .rocksDel = NULL,
-    .mergedIsHot = NULL, /*TODO impl*/
+    .mergedIsHot = listMergedIsHot,
 };
 
 int swapDataSetupList(swapData *d, void **pdatactx) {
@@ -2538,6 +2603,65 @@ int swapListMetaTest(int argc, char *argv[], int accurate) {
         sdsfree(extend);
     }
 
+    TEST("list-meta: mergedIsHot") {
+        listMeta *main_meta, *delta_meta;
+
+        main_meta = listMetaCreate();
+        listMetaAppendSegment(main_meta,SEGMENT_TYPE_HOT,0,2);
+        listMetaAppendSegment(main_meta,SEGMENT_TYPE_COLD,2,2);
+        listMetaAppendSegment(main_meta,SEGMENT_TYPE_HOT,4,2);
+
+        delta_meta = listMetaCreate();
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,0,2);
+        test_assert(!listMetaMergedIsHot(main_meta, delta_meta));
+        listMetaFree(delta_meta);
+
+        delta_meta = listMetaCreate();
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,1,2);
+        test_assert(!listMetaMergedIsHot(main_meta, delta_meta));
+        listMetaFree(delta_meta);
+
+        delta_meta = listMetaCreate();
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,2,2);
+        test_assert(listMetaMergedIsHot(main_meta, delta_meta));
+        listMetaFree(delta_meta);
+
+        delta_meta = listMetaCreate();
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,3,2);
+        test_assert(!listMetaMergedIsHot(main_meta, delta_meta));
+        listMetaFree(delta_meta);
+
+        delta_meta = listMetaCreate();
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,2,1);
+        test_assert(!listMetaMergedIsHot(main_meta, delta_meta));
+        listMetaFree(delta_meta);
+
+        delta_meta = listMetaCreate();
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,0,4);
+        test_assert(listMetaMergedIsHot(main_meta, delta_meta));
+        listMetaFree(delta_meta);
+
+        delta_meta = listMetaCreate();
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,0,6);
+        test_assert(listMetaMergedIsHot(main_meta, delta_meta));
+        listMetaFree(delta_meta);
+
+        delta_meta = listMetaCreate();
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,0,1);
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,2,1);
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,3,2);
+        test_assert(listMetaMergedIsHot(main_meta, delta_meta));
+        listMetaFree(delta_meta);
+
+        delta_meta = listMetaCreate();
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,0,1);
+        listMetaAppendSegment(delta_meta,SEGMENT_TYPE_HOT,3,2);
+        test_assert(!listMetaMergedIsHot(main_meta, delta_meta));
+        listMetaFree(delta_meta);
+
+        listMetaFree(main_meta);
+    }
+
     TEST("meta-list: merge") {
         listMeta *meta = listMetaCreate();
         robj *list = createQuicklistObject();
@@ -3083,7 +3207,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         sds ele1raw = listEncodeSubval(ele1),
             ele2raw = listEncodeSubval(ele2),
             ele3raw = listEncodeSubval(ele3);
-        uint64_t V = server.swap_key_version;
+        uint64_t V = server.swap_key_version = 0; /* reset to zero so that save & load with same version(0) */
         sds ele1key = listEncodeSubkey(db,hotkey->ptr,V,listGetInitialRidx(0)),
             ele2key = listEncodeSubkey(db,hotkey->ptr,V,listGetInitialRidx(1)),
             ele3key = listEncodeSubkey(db,hotkey->ptr,V,listGetInitialRidx(2));
@@ -3151,7 +3275,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         sds ele1rdbraw = rdbEncodeStringObject(ele1), ele1raw = listEncodeSubval(ele1),
             ele2rdbraw = rdbEncodeStringObject(ele2), ele2raw = listEncodeSubval(ele2),
             ele3rdbraw = rdbEncodeStringObject(ele3), ele3raw = listEncodeSubval(ele3);
-        uint64_t V = server.swap_key_version;
+        uint64_t V = server.swap_key_version = 0; /* reset to zero so that save & load with same version(0) */
         sds ele1key = listEncodeSubkey(db,warmkey->ptr,V,listGetInitialRidx(0)),
             ele2key = listEncodeSubkey(db,warmkey->ptr,V,listGetInitialRidx(1)),
             ele3key = listEncodeSubkey(db,warmkey->ptr,V,listGetInitialRidx(2));
@@ -3163,10 +3287,11 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         rioInitWithBuffer(&rdb,sdsempty());
 
         decodedData _decoded, *decoded = &_decoded;
-        decoded->cf = DATA_CF;
+        decoded->cf = META_CF;
         decoded->dbid = db->id;
         decoded->rdbtype = RDB_TYPE_STRING;
         decoded->key = warmkey->ptr;
+        decoded->version = V;
 
         rdbKeySaveData _save, *save = &_save;
         test_assert(rdbKeySaveDataInit(save,db,(decodedResult*)decoded) == 0/*INIT_SAVE_OK*/);
@@ -3242,7 +3367,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         sds ele1rdbraw = rdbEncodeStringObject(ele1), ele1raw = listEncodeSubval(ele1),
             ele2rdbraw = rdbEncodeStringObject(ele2), ele2raw = listEncodeSubval(ele2),
             ele3rdbraw = rdbEncodeStringObject(ele3), ele3raw = listEncodeSubval(ele3);
-        uint64_t V = server.swap_key_version;
+        uint64_t V = server.swap_key_version = 0; /* reset to zero so that save & load with same version(0) */
         sds ele1key = listEncodeSubkey(db,coldkey->ptr,V,listGetInitialRidx(0)),
             ele2key = listEncodeSubkey(db,coldkey->ptr,V,listGetInitialRidx(1)),
             ele3key = listEncodeSubkey(db,coldkey->ptr,V,listGetInitialRidx(2));
@@ -3260,6 +3385,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         decoded_meta->extend = encodeListMeta(coldlm);
         decoded_meta->expire = -1;
         decoded_meta->object_type = OBJ_LIST;
+        decoded_meta->version = V;
 
         rdbKeySaveData _save, *save = &_save;
         test_assert(rdbKeySaveDataInit(save,db,(decodedResult*)decoded_meta) == 0/*INIT_SAVE_OK*/);
@@ -3270,6 +3396,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         decoded->key = coldkey->ptr;
         decoded->cf = DATA_CF;
         decoded->rdbtype = RDB_TYPE_STRING;
+        decoded->version = V;
 
         test_assert(rdbKeySaveStart(save,&rdb) == 0 && save->saved == 0);
 

@@ -1316,7 +1316,6 @@ void decodedResultDeinit(decodedResult *decoded);
 
 struct rdbKeySaveData;
 typedef struct rdbKeySaveType {
-  int (*save_setup)(struct rdbKeySaveData *keydata, rio *rdb);
   int (*save_start)(struct rdbKeySaveData *keydata, rio *rdb);
   int (*save)(struct rdbKeySaveData *keydata, rio *rdb, decodedData *decoded);
   int (*save_end)(struct rdbKeySaveData *keydata, rio *rdb, int save_result);
