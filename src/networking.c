@@ -3829,7 +3829,6 @@ void updatePausedActions(void) {
             server.paused_actions |= p->paused_actions;
         else {
             p->paused_actions = 0;
-            p->start = 0;
             p->end = 0;
         }
     }
@@ -3887,14 +3886,12 @@ static void pauseClientsByClient(mstime_t endTime, int isPauseClientAll) {
  * The new paused_actions of a given 'purpose' will override the old ones and
  * end time will be updated if new end time is bigger than currently configured */
 void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions) {
-    pause_event *p = &(server.client_pause_per_purpose[purpose]);
-    
-    p->paused_actions = actions;
+    /* Manage pause type and end time per pause purpose. */
+    server.client_pause_per_purpose[purpose].paused_actions = actions;
 
     /* If currently configured end time bigger than new one, then keep it */
-    if (p->end < end) p->end = end;
-    /* set start time, if not already set */
-    if (p->start == 0) p->start = server.mstime;
+    if (server.client_pause_per_purpose[purpose].end < end)
+        server.client_pause_per_purpose[purpose].end = end;
 
     updatePausedActions();
 
@@ -3907,17 +3904,11 @@ void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions) {
     }
 }
 
-/* Unpause actions. Return elapsed time in msec of terminated purpose */
-long long unpauseActions(pause_purpose purpose) {
-    pause_event *p = &(server.client_pause_per_purpose[purpose]);
-    
-    if (p->end < server.mstime) return 0;
-    
-    mstime_t elapsed = server.mstime - p->start;
-    p->end = 0;   
+/* Unpause actions and queue them for reprocessing. */
+void unpauseActions(pause_purpose purpose) {
+    server.client_pause_per_purpose[purpose].end = 0;
+    server.client_pause_per_purpose[purpose].paused_actions = 0;
     updatePausedActions();
-    
-    return elapsed;
 }
 
 /* Returns bitmask of paused actions */
