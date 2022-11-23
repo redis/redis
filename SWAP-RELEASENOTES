@@ -1,4 +1,18 @@
 ================================================================================
+ror-1.0.1 Released Mon Nov 14 10:59:48 CST 2022
+================================================================================
+* [feature] swap now supports multi-db.
+* [feature] add swap hit rate stats to info (with swap_swapin_ prefix).
+* [refactor] revisited most config/info/command name(now almost all swap related
+  name comes with swap_ prefix; rocksdb related comes with rocksdb prefix).
+* [feature] swap now supports list.
+* [opt] use rocksdb delete range instead of removing data.rocks folder.
+* [fix] column family options now inherits db options.
+* [fix] zset zrem not correctly delete rocksdb subkeys when zset is hot.
+* [fix] zset memory leak by rio RANGE, parsing command score/lex range failed.
+
+
+================================================================================
 ror-1.0.0 Released Mon Nov 14 10:59:48 CST 2022
 ================================================================================
 * [feature] ror object meta persisted.
