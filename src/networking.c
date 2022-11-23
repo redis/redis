@@ -3872,6 +3872,10 @@ static void pauseClientsByClient(mstime_t endTime, int isPauseClientAll) {
     pauseActions(PAUSE_BY_CLIENT_COMMAND, endTime, actions);
 }
 
+mstime_t getPauseActionsPurposeEndTime(pause_purpose purposep) {
+    return server.client_pause_per_purpose[purposep].end;
+}
+
 /* Pause actions up to the specified unixtime (in ms) for a given type of
  * commands.
  *

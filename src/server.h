@@ -1543,7 +1543,6 @@ struct redisServer {
     int in_nested_call;         /* If > 0, in a nested call of a call */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
-    int is_pause_write_clients_oom; 
     list *postponed_clients;       /* List of postponed clients */
     pause_event client_pause_per_purpose[NUM_PAUSE_PURPOSES];
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
@@ -2541,6 +2540,7 @@ void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 void evictClients(void);
 int listenToPort(connListener *fds);
+mstime_t getPauseActionsPurposeEndTime(pause_purpose p);
 void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions_bitmask);
 void unpauseActions(pause_purpose purpose);
 uint32_t isPausedActions(uint32_t bitmask);

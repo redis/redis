@@ -1169,29 +1169,43 @@ void cronUpdateMemoryStats() {
 /* Pause clients on write as long as OOM and pending lazy-free jobs in background.
  * By doing so the server might avoid unnecessary eviction or rejection. */
 static void clientWritePauseDuringOOM() {
+    int is_paused = (getPauseActionsPurposeEndTime(PAUSE_OOM_THROTTLE) == LLONG_MAX);
+    enum { ACTION_NONE, 
+           ACTION_START_PAUSE,
+           ACTION_END_PAUSE
+    } action = ACTION_NONE;
+    
     /* if OOM and available pending lazyfree jobs then pause client-write to avoid overloading. 
      * Pause also evictions, since we might reach below maxmemory after lazyfree */
     if ((getMaxmemoryState(NULL,NULL,NULL,NULL) == C_ERR) &&
         (bioPendingJobsOfType(BIO_LAZY_FREE))) {
-        if (!server.is_pause_write_clients_oom) {
+        if (!is_paused) {
             pauseActions(PAUSE_OOM_THROTTLE, LLONG_MAX,
                          PAUSE_ACTION_EVICT | PAUSE_ACTION_CLIENT_DENYOOM);
-            
-            elapsedStart(&server.stat_current_client_paused_oom_time);
-            server.is_pause_write_clients_oom = 1;
+            action = ACTION_START_PAUSE;
+            goto update_metrics;
         }
     } else {
-        if (server.is_pause_write_clients_oom) {
+        if (is_paused) {
             /* If not OOM && lazy-free, then unpause clients */
             unpauseActions(PAUSE_OOM_THROTTLE);
-            if (server.stat_current_client_paused_oom_time) {
-                /* update statistics & reset current_client_paused_oom_time  */
-                server.stat_total_client_paused_oom_time += elapsedUs(
-                        server.stat_current_client_paused_oom_time);
-                server.stat_current_client_paused_oom_time = 0;
-            }
-            server.is_pause_write_clients_oom = 0;
+            action = ACTION_END_PAUSE;
+            goto update_metrics;
         }
+    }
+    return;
+
+update_metrics:
+    /* NO PAUSE --> PAUSE */
+    if (action == ACTION_START_PAUSE) {
+        elapsedStart(&server.stat_current_client_paused_oom_time);
+    }
+    /* PAUSE --> NO PAUSE */
+    if ((action == ACTION_END_PAUSE) && (server.stat_current_client_paused_oom_time)) {
+        /* update statistics & reset current_client_paused_oom_time  */
+        server.stat_total_client_paused_oom_time += elapsedUs(
+                server.stat_current_client_paused_oom_time);
+        server.stat_current_client_paused_oom_time = 0;
     }
 }
 
@@ -2483,7 +2497,6 @@ void initServer(void) {
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.paused_actions = 0;
-    server.is_pause_write_clients_oom = 0;
     memset(server.client_pause_per_purpose, 0,
            sizeof(server.client_pause_per_purpose));
     server.postponed_clients = listCreate();
