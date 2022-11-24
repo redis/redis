@@ -167,11 +167,12 @@ long dictIterDefragEntry(dictIterator *iter) {
         }
     }
     /* handle the case of the first entry in the hash bucket. */
-    if (iter->d->ht_table[iter->table][iter->index] == iter->entry) {
+    dictEntry **ht = (dictEntry **)iter->d->ht_table[iter->table];
+    if (ht[iter->index] == iter->entry) {
         dictEntry *newde = activeDefragAlloc(iter->entry);
         if (newde) {
             iter->entry = newde;
-            iter->d->ht_table[iter->table][iter->index] = newde;
+            ht[iter->index] = newde;
             defragged++;
         }
     }
@@ -182,17 +183,19 @@ long dictIterDefragEntry(dictIterator *iter) {
  * receives a pointer to the dict* and implicitly updates it when the dict
  * struct itself was moved. Returns a stat of how many pointers were moved. */
 long dictDefragTables(dict* d) {
-    dictEntry **newtable;
+    dictEntry **newtable, **ht0, **ht1;
     long defragged = 0;
+    ht0 = (dictEntry **)d->ht_table[0];
+    ht1 = (dictEntry **)d->ht_table[1];
     /* handle the first hash table */
-    newtable = activeDefragAlloc(d->ht_table[0]);
+    newtable = activeDefragAlloc(ht0);
     if (newtable)
-        defragged++, d->ht_table[0] = newtable;
+        defragged++, ht0 = newtable;
     /* handle the second hash table */
-    if (d->ht_table[1]) {
-        newtable = activeDefragAlloc(d->ht_table[1]);
+    if (ht1) {
+        newtable = activeDefragAlloc(ht1);
         if (newtable)
-            defragged++, d->ht_table[1] = newtable;
+            defragged++, ht1 = newtable;
     }
     return defragged;
 }

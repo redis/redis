@@ -252,7 +252,8 @@ void activeExpireCycle(int type) {
 
                     unsigned long idx = db->expires_cursor;
                     idx &= DICTHT_SIZE_MASK(db->expires->ht_size_exp[table]);
-                    dictEntry *de = db->expires->ht_table[table][idx];
+                    dictEntry **ht = (dictEntry **)db->expires->ht_table[table];
+                    dictEntry *de = ht[idx];
                     long long ttl;
 
                     /* Scan the current bucket of the current table. */

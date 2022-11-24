@@ -79,7 +79,7 @@ typedef struct dictType {
 struct dict {
     dictType *type;
 
-    dictEntry **ht_table[2];
+    void *ht_table[2];  /* dictEntry** or dictEntry*** */
     unsigned long ht_used[2];
 
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
@@ -210,7 +210,51 @@ uint64_t dictGetHash(dict *d, const void *key);
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 
 #ifdef REDIS_TEST
+
+/* dictX is another form of dict, which is managed by a combination of defined maximum
+ * capacity tables. */
+typedef struct dictX dictX;
+struct dictX {
+    dictType *type;
+    /* the number of tables we use is dynamically changing. */
+    dictEntry ***ht_table;
+
+    /* Logically, dict expansion can always be seen as having two tables in use.
+     *
+     * Case one: at the beginning when dict does not reach the maximum table capacity
+     * that can be used, these two tables are real (one of them is used for expansion).
+     *
+     * Case two: When the table capacity needed by dict exceeds the maximum table
+     * capacity that can be used, we will allocate multiple (a power of two) maximum
+     * tables to meet the capacity of dict, at this time we can treat the first half (or
+     * the first part) of the table as a small table, and treat all the tables as one
+     * big table, logically, the same as case 1, It's just that we don't use tables with
+     * larger capacities anymore, because this leads to redundant memory allocations (and
+     * the allocation itself is a burden when we need tables with very large capacities)
+     * */
+    unsigned long ht_used[2];
+
+    /* maximum number of tables used, when our dictionary reaches the maximum table
+     * capacity that can be used and still needs to be expanded, we will use multiple
+     * (a power of two) maximum tables in series to replace a large table. */
+    unsigned long maximum_ht_num;
+
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
+    signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
+};
+
+/* This is the defined of maximum capacity of the hashtable can use table */
+#define DICTHT_MAX_CAPACITY_EXP      16
+#define DICTHT_MAX_CAPACITY_SIZE     (1<<(DICTHT_MAX_CAPACITY_EXP))
+#define DICTHT_MAX_CAPACITY_MASK     DICTHT_MAX_CAPACITY_SIZE - 1
+
+dictX *dictEvolution(dict *d);
+void dictRewind(dict *d, dictX *dx);
+/* Define the same methods as dict for comparison */
+dictEntry *dictXFind(dictX *dx, const void *key);
 int dictTest(int argc, char *argv[], int flags);
+
 #endif
 
 #endif /* __DICT_H */
