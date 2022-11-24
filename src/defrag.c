@@ -405,7 +405,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
 
 /* Utility function that replaces an old key pointer in the dictionary with a
  * new pointer. Additionally, we try to defrag the dictEntry in that dict.
- * Oldkey mey be a dead pointer and should not be accessed (we get a
+ * Oldkey may be a dead pointer and should not be accessed (we get a
  * pre-calculated hash value). Newkey may be null if the key pointer wasn't
  * moved. Return value is the dictEntry if found, or NULL if not found.
  * NOTE: this is very ugly code, but it let's us avoid the complication of
@@ -868,16 +868,21 @@ long defragKey(redisDb *db, dictEntry *de) {
     } else if (ob->type == OBJ_LIST) {
         if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
             defragged += defragQuicklist(db, de);
+        } else if (ob->encoding == OBJ_ENCODING_LISTPACK) {
+            if ((newzl = activeDefragAlloc(ob->ptr)))
+                defragged++, ob->ptr = newzl;
         } else {
             serverPanic("Unknown list encoding");
         }
     } else if (ob->type == OBJ_SET) {
         if (ob->encoding == OBJ_ENCODING_HT) {
             defragged += defragSet(db, de);
-        } else if (ob->encoding == OBJ_ENCODING_INTSET) {
-            intset *newis, *is = ob->ptr;
-            if ((newis = activeDefragAlloc(is)))
-                defragged++, ob->ptr = newis;
+        } else if (ob->encoding == OBJ_ENCODING_INTSET ||
+                   ob->encoding == OBJ_ENCODING_LISTPACK)
+        {
+            void *newptr, *ptr = ob->ptr;
+            if ((newptr = activeDefragAlloc(ptr)))
+                defragged++, ob->ptr = newptr;
         } else {
             serverPanic("Unknown set encoding");
         }

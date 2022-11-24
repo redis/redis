@@ -1028,7 +1028,7 @@ unsigned char *zzlDelete(unsigned char *zl, unsigned char *eptr) {
 unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds ele, double score) {
     unsigned char *sptr;
     char scorebuf[MAX_D2STRING_CHARS];
-    int scorelen;
+    int scorelen = 0;
     long long lscore;
     int score_is_long = double2ll(score, &lscore);
     if (!score_is_long)
@@ -1971,6 +1971,10 @@ typedef struct {
                 dictIterator *di;
                 dictEntry *de;
             } ht;
+            struct {
+                unsigned char *lp;
+                unsigned char *p;
+            } lp;
         } set;
 
         /* Sorted set iterators. */
@@ -2025,6 +2029,9 @@ void zuiInitIterator(zsetopsrc *op) {
             it->ht.dict = op->subject->ptr;
             it->ht.di = dictGetIterator(op->subject->ptr);
             it->ht.de = dictNext(it->ht.di);
+        } else if (op->encoding == OBJ_ENCODING_LISTPACK) {
+            it->lp.lp = op->subject->ptr;
+            it->lp.p = lpFirst(it->lp.lp);
         } else {
             serverPanic("Unknown set encoding");
         }
@@ -2061,6 +2068,8 @@ void zuiClearIterator(zsetopsrc *op) {
             UNUSED(it); /* skip */
         } else if (op->encoding == OBJ_ENCODING_HT) {
             dictReleaseIterator(it->ht.di);
+        } else if (op->encoding == OBJ_ENCODING_LISTPACK) {
+            UNUSED(it);
         } else {
             serverPanic("Unknown set encoding");
         }
@@ -2091,14 +2100,7 @@ unsigned long zuiLength(zsetopsrc *op) {
         return 0;
 
     if (op->type == OBJ_SET) {
-        if (op->encoding == OBJ_ENCODING_INTSET) {
-            return intsetLen(op->subject->ptr);
-        } else if (op->encoding == OBJ_ENCODING_HT) {
-            dict *ht = op->subject->ptr;
-            return dictSize(ht);
-        } else {
-            serverPanic("Unknown set encoding");
-        }
+        return setTypeSize(op->subject);
     } else if (op->type == OBJ_ZSET) {
         if (op->encoding == OBJ_ENCODING_LISTPACK) {
             return zzlLength(op->subject->ptr);
@@ -2144,6 +2146,14 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
 
             /* Move to next element. */
             it->ht.de = dictNext(it->ht.di);
+        } else if (op->encoding == OBJ_ENCODING_LISTPACK) {
+            if (it->lp.p == NULL)
+                return 0;
+            val->estr = lpGetValue(it->lp.p, &val->elen, &val->ell);
+            val->score = 1.0;
+
+            /* Move to next element. */
+            it->lp.p = lpNext(it->lp.lp, it->lp.p);
         } else {
             serverPanic("Unknown set encoding");
         }
@@ -4044,7 +4054,7 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
 
     /* If the keys do not exist we must block */
     struct blockPos pos = {where};
-    blockForKeys(c,BLOCKED_ZSET,keys,numkeys,count,timeout,NULL,&pos,NULL);
+    blockForKeys(c,BLOCKED_ZSET,keys,numkeys,count,timeout,NULL,&pos,NULL,0);
 }
 
 // BZPOPMIN key [key ...] timeout

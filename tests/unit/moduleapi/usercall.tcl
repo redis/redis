@@ -45,8 +45,7 @@ start_server {tags {"modules usercall"}} {
         assert_equal [r usercall.get_acl] "off sanitize-payload ~* &* +@all -set"
 
         # fails here as testing acl in rm call
-        catch {r usercall.call_with_user_flag C set x 10} e
-        assert_match {*ERR acl verification failed*} $e
+        assert_error {*NOPERM User default has no permissions*} {r usercall.call_with_user_flag C set x 10}
 
         assert_equal [r usercall.call_with_user_flag C get x] 5
 
@@ -88,7 +87,7 @@ start_server {tags {"modules usercall"}} {
 
         # fails here in script, as rm_call will permit the eval call
         catch {r usercall.call_with_user_flag C evalsha $sha_set 0} e
-        assert_match {*ERR The user executing the script can't run this command or subcommand script*} $e
+        assert_match {*ERR ACL failure in script*} $e
 
         assert_equal [r usercall.call_with_user_flag C evalsha $sha_get 0] 1
     }

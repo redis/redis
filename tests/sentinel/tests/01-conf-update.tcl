@@ -37,3 +37,11 @@ test "After Sentinel 1 is restarted, its config gets updated" {
 test "New master [join $addr {:}] role matches" {
     assert {[RI $master_id role] eq {master}}
 }
+
+test "Update log level" {
+    set current_loglevel [S 0 SENTINEL CONFIG GET loglevel]
+    assert {[lindex $current_loglevel 1] == {notice}}
+    S 0 SENTINEL CONFIG SET loglevel warning
+    set updated_loglevel [S 0 SENTINEL CONFIG GET loglevel]
+    assert {[lindex $updated_loglevel 1] == {warning}}
+}

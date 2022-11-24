@@ -103,6 +103,10 @@ static void connUnixAcceptHandler(aeEventLoop *el, int fd, void *privdata, int m
     }
 }
 
+static void connUnixShutdown(connection *conn) {
+    connectionTypeTcp()->shutdown(conn);
+}
+
 static void connUnixClose(connection *conn) {
     connectionTypeTcp()->close(conn);
 }
@@ -162,9 +166,10 @@ static ConnectionType CT_Unix = {
     .addr = connUnixAddr,
     .listen = connUnixListen,
 
-    /* create/close connection */
+    /* create/shutdown/close connection */
     .conn_create = connCreateUnix,
     .conn_create_accepted = connCreateAcceptedUnix,
+    .shutdown = connUnixShutdown,
     .close = connUnixClose,
 
     /* connect & accept */
