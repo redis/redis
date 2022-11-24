@@ -3264,7 +3264,7 @@ static void propagatePendingCommands() {
 
 /* Performs operations that should be performed after an execution unit ends.
  * Execution unit is a code that should be done atomically.
- * Logical units can be nested and are not necessarily starts with Redis command.
+ * Execution units can be nested and are not necessarily starts with Redis command.
  *
  * For example the following is a logical unit:
  *   active expire ->
