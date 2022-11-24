@@ -2319,6 +2319,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
                 o->type = OBJ_SET;
                 o->encoding = OBJ_ENCODING_LISTPACK;
+
+                if (setTypeSize(o) == 0) {
+                    zfree(encoded);
+                    o->ptr = NULL;
+                    decrRefCount(o);
+                    goto emptykey;
+                }
                 if (setTypeSize(o) > server.set_max_listpack_entries)
                     setTypeConvert(o, OBJ_ENCODING_HT);
                 break;
