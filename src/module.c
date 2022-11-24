@@ -8062,8 +8062,8 @@ void firePostExecutionUnitJobs() {
     server.in_nested_call--;
 }
 
-/* when running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
- * operation (e.g. , See `RM_SubscribeToKeyspaceEvents`). In order to still perform write actions in this scenario,
+/* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
+ * operation (See `RM_SubscribeToKeyspaceEvents`). In order to still perform write actions in this scenario,
  * Redis provides `RM_AddPostNotificationJob` API. The API allows to register a job callback which Redis will call
  * when the following condition are promised to be fulfilled:
  * 1. It is safe to perform any write operation.
