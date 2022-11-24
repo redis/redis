@@ -837,20 +837,24 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
     return argv;
 }
 
+#define LUA_CMD_OBJCACHE_SIZE 32
+#define LUA_CMD_OBJCACHE_MAX_LEN 64
 static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
-    int j;
+    int j, argc = lua_gettop(lua);
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    serverAssert(rctx); /* Only supported inside script invocation */
+    if (!rctx) {
+        luaPushError(lua, "redis.call/pcall can only be called inside a script invocation");
+        return luaError(lua);
+    }
     sds err = NULL;
     client* c = rctx->c;
     sds reply;
 
-    int argc;
-    robj **argv = luaArgsToRedisArgv(lua, &argc);
-    if (argv == NULL) {
-        return raise_error ? luaError(lua) : 1;
-    }
-
+    /* Cached across calls. */
+    static robj **argv = NULL;
+    static int argv_size = 0;
+    static robj *cached_objects[LUA_CMD_OBJCACHE_SIZE];
+    static size_t cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
     static int inuse = 0;   /* Recursive calls detection. */
 
     /* By using Lua debug hooks it is possible to trigger a recursive call
@@ -866,6 +870,70 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         return 1;
     }
     inuse++;
+
+    /* Require at least one argument */
+    if (argc == 0) {
+        luaPushError(lua,
+            "Please specify at least one argument for redis.call()");
+        inuse--;
+        return raise_error ? luaError(lua) : 1;
+    }
+
+    /* Build the arguments vector */
+    if (argv_size < argc) {
+        argv = zrealloc(argv,sizeof(robj*)*argc);
+        argv_size = argc;
+    }
+
+    for (j = 0; j < argc; j++) {
+        char *obj_s;
+        size_t obj_len;
+        char dbuf[64];
+
+        if (lua_type(lua,j+1) == LUA_TNUMBER) {
+            /* We can't use lua_tolstring() for number -> string conversion
+             * since Lua uses a format specifier that loses precision. */
+            lua_Number num = lua_tonumber(lua,j+1);
+
+            obj_len = snprintf(dbuf,sizeof(dbuf),"%.17g",(double)num);
+            obj_s = dbuf;
+        } else {
+            obj_s = (char*)lua_tolstring(lua,j+1,&obj_len);
+            if (obj_s == NULL) break; /* Not a string. */
+        }
+
+        /* Try to use a cached object. */
+        if (j < LUA_CMD_OBJCACHE_SIZE && cached_objects[j] &&
+            cached_objects_len[j] >= obj_len)
+        {
+            sds s = cached_objects[j]->ptr;
+            argv[j] = cached_objects[j];
+            cached_objects[j] = NULL;
+            memcpy(s,obj_s,obj_len+1);
+            sdssetlen(s, obj_len);
+        } else {
+            argv[j] = createStringObject(obj_s, obj_len);
+        }
+    }
+
+    /* Check if one of the arguments passed by the Lua script
+     * is not a string or an integer (lua_isstring() return true for
+     * integers as well). */
+    if (j != argc) {
+        j--;
+        while (j >= 0) {
+            decrRefCount(argv[j]);
+            j--;
+        }
+        luaPushError(lua,
+            "Lua redis() command arguments must be strings or integers");
+        inuse--;
+        return raise_error ? luaError(lua) : 1;
+    }
+
+    /* Pop all arguments from the stack, we do not need them anymore
+     * and this way we guaranty we will have room on the stack for the result. */
+    lua_pop(lua, argc);
 
     /* Log the command if debugging is active. */
     if (ldbIsEnabled()) {
@@ -887,11 +955,6 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     if (err) {
         luaPushError(lua, err);
         sdsfree(err);
-        /* push a field indicate to ignore updating the stats on this error
-         * because it was already updated when executing the command. */
-        lua_pushstring(lua,"ignore_error_stats_update");
-        lua_pushboolean(lua, 1);
-        lua_settable(lua,-3);
         goto cleanup;
     }
 
@@ -928,16 +991,45 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 cleanup:
     /* Clean up. Command code may have changed argv/argc so we use the
      * argv/argc of the client instead of the local variables. */
-    freeClientArgv(c);
+    for (j = 0; j < c->argc; j++) {
+        robj *o = c->argv[j];
+
+        /* Try to cache the object in the cached_objects array.
+         * The object must be small, SDS-encoded, and with refcount = 1
+         * (we must be the only owner) for us to cache it. */
+        if (j < LUA_CMD_OBJCACHE_SIZE &&
+            o->refcount == 1 &&
+            (o->encoding == OBJ_ENCODING_RAW ||
+             o->encoding == OBJ_ENCODING_EMBSTR) &&
+            sdslen(o->ptr) <= LUA_CMD_OBJCACHE_MAX_LEN)
+        {
+            sds s = o->ptr;
+            if (cached_objects[j]) decrRefCount(cached_objects[j]);
+            cached_objects[j] = o;
+            cached_objects_len[j] = sdsalloc(s);
+        } else {
+            decrRefCount(o);
+        }
+    }
+
+    if (c->argv != argv) {
+        zfree(c->argv);
+        argv = NULL;
+        argv_size = 0;
+    }
+
     c->user = NULL;
-    inuse--;
+    c->argv = NULL;
+    c->argc = 0;
 
     if (raise_error) {
         /* If we are here we should have an error in the stack, in the
          * form of a table with an "err" field. Extract the string to
          * return the plain error. */
+        inuse--;
         return luaError(lua);
     }
+    inuse--;
     return 1;
 }
 
