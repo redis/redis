@@ -226,7 +226,7 @@ double geohashGetDistance(double lon1d, double lat1d, double lon2d, double lat2d
     u = sin((lat2r - lat1r) / 2);
     v = sin((lon2r - lon1r) / 2);
     double a = u * u;
-    // if v == 0 we can avoid doing expensive math
+    /* if v == 0 we can avoid doing expensive math */
     if (v != 0.0){
         a += cos(lat1r) * cos(lat2r) * v * v;
     }
