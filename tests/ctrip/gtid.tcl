@@ -172,18 +172,6 @@ start_server {tags {"gtid"} overrides {gtid-enabled yes}} {
     }
 }
 
-#open gtid-enabled, will skip gtid 100000
-start_server {tags {"gtid"} overrides} {
-    test "exec gtid command" {
-        assert_equal [dict get [get_gtid r] [status r run_id]] 0
-        r config set gtid-enabled yes
-        assert_equal [dict get [get_gtid r] [status r run_id]] 1-100000
-        r config set gtid-enabled no
-        assert_equal [dict get [get_gtid r] [status r run_id]] 1-100000
-        r config set gtid-enabled yes
-        assert_equal [dict get [get_gtid r] [status r run_id]] 1-200000
-    }
-}
 
 if {$::swap_mode != "disk" } {
     #swap disk can't select 1

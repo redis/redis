@@ -2384,26 +2384,6 @@ int updateRequirePass(sds val, sds prev, const char **err) {
     return 1;
 }
 
-#define SKIP_GTID 100000
-int updateGtidEnabled(int val, int prev, const char **err) {
-    UNUSED(err);
-    if (prev == 0 && val == 1) {
-        char buf[uuidSetEstimatedEncodeBufferSize(server.current_uuid)];
-        int len;
-        len = uuidSetEncode(server.current_uuid, buf);
-        buf[len] = '\0';
-        serverLog(LL_WARNING, "open gtidEnabled before gtid(%s)", buf);
-        rpl_gno next = uuidSetNext(server.current_uuid, 0);
-        uuidSet* newUuidSet = uuidSetNewRange(server.current_uuid->rpl_sid, strlen(server.current_uuid->rpl_sid), 1, next + (SKIP_GTID - 1));
-        serverAssert(uuidSetAppendUuidSet(server.current_uuid, newUuidSet) == 1);
-        uuidSetFree(newUuidSet);
-        len = uuidSetEncode(server.current_uuid, buf);
-        buf[len] = '\0';
-        serverLog(LL_WARNING, "open gtidEnabled skip gtid(%s)", buf);
-    }
-    return 1;
-}
-
 #ifdef USE_OPENSSL
 static int updateTlsCfg(char *val, char *prev, const char **err) {
     UNUSED(val);
@@ -2638,7 +2618,7 @@ standardConfig configs[] = {
     createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
     
     /* ctrip configs */
-    createBoolConfig("gtid-enabled", NULL, MODIFIABLE_CONFIG, server.gtid_enabled, 0, NULL, updateGtidEnabled),
+    createBoolConfig("gtid-enabled", NULL, MODIFIABLE_CONFIG, server.gtid_enabled, 0, NULL, NULL),
 #ifdef USE_OPENSSL
     createIntConfig("tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, updateTLSPort), /* TCP port. */
     createIntConfig("tls-session-cache-size", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_size, 20*1024, INTEGER_CONFIG, NULL, updateTlsCfgInt),
