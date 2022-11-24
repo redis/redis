@@ -2183,12 +2183,11 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
  * and that redis could be serving reads during replication instead of blocking with LOADING status.
  *
  * REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS:
- * Declare that the module want to get nested key space notifications.
- * By default, Redis will not fire key space notification that happened inside
- * a key space notification callback. This flag allows to change this behavior
- * and fire nested key space notifications. Notice, if enabled, the module
- * should protected himself from endless loops that might happened due to recursive
- * key space notifications. */
+ * Declare that the module wants to get nested key-space notifications.
+ * By default, Redis will not fire key-space notifications that happened inside
+ * a key-space notification callback. This flag allows to change this behavior
+ * and fire nested key-space notifications. Notice: if enabled, the module
+ * should protected itself from infinte recursion. */
 void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
     ctx->module->options = options;
 }
@@ -7960,7 +7959,7 @@ void firePostExecutionUnitJobs() {
  * and so Redis will make no attempt to protect the module from infinite loops.
  *
  * 'free_pd' can be NULL and in such case will not be used. */
-int RM_AddPostExecutionUnitJob(RedisModuleCtx *ctx, RedisModulePostExecUnitJobFunc callback, void *pd, void (*free_pd)(void*)) {
+int RM_AddPostExecutionUnitJob(RedisModuleCtx *ctx, RedisModulePostExecUnitJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
     RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
