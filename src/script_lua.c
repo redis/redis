@@ -842,10 +842,7 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
 static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    if (!rctx) {
-        luaPushError(lua, "redis.call/pcall can only be called inside a script invocation");
-        return luaError(lua);
-    }
+    serverAssert(rctx); /* Only supported inside script invocation */
     sds err = NULL;
     client* c = rctx->c;
     sds reply;
@@ -955,6 +952,11 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     if (err) {
         luaPushError(lua, err);
         sdsfree(err);
+        /* push a field indicate to ignore updating the stats on this error
+         * because it was already updated when executing the command. */
+        lua_pushstring(lua,"ignore_error_stats_update");
+        lua_pushboolean(lua, 1);
+        lua_settable(lua,-3);
         goto cleanup;
     }
 
@@ -1019,6 +1021,7 @@ cleanup:
     }
 
     c->user = NULL;
+    inuse--;
     c->argv = NULL;
     c->argc = 0;
 
@@ -1026,10 +1029,8 @@ cleanup:
         /* If we are here we should have an error in the stack, in the
          * form of a table with an "err" field. Extract the string to
          * return the plain error. */
-        inuse--;
         return luaError(lua);
     }
-    inuse--;
     return 1;
 }
 
