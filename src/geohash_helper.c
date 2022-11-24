@@ -225,8 +225,14 @@ double geohashGetDistance(double lon1d, double lat1d, double lon2d, double lat2d
     lon2r = deg_rad(lon2d);
     u = sin((lat2r - lat1r) / 2);
     v = sin((lon2r - lon1r) / 2);
-    return 2.0 * EARTH_RADIUS_IN_METERS *
-           asin(sqrt(u * u + cos(lat1r) * cos(lat2r) * v * v));
+    double a = u * u;
+    double sqrt_a = u;
+    // if v == 0 we can avoid doing expensive math
+    if (v != 0.0){
+        a += cos(lat1r) * cos(lat2r) * v * v;
+        sqrt_a = sqrt(a);
+    }
+    return 2.0 * EARTH_RADIUS_IN_METERS * asin(sqrt_a);
 }
 
 int geohashGetDistanceIfInRadius(double x1, double y1,
