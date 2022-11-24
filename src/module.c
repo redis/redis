@@ -294,7 +294,7 @@ static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 
 /* Function pointer type for post jobs */
-typedef void (*RedisModulePostExecUnitJobFunc) (RedisModuleCtx *ctx, void *pd);
+typedef void (*RedisModulePostNotificationJobFunc) (RedisModuleCtx *ctx, void *pd);
 
 /* Keyspace notification subscriber information.
  * See RM_SubscribeToKeyspaceEvents() for more information. */
@@ -313,7 +313,7 @@ typedef struct RedisModuleKeyspaceSubscriber {
 typedef struct RedisModulePostExecUnitJob {
     /* The module subscribed to the event */
     RedisModule *module;
-    RedisModulePostExecUnitJobFunc callback;
+    RedisModulePostNotificationJobFunc callback;
     void *pd;
     void (*free_pd)(void*);
     int dbid;
@@ -7945,12 +7945,12 @@ void firePostExecutionUnitJobs() {
     server.in_nested_call--;
 }
 
-/* RedisModule API has a few location where it is dangerous and highly discouraged to perform any write
- * operation (e.g. when running inside a key space notification callback, See `RM_SubscribeToKeyspaceEvents`).
- * In order to still perform write actions in such scenarios, Redis provides `RM_AddPostExecutionUnitJob` API.
- * The API allows to register a job callback which Redis will call when the following condition are promised to be fulfilled:
+/* when running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
+ * operation (e.g. , See `RM_SubscribeToKeyspaceEvents`). In order to still perform write actions in this scenario,
+ * Redis provides `RM_AddPostNotificationJob` API. The API allows to register a job callback which Redis will call
+ * when the following condition are promised to be fulfilled:
  * 1. It is safe to perform any write operation.
- * 2. The job will be called atomically along side the action that triggered it.
+ * 2. The job will be called atomically along side the key space notification.
  *
  * Notice, one job might trigger key space notifications that will trigger more jobs.
  * This raises a concerns of entering an infinite loops, we consider infinite loops
@@ -7959,7 +7959,7 @@ void firePostExecutionUnitJobs() {
  * and so Redis will make no attempt to protect the module from infinite loops.
  *
  * 'free_pd' can be NULL and in such case will not be used. */
-int RM_AddPostExecutionUnitJob(RedisModuleCtx *ctx, RedisModulePostExecUnitJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
+int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
     RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
@@ -12793,7 +12793,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(NotifyKeyspaceEvent);
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
-    REGISTER_API(AddPostExecutionUnitJob);
+    REGISTER_API(AddPostNotificationJob);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
     REGISTER_API(GetClusterNodeInfo);

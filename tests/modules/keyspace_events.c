@@ -160,7 +160,7 @@ static int KeySpace_NotificationModuleStringPostNotificationJob(RedisModuleCtx *
     }
 
     RedisModuleString *new_key = RedisModule_CreateStringPrintf(NULL, "string_changed{%s}", key_str);
-    RedisModule_AddPostExecutionUnitJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
     return REDISMODULE_OK;
 }
 
