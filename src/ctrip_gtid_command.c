@@ -473,7 +473,7 @@ void ctripMergeCommand(client* c) {
     robj *val = NULL;
     // check val
     if(verifyDumpPayload(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)) == C_ERR) {
-        addReplyErrorFormat(c, "value robj load error: %s", (char*)c->argv[4]->ptr);
+        addReplyErrorFormat(c, "value robj load error: %s", (char*)c->argv[2]->ptr);
         goto error;
     }
     int type = -1;
