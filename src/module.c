@@ -7963,8 +7963,8 @@ int RM_AddPostExecutionUnitJob(RedisModuleCtx *ctx, RedisModulePostExecUnitJobFu
     RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
-    job->pd = pd;
-    job->free_pd = free_pd;
+    job->pd = privdata;
+    job->free_pd = free_privdata;
     job->dbid = ctx->client->db->id;
 
     listAddNodeTail(modulePostExecUnitJobs, job);
