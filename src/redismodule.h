@@ -261,9 +261,14 @@ typedef uint64_t RedisModuleTimerID;
 /* Declare that the module can handle diskless async replication with RedisModule_SetModuleOptions. */
 #define REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD    (1<<2)
 
- /* Declare that the module want to get nested key space notifications.
-  * If enabled, the module is responsible to break endless loop. */
- #define REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS    (1<<3)
+/* Declare that the module want to get nested key space notifications.
+ * If enabled, the module is responsible to break endless loop. */
+#define REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS    (1<<3)
+
+/* Next option flag, must be updated when adding new module flags above!
+ * This flag should not be used directly by the module.
+ * Use RedisModule_GetModuleOptionsFlagsAll instead. */
+#define _REDISMODULE_OPTIONS_FLAGS_NEXT (1<<4)
 
 /* Definitions for RedisModule_SetCommandInfo. */
 
@@ -1151,6 +1156,7 @@ REDISMODULE_API void (*RedisModule_ScanCursorDestroy)(RedisModuleScanCursor *cur
 REDISMODULE_API int (*RedisModule_Scan)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ScanKey)(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetContextFlagsAll)() REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetModuleOptionsFlagsAll)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetKeyspaceNotificationFlagsAll)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsSubEventSupported)(RedisModuleEvent event, uint64_t subevent) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetServerVersion)() REDISMODULE_ATTR;
@@ -1496,6 +1502,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(Scan);
     REDISMODULE_GET_API(ScanKey);
     REDISMODULE_GET_API(GetContextFlagsAll);
+    REDISMODULE_GET_API(GetModuleOptionsFlagsAll);
     REDISMODULE_GET_API(GetKeyspaceNotificationFlagsAll);
     REDISMODULE_GET_API(IsSubEventSupported);
     REDISMODULE_GET_API(GetServerVersion);

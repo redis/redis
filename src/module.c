@@ -12313,6 +12313,23 @@ int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
  * -------------------------------------------------------------------------- */
 
 /**
+ * Returns the full module options flags mask, using the return value
+ * the module can check if a certain set of module options are supported
+ * by the redis server version in use.
+ * Example:
+ *
+ *        int supportedFlags = RM_GetModuleOptionsFlagsAll();
+ *        if (supportedFlags & REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS) {
+ *              // REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS is supported
+ *        } else{
+ *              // REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS is not supported
+ *        }
+ */
+int RM_GetModuleOptionsFlagsAll() {
+    return _REDISMODULE_OPTIONS_FLAGS_NEXT - 1;
+}
+
+/**
  * Returns the full ContextFlags mask, using the return value
  * the module can check if a certain set of flags are supported
  * by the redis server version in use.
@@ -13011,6 +13028,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(AuthenticateClientWithACLUser);
     REGISTER_API(AuthenticateClientWithUser);
     REGISTER_API(GetContextFlagsAll);
+    REGISTER_API(GetModuleOptionsFlagsAll);
     REGISTER_API(GetKeyspaceNotificationFlagsAll);
     REGISTER_API(IsSubEventSupported);
     REGISTER_API(GetServerVersion);
