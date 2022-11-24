@@ -7361,8 +7361,9 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
         signalModifiedKey(NULL, &server.db[0], key);
         moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
+        postExecutionUnitOperations();
         decrRefCount(key);
-        propagatePendingCommands();
+        postExecutionUnitOperations();
         j++;
         server.dirty++;
     }
