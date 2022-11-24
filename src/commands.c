@@ -3718,7 +3718,7 @@ struct redisCommandArg SENTINEL_DEBUG_data_Subargs[] = {
 
 /* SENTINEL DEBUG argument table */
 struct redisCommandArg SENTINEL_DEBUG_Args[] = {
-{"data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_DEBUG_data_Subargs},
+{"data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=SENTINEL_DEBUG_data_Subargs},
 {0}
 };
 
