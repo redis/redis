@@ -156,7 +156,6 @@ gtidInterval *gtidIntervalNewRange(rpl_gno start, rpl_gno end) {
  */     
 gtidInterval *gtidIntervalDecode(char* interval_str, size_t len) {
     const char *hyphen = "-";
-    int count = 0;
     int index = -1;
     for(int i = 0; i < len; i++) {
         if(interval_str[i] == hyphen[0]) {
@@ -329,9 +328,6 @@ uuidSet *uuidSetDump(uuidSet* uuid_set) {
  */
 uuidSet *uuidSetDecode(char* uuid_set_str, int len) {
     const char *colon = ":";
-    char* uuid = NULL;
-    int uuid_len = 0;
-    int start = 0;
     if(uuid_set_str[len - 1] == colon[0]) {
         return NULL;
     }
@@ -457,8 +453,6 @@ size_t uuidSetEncode(uuidSet* uuid_set, char* buf) {
 int uuidSetAddGtidInterval(uuidSet* uuid_set, gtidInterval* interval) {
     gtidInterval *cur = uuid_set->intervals;
     gtidInterval *next = cur->next;
-    gtidInterval* start_in_interval;
-    gtidInterval* end_in_interval;
     /**
      * @brief 
      *      A:0  +  A:1-10  = A:1-10
@@ -478,7 +472,7 @@ int uuidSetAddGtidInterval(uuidSet* uuid_set, gtidInterval* interval) {
         return 1;
     }
     int changed = 0;
-    char* error_scope;
+    char* error_scope = NULL;
     do {
         //  A  {cur->gno_start} B {cur->gno_end} C {next->gno_start} D {next->gno_end} E
         //  next B = D  
@@ -603,7 +597,7 @@ int uuidSetAddGtidInterval(uuidSet* uuid_set, gtidInterval* interval) {
         if (cur!= NULL) {
             next = cur->next;
         }
-    }while(cur != NULL);
+    } while(cur != NULL);
 Error:
     printf("\n code error [%s] %lld-%lld",error_scope, interval->gno_start, interval->gno_end);
     printf("cur %lld-%lld\n", cur->gno_start, cur->gno_end);
@@ -615,8 +609,6 @@ Error:
 int uuidSetAddGtidInterval1(uuidSet* uuid_set, gtidInterval* interval) {
     gtidInterval *cur = uuid_set->intervals;
     gtidInterval *next = cur->next;
-    gtidInterval* start_in_interval;
-    gtidInterval* end_in_interval;
     /**
      * @brief 
      *      cur (0)  +  interval(1-10)  = cur(1-10)
@@ -1071,8 +1063,6 @@ void gtidSetAppendUuidSet(gtidSet *gtid_set, uuidSet *uuid_set) {
 gtidSet *gtidSetDecode(char* src, size_t len) {
     gtidSet* gtid_set = gtidSetNew();
     const char *split = ",";
-    int count = 0;
-    int index = 0;
     int uuid_str_start_index = 0;
     for(int i = 0; i < len; i++) {
         if(src[i] == split[0]) {
