@@ -2187,7 +2187,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
  * By default, Redis will not fire key-space notifications that happened inside
  * a key-space notification callback. This flag allows to change this behavior
  * and fire nested key-space notifications. Notice: if enabled, the module
- * should protected itself from infinte recursion. */
+ * should protected itself from infinite recursion. */
 void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
     ctx->module->options = options;
 }
