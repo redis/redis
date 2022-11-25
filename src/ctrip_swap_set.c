@@ -159,16 +159,13 @@ int setSwapAna(swapData *data, struct keyRequest *req,
                     if (setTypeSize(data->value) == 0) {
                         swapDataTurnCold(data);
                     }
-                    swapDataSwapOut(data,datactx);
+                    swapDataSwapOut(data,datactx,NULL);
                     
                     *intention = SWAP_NOP;
                     *intention_flags = 0;
                 } else {
                     *intention = SWAP_OUT;
-                    if (datactx->ctx.num == (int)setTypeSize(data->value))
-                        *intention_flags = SWAP_EXEC_OUT_META;
-                    else
-                        *intention_flags = 0;
+                    *intention_flags = 0;
                 }
             }
             break;
@@ -341,7 +338,7 @@ int setSwapIn(swapData *data, void *result_, void *datactx) {
 /* subkeys already cleaned by cleanObject(to save cpu usage of main thread),
  * swapout only updates db.dict keyspace, meta (db.meta/db.expire) swapped
  * out by swap framework. */
-int setSwapOut(swapData *data, void *datactx) {
+int setSwapOut(swapData *data, void *datactx, int *totally_out) {
     UNUSED(datactx);
     serverAssert(!swapDataIsCold(data));
 
@@ -357,11 +354,13 @@ int setSwapOut(swapData *data, void *datactx) {
             freeObjectMeta(data->new_meta);
             data->new_meta = NULL;
         }
+        if (totally_out) *totally_out = 1;
     } else { /* not all fields swapped out. */
         if (data->new_meta) {
             dbAddMeta(data->db,data->key,data->new_meta);
             data->new_meta = NULL; /* moved to db.meta */
         }
+        if (totally_out) *totally_out = 0;
     }
 
     return 0;
@@ -897,7 +896,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         set1_data->new_meta = NULL;
         set1_ctx->ctx.num = 0;
         setSwapAna(set1_data,kr1,&intention,&intention_flags,set1_ctx);
-        test_assert(intention == SWAP_OUT && intention_flags == SWAP_EXEC_OUT_META);
+        test_assert(intention == SWAP_OUT && intention_flags == 0);
         test_assert(4 == set1_ctx->ctx.num);
         test_assert(NULL != set1_data->new_meta);
 
@@ -943,7 +942,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         set1_ctx->ctx.num = 2;
         set1_ctx->ctx.subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
         setCleanObject(set1_data, set1_ctx);
-        setSwapOut(set1_data, set1_ctx);
+        setSwapOut(set1_data, set1_ctx, NULL);
         test_assert((m =lookupMeta(db,key1)) != NULL && m->len == 2);
         test_assert((s = lookupKey(db, key1, LOOKUP_NOTOUCH)) != NULL);
         test_assert(setTypeSize(s) == 2);
@@ -952,7 +951,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         set1_data->object_meta = m;
         set1_ctx->ctx.subkeys = mockSubKeys(2, sdsdup(f3), sdsdup(f4));
         setCleanObject(set1_data, set1_ctx);
-        setSwapOut(set1_data, set1_ctx);
+        setSwapOut(set1_data, set1_ctx, NULL);
         test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) == NULL);
         test_assert(lookupMeta(db,key1) == NULL);
 
@@ -987,7 +986,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         set1_ctx->ctx.num = 4;
         set1_ctx->ctx.subkeys = mockSubKeys(4, sdsdup(f1), sdsdup(f2), sdsdup(f3), sdsdup(f4));
         setCleanObject(set1_data, set1_ctx);
-        setSwapOut(set1_data, set1_ctx);
+        setSwapOut(set1_data, set1_ctx, NULL);
         test_assert((m = lookupMeta(db,key1)) == NULL);
         test_assert((s = lookupKey(db,key1,LOOKUP_NOTOUCH)) == NULL);
 

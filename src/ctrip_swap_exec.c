@@ -1210,9 +1210,6 @@ void swapDataTurnWarmOrHot(swapData *data) {
 }
 
 void swapDataTurnCold(swapData *data) {
-    if (data->expire != -1) {
-        removeExpire(data->db,data->key);
-    }
     data->db->cold_keys++;
 }
 
@@ -1233,7 +1230,7 @@ void swapDataTurnDeleted(swapData *data, int del_skip) {
 void finishSwapRequest(swapRequest *req) {
     DEBUG_MSGS_APPEND(req->msgs,"exec-finish","intention=%s",
             swapIntentionName(req->intention));
-    int retval = 0, del_skip = 0;
+    int retval = 0, del_skip = 0, swap_out_completely = 0;
     if (req->errcode) return;
 
     swapData *data = req->data;
@@ -1252,14 +1249,10 @@ void finishSwapRequest(swapRequest *req) {
         }
         break;
     case SWAP_OUT:
-        /* exec removes expire if rocks-meta persists, while object_meta
-         * is removed by swapdata. note that exec remove expire (satellite
-         * dict) before swapout remove key from db.dict. */
-        if ((req->intention_flags & SWAP_EXEC_OUT_META) &&
-                !swapDataIsCold(data)) {
+        retval = swapDataSwapOut(data,datactx,&swap_out_completely);
+        if (!swapDataIsCold(data) && swap_out_completely) {
             swapDataTurnCold(data);
         }
-        retval = swapDataSwapOut(data,datactx);
         break;
     case SWAP_DEL:
         del_skip = req->intention_flags & SWAP_FIN_DEL_SKIP;
@@ -1442,7 +1435,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        test_assert(val1 != NULL);
        test_assert(getExpire(db,key1) == EXPIRE);
        swapData *data = createWholeKeySwapDataWithExpire(db,key1,val1,EXPIRE,NULL);
-       swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,ctx,data,NULL,NULL,NULL,NULL,NULL);
+       swapRequest *req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,0,ctx,data,NULL,NULL,NULL,NULL,NULL);
        req->notify_cb = mockNotifyCallback;
        req->notify_pd = NULL;
        processSwapRequest(req);
@@ -1493,7 +1486,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
 
        /* swap out hot key1 */
        swapData *out_data = createWholeKeySwapData(db,key1,val1,NULL);
-       swapRequest *out_req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,SWAP_EXEC_OUT_META,ctx,out_data,NULL,NULL,NULL,NULL,NULL);
+       swapRequest *out_req = swapRequestNew(NULL/*!cold*/,SWAP_OUT,0,ctx,out_data,NULL,NULL,NULL,NULL,NULL);
        out_req->notify_cb = mockNotifyCallback;
        out_req->notify_pd = NULL;
        processSwapRequest(out_req);

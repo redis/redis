@@ -214,15 +214,12 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
                 if (zsetLength(data->value) == 0) {
                     swapDataTurnCold(data);
                 } 
-                swapDataSwapOut(data,datactx);
+                swapDataSwapOut(data,datactx,NULL);
                 *intention = SWAP_NOP;
                 *intention_flags = 0;
             } else {
                 *intention = SWAP_OUT;
-                if (datactx->bdc.num == (int)zsetLength(data->value))
-                    *intention_flags = SWAP_EXEC_OUT_META;
-                else
-                    *intention_flags = 0;
+                *intention_flags = 0;
             }
         }
         break;
@@ -563,7 +560,7 @@ int zsetSwapIn(swapData *data_, void *result_, void *datactx_) {
 /* subkeys already cleaned by cleanObject(to save cpu usage of main thread),
  * swapout only updates db.dict keyspace, meta (db.meta/db.expire) swapped
  * out by swap framework. */
-int zsetSwapOut(swapData *data, void *datactx) {
+int zsetSwapOut(swapData *data, void *datactx, int *totally_out) {
     UNUSED(datactx);
     serverAssert(!swapDataIsCold(data));
 
@@ -579,11 +576,13 @@ int zsetSwapOut(swapData *data, void *datactx) {
             freeObjectMeta(data->new_meta);
             data->new_meta = NULL;
         }
+        if (totally_out) *totally_out = 1;
     } else { /* not all fields swapped out. */
         if (data->new_meta) {
             dbAddMeta(data->db,data->key,data->new_meta);
             data->new_meta = NULL; /* moved to db.meta */
         }
+        if (totally_out) *totally_out = 0;
     }
 
     return 0;
@@ -1437,7 +1436,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zset1_data->new_meta = NULL;
         zset1_ctx->bdc.num = 0;
         zsetSwapAna(zset1_data,kr1,&intention,&intention_flags,zset1_ctx);
-        test_assert(intention == SWAP_OUT && intention_flags == SWAP_EXEC_OUT_META);
+        test_assert(intention == SWAP_OUT && intention_flags == 0);
         test_assert(4 == zset1_ctx->bdc.num);
         test_assert(NULL != zset1_data->new_meta);
 
@@ -1482,7 +1481,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zset1_ctx->bdc.num = 2;
         zset1_ctx->bdc.subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
         zsetCleanObject(zset1_data, zset1_ctx);
-        zsetSwapOut(zset1_data, zset1_ctx);
+        zsetSwapOut(zset1_data, zset1_ctx, NULL);
         test_assert((m =lookupMeta(db,key1)) != NULL && m->len == 2);
         test_assert((s = lookupKey(db, key1, LOOKUP_NOTOUCH)) != NULL);
         test_assert(zsetLength(s) == 2);
@@ -1491,7 +1490,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zset1_data->object_meta = m;
         zset1_ctx->bdc.subkeys = mockSubKeys(2, sdsdup(f3), sdsdup(f4));
         zsetCleanObject(zset1_data, zset1_ctx);
-        zsetSwapOut(zset1_data, zset1_ctx);
+        zsetSwapOut(zset1_data, zset1_ctx, NULL);
         test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) == NULL);
         test_assert(lookupMeta(db,key1) == NULL);
 
@@ -1529,7 +1528,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zset1_ctx->bdc.num = 4;
         zset1_ctx->bdc.subkeys = mockSubKeys(4, sdsdup(f1), sdsdup(f2), sdsdup(f3), sdsdup(f4));
         zsetCleanObject(zset1_data, zset1_ctx);
-        zsetSwapOut(zset1_data, zset1_ctx);
+        zsetSwapOut(zset1_data, zset1_ctx, NULL);
         test_assert((m = lookupMeta(db,key1)) == NULL);
         test_assert((s = lookupKey(db,key1,LOOKUP_NOTOUCH)) == NULL);
 

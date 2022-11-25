@@ -163,9 +163,9 @@ inline int swapDataSwapIn(swapData *d, void *result, void *datactx) {
 }
 
 /* Main-thread: swap out data out of keyspace. */
-inline int swapDataSwapOut(swapData *d, void *datactx) {
+inline int swapDataSwapOut(swapData *d, void *datactx, int *totally_out) {
     if (d->type->swapOut)
-        return d->type->swapOut(d, datactx);
+        return d->type->swapOut(d, datactx, totally_out);
     else
         return 0;
 }

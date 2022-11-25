@@ -161,16 +161,13 @@ int hashSwapAna(swapData *data, struct keyRequest *req,
                 if (hashTypeLength(data->value) == 0) {
                     swapDataTurnCold(data);
                 }
-                swapDataSwapOut(data,datactx);
+                swapDataSwapOut(data,datactx,NULL);
                 
                 *intention = SWAP_NOP;
                 *intention_flags = 0;
             } else {
                 *intention = SWAP_OUT;
-                if (datactx->ctx.num == (int)hashTypeLength(data->value))
-                    *intention_flags = SWAP_EXEC_OUT_META;
-                else
-                    *intention_flags = 0;
+                *intention_flags = 0;
             }
         }
         break;
@@ -367,7 +364,7 @@ int hashSwapIn(swapData *data, void *result, void *datactx) {
 /* subkeys already cleaned by cleanObject(to save cpu usage of main thread),
  * swapout only updates db.dict keyspace, meta (db.meta/db.expire) swapped
  * out by swap framework. */
-int hashSwapOut(swapData *data, void *datactx) {
+int hashSwapOut(swapData *data, void *datactx, int *totally_out) {
     UNUSED(datactx);
     serverAssert(!swapDataIsCold(data));
 
@@ -383,11 +380,13 @@ int hashSwapOut(swapData *data, void *datactx) {
             freeObjectMeta(data->new_meta);
             data->new_meta = NULL;
         }
+        if (totally_out) *totally_out = 1;
     } else { /* not all fields swapped out. */
         if (data->new_meta) {
             dbAddMeta(data->db,data->key,data->new_meta);
             data->new_meta = NULL; /* moved to db.meta */
         }
+        if (totally_out) *totally_out = 0;
     }
 
     return 0;
@@ -885,7 +884,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         hash1_ctx->ctx.num = 0;
         hash1_data_->d.object_meta = createHashObjectMeta(0,1);
         swapDataAna(hash1_data,kr1,&intention,&intention_flags,hash1_ctx);
-        test_assert(intention == SWAP_OUT && intention_flags == SWAP_EXEC_OUT_META);
+        test_assert(intention == SWAP_OUT && intention_flags == 0);
         test_assert(hash1_ctx->ctx.num == (int)hashTypeLength(hash1_data_->d.value));
         serverAssert(hash1_ctx->ctx.subkeys != NULL);
 
@@ -912,14 +911,14 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         hashTypeDelete(hash1,f1);
         hashTypeDelete(hash1,f2);
         data->d.object_meta = NULL, data->d.new_meta = sm, sm->len = 2;
-        hashSwapOut((swapData*)data, hash1_ctx);
+        hashSwapOut((swapData*)data, hash1_ctx, NULL);
         test_assert((m =lookupMeta(db,key1)) != NULL && m->len == 2);
         test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) != NULL);
 
         hashTypeDelete(hash1,f3);
         hashTypeDelete(hash1,f4);
         data->d.object_meta = sm, data->d.new_meta = NULL, sm->len = 2;
-        hashSwapOut((swapData*)data, hash1_ctx);
+        hashSwapOut((swapData*)data, hash1_ctx, NULL);
         test_assert((m = lookupMeta(db,key1)) == NULL);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) == NULL);
 
@@ -955,7 +954,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         hashTypeDelete(hash1,f4);
         *data = *(hashSwapData*)hash1_data;
         data->d.object_meta = NULL, data->d.new_meta = sm2;
-        hashSwapOut((swapData*)data, hash1_ctx);
+        hashSwapOut((swapData*)data, hash1_ctx, NULL);
         test_assert((m = lookupMeta(db,key1)) == NULL);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) == NULL);
 
