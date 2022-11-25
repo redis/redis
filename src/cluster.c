@@ -4297,7 +4297,7 @@ static int clusterNodeCronHandleReconnect(clusterNode *node, mstime_t handshake_
         link->conn = connCreate(connTypeOfCluster());
         connSetPrivateData(link->conn, link);
         if (connConnect(link->conn, node->ip, node->cport, server.bind_source_addr,
-                    clusterLinkConnectHandler) == -1) {
+                    clusterLinkConnectHandler) == C_ERR) {
             /* We got a synchronous error from connect before
              * clusterSendPing() had a chance to be called.
              * If node->ping_sent is zero, failure detection can't work,
@@ -4627,8 +4627,8 @@ int clusterMastersHaveSlaves(void) {
 /* Set the slot bit and return the old value. */
 int clusterNodeSetSlotBit(clusterNode *n, int slot) {
     int old = bitmapTestBit(n->slots,slot);
-    bitmapSetBit(n->slots,slot);
     if (!old) {
+        bitmapSetBit(n->slots,slot);
         n->numslots++;
         /* When a master gets its first slot, even if it has no slaves,
          * it gets flagged with MIGRATE_TO, that is, the master is a valid
@@ -4652,8 +4652,10 @@ int clusterNodeSetSlotBit(clusterNode *n, int slot) {
 /* Clear the slot bit and return the old value. */
 int clusterNodeClearSlotBit(clusterNode *n, int slot) {
     int old = bitmapTestBit(n->slots,slot);
-    bitmapClearBit(n->slots,slot);
-    if (old) n->numslots--;
+    if (old) {
+        bitmapClearBit(n->slots,slot);
+        n->numslots--;
+    }
     return old;
 }
 
