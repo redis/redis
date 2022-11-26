@@ -229,7 +229,14 @@ int dictRehash(dict *d, int n) {
 
             nextde = de->next;
             /* Get the index in the new hash table */
-            h = dictHashKey(d, de->key) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            if (d->ht_size_exp[1] > d->ht_size_exp[0]) {
+                h = dictHashKey(d, de->key) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            } else {
+                /* We're shrinking the table. The tables sizes are powers of
+                 * two, so we simply mask the bucket index in the larger table
+                 * to get the bucket index in the smaller table. */
+                h = d->rehashidx & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            }
             de->next = d->ht_table[1][h];
             d->ht_table[1][h] = de;
             d->ht_used[0]--;
@@ -282,7 +289,7 @@ int dictRehashMilliseconds(dict *d, int ms) {
 /* This function performs just a step of rehashing, and only if hashing has
  * not been paused for our hash table. When we have iterators in the
  * middle of a rehashing we can't mess with the two hash tables otherwise
- * some element can be missed or duplicated.
+ * some elements can be missed or duplicated.
  *
  * This function is called by common lookup or update operations in the
  * dictionary so that the hash table automatically migrates from H1 to H2
@@ -572,16 +579,36 @@ unsigned long long dictFingerprint(dict *d) {
     return hash;
 }
 
-dictIterator *dictGetIterator(dict *d)
+void dictInitIterator(dictIterator *iter, dict *d)
 {
-    dictIterator *iter = zmalloc(sizeof(*iter));
-
     iter->d = d;
     iter->table = 0;
     iter->index = -1;
     iter->safe = 0;
     iter->entry = NULL;
     iter->nextEntry = NULL;
+}
+
+void dictInitSafeIterator(dictIterator *iter, dict *d)
+{
+    dictInitIterator(iter, d);
+    iter->safe = 1;
+}
+
+void dictResetIterator(dictIterator *iter)
+{
+    if (!(iter->index == -1 && iter->table == 0)) {
+        if (iter->safe)
+            dictResumeRehashing(iter->d);
+        else
+            assert(iter->fingerprint == dictFingerprint(iter->d));
+    }
+}
+
+dictIterator *dictGetIterator(dict *d)
+{
+    dictIterator *iter = zmalloc(sizeof(*iter));
+    dictInitIterator(iter, d);
     return iter;
 }
 
@@ -627,12 +654,7 @@ dictEntry *dictNext(dictIterator *iter)
 
 void dictReleaseIterator(dictIterator *iter)
 {
-    if (!(iter->index == -1 && iter->table == 0)) {
-        if (iter->safe)
-            dictResumeRehashing(iter->d);
-        else
-            assert(iter->fingerprint == dictFingerprint(iter->d));
-    }
+    dictResetIterator(iter);
     zfree(iter);
 }
 
@@ -1210,7 +1232,7 @@ char *stringFromLongLong(long long value) {
     int len;
     char *s;
 
-    len = sprintf(buf,"%lld",value);
+    len = snprintf(buf,sizeof(buf),"%lld",value);
     s = zmalloc(len+1);
     memcpy(s, buf, len);
     s[len] = '\0';

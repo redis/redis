@@ -35,7 +35,9 @@ struct clusterNode;
 typedef struct clusterLink {
     mstime_t ctime;             /* Link creation time */
     connection *conn;           /* Connection to remote node */
-    sds sndbuf;                 /* Packet send buffer */
+    list *send_msg_queue;        /* List of messages to be sent */
+    size_t head_msg_send_offset; /* Number of bytes already sent of message at head of queue */
+    unsigned long long send_msg_queue_mem; /* Memory in bytes used by message queue */
     char *rcvbuf;               /* Packet reception buffer */
     size_t rcvbuf_len;          /* Used size of rcvbuf */
     size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
@@ -115,7 +117,7 @@ typedef struct clusterNodeFailReport {
 typedef struct clusterNode {
     mstime_t ctime; /* Node object creation time. */
     char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
-    char shard_id[CLUSTER_NAMELEN]; /* shard id name, hex string, sha1-size */
+    char shard_id[CLUSTER_NAMELEN]; /* shard id, hex string, sha1-size */
     int flags;      /* CLUSTER_NODE_... */
     uint64_t configEpoch; /* Last configEpoch observed for this node */
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
@@ -128,6 +130,7 @@ typedef struct clusterNode {
                                     may be NULL even if the node is a slave
                                     if we don't have the master node in our
                                     tables. */
+    unsigned long long last_in_ping_gossip; /* The number of the last carried in the ping gossip section */
     mstime_t ping_sent;      /* Unix time we sent latest ping */
     mstime_t pong_received;  /* Unix time we received the pong */
     mstime_t data_received;  /* Unix time we received any data */
@@ -254,6 +257,7 @@ typedef struct {
  * consistent manner. */
 typedef enum {
     CLUSTERMSG_EXT_TYPE_HOSTNAME,
+    CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE,
     CLUSTERMSG_EXT_TYPE_SHARDID,
 } clusterMsgPingtypes; 
 
@@ -265,6 +269,13 @@ typedef struct {
 } clusterMsgPingExtHostname;
 
 typedef struct {
+    char name[CLUSTER_NAMELEN]; /* Node name. */
+    uint64_t ttl; /* Remaining time to blacklist the node, in seconds. */
+} clusterMsgPingExtForgottenNode;
+
+static_assert(sizeof(clusterMsgPingExtForgottenNode) % 8 == 0, "");
+
+typedef struct {
     char shard_id[CLUSTER_NAMELEN]; /* The shard_id, 40 bytes fixed. */
 } clusterMsgPingExtShardId;
 
@@ -274,6 +285,7 @@ typedef struct {
     uint16_t unused; /* 16 bits of padding to make this structure 8 byte aligned. */
     union {
         clusterMsgPingExtHostname hostname;
+        clusterMsgPingExtForgottenNode forgotten_node;
         clusterMsgPingExtShardId shard_id;
     } ext[]; /* Actual extension information, formatted so that the data is 8 
               * byte aligned, regardless of its content. */
@@ -381,6 +393,7 @@ static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 void clusterInit(void);
+void clusterInitListeners(void);
 void clusterCron(void);
 void clusterBeforeSleep(void);
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
@@ -405,6 +418,6 @@ void clusterUpdateMyselfIp(void);
 void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
 void clusterUpdateMyselfHostname(void);
-void replicateOpenSlots(client *slave);
+void clusterUpdateMyselfAnnouncedPorts(void);
 
 #endif /* __CLUSTER_H */

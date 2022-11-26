@@ -45,11 +45,11 @@
                 "key_spec_index": 0
             },
             {
-                "name": "min",
+                "name": "start",
                 "type": "string"
             },
             {
-                "name": "max",
+                "name": "stop",
                 "type": "string"
             },
             {
@@ -79,7 +79,7 @@
             },
             {
                 "token": "LIMIT",
-                "name": "offset_count",
+                "name": "limit",
                 "type": "block",
                 "optional": true,
                 "since": "6.2.0",

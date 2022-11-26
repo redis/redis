@@ -546,6 +546,8 @@ void sortCommandGeneric(client *c, int readonly) {
             }
         }
     } else {
+        /* We can't predict the size and encoding of the stored list, we
+         * assume it's a large list and then convert it at the end if needed. */
         robj *sobj = createQuicklistObject();
 
         /* STORE option specified, set the sorting result as a List object */
@@ -578,6 +580,7 @@ void sortCommandGeneric(client *c, int readonly) {
             }
         }
         if (outputlen) {
+            listTypeTryConversion(sobj,LIST_CONV_AUTO,NULL,NULL);
             setKey(c,c->db,storekey,sobj,0);
             notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
                                 c->db->id);

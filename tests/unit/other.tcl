@@ -38,9 +38,25 @@ start_server {tags {"other"}} {
         }
     }
 
+    start_server {overrides {save ""} tags {external:skip}} {
+        test {FLUSHALL should not reset the dirty counter if we disable save} {
+            r set key value
+            r flushall
+            assert_morethan [s rdb_changes_since_last_save] 0
+        }
+
+        test {FLUSHALL should reset the dirty counter to 0 if we enable save} {
+            r config set save "3600 1 300 100 60 10000"
+            r set key value
+            r flushall
+            assert_equal [s rdb_changes_since_last_save] 0
+        }
+    }
+
     test {BGSAVE} {
-        r flushdb
-        waitForBgsave r
+        # Use FLUSHALL instead of FLUSHDB, FLUSHALL do a foreground save
+        # and reset the dirty counter to 0, so we won't trigger an unexpected bgsave.
+        r flushall
         r save
         r set x 10
         r bgsave

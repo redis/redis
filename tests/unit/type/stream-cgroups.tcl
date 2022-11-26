@@ -9,6 +9,29 @@ start_server {
         set err
     } {BUSYGROUP*}
 
+    test {XGROUP CREATE: with ENTRIESREAD parameter} {
+        r DEL mystream
+        r XADD mystream 1-1 a 1
+        r XADD mystream 1-2 b 2
+        r XADD mystream 1-3 c 3
+        r XADD mystream 1-4 d 4
+        assert_error "*value for ENTRIESREAD must be positive or -1*" {r XGROUP CREATE mystream mygroup $ ENTRIESREAD -3}
+
+        r XGROUP CREATE mystream mygroup1 $ ENTRIESREAD 0
+        r XGROUP CREATE mystream mygroup2 $ ENTRIESREAD 3
+
+        set reply [r xinfo groups mystream]
+        foreach group_info $reply {
+            set group_name [dict get $group_info name]
+            set entries_read [dict get $group_info entries-read]
+            if {$group_name == "mygroup1"} {
+                assert_equal $entries_read 0
+            } else {
+                assert_equal $entries_read 3
+            }
+        }
+    }
+
     test {XGROUP CREATE: automatic stream creation fails without MKSTREAM} {
         r DEL mystream
         catch {r XGROUP CREATE mystream mygroup $} err
@@ -445,7 +468,7 @@ start_server {
         assert {[llength [lindex $reply 0 1 0 1]] == 2}
         assert {[lindex $reply 0 1 0 1] eq {a 1}}
 
-        # make sure the entry is present in both the gorup, and the right consumer
+        # make sure the entry is present in both the group, and the right consumer
         assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
         assert {[llength [r XPENDING mystream mygroup - + 10 consumer1]] == 1}
         assert {[llength [r XPENDING mystream mygroup - + 10 consumer2]] == 0}
@@ -457,7 +480,7 @@ start_server {
         assert {[llength [lindex $reply 0 1]] == 2}
         assert {[lindex $reply 0 1] eq {a 1}}
 
-        # make sure the entry is present in both the gorup, and the right consumer
+        # make sure the entry is present in both the group, and the right consumer
         assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
         assert {[llength [r XPENDING mystream mygroup - + 10 consumer1]] == 0}
         assert {[llength [r XPENDING mystream mygroup - + 10 consumer2]] == 1}
@@ -584,9 +607,9 @@ start_server {
         # from the PEL of consumer 1, this should return nil
         r XDEL mystream $id2
 
-        # id1 and id3 are self-claimed here but not id2 ('count' was set to 2)
+        # id1 and id3 are self-claimed here but not id2 ('count' was set to 3)
         # we make sure id2 is indeed skipped (the cursor points to id4)
-        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
+        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 3]
 
         assert_equal [llength $reply] 3
         assert_equal [lindex $reply 0] $id4
@@ -595,6 +618,8 @@ start_server {
         assert_equal [llength [lindex $reply 1 0 1]] 2
         assert_equal [lindex $reply 1 0 1] {a 1}
         assert_equal [lindex $reply 1 1 1] {c 3}
+        assert_equal [llength [lindex $reply 2]] 1
+        assert_equal [llength [lindex $reply 2 0]] 1
 
         # Delete item 3 from the stream. Now consumer 1 has PEL that is empty.
         # Try to use consumer 2 to claim the deleted item 3 from the PEL
@@ -699,6 +724,25 @@ start_server {
         r XDEL x 2-0
         assert_equal [r XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{1-0 {f v}} {3-0 {f v}}} 2-0}
         assert_equal [r XPENDING x grp - + 10 Alice] {}
+    }
+
+    test {XAUTOCLAIM with XDEL and count} {
+        r DEL x
+        r XADD x 1-0 f v
+        r XADD x 2-0 f v
+        r XADD x 3-0 f v
+        r XGROUP CREATE x grp 0
+        assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
+        r XDEL x 1-0
+        r XDEL x 2-0
+        assert_equal [r XAUTOCLAIM x grp Bob 0 0-0 COUNT 1] {2-0 {} 1-0}
+        assert_equal [r XAUTOCLAIM x grp Bob 0 2-0 COUNT 1] {3-0 {} 2-0}
+        assert_equal [r XAUTOCLAIM x grp Bob 0 3-0 COUNT 1] {0-0 {{3-0 {f v}}} {}}
+        assert_equal [r XPENDING x grp - + 10 Alice] {}
+    }
+
+    test {XAUTOCLAIM with out of range count} {
+        assert_error {ERR COUNT*} {r XAUTOCLAIM x grp Bob 0 3-0 COUNT 8070450532247928833}
     }
 
     test {XCLAIM with trimming} {

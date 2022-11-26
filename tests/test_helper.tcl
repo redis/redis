@@ -8,6 +8,7 @@ set tcl_precision 17
 source tests/support/redis.tcl
 source tests/support/aofmanifest.tcl
 source tests/support/server.tcl
+source tests/support/cluster_util.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
@@ -49,6 +50,7 @@ set ::all_tests {
     integration/replication-buffer
     integration/shutdown
     integration/aof
+    integration/aof-race
     integration/aof-multi-part
     integration/rdb
     integration/corrupt-dump
@@ -84,17 +86,20 @@ set ::all_tests {
     unit/wait
     unit/pause
     unit/querybuf
-    unit/pendingquerybuf
     unit/tls
     unit/tracking
     unit/oom-score-adj
     unit/shutdown
     unit/networking
-    unit/cluster
     unit/client-eviction
     unit/violations
     unit/replybufsize
-    unit/cluster-scripting
+    unit/cluster/misc
+    unit/cluster/cli
+    unit/cluster/scripting
+    unit/cluster/hostnames
+    unit/cluster/multi-slot-operations
+    unit/cluster/slot-ownership
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -107,6 +112,7 @@ set ::traceleaks 0
 set ::valgrind 0
 set ::durable 0
 set ::tls 0
+set ::tls_module 0
 set ::stack_logging 0
 set ::verbose 0
 set ::quiet 0
@@ -197,6 +203,18 @@ proc r {args} {
     [srv $level "client"] {*}$args
 }
 
+# Returns a Redis instance by index.
+proc Rn {n} {
+    set level [expr -1*$n]
+    return [srv $level "client"]
+}
+
+# Provide easy access to a client for an inner server. Requires a positive
+# index, unlike r which uses an optional negative index.
+proc R {n args} {
+    [Rn $n] {*}$args
+}
+
 proc reconnect {args} {
     set level [lindex $args 0]
     if {[string length $level] == 0 || ![string is integer $level]} {
@@ -275,14 +293,9 @@ proc s {args} {
     status [srv $level "client"] [lindex $args 0]
 }
 
-# Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
-proc csi {args} {
-    set level 0
-    if {[string is integer [lindex $args 0]]} {
-        set level [lindex $args 0]
-        set args [lrange $args 1 end]
-    }
-    cluster_info [srv $level "client"] [lindex $args 0]
+# Get the specified field from the givens instances cluster info output.
+proc CI {index field} {
+    getInfoProperty [R $index cluster info] $field
 }
 
 # Test wrapped into run_solo are sent back from the client to the
@@ -588,15 +601,15 @@ proc print_help_screen {} {
         "--single <unit>    Just execute the specified unit (see next option). This option can be repeated."
         "--verbose          Increases verbosity."
         "--list-tests       List all the available test units."
-        "--only <test>      Just execute tests that match <test> regexp. This option can be repeated."
+        "--only <test>      Just execute the specified test by test name or tests that match <test> regexp (if <test> starts with '/'). This option can be repeated."
         "--skip-till <unit> Skip all units until (and including) the specified one."
         "--skipunit <unit>  Skip one unit."
         "--clients <num>    Number of test clients (default 16)."
         "--timeout <sec>    Test timeout in seconds (default 20 min)."
         "--force-failure    Force the execution of a test that always fails."
         "--config <k> <v>   Extra config file argument."
-        "--skipfile <file>  Name of a file containing test names or regexp patterns that should be skipped (one per line)."
-        "--skiptest <test>  Test name or regexp pattern to skip. This option can be repeated."
+        "--skipfile <file>  Name of a file containing test names or regexp patterns (if <test> starts with '/') that should be skipped (one per line). This option can be repeated."
+        "--skiptest <test>  Test name or regexp pattern (if <test> starts with '/') to skip. This option can be repeated."
         "--tags <tags>      Run only tests having specified tags or not having '-' prefixed tags."
         "--dont-clean       Don't delete redis log files after the run."
         "--no-latency       Skip latency measurements and validation by some tests."
@@ -605,6 +618,7 @@ proc print_help_screen {} {
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
         "--dump-logs        Dump server log on test failure."
         "--tls              Run tests in TLS mode."
+        "--tls-module       Run tests in TLS mode with Redis module."
         "--host <addr>      Run tests against an external host."
         "--port <port>      TCP port to use against external host."
         "--baseport <port>  Initial port number for spawned redis servers."
@@ -641,7 +655,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set fp [open $arg r]
         set file_data [read $fp]
         close $fp
-        set ::skiptests [split $file_data "\n"]
+        set ::skiptests [concat $::skiptests [split $file_data "\n"]]
     } elseif {$opt eq {--skiptest}} {
         lappend ::skiptests $arg
         incr j
@@ -653,13 +667,16 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         }
     } elseif {$opt eq {--quiet}} {
         set ::quiet 1
-    } elseif {$opt eq {--tls}} {
+    } elseif {$opt eq {--tls} || $opt eq {--tls-module}} {
         package require tls 1.6
         set ::tls 1
         ::tls::init \
             -cafile "$::tlsdir/ca.crt" \
             -certfile "$::tlsdir/client.crt" \
             -keyfile "$::tlsdir/client.key"
+        if {$opt eq {--tls-module}} {
+            set ::tls_module 1
+        }
     } elseif {$opt eq {--host}} {
         set ::external 1
         set ::host $arg
@@ -784,12 +801,12 @@ if {[llength $filtered_tests] < [llength $::all_tests]} {
     set ::all_tests $filtered_tests
 }
 
-proc attach_to_replication_stream {} {
+proc attach_to_replication_stream_on_connection {conn} {
     r config set repl-ping-replica-period 3600
     if {$::tls} {
-        set s [::tls::socket [srv 0 "host"] [srv 0 "port"]]
+        set s [::tls::socket [srv $conn "host"] [srv $conn "port"]]
     } else {
-        set s [socket [srv 0 "host"] [srv 0 "port"]]
+        set s [socket [srv $conn "host"] [srv $conn "port"]]
     }
     fconfigure $s -translation binary
     puts -nonewline $s "SYNC\r\n"
@@ -812,6 +829,10 @@ proc attach_to_replication_stream {} {
         set count [expr {$count-[string length $buf]}]
     }
     return $s
+}
+
+proc attach_to_replication_stream {} {
+    return [attach_to_replication_stream_on_connection 0]
 }
 
 proc read_from_replication_stream {s} {

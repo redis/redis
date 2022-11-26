@@ -38,6 +38,7 @@ void initClientMultiState(client *c) {
     c->mstate.cmd_flags = 0;
     c->mstate.cmd_inv_flags = 0;
     c->mstate.argv_len_sums = 0;
+    c->mstate.alloc_count = 0;
 }
 
 /* Release all the resources associated with MULTI/EXEC state */
@@ -56,7 +57,7 @@ void freeClientMultiState(client *c) {
 }
 
 /* Add a new command into the MULTI commands queue */
-void queueMultiCommand(client *c) {
+void queueMultiCommand(client *c, uint64_t cmd_flags) {
     multiCmd *mc;
 
     /* No sense to waste memory if the transaction is already aborted.
@@ -65,9 +66,16 @@ void queueMultiCommand(client *c) {
      * aborted. */
     if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))
         return;
-
-    c->mstate.commands = zrealloc(c->mstate.commands,
-            sizeof(multiCmd)*(c->mstate.count+1));
+    if (c->mstate.count == 0) {
+        /* If a client is using multi/exec, assuming it is used to execute at least
+         * two commands. Hence, creating by default size of 2. */
+        c->mstate.commands = zmalloc(sizeof(multiCmd)*2);
+        c->mstate.alloc_count = 2;
+    }
+    if (c->mstate.count == c->mstate.alloc_count) {
+        c->mstate.alloc_count = c->mstate.alloc_count < INT_MAX/2 ? c->mstate.alloc_count*2 : INT_MAX;
+        c->mstate.commands = zrealloc(c->mstate.commands, sizeof(multiCmd)*(c->mstate.alloc_count));
+    }
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
     mc->argc = c->argc;
@@ -75,8 +83,8 @@ void queueMultiCommand(client *c) {
     mc->argv_len = c->argv_len;
 
     c->mstate.count++;
-    c->mstate.cmd_flags |= c->cmd->flags;
-    c->mstate.cmd_inv_flags |= ~c->cmd->flags;
+    c->mstate.cmd_flags |= cmd_flags;
+    c->mstate.cmd_inv_flags |= ~cmd_flags;
     c->mstate.argv_len_sums += c->argv_len_sum + sizeof(robj*)*c->argc;
 
     /* Reset the client's args since we copied them into the mstate and shouldn't
@@ -230,6 +238,7 @@ void execCommand(client *c) {
         /* Commands may alter argc/argv, restore mstate. */
         c->mstate.commands[j].argc = c->argc;
         c->mstate.commands[j].argv = c->argv;
+        c->mstate.commands[j].argv_len = c->argv_len;
         c->mstate.commands[j].cmd = c->cmd;
     }
 
@@ -255,16 +264,37 @@ void execCommand(client *c) {
  * Also every client contains a list of WATCHed keys so that's possible to
  * un-watch such keys when the client is freed or when UNWATCH is called. */
 
-/* In the client->watched_keys list we need to use watchedKey structures
- * as in order to identify a key in Redis we need both the key name and the
- * DB. This struct is also referenced from db->watched_keys dict, where the
- * values are lists of watchedKey pointers. */
+/* The watchedKey struct is included in two lists: the client->watched_keys list,
+ * and db->watched_keys dict (each value in that dict is a list of watchedKey structs).
+ * The list in the client struct is a plain list, where each node's value is a pointer to a watchedKey.
+ * The list in the db db->watched_keys is different, the listnode member that's embedded in this struct
+ * is the node in the dict. And the value inside that listnode is a pointer to the that list, and we can use
+ * struct member offset math to get from the listnode to the watchedKey struct.
+ * This is done to avoid the need for listSearchKey and dictFind when we remove from the list. */
 typedef struct watchedKey {
+    listNode node;
     robj *key;
     redisDb *db;
     client *client;
     unsigned expired:1; /* Flag that we're watching an already expired key. */
 } watchedKey;
+
+/* Attach a watchedKey to the list of clients watching that key. */
+static inline void watchedKeyLinkToClients(list *clients, watchedKey *wk) {
+    wk->node.value = clients; /* Point the value back to the list */
+    listLinkNodeTail(clients, &wk->node); /* Link the embedded node */
+}
+
+/* Get the list of clients watching that key. */
+static inline list *watchedKeyGetClients(watchedKey *wk) {
+    return listNodeValue(&wk->node); /* embedded node->value points back to the list */
+}
+
+/* Get the node with wk->client in the list of clients watching that key. Actually it
+ * is just the embedded node. */
+static inline listNode *watchedKeyGetClientNode(watchedKey *wk) {
+    return &wk->node;
+}
 
 /* Watch for the specified key */
 void watchForKey(client *c, robj *key) {
@@ -294,8 +324,8 @@ void watchForKey(client *c, robj *key) {
     wk->db = c->db;
     wk->expired = keyIsExpired(c->db, key);
     incrRefCount(key);
-    listAddNodeTail(c->watched_keys,wk);
-    listAddNodeTail(clients,wk);
+    listAddNodeTail(c->watched_keys, wk);
+    watchedKeyLinkToClients(clients, wk);
 }
 
 /* Unwatch all the keys watched by this client. To clean the EXEC dirty
@@ -310,12 +340,11 @@ void unwatchAllKeys(client *c) {
         list *clients;
         watchedKey *wk;
 
-        /* Lookup the watched key -> clients list and remove the client's wk
-         * from the list */
+        /* Remove the client's wk from the list of clients watching the key. */
         wk = listNodeValue(ln);
-        clients = dictFetchValue(wk->db->watched_keys, wk->key);
+        clients = watchedKeyGetClients(wk);
         serverAssertWithInfo(c,NULL,clients != NULL);
-        listDelNode(clients,listSearchKey(clients,wk));
+        listUnlinkNode(clients, watchedKeyGetClientNode(wk));
         /* Kill the entry at all if this was the only client */
         if (listLength(clients) == 0)
             dictDelete(wk->db->watched_keys, wk->key);
@@ -358,7 +387,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
     /* Check if we are already watching for this key */
     listRewind(clients,&li);
     while((ln = listNext(&li))) {
-        watchedKey *wk = listNodeValue(ln);
+        watchedKey *wk = member2struct(watchedKey, node, ln);
         client *c = wk->client;
 
         if (wk->expired) {
@@ -411,7 +440,7 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             if (!clients) continue;
             listRewind(clients,&li);
             while((ln = listNext(&li))) {
-                watchedKey *wk = listNodeValue(ln);
+                watchedKey *wk = member2struct(watchedKey, node, ln);
                 if (wk->expired) {
                     if (!replaced_with || !dictFind(replaced_with->dict, key->ptr)) {
                         /* Expired key now deleted. No logical change. Clear the
@@ -465,5 +494,7 @@ size_t multiStateMemOverhead(client *c) {
     size_t mem = c->mstate.argv_len_sums;
     /* Add watched keys overhead, Note: this doesn't take into account the watched keys themselves, because they aren't managed per-client. */
     mem += listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));
+    /* Reserved memory for queued multi commands. */
+    mem += c->mstate.alloc_count * sizeof(multiCmd);
     return mem;
 }

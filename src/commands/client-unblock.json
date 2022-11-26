@@ -11,7 +11,8 @@
             "ADMIN",
             "NOSCRIPT",
             "LOADING",
-            "STALE"
+            "STALE",
+            "SENTINEL"
         ],
         "acl_categories": [
             "CONNECTION"
@@ -22,7 +23,7 @@
                 "type": "integer"
             },
             {
-                "name": "timeout_error",
+                "name": "unblock-type",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [

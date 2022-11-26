@@ -3,7 +3,7 @@
         "summary": "Return the node shard id",
         "complexity": "O(1)",
         "group": "cluster",
-        "since": "7.0.0",
+        "since": "7.2.0",
         "arity": 2,
         "container": "CLUSTER",
         "function": "clusterCommand",

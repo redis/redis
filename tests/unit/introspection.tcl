@@ -7,7 +7,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT LIST} {
         r client list
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=2*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=2*}
 
     test {CLIENT LIST with IDs} {
         set myid [r client id]
@@ -17,7 +17,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT INFO} {
         r client info
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=2*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=2*}
 
     test {CLIENT KILL with illegal arguments} {
         assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
@@ -54,7 +54,45 @@ start_server {tags {"introspection"}} {
         # After killing `me`, the first ping will throw an error
         assert_error "*I/O error*" {r ping}
         assert_equal "PONG" [r ping]
+
+        $rd1 close
+        $rd2 close
+        $rd3 close
+        $rd4 close
     }
+
+    test "CLIENT KILL close the client connection during bgsave" {
+        # Start a slow bgsave, trigger an active fork.
+        r flushall
+        r set k v
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 1
+        } else {
+            fail "bgsave did not start in time"
+        }
+
+        # Kill (close) the connection
+        r client kill skipme no
+
+        # In the past, client connections needed to wait for bgsave
+        # to end before actually closing, now they are closed immediately.
+        assert_error "*I/O error*" {r ping} ;# get the error very quickly
+        assert_equal "PONG" [r ping]
+
+        # Make sure the bgsave is still in progress
+        assert_equal [s rdb_bgsave_in_progress] 1
+
+        # Stop the child before we proceed to the next test
+        r config set rdb-key-save-delay 0
+        r flushall
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 0
+        } else {
+            fail "bgsave did not stop in time"
+        }
+    } {} {needs:save}
 
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
@@ -73,6 +111,19 @@ start_server {tags {"introspection"}} {
         $rd read ;# Discard the OK
         r eval {redis.call('set',KEYS[1],ARGV[1])} 1 foo bar
         assert_match {*eval*} [$rd read]
+        assert_match {*lua*"set"*"foo"*"bar"*} [$rd read]
+        $rd close
+    }
+
+    test {MONITOR can log commands issued by functions} {
+        r function load replace {#!lua name=test
+            redis.register_function('test', function() return redis.call('set', 'foo', 'bar') end)
+        }
+        set rd [redis_deferring_client]
+        $rd monitor
+        $rd read ;# Discard the OK
+        r fcall test 0
+        assert_match {*fcall*test*} [$rd read]
         assert_match {*lua*"set"*"foo"*"bar"*} [$rd read]
         $rd close
     }
@@ -166,10 +217,25 @@ start_server {tags {"introspection"}} {
             assert_match [r config get save] {save {3600 1 300 100 60 10000}}
         }
 
-        # First "save" keyword overrides defaults
+        # First "save" keyword overrides hard coded defaults
         start_server {config "minimal.conf" overrides {save {100 100}}} {
             # Defaults
             assert_match [r config get save] {save {100 100}}
+        }
+
+        # First "save" keyword in default config file
+        start_server {config "default.conf"} {
+            assert_match [r config get save] {save {900 1}}
+        }
+
+        # First "save" keyword appends default from config file
+        start_server {config "default.conf" args {--save 100 100}} {
+            assert_match [r config get save] {save {900 1 100 100}}
+        }
+
+        # Empty "save" keyword resets all
+        start_server {config "default.conf" args {--save {}}} {
+            assert_match [r config get save] {save {}}
         }
     } {} {external:skip}
 
@@ -449,6 +515,110 @@ start_server {tags {"introspection"}} {
         assert {[dict exists $res bind]}  
     }
 
+    test {redis-server command line arguments - error cases} {
+        catch {exec src/redis-server --port} err
+        assert_match {*'port'*wrong number of arguments*} $err
+
+        catch {exec src/redis-server --port 6380 --loglevel} err
+        assert_match {*'loglevel'*wrong number of arguments*} $err
+
+        # Take `6379` and `6380` as the port option value.
+        catch {exec src/redis-server --port 6379 6380} err
+        assert_match {*'port "6379" "6380"'*wrong number of arguments*} $err
+
+        # Take `--loglevel` and `verbose` as the port option value.
+        catch {exec src/redis-server --port --loglevel verbose} err
+        assert_match {*'port "--loglevel" "verbose"'*wrong number of arguments*} $err
+
+        # Take `--bla` as the port option value.
+        catch {exec src/redis-server --port --bla --loglevel verbose} err
+        assert_match {*'port "--bla"'*argument couldn't be parsed into an integer*} $err
+
+        # Take `--bla` as the loglevel option value.
+        catch {exec src/redis-server --logfile --my--log--file --loglevel --bla} err
+        assert_match {*'loglevel "--bla"'*argument(s) must be one of the following*} $err
+
+        # Using MULTI_ARG's own check, empty option value
+        catch {exec src/redis-server --shutdown-on-sigint} err
+        assert_match {*'shutdown-on-sigint'*argument(s) must be one of the following*} $err
+        catch {exec src/redis-server --shutdown-on-sigint "now force" --shutdown-on-sigterm} err
+        assert_match {*'shutdown-on-sigterm'*argument(s) must be one of the following*} $err
+
+        # Something like `redis-server --some-config --config-value1 --config-value2 --loglevel debug` would break,
+        # because if you want to pass a value to a config starting with `--`, it can only be a single value.
+        catch {exec src/redis-server --replicaof 127.0.0.1 abc} err
+        assert_match {*'replicaof "127.0.0.1" "abc"'*Invalid master port*} $err
+        catch {exec src/redis-server --replicaof --127.0.0.1 abc} err
+        assert_match {*'replicaof "--127.0.0.1" "abc"'*Invalid master port*} $err
+        catch {exec src/redis-server --replicaof --127.0.0.1 --abc} err
+        assert_match {*'replicaof "--127.0.0.1"'*wrong number of arguments*} $err
+    } {} {external:skip}
+
+    test {redis-server command line arguments - allow passing option name and option value in the same arg} {
+        start_server {config "default.conf" args {"--maxmemory 700mb" "--maxmemory-policy volatile-lru"}} {
+            assert_match [r config get maxmemory] {maxmemory 734003200}
+            assert_match [r config get maxmemory-policy] {maxmemory-policy volatile-lru}
+        }
+    } {} {external:skip}
+
+    test {redis-server command line arguments - wrong usage that we support anyway} {
+        start_server {config "default.conf" args {loglevel verbose "--maxmemory '700mb'" "--maxmemory-policy 'volatile-lru'"}} {
+            assert_match [r config get loglevel] {loglevel verbose}
+            assert_match [r config get maxmemory] {maxmemory 734003200}
+            assert_match [r config get maxmemory-policy] {maxmemory-policy volatile-lru}
+        }
+    } {} {external:skip}
+
+    test {redis-server command line arguments - allow option value to use the `--` prefix} {
+        start_server {config "default.conf" args {--proc-title-template --my--title--template --loglevel verbose}} {
+            assert_match [r config get proc-title-template] {proc-title-template --my--title--template}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+    } {} {external:skip}
+
+    test {redis-server command line arguments - option name and option value in the same arg and `--` prefix} {
+        start_server {config "default.conf" args {"--proc-title-template --my--title--template" "--loglevel verbose"}} {
+            assert_match [r config get proc-title-template] {proc-title-template --my--title--template}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+    } {} {external:skip}
+
+    test {redis-server command line arguments - save with empty input} {
+        start_server {config "default.conf" args {--save --loglevel verbose}} {
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+
+        start_server {config "default.conf" args {--loglevel verbose --save}} {
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+
+        start_server {config "default.conf" args {--save {} --loglevel verbose}} {
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+
+        start_server {config "default.conf" args {--loglevel verbose --save {}}} {
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+
+        start_server {config "default.conf" args {--proc-title-template --save --save {} --loglevel verbose}} {
+            assert_match [r config get proc-title-template] {proc-title-template --save}
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+
+    } {} {external:skip}
+
+    test {redis-server command line arguments - take one bulk string with spaces for MULTI_ARG configs parsing} {
+        start_server {config "default.conf" args {--shutdown-on-sigint nosave force now --shutdown-on-sigterm "nosave force"}} {
+            assert_match [r config get shutdown-on-sigint] {shutdown-on-sigint {nosave now force}}
+            assert_match [r config get shutdown-on-sigterm] {shutdown-on-sigterm {nosave force}}
+        }
+    } {} {external:skip}
+
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
 }
@@ -501,5 +671,40 @@ test {config during loading} {
 
         # no need to keep waiting for loading to complete
         exec kill [srv 0 pid]
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE handles rename-command properly} {
+    start_server {tags {"introspection"} overrides {rename-command {flushdb badger}}} {
+        assert_error {ERR unknown command*} {r flushdb}
+
+        r config rewrite
+        restart_server 0 true false
+
+        assert_error {ERR unknown command*} {r flushdb}
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE handles alias config properly} {
+    start_server {tags {"introspection"} overrides {hash-max-listpack-entries 20 hash-max-ziplist-entries 21}} {
+        assert_equal [r config get hash-max-listpack-entries] {hash-max-listpack-entries 21}
+        assert_equal [r config get hash-max-ziplist-entries] {hash-max-ziplist-entries 21}
+        r config set hash-max-listpack-entries 100
+
+        r config rewrite
+        restart_server 0 true false
+
+        assert_equal [r config get hash-max-listpack-entries] {hash-max-listpack-entries 100}
+    }
+    # test the order doesn't matter
+    start_server {tags {"introspection"} overrides {hash-max-ziplist-entries 20 hash-max-listpack-entries 21}} {
+        assert_equal [r config get hash-max-listpack-entries] {hash-max-listpack-entries 21}
+        assert_equal [r config get hash-max-ziplist-entries] {hash-max-ziplist-entries 21}
+        r config set hash-max-listpack-entries 100
+
+        r config rewrite
+        restart_server 0 true false
+
+        assert_equal [r config get hash-max-listpack-entries] {hash-max-listpack-entries 100}
     }
 } {} {external:skip}

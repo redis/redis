@@ -30,7 +30,7 @@
 
 #include "server.h"
 #include "hiredis.h"
-#ifdef USE_OPENSSL
+#if USE_OPENSSL == 1 /* BUILD_YES */
 #include "openssl/ssl.h"
 #include "hiredis_ssl.h"
 #endif
@@ -44,7 +44,7 @@
 
 extern char **environ;
 
-#ifdef USE_OPENSSL
+#if USE_OPENSSL == 1 /* BUILD_YES */
 extern SSL_CTX *redis_tls_ctx;
 extern SSL_CTX *redis_tls_client_ctx;
 #endif
@@ -200,7 +200,7 @@ typedef struct sentinelRedisInstance {
     dict *renamed_commands;     /* Commands renamed in this instance:
                                    Sentinel will use the alternative commands
                                    mapped on this table to send things like
-                                   SLAVEOF, CONFING, INFO, ... */
+                                   SLAVEOF, CONFIG, INFO, ... */
 
     /* Role and the first time we observed it.
      * This is useful in order to delay replacing what the instance reports
@@ -616,10 +616,16 @@ int sentinelAddrOrHostnameEqual(sentinelAddr *a, sentinelAddr *b) {
 int sentinelAddrEqualsHostname(sentinelAddr *a, char *hostname) {
     char ip[NET_IP_STR_LEN];
 
-    /* We always resolve the hostname and compare it to the address */
+    /* Try resolve the hostname and compare it to the address */
     if (anetResolve(NULL, hostname, ip, sizeof(ip),
-                    sentinel.resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR)
-        return 0;
+                    sentinel.resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR) {
+
+        /* If failed resolve then compare based on hostnames. That is our best effort as
+         * long as the server is unavailable for some reason. It is fine since Redis 
+         * instance cannot have multiple hostnames for a given setup */
+        return !strcasecmp(sentinel.resolve_hostnames ? a->hostname : a->ip, hostname);
+    }
+    /* Compare based on address */
     return !strcasecmp(a->ip, ip);
 }
 
@@ -848,7 +854,7 @@ void sentinelRunPendingScripts(void) {
             sj->pid = 0;
         } else if (pid == 0) {
             /* Child */
-            tlsCleanup();
+            connTypeCleanupAll();
             execve(sj->argv[0],sj->argv,environ);
             /* If we are here an error occurred. */
             _exit(2); /* Don't retry execution. */
@@ -2378,9 +2384,7 @@ void sentinelSetClientName(sentinelRedisInstance *ri, redisAsyncContext *c, char
 }
 
 static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
-#ifndef USE_OPENSSL
-    (void) context;
-#else
+#if USE_OPENSSL == 1 /* BUILD_YES */
     if (!redis_tls_ctx) return C_ERR;
     SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);
     if (!ssl) return C_ERR;
@@ -2389,6 +2393,8 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
         SSL_free(ssl);
         return C_ERR;
     }
+#else
+    UNUSED(context);
 #endif
     return C_OK;
 }
@@ -3027,7 +3033,7 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
     if (sentinel.announce_ip) {
         announce_ip = sentinel.announce_ip;
     } else {
-        if (anetFdToString(ri->link->cc->c.fd,ip,sizeof(ip),NULL,FD_TO_SOCK_NAME) == -1)
+        if (anetFdToString(ri->link->cc->c.fd,ip,sizeof(ip),NULL,0) == -1)
             return C_ERR;
         announce_ip = ip;
     }
@@ -3176,7 +3182,17 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
 
 /* =========================== SENTINEL command ============================= */
 
-/* SENTINEL CONFIG SET <option> */
+const char* getLogLevel() {
+   switch (server.verbosity) {
+    case LL_DEBUG: return "debug";
+    case LL_VERBOSE: return "verbose";
+    case LL_NOTICE: return "notice";
+    case LL_WARNING: return "warning";
+    }
+    return "unknown";
+}
+
+/* SENTINEL CONFIG SET <option> <value>*/
 void sentinelConfigSetCommand(client *c) {
     robj *o = c->argv[3];
     robj *val = c->argv[4];
@@ -3207,6 +3223,17 @@ void sentinelConfigSetCommand(client *c) {
         sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
             NULL : sdsdup(val->ptr);
         drop_conns = 1;
+    } else if (!strcasecmp(o->ptr, "loglevel")) {
+        if (!strcasecmp(val->ptr, "debug"))
+            server.verbosity = LL_DEBUG;
+        else if (!strcasecmp(val->ptr, "verbose"))
+            server.verbosity = LL_VERBOSE;
+        else if (!strcasecmp(val->ptr, "notice"))
+            server.verbosity = LL_NOTICE;
+        else if (!strcasecmp(val->ptr, "warning"))
+            server.verbosity = LL_WARNING;
+        else
+            goto badfmt;
     } else {
         addReplyErrorFormat(c, "Invalid argument '%s' to SENTINEL CONFIG SET",
                             (char *) o->ptr);
@@ -3269,6 +3296,11 @@ void sentinelConfigGetCommand(client *c) {
         matches++;
     }
 
+    if (stringmatch(pattern, "loglevel", 1)) {
+        addReplyBulkCString(c, "loglevel");
+        addReplyBulkCString(c, getLogLevel());
+        matches++;
+    }
     setDeferredMapLen(c, replylen, matches);
 }
 
@@ -4127,7 +4159,7 @@ numargserr:
 
 void addInfoSectionsToDict(dict *section_dict, char **sections);
 
-/* SENTINEL INFO [section] */
+/* INFO [<section> [<section> ...]] */
 void sentinelInfoCommand(client *c) {
     char *sentinel_sections[] = {"server", "clients", "cpu", "stats", "sentinel", NULL};
     int sec_all = 0, sec_everything = 0;

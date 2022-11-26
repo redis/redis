@@ -6,10 +6,11 @@ set server_path [tmpdir "server.rdb-encoding-test"]
 exec cp tests/assets/encodings.rdb $server_path
 exec cp tests/assets/list-quicklist.rdb $server_path
 
-start_server [list overrides [list "dir" $server_path "dbfilename" "list-quicklist.rdb"]] {
+start_server [list overrides [list "dir" $server_path "dbfilename" "list-quicklist.rdb" save ""]] {
     test "test old version rdb file" {
         r select 0
         assert_equal [r get x] 7
+        assert_encoding listpack list
         r lpop list
     } {7}
 }
@@ -29,7 +30,7 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "encodings.rd
 "0","set_zipped_2","set","100000","200000","300000","400000",
 "0","set_zipped_3","set","1000000000","2000000000","3000000000","4000000000","5000000000","6000000000",
 "0","string","string","Hello World"
-"0","zset","zset","a","1","b","2","c","3","aa","10","bb","20","cc","30","aaa","100","bbb","200","ccc","300","aaaa","1000","cccc","123456789","bbbb","5000000000",
+"0","zset","zset","a","1","b","2","c","3","aa","10","bb","20","cc","30","aaa","100","bbb","200","ccc","300","aaaa","1000","cccc","123456789","bbbb","5e+9",
 "0","zset_zipped","zset","a","1","b","2","c","3",
 }
 }
@@ -278,7 +279,7 @@ start_server {overrides {save ""}} {
 
         set current_save_keys_total [s current_save_keys_total]
         if {$::verbose} {
-            puts "Keys before bgsave start: current_save_keys_total"
+            puts "Keys before bgsave start: $current_save_keys_total"
         }
 
         # on each iteration, we will write some key to the server to trigger copy-on-write, and
@@ -364,6 +365,51 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "scriptbackup
     test {script won't load anymore if it's in rdb} {
         assert_equal [r script exists a0c38691e9fffe4563723c32ba77a34398e090e6] 0
     }
+}
+
+start_server {} {
+    test "failed bgsave prevents writes" {
+        r config set rdb-key-save-delay 10000000
+        populate 1000
+        r set x x
+        r bgsave
+        set pid1 [get_child_pid 0]
+        catch {exec kill -9 $pid1}
+        waitForBgsave r
+
+        # make sure a read command succeeds
+        assert_equal [r get x] x
+
+        # make sure a write command fails
+        assert_error {MISCONF *} {r set x y}
+
+        # repeate with script
+        assert_error {MISCONF *} {r eval {
+            return redis.call('set','x',1)
+            } 1 x
+        }
+        assert_equal {x} [r eval {
+            return redis.call('get','x')
+            } 1 x
+        ]
+
+        # again with script using shebang
+        assert_error {MISCONF *} {r eval {#!lua
+            return redis.call('set','x',1)
+            } 1 x
+        }
+        assert_equal {x} [r eval {#!lua flags=no-writes
+            return redis.call('get','x')
+            } 1 x
+        ]
+
+        r config set rdb-key-save-delay 0
+        r bgsave
+        waitForBgsave r
+
+        # server is writable again
+        r set x y
+    } {OK}
 }
 
 } ;# tags

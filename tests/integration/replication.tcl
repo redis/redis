@@ -225,11 +225,45 @@ start_server {tags {"repl external:skip"}} {
             }
         }
 
-        test {FLUSHALL should replicate} {
+        test {FLUSHDB / FLUSHALL should replicate} {
+            set repl [attach_to_replication_stream]
+
+            r -1 set key value
+            r -1 flushdb
+
+            r -1 set key value2
             r -1 flushall
-            if {$::valgrind} {after 2000}
-            list [r -1 dbsize] [r 0 dbsize]
-        } {0 0}
+
+            wait_for_ofs_sync [srv 0 client] [srv -1 client]
+            assert_equal [r -1 dbsize] 0
+            assert_equal [r 0 dbsize] 0
+
+            # DB is empty.
+            r -1 flushdb
+            r -1 flushdb
+            r -1 flushdb
+
+            # DBs are empty.
+            r -1 flushall
+            r -1 flushall
+            r -1 flushall
+
+            # Assert that each FLUSHDB command is replicated even the DB is empty.
+            # Assert that each FLUSHALL command is replicated even the DBs are empty.
+            assert_replication_stream $repl {
+                {set key value}
+                {flushdb}
+                {set key value2}
+                {flushall}
+                {flushdb}
+                {flushdb}
+                {flushdb}
+                {flushall}
+                {flushall}
+                {flushall}
+            }
+            close_replication_stream $repl
+        }
 
         test {ROLE in master reports master with a slave} {
             set res [r -1 role]
@@ -958,7 +992,7 @@ test "diskless replication child being killed is collected" {
             # wait for the replicas to start reading the rdb
             wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 800 10
 
-            # wait to be sure the eplica is hung and the master is blocked on write
+            # wait to be sure the replica is hung and the master is blocked on write
             after 500
 
             # simulate the OOM killer or anyone else kills the child
@@ -977,6 +1011,45 @@ test "diskless replication child being killed is collected" {
         }
     }
 } {} {external:skip}
+
+foreach mdl {yes no} {
+    test "replication child dies when parent is killed - diskless: $mdl" {
+        # when master is killed, make sure the fork child can detect that and exit
+        start_server {tags {"repl"}} {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+            set master_pid [srv 0 pid]
+            $master config set repl-diskless-sync $mdl
+            $master config set repl-diskless-sync-delay 0
+            # create keys that will take 10 seconds to save
+            $master config set rdb-key-save-delay 1000
+            $master debug populate 10000
+            start_server {} {
+                set replica [srv 0 client]
+                $replica replicaof $master_host $master_port
+
+                # wait for rdb child to start
+                wait_for_condition 5000 10 {
+                    [s -1 rdb_bgsave_in_progress] == 1
+                } else {
+                    fail "rdb child didn't start"
+                }
+                set fork_child_pid [get_child_pid -1]
+
+                # simulate the OOM killer or anyone else kills the parent
+                exec kill -9 $master_pid
+
+                # wait for the child to notice the parent died have exited
+                wait_for_condition 500 10 {
+                    [process_is_alive $fork_child_pid] == 0
+                } else {
+                    fail "rdb child didn't terminate"
+                }
+            }
+        }
+    } {} {external:skip}
+}
 
 test "diskless replication read pipe cleanup" {
     # In diskless replication, we create a read pipe for the RDB, between the child and the parent.
@@ -1255,7 +1328,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica generated a reply to command 'ping', disconnecting it: *" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
@@ -1273,7 +1345,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica generated a reply to command 'xinfo|help', disconnecting it: *" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
@@ -1294,7 +1365,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica can't interact with the keyspace*" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
@@ -1313,7 +1383,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica generated a reply to command 'slowlog|get', disconnecting it: *" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
@@ -1323,5 +1392,36 @@ start_server {tags {"repl" "external:skip"}} {
         set logs [exec tail -n 100 < [srv 0 stdout]]
         assert_match {*Replica * asks for synchronization but with a wrong offset} $logs
         assert_equal "PONG" [r ping]
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    $master debug SET-ACTIVE-EXPIRE 0
+    start_server {} {
+        set slave [srv 0 client]
+        $slave debug SET-ACTIVE-EXPIRE 0
+        $slave slaveof $master_host $master_port
+
+        test "Test replication with lazy expire" {
+            # wait for replication to be in sync
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            $master sadd s foo
+            $master pexpire s 1
+            after 10
+            $master sadd s foo
+            assert_equal 1 [$master wait 1 0]
+
+            assert_equal "set" [$master type s]
+            assert_equal "set" [$slave type s]
+        }
     }
 }

@@ -198,6 +198,22 @@ test "Test the replica reports a loading state while it's loading" {
     assert_equal "online" [dict get [get_node_info_from_shard $replica_cluster_id $replica_id "node"] health]
 }
 
+test "Regression test for a crash when calling SHARDS during handshake" {
+    # Reset forget a node, so we can use it to establish handshaking connections
+    set id [R 19 CLUSTER MYID]
+    R 19 CLUSTER RESET HARD
+    for {set i 0} {$i < 19} {incr i} {
+        R $i CLUSTER FORGET $id
+    }
+    R 19 cluster meet 127.0.0.1 [get_instance_attrib redis 0 port]
+    # This should line would previously crash, since all the outbound
+    # connections were in handshake state.
+    R 19 CLUSTER SHARDS
+}
+
+test "Cluster is up" {
+    assert_cluster_state ok
+}
 test "Shard ids are unique" {
     set shard_ids {}
     for {set i 0} {$i < 4} {incr i} {
@@ -211,13 +227,6 @@ test "CLUSTER MYSHARDID reports same id for both primary and replica" {
     for {set i 0} {$i < 4} {incr i} {
         assert_equal [R $i cluster myshardid] [R [expr $i+4] cluster myshardid]
         assert_equal [string length [R $i cluster myshardid]] 40
-    }
-}
-
-test "CLUSTER SHARDS reports correct shard id" {
-    for {set i 0} {$i < 8} {incr i} {
-        set node_id [R $i CLUSTER MYID]
-        assert_equal [get_node_info_from_shard $node_id $i "shard-id"] [R $i cluster myshardid]
     }
 }
 
@@ -294,63 +303,4 @@ test "CLUSTER MYSHARDID reports same shard id after cluster restart" {
     for {set i 0} {$i < 8} {incr i} {
         assert_equal [dict get $node_ids $i] [R $i cluster myshardid]
     }
-}
-
-test "CLUSTER SHARDS handles empty shard properly" {
-    assert_not_equal [R 10 CLUSTER MYSHARDID] [R 11 CLUSTER MYSHARDID]
-    set node_10_id [R 10 CLUSTER MYID]
-    set shard_id [R 10 CLUSTER MYSHARDID]
-    R 11 CLUSTER REPLICATE $node_10_id
-    assert_equal [R 10 CLUSTER MYSHARDID] [R 11 CLUSTER MYSHARDID]
-    set shard_ids {}
-    foreach shard [R 10 CLUSTER SHARDS] {
-        set shard_id [dict get $shard shard-id]
-        assert_equal [dict exists $shard_ids $shard_id] 0
-        dict set shard_ids $shard_id 1
-    }
-    assert_equal [dict exists $shard_ids $shard_id] 1
-}
-
-test "CLUSTER SHARDS reports all nodes in the same shard when the entire shard failed" {
-    set node_0_id [R 0 CLUSTER MYID]
-    set node_4_id [R 4 CLUSTER MYID]
-    assert_equal [R 0 CLUSTER MYSHARDID] [R 4 CLUSTER MYSHARDID]
-    set shard_id [R 0 CLUSTER MYSHARDID]
-
-    cluster_ensure_master 0
-    kill_instance redis 0
-    kill_instance redis 4
-
-    set shard_ids {}
-    set node_ids {}
-    foreach shard_response [R 1 CLUSTER SHARDS] {
-        if {[dict get $shard_response shard-id] eq $shard_id} {
-            foreach node [dict get $shard_response nodes] {
-                set id [dict get $node id]
-                assert_not_equal [dict exists $node_ids $id] 1
-                dict set node_ids $id 1
-            }
-            break
-        }
-    }
-
-    assert_equal [dict size $node_ids] 2
-    assert_equal [dict exists $node_ids $node_0_id] 1
-    assert_equal [dict exists $node_ids $node_4_id] 1
-    restart_instance redis 0
-    restart_instance redis 4
-}
-
-test "CLUSTER SHARDS reports failed primary in new primary's shard" {
-    cluster_ensure_master 0
-    kill_instance redis 0
-
-    set shard_ids {}
-    foreach shard_response [R 1 CLUSTER SHARDS] {
-        set shard_id [dict get $shard_response shard-id]
-        assert_equal [dict exists $shard_ids $shard_id] 0
-        dict set shard_ids $shard_id 1
-    }
-
-    restart_instance redis 0
 }

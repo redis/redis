@@ -43,7 +43,7 @@
  * This should be the size of the buffer for sprintf with %f */
 #define MAX_DOUBLE_CHARS 400
 
-/* The maximum number of characters needed to for d2string call.
+/* The maximum number of characters needed to for d2string/fpconv_dtoa call.
  * Since it uses %g and not %f, some 40 chars should be enough. */
 #define MAX_D2STRING_CHARS 128
 
@@ -85,6 +85,10 @@ int dirExists(char *dname);
 int dirRemove(char *dname);
 int fileExist(char *filename);
 sds makePath(char *path, char *filename);
+int fsyncFileDir(const char *filename);
+
+size_t redis_strlcpy(char *dst, const char *src, size_t dsize);
+size_t redis_strlcat(char *dst, const char *src, size_t dsize);
 
 #ifdef REDIS_TEST
 int utilTest(int argc, char **argv, int flags);

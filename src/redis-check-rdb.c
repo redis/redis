@@ -85,8 +85,9 @@ char *rdb_type_string[] = {
     "zset-v1",
     "hash-hashtable",
     "zset-v2",
+    "module-pre-release",
     "module-value",
-    "","",
+    "",
     "hash-zipmap",
     "list-ziplist",
     "set-intset",
@@ -96,7 +97,8 @@ char *rdb_type_string[] = {
     "stream",
     "hash-listpack",
     "zset-listpack",
-    "quicklist-v2"
+    "quicklist-v2",
+    "set-listpack",
 };
 
 /* Show a few stats collected into 'rdbstate' */
@@ -283,7 +285,10 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             robj *auxkey, *auxval;
             rdbstate.doing = RDB_CHECK_DOING_READ_AUX;
             if ((auxkey = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
-            if ((auxval = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
+            if ((auxval = rdbLoadStringObject(&rdb)) == NULL) {
+                decrRefCount(auxkey);
+                goto eoferr;
+            }
 
             rdbCheckInfo("AUX FIELD %s = '%s'",
                 (char*)auxkey->ptr, (char*)auxval->ptr);
@@ -297,6 +302,10 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             if ((moduleid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
             if ((when_opcode = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
             if ((when = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+            if (when_opcode != RDB_MODULE_OPCODE_UINT) {
+                rdbCheckError("bad when_opcode");
+                goto err;
+            }
 
             char name[10];
             moduleTypeNameByID(name,moduleid);
@@ -305,10 +314,13 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             robj *o = rdbLoadCheckModuleValue(&rdb,name);
             decrRefCount(o);
             continue; /* Read type again. */
-        } else if (type == RDB_OPCODE_FUNCTION || type == RDB_OPCODE_FUNCTION2) {
+        } else if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
+            rdbCheckError("Pre-release function format not supported %d",rdbver);
+            goto err;
+        } else if (type == RDB_OPCODE_FUNCTION2) {
             sds err = NULL;
             rdbstate.doing = RDB_CHECK_DOING_READ_FUNCTIONS;
-            if (rdbFunctionLoad(&rdb, rdbver, NULL, type, 0, &err) != C_OK) {
+            if (rdbFunctionLoad(&rdb, rdbver, NULL, 0, &err) != C_OK) {
                 rdbCheckError("Failed loading library, %s", err);
                 sdsfree(err);
                 goto err;

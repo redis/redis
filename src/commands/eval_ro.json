@@ -11,7 +11,8 @@
             "NOSCRIPT",
             "SKIP_MONITOR",
             "NO_MANDATORY_KEYS",
-            "STALE"
+            "STALE",
+            "READONLY"
         ],
         "acl_categories": [
             "SCRIPTING"
@@ -50,11 +51,13 @@
                 "name": "key",
                 "type": "key",
                 "key_spec_index": 0,
+		"optional":true,
                 "multiple": true
             },
             {
                 "name": "arg",
                 "type": "string",
+		"optional":true,
                 "multiple": true
             }
         ]
