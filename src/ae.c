@@ -241,7 +241,6 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
     while(te) {
         if (te->id == id) {
             te->id = AE_DELETED_EVENT_ID;
-            te->when = MONOTIME_MAX;
             return AE_OK;
         }
         te = te->next;
@@ -264,7 +263,7 @@ static int64_t usUntilEarliestTimer(aeEventLoop *eventLoop) {
 
     aeTimeEvent *earliest = NULL;
     while (te) {
-        if (!earliest || te->when < earliest->when)
+        if ((!earliest || te->when < earliest->when) && te->id != AE_DELETED_EVENT_ID)
             earliest = te;
         te = te->next;
     }
@@ -333,7 +332,6 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
                 te->when = now + retval * 1000;
             } else {
                 te->id = AE_DELETED_EVENT_ID;
-                te->when = MONOTIME_MAX;
             }
         }
         te = te->next;

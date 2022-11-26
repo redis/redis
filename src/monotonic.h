@@ -20,7 +20,6 @@
  * variable is associated with the monotonic clock and should not be confused
  * with other types of time.*/
 typedef uint64_t monotime;
-#define MONOTIME_MAX UINT64_MAX
 
 /* Retrieve counter of micro-seconds relative to an arbitrary point in time.  */
 extern monotime (*getMonotonicUs)(void);
