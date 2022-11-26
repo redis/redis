@@ -381,19 +381,14 @@ int evalExtractShebangFlags(sds body, uint64_t *out_flags, ssize_t *out_shebang_
 /* Try to extract command flags if we can, returns the modified flags.
  * Note that it does not guarantee the command arguments are right. */
 uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
-    char funcname[43];
     int evalsha = c->cmd->proc == evalShaCommand || c->cmd->proc == evalShaRoCommand;
     if (evalsha && sdslen(c->argv[1]->ptr) != 40)
         return cmd_flags;
-    dictEntry *de = NULL;
     uint64_t script_flags;
-    // We only need to call the expensive function evalCalcFunctionName
-    // if we're handling EVALSHA related commands
-    if (evalsha){
-        evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
-        char *lua_cur_script = funcname + 2;
-        de = dictFind(lctx.lua_scripts, lua_cur_script);
-    }
+    if (!c->eval_funcname) c->eval_funcname = zmalloc(43);
+    evalCalcFunctionName(evalsha, c->argv[1]->ptr, c->eval_funcname);
+    char *lua_cur_script = c->eval_funcname + 2;
+    dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
     if (!de) {
         if (evalsha)
             return cmd_flags;
@@ -493,7 +488,8 @@ void resetLuaClient(void) {
 
 void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = lctx.lua;
-    char funcname[43];
+    char funcname_buf[43];
+    char *funcname = funcname_buf;
     long long numkeys;
 
     /* Get the number of arguments that are keys */
@@ -507,7 +503,10 @@ void evalGenericCommand(client *c, int evalsha) {
         return;
     }
 
-    evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
+    if (c->eval_funcname)
+        funcname = c->eval_funcname;
+    else
+        evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
 
     /* Push the pcall error handler function on the stack. */
     lua_getglobal(lua, "__redis__err__handler");

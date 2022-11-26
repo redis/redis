@@ -158,6 +158,7 @@ client *createClient(connection *conn) {
     c->original_argc = 0;
     c->original_argv = NULL;
     c->cmd = c->lastcmd = c->realcmd = NULL;
+    c->eval_funcname = NULL;
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;
@@ -1600,6 +1601,7 @@ void freeClient(client *c) {
     freeClientOriginalArgv(c);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
+    zfree(c->eval_funcname);
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
@@ -2018,6 +2020,8 @@ void resetClient(client *c) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
     freeClientArgv(c);
+    zfree(c->eval_funcname);
+    c->eval_funcname = NULL;
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
