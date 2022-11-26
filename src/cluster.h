@@ -418,5 +418,6 @@ void clusterUpdateMyselfIp(void);
 void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
 void clusterUpdateMyselfHostname(void);
+void clusterUpdateMyselfAnnouncedPorts(void);
 
 #endif /* __CLUSTER_H */

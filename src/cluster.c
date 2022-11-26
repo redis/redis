@@ -753,6 +753,14 @@ void clusterUpdateMyselfFlags(void) {
 }
 
 
+/* We want to take myself->port/cport/pport in sync with the
+* cluster-announce-port/cluster-announce-bus-port/cluster-announce-tls-port option.
+* The option can be set at runtime via CONFIG SET. */
+void clusterUpdateMyselfAnnouncedPorts(void) {
+    if (!myself) return;
+    deriveAnnouncedPorts(&myself->port,&myself->pport,&myself->cport);
+}
+
 /* We want to take myself->ip in sync with the cluster-announce-ip option.
 * The option can be set at runtime via CONFIG SET. */
 void clusterUpdateMyselfIp(void) {
