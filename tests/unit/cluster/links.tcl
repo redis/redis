@@ -1,39 +1,5 @@
-# Returns a parsed CLUSTER LINKS output of the instance identified
-# by the given `id` as a list of dictionaries, with each dictionary
-# corresponds to a link.
-proc get_cluster_links id {
-    set lines [R $id cluster links]
-    set links {}
-    foreach l $lines {
-        if {$l eq {}} continue
-        assert_equal [llength $l] 12
-        assert_equal [lindex $l 0] "direction"
-        set dir [lindex $l 1]
-        assert_equal [lindex $l 2] "node"
-        set node [lindex $l 3]
-        assert_equal [lindex $l 4] "create-time"
-        set create_time [lindex $l 5]
-        assert_equal [lindex $l 6] "events"
-        set events [lindex $l 7]
-        assert_equal [lindex $l 8] "send-buffer-allocated"
-        set send_buffer_allocated [lindex $l 9]
-        assert_equal [lindex $l 10] "send-buffer-used"
-        set send_buffer_used [lindex $l 11]
-        set link [dict create \
-            dir $dir \
-            node $node \
-            create_time $create_time \
-            events $events \
-            send_buffer_allocated $send_buffer_allocated \
-            send_buffer_used $send_buffer_used \
-        ]
-        lappend links $link
-    }
-    return $links
-}
-
 proc get_links_with_peer {this_instance_id peer_nodename} {
-    set links [get_cluster_links $this_instance_id]
+    set links [R $this_instance_id cluster links]
     set links_with_peer {}
     foreach l $links {
         if {[dict get $l node] eq $peer_nodename} {
@@ -48,7 +14,7 @@ proc get_links_with_peer {this_instance_id peer_nodename} {
 proc get_link_to_peer {this_instance_id peer_nodename} {
     set links_with_peer [get_links_with_peer $this_instance_id $peer_nodename]
     foreach l $links_with_peer {
-        if {[dict get $l dir] eq "to"} {
+        if {[dict get $l direction] eq "to"} {
             return $l
         }
     }
@@ -60,7 +26,7 @@ proc get_link_to_peer {this_instance_id peer_nodename} {
 proc get_link_from_peer {this_instance_id peer_nodename} {
     set links_with_peer [get_links_with_peer $this_instance_id $peer_nodename]
     foreach l $links_with_peer {
-        if {[dict get $l dir] eq "from"} {
+        if {[dict get $l direction] eq "from"} {
             return $l
         }
     }
@@ -92,7 +58,7 @@ proc number_of_peers {id} {
 }
 
 proc number_of_links {id} {
-    llength [get_cluster_links $id]
+    llength [R $id cluster links]
 }
 
 proc publish_messages {server num_msgs msg_size} {
@@ -114,7 +80,7 @@ start_cluster 3 0 {tags {external:skip cluster}} {
             }
 
             set nodes [get_cluster_nodes $id]
-            set links [get_cluster_links $id]
+            set links [R $id cluster links]
 
             # For each peer there should be exactly one
             # link "to" it and one link "from" it.
@@ -125,9 +91,9 @@ start_cluster 3 0 {tags {external:skip cluster}} {
                 set from 0
                 foreach l $links {
                     if {[dict get $l node] eq $peer} {
-                        if {[dict get $l dir] eq "to"} {
+                        if {[dict get $l direction] eq "to"} {
                             incr to
-                        } elseif {[dict get $l dir] eq "from"} {
+                        } elseif {[dict get $l direction] eq "from"} {
                             incr from
                         }
                     }
@@ -135,6 +101,20 @@ start_cluster 3 0 {tags {external:skip cluster}} {
                 assert {$to eq 1}
                 assert {$from eq 1}
             }
+        }
+    }
+
+    test {Validate cluster links format} {
+        set lines [R 0 cluster links]
+        foreach l $lines {
+            if {$l eq {}} continue
+            assert_equal [llength $l] 12
+            assert_equal 1 [dict exists $l "direction"]
+            assert_equal 1 [dict exists $l "node"]
+            assert_equal 1 [dict exists $l "create-time"]
+            assert_equal 1 [dict exists $l "events"]
+            assert_equal 1 [dict exists $l "send-buffer-allocated"]
+            assert_equal 1 [dict exists $l "send-buffer-used"]
         }
     }
 
@@ -185,11 +165,11 @@ start_cluster 3 0 {tags {external:skip cluster}} {
 
         # A new link to primary2 should have been recreated
         set new_link_p1_to_p2 [get_link_to_peer $primary1_id $primary2_name]
-        assert {[dict get $new_link_p1_to_p2 create_time] > [dict get $orig_link_p1_to_p2 create_time]}
+        assert {[dict get $new_link_p1_to_p2 create-time] > [dict get $orig_link_p1_to_p2 create-time]}
 
         # Link from primary2 should not be affected
         set same_link_p1_from_p2 [get_link_from_peer $primary1_id $primary2_name]
-        assert {[dict get $same_link_p1_from_p2 create_time] eq [dict get $orig_link_p1_from_p2 create_time]}
+        assert {[dict get $same_link_p1_from_p2 create-time] eq [dict get $orig_link_p1_from_p2 create-time]}
 
         # Revive primary2
         exec kill -SIGCONT $primary2_pid
