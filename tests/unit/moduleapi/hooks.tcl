@@ -91,7 +91,7 @@ tags "modules" {
             r set str abcd
             r set str abcde
             # For String Type value is returned
-            assert_equal {abcd overwrite} [r hooks.is_key_removed str]
+            assert_equal {abcd overwritten} [r hooks.is_key_removed str]
             assert_equal -1 [r hooks.pexpireat str]
 
             r del str

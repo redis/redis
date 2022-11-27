@@ -219,7 +219,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  * This function does not modify the expire time of the existing key.
  *
  * The 'overwrite' flag is an indication whether this is done as part of a
- * complete replacement of they key, which can be thought of a deletion and
+ * complete replacement of their key, which can be thought as a deletion and
  * replacement (in which case we need to emit deletion signals), or just an
  * update of a value of an existing key (when false).
  *
@@ -238,8 +238,8 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
          * need to incr to retain old */
         incrRefCount(old);
         /* Although the key is not really deleted from the database, we regard
-        * overwrite as two steps of unlink+add, so we still need to call the unlink
-        * callback of the module. */
+         * overwrite as two steps of unlink+add, so we still need to call the unlink
+         * callback of the module. */
         moduleNotifyKeyUnlink(key,old,db->id,DB_FLAG_KEY_OVERWRITE);
         /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
         signalDeletedKeyAsReady(db,key,old->type);

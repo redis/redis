@@ -545,9 +545,12 @@ void *dictFetchValue(dict *d, const void *key) {
  * dictEntry *de = dictTwoPhaseUnlinkFind(db->dict,key->ptr,&plink, &table);
  * // Do something, but we can't modify the dict
  * dictTwoPhaseUnlinkFree(db->dict,de,plink,table); // We don't need to lookup again
+ *
+ * If we want to find an entry before delete this entry, this an optimization to avoid
+ * dictFind followed by dictDelete. i.e. the first API is a find, and it gives some info
+ * to the second one to avoid repeating the lookup
  */
-dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, int *table_index)
-{
+dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, int *table_index) {
     uint64_t h, idx, table;
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
@@ -571,8 +574,7 @@ dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, 
     return NULL;
 }
 
-void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table_index)
-{
+void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table_index) {
     if (he == NULL) return;
     d->ht_used[table_index]--;
     *plink = he->next;

@@ -10764,7 +10764,7 @@ static uint64_t moduleEventVersions[] = {
  *     * `REDISMODULE_SUBEVENT_KEY_DELETED`
  *     * `REDISMODULE_SUBEVENT_KEY_EXPIRED`
  *     * `REDISMODULE_SUBEVENT_KEY_EVICTED`
- *     * `REDISMODULE_SUBEVENT_KEY_OVERWRITE`
+ *     * `REDISMODULE_SUBEVENT_KEY_OVERWRITTEN`
  *
  *     The data pointer can be casted to a RedisModuleKeyInfo
  *     structure with the following fields:
@@ -10934,8 +10934,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             } else if (eid == REDISMODULE_EVENT_KEY) {
                 moduledata = data;
                 RedisModuleKeyInfoV1 *ki = data;
-                if (ki->dbnum != -1)
-                    selectDb(ctx.client, ki->dbnum);
+                serverAssert(ki->dbnum != -1);
+                selectDb(ctx.client, ki->dbnum);
             }
 
             el->module->in_hook++;
@@ -10995,7 +10995,7 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
     } else if (flags & DB_FLAG_KEY_EVICTED) {
         subevent = REDISMODULE_SUBEVENT_KEY_EVICTED;
     } else if (flags & DB_FLAG_KEY_OVERWRITE) {
-        subevent = REDISMODULE_SUBEVENT_KEY_OVERWRITE;
+        subevent = REDISMODULE_SUBEVENT_KEY_OVERWRITTEN;
     }
     RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, dbid, key};
     moduleFireServerEvent(REDISMODULE_EVENT_KEY, subevent, &ki);
