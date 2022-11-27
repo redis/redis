@@ -341,10 +341,10 @@ sds sdsResize(sds s, size_t size) {
      * type. */
     int is_realloc_op = (oldtype==type || (type < oldtype && type > SDS_TYPE_8));
     size_t newlen = is_realloc_op ? oldhdrlen+size+1 : hdrlen+size+1;
-    int noop = false;
+    int noop = 0;
     #if defined(USE_JEMALLOC)
         if (je_nallocx(newlen, 0) == zmalloc_size(sdsAllocPtr(s))) {
-            noop = true;
+            noop = 1;
         }
     #endif
 
