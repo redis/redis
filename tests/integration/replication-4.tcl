@@ -122,6 +122,11 @@ start_server {tags {"repl external:skip"}} {
         }
 
         test {Replication of an expired key does not delete the expired key} {
+            # This test is very likely to do a false positive if the wait_for_ofs_sync
+            # takes longer than the expiration time, so give it a few more chances.
+            for {set i 0} {$i < 10} {incr i} {
+
+            wait_for_ofs_sync $master $slave
             $master debug set-active-expire 0
             $master set k 1 ex 1
             wait_for_ofs_sync $master $slave
@@ -133,8 +138,15 @@ start_server {tags {"repl external:skip"}} {
             exec kill -SIGCONT [srv 0 pid]
             wait_for_ofs_sync $master $slave
             # Check that k is logically expired but is present in the replica.
-            assert_equal 0 [$slave exists k]
-            $slave debug object k ; # Raises exception if k is gone.
+            set res [$slave exists k]
+            set errcode [catch {$slave debug object k} err] ; # Raises exception if k is gone.
+            if {$res == 0 && $errcode == 0} { break }
+
+            } ;# for
+
+            if {$::verbose} { puts "Replication of an expired key does not delete the expired key test attempts: $i" }
+            assert_equal $res 0
+            assert_equal $errcode 0
         }
     }
 }
