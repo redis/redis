@@ -67,6 +67,7 @@
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
 void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap);
+zskiplistNode* zslGetElementByRank(zskiplist* zsl, unsigned long rank);
 
 /* Create a skiplist node with the specified number of levels.
  * The SDS string 'ele' is referenced by the node after the call. */
@@ -328,9 +329,9 @@ int zslIsInRange(zskiplist *zsl, zrangespec *range) {
     return 1;
 }
 
-/* Find the first node that is contained in the specified range.
+/* Find the Nth node that is contained in the specified range. N should be 0-based.
  * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
+zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
     zskiplistNode *x;
     int i;
 
@@ -338,44 +339,37 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
     if (!zslIsInRange(zsl,range)) return NULL;
 
     x = zsl->header;
-    for (i = zsl->level-1; i >= 0; i--) {
-        /* Go forward while *OUT* of range. */
-        while (x->level[i].forward &&
-            !zslValueGteMin(x->level[i].forward->score,range))
+    if (n >= 0) {
+        for (i = zsl->level - 1; i >= 0; i--) {
+            /* Go forward while *OUT* of range. */
+            while (x->level[i].forward && !zslValueGteMin(x->level[i].forward->score, range)) {
                 x = x->level[i].forward;
+            }
+        }
+        for (i++, n++; i >= 0 && n > 0; i--) {
+            while (x->level[i].forward && (unsigned long)n >= x->level[i].span) {
+                n -= x->level[i].span;
+                x = x->level[i].forward;
+            }
+        }
+        /* Check if x reached nth element*/
+        if (n > 0) return NULL;
+        /* Check if score <= max. */
+        if (!zslValueLteMax(x->score,range)) return NULL;
+    } else  {
+        long rank = 0;
+        for (i = zsl->level - 1; i >= 0; i--) {
+            /* Go forward while *IN* range. */
+            while (x->level[i].forward && zslValueLteMax(x->level[i].forward->score, range)) {
+                rank += x->level[i].span;
+                x = x->level[i].forward;
+            }
+        }
+        x = rank >= -n ? zslGetElementByRank(zsl, rank + n + 1) : NULL;
+        /* Check if score >= min. */
+        if (!zslValueGteMin(x->score, range)) return NULL;
     }
 
-    /* This is an inner range, so the next node cannot be NULL. */
-    x = x->level[0].forward;
-    serverAssert(x != NULL);
-
-    /* Check if score <= max. */
-    if (!zslValueLteMax(x->score,range)) return NULL;
-    return x;
-}
-
-/* Find the last node that is contained in the specified range.
- * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
-    zskiplistNode *x;
-    int i;
-
-    /* If everything is out of range, return early. */
-    if (!zslIsInRange(zsl,range)) return NULL;
-
-    x = zsl->header;
-    for (i = zsl->level-1; i >= 0; i--) {
-        /* Go forward while *IN* range. */
-        while (x->level[i].forward &&
-            zslValueLteMax(x->level[i].forward->score,range))
-                x = x->level[i].forward;
-    }
-
-    /* This is an inner range, so this node cannot be NULL. */
-    serverAssert(x != NULL);
-
-    /* Check if score >= min. */
-    if (!zslValueGteMin(x->score,range)) return NULL;
     return x;
 }
 
@@ -666,9 +660,9 @@ int zslIsInLexRange(zskiplist *zsl, zlexrangespec *range) {
     return 1;
 }
 
-/* Find the first node that is contained in the specified lex range.
+/* Find the Nth node that is contained in the specified range. N should be 0-based.
  * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range) {
+zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
     zskiplistNode *x;
     int i;
 
@@ -676,44 +670,37 @@ zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range) {
     if (!zslIsInLexRange(zsl,range)) return NULL;
 
     x = zsl->header;
-    for (i = zsl->level-1; i >= 0; i--) {
-        /* Go forward while *OUT* of range. */
-        while (x->level[i].forward &&
-            !zslLexValueGteMin(x->level[i].forward->ele,range))
+    if (n >= 0) {
+        for (i = zsl->level - 1; i >= 0; i--) {
+            /* Go forward while *OUT* of range. */
+            while (x->level[i].forward && !zslLexValueGteMin(x->level[i].forward->ele, range)) {
                 x = x->level[i].forward;
+            }
+        }
+        for (i++, n++; i >= 0 && n > 0; i--) {
+            while (x->level[i].forward && (unsigned long)n >= x->level[i].span) {
+                n -= x->level[i].span;
+                x = x->level[i].forward;
+            }
+        }
+        /* Check if x reached nth element*/
+        if (n > 0) return NULL;
+        /* Check if score <= max. */
+        if (!zslLexValueLteMax(x->ele,range)) return NULL;
+    } else {
+        long rank = 0;
+        for (i = zsl->level - 1; i >= 0; i--) {
+            /* Go forward while *IN* range. */
+            while (x->level[i].forward && zslLexValueLteMax(x->level[i].forward->ele, range)) {
+                rank += x->level[i].span;
+                x = x->level[i].forward;
+            }
+        }
+        x = rank >= -n ? zslGetElementByRank(zsl, rank + n + 1) : NULL;
+        /* Check if score >= min. */
+        if (!zslLexValueGteMin(x->ele, range)) return NULL;
     }
 
-    /* This is an inner range, so the next node cannot be NULL. */
-    x = x->level[0].forward;
-    serverAssert(x != NULL);
-
-    /* Check if score <= max. */
-    if (!zslLexValueLteMax(x->ele,range)) return NULL;
-    return x;
-}
-
-/* Find the last node that is contained in the specified range.
- * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
-    zskiplistNode *x;
-    int i;
-
-    /* If everything is out of range, return early. */
-    if (!zslIsInLexRange(zsl,range)) return NULL;
-
-    x = zsl->header;
-    for (i = zsl->level-1; i >= 0; i--) {
-        /* Go forward while *IN* range. */
-        while (x->level[i].forward &&
-            zslLexValueLteMax(x->level[i].forward->ele,range))
-                x = x->level[i].forward;
-    }
-
-    /* This is an inner range, so this node cannot be NULL. */
-    serverAssert(x != NULL);
-
-    /* Check if score >= min. */
-    if (!zslLexValueGteMin(x->ele,range)) return NULL;
     return x;
 }
 
@@ -3269,19 +3256,9 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
-            ln = zslLastInRange(zsl,range);
+            ln = zslNthInRange(zsl,range,-offset-1);
         } else {
-            ln = zslFirstInRange(zsl,range);
-        }
-
-        /* If there is an offset, just traverse the number of elements without
-         * checking the score because that is done in the next loop. */
-        while (ln && offset--) {
-            if (reverse) {
-                ln = ln->backward;
-            } else {
-                ln = ln->level[0].forward;
-            }
+            ln = zslNthInRange(zsl,range,offset);
         }
 
         while (ln && limit--) {
@@ -3377,7 +3354,7 @@ void zcountCommand(client *c) {
         unsigned long rank;
 
         /* Find first element in range */
-        zn = zslFirstInRange(zsl, &range);
+        zn = zslNthInRange(zsl, &range, 0);
 
         /* Use rank of first element, if any, to determine preliminary count */
         if (zn != NULL) {
@@ -3385,7 +3362,7 @@ void zcountCommand(client *c) {
             count = (zsl->length - (rank - 1));
 
             /* Find last element in range */
-            zn = zslLastInRange(zsl, &range);
+            zn = zslNthInRange(zsl, &range, -1);
 
             /* Use rank of last element, if any, to determine the actual count */
             if (zn != NULL) {
@@ -3455,7 +3432,7 @@ void zlexcountCommand(client *c) {
         unsigned long rank;
 
         /* Find first element in range */
-        zn = zslFirstInLexRange(zsl, &range);
+        zn = zslNthInLexRange(zsl, &range, 0);
 
         /* Use rank of first element, if any, to determine preliminary count */
         if (zn != NULL) {
@@ -3463,7 +3440,7 @@ void zlexcountCommand(client *c) {
             count = (zsl->length - (rank - 1));
 
             /* Find last element in range */
-            zn = zslLastInLexRange(zsl, &range);
+            zn = zslNthInLexRange(zsl, &range, -1);
 
             /* Use rank of last element, if any, to determine the actual count */
             if (zn != NULL) {
@@ -3550,19 +3527,9 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
-            ln = zslLastInLexRange(zsl,range);
+            ln = zslNthInLexRange(zsl,range,-offset-1);
         } else {
-            ln = zslFirstInLexRange(zsl,range);
-        }
-
-        /* If there is an offset, just traverse the number of elements without
-         * checking the score because that is done in the next loop. */
-        while (ln && offset--) {
-            if (reverse) {
-                ln = ln->backward;
-            } else {
-                ln = ln->level[0].forward;
-            }
+            ln = zslNthInLexRange(zsl,range,offset);
         }
 
         while (ln && limit--) {
