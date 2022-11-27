@@ -307,3 +307,45 @@ test "Replica redirects key access in migrating slots with ASK" {
     assert_equal {609} [lindex [split $err] 1]
     validate_slot_migration_states_close 0 1 609
 }
+
+source "../tests/includes/init-tests.tcl"
+
+test "Create a cluster with 3 masters and 3 replicas" {
+    create_cluster $master_count [expr $master_count * $replica_count]
+    config_set_all_nodes cluster-allow-replica-migration no
+    config_set_all_nodes cluster-node-timeout 200
+}
+
+test "(Empty shard) Migration destination replicates slot importing states" {
+    assert_equal {} [get_a_slot 16]
+    assert_equal {OK} [R 19 cluster replicate [R 16 cluster myid]]
+    validate_slot_migration_states 0 16
+}
+
+test "(Empty shard) Migration destination is auto-updated after destination auto-failover" {
+    assert_equal {} [get_a_slot 6]
+    assert_equal {OK} [R 9 cluster replicate [R 6 cluster myid]]
+    wait_master_replica_stablization 6 9
+    test_slot_migration_with_auto_failover 0 6 6
+}
+
+test "(Empty shard) Migration source is auto-updated after source auto-failover" {
+    assert_equal {} [get_a_slot 7]
+    assert_equal {OK} [R 10 cluster replicate [R 7 cluster myid]]
+    wait_master_replica_stablization 7 10
+    test_slot_migration_with_auto_failover 0 7 0
+}
+
+test "(Empty shard) Migration destination is auto-updated after destination manual-failover" {
+    assert_equal {} [get_a_slot 8]
+    assert_equal {OK} [R 11 cluster replicate [R 8 cluster myid]]
+    wait_master_replica_stablization 8 11
+    test_slot_migration_with_manual_failover 0 8 8
+}
+
+test "(Empty shard) Migration source is auto-updated after source manual-failover" {
+    assert_equal {} [get_a_slot 12]
+    assert_equal {OK} [R 15 cluster replicate [R 12 cluster myid]]
+    wait_master_replica_stablization 12 15
+    test_slot_migration_with_manual_failover 0 12 0
+}
