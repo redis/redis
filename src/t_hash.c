@@ -64,17 +64,17 @@ int hashTypeGetFromListpack(robj *o, sds field,
                             unsigned int *vlen,
                             long long *vll)
 {
-    unsigned char *zl, *fptr = NULL, *vptr = NULL;
+    unsigned char *lp, *fptr = NULL, *vptr = NULL;
 
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
 
-    zl = o->ptr;
-    fptr = lpFirst(zl);
+    lp = o->ptr;
+    fptr = lpFirst(lp);
     if (fptr != NULL) {
-        fptr = lpFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
+        fptr = lpFind(lp, fptr, (unsigned char*)field, sdslen(field), 1);
         if (fptr != NULL) {
             /* Grab pointer to the value (fptr points to the field) */
-            vptr = lpNext(zl, fptr);
+            vptr = lpNext(lp, fptr);
             serverAssert(vptr != NULL);
         }
     }
@@ -199,29 +199,29 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
     }
     
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl, *fptr, *vptr;
+        unsigned char *lp, *fptr, *vptr;
 
-        zl = o->ptr;
-        fptr = lpFirst(zl);
+        lp = o->ptr;
+        fptr = lpFirst(lp);
         if (fptr != NULL) {
-            fptr = lpFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
+            fptr = lpFind(lp, fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
                 /* Grab pointer to the value (fptr points to the field) */
-                vptr = lpNext(zl, fptr);
+                vptr = lpNext(lp, fptr);
                 serverAssert(vptr != NULL);
                 update = 1;
 
                 /* Replace value */
-                zl = lpReplace(zl, &vptr, (unsigned char*)value, sdslen(value));
+                lp = lpReplace(lp, &vptr, (unsigned char*)value, sdslen(value));
             }
         }
 
         if (!update) {
             /* Push new field/value pair onto the tail of the listpack */
-            zl = lpAppend(zl, (unsigned char*)field, sdslen(field));
-            zl = lpAppend(zl, (unsigned char*)value, sdslen(value));
+            lp = lpAppend(lp, (unsigned char*)field, sdslen(field));
+            lp = lpAppend(lp, (unsigned char*)value, sdslen(value));
         }
-        o->ptr = zl;
+        o->ptr = lp;
 
         /* Check if the listpack needs to be converted to a hash table */
         if (hashTypeLength(o) > server.hash_max_listpack_entries)
@@ -266,16 +266,16 @@ int hashTypeDelete(robj *o, sds field) {
     int deleted = 0;
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl, *fptr;
+        unsigned char *lp, *fptr;
 
-        zl = o->ptr;
-        fptr = lpFirst(zl);
+        lp = o->ptr;
+        fptr = lpFirst(lp);
         if (fptr != NULL) {
-            fptr = lpFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
+            fptr = lpFind(lp, fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
                 /* Delete both of the key and the value. */
-                zl = lpDeleteRangeWithEntry(zl,&fptr,2);
-                o->ptr = zl;
+                lp = lpDeleteRangeWithEntry(lp,&fptr,2);
+                o->ptr = lp;
                 deleted = 1;
             }
         }
@@ -333,26 +333,26 @@ void hashTypeReleaseIterator(hashTypeIterator *hi) {
  * could be found and C_ERR when the iterator reaches the end. */
 int hashTypeNext(hashTypeIterator *hi) {
     if (hi->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl;
+        unsigned char *lp;
         unsigned char *fptr, *vptr;
 
-        zl = hi->subject->ptr;
+        lp = hi->subject->ptr;
         fptr = hi->fptr;
         vptr = hi->vptr;
 
         if (fptr == NULL) {
             /* Initialize cursor */
             serverAssert(vptr == NULL);
-            fptr = lpFirst(zl);
+            fptr = lpFirst(lp);
         } else {
             /* Advance cursor */
             serverAssert(vptr != NULL);
-            fptr = lpNext(zl, vptr);
+            fptr = lpNext(lp, vptr);
         }
         if (fptr == NULL) return C_ERR;
 
         /* Grab pointer to the value (fptr points to the field) */
-        vptr = lpNext(zl, fptr);
+        vptr = lpNext(lp, fptr);
         serverAssert(vptr != NULL);
 
         /* fptr, vptr now point to the first or next pair */
@@ -504,11 +504,11 @@ robj *hashTypeDup(robj *o) {
     serverAssert(o->type == OBJ_HASH);
 
     if(o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl = o->ptr;
-        size_t sz = lpBytes(zl);
-        unsigned char *new_zl = zmalloc(sz);
-        memcpy(new_zl, zl, sz);
-        hobj = createObject(OBJ_HASH, new_zl);
+        unsigned char *lp = o->ptr;
+        size_t sz = lpBytes(lp);
+        unsigned char *new_lp = zmalloc(sz);
+        memcpy(new_lp, lp, sz);
+        hobj = createObject(OBJ_HASH, new_lp);
         hobj->encoding = OBJ_ENCODING_LISTPACK;
     } else if(o->encoding == OBJ_ENCODING_HT){
         dict *d = dictCreate(&hashDictType);

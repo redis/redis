@@ -4597,8 +4597,8 @@ int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, i
     zrs->maxex = maxex;
 
     if (key->value->encoding == OBJ_ENCODING_LISTPACK) {
-        key->u.zset.current = first ? zzlFirstInRange(key->value->ptr,zrs) :
-                                      zzlLastInRange(key->value->ptr,zrs);
+        key->u.zset.current = first ? zlpFirstInRange(key->value->ptr,zrs) :
+                                      zlpLastInRange(key->value->ptr,zrs);
     } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = key->value->ptr;
         zskiplist *zsl = zs->zsl;
@@ -4661,8 +4661,8 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
     key->u.zset.type = REDISMODULE_ZSET_RANGE_LEX;
 
     if (key->value->encoding == OBJ_ENCODING_LISTPACK) {
-        key->u.zset.current = first ? zzlFirstInLexRange(key->value->ptr,zlrs) :
-                                      zzlLastInLexRange(key->value->ptr,zlrs);
+        key->u.zset.current = first ? zlpFirstInLexRange(key->value->ptr,zlrs) :
+                                      zlpLastInLexRange(key->value->ptr,zlrs);
     } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = key->value->ptr;
         zskiplist *zsl = zs->zsl;
@@ -4712,7 +4712,7 @@ RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score
         sds ele = lpGetObject(eptr);
         if (score) {
             sptr = lpNext(key->value->ptr,eptr);
-            *score = zzlGetScore(sptr);
+            *score = zlpGetScore(sptr);
         }
         str = createObject(OBJ_STRING,ele);
     } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -4734,11 +4734,11 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
     if (!key->u.zset.type || !key->u.zset.current) return 0; /* No active iterator. */
 
     if (key->value->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl = key->value->ptr;
+        unsigned char *lp = key->value->ptr;
         unsigned char *eptr = key->u.zset.current;
         unsigned char *next;
-        next = lpNext(zl,eptr); /* Skip element. */
-        if (next) next = lpNext(zl,next); /* Skip score. */
+        next = lpNext(lp,eptr); /* Skip element. */
+        if (next) next = lpNext(lp,next); /* Skip score. */
         if (next == NULL) {
             key->u.zset.er = 1;
             return 0;
@@ -4748,15 +4748,15 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
                 /* Fetch the next element score for the
                  * range check. */
                 unsigned char *saved_next = next;
-                next = lpNext(zl,next); /* Skip next element. */
-                double score = zzlGetScore(next); /* Obtain the next score. */
+                next = lpNext(lp,next); /* Skip next element. */
+                double score = zlpGetScore(next); /* Obtain the next score. */
                 if (!zslValueLteMax(score,&key->u.zset.rs)) {
                     key->u.zset.er = 1;
                     return 0;
                 }
                 next = saved_next;
             } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
-                if (!zzlLexValueLteMax(next,&key->u.zset.lrs)) {
+                if (!zlpLexValueLteMax(next,&key->u.zset.lrs)) {
                     key->u.zset.er = 1;
                     return 0;
                 }
@@ -4798,11 +4798,11 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
     if (!key->u.zset.type || !key->u.zset.current) return 0; /* No active iterator. */
 
     if (key->value->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl = key->value->ptr;
+        unsigned char *lp = key->value->ptr;
         unsigned char *eptr = key->u.zset.current;
         unsigned char *prev;
-        prev = lpPrev(zl,eptr); /* Go back to previous score. */
-        if (prev) prev = lpPrev(zl,prev); /* Back to previous ele. */
+        prev = lpPrev(lp,eptr); /* Go back to previous score. */
+        if (prev) prev = lpPrev(lp,prev); /* Back to previous ele. */
         if (prev == NULL) {
             key->u.zset.er = 1;
             return 0;
@@ -4812,15 +4812,15 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
                 /* Fetch the previous element score for the
                  * range check. */
                 unsigned char *saved_prev = prev;
-                prev = lpNext(zl,prev); /* Skip element to get the score.*/
-                double score = zzlGetScore(prev); /* Obtain the prev score. */
+                prev = lpNext(lp,prev); /* Skip element to get the score.*/
+                double score = zlpGetScore(prev); /* Obtain the prev score. */
                 if (!zslValueGteMin(score,&key->u.zset.rs)) {
                     key->u.zset.er = 1;
                     return 0;
                 }
                 prev = saved_prev;
             } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
-                if (!zzlLexValueGteMin(prev,&key->u.zset.lrs)) {
+                if (!zlpLexValueGteMin(prev,&key->u.zset.lrs)) {
                     key->u.zset.er = 1;
                     return 0;
                 }

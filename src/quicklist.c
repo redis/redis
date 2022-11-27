@@ -603,12 +603,12 @@ int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
 /* Create new node consisting of a pre-formed listpack.
  * Used for loading RDBs where entire listpacks have been stored
  * to be retrieved later. */
-void quicklistAppendListpack(quicklist *quicklist, unsigned char *zl) {
+void quicklistAppendListpack(quicklist *quicklist, unsigned char *lp) {
     quicklistNode *node = quicklistCreateNode();
 
-    node->entry = zl;
+    node->entry = lp;
     node->count = lpLength(node->entry);
-    node->sz = lpBytes(zl);
+    node->sz = lpBytes(lp);
 
     _quicklistInsertNodeAfter(quicklist, quicklist->tail, node);
     quicklist->count += node->count;
