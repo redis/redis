@@ -7373,7 +7373,6 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
         postExecutionUnitOperations();
         decrRefCount(key);
-        postExecutionUnitOperations();
         j++;
         server.dirty++;
     }
