@@ -290,7 +290,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
                 == C_OK) {
                 /* Append the new element. */
                 char *member = (vstr == NULL) ? sdsfromlonglong(vlong) : sdsnewlen(vstr, vlen);
-                geoPoint *gp = geoArrayAppend(ga, xy, distance, score, member);
+                geoArrayAppend(ga, xy, distance, score, member);
             }
             if (ga->used && limit && ga->used >= limit) break;
             zzlNext(zl, &eptr, &sptr);
@@ -314,7 +314,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             if (geoWithinShape(shape,ln->score, xy, &distance)
                 == C_OK) {
                 /* Append the new element. */
-                geoPoint *gp = geoArrayAppend(ga, xy, distance, ln->score, sdsdup(ln->ele));
+                geoArrayAppend(ga, xy, distance, ln->score, sdsdup(ln->ele));
             }
             if (ga->used && limit && ga->used >= limit) break;
             ln = ln->level[0].forward;
