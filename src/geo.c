@@ -234,7 +234,8 @@ int geoWithinShape(GeoShape *shape, double score, double *xy, double *distance) 
      * reverse order: longitude first, latitude later. */
     if (shape->type == CIRCULAR_TYPE) {
         if (!geohashGetDistanceIfInRadiusWGS84(shape->xy[0], shape->xy[1], xy[0], xy[1],
-                                               shape->t.radius*shape->conversion, distance)) return C_ERR;
+                                               shape->t.radius*shape->conversion, distance))
+            return C_ERR;
     } else if (shape->type == RECTANGLE_TYPE) {
         if (!geohashGetDistanceIfInRectangle(shape->t.r.width * shape->conversion,
                                              shape->t.r.height * shape->conversion,
