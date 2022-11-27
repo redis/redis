@@ -22,7 +22,6 @@ proc cluster_create_with_split_slots {masters replicas} {
 proc get_node_info_from_shard {id reference {type node}} {
     set shards_response [R $reference CLUSTER SHARDS]
     foreach shard_response $shards_response {
-        set shard_id [dict get $shard_response shard-id]
         set nodes [dict get $shard_response nodes]
         foreach node $nodes {
             if {[dict get $node id] eq $id} {
@@ -30,8 +29,6 @@ proc get_node_info_from_shard {id reference {type node}} {
                     return $node
                 } elseif {$type eq "shard"} {
                     return $shard_response
-                } elseif {$type eq "shard-id"} {
-                    return $shard_id
                 } else {
                     return {}
                 }

@@ -789,6 +789,10 @@ void clusterUpdateMyselfIp(void) {
     }
 }
 
+static int areInSameShard(clusterNode *node1, clusterNode *node2) {
+    return memcmp(node1->shard_id, node2->shard_id, CLUSTER_NAMELEN) == 0;
+}
+
 /* Update the hostname for the specified node with the provided C string. */
 static void updateAnnouncedHostname(clusterNode *node, char *new) {
     /* Previous and new hostname are the same, no need to update. */
@@ -1452,7 +1456,7 @@ void clusterDelNode(clusterNode *delnode) {
     dictIterator *di;
     dictEntry *de;
 
-    clusterRemoveNodeFromShard(delnode->shard_id, delnode);
+    clusterRemoveNodeFromShard(delnode);
 
     /* 1) Mark slots as unassigned. */
     for (j = 0; j < CLUSTER_SLOTS; j++) {
@@ -1561,7 +1565,20 @@ void clusterRemoveNodeFromShard(clusterNode *node) {
         if (listLength(l) == 0) {
             dictDelete(server.cluster->shards, s);
         }
+    }
+    sdsfree(s);
+}
+
+/* -----------------------------------------------------------------------------
+ * CLUSTER config epoch handling
+ * -------------------------------------------------------------------------- */
+
+/* Return the greatest configEpoch found in the cluster, or the current
+ * epoch if greater than any node configEpoch. */
+uint64_t clusterGetMaxEpoch(void) {
+    uint64_t max = 0;
     dictIterator *di;
+    dictEntry *de;
 
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
@@ -5049,14 +5066,12 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
             node->ip,
             port,
             node->cport,
-            node->hostname,
-            node->shard_id);
+            node->hostname);
     } else {
         ci = sdscatprintf(ci," %s:%i@%i,",
             node->ip,
             port,
-            node->cport,
-            node->shard_id);
+            node->cport);
     }
 
     /* Node's aux fields */
