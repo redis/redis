@@ -307,48 +307,13 @@ sds sdsMakeRoomForNonGreedy(sds s, size_t addlen) {
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
 sds sdsRemoveFreeSpace(sds s) {
-    void *sh, *newsh;
-    char type, oldtype = s[-1] & SDS_TYPE_MASK;
-    int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
-    size_t usable;
-    size_t len = sdslen(s);
-    size_t avail = sdsavail(s);
-    sh = (char*)s-oldhdrlen;
-
-    /* Return ASAP if there is no space left. */
-    if (avail == 0) return s;
-
-    /* Check what would be the minimum SDS header that is just good enough to
-     * fit this string. */
-    type = sdsReqType(len);
-    hdrlen = sdsHdrSize(type);
-
-    /* If the type is the same, or at least a large enough type is still
-     * required, we just realloc(), letting the allocator to do the copy
-     * only if really needed. Otherwise if the change is huge, we manually
-     * reallocate the string to use the different header type. */
-    if (oldtype==type || type > SDS_TYPE_8) {
-        newsh = s_realloc_usable(sh, oldhdrlen+len+1,&usable);
-        if (newsh == NULL) return NULL;
-        s = (char*)newsh+oldhdrlen;
-    } else {
-        newsh = s_malloc_usable(hdrlen+len+1,&usable);
-        if (newsh == NULL) return NULL;
-        memcpy((char*)newsh+hdrlen, s, len+1);
-        s_free(sh);
-        s = (char*)newsh+hdrlen;
-        s[-1] = type;
-        sdssetlen(s, len);
-    }
-    usable = usable - hdrlen - 1;
-    if (usable > sdsTypeMaxSize(type)) 
-        usable = sdsTypeMaxSize(type);
-    sdssetalloc(s, usable);
-    return s;
+    return sdsResize(s, sdslen(s));
 }
 
 /* Resize the allocation, this can make the allocation bigger or smaller,
- * if the size is smaller than currently used len, the data will be truncated */
+ * if the size is smaller than currently used len, the data will be truncated.
+ * To avoid repeated calls, the sds allocation size will be set to the requested size
+ * regardless of the actual allocation size. */
 sds sdsResize(sds s, size_t size) {
     void *sh, *newsh;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
@@ -374,17 +339,28 @@ sds sdsResize(sds s, size_t size) {
      * to do the copy only if really needed. Otherwise if the change is
      * huge, we manually reallocate the string to use the different header
      * type. */
-    if (oldtype==type || (type < oldtype && type > SDS_TYPE_8)) {
-        newsh = s_realloc(sh, oldhdrlen+size+1);
-        if (newsh == NULL) return NULL;
-        s = (char*)newsh+oldhdrlen;
-    } else {
-        newsh = s_malloc(hdrlen+size+1);
-        if (newsh == NULL) return NULL;
-        memcpy((char*)newsh+hdrlen, s, len);
-        s_free(sh);
-        s = (char*)newsh+hdrlen;
-        s[-1] = type;
+    int is_realloc_op = (oldtype==type || (type < oldtype && type > SDS_TYPE_8));
+    size_t newlen = is_realloc_op ? oldhdrlen+size+1 : hdrlen+size+1;
+    int noop = false;
+    #if defined(USE_JEMALLOC)
+        if (je_nallocx(newlen, 0) == zmalloc_size(sdsAllocPtr(s))) {
+            noop = true;
+        }
+    #endif
+
+    if (!noop) {
+        if (is_realloc_op) {
+            newsh = s_realloc(sh, newlen);
+            if (newsh == NULL) return NULL;
+            s = (char*)newsh+oldhdrlen;
+        } else {
+            newsh = s_malloc(newlen);
+            if (newsh == NULL) return NULL;
+            memcpy((char*)newsh+hdrlen, s, len);
+            s_free(sh);
+            s = (char*)newsh+hdrlen;
+            s[-1] = type;
+        }
     }
     s[len] = 0;
     sdssetlen(s, len);
