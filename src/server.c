@@ -920,7 +920,7 @@ struct redisCommand redisCommandTable[] = {
       */
     {"eval",evalCommand,-3,
      "no-script no-monitor may-replicate @scripting",
-     0,evalGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
+     0,evalGetKeys,NULL,SWAP_IN,SWAP_IN_DEL,0,0,0,0,0,0},
 
     {"evalsha",evalShaCommand,-3,
      "no-script no-monitor may-replicate @scripting",
