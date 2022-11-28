@@ -32,6 +32,7 @@
 #include "geohash_helper.h"
 #include "debugmacro.h"
 #include "pqsort.h"
+#include <math.h>
 
 /* Things exported from t_zset.c only for geo.c, since it is the only other
  * part of Redis that requires close zset introspection. */
@@ -204,6 +205,95 @@ int extractBoxOrReply(client *c, robj **argv, double *conversion,
     return C_OK;
 }
 
+/* Convert a positive distance into a string with 4 digits after the dot precision.
+ * This is an optimized version of snprintf "%.4f".
+ */
+int geodist2string(char *dst, size_t dstlen, double dvalue) {
+    // 0.0000
+    if (dstlen < 7)
+        goto err;
+    if (dvalue == 0) {
+        dst[0] = '0';
+        dst[1] = '.';
+        dst[2] = '0';
+        dst[3] = '0';
+        dst[4] = '0';
+        dst[5] = '0';
+        dst[6] = '\0';
+        return 6;
+    }
+    // given we provide 4 digits after the dot we should multiply by 10000
+    // scale and round
+    long long svalue = llrint(dvalue * 10000.);
+    unsigned long long value;
+    // write sign
+    int negative = 0;
+    if (svalue < 0) {
+        if (svalue != LLONG_MIN) {
+            value = -svalue;
+        } else {
+            value = ((unsigned long long) LLONG_MAX)+1;
+        }
+        if (dstlen < 2)
+            goto err;
+        negative = 1;
+        dst[0] = '-';
+        dst++;
+        dstlen--;
+    } else {
+        value = svalue;
+    }
+
+    static const char digitsd[201] =
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899";
+
+    /* Check length. */
+    uint32_t length = digits10(value) + 1;
+    if (length >= dstlen) goto err;
+    /* Fractional only check to avoid representing 0.7750 as .7750.
+     * This means we need to increment the length and store 0 as the first character.
+     */
+    if(length==5){
+        length++;
+        dst[0+negative] = '0';
+    }
+
+    /* Null term. */
+    uint32_t next = length - 1;
+    dst[next + 1] = '\0';
+    dst[next - 4] = '.';
+    while (value >= 100) {
+        int const i = (value % 100) * 2;
+        value /= 100;
+        dst[next] = digitsd[i + 1];
+        dst[next - 1] = digitsd[i];
+        next -= 2;
+        // dot position
+        if ( next == (length - 5) ) {
+             next--;
+        }
+    }
+
+    /* Handle last 1-2 digits. */
+    if (value < 10) {
+        dst[next] = '0' + (uint32_t) value;
+    } else {
+        int i = (uint32_t) value * 2;
+        dst[next] = digitsd[i + 1];
+        dst[next - 1] = digitsd[i];
+    }
+    return length + negative;
+err:
+    /* force add Null termination */
+    if (dstlen > 0)
+        dst[0] = '\0';
+    return 0;
+}
+
 /* The default addReplyDouble has too much accuracy.  We use this
  * for returning location distances. "5.2145 meters away" is nicer
  * than "5.2144992818115 meters away." We provide 4 digits after the dot
@@ -211,7 +301,11 @@ int extractBoxOrReply(client *c, robj **argv, double *conversion,
  * the kilometer. */
 void addReplyDoubleDistance(client *c, double d) {
     char dbuf[128];
-    int dlen = snprintf(dbuf, sizeof(dbuf), "%.4f", d);
+    // instead of using snprintf "%.4f" we convert the double distance to long
+    // and multiply it by 10000 to shift the decimal places.
+    // we know beforehand that the long value will not overflow given we're taking about
+    // geo distances between 2 points.
+    int dlen = geodist2string(dbuf,sizeof(dbuf),d);
     addReplyBulkCBuffer(c, dbuf, dlen);
 }
 
