@@ -102,7 +102,7 @@ typedef struct redisObject robj;
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
 /* Get the pointer of the outer struct from a member address */
-#define member2struct(struct_name, member_name, member_addr) \
+#define redis_member2struct(struct_name, member_name, member_addr) \
             ((struct_name *)((char*)member_addr - offsetof(struct_name, member_name)))
 
 /* Error codes */
@@ -2424,6 +2424,7 @@ void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
+void firePostExecutionUnitJobs();
 void moduleCallCommandFilters(client *c);
 void ModuleForkDoneHandler(int exitcode, int bysignal);
 int TerminateModuleForkChild(int child_pid, int wait);
@@ -2902,7 +2903,7 @@ void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen, size_t totelele
 int zsetScore(robj *zobj, sds member, double *score);
 unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
 int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, double *newscore);
-long zsetRank(robj *zobj, sds ele, int reverse);
+long zsetRank(robj *zobj, sds ele, int reverse, double *score);
 int zsetDel(robj *zobj, sds ele);
 robj *zsetDup(robj *o);
 void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey, long count, int use_nested_array, int reply_nil_when_empty, int *deleted);
@@ -2946,7 +2947,7 @@ void startCommandExecution();
 int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
-void propagatePendingCommands();
+void postExecutionUnitOperations();
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);

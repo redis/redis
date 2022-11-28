@@ -5902,7 +5902,10 @@ struct redisCommandArg ZRANGESTORE_Args[] = {
 /********** ZRANK ********************/
 
 /* ZRANK history */
-#define ZRANK_History NULL
+commandHistory ZRANK_History[] = {
+{"7.2.0","Added the optional `WITHSCORE` argument."},
+{0}
+};
 
 /* ZRANK tips */
 #define ZRANK_tips NULL
@@ -5911,6 +5914,7 @@ struct redisCommandArg ZRANGESTORE_Args[] = {
 struct redisCommandArg ZRANK_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"withscore",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORE",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6052,7 +6056,10 @@ struct redisCommandArg ZREVRANGEBYSCORE_Args[] = {
 /********** ZREVRANK ********************/
 
 /* ZREVRANK history */
-#define ZREVRANK_History NULL
+commandHistory ZREVRANK_History[] = {
+{"7.2.0","Added the optional `WITHSCORE` argument."},
+{0}
+};
 
 /* ZREVRANK tips */
 #define ZREVRANK_tips NULL
@@ -6061,6 +6068,7 @@ struct redisCommandArg ZREVRANGEBYSCORE_Args[] = {
 struct redisCommandArg ZREVRANK_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"withscore",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORE",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -7357,7 +7365,7 @@ struct redisCommand redisCommandTable[] = {
 {"zrangebylex","Return a range of members in a sorted set, by lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",CMD_DOC_DEPRECATED,"`ZRANGE` with the `BYLEX` argument","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANGEBYLEX_History,ZRANGEBYLEX_tips,zrangebylexCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGEBYLEX_Args},
 {"zrangebyscore","Return a range of members in a sorted set, by score","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","1.0.5",CMD_DOC_DEPRECATED,"`ZRANGE` with the `BYSCORE` argument","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANGEBYSCORE_History,ZRANGEBYSCORE_tips,zrangebyscoreCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGEBYSCORE_Args},
 {"zrangestore","Store a range of members from sorted set into another key","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements stored into the destination key.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANGESTORE_History,ZRANGESTORE_tips,zrangestoreCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGESTORE_Args},
-{"zrank","Determine the index of a member in a sorted set","O(log(N))","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANK_History,ZRANK_tips,zrankCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANK_Args},
+{"zrank","Determine the index of a member in a sorted set","O(log(N))","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANK_History,ZRANK_tips,zrankCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANK_Args},
 {"zrem","Remove one or more members from a sorted set","O(M*log(N)) with N being the number of elements in the sorted set and M the number of elements to be removed.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREM_History,ZREM_tips,zremCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREM_Args},
 {"zremrangebylex","Remove all members in a sorted set between the given lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREMRANGEBYLEX_History,ZREMRANGEBYLEX_tips,zremrangebylexCommand,4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREMRANGEBYLEX_Args},
 {"zremrangebyrank","Remove all members in a sorted set within the given indexes","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREMRANGEBYRANK_History,ZREMRANGEBYRANK_tips,zremrangebyrankCommand,4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREMRANGEBYRANK_Args},
@@ -7365,7 +7373,7 @@ struct redisCommand redisCommandTable[] = {
 {"zrevrange","Return a range of members in a sorted set, by index, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",CMD_DOC_DEPRECATED,"`ZRANGE` with the `REV` argument","6.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGE_History,ZREVRANGE_tips,zrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGE_Args},
 {"zrevrangebylex","Return a range of members in a sorted set, by lexicographical range, ordered from higher to lower strings.","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",CMD_DOC_DEPRECATED,"`ZRANGE` with the `REV` and `BYLEX` arguments","6.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYLEX_History,ZREVRANGEBYLEX_tips,zrevrangebylexCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGEBYLEX_Args},
 {"zrevrangebyscore","Return a range of members in a sorted set, by score, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.2.0",CMD_DOC_DEPRECATED,"`ZRANGE` with the `REV` and `BYSCORE` arguments","6.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYSCORE_History,ZREVRANGEBYSCORE_tips,zrevrangebyscoreCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGEBYSCORE_Args},
-{"zrevrank","Determine the index of a member in a sorted set, with scores ordered from high to low","O(log(N))","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREVRANK_History,ZREVRANK_tips,zrevrankCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANK_Args},
+{"zrevrank","Determine the index of a member in a sorted set, with scores ordered from high to low","O(log(N))","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREVRANK_History,ZREVRANK_tips,zrevrankCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANK_Args},
 {"zscan","Incrementally iterate sorted sets elements and associated scores","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZSCAN_History,ZSCAN_tips,zscanCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZSCAN_Args},
 {"zscore","Get the score associated with the given member in a sorted set","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZSCORE_History,ZSCORE_tips,zscoreCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZSCORE_Args},
 {"zunion","Add multiple sorted sets","O(N)+O(M*log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZUNION_History,ZUNION_tips,zunionCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZUNION_Args},
