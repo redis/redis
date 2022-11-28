@@ -787,10 +787,10 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
 #define LUA_CMD_OBJCACHE_MAX_LEN 64
 
 /* Cached across calls. */
-static robj **argv = NULL;
-static int argv_size = 0;
-static robj *cached_objects[LUA_CMD_OBJCACHE_SIZE];
-static size_t cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
+static robj **lua_argv = NULL;
+static int lua_argv_size = 0;
+static robj *lua_args_cached_objects[LUA_CMD_OBJCACHE_SIZE];
+static size_t lua_args_cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
 
 static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
     int j;
@@ -802,9 +802,9 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
     }
 
     /* Build the arguments vector */
-    if (argv_size < *argc) {
-        argv = zrealloc(argv,sizeof(robj*)* *argc);
-        argv_size = *argc;
+    if (lua_argv_size < *argc) {
+        lua_argv = zrealloc(lua_argv,sizeof(robj*)* *argc);
+        lua_argv_size = *argc;
     }
 
     for (j = 0; j < *argc; j++) {
@@ -824,16 +824,16 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
             if (obj_s == NULL) break; /* Not a string. */
         }
         /* Try to use a cached object. */
-        if (j < LUA_CMD_OBJCACHE_SIZE && cached_objects[j] &&
-            cached_objects_len[j] >= obj_len)
+        if (j < LUA_CMD_OBJCACHE_SIZE && lua_args_cached_objects[j] &&
+            lua_args_cached_objects_len[j] >= obj_len)
         {
-            sds s = cached_objects[j]->ptr;
-            argv[j] = cached_objects[j];
-            cached_objects[j] = NULL;
+            sds s = lua_args_cached_objects[j]->ptr;
+            lua_argv[j] = lua_args_cached_objects[j];
+            lua_args_cached_objects[j] = NULL;
             memcpy(s,obj_s,obj_len+1);
             sdssetlen(s, obj_len);
         } else {
-            argv[j] = createStringObject(obj_s, obj_len);
+            lua_argv[j] = createStringObject(obj_s, obj_len);
         }
     }
 
@@ -847,14 +847,14 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
     if (j != *argc) {
         j--;
         while (j >= 0) {
-            decrRefCount(argv[j]);
+            decrRefCount(lua_argv[j]);
             j--;
         }
         luaPushError(lua, "Lua redis lib command arguments must be strings or integers");
         return NULL;
     }
 
-    return argv;
+    return lua_argv;
 }
 
 void freeLuaRedisArgv(client *c){
@@ -862,7 +862,7 @@ void freeLuaRedisArgv(client *c){
     for (j = 0; j < c->argc; j++) {
         robj *o = c->argv[j];
 
-        /* Try to cache the object in the cached_objects array.
+        /* Try to cache the object in the lua_args_cached_objects array.
          * The object must be small, SDS-encoded, and with refcount = 1
          * (we must be the only owner) for us to cache it. */
         if (j < LUA_CMD_OBJCACHE_SIZE &&
@@ -872,17 +872,17 @@ void freeLuaRedisArgv(client *c){
             sdslen(o->ptr) <= LUA_CMD_OBJCACHE_MAX_LEN)
         {
             sds s = o->ptr;
-            if (cached_objects[j]) decrRefCount(cached_objects[j]);
-            cached_objects[j] = o;
-            cached_objects_len[j] = sdsalloc(s);
+            if (lua_args_cached_objects[j]) decrRefCount(lua_args_cached_objects[j]);
+            lua_args_cached_objects[j] = o;
+            lua_args_cached_objects_len[j] = sdsalloc(s);
         } else {
             decrRefCount(o);
         }
     }
-    if (c->argv != argv) {
+    if (c->argv != lua_argv) {
         zfree(c->argv);
-        argv = NULL;
-        argv_size = 0;
+        lua_argv = NULL;
+        lua_argv_size = 0;
     }
     c->argv = NULL;
     c->argc = 0;
