@@ -857,10 +857,10 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
     return lua_argv;
 }
 
-void freeLuaRedisArgv(client *c){
+void freeLuaRedisArgv(robj **argv, int* argc){
     int j;
-    for (j = 0; j < c->argc; j++) {
-        robj *o = c->argv[j];
+    for (j = 0; j < *argc; j++) {
+        robj *o = argv[j];
 
         /* Try to cache the object in the lua_args_cached_objects array.
          * The object must be small, SDS-encoded, and with refcount = 1
@@ -879,13 +879,13 @@ void freeLuaRedisArgv(client *c){
             decrRefCount(o);
         }
     }
-    if (c->argv != lua_argv) {
-        zfree(c->argv);
+    if (argv != lua_argv) {
+        zfree(argv);
         lua_argv = NULL;
         lua_argv_size = 0;
     }
-    c->argv = NULL;
-    c->argc = 0;
+    argv = NULL;
+    argc = 0;
 }
 
 static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
@@ -979,7 +979,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 cleanup:
     /* Clean up. Command code may have changed argv/argc so we use the
      * argv/argc of the client instead of the local variables. */
-    freeLuaRedisArgv(c);
+    freeLuaRedisArgv(c->argv, &c->argc);
     c->user = NULL;
     inuse--;
 
@@ -1147,7 +1147,7 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
         }
     }
 
-    while (argc--) decrRefCount(argv[argc]);
+    freeLuaRedisArgv(argv, &argc);
     if (raise_error)
         return luaError(lua);
     else
