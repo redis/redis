@@ -785,26 +785,12 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
  * ------------------------------------------------------------------------- */
 #define LUA_CMD_OBJCACHE_SIZE 32
 #define LUA_CMD_OBJCACHE_MAX_LEN 64
-static robj ** getLuaArgv(){
-    static robj **argv = NULL;
-    return argv;
-}
 
-static int getArgvSize(){
-    static int argv_size = 0;
-    return argv_size;
-}
-
-static robj ** getLuaCachedObjects(){
-    static robj *cached_objects[LUA_CMD_OBJCACHE_SIZE];
-    return cached_objects;
-}
-
-
-static size_t * getLuaCachedObjectsLen(){
-    static size_t cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
-    return cached_objects_len;
-}
+/* Cached across calls. */
+static robj **argv = NULL;
+static int argv_size = 0;
+static robj *cached_objects[LUA_CMD_OBJCACHE_SIZE];
+static size_t cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
 
 static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
     int j;
@@ -814,11 +800,6 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
         luaPushError(lua, "Please specify at least one argument for this redis lib call");
         return NULL;
     }
-    /* Cached across calls. */
-    robj **argv = getLuaArgv();
-    int argv_size = getArgvSize();
-    robj **cached_objects = getLuaCachedObjects();
-    size_t *cached_objects_len = getLuaCachedObjectsLen();
 
     /* Build the arguments vector */
     if (argv_size < *argc) {
@@ -878,11 +859,6 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
 
 void freeLuaRedisArgv(client *c){
     int j;
-    /* Cached across calls. */
-    robj **argv = getLuaArgv();
-    int argv_size = getArgvSize();
-    robj **cached_objects = getLuaCachedObjects();
-    size_t *cached_objects_len = getLuaCachedObjectsLen();
     for (j = 0; j < c->argc; j++) {
         robj *o = c->argv[j];
 
