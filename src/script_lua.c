@@ -1148,7 +1148,6 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
     }
 
     while (argc--) decrRefCount(argv[argc]);
-    zfree(argv);
     if (raise_error)
         return luaError(lua);
     else
