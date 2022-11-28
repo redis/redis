@@ -343,22 +343,23 @@ sds sdsResize(sds s, size_t size) {
     size_t newlen = is_realloc_op ? oldhdrlen+size+1 : hdrlen+size+1;
     int noop = 0;
     #if defined(USE_JEMALLOC)
-        noop = (je_nallocx(newlen, 0) == zmalloc_size(sdsAllocPtr(s)));
+        /* je_nallocx returns the expected allocation size for the newlen.
+         * We aim to avoid calling realloc() when using Jemalloc if there is no change in the allocation size,
+         * as it incurs a cost even if the allocation size stays the same. */
+        noop = (je_nallocx(newlen, 0) == zmalloc_size(sh));
     #endif
 
-    if (!noop) {
-        if (is_realloc_op) {
-            newsh = s_realloc(sh, newlen);
-            if (newsh == NULL) return NULL;
-            s = (char*)newsh+oldhdrlen;
-        } else {
-            newsh = s_malloc(newlen);
-            if (newsh == NULL) return NULL;
-            memcpy((char*)newsh+hdrlen, s, len);
-            s_free(sh);
-            s = (char*)newsh+hdrlen;
-            s[-1] = type;
-        }
+    if (is_realloc_op && !noop) {
+        newsh = s_realloc(sh, newlen);
+        if (newsh == NULL) return NULL;
+        s = (char*)newsh+oldhdrlen;
+    } else if (!noop) {
+        newsh = s_malloc(newlen);
+        if (newsh == NULL) return NULL;
+        memcpy((char*)newsh+hdrlen, s, len);
+        s_free(sh);
+        s = (char*)newsh+hdrlen;
+        s[-1] = type;
     }
     s[len] = 0;
     sdssetlen(s, len);
