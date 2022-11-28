@@ -62,7 +62,8 @@ geoArray *geoArrayCreate(void) {
 
 /* Add and populate with data a new entry to the geoArray. */
 geoPoint *geoArrayAppend(geoArray *ga, double *xy, double dist,
-                         double score, char *member) {
+                         double score, char *member)
+{
     if (ga->used == ga->buckets) {
         ga->buckets = (ga->buckets == 0) ? 8 : ga->buckets*2;
         ga->array = zrealloc(ga->array,sizeof(geoPoint)*ga->buckets);
@@ -218,9 +219,9 @@ void addReplyDoubleDistance(client *c, double d) {
  * representing a point, and a GeoShape, checks if the point is within the search area.
  *
  * shape: the rectangle
- * score : the encoded version of lat,long
- * xy : the decoded lat,long
- * distance: the distance between the center of the shape and the point
+ * score: the encoded version of lat,long
+ * xy: output variable, the decoded lat,long
+ * distance: output variable, the distance between the center of the shape and the point
  *
  * Return values:
  *
@@ -286,8 +287,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
                 break;
 
             vstr = lpGetValue(eptr, &vlen, &vlong);
-            if (geoWithinShape(shape,score, xy, &distance)
-                == C_OK) {
+            if (geoWithinShape(shape, score, xy, &distance) == C_OK) {
                 /* Append the new element. */
                 char *member = (vstr == NULL) ? sdsfromlonglong(vlong) : sdsnewlen(vstr, vlen);
                 geoArrayAppend(ga, xy, distance, score, member);
@@ -311,8 +311,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             /* Abort when the node is no longer in range. */
             if (!zslValueLteMax(ln->score, &range))
                 break;
-            if (geoWithinShape(shape,ln->score, xy, &distance)
-                == C_OK) {
+            if (geoWithinShape(shape, ln->score, xy, &distance) == C_OK) {
                 /* Append the new element. */
                 geoArrayAppend(ga, xy, distance, ln->score, sdsdup(ln->ele));
             }
