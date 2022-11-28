@@ -488,8 +488,7 @@ void resetLuaClient(void) {
 
 void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = lctx.lua;
-    char funcname_buf[43];
-    char *funcname = funcname_buf;
+    char funcname[43];
     long long numkeys;
 
     /* Get the number of arguments that are keys */
