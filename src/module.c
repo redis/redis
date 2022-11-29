@@ -10859,6 +10859,14 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
     return 0;
 }
 
+typedef struct {
+    uint64_t version;
+    int32_t dbnum;
+    RedisModuleString *key;
+    robj *value;
+    int mode;
+} KeyInfo;
+
 /* This is called by the Redis internals every time we want to fire an
  * event that can be intercepted by some module. The pointer 'data' is useful
  * in order to populate the event-specific structure when needed, in order
@@ -10895,6 +10903,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             RedisModuleClientInfoV1 civ1;
             RedisModuleReplicationInfoV1 riv1;
             RedisModuleModuleChangeV1 mcv1;
+            RedisModuleKey key = {0};
             /* Start at DB zero by default when calling the handler. It's
              * up to the specific event setup to change it when it makes
              * sense. For instance for FLUSHDB events we select the correct
@@ -10932,15 +10941,21 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             } else if (eid == REDISMODULE_EVENT_CONFIG) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_KEY) {
-                moduledata = data;
-                RedisModuleKeyInfoV1 *ki = data;
-                serverAssert(ki->dbnum != -1);
-                selectDb(ctx.client, ki->dbnum);
+                KeyInfo *info = data;
+                selectDb(ctx.client, info->dbnum);
+                incrRefCount(info->key);
+                moduleInitKey(&key, &ctx, info->key, info->value, info->mode);
+                RedisModuleKeyInfoV1 ki = {info->version, &key};
+                moduledata = &ki;
             }
 
             el->module->in_hook++;
             el->callback(&ctx,el->event,subid,moduledata);
             el->module->in_hook--;
+
+            if (eid == REDISMODULE_EVENT_KEY) {
+                moduleCloseKey(&key);
+            }
 
             moduleFreeContext(&ctx);
         }
@@ -10997,8 +11012,8 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
     } else if (flags & DB_FLAG_KEY_OVERWRITE) {
         subevent = REDISMODULE_SUBEVENT_KEY_OVERWRITTEN;
     }
-    RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, dbid, key};
-    moduleFireServerEvent(REDISMODULE_EVENT_KEY, subevent, &ki);
+    KeyInfo info = {REDISMODULE_KEYINFO_VERSION, dbid, key, val, REDISMODULE_WRITE};
+    moduleFireServerEvent(REDISMODULE_EVENT_KEY, subevent, &info);
 
     if (val->type == OBJ_MODULE) {
         moduleValue *mv = val->ptr;

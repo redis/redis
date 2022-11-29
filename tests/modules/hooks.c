@@ -290,13 +290,12 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
     REDISMODULE_NOT_USED(e);
 
     RedisModuleKeyInfoV1 *ei = data;
-    RedisModuleString *key = ei->key;
-    const char *keyname = RedisModule_StringPtrLen(key, NULL);
+    RedisModuleKey *kp = ei->key;
+    const char *keyname = RedisModule_StringPtrLen(RedisModule_GetKeyNameFromModuleKey(kp), NULL);
     RedisModuleString *event_keyname = RedisModule_CreateStringPrintf(ctx, "key-info-%s", keyname);
     LogStringEvent(ctx, RedisModule_StringPtrLen(event_keyname, NULL), keyname);
     RedisModule_FreeString(ctx, event_keyname);
 
-    RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
     RedisModuleString *prev = RedisModule_DictGetC(removed_event_log, (void*)keyname, strlen(keyname), NULL);
     /* We keep object length */
     RedisModuleString *v = RedisModule_CreateStringPrintf(ctx, "%zd", RedisModule_ValueLength(kp));
@@ -331,8 +330,6 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
     if (prevexpire != NULL) {
         RedisModule_FreeString(ctx, prevexpire);
     }
-
-    RedisModule_CloseKey(kp);
 }
 
 static int cmdIsKeyRemoved(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){

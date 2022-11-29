@@ -8,6 +8,7 @@
 
 
 typedef struct RedisModuleString RedisModuleString;
+typedef struct RedisModuleKey RedisModuleKey;
 
 /* -------------- Defines NOT common between core and modules ------------- */
 
@@ -784,8 +785,7 @@ typedef struct RedisModuleKeyInfo {
     uint64_t version;       /* Not used since this structure is never passed
                                from the module to the core right now. Here
                                for future compatibility. */
-    int32_t dbnum;          /* The key dbnum. */
-    RedisModuleString *key; /* Key name. */
+    RedisModuleKey *key;    /* Opened key. */
 } RedisModuleKeyInfoV1;
 
 #define RedisModuleKeyInfo RedisModuleKeyInfoV1
@@ -843,7 +843,6 @@ typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
 /* Incomplete structures for compiler checks but opaque access. */
 typedef struct RedisModuleCtx RedisModuleCtx;
 typedef struct RedisModuleCommand RedisModuleCommand;
-typedef struct RedisModuleKey RedisModuleKey;
 typedef struct RedisModuleCallReply RedisModuleCallReply;
 typedef struct RedisModuleType RedisModuleType;
 typedef struct RedisModuleBlockedClient RedisModuleBlockedClient;
