@@ -3401,13 +3401,7 @@ void call(client *c, int flags) {
     else
         duration = ustime() - call_timer;
 
-    /* In case we are reprocessing the command after the client was unblocked,
-     * we accumulate the duration to the total duration this client was already running until
-     * it was blocked. */
-    if (!(c->flags & CLIENT_REPROCESSING_COMMAND))
-        c->duration = duration;
-    else
-        c->duration += duration;
+    c->duration += duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -3725,33 +3719,38 @@ int processCommand(client *c) {
     }
 
     /* Now lookup the command and check ASAP about trivial error conditions
-     * such as wrong arity, bad command name and so forth. */
-    c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
-    sds err;
-    if (!commandCheckExistence(c, &err)) {
-        rejectCommandSds(c, err);
-        return C_OK;
-    }
-    if (!commandCheckArity(c, &err)) {
-        rejectCommandSds(c, err);
-        return C_OK;
-    }
-
-    /* Check if the command is marked as protected and the relevant configuration allows it */
-    if (c->cmd->flags & CMD_PROTECTED) {
-        if ((c->cmd->proc == debugCommand && !allowProtectedAction(server.enable_debug_cmd, c)) ||
-            (c->cmd->proc == moduleCommand && !allowProtectedAction(server.enable_module_cmd, c)))
-        {
-            rejectCommandFormat(c,"%s command not allowed. If the %s option is set to \"local\", "
-                                  "you can run it from a local connection, otherwise you need to set this option "
-                                  "in the configuration file, and then restart the server.",
-                                  c->cmd->proc == debugCommand ? "DEBUG" : "MODULE",
-                                  c->cmd->proc == debugCommand ? "enable-debug-command" : "enable-module-command");
+     * such as wrong arity, bad command name and so forth.
+     * In case we are reprocessing a command after it was blocked, we do not have to repeat the same checks */
+    if (!(c->flags & CLIENT_REPROCESSING_COMMAND)) {
+        c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
+        /* we zero the client duration for this command run time */
+        c->duration = 0;
+        sds err;
+        if (!commandCheckExistence(c, &err)) {
+            rejectCommandSds(c, err);
             return C_OK;
+        }
+        if (!commandCheckArity(c, &err)) {
+            rejectCommandSds(c, err);
+            return C_OK;
+        }
 
+
+        /* Check if the command is marked as protected and the relevant configuration allows it */
+        if (c->cmd->flags & CMD_PROTECTED) {
+            if ((c->cmd->proc == debugCommand && !allowProtectedAction(server.enable_debug_cmd, c)) ||
+                (c->cmd->proc == moduleCommand && !allowProtectedAction(server.enable_module_cmd, c)))
+            {
+                rejectCommandFormat(c,"%s command not allowed. If the %s option is set to \"local\", "
+                                      "you can run it from a local connection, otherwise you need to set this option "
+                                      "in the configuration file, and then restart the server.",
+                                      c->cmd->proc == debugCommand ? "DEBUG" : "MODULE",
+                                      c->cmd->proc == debugCommand ? "enable-debug-command" : "enable-module-command");
+                return C_OK;
+
+            }
         }
     }
-
     uint64_t cmd_flags = getCommandFlags(c);
 
     int is_read_command = (cmd_flags & CMD_READONLY) ||
