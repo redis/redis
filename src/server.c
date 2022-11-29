@@ -1171,11 +1171,6 @@ struct redisCommand redisCommandTable[] = {
     {"swap.slowlog", swapSlowlogCommand, -2,
      "admin random ok-loading ok-stale",
      0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
-
-    {"swap.perflog", swapPerflogCommand,-2,
-    "admin random ok-loading ok-stale",
-    0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
-
 };
 
 /*============================ Utility functions ============================ */

@@ -58,7 +58,6 @@ set ::disk_tests {
     swap/unit/multi
     swap/unit/info
     swap/unit/client
-    swap/unit/perflog
     swap/unit/debug
     swap/unit/select
     swap/unit/slowlog

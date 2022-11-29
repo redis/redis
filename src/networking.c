@@ -213,7 +213,6 @@ client *createClient(connection *conn) {
     c->swap_metas = NULL;
     c->swap_errcode = 0;
     c->swap_arg_rewrites = argRewritesCreate();
-    c->swap_perflog_sample_on = 0;
     c->gtid_in_merge = 0;
     c->duration = 0;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);

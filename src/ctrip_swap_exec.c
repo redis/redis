@@ -705,7 +705,6 @@ int doRIO(RIO *rio) {
 static void doNotify(swapRequest *req, int errcode) {
     updateStatsSwapNotify(req);
     if (req->trace) swapTraceNotify(req->trace, req->intention);
-    perflogSampleEnd(&req->samplectx);
     req->errcode = errcode;
     req->notify_cb(req, req->notify_pd);
 }
@@ -1321,8 +1320,6 @@ void processSwapRequest(swapRequest *req) {
 
     updateStatsSwapStart(req);
     if (req->trace) swapTraceProcess(req->trace);
-    perflogSampleStart(&req->samplectx,req);
-
     if (!swapRequestIsMetaType(req)) {
          executeSwapRequest(req);
          return;
@@ -1390,9 +1387,6 @@ void finishSwapRequest(swapRequest *req) {
     DEBUG_MSGS_APPEND(req->msgs,"exec-finish","intention=%s",
             swapIntentionName(req->intention));
     int retval = 0, del_skip = 0;
-
-    perflogSamplePushEntryIfExists(&req->samplectx);
-
     if (req->errcode) return;
 
     swapData *data = req->data;
@@ -1477,7 +1471,6 @@ swapRequest *swapRequestNew(keyRequest *key_request, int intention,
     req->swap_queue_timer = 0;
     req->notify_queue_timer = 0;
     req->trace = trace;
-    memset(&req->samplectx,0,sizeof(req->samplectx));
     return req;
 }
 

@@ -2571,7 +2571,6 @@ standardConfig configs[] = {
     createIntConfig("rocksdb.max_subcompactions", NULL, IMMUTABLE_CONFIG, 1, 64, server.rocksdb_max_subcompactions, 1, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.block_size", NULL, IMMUTABLE_CONFIG, 512, INT_MAX, server.rocksdb_block_size, 8192, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.level0_slowdown_writes_trigger", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.rocksdb_level0_slowdown_writes_trigger, 20, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("swap-perflog-sample-ratio", NULL, MODIFIABLE_CONFIG, 0, 100, server.swap_perflog_sample_ratio, 0, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -2580,7 +2579,6 @@ standardConfig configs[] = {
     createULongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, 1000, INTEGER_CONFIG, NULL, NULL), /* Default: keys with more than 1000 fields will be processed separately */
     createULongConfig("slowlog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.slowlog_max_len, 128, INTEGER_CONFIG, NULL, NULL),
     createULongConfig("acllog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.acllog_max_len, 128, INTEGER_CONFIG, NULL, NULL),
-    createULongConfig("swap-perflog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.swap_perflog_max_len, 128, INTEGER_CONFIG, NULL, NULL),
 
     /* Long Long configs */
     createLongLongConfig("lua-time-limit", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.lua_time_limit, 5000, INTEGER_CONFIG, NULL, NULL),/* milliseconds */
@@ -2602,7 +2600,6 @@ standardConfig configs[] = {
     createULongLongConfig("rocksdb.data.block_cache_size", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_data_block_cache_size, 8*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("rocksdb.write_buffer_size", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_write_buffer_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("rocksdb.target_file_size_base", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_target_file_size_base, 32*1024*1024, MEMORY_CONFIG, NULL, NULL),
-    createULongLongConfig("swap-perflog-log-slower-than-us", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_perflog_log_slower_than_us, 10000, INTEGER_CONFIG, NULL, NULL),
 
     /* Size_t configs */
     createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, 512, INTEGER_CONFIG, NULL, NULL),

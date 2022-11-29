@@ -542,7 +542,6 @@ void swapInit() {
 
     initStatsSwap();
     swapInitVersion();
-    perflogInit();
 
     server.swap_evict_inprogress_count = 0;
 
