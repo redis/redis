@@ -8,6 +8,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+      with:
+          submodules: true
     - name: make
       # Fail build if there are warnings
       # build with TLS just for compilation coverage
@@ -24,6 +26,8 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v2
+      with:
+          submodules: true
     - name: make
       run: make REDIS_CFLAGS='-Werror'
 
@@ -31,6 +35,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+      with:
+          submodules: true
     - name: make
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386
@@ -40,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+      with:
+          submodules: true
     - name: make
       run: make REDIS_CFLAGS='-Werror' MALLOC=libc
 
@@ -47,8 +55,15 @@ jobs:
     runs-on: ubuntu-latest
     container: centos:7
     steps:
+    - name: install git
+      run: |
+        yum -y install gcc make 
+        yum -y remove git git-*
+        yum -y install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm
+        yum -y install git
     - uses: actions/checkout@v2
+      with:
+          submodules: true
     - name: make
       run: |
-        yum -y install gcc make
         make REDIS_CFLAGS='-Werror'

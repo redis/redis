@@ -83,7 +83,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "sha1.h"
 #include "endianconv.h"
 #include "crc64.h"
-#include "ctrip_gtid.h"
+#include "gtid.h"
 
 /* Error codes */
 #define C_OK                    0

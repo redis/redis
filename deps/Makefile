@@ -38,7 +38,7 @@ distclean:
 	-(cd lua && $(MAKE) clean) > /dev/null || true
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
 	-(cd hdr_histogram && $(MAKE) clean) > /dev/null || true
-	-(cd ctrip_gtid && [ -f Makefile ] && $(MAKE) clean) > /dev/null || true
+	-(cd xredis-gtid && [ -f Makefile ] && $(MAKE) clean) > /dev/null || true
 	-(rm -f .make-*)
 
 .PHONY: distclean
@@ -95,11 +95,11 @@ jemalloc: .make-prerequisites
 .PHONY: jemalloc
 
 
-CTRIP_GTID_CFLAGS= -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops $(CFLAGS)
-CTRIP_GTID_LDFLAGS= $(LDFLAGS)
+XREDIS_GTID_CFLAGS= -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops $(CFLAGS)
+XREDIS_GTID_LDFLAGS= $(LDFLAGS)
 
-ctrip_gtid: .make-prerequisites
+xredis-gtid: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd ctrip_gtid && $(MAKE) CFLAGS="$(CTRIP_GTID_CFLAGS)" LDFLAGS="$(CTRIP_GTID_LDFLAGS)" 
+	cd xredis-gtid && $(MAKE) CFLAGS="$(XREDIS_GTID_CFLAGS)" LDFLAGS="$(XREDIS_GTID_LDFLAGS)" 
 
-.PHONY: ctrip_gtid
+.PHONY: xredis-gtid

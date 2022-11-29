@@ -1,0 +1,3 @@
+[submodule "deps/xredis-gtid"]
+	path = deps/xredis-gtid
+	url = https://github.com/ctripcorp/xredis-gtid.git
