@@ -2051,6 +2051,9 @@ struct redisServer {
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
     /* Local environment */
     char *locale_collate;
+    /* Auth control */
+    int auth_threshold;
+    int auth_delay;
 };
 
 #define MAX_KEYS_BUFFER 256

@@ -3177,12 +3177,34 @@ void authCommand(client *c) {
         redactClientCommandArgument(c, 2);
     }
 
+    static int auth_fail = 1;
+    static time_t delay_end = 0;
     robj *err = NULL;
     int result = ACLAuthenticateUser(c, username, password, &err);
     if (result == AUTH_OK) {
         addReply(c, shared.ok);
     } else if (result == AUTH_ERR) {
-        addAuthErrReply(c, err);
+        if (server.auth_threshold == 0) {
+            addAuthErrReply(c, err);
+        }else{
+            if (delay_end != 0) {
+                if (server.unixtime < delay_end) {
+                    serverLog(LL_VERBOSE, "Closing idle client");
+                    freeClientAsync(c);
+                } else {
+                    auth_fail = 1;
+                    delay_end = 0;
+                    addAuthErrReply(c, err);
+                }
+            } else {
+                if (auth_fail == server.auth_threshold) {
+                    delay_end = server.unixtime + server.auth_delay;
+                } else {
+                    auth_fail++;
+                }
+                addAuthErrReply(c, err);
+            }
+        }
     }
     if (err) decrRefCount(err);
 }
