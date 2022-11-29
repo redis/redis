@@ -598,13 +598,15 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 
 /* Optimize the SDS string inside the string object to require little space,
  * in case there is more than 10% of free space at the end of the SDS
- * string. This happens because SDS strings tend to overallocate to avoid
- * wasting too much time in allocations when appending to the string. */
+ * string. This happens because the query buffer SDS may be used directly as the SDS string
+ * when an argument len is > PROTO_MBULK_BIG_ARG. */
 void trimStringObjectIfNeeded(robj *o) {
+    int len = sdslen(o->ptr);
+    if (len < PROTO_MBULK_BIG_ARG) return;
     if (o->encoding == OBJ_ENCODING_RAW &&
-        sdsavail(o->ptr) > sdslen(o->ptr)/10)
+        sdsavail(o->ptr) > len/10)
     {
-        o->ptr = sdsRemoveFreeSpace(o->ptr);
+        o->ptr = sdsRemoveFreeSpace(o->ptr, 0);
     }
 }
 
@@ -675,12 +677,9 @@ robj *tryObjectEncoding(robj *o) {
     /* We can't encode the object...
      *
      * Do the last try, and at least optimize the SDS string inside
-     * the string object to require little space.
-     * We may have some free space in the string object if we used the query-buf itself as the sds string,
-     * which we do only when the query-buf is larger than PROTO_MBULK_BIG_ARG. */
-    if (sdslen(s) > PROTO_MBULK_BIG_ARG) {
-        trimStringObjectIfNeeded(o);
-    }
+     * the string object to require little space. */
+     trimStringObjectIfNeeded(o);
+
     /* Return the original object. */
     return o;
 }

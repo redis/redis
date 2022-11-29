@@ -306,15 +306,18 @@ sds sdsMakeRoomForNonGreedy(sds s, size_t addlen) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
-sds sdsRemoveFreeSpace(sds s) {
-    return sdsResize(s, sdslen(s));
+sds sdsRemoveFreeSpace(sds s, int is_change_likely) {
+    return sdsResize(s, sdslen(s), is_change_likely);
 }
 
 /* Resize the allocation, this can make the allocation bigger or smaller,
  * if the size is smaller than currently used len, the data will be truncated.
+ *
+ * SDS that is likely to be changed again, won't be used with SDS_TYPE_5.
+ *
  * To avoid repeated calls, the sds allocation size will be set to the requested size
  * regardless of the actual allocation size. */
-sds sdsResize(sds s, size_t size) {
+sds sdsResize(sds s, size_t size, int is_change_likely) {
     void *sh, *newsh;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
@@ -330,8 +333,10 @@ sds sdsResize(sds s, size_t size) {
     /* Check what would be the minimum SDS header that is just good enough to
      * fit this string. */
     type = sdsReqType(size);
-    /* Don't use type 5, it is not good for strings that are resized. */
-    if (type == SDS_TYPE_5) type = SDS_TYPE_8;
+    if (is_change_likely) {
+        /* Don't use type 5, it is not good for strings that are expected to grow back. */
+        if (type == SDS_TYPE_5) type = SDS_TYPE_8;
+    }
     hdrlen = sdsHdrSize(type);
 
     /* If the type is the same, or can hold the size in it with low overhead
@@ -1530,27 +1535,27 @@ int sdsTest(int argc, char **argv, int flags) {
 
         /* Test sdsresize - extend */
         x = sdsnew("1234567890123456789012345678901234567890");
-        x = sdsResize(x, 200);
+        x = sdsResize(x, 200, 1);
         test_cond("sdsrezie() expand len", sdslen(x) == 40);
         test_cond("sdsrezie() expand strlen", strlen(x) == 40);
         test_cond("sdsrezie() expand alloc", sdsalloc(x) == 200);
         /* Test sdsresize - trim free space */
-        x = sdsResize(x, 80);
+        x = sdsResize(x, 80, 1);
         test_cond("sdsrezie() shrink len", sdslen(x) == 40);
         test_cond("sdsrezie() shrink strlen", strlen(x) == 40);
         test_cond("sdsrezie() shrink alloc", sdsalloc(x) == 80);
         /* Test sdsresize - crop used space */
-        x = sdsResize(x, 30);
+        x = sdsResize(x, 30, 1);
         test_cond("sdsrezie() crop len", sdslen(x) == 30);
         test_cond("sdsrezie() crop strlen", strlen(x) == 30);
         test_cond("sdsrezie() crop alloc", sdsalloc(x) == 30);
         /* Test sdsresize - extend to different class */
-        x = sdsResize(x, 400);
+        x = sdsResize(x, 400, 1);
         test_cond("sdsrezie() expand len", sdslen(x) == 30);
         test_cond("sdsrezie() expand strlen", strlen(x) == 30);
         test_cond("sdsrezie() expand alloc", sdsalloc(x) == 400);
         /* Test sdsresize - shrink to different class */
-        x = sdsResize(x, 4);
+        x = sdsResize(x, 4, 1);
         test_cond("sdsrezie() crop len", sdslen(x) == 4);
         test_cond("sdsrezie() crop strlen", strlen(x) == 4);
         test_cond("sdsrezie() crop alloc", sdsalloc(x) == 4);
