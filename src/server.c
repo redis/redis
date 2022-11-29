@@ -5429,8 +5429,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "blocked_clients:%d\r\n"
             "tracking_clients:%d\r\n"
             "clients_in_timeout_table:%llu\r\n"
-            "tot_blocking_keys:%lu\r\n"
-            "tot_blocking_keys_on_nokey:%lu\r\n",
+            "total_blocking_keys:%lu\r\n"
+            "total_blocking_keys_on_nokey:%lu\r\n",
             listLength(server.clients)-listLength(server.slaves),
             getClusterConnectionsCount(),
             server.maxclients,
