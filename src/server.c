@@ -3448,7 +3448,7 @@ void call(client *c, int flags) {
      * c->cmd and c->lastcmd may be different, in case of MULTI-EXEC or
      * re-written commands such as EXPIRE, GEOADD, etc. */
 
-    /* Log the command into the Slow log if needed and ecord the latency this command
+    /* Log the command into the Slow log if needed and record the latency this command
      * induced on the main thread unless instructed by the caller not to log.
      * (happens when processing a MULTI-EXEC from inside an AOF).
      * If the client is blocked we will handle slowlog when it is unblocked.
