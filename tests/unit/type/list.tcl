@@ -2211,28 +2211,28 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         set rd3 [redis_deferring_client]
         
         # delete the list in case already exists
-        r del l1 l2 l3
+        r del l1{t} l2{t} l3{t}
         
         # block a client on the list
-        $rd1 BRPOPLPUSH l1 l3 0
+        $rd1 BRPOPLPUSH l1{t} l3{t} 0
         wait_for_blocked_clients_count 1
         
-        $rd2 BLPOP l2 0
+        $rd2 BLPOP l2{t} 0
         wait_for_blocked_clients_count 2
         
-        $rd3 BLMPOP 0 2 l2 l3 LEFT COUNT 1
+        $rd3 BLMPOP 0 2 l2{t} l3{t} LEFT COUNT 1
         wait_for_blocked_clients_count 3
         
         r multi
-        r lpush l1 1
-        r lpush l2 2
+        r lpush l1{t} 1
+        r lpush l2{t} 2
         r exec
         
         wait_for_blocked_clients_count 0
         
         assert_equal [$rd1 read] {1}
-        assert_equal [$rd2 read] {l2 2}
-        assert_equal [$rd3 read] {l3 1}
+        assert_equal [$rd2 read] {l2{t} 2}
+        assert_equal [$rd3 read] {l3{t} 1}
         
         $rd1 close
         $rd2 close
