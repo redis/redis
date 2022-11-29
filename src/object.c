@@ -601,7 +601,7 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
  * string. This happens because the query buffer SDS may be used directly as the SDS string
  * when an argument len is > PROTO_MBULK_BIG_ARG. */
 void trimStringObjectIfNeeded(robj *o) {
-    int len = sdslen(o->ptr);
+    size_t len = sdslen(o->ptr);
     if (len < PROTO_MBULK_BIG_ARG) return;
     if (o->encoding == OBJ_ENCODING_RAW &&
         sdsavail(o->ptr) > len/10)
