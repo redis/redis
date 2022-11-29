@@ -10893,8 +10893,7 @@ static uint64_t moduleEventVersions[] = {
  *     The data pointer can be casted to a RedisModuleKeyInfo
  *     structure with the following fields:
  *
- *         int32_t dbnum;             // Database number of the key
- *         RedisModuleString *key;    // Key name
+ *         RedisModuleKey *key;    // Key name
  *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
@@ -10983,7 +10982,7 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
     return 0;
 }
 
-typedef struct {
+typedef struct KeyInfo {
     uint64_t version;
     int32_t dbnum;
     RedisModuleString *key;
