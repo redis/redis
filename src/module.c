@@ -11026,7 +11026,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             RedisModuleClientInfoV1 civ1;
             RedisModuleReplicationInfoV1 riv1;
             RedisModuleModuleChangeV1 mcv1;
-            RedisModuleKey key = {0};
+            RedisModuleKey key;
+            RedisModuleKeyInfoV1 ki = {0, &key};
 
             /* Event specific context and data pointer setup. */
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
@@ -11062,7 +11063,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 KeyInfo *info = data;
                 selectDb(ctx.client, info->dbnum);
                 moduleInitKey(&key, &ctx, info->key, info->value, info->mode);
-                RedisModuleKeyInfoV1 ki = {info->version, &key};
+                ki.version = info->version;
                 moduledata = &ki;
             }
 
