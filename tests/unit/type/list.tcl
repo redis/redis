@@ -2274,7 +2274,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         r config resetstat
         
         # block a client on the list
-        $rd BLPOP mylist 1
+        $rd BLPOP mylist 0.01
         wait_for_blocked_clients_count 0
         
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdrstat blpop r]
