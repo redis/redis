@@ -263,7 +263,7 @@ static int64_t usUntilEarliestTimer(aeEventLoop *eventLoop) {
 
     aeTimeEvent *earliest = NULL;
     while (te) {
-        if (!earliest || te->when < earliest->when)
+        if ((!earliest || te->when < earliest->when) && te->id != AE_DELETED_EVENT_ID)
             earliest = te;
         te = te->next;
     }

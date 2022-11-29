@@ -244,10 +244,15 @@ start_server {tags {"keyspace"}} {
         assert {[r get mynewkey{t}] eq "foobar"}
     }
 
-    test {COPY basic usage for list} {
+source "tests/unit/type/list-common.tcl"
+foreach {type large} [array get largevalue] {
+    set origin_config [config_get_set list-max-listpack-size -1]
+    test "COPY basic usage for list - $type" {
         r del mylist{t} mynewlist{t}
-        r lpush mylist{t} a b c d
+        r lpush mylist{t} a b $large c d
+        assert_encoding $type mylist{t}
         r copy mylist{t} mynewlist{t}
+        assert_encoding $type mynewlist{t}
         set digest [debug_digest_value mylist{t}]
         assert_equal $digest [debug_digest_value mynewlist{t}]
         assert_refcount 1 mylist{t}
@@ -255,6 +260,8 @@ start_server {tags {"keyspace"}} {
         r del mylist{t}
         assert_equal $digest [debug_digest_value mynewlist{t}]
     }
+    config_set list-max-listpack-size $origin_config
+}
 
     foreach type {intset listpack hashtable} {
         test {COPY basic usage for $type set} {
