@@ -1535,7 +1535,6 @@ struct redisServer {
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     int in_nested_call;         /* If > 0, in a nested call of a call */
-    int in_handling_blocked_clients; /* Indicate we are in the process of unblocking clients (to avoid recursive calls) */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */

@@ -2444,7 +2444,6 @@ void initServer(void) {
     server.replication_allowed = 1;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
-    server.in_handling_blocked_clients = 0;
     server.ready_keys = listCreate();
     server.tracking_pending_keys = listCreate();
     server.clients_waiting_acks = listCreate();
@@ -3448,17 +3447,19 @@ void call(client *c, int flags) {
      * c->cmd and c->lastcmd may be different, in case of MULTI-EXEC or
      * re-written commands such as EXPIRE, GEOADD, etc. */
 
-    /* Log the command into the Slow log if needed and record the latency this command
-     * induced on the main thread unless instructed by the caller not to log.
-     * (happens when processing a MULTI-EXEC from inside an AOF).
-     * If the client is blocked we will handle slowlog when it is unblocked.
-     */
-    if ((flags & CMD_CALL_SLOWLOG) && !(c->flags & CLIENT_BLOCKED)) {
+    /* Record the latency this command induced on the main thread.
+     * unless instructed by the caller not to log. (happens when processing
+     * a MULTI-EXEC from inside an AOF). */
+    if (flags & CMD_CALL_SLOWLOG) {
         char *latency_event = (real_cmd->flags & CMD_FAST) ?
                                "fast-command" : "command";
-        latencyAddSampleIfNeeded(latency_event,c->duration/1000);
-        slowlogPushCurrentCommand(c, real_cmd, c->duration);
+        latencyAddSampleIfNeeded(latency_event,duration/1000);
     }
+
+    /* Log the command into the Slow log if needed.
+     * If the client is blocked we will handle slowlog when it is unblocked. */
+    if ((flags & CMD_CALL_SLOWLOG) && !(c->flags & CLIENT_BLOCKED))
+        slowlogPushCurrentCommand(c, real_cmd, c->duration);
 
     /* Send the command to clients in MONITOR mode if applicable,
      * unless the client is unblocked and retring to process the command.

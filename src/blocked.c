@@ -294,9 +294,10 @@ void handleClientsBlockedOnKeys(void) {
 
     /* In case we are already in the process of unblocking clients we should
      * not make a recursive call, in order to prevent breaking fairness. */
-    if (server.in_handling_blocked_clients)
+    static int in_handling_blocked_clients = 0;
+    if (in_handling_blocked_clients)
         return;
-    server.in_handling_blocked_clients = 1;
+    in_handling_blocked_clients = 1;
 
     /* This function is called only when also_propagate is in its basic state
      * (i.e. not from call(), module context, etc.) */
@@ -336,7 +337,7 @@ void handleClientsBlockedOnKeys(void) {
 
     server.core_propagates = prev_core_propagates;
 
-    server.in_handling_blocked_clients = 0;
+    in_handling_blocked_clients = 0;
 }
 
 /* Set a client in blocking mode for the specified key, with the specified timeout.
