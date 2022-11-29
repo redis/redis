@@ -385,17 +385,17 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
     int evalsha = c->cmd->proc == evalShaCommand || c->cmd->proc == evalShaRoCommand;
     if (evalsha && sdslen(c->argv[1]->ptr) != 40)
         return cmd_flags;
+    uint64_t script_flags;
     evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
     char *lua_cur_script = funcname + 2;
-    dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
-    uint64_t script_flags;
-    if (!de) {
+    c->cur_script = dictFind(lctx.lua_scripts, lua_cur_script);
+    if (!c->cur_script) {
         if (evalsha)
             return cmd_flags;
         if (evalExtractShebangFlags(c->argv[1]->ptr, &script_flags, NULL, NULL) == C_ERR)
             return cmd_flags;
     } else {
-        luaScript *l = dictGetVal(de);
+        luaScript *l = dictGetVal(c->cur_script);
         script_flags = l->flags;
     }
     if (script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)
@@ -502,7 +502,12 @@ void evalGenericCommand(client *c, int evalsha) {
         return;
     }
 
-    evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
+    if (c->cur_script) {
+        funcname[0] = 'f', funcname[1] = '_';
+        memcpy(funcname+2, dictGetKey(c->cur_script), 40);
+        funcname[42] = '\0';
+    } else
+        evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
 
     /* Push the pcall error handler function on the stack. */
     lua_getglobal(lua, "__redis__err__handler");
@@ -531,7 +536,9 @@ void evalGenericCommand(client *c, int evalsha) {
     }
 
     char *lua_cur_script = funcname + 2;
-    dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
+    dictEntry *de = c->cur_script;
+    if (!de)
+        de = dictFind(lctx.lua_scripts, lua_cur_script);
     luaScript *l = dictGetVal(de);
     int ro = c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand;
 
