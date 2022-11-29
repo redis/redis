@@ -1013,6 +1013,7 @@ typedef struct client {
     int swap_errcode;
     struct argRewrites *swap_arg_rewrites;
     int gtid_in_merge; /* gtid full sync*/
+    int swap_perflog_sample_on;
 } client;
 
 struct saveparam {
@@ -1774,6 +1775,12 @@ struct redisServer {
     int swap_evict_inprogress_limit;
     int swap_evict_inprogress_growth_rate;
     int swap_evict_inprogress_count;
+    list *swap_perflog;
+    uint64_t swap_perflog_entry_id;
+    unsigned long long swap_perflog_log_slower_than_us;
+    unsigned long swap_perflog_max_len;
+    int swap_perflog_sample_ratio;
+
 
     /* rocksdb configs */
     unsigned long long rocksdb_meta_block_cache_size;
