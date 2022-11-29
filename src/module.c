@@ -215,7 +215,6 @@ struct RedisModuleKey {
         } stream;
     } u;
 };
-typedef struct RedisModuleKey RedisModuleKey;
 
 /* RedisModuleKey 'ztype' values. */
 #define REDISMODULE_ZSET_RANGE_NONE 0       /* This must always be 0. */
@@ -10943,7 +10942,6 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             } else if (eid == REDISMODULE_EVENT_KEY) {
                 KeyInfo *info = data;
                 selectDb(ctx.client, info->dbnum);
-                incrRefCount(info->key);
                 moduleInitKey(&key, &ctx, info->key, info->value, info->mode);
                 RedisModuleKeyInfoV1 ki = {info->version, &key};
                 moduledata = &ki;
