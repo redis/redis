@@ -1694,6 +1694,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
         /* If the truncated file is not the last file, we consider this to be a fatal error. */
         if (ret == AOF_TRUNCATED && !last_file) {
             ret = AOF_FAILED;
+            serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
         }
 
         if (ret == AOF_OPEN_ERR || ret == AOF_FAILED) {
@@ -1724,8 +1725,10 @@ int loadAppendOnlyFiles(aofManifest *am) {
              * so empty incr AOF file doesn't count as a AOF_EMPTY result */
             if (ret == AOF_EMPTY) ret = AOF_OK;
 
+            /* If the truncated file is not the last file, we consider this to be a fatal error. */
             if (ret == AOF_TRUNCATED && !last_file) {
                 ret = AOF_FAILED;
+                serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
             }
 
             if (ret == AOF_OPEN_ERR || ret == AOF_FAILED) {

@@ -261,6 +261,15 @@ typedef uint64_t RedisModuleTimerID;
 /* Declare that the module can handle diskless async replication with RedisModule_SetModuleOptions. */
 #define REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD    (1<<2)
 
+/* Declare that the module want to get nested key space notifications.
+ * If enabled, the module is responsible to break endless loop. */
+#define REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS    (1<<3)
+
+/* Next option flag, must be updated when adding new module flags above!
+ * This flag should not be used directly by the module.
+ * Use RedisModule_GetModuleOptionsAll instead. */
+#define _REDISMODULE_OPTIONS_FLAGS_NEXT (1<<4)
+
 /* Definitions for RedisModule_SetCommandInfo. */
 
 typedef enum {
@@ -834,6 +843,7 @@ typedef struct RedisModuleKeyOptCtx RedisModuleKeyOptCtx;
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
 typedef int (*RedisModuleNotificationFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
+typedef void (*RedisModulePostNotificationJobFunc) (RedisModuleCtx *ctx, void *pd);
 typedef void *(*RedisModuleTypeLoadFunc)(RedisModuleIO *rdb, int encver);
 typedef void (*RedisModuleTypeSaveFunc)(RedisModuleIO *rdb, void *value);
 typedef int (*RedisModuleTypeAuxLoadFunc)(RedisModuleIO *rdb, int encver, int when);
@@ -1146,6 +1156,7 @@ REDISMODULE_API void (*RedisModule_ScanCursorDestroy)(RedisModuleScanCursor *cur
 REDISMODULE_API int (*RedisModule_Scan)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ScanKey)(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetContextFlagsAll)() REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetModuleOptionsAll)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetKeyspaceNotificationFlagsAll)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsSubEventSupported)(RedisModuleEvent event, uint64_t subevent) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetServerVersion)() REDISMODULE_ATTR;
@@ -1167,6 +1178,7 @@ REDISMODULE_API void (*RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx) R
 REDISMODULE_API int (*RedisModule_ThreadSafeContextTryLock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AddPostNotificationJob)(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_NotifyKeyspaceEvent)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetNotifyKeyspaceEvents)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_BlockedClientDisconnected)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -1490,6 +1502,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(Scan);
     REDISMODULE_GET_API(ScanKey);
     REDISMODULE_GET_API(GetContextFlagsAll);
+    REDISMODULE_GET_API(GetModuleOptionsAll);
     REDISMODULE_GET_API(GetKeyspaceNotificationFlagsAll);
     REDISMODULE_GET_API(IsSubEventSupported);
     REDISMODULE_GET_API(GetServerVersion);
@@ -1512,6 +1525,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(BlockedClientMeasureTimeEnd);
     REDISMODULE_GET_API(SetDisconnectCallback);
     REDISMODULE_GET_API(SubscribeToKeyspaceEvents);
+    REDISMODULE_GET_API(AddPostNotificationJob);
     REDISMODULE_GET_API(NotifyKeyspaceEvent);
     REDISMODULE_GET_API(GetNotifyKeyspaceEvents);
     REDISMODULE_GET_API(BlockedClientDisconnected);

@@ -294,6 +294,9 @@ static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 /* Function pointer type for keyspace event notification subscriptions from modules. */
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 
+/* Function pointer type for post jobs */
+typedef void (*RedisModulePostNotificationJobFunc) (RedisModuleCtx *ctx, void *pd);
+
 /* Keyspace notification subscriber information.
  * See RM_SubscribeToKeyspaceEvents() for more information. */
 typedef struct RedisModuleKeyspaceSubscriber {
@@ -308,8 +311,20 @@ typedef struct RedisModuleKeyspaceSubscriber {
     int active;
 } RedisModuleKeyspaceSubscriber;
 
+typedef struct RedisModulePostExecUnitJob {
+    /* The module subscribed to the event */
+    RedisModule *module;
+    RedisModulePostNotificationJobFunc callback;
+    void *pd;
+    void (*free_pd)(void*);
+    int dbid;
+} RedisModulePostExecUnitJob;
+
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
+
+/* The module post keyspace jobs list */
+static list *modulePostExecUnitJobs;
 
 /* Data structures related to the exported dictionary data structure. */
 typedef struct RedisModuleDict {
@@ -729,8 +744,9 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
         /* Modules take care of their own propagation, when we are
          * outside of call() context (timers, events, etc.). */
         if (--server.module_ctx_nesting == 0) {
-            if (!server.core_propagates)
-                propagatePendingCommands();
+            if (!server.core_propagates) {
+                postExecutionUnitOperations();
+            }
             if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -2207,7 +2223,13 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
  * REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD:
  * Setting this flag indicates module awareness of diskless async replication (repl-diskless-load=swapdb)
  * and that redis could be serving reads during replication instead of blocking with LOADING status.
- */
+ *
+ * REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS:
+ * Declare that the module wants to get nested key-space notifications.
+ * By default, Redis will not fire key-space notifications that happened inside
+ * a key-space notification callback. This flag allows to change this behavior
+ * and fire nested key-space notifications. Notice: if enabled, the module
+ * should protected itself from infinite recursion. */
 void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
     ctx->module->options = options;
 }
@@ -7905,7 +7927,7 @@ void moduleGILBeforeUnlock() {
      * (because it's u clear when thread safe contexts are
      * released we have to propagate here). */
     server.module_ctx_nesting--;
-    propagatePendingCommands();
+    postExecutionUnitOperations();
 
     if (server.busy_module_yield_flags) {
         blockingOperationEnds();
@@ -8000,6 +8022,12 @@ void moduleReleaseGIL(void) {
  * so notification callbacks must to be fast, or they would slow Redis down.
  * If you need to take long actions, use threads to offload them.
  *
+ * Moreover, the fact that the notification is executed synchronously means
+ * that the notification code will be executed in the middle on Redis logic
+ * (commands logic, eviction, expire). Changing the key space while the logic
+ * runs is dangerous and discouraged. In order to react to key space events with
+ * write actions, please refer to `RM_AddPostExecutionUnitJob`.
+ *
  * See https://redis.io/topics/notifications for more information.
  */
 int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc callback) {
@@ -8010,6 +8038,53 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     sub->active = 0;
 
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
+    return REDISMODULE_OK;
+}
+
+void firePostExecutionUnitJobs() {
+    /* Avoid propagation of commands. */
+    server.in_nested_call++;
+    while (listLength(modulePostExecUnitJobs) > 0) {
+        listNode *ln = listFirst(modulePostExecUnitJobs);
+        RedisModulePostExecUnitJob *job = listNodeValue(ln);
+        listDelNode(modulePostExecUnitJobs, ln);
+
+        RedisModuleCtx ctx;
+        moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
+        selectDb(ctx.client, job->dbid);
+
+        job->callback(&ctx, job->pd);
+        if (job->free_pd) job->free_pd(job->pd);
+
+        moduleFreeContext(&ctx);
+        zfree(job);
+    }
+    server.in_nested_call--;
+}
+
+/* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
+ * operation (See `RM_SubscribeToKeyspaceEvents`). In order to still perform write actions in this scenario,
+ * Redis provides `RM_AddPostNotificationJob` API. The API allows to register a job callback which Redis will call
+ * when the following condition are promised to be fulfilled:
+ * 1. It is safe to perform any write operation.
+ * 2. The job will be called atomically along side the key space notification.
+ *
+ * Notice, one job might trigger key space notifications that will trigger more jobs.
+ * This raises a concerns of entering an infinite loops, we consider infinite loops
+ * as a logical bug that need to be fixed in the module, an attempt to protect against
+ * infinite loops by halting the execution could result in violation of the feature correctness
+ * and so Redis will make no attempt to protect the module from infinite loops.
+ *
+ * 'free_pd' can be NULL and in such case will not be used. */
+int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
+    RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
+    job->module = ctx->module;
+    job->callback = callback;
+    job->pd = privdata;
+    job->free_pd = free_privdata;
+    job->dbid = ctx->client->db->id;
+
+    listAddNodeTail(modulePostExecUnitJobs, job);
     return REDISMODULE_OK;
 }
 
@@ -8045,7 +8120,8 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
         RedisModuleKeyspaceSubscriber *sub = ln->value;
         /* Only notify subscribers on events matching the registration,
          * and avoid subscribers triggering themselves */
-        if ((sub->event_mask & type) && sub->active == 0) {
+        if ((sub->event_mask & type) &&
+            (sub->active == 0 || (sub->module->options & REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS))) {
             RedisModuleCtx ctx;
             moduleCreateContext(&ctx, sub->module, REDISMODULE_CTX_TEMP_CLIENT);
             selectDb(ctx.client, dbid);
@@ -11116,6 +11192,8 @@ void moduleInitModulesSystem(void) {
     /* Set up the keyspace notification subscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
 
+    modulePostExecUnitJobs = listCreate();
+
     /* Set up filter list */
     moduleCommandFilters = listCreate();
 
@@ -12235,6 +12313,23 @@ int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
  * -------------------------------------------------------------------------- */
 
 /**
+ * Returns the full module options flags mask, using the return value
+ * the module can check if a certain set of module options are supported
+ * by the redis server version in use.
+ * Example:
+ *
+ *        int supportedFlags = RM_GetModuleOptionsAll();
+ *        if (supportedFlags & REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS) {
+ *              // REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS is supported
+ *        } else{
+ *              // REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS is not supported
+ *        }
+ */
+int RM_GetModuleOptionsAll() {
+    return _REDISMODULE_OPTIONS_FLAGS_NEXT - 1;
+}
+
+/**
  * Returns the full ContextFlags mask, using the return value
  * the module can check if a certain set of flags are supported
  * by the redis server version in use.
@@ -12825,6 +12920,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(NotifyKeyspaceEvent);
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
+    REGISTER_API(AddPostNotificationJob);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
     REGISTER_API(GetClusterNodeInfo);
@@ -12932,6 +13028,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(AuthenticateClientWithACLUser);
     REGISTER_API(AuthenticateClientWithUser);
     REGISTER_API(GetContextFlagsAll);
+    REGISTER_API(GetModuleOptionsAll);
     REGISTER_API(GetKeyspaceNotificationFlagsAll);
     REGISTER_API(IsSubEventSupported);
     REGISTER_API(GetServerVersion);

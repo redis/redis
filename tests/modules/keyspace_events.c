@@ -131,6 +131,49 @@ static int KeySpace_NotificationModuleKeyMiss(RedisModuleCtx *ctx, int type, con
     return REDISMODULE_OK;
 }
 
+static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+    RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+
+    size_t len = 0;
+    /* RedisModule_StringDMA could change the data format and cause the old robj to be freed.
+     * This code verifies that such format change will not cause any crashes.*/
+    char *data = RedisModule_StringDMA(redis_key, &len, REDISMODULE_READ);
+    int res = strncmp(data, "dummy", 5);
+    REDISMODULE_NOT_USED(res);
+
+    RedisModule_CloseKey(redis_key);
+
+    return REDISMODULE_OK;
+}
+
+static void KeySpace_PostNotificationStringFreePD(void *pd) {
+    RedisModule_FreeString(NULL, pd);
+}
+
+static void KeySpace_PostNotificationString(RedisModuleCtx *ctx, void *pd) {
+    REDISMODULE_NOT_USED(ctx);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "incr", "!s", pd);
+    RedisModule_FreeCallReply(rep);
+}
+
+static int KeySpace_NotificationModuleStringPostNotificationJob(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+
+    if (strncmp(key_str, "string1_", 8) != 0) {
+        return REDISMODULE_OK;
+    }
+
+    RedisModuleString *new_key = RedisModule_CreateStringPrintf(NULL, "string_changed{%s}", key_str);
+    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    return REDISMODULE_OK;
+}
+
 static int KeySpace_NotificationModule(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(ctx);
     REDISMODULE_NOT_USED(type);
@@ -309,6 +352,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_KEY_MISS, KeySpace_NotificationModuleKeyMiss) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationModuleString) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationModuleStringPostNotificationJob) != REDISMODULE_OK){
         return REDISMODULE_ERR;
     }
 

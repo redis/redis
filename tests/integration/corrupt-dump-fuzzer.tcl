@@ -147,10 +147,21 @@ foreach sanitize_dump {no yes} {
                         if {$dbsize != [r dbsize]} {
                             puts "unexpected keys"
                             puts "keys: [r keys *]"
-                            puts $sent
+                            puts "commands leading to it:"
+                            foreach cmd $sent {
+                                foreach arg $cmd {
+                                    puts -nonewline "[string2printable $arg] "
+                                }
+                                puts ""
+                            }
                             exit 1
                         }
                     } err ] } {
+                        set err [format "%s" $err] ;# convert to string for pattern matching
+                        if {[string match "*SIGTERM*" $err]} {
+                            puts "payload that caused test to hang: $printable_dump"
+                            exit 1
+                        }
                         # if the server terminated update stats and restart it
                         set report_and_restart true
                         incr stat_terminated_in_traffic
