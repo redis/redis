@@ -618,7 +618,7 @@ static void unblockClientOnKey(client *c, robj *key) {
         c->flags |= CLIENT_REPROCESSING_COMMAND;
         processCommandAndResetClient(c);
         /* Potentially this client might have been evicted */
-        if (server->current_client != NULL)
+        if (server.current_client != NULL)
             c->flags &= ~CLIENT_REPROCESSING_COMMAND;
     }
 }
