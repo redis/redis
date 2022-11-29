@@ -612,7 +612,7 @@ static void unblockClientOnKey(client *c, robj *key) {
 
     unblockClient(c);
     /* In case this client was blocked on keys during command
-     * we need to re process the command again*/
+     * we need to re process the command again */
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
         c->flags |= CLIENT_REPROCESSING_COMMAND;
