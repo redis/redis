@@ -635,7 +635,7 @@ void handleClientsBlockedOnKeys(void) {
             if (!o) {
                 /* Edge case: If lookupKeyReadWithFlags decides to expire the key we have to
                  * take care of the propagation here, because afterCommand wasn't called */
-                propagatePendingCommands();
+                postExecutionUnitOperations();
             } else {
                 if (o->type == OBJ_LIST)
                     serveClientsBlockedOnListKey(o,rl);

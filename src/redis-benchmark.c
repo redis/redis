@@ -324,6 +324,7 @@ static redisConfig *getRedisConfig(const char *ip, int port,
     }
     redisAppendCommand(c, "CONFIG GET %s", "save");
     redisAppendCommand(c, "CONFIG GET %s", "appendonly");
+    int abort_test = 0;
     int i = 0;
     void *r = NULL;
     for (; i < 2; i++) {
@@ -332,7 +333,6 @@ static redisConfig *getRedisConfig(const char *ip, int port,
         reply = res == REDIS_OK ? ((redisReply *) r) : NULL;
         if (res != REDIS_OK || !r) goto fail;
         if (reply->type == REDIS_REPLY_ERROR) {
-            fprintf(stderr, "ERROR: %s\n", reply->str);
             goto fail;
         }
         if (reply->type != REDIS_REPLY_ARRAY || reply->elements < 2) goto fail;
@@ -348,15 +348,14 @@ static redisConfig *getRedisConfig(const char *ip, int port,
     redisFree(c);
     return cfg;
 fail:
-    fprintf(stderr, "ERROR: failed to fetch CONFIG from ");
-    if (hostsocket == NULL) fprintf(stderr, "%s:%d\n", ip, port);
-    else fprintf(stderr, "%s\n", hostsocket);
-    int abort_test = 0;
     if (reply && reply->type == REDIS_REPLY_ERROR &&
-        (!strncmp(reply->str,"NOAUTH",6) ||
-         !strncmp(reply->str,"WRONGPASS",9) ||
-         !strncmp(reply->str,"NOPERM",6)))
+        !strncmp(reply->str,"NOAUTH",6)) {
+        if (hostsocket == NULL)
+            fprintf(stderr, "Node %s:%d replied with error:\n%s\n", ip, port, reply->str);
+        else
+            fprintf(stderr, "Node %s replied with error:\n%s\n", hostsocket, reply->str);
         abort_test = 1;
+    }
     freeReplyObject(reply);
     redisFree(c);
     freeRedisConfig(cfg);

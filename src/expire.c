@@ -267,7 +267,7 @@ void activeExpireCycle(int type) {
                         if (activeExpireCycleTryExpire(db,e,now)) {
                             expired++;
                             /* Propagate the DEL command */
-                            propagatePendingCommands();
+                            postExecutionUnitOperations();
                         }
                         if (ttl > 0) {
                             /* We want the average TTL of keys yet

@@ -229,7 +229,14 @@ int dictRehash(dict *d, int n) {
 
             nextde = de->next;
             /* Get the index in the new hash table */
-            h = dictHashKey(d, de->key) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            if (d->ht_size_exp[1] > d->ht_size_exp[0]) {
+                h = dictHashKey(d, de->key) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            } else {
+                /* We're shrinking the table. The tables sizes are powers of
+                 * two, so we simply mask the bucket index in the larger table
+                 * to get the bucket index in the smaller table. */
+                h = d->rehashidx & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            }
             de->next = d->ht_table[1][h];
             d->ht_table[1][h] = de;
             d->ht_used[0]--;

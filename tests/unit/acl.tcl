@@ -421,9 +421,10 @@ start_server {tags {"acl external:skip"}} {
 
         # Appending to the existing access string of bob.
         r ACL setuser bob +@all +client|id
-        # Validate the new commands has got engulfed to +@all.
+        # Although this does nothing, we retain it anyways so we can reproduce
+        # the original ACL. 
         set cmdstr [dict get [r ACL getuser bob] commands]
-        assert_equal {+@all} $cmdstr
+        assert_equal {+@all +client|id} $cmdstr
 
         r ACL setuser bob >passwd1 on
         r AUTH bob passwd1
@@ -530,6 +531,55 @@ start_server {tags {"acl external:skip"}} {
             set cmdstr [dict get [r ACL getuser restrictive] commands]
             assert_equal "-@all +@$category" $cmdstr
         }
+    }
+
+    # Test that only lossless compaction of ACLs occur.
+    test {ACL GETUSER provides correct results} {
+        r ACL SETUSER adv-test
+        r ACL SETUSER adv-test +@all -@hash -@slow +hget
+        assert_equal "+@all -@hash -@slow +hget" [dict get [r ACL getuser adv-test] commands]
+
+        # Categories are re-ordered if re-added
+        r ACL SETUSER adv-test -@hash
+        assert_equal "+@all -@slow +hget -@hash" [dict get [r ACL getuser adv-test] commands]
+
+        # Inverting categories removes existing categories
+        r ACL SETUSER adv-test +@hash
+        assert_equal "+@all -@slow +hget +@hash" [dict get [r ACL getuser adv-test] commands]
+
+        # Inverting the all category compacts everything
+        r ACL SETUSER adv-test -@all
+        assert_equal "-@all" [dict get [r ACL getuser adv-test] commands]
+        r ACL SETUSER adv-test -@string -@slow +@all
+        assert_equal "+@all" [dict get [r ACL getuser adv-test] commands]
+
+        # Make sure categories are case insensitive
+        r ACL SETUSER adv-test -@all +@HASH +@hash +@HaSh
+        assert_equal "-@all +@hash" [dict get [r ACL getuser adv-test] commands]
+
+        # Make sure commands are case insensitive
+        r ACL SETUSER adv-test -@all +HGET +hget +hGeT
+        assert_equal "-@all +hget" [dict get [r ACL getuser adv-test] commands]
+
+        # Arbitrary category additions and removals are handled
+        r ACL SETUSER adv-test -@all +@hash +@slow +@set +@set +@slow +@hash
+        assert_equal "-@all +@set +@slow +@hash" [dict get [r ACL getuser adv-test] commands]
+
+        # Arbitrary command additions and removals are handled
+        r ACL SETUSER adv-test -@all +hget -hset +hset -hget
+        assert_equal "-@all +hset -hget" [dict get [r ACL getuser adv-test] commands]
+
+        # Arbitrary subcommands are compacted
+        r ACL SETUSER adv-test -@all +client|list +client|list +config|get +config +acl|list -acl
+        assert_equal "-@all +client|list +config -acl" [dict get [r ACL getuser adv-test] commands]
+
+        # Deprecated subcommand usage is handled
+        r ACL SETUSER adv-test -@all +select|0 +select|0 +debug|segfault +debug
+        assert_equal "-@all +select|0 +debug" [dict get [r ACL getuser adv-test] commands]
+
+        # Unnecessary categories are retained for potentional future compatibility
+        r ACL SETUSER adv-test -@all -@dangerous
+        assert_equal "-@all -@dangerous" [dict get [r ACL getuser adv-test] commands]
     }
 
     test "ACL CAT with illegal arguments" {

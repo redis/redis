@@ -15,6 +15,19 @@ tags "modules" {
             assert {[r hooks.event_count client-disconnected] > 1}
         }
 
+        test {Test module client change event for blocked client} {
+            set rd [redis_deferring_client]
+            # select db other than 0
+            $rd select 1
+            # block on key
+            $rd brpop foo 0
+            # kill blocked client
+            r client kill skipme yes
+            # assert server is still up
+            assert_equal [r ping] PONG
+            $rd close
+        } 
+
         test {Test module cron hook} {
             after 100
             assert {[r hooks.event_count cron-loop] > 0}

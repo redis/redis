@@ -2778,6 +2778,11 @@ void xsetidCommand(client *c) {
     if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
     stream *s = o->ptr;
 
+    if (streamCompareID(&id,&s->max_deleted_entry_id) < 0) {
+        addReplyError(c,"The ID specified in XSETID is smaller than current max_deleted_entry_id");
+        return;
+    }
+
     /* If the stream has at least one item, we want to check that the user
      * is setting a last ID that is equal or greater than the current top
      * item, otherwise the fundamental ID monotonicity assumption is violated. */

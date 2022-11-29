@@ -17,6 +17,7 @@ start_server {tags {"modules"}} {
 
     test {Module list set, get, insert, delete} {
         r del k
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r list.set k 1 xyz}
         r rpush k x
         # insert, set, get
         r list.insert k 0 foo
@@ -75,6 +76,41 @@ start_server {tags {"modules"}} {
         verify_list_edit_reply [r list.edit k reverse rkr foo bar] {r 2 index -4}
         r list.getall k
     } {bar y foo}
+
+    test {Module list - encoding conversion while inserting} {
+        r config set list-max-listpack-size 4
+        r del k
+        r rpush k a b c d
+        assert_encoding listpack k
+
+        # Converts to quicklist after inserting.
+        r list.edit k dii foo bar
+        assert_encoding quicklist k
+        assert_equal [r list.getall k] {foo bar b c d}
+
+        # Converts to listpack after deleting three entries.
+        r list.edit k ddd e
+        assert_encoding listpack k
+        assert_equal [r list.getall k] {c d}
+    }
+
+    test {Module list - encoding conversion while replacing} {
+        r config set list-max-listpack-size -1
+        r del k
+        r rpush k x y z
+        assert_encoding listpack k
+
+        # Converts to quicklist after replacing.
+        set big [string repeat "x" 4096]
+        r list.edit k r $big
+        assert_encoding quicklist k
+        assert_equal [r list.getall k] "$big y z"
+
+        # Converts to listpack after deleting the big entry.
+        r list.edit k d
+        assert_encoding listpack k
+        assert_equal [r list.getall k] {y z}
+    }
 
     test {Module list - list entry and index should be updated when deletion} {
         set original_config [config_get_set list-max-listpack-size 1]

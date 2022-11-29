@@ -158,6 +158,7 @@ client *createClient(connection *conn) {
     c->original_argc = 0;
     c->original_argv = NULL;
     c->cmd = c->lastcmd = c->realcmd = NULL;
+    c->cur_script = NULL;
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;
@@ -1448,6 +1449,8 @@ void unlinkClient(client *c) {
                 }
             }
         }
+        /* Only use shutdown when the fork is active and we are the parent. */
+        if (server.child_type) connShutdown(c->conn);
         connClose(c->conn);
         c->conn = NULL;
     }
@@ -2016,6 +2019,7 @@ void resetClient(client *c) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
     freeClientArgv(c);
+    c->cur_script = NULL;
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
