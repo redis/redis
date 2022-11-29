@@ -653,10 +653,7 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
         if (t == LUA_TSTRING) {
             sds ok = sdsnew(lua_tostring(lua,-1));
             sdsmapchars(ok,"\r\n","  ",2);
-            const size_t msgLen = strlen(ok);
-            addReplyProto(c,"+",1);
-            addReplyProto(c,ok,msgLen);
-            addReplyProto(c,"\r\n",2);
+            addReplyStatusLength(ok, strlen(ok));
             sdsfree(ok);
             lua_pop(lua,2);
             return;
