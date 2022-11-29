@@ -424,8 +424,8 @@ start_server {
         wait_for_blocked_clients_count 1
         
         # verify we only have 1 regular blocking key
-        assert_equal 1 [getInfoProperty [r info clients] tot_blocking_keys]
-        assert_equal 0 [getInfoProperty [r info clients] tot_blocking_keys_on_nokey]
+        assert_equal 1 [getInfoProperty [r info clients] total_blocking_keys]
+        assert_equal 0 [getInfoProperty [r info clients] total_blocking_keys_on_nokey]
         
         # now write mystream as stream
         r XADD mystream 666 key value
@@ -438,14 +438,14 @@ start_server {
         wait_for_blocked_clients_count 2
         
         # verify we have 1 blocking key which also have clients blocked on nokey condition
-        assert_equal 1 [getInfoProperty [r info clients] tot_blocking_keys]
-        assert_equal 1 [getInfoProperty [r info clients] tot_blocking_keys_on_nokey]
+        assert_equal 1 [getInfoProperty [r info clients] total_blocking_keys]
+        assert_equal 1 [getInfoProperty [r info clients] total_blocking_keys_on_nokey]
 
         # now delete the key and verify we have no clients blocked on nokey condition
         r DEL mystream
         assert_error "NOGROUP*" {$rd read}
-        assert_equal 1 [getInfoProperty [r info clients] tot_blocking_keys]
-        assert_equal 0 [getInfoProperty [r info clients] tot_blocking_keys_on_nokey]
+        assert_equal 1 [getInfoProperty [r info clients] total_blocking_keys]
+        assert_equal 0 [getInfoProperty [r info clients] total_blocking_keys_on_nokey]
         
         # close the only left client and make sure we have no more blocking keys
         $rd2 close
@@ -453,8 +453,8 @@ start_server {
         # wait until we verify we have no more blocked clients
         wait_for_blocked_clients_count 0
         
-        assert_equal 0 [getInfoProperty [r info clients] tot_blocking_keys]
-        assert_equal 0 [getInfoProperty [r info clients] tot_blocking_keys_on_nokey]
+        assert_equal 0 [getInfoProperty [r info clients] total_blocking_keys]
+        assert_equal 0 [getInfoProperty [r info clients] total_blocking_keys_on_nokey]
         
         $rd close 
     }
