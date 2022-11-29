@@ -2237,7 +2237,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd1 close
         $rd2 close
         $rd3 close
-    }
+    } {} {cluster:skip}
     
     test "Blocking command acounted only once in commandstats" {
         # cleanup first
