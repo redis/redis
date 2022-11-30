@@ -304,7 +304,7 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
     assert(RedisModule_ValueLength(kp) == RedisModule_ValueLength(kp_open));
     RedisModule_CloseKey(kp_open);
 
-    /* We also try to RM_Call a command that accesses that key, also to make sure it's stil in the keyspace. */
+    /* We also try to RM_Call a command that accesses that key, also to make sure it's still in the keyspace. */
     char *size_command = NULL;
     int key_type = RedisModule_KeyType(kp);
     if (key_type == REDISMODULE_KEYTYPE_STRING) {
