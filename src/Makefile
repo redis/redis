@@ -20,7 +20,7 @@ ifeq ($(OPTIMIZATION),-O3)
 	REDIS_CFLAGS+=-flto
 	REDIS_LDFLAGS+=-flto
 endif
-DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram
+DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram fpconv
 NODEPS:=clean distclean
 
 # Default settings
@@ -59,23 +59,15 @@ ifndef PYTHON
 PYTHON := $(shell which python3 || which python)
 endif
 
-# Default allocator defaults to Jemalloc if it's not an ARM
+# Default allocator defaults to Jemalloc on Linux and libc otherwise
 MALLOC=libc
-ifneq ($(uname_M),armv6l)
-ifneq ($(uname_M),armv7l)
 ifeq ($(uname_S),Linux)
 	MALLOC=jemalloc
 endif
-endif
-endif
 
 # To get ARM stack traces if Redis crashes we need a special C flag.
-ifneq (,$(filter aarch64 armv,$(uname_M)))
+ifneq (,$(filter aarch64 armv%,$(uname_M)))
         CFLAGS+=-funwind-tables
-else
-ifneq (,$(findstring armv,$(uname_M)))
-        CFLAGS+=-funwind-tables
-endif
 endif
 
 # Backwards compatibility for selecting an allocator
@@ -229,7 +221,7 @@ ifdef OPENSSL_PREFIX
 endif
 
 # Include paths to dependencies
-FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src -I../deps/hdr_histogram
+FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src -I../deps/hdr_histogram -I../deps/fpconv
 
 # Determine systemd support and/or build preference (defaulting to auto-detection)
 BUILD_WITH_SYSTEMD=no
@@ -395,7 +387,7 @@ endif
 
 # redis-server
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a $(FINAL_LIBS)
 
 # redis-sentinel
 $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)

@@ -263,7 +263,7 @@ static int64_t usUntilEarliestTimer(aeEventLoop *eventLoop) {
 
     aeTimeEvent *earliest = NULL;
     while (te) {
-        if (!earliest || te->when < earliest->when)
+        if ((!earliest || te->when < earliest->when) && te->id != AE_DELETED_EVENT_ID)
             earliest = te;
         te = te->next;
     }
@@ -402,6 +402,11 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires. */
         numevents = aeApiPoll(eventLoop, tvp);
+
+        /* Don't process file events if not requested. */
+        if (!(flags & AE_FILE_EVENTS)) {
+            numevents = 0;
+        }
 
         /* After sleep callback. */
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)

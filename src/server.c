@@ -56,11 +56,9 @@
 #include <limits.h>
 #include <float.h>
 #include <math.h>
-#include <sys/resource.h>
 #include <sys/utsname.h>
 #include <locale.h>
 #include <sys/socket.h>
-#include <sys/resource.h>
 
 #ifdef __linux__
 #include <sys/mman.h>
@@ -1379,8 +1377,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
     }
 
-    /* Clear the paused clients state if needed. */
-    checkClientPauseTimeoutAndReturnIfPaused();
+    /* Clear the paused actions state if needed. */
+    updatePausedActions();
 
     /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. 
@@ -1617,7 +1615,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * We also don't send the ACKs while clients are paused, since it can
      * increment the replication backlog, they'll be sent after the pause
      * if we are still the master. */
-    if (server.get_ack_from_slaves && !checkClientPauseTimeoutAndReturnIfPaused()) {
+    if (server.get_ack_from_slaves && !isPausedActionsWithUpdate(PAUSE_ACTION_REPLICA)) {
         sendGetackToReplicas();
         server.get_ack_from_slaves = 0;
     }
@@ -2450,8 +2448,7 @@ void initServer(void) {
     server.tracking_pending_keys = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
-    server.client_pause_type = CLIENT_PAUSE_OFF;
-    server.client_pause_end_time = 0;
+    server.paused_actions = 0;
     memset(server.client_pause_per_purpose, 0,
            sizeof(server.client_pause_per_purpose));
     server.postponed_clients = listCreate();
@@ -2495,6 +2492,7 @@ void initServer(void) {
         server.db[j].expires = dictCreate(&dbExpiresDictType);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
+        server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].watched_keys = dictCreate(&keylistDictType);
         server.db[j].id = j;
@@ -3136,9 +3134,10 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
     if (!shouldPropagate(target))
         return;
 
-    /* This needs to be unreachable since the dataset should be fixed during 
-     * client pause, otherwise data may be lost during a failover. */
-    serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
+    /* This needs to be unreachable since the dataset should be fixed during
+     * replica pause (otherwise data may be lost during a failover) */
+    serverAssert(!(isPausedActions(PAUSE_ACTION_REPLICA) &&
+                   (!server.client_pause_in_transaction)));
 
     if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
         feedAppendOnlyFile(dbid,argv,argc);
@@ -3227,7 +3226,7 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
 /* Handle the alsoPropagate() API to handle commands that want to propagate
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
-void propagatePendingCommands() {
+static void propagatePendingCommands() {
     if (server.also_propagate.numops == 0)
         return;
 
@@ -3261,6 +3260,31 @@ void propagatePendingCommands() {
     }
 
     redisOpArrayFree(&server.also_propagate);
+}
+
+/* Performs operations that should be performed after an execution unit ends.
+ * Execution unit is a code that should be done atomically.
+ * Execution units can be nested and are not necessarily starts with Redis command.
+ *
+ * For example the following is a logical unit:
+ *   active expire ->
+ *      trigger del notification of some module ->
+ *          accessing a key ->
+ *              trigger key miss notification of some other module
+ *
+ * What we want to achieve is that the entire execution unit will be done atomically,
+ * currently with respect to replication and post jobs, but in the future there might
+ * be other considerations. So we basically want the `postUnitOperations` to trigger
+ * after the entire chain finished.
+ *
+ * Current, in order to avoid massive code changes that could be risky to cherry-pick,
+ * we count on the mechanism we already have such as `server.core_propagation`,
+ * `server.module_ctx_nesting`, and `server.in_nested_call`. We understand that we probably
+ * do not need all of those variable and we will make an attempt to re-arrange it on unstable
+ * branch. */
+void postExecutionUnitOperations() {
+    firePostExecutionUnitJobs();
+    propagatePendingCommands();
 }
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).
@@ -3577,8 +3601,9 @@ void afterCommand(client *c) {
         /* If we are at the top-most call() we can propagate what we accumulated.
          * Should be done before trackingHandlePendingKeyInvalidations so that we
          * reply to client before invalidating cache (makes more sense) */
-        if (server.core_propagates)
-            propagatePendingCommands();
+        if (server.core_propagates) {
+            postExecutionUnitOperations();
+        }
         /* Flush pending invalidation messages only when we are not in nested call.
          * So the messages are not interleaved with transaction response. */
         trackingHandlePendingKeyInvalidations();
@@ -3752,28 +3777,9 @@ int processCommand(client *c) {
     int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,acl_errpos,NULL,NULL);
-        switch (acl_retval) {
-        case ACL_DENIED_CMD:
-        {
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to run "
-                "the '%s' command", c->cmd->fullname);
-            break;
-        }
-        case ACL_DENIED_KEY:
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to access "
-                "one of the keys used as arguments");
-            break;
-        case ACL_DENIED_CHANNEL:
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to access "
-                "one of the channels used as arguments");
-            break;
-        default:
-            rejectCommandFormat(c, "no permission");
-            break;
-        }
+        sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
+        rejectCommandFormat(c, "-NOPERM %s", msg);
+        sdsfree(msg);
         return C_OK;
     }
 
@@ -3979,8 +3985,8 @@ int processCommand(client *c) {
     /* If the server is paused, block the client until
      * the pause has ended. Replicas are never paused. */
     if (!(c->flags & CLIENT_SLAVE) && 
-        ((server.client_pause_type == CLIENT_PAUSE_ALL) ||
-        (server.client_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command)))
+        ((isPausedActions(PAUSE_ACTION_CLIENT_ALL)) ||
+        ((isPausedActions(PAUSE_ACTION_CLIENT_WRITE)) && is_may_replicate_command)))
     {
         c->bpop.timeout = 0;
         blockClient(c,BLOCKED_POSTPONE);
@@ -4092,8 +4098,10 @@ int prepareForShutdown(int flags) {
         !isReadyToShutdown())
     {
         server.shutdown_mstime = server.mstime + server.shutdown_timeout * 1000;
-        if (!areClientsPaused()) sendGetackToReplicas();
-        pauseClients(PAUSE_DURING_SHUTDOWN, LLONG_MAX, CLIENT_PAUSE_WRITE);
+        if (!isPausedActions(PAUSE_ACTION_REPLICA)) sendGetackToReplicas();
+        pauseActions(PAUSE_DURING_SHUTDOWN,
+                      LLONG_MAX,
+                     PAUSE_ACTIONS_CLIENT_WRITE_SET);
         serverLog(LL_NOTICE, "Waiting for replicas before shutting down.");
         return C_ERR;
     }
@@ -4127,7 +4135,7 @@ static void cancelShutdown(void) {
     server.shutdown_mstime = 0;
     server.last_sig_received = 0;
     replyToClientsBlockedOnShutdown();
-    unpauseClients(PAUSE_DURING_SHUTDOWN);
+    unpauseActions(PAUSE_DURING_SHUTDOWN);
 }
 
 /* Returns C_OK if shutdown was aborted and C_ERR if shutdown wasn't ongoing. */
@@ -6163,6 +6171,8 @@ void createPidFile(void) {
     if (fp) {
         fprintf(fp,"%d\n",(int)getpid());
         fclose(fp);
+    } else {
+        serverLog(LL_WARNING, "Failed to write PID file: %s", strerror(errno));
     }
 }
 
@@ -6418,6 +6428,10 @@ int redisFork(int purpose) {
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         dismissMemoryInChild();
         closeChildUnusedResourceAfterFork();
+        /* Close the reading part, so that if the parent crashes, the child will
+         * get a write error and exit. */
+        if (server.child_info_pipe[0] != -1)
+            close(server.child_info_pipe[0]);
     } else {
         /* Parent */
         if (childpid == -1) {

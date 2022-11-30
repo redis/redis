@@ -438,17 +438,33 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r zrank zranktmp x]
             assert_equal 1 [r zrank zranktmp y]
             assert_equal 2 [r zrank zranktmp z]
-            assert_equal "" [r zrank zranktmp foo]
             assert_equal 2 [r zrevrank zranktmp x]
             assert_equal 1 [r zrevrank zranktmp y]
             assert_equal 0 [r zrevrank zranktmp z]
-            assert_equal "" [r zrevrank zranktmp foo]
+            r readraw 1
+            assert_equal {$-1} [r zrank zranktmp foo]
+            assert_equal {$-1} [r zrevrank zranktmp foo]
+            r readraw 0
+
+            # withscores
+            assert_equal {0 10} [r zrank zranktmp x withscore]
+            assert_equal {1 20} [r zrank zranktmp y withscore]
+            assert_equal {2 30} [r zrank zranktmp z withscore]
+            assert_equal {2 10} [r zrevrank zranktmp x withscore]
+            assert_equal {1 20} [r zrevrank zranktmp y withscore]
+            assert_equal {0 30} [r zrevrank zranktmp z withscore]
+            r readraw 1
+            assert_equal {*-1} [r zrank zranktmp foo withscore]
+            assert_equal {*-1} [r zrevrank zranktmp foo withscore]
+            r readraw 0
         }
 
         test "ZRANK - after deletion - $encoding" {
             r zrem zranktmp y
             assert_equal 0 [r zrank zranktmp x]
             assert_equal 1 [r zrank zranktmp z]
+            assert_equal {0 10} [r zrank zranktmp x withscore]
+            assert_equal {1 30} [r zrank zranktmp z withscore]
         }
 
         test "ZINCRBY - can create a new sorted set - $encoding" {
@@ -1516,7 +1532,11 @@ start_server {tags {"zset"}} {
 
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zscore zscoretest $i]
+                # If an IEEE 754 double-precision number is converted to a decimal string with at
+                # least 17 significant digits (reply of zscore), and then converted back to double-precision representation,
+                # the final result replied via zscore command must match the original number present on the $aux list.
+                # Given Tcl is mostly very relaxed about types (everything is a string) we need to use expr to convert a string to float.
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         }
 
@@ -1531,7 +1551,8 @@ start_server {tags {"zset"}} {
 
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zmscore zscoretest $i]
+                # Check above notes on IEEE 754 double-precision comparison
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         }
 
@@ -1547,7 +1568,8 @@ start_server {tags {"zset"}} {
             r debug reload
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zscore zscoretest $i]
+                # Check above notes on IEEE 754 double-precision comparison
+                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
             }
         } {} {needs:debug}
 

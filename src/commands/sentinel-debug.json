@@ -16,6 +16,7 @@
             {
                 "name": "data",
                 "type": "block",
+                "optional": true,
                 "multiple": true,
                 "arguments": [
                     {
