@@ -800,6 +800,51 @@ start_server {
         assert_equal [dict get $reply entries] "{100-0 {a 1}}"
     }
 
+    test {Consumer seen-time and active-time} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream >
+        after 100
+        set reply [r xinfo consumers mystream mygroup]
+        set consumer_info [lindex $reply 0]
+        assert {[dict get $consumer_info idle] >= 100} ;# consumer idle (seen-time)
+        assert_equal [dict get $consumer_info inactive] "-1" ;# consumer inactive (active-time)
+
+        r XADD mystream * f v
+        r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream >
+        set reply [r xinfo consumers mystream mygroup]
+        set consumer_info [lindex $reply 0]
+        assert_equal [lindex $consumer_info 1] "Alice" ;# consumer name
+        assert {[dict get $consumer_info idle] < 80} ;# consumer idle (seen-time)
+        assert {[dict get $consumer_info inactive] < 80} ;# consumer inactive (active-time)
+
+        after 100
+        r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream >
+        set reply [r xinfo consumers mystream mygroup]
+        set consumer_info [lindex $reply 0]
+        assert {[dict get $consumer_info idle] < 80} ;# consumer idle (seen-time)
+        assert {[dict get $consumer_info inactive] >= 100} ;# consumer inactive (active-time)
+
+
+        # Simulate loading from RDB
+
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        set consumer [lindex [dict get $group consumers] 0]
+        set prev_seen [dict get $consumer seen-time]
+        set prev_active [dict get $consumer active-time]
+
+        set dump [r DUMP mystream]
+        r DEL mystream
+        r RESTORE mystream 0 $dump
+
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        set consumer [lindex [dict get $group consumers] 0]
+        assert_equal $prev_seen [dict get $consumer seen-time]
+        assert_equal $prev_active [dict get $consumer active-time]
+    }
+
     test {XGROUP CREATECONSUMER: create consumer if does not exist} {
         r del mystream
         r XGROUP CREATE mystream mygroup $ MKSTREAM
@@ -889,13 +934,9 @@ start_server {
             assert {$curr_grpinfo == $grpinfo}
             set n_consumers [lindex $grpinfo 3]
 
-            # Bob should be created only when there will be new data for this consumer
-            assert_equal $n_consumers 2
-            set reply [r xinfo consumers mystream mygroup]
-            set consumer_info [lindex $reply 0]
-            assert_equal [lindex $consumer_info 1] "Alice"
-            set consumer_info [lindex $reply 1]
-            assert_equal [lindex $consumer_info 1] "Charlie"
+            # All consumers are created via XREADGROUP, regardless of whether they managed
+            # to read any entries ot not
+            assert_equal $n_consumers 3
             $rd close
         }
     }
@@ -1046,6 +1087,21 @@ start_server {
         set group [lindex [dict get $reply groups] 1]
         assert_equal [dict get $group entries-read] 0
         assert_equal [dict get $group lag] 2
+    }
+
+    test {Loading from legacy (Redis <= v7.0.x, rdb_ver < 11) persistence} {
+        # The payload was DUMPed from a v7 instance after:
+        # XGROUP CREATE x g $ MKSTREAM
+        # XADD x 1-1 f v
+        # XREADGROUP GROUP g Alice STREAMS x >
+
+        r DEL x
+        r RESTORE x 0 "\x13\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x1d\x1d\x00\x00\x00\n\x00\x01\x01\x00\x01\x01\x01\x81f\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81v\x02\x04\x01\xff\x01\x01\x01\x01\x01\x00\x00\x01\x01\x01g\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\xf5Zq\xc7\x84\x01\x00\x00\x01\x01\x05Alice\xf5Zq\xc7\x84\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\n\x00\xcev\xa9\xd6\xda`r\x12"
+
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        set consumer [lindex [dict get $group consumers] 0]
+        assert_equal [dict get $consumer seen-time] [dict get $consumer active-time]
     }
 
     start_server {tags {"external:skip"}} {
