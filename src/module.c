@@ -10983,7 +10983,6 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
 }
 
 typedef struct KeyInfo {
-    uint64_t version;
     int32_t dbnum;
     RedisModuleString *key;
     robj *value;
@@ -11027,7 +11026,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             RedisModuleReplicationInfoV1 riv1;
             RedisModuleModuleChangeV1 mcv1;
             RedisModuleKey key;
-            RedisModuleKeyInfoV1 ki = {0, &key};
+            RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, &key};
 
             /* Event specific context and data pointer setup. */
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
@@ -11063,7 +11062,6 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 KeyInfo *info = data;
                 selectDb(ctx.client, info->dbnum);
                 moduleInitKey(&key, &ctx, info->key, info->value, info->mode);
-                ki.version = info->version;
                 moduledata = &ki;
             }
 
@@ -11130,7 +11128,7 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
     } else if (flags & DB_FLAG_KEY_OVERWRITE) {
         subevent = REDISMODULE_SUBEVENT_KEY_OVERWRITTEN;
     }
-    KeyInfo info = {REDISMODULE_KEYINFO_VERSION, dbid, key, val, REDISMODULE_WRITE};
+    KeyInfo info = {dbid, key, val, REDISMODULE_WRITE};
     moduleFireServerEvent(REDISMODULE_EVENT_KEY, subevent, &info);
 
     if (val->type == OBJ_MODULE) {

@@ -33,6 +33,7 @@
 #include "redismodule.h"
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
 /* We need to store events to be able to test and see what we got, and we can't
  * store them in the key-space since that would mess up rdb loading (duplicates)
@@ -291,10 +292,37 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
 
     RedisModuleKeyInfoV1 *ei = data;
     RedisModuleKey *kp = ei->key;
-    const char *keyname = RedisModule_StringPtrLen(RedisModule_GetKeyNameFromModuleKey(kp), NULL);
+    RedisModuleString *key = (RedisModuleString *) RedisModule_GetKeyNameFromModuleKey(kp);
+    const char *keyname = RedisModule_StringPtrLen(key, NULL);
     RedisModuleString *event_keyname = RedisModule_CreateStringPrintf(ctx, "key-info-%s", keyname);
     LogStringEvent(ctx, RedisModule_StringPtrLen(event_keyname, NULL), keyname);
     RedisModule_FreeString(ctx, event_keyname);
+
+    RedisModuleKey *kp_open = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    assert(RedisModule_ValueLength(kp) == RedisModule_ValueLength(kp_open));
+    RedisModule_CloseKey(kp_open);
+
+    char *size_command = NULL;
+    int key_type = RedisModule_KeyType(kp);
+    if (key_type == REDISMODULE_KEYTYPE_STRING) {
+        size_command = "STRLEN";
+    } else if (key_type == REDISMODULE_KEYTYPE_LIST) {
+        size_command = "LLEN";
+    } else if (key_type == REDISMODULE_KEYTYPE_HASH) {
+        size_command = "HLEN";
+    } else if (key_type == REDISMODULE_KEYTYPE_SET) {
+        size_command = "SCARD";
+    } else if (key_type == REDISMODULE_KEYTYPE_ZSET) {
+        size_command = "ZCARD";
+    } else if (key_type == REDISMODULE_KEYTYPE_STREAM) {
+        size_command = "XLEN";
+    }
+    if (size_command != NULL) {
+        RedisModuleCallReply *reply = RedisModule_Call(ctx, size_command, "s", key);
+        assert(reply != NULL);
+        assert(RedisModule_ValueLength(kp) == (size_t) RedisModule_CallReplyInteger(reply));
+        RedisModule_FreeCallReply(reply);
+    }
 
     RedisModuleString *prev = RedisModule_DictGetC(removed_event_log, (void*)keyname, strlen(keyname), NULL);
     /* We keep object length */
