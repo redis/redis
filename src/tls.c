@@ -551,7 +551,12 @@ static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *
     return 0;
 }
 
-/* Handle OpenSSL return code following SSL_write() or SSL_read().
+/* Handle OpenSSL return code following SSL_write() or SSL_read():
+ *
+ * - Updates conn state and last_errno.
+ * - If update_event is nonzero, calls updateSSLEvent() when necessary.
+ *
+ * Returns ret_value, or -1 on error or dropped connection.
  */
 static int updateStateAfterSSLIO(tls_connection *conn, int ret_value, int update_event) {
     /* If system call was interrupted, there's no need to go through the full
@@ -987,7 +992,8 @@ static ssize_t connTLSSyncWrite(connection *conn_, char *ptr, ssize_t size, long
     setBlockingTimeout(conn, timeout);
     SSL_clear_mode(conn->ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
     ERR_clear_error();
-    int ret = updateStateAfterSSLIO(conn, SSL_write(conn->ssl, ptr, size), 0);
+    int ret = SSL_write(conn->ssl, ptr, size);
+    ret = updateStateAfterSSLIO(conn, ret, 0);
     SSL_set_mode(conn->ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
     unsetBlockingTimeout(conn);
 
@@ -999,7 +1005,8 @@ static ssize_t connTLSSyncRead(connection *conn_, char *ptr, ssize_t size, long 
 
     setBlockingTimeout(conn, timeout);
     ERR_clear_error();
-    int ret = updateStateAfterSSLIO(conn, SSL_read(conn->ssl, ptr, size), 0);
+    int ret = SSL_read(conn->ssl, ptr, size);
+    ret = updateStateAfterSSLIO(conn, ret, 0);
     unsetBlockingTimeout(conn);
 
     return ret;
@@ -1014,10 +1021,10 @@ static ssize_t connTLSSyncReadLine(connection *conn_, char *ptr, ssize_t size, l
     size--;
     while(size) {
         char c;
-        int ret;
 
         ERR_clear_error();
-        ret = updateStateAfterSSLIO(conn, SSL_read(conn->ssl, &c, 1), 0);
+        int ret = SSL_read(conn->ssl, &c, 1);
+        ret = updateStateAfterSSLIO(conn, ret, 0);
         if (ret <= 0) {
             nread = -1;
             goto exit;
