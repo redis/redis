@@ -654,14 +654,14 @@ void addReplyErrorExpireTime(client *c) {
                         c->cmd->fullname);
 }
 
-void addReplySimpleString(client *c, const char *s, size_t len) {
+void addReplyStatusLength(client *c, const char *s, size_t len) {
     addReplyProto(c,"+",1);
     addReplyProto(c,s,len);
     addReplyProto(c,"\r\n",2);
 }
 
 void addReplyStatus(client *c, const char *status) {
-    addReplySimpleString(c,status,strlen(status));
+    addReplyStatusLength(c,status,strlen(status));
 }
 
 void addReplyStatusFormat(client *c, const char *fmt, ...) {
@@ -669,7 +669,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...) {
     va_start(ap,fmt);
     sds s = sdscatvprintf(sdsempty(),fmt,ap);
     va_end(ap);
-    addReplySimpleString(c,s,sdslen(s));
+    addReplyStatusLength(c,s,sdslen(s));
     sdsfree(s);
 }
 
