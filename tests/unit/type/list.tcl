@@ -1918,10 +1918,13 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd2 brpoplpush b c 0
         after 1000
         r lpush a data
+        assert_equal [r ping] {PONG}
+        r lpush a data2
+        puts [$rd1 read]
+        puts [$rd1 read]
         $rd1 close
         $rd2 close
-        r ping
-    } {PONG}
+    }
 
     test "BLPOP/BLMOVE should increase dirty" {
         r del lst{t} lst1{t}

@@ -2591,6 +2591,7 @@ void initThreadedIO(void);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
+void reqresAppendArgv(client *c);
 
 #ifdef __GNUC__
 void addReplyErrorFormatEx(client *c, int flags, const char *fmt, ...)

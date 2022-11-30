@@ -15,6 +15,7 @@ class Request(object):
         self.argv = []
         while True:
             line = f.readline()
+            #print(line)
             if not line:
                 break
             length = int(line)
@@ -45,10 +46,14 @@ class Request(object):
 class Response(object):
     def __init__(self, f):
         self.error = False
+        self.queued = False
 
         line = f.readline()[:-2]
+        #print(line)
         if line[0] == '+':
             self.json = line[1:]
+            if self.json == "QUEUED":
+                self.queued = True
         elif line[0] == '-':
             self.json = line[1:]
             self.error = True
@@ -70,6 +75,7 @@ class Response(object):
         elif line[0] == '=':
             self.json = str(f.read(int(line[1:])))[4:]   # skip "txt:" or "mkd:"
             f.read(2)  # read \r\n
+            #print(self.json)
         elif line[0] == '(':
             self.json = long(line[1:])
         elif line[0] in ['*', '~']:  # unfortunately JSON doesn't tell the difference between a list and a set
@@ -132,7 +138,7 @@ if __name__ == '__main__':
                    print("Error processing %s: %s" % (filename, err))
                    exit(1)
 
-                if res.error:
+                if res.error or res.queued:
                     continue
 
                 if not req.schema:

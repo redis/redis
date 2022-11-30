@@ -3440,6 +3440,11 @@ void call(client *c, int flags) {
         replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
     }
 
+    /* Clear the original argv.
+     * If the client is blocked we will handle slowlog when it is unblocked. */
+    if (!(c->flags & CLIENT_BLOCKED))
+        freeClientOriginalArgv(c);
+
     /* populate the per-command statistics that we show in INFO commandstats. */
     if (flags & CMD_CALL_STATS) {
         real_cmd->microseconds += duration;
@@ -3655,7 +3660,15 @@ uint64_t getCommandFlags(client *c) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
-    reqresAppendArgv(c);
+    if (strcasecmp(c->argv[0]->ptr,"sync") &&
+        strcasecmp(c->argv[0]->ptr,"psync") &&
+        strcasecmp(c->argv[0]->ptr,"monitor") &&
+        strcasecmp(c->argv[0]->ptr,"subscribe") &&
+        strcasecmp(c->argv[0]->ptr,"ssubscribe") &&
+        strcasecmp(c->argv[0]->ptr,"psubscribe"))
+    {
+        reqresAppendArgv(c);
+    }
 
     if (!scriptIsTimedout()) {
         /* Both EXEC and scripts call call() directly so there should be

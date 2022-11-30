@@ -2088,12 +2088,7 @@ int handleClientsWithPendingWrites(void) {
 void resetClient(client *c) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
-    //reqresAppendArgv(c);
     freeClientArgv(c);
-    /* Clear the original argv.
-     * If the client is blocked we will handle slowlog when it is unblocked. */
-    if (!(c->flags & CLIENT_BLOCKED))
-        freeClientOriginalArgv(c);
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
