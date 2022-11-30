@@ -1765,7 +1765,7 @@ void reqresAppendBuffer(client *c, void *buf, size_t len) {
     if (!server.req_res_logfile)
         return;
 
-    if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE|CLIENT_MULTI))
+    if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE))
         return;
 
     if (!c->req_res_buf) {
@@ -1794,16 +1794,9 @@ static void reqresAppendArg(client *c, char *arg, size_t arg_len) {
     reqresAppendBuffer(c, "\r\n", 2);
 }
 
-static void reqresAppendArgv(client *c) {
+void reqresAppendArgv(client *c) {
     robj **argv = c->argv;
     int argc = c->argc;
-
-    if (c->original_argv) {
-        if (!(c->argv && !strcasecmp((char*)c->argv[0]->ptr, "exec"))) {
-            argv = c->original_argv;
-            argc = c->original_argc;
-        }
-    }
 
     if (argc == 0)
         return;
@@ -2095,7 +2088,7 @@ int handleClientsWithPendingWrites(void) {
 void resetClient(client *c) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
-    reqresAppendArgv(c);
+    //reqresAppendArgv(c);
     freeClientArgv(c);
     /* Clear the original argv.
      * If the client is blocked we will handle slowlog when it is unblocked. */
