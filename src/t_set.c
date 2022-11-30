@@ -477,7 +477,7 @@ void setTypeConvert(robj *setobj, int enc) {
         sds element;
 
         /* Presize the dict to avoid rehashing */
-        dictExpand(d, setTypeSize(setobj));
+        dictExpand(d, setTypeSize(setobj) + 1);
 
         /* To add the elements we extract integers and create redis objects */
         si = setTypeInitIterator(setobj);
