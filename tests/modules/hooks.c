@@ -298,10 +298,13 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
     LogStringEvent(ctx, RedisModule_StringPtrLen(event_keyname, NULL), keyname);
     RedisModule_FreeString(ctx, event_keyname);
 
+    /* Despite getting a key object from the callback, we also try to re-open it
+     * to make sure the callback is called before it is actually removed from the keyspace. */
     RedisModuleKey *kp_open = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
     assert(RedisModule_ValueLength(kp) == RedisModule_ValueLength(kp_open));
     RedisModule_CloseKey(kp_open);
 
+    /* We also try to RM_Call a command that accesses that key, also to make sure it's stil in the keyspace. */
     char *size_command = NULL;
     int key_type = RedisModule_KeyType(kp);
     if (key_type == REDISMODULE_KEYTYPE_STRING) {
@@ -324,6 +327,7 @@ void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
         RedisModule_FreeCallReply(reply);
     }
 
+    /* Now use the key object we got from the callback for various validations. */
     RedisModuleString *prev = RedisModule_DictGetC(removed_event_log, (void*)keyname, strlen(keyname), NULL);
     /* We keep object length */
     RedisModuleString *v = RedisModule_CreateStringPrintf(ctx, "%zd", RedisModule_ValueLength(kp));
