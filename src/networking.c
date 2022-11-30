@@ -164,6 +164,7 @@ client *createClient(connection *conn) {
     c->flags = 0;
     c->slot = -1;
     c->ctime = c->lastinteraction = server.unixtime;
+    c->duration = 0;
     clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
     c->repl_start_cmd_stream_on_ack = 0;
@@ -2014,6 +2015,7 @@ void resetClient(client *c) {
     c->multibulklen = 0;
     c->bulklen = -1;
     c->slot = -1;
+    c->duration = 0;
 
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);

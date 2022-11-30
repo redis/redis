@@ -3723,8 +3723,6 @@ int processCommand(client *c) {
      * In case we are reprocessing a command after it was blocked, we do not have to repeat the same checks */
     if (!(c->flags & CLIENT_REPROCESSING_COMMAND)) {
         c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
-        /* we zero the client duration for this command run time */
-        c->duration = 0;
         sds err;
         if (!commandCheckExistence(c, &err)) {
             rejectCommandSds(c, err);
