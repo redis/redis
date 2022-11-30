@@ -55,7 +55,8 @@ start_server {tags {"external:skip"}} {
         
         # Expected client paused during OOM. In comment to avoid flakiness (left for manual testing)
         # assert_morethan [s total_client_paused_during_oom_time] 0
-        
+        puts "total_client_paused_during_oom_time: [s total_client_paused_during_oom_time]"
+
         # restore defaults     
         r config set maxmemory 0
         r config set maxmemory-policy noeviction
@@ -76,7 +77,8 @@ start_server {tags {"external:skip"}} {
         common_bench_setup $cmd1
         
         # Configure maxmemory to be tightly upper-bound to DB size
-        r config set maxmemory [expr [s used_memory] + 100000] 
+        set maxmemory [expr [s used_memory] + 100000]
+        r config set maxmemory $maxmemory 
         r config set maxmemory-policy allkeys-random
         
         # reset evicted_keys counter
@@ -96,6 +98,7 @@ start_server {tags {"external:skip"}} {
         
         # Expected client paused during OOM. In comment to avoid flakiness (left for manual testing)
         # assert_morethan [s total_client_paused_during_oom_time] 0
+        puts "total_client_paused_during_oom_time: [s total_client_paused_during_oom_time]"
 
         # restore defaults     
         r config set maxmemory 0

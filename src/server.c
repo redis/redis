@@ -3718,7 +3718,9 @@ int processCommand(client *c) {
         !(server.busy_module_yield_flags & BUSY_MODULE_YIELD_CLIENTS))
     {
         c->bpop.timeout = 0;
-        blockClient(c,BLOCKED_POSTPONE);
+        blockClient(c, BLOCKED_POSTPONE);
+        /* Mark to execute pending command once unblocked */
+        c->flags |= CLIENT_PENDING_COMMAND;
         return C_OK;
     }
 
@@ -4008,6 +4010,8 @@ int processCommand(client *c) {
              (isPausedActions(PAUSE_ACTION_CLIENT_DENYOOM) && is_denyoom_command))) {
             c->bpop.timeout = 0;
             blockClient(c, BLOCKED_POSTPONE);
+            /* Mark to execute pending command once unblocked */
+            c->flags |= CLIENT_PENDING_COMMAND;
             return C_OK;
         }
     }

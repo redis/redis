@@ -167,6 +167,7 @@ typedef struct redisObject robj;
 #define PROTO_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
+#define PROTO_BLOCKED_THRESHOLD (1024*32) /* Threshold to pause filling query buffer of a blocked client (better be >= PROTO_RESIZE_THRESHOLD)*/
 #define PROTO_REPLY_MIN_BYTES   (1024) /* the lower limit on reply buffer size */
 #define REDIS_AUTOSYNC_BYTES (1024*1024*4) /* Sync file every 4MB. */
 

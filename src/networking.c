@@ -2641,7 +2641,7 @@ void readQueryFromClient(connection *conn) {
         atomicIncr(server.stat_net_input_bytes, nread);
     }
 
-    if (!(c->flags & CLIENT_MASTER) && sdslen(c->querybuf) > server.client_max_querybuf_len) {
+    if (!(c->flags & CLIENT_MASTER) && qblen > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
@@ -2650,6 +2650,20 @@ void readQueryFromClient(connection *conn) {
         sdsfree(bytes);
         freeClientAsync(c);
         goto done;
+    }
+
+    /* If during OOM and attempted to throttle clients traffic (in this state pending lazy free will
+     * soon release some memory), better pause early on writing big chunks to query-buffer, even
+     * before processing a complete command (otherwise it might be too late and too much payload copied
+     * already from the socket to query buffer). PROTO_BLOCKED_THRESHOLD is aimed to keep memory 
+     * consumption low of query_buf and on the other not too low - to reduce system calls and keep
+     * the pipeline busy with data to be processed once unblocked. */
+    if ((qblen > PROTO_BLOCKED_THRESHOLD) && (getPauseActionsPurposeEndTime(PAUSE_OOM_THROTTLE)))
+    {
+        if (!(c->flags & CLIENT_BLOCKED)) {
+            blockClient(c, BLOCKED_POSTPONE);
+        }
+        connSetReadHandler(c->conn,NULL);
     }
 
     /* There is more data in the client input buffer, continue parsing it

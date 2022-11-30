@@ -100,8 +100,6 @@ void blockClient(client *c, int btype) {
     if (btype == BLOCKED_POSTPONE) {
         listAddNodeTail(server.postponed_clients, c);
         c->postponed_list_node = listLast(server.postponed_clients);
-        /* Mark this client to execute its command */
-        c->flags |= CLIENT_PENDING_COMMAND;
     }
 }
 
@@ -189,6 +187,9 @@ void unblockClient(client *c) {
     } else if (c->btype == BLOCKED_POSTPONE) {
         listDelNode(server.postponed_clients,c->postponed_list_node);
         c->postponed_list_node = NULL;
+        if ((c->conn) && (!connHasReadHandler(c->conn))) {
+            connSetReadHandler(c->conn, readQueryFromClient);
+        }
     } else if (c->btype == BLOCKED_SHUTDOWN) {
         /* No special cleanup. */
     } else {
