@@ -2596,6 +2596,23 @@ void readQueryFromClient(connection *conn) {
     }
 
     qblen = sdslen(c->querybuf);
+    /* If during OOM and attempted to throttle clients traffic (in this state pending lazy free will
+     * soon release some memory), better pause early on writing big chunks to query-buffer, even
+     * before processing a complete command (otherwise it might be too late and too much payload copied
+     * already from the socket to query buffer). PROTO_BLOCKED_THRESHOLD is aimed to keep memory
+     * consumption low of query_buf and on the other not too low - to reduce system calls and keep
+     * the pipeline busy with data to be processed once unblocked. */
+    if ((qblen + readlen > PROTO_BLOCKED_THRESHOLD) &&
+        (getPauseActionsPurposeEndTime(PAUSE_OOM_THROTTLE)) &&
+        (zmalloc_used_memory() > server.maxmemory))    /* verify still OOM */
+    {
+        if (!(c->flags & CLIENT_BLOCKED)) {
+            blockClient(c, BLOCKED_POSTPONE);
+        }
+        connSetReadHandler(c->conn, NULL);
+        goto done;
+    }
+    
     if (!(c->flags & CLIENT_MASTER) && // master client's querybuf can grow greedy.
         (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN)) {
         /* When reading a BIG_ARG we won't be reading more than that one arg
@@ -2650,20 +2667,6 @@ void readQueryFromClient(connection *conn) {
         sdsfree(bytes);
         freeClientAsync(c);
         goto done;
-    }
-
-    /* If during OOM and attempted to throttle clients traffic (in this state pending lazy free will
-     * soon release some memory), better pause early on writing big chunks to query-buffer, even
-     * before processing a complete command (otherwise it might be too late and too much payload copied
-     * already from the socket to query buffer). PROTO_BLOCKED_THRESHOLD is aimed to keep memory 
-     * consumption low of query_buf and on the other not too low - to reduce system calls and keep
-     * the pipeline busy with data to be processed once unblocked. */
-    if ((qblen > PROTO_BLOCKED_THRESHOLD) && (getPauseActionsPurposeEndTime(PAUSE_OOM_THROTTLE)))
-    {
-        if (!(c->flags & CLIENT_BLOCKED)) {
-            blockClient(c, BLOCKED_POSTPONE);
-        }
-        connSetReadHandler(c->conn,NULL);
     }
 
     /* There is more data in the client input buffer, continue parsing it
