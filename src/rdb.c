@@ -2513,9 +2513,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
         
-        if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
-            rdbtype == RDB_TYPE_STREAM_LISTPACKS_3)
-        {
+        if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_2) {
             /* Load the first entry ID. */
             s->first_id.ms = rdbLoadLen(rdb,NULL);
             s->first_id.seq = rdbLoadLen(rdb,NULL);
@@ -2582,9 +2580,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             
             /* Load group offset. */
             uint64_t cg_offset;
-            if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
-                rdbtype == RDB_TYPE_STREAM_LISTPACKS_3)
-            {
+            if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_2) {
                 cg_offset = rdbLoadLen(rdb,NULL);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream cgroup offset loading failed.");
@@ -2674,7 +2670,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     return NULL;
                 }
 
-                if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_3) {
+                if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_3) {
                     consumer->active_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                     if (rioGetReadError(rdb)) {
                         rdbReportReadError("Stream short read reading active time.");
