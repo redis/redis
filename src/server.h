@@ -291,6 +291,13 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 /* Key flags for when access type is unknown */
 #define CMD_KEY_FULL_ACCESS (CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE)
 
+/* Key flags for how key is removed */
+#define DB_FLAG_KEY_NONE 0
+#define DB_FLAG_KEY_DELETED (1ULL<<0)
+#define DB_FLAG_KEY_EXPIRED (1ULL<<1)
+#define DB_FLAG_KEY_EVICTED (1ULL<<2)
+#define DB_FLAG_KEY_OVERWRITE (1ULL<<3)
+
 /* Channel flags share the same flag space as the key flags */
 #define CMD_CHANNEL_PATTERN (1ULL<<11)     /* The argument is a channel pattern */
 #define CMD_CHANNEL_SUBSCRIBE (1ULL<<12)   /* The command subscribes to channels */
@@ -1648,6 +1655,7 @@ struct redisServer {
     int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. */
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
     int active_expire_effort;       /* From 1 (default) to 10, active effort. */
+    int lazy_expire_disabled;       /* If > 0, don't trigger lazy expire */
     int active_defrag_enabled;
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
@@ -2440,7 +2448,7 @@ void moduleUnblockClient(client *c);
 int moduleBlockedClientMayTimeout(client *c);
 int moduleClientIsBlockedOnKeys(client *c);
 void moduleNotifyUserChanged(client *c);
-void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid);
+void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags);
 size_t moduleGetFreeEffort(robj *key, robj *val, int dbid);
 size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid);
 robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj *value);
@@ -3154,7 +3162,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 
 void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
-void dbOverwrite(redisDb *db, robj *key, robj *val);
+void dbReplaceValue(redisDb *db, robj *key, robj *val);
 
 #define SETKEY_KEEPTTL 1
 #define SETKEY_NO_SIGNAL 2
@@ -3162,6 +3170,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val);
 #define SETKEY_DOESNT_EXIST 8
 void setKey(client *c, redisDb *db, robj *key, robj *val, int flags);
 robj *dbRandomKey(redisDb *db);
+int dbGenericDelete(redisDb *db, robj *key, int async, int flags);
 int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);

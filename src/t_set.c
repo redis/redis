@@ -885,7 +885,7 @@ void spopWithCountCommand(client *c) {
         setTypeReleaseIterator(si);
 
         /* Assign the new set as the key value. */
-        dbOverwrite(c->db,c->argv[1],newset);
+        dbReplaceValue(c->db,c->argv[1],newset);
     }
 
     /* Don't propagate the command itself even if we incremented the
