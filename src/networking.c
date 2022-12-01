@@ -2596,16 +2596,28 @@ void readQueryFromClient(connection *conn) {
     }
 
     qblen = sdslen(c->querybuf);
-    /* If during OOM and attempted to throttle clients traffic (in this state pending lazy free will
-     * soon release some memory), better pause early on writing big chunks to query-buffer, even
-     * before processing a complete command (otherwise it might be too late and too much payload copied
-     * already from the socket to query buffer). PROTO_BLOCKED_THRESHOLD is aimed to keep memory
-     * consumption low of query_buf and on the other not too low - to reduce system calls and keep
-     * the pipeline busy with data to be processed once unblocked. */
+    
+    /* If PAUSE_ACTION_QUERYBUF_THRESHOLD is set then we block corresponding client if querybuf
+     * size crosses some threshold. This action attempts to suspend allocating big chunks of memory 
+     * for querybuf (and must happen only during OOM and pending lazyfree jobs that about to release
+     * memory. see:PAUSE_OOM_THROTTLE). This action goes along with the action to block clients 
+     * that attempt to write commands (see: PAUSE_ACTION_CLIENT_DENYOOM).
+     * 
+     * The reason that it is not sufficient to rely only on blocking clients that attempt to write
+     * commands (PAUSE_ACTION_CLIENT_DENYOOM) is because it only blocks processing commands but not
+     * reading from the socket and filling up query buffer. We have to remove connection handlers.
+     * 
+     * One might claim that we should only block query buffer of clients that attempts to write and 
+     * pump server memory. The reason it might not be a good approach is that by the time the command
+     * is being processed and identified as write command, it might be too late and the query buffer
+     * can grow considerably. On the other hand, clients that make only read operation should have
+     * small query buffer beneath PROTO_BLOCKED_THRESHOLD.
+     * 
+     * Value of threshold is fine-tuned to keep querybuf memory consumption rather low and on the
+     * other not too low in order to avoid triggering too much system calls */
     if ((qblen + readlen > PROTO_BLOCKED_THRESHOLD) &&
-        (getPauseActionsPurposeEndTime(PAUSE_OOM_THROTTLE)) &&
-        (zmalloc_used_memory() > server.maxmemory))    /* verify still OOM */
-    {
+        (isPausedActions(PAUSE_ACTION_QUERYBUF_THRESHOLD)) &&
+        (zmalloc_used_memory() > server.maxmemory  /* verify still OOM */)) {
         if (!(c->flags & CLIENT_BLOCKED)) {
             blockClient(c, BLOCKED_POSTPONE);
         }
@@ -3852,7 +3864,11 @@ void updatePausedActions(void) {
 
     /* If the pause type is less restrictive than before, we unblock all clients
      * so they are reprocessed (may get re-paused). */
-    uint32_t mask_cli = (PAUSE_ACTION_CLIENT_DENYOOM|PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_CLIENT_ALL);
+    uint32_t mask_cli = 
+            PAUSE_ACTION_CLIENT_DENYOOM | 
+            PAUSE_ACTION_CLIENT_WRITE | 
+            PAUSE_ACTION_CLIENT_ALL |
+            PAUSE_ACTION_QUERYBUF_THRESHOLD;
     if ((server.paused_actions & mask_cli) < (prev_paused_actions & mask_cli)) {
         unblockPostponedClients();
     }

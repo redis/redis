@@ -1177,7 +1177,9 @@ static void clientWritePauseDuringOOM() {
         (bioPendingJobsOfType(BIO_LAZY_FREE))) {
         if (!is_paused) {
             pauseActions(PAUSE_OOM_THROTTLE, LLONG_MAX,
-                         PAUSE_ACTION_EVICT | PAUSE_ACTION_CLIENT_DENYOOM);
+                         PAUSE_ACTION_EVICT | 
+                         PAUSE_ACTION_CLIENT_DENYOOM |
+                         PAUSE_ACTION_QUERYBUF_THRESHOLD);
         }
     } else {
         if (is_paused) {
