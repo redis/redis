@@ -219,6 +219,131 @@ int do_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     return REDISMODULE_OK;
 }
 
+static void rm_call_async_send_reply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
+    RedisModule_ReplyWithCallReply(ctx, reply);
+    RedisModule_FreeCallReply(reply);
+}
+
+static void rm_call_async_on_unblocked(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data) {
+    UNUSED(ctx);
+    RedisModuleBlockedClient *bc = private_data;
+    RedisModuleCtx *bctx = RedisModule_GetThreadSafeContext(bc);
+    rm_call_async_send_reply(bctx, reply);
+    RedisModule_FreeThreadSafeContext(bctx);
+    RedisModule_UnblockClient(bc, NULL);
+}
+
+int do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    UNUSED(argv);
+    UNUSED(argc);
+
+    if(argc < 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    RedisModuleBlockedClient *bc = NULL;
+    RedisModuleOnUnblocked on_unblock = NULL;
+    int flags = RedisModule_GetContextFlags(ctx);
+    if (!(flags & REDISMODULE_CTX_FLAGS_DENY_BLOCKING)) {
+        bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+        on_unblock = rm_call_async_on_unblocked;
+    }
+
+    int script_mode = 0;
+    const char* invoked_cmd = RedisModule_StringPtrLen(argv[0], NULL);
+    if (strcasecmp(invoked_cmd, "do_rm_call_async_script_mode") == 0) {
+        script_mode = 1;
+    }
+
+    const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, script_mode ? "SEKv" : "EKv", on_unblock, bc, argv + 2, argc - 2);
+    if(rep) {
+        RedisModuleCtx *bctx = bc? RedisModule_GetThreadSafeContext(bc) : ctx;
+        rm_call_async_send_reply(bctx, rep);
+        if (bc) {
+            RedisModule_FreeThreadSafeContext(bctx);
+            RedisModule_UnblockClient(bc, NULL);
+        }
+    }
+
+    return REDISMODULE_OK;
+}
+
+typedef struct WaitAndDoRMCallCtx {
+    RedisModuleBlockedClient *bc;
+    RedisModuleString **argv;
+    int argc;
+} WaitAndDoRMCallCtx;
+
+static void wait_and_do_rm_call_async_on_unblocked(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data) {
+    UNUSED(reply);
+    WaitAndDoRMCallCtx *wctx = private_data;
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
+        goto done;
+    }
+
+    if (RedisModule_CallReplyInteger(reply) != 1) {
+        goto done;
+    }
+
+    RedisModule_FreeCallReply(reply);
+    reply = NULL;
+
+    const char* cmd = RedisModule_StringPtrLen(wctx->argv[0], NULL);
+    reply = RedisModule_Call(ctx, cmd, "EKv", rm_call_async_on_unblocked, wctx->bc, wctx->argv + 1, wctx->argc - 1);
+
+done:
+    if(reply) {
+        RedisModuleCtx *bctx = RedisModule_GetThreadSafeContext(wctx->bc);
+        rm_call_async_send_reply(bctx, reply);
+        RedisModule_FreeThreadSafeContext(bctx);
+        RedisModule_UnblockClient(wctx->bc, NULL);
+    }
+    for (int i = 0 ; i < wctx->argc ; ++i) {
+        RedisModule_FreeString(NULL, wctx->argv[i]);
+    }
+    RedisModule_Free(wctx->argv);
+    RedisModule_Free(wctx);
+}
+
+int wait_and_do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+
+    if(argc < 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    int flags = RedisModule_GetContextFlags(ctx);
+    if (flags & REDISMODULE_CTX_FLAGS_DENY_BLOCKING) {
+        return RedisModule_ReplyWithError(ctx, "Err can not run wait, blocking is not allowed.");
+    }
+
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+
+    WaitAndDoRMCallCtx *wctx = RedisModule_Alloc(sizeof(*wctx));
+    *wctx = (WaitAndDoRMCallCtx){
+            .bc = bc,
+            .argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString*)),
+            .argc = argc - 1,
+    };
+
+    for (int i = 1 ; i < argc ; ++i) {
+        wctx->argv[i - 1] = RedisModule_HoldString(NULL, argv[i]);
+    }
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "wait", "EKcc", wait_and_do_rm_call_async_on_unblocked, wctx, "1", "0");
+    if(rep) {
+        RedisModuleCtx *bctx = RedisModule_GetThreadSafeContext(bc);
+        rm_call_async_send_reply(bctx, rep);
+        RedisModule_FreeThreadSafeContext(bctx);
+        RedisModule_UnblockClient(bc, NULL);
+    }
+
+    return REDISMODULE_OK;
+}
+
 /* simulate a blocked client replying to a thread safe context without creating a thread */
 int do_fake_bg_true(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
@@ -315,6 +440,18 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "do_rm_call", do_rm_call,
                                   "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "do_rm_call_async", do_rm_call_async,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "do_rm_call_async_script_mode", do_rm_call_async,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "wait_and_do_rm_call", wait_and_do_rm_call_async,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR)
+                return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "do_bg_rm_call", do_bg_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

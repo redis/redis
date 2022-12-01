@@ -3474,7 +3474,7 @@ void waitCommand(client *c) {
 
     /* First try without blocking at all. */
     ackreplicas = replicationCountAcksByOffset(c->woff);
-    if (ackreplicas >= numreplicas || c->flags & CLIENT_MULTI) {
+    if (ackreplicas >= numreplicas || (c->flags & CLIENT_DENY_BLOCKING)) {
         addReplyLongLong(c,ackreplicas);
         return;
     }

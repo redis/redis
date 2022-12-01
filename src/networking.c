@@ -193,6 +193,8 @@ client *createClient(connection *conn) {
     c->bpop.xread_group_noack = 0;
     c->bpop.numreplicas = 0;
     c->bpop.reploffset = 0;
+    c->bpop.module_blocked_handle = NULL;
+    c->bpop.async_rm_call_handle = NULL;
     c->woff = 0;
     c->watched_keys = listCreate();
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);

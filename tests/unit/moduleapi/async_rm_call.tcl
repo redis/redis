@@ -1,0 +1,112 @@
+set testmodule [file normalize tests/modules/blockedclient.so]
+
+start_server {tags {"modules"}} {
+    r module load $testmodule
+
+    test {Locked GIL acquisition from async RM_Call} {
+    	assert_equal {OK} [r do_rm_call_async acquire_gil]
+    }
+
+    foreach cmd {do_rm_call_async do_rm_call_async_script_mode} {
+        test "Blpop on async RM_Call using $cmd" {
+            set rd [redis_deferring_client]
+
+            $rd $cmd blpop l 0
+            r lpush l a
+            assert_equal [$rd read] {l a}
+        }
+
+        test "Brpop on async RM_Call using $cmd" {
+            set rd [redis_deferring_client]
+
+            $rd $cmd brpop l 0
+            r lpush l a
+            assert_equal [$rd read] {l a}
+        }
+
+        test "Brpoplpush on async RM_Call using $cmd" {
+            set rd [redis_deferring_client]
+
+            $rd $cmd brpoplpush l1 l2 0
+            r lpush l1 a
+            assert_equal [$rd read] {a}
+            r lpop l2
+        } {a}
+
+        test "Blmove on async RM_Call using $cmd" {
+            set rd [redis_deferring_client]
+
+            $rd $cmd blmove l1 l2 LEFT LEFT 0
+            r lpush l1 a
+            assert_equal [$rd read] {a}
+            r lpop l2
+        } {a}
+
+        test "Bzpopmin on async RM_Call using $cmd" {
+            set rd [redis_deferring_client]
+
+            $rd $cmd bzpopmin s 0
+            r zadd s 10 foo
+            assert_equal [$rd read] {s foo 10}
+        }
+
+        test "Bzpopmax on async RM_Call using $cmd" {
+            set rd [redis_deferring_client]
+
+            $rd $cmd bzpopmax s 0
+            r zadd s 10 foo
+            assert_equal [$rd read] {s foo 10}
+        }
+    }
+
+    test {Nested async RM_Call} {
+        set rd [redis_deferring_client]
+
+        $rd do_rm_call_async do_rm_call_async do_rm_call_async do_rm_call_async blpop l 0
+    	r lpush l a
+        assert_equal [$rd read] {l a}
+    }
+
+    test {Test multiple async RM_Call waiting on the same event} {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+
+        $rd1 do_rm_call_async do_rm_call_async do_rm_call_async do_rm_call_async blpop l 0
+        $rd2 do_rm_call_async do_rm_call_async do_rm_call_async do_rm_call_async blpop l 0
+    	r lpush l element element
+        assert_equal [$rd1 read] {l element}
+        assert_equal [$rd2 read] {l element}
+    }
+
+    test {async RM_Call calls RM_Call} {
+        assert_equal {PONG} [r do_rm_call_async do_rm_call ping]
+    }
+
+    test {async RM_Call calls background RM_Call calls RM_Call} {
+        assert_equal {PONG} [r do_rm_call_async do_bg_rm_call do_rm_call ping]
+    }
+
+    test {async RM_Call calls background RM_Call calls RM_Call calls async RM_Call} {
+        assert_equal {PONG} [r do_rm_call_async do_bg_rm_call do_rm_call do_rm_call_async ping]
+    }
+
+    test {async RM_Call inside async RM_Call callback} {
+        set rd [redis_deferring_client]
+        $rd wait_and_do_rm_call blpop l 0
+
+        start_server {} {
+            test "Connect a replica to the master instance" {
+                r slaveof [srv -1 host] [srv -1 port]
+                wait_for_condition 50 100 {
+                    [s role] eq {slave} &&
+                    [string match {*master_link_status:up*} [r info replication]]
+                } else {
+                    fail "Can't turn the instance into a replica"
+                }
+            }
+
+            assert_equal {1} [r -1 lpush l a]
+            assert_equal [$rd read] {l a}
+        }
+    }
+}

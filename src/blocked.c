@@ -135,6 +135,11 @@ void processUnblockedClients(void) {
         listDelNode(server.unblocked_clients,ln);
         c->flags &= ~CLIENT_UNBLOCKED;
 
+        if (c->flags & CLIENT_MODULE) {
+            moduleOnUnblocked(c);
+            continue;
+        }
+
         /* Process remaining data in the input buffer, unless the client
          * is blocked again. Actually processInputBuffer() checks that the
          * client is not blocked before to proceed, but things may change and

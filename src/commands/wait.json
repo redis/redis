@@ -7,7 +7,6 @@
         "arity": 3,
         "function": "waitCommand",
         "command_flags": [
-            "NOSCRIPT"
         ],
         "acl_categories": [
             "CONNECTION"

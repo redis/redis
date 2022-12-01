@@ -9,7 +9,6 @@
         "command_flags": [
             "WRITE",
             "DENYOOM",
-            "NOSCRIPT",
             "BLOCKING"
         ],
         "acl_categories": [
