@@ -1082,18 +1082,22 @@ static int _dictExpandIfNeeded(dict *d)
     return DICT_OK;
 }
 
-/* TODO: clz optimization */
+#if defined(_MSC_VER)
+#   pragma intrinsic(_BitScanReverse)
+#endif
+
 /* Our hash table capability is a power of two */
 static signed char _dictNextExp(unsigned long size)
 {
-    unsigned char e = DICT_HT_INITIAL_EXP;
-
     if (size >= LONG_MAX) return (8*sizeof(long)-1);
-    while(1) {
-        if (((unsigned long)1<<e) >= size)
-            return e;
-        e++;
-    }
+    if (size <= ((unsigned long)1<<DICT_HT_INITIAL_EXP)) return DICT_HT_INITIAL_EXP;
+#if defined(_MSC_VER)
+    uint32_t leading_zero = 0;
+    _BitScanReverse(&leading_zero, size - 1);
+    return leading_zero + 1;
+#else
+    return 32 - __builtin_clz(size - 1);
+#endif
 }
 
 /* Returns the index of a free slot that can be populated with
