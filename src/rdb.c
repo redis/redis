@@ -684,7 +684,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_2);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_3);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -774,8 +774,15 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
         }
         nwritten += n;
 
-        /* Last seen time. */
+        /* Seen time. */
         if ((n = rdbSaveMillisecondTime(rdb,consumer->seen_time)) == -1) {
+            raxStop(&ri);
+            return -1;
+        }
+        nwritten += n;
+
+        /* Active time. */
+        if ((n = rdbSaveMillisecondTime(rdb,consumer->active_time)) == -1) {
             raxStop(&ri);
             return -1;
         }
@@ -2426,7 +2433,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 rdbReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
-    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS || rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
+    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_3)
+    {
         o = createStreamObject();
         stream *s = o->ptr;
         uint64_t listpacks = rdbLoadLen(rdb,NULL);
@@ -2503,7 +2513,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
         
-        if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
+        if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_2) {
             /* Load the first entry ID. */
             s->first_id.ms = rdbLoadLen(rdb,NULL);
             s->first_id.seq = rdbLoadLen(rdb,NULL);
@@ -2570,7 +2580,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             
             /* Load group offset. */
             uint64_t cg_offset;
-            if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
+            if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_2) {
                 cg_offset = rdbLoadLen(rdb,NULL);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream cgroup offset loading failed.");
@@ -2652,11 +2662,24 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     decrRefCount(o);
                     return NULL;
                 }
+
                 consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream short read reading seen time.");
                     decrRefCount(o);
                     return NULL;
+                }
+
+                if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_3) {
+                    consumer->active_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
+                    if (rioGetReadError(rdb)) {
+                        rdbReportReadError("Stream short read reading active time.");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                } else {
+                    /* That's the best estimate we got */
+                    consumer->active_time = consumer->seen_time;
                 }
 
                 /* Load the PEL about entries owned by this specific
