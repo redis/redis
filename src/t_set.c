@@ -470,7 +470,7 @@ unsigned long setTypeSize(const robj *subject) {
  * to a hash table) is presized to hold the number of elements in the original
  * set. */
 void setTypeConvert(robj *setobj, int enc) {
-    setTypeConvertAndPresize(setobj, enc, setTypeSize(setobj), 1);
+    setTypeConvertAndExpand(setobj, enc, setTypeSize(setobj), 1);
 }
 
 /* Converts a set to the specified encoding, pre-sizing it for 'cap' elements.
