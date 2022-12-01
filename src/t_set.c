@@ -159,7 +159,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 set->ptr = lp;
             } else {
                 /* Size limit is reached. Convert to hashtable and add. */
-                setTypeConvert(set, OBJ_ENCODING_HT);
+                setTypeConvertAndExpand(set, OBJ_ENCODING_HT, lpLength(lp) + 1, 1);
                 serverAssert(dictAdd(set->ptr,sdsnewlen(str,len),NULL) == DICT_OK);
             }
             return 1;
@@ -184,13 +184,15 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             {
                 /* In the "safe to add" check above we assumed all elements in
                  * the intset are of size maxelelen. This is an upper bound. */
-                setTypeConvert(set, OBJ_ENCODING_LISTPACK);
+                setTypeConvertAndExpand(set, OBJ_ENCODING_LISTPACK,
+                                        intsetLen(set->ptr) + 1, 1);
                 unsigned char *lp = set->ptr;
                 lp = lpAppend(lp, (unsigned char *)str, len);
                 set->ptr = lp;
                 return 1;
             } else {
-                setTypeConvert(set, OBJ_ENCODING_HT);
+                setTypeConvertAndExpand(set, OBJ_ENCODING_HT,
+                                        intsetLen(set->ptr) + 1, 1);
                 /* The set *was* an intset and this value is not integer
                  * encodable, so dictAdd should always work. */
                 serverAssert(dictAdd(set->ptr,sdsnewlen(str,len),NULL) == DICT_OK);
@@ -468,6 +470,14 @@ unsigned long setTypeSize(const robj *subject) {
  * to a hash table) is presized to hold the number of elements in the original
  * set. */
 void setTypeConvert(robj *setobj, int enc) {
+    setTypeConvertAndPresize(setobj, enc, setTypeSize(setobj), 1);
+}
+
+/* Converts a set to the specified encoding, pre-sizing it for 'cap' elements.
+ * The 'panic' argument controls whether to panic on OOM (panic=1) or return
+ * C_ERR on OOM (panic=0). If panic=1 is given, this function always returns
+ * C_OK. */
+int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic) {
     setTypeIterator *si;
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
                              setobj->encoding != enc);
@@ -477,7 +487,12 @@ void setTypeConvert(robj *setobj, int enc) {
         sds element;
 
         /* Presize the dict to avoid rehashing */
-        dictExpand(d, setTypeSize(setobj) + 1);
+        if (panic) {
+            dictExpand(d, cap);
+        } else if (dictTryExpand(d, cap) != DICT_OK) {
+            dictRelease(d);
+            return C_ERR;
+        }
 
         /* To add the elements we extract integers and create redis objects */
         si = setTypeInitIterator(setobj);
@@ -490,8 +505,8 @@ void setTypeConvert(robj *setobj, int enc) {
         setobj->encoding = OBJ_ENCODING_HT;
         setobj->ptr = d;
     } else if (enc == OBJ_ENCODING_LISTPACK) {
-        /* Preallocate the minimum one byte per element */
-        size_t estcap = setTypeSize(setobj);
+        /* Preallocate the minimum two bytes per element */
+        size_t estcap = cap * 2;
         unsigned char *lp = lpNew(estcap);
         char *str;
         size_t len;
@@ -511,6 +526,7 @@ void setTypeConvert(robj *setobj, int enc) {
     } else {
         serverPanic("Unsupported set conversion");
     }
+    return C_OK;
 }
 
 /* This is a helper function for the COPY command.
