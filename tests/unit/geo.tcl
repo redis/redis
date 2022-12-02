@@ -406,7 +406,7 @@ start_server {tags {"geo"}} {
         set km [r geodist points Palermo Catania km]
         assert {$km > 166.2 && $km < 166.3}
         set dist [r geodist points Palermo Palermo]
-        assert {$dist eq 0.000}
+        assert {$dist eq 0.0000}
     }
 
     test {GEODIST missing elements} {
