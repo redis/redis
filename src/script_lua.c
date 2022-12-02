@@ -980,6 +980,7 @@ cleanup:
     /* Clean up. Command code may have changed argv/argc so we use the
      * argv/argc of the client instead of the local variables. */
     freeLuaRedisArgv(c->argv, &c->argc);
+    freeClientArgv(c);
     c->user = NULL;
     inuse--;
 
