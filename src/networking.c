@@ -1378,8 +1378,7 @@ void freeClientArgv(client *c) {
     c->cmd = NULL;
     c->argv_len_sum = 0;
     c->argv_len = 0;
-    if(c->argv)
-        zfree(c->argv);
+    zfree(c->argv);
     c->argv = NULL;
 }
 
