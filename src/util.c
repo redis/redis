@@ -627,6 +627,93 @@ int d2string(char *buf, size_t len, double value) {
     return len;
 }
 
+/* Convert a double into a string with 'fractional_digits' digits after the dot precision.
+ * This is an optimized version of snprintf "%.<fractional_digits>f".
+ */
+int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_digits) {
+    // min size of 2 ( due to 0. ) + n fractional_digitits + \0
+    if ((int)dstlen < (fractional_digits+3))
+        goto err;
+    if (dvalue == 0) {
+        dst[0] = '0';
+        dst[1] = '.';
+        for (int i = 0; i < fractional_digits; i++) {
+            dst[2 + i] = '0';
+        }
+        dst[fractional_digits+3] = '\0';
+        return fractional_digits + 2;
+    }
+    // scale and round
+    long long svalue = llrint(dvalue * pow(10.0, (double)fractional_digits));
+    unsigned long long value;
+    // write sign
+    int negative = 0;
+    if (svalue < 0) {
+        if (svalue != LLONG_MIN) {
+            value = -svalue;
+        } else {
+            value = ((unsigned long long) LLONG_MAX)+1;
+        }
+        if (dstlen < 2)
+            goto err;
+        negative = 1;
+        dst[0] = '-';
+        dst++;
+        dstlen--;
+    } else {
+        value = svalue;
+    }
+
+    static const char digitsd[201] =
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899";
+
+    /* Check length. */
+    uint32_t length = digits10(value) + 1;
+    if (length >= dstlen) goto err;
+    /* Fractional only check to avoid representing 0.7750 as .7750.
+     * This means we need to increment the length and store 0 as the first character.
+     */
+    if((int)length==(fractional_digits+1)){
+        length++;
+        dst[0+negative] = '0';
+    }
+
+    /* Null term. */
+    uint32_t next = length - 1;
+    dst[next + 1] = '\0';
+    dst[next - fractional_digits] = '.';
+    while (value >= 100) {
+        int const i = (value % 100) * 2;
+        value /= 100;
+        dst[next] = digitsd[i + 1];
+        dst[next - 1] = digitsd[i];
+        next -= 2;
+        // dot position
+        if ( next == (length - (fractional_digits+1)) ) {
+             next--;
+        }
+    }
+
+    /* Handle last 1-2 digits. */
+    if (value < 10) {
+        dst[next] = '0' + (uint32_t) value;
+    } else {
+        int i = (uint32_t) value * 2;
+        dst[next] = digitsd[i + 1];
+        dst[next - 1] = digitsd[i];
+    }
+    return length + negative;
+err:
+    /* force add Null termination */
+    if (dstlen > 0)
+        dst[0] = '\0';
+    return 0;
+}
+
 /* Trims off trailing zeros from a string representing a double. */
 int trimDoubleString(char *buf, size_t len) {
     if (strchr(buf,'.') != NULL) {
