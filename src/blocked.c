@@ -489,7 +489,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                 if (group) {
                     noack = receiver->bpop.xread_group_noack;
                     sds name = receiver->bpop.xread_consumer->ptr;
-                    consumer = streamLookupConsumer(group,name,SLC_DEFAULT);
+                    consumer = streamLookupConsumer(group,name);
                     if (consumer == NULL) {
                         consumer = streamCreateConsumer(group,name,rl->key,
                                                         rl->db->id,SCC_DEFAULT);

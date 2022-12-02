@@ -33,11 +33,18 @@
 #include "redismodule.h"
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
 /* We need to store events to be able to test and see what we got, and we can't
  * store them in the key-space since that would mess up rdb loading (duplicates)
  * and be lost of flushdb. */
 RedisModuleDict *event_log = NULL;
+/* stores all the keys on which we got 'removed' event */
+RedisModuleDict *removed_event_log = NULL;
+/* stores all the subevent on which we got 'removed' event */
+RedisModuleDict *removed_subevent_type = NULL;
+/* stores all the keys on which we got 'removed' event with expiry information */
+RedisModuleDict *removed_expiry_log = NULL;
 
 typedef struct EventElement {
     long count;
@@ -279,6 +286,119 @@ void configChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
     LogStringEvent(ctx, "config-change-first", ei->config_names[0]);
 }
 
+void keyInfoCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
+{
+    REDISMODULE_NOT_USED(e);
+
+    RedisModuleKeyInfoV1 *ei = data;
+    RedisModuleKey *kp = ei->key;
+    RedisModuleString *key = (RedisModuleString *) RedisModule_GetKeyNameFromModuleKey(kp);
+    const char *keyname = RedisModule_StringPtrLen(key, NULL);
+    RedisModuleString *event_keyname = RedisModule_CreateStringPrintf(ctx, "key-info-%s", keyname);
+    LogStringEvent(ctx, RedisModule_StringPtrLen(event_keyname, NULL), keyname);
+    RedisModule_FreeString(ctx, event_keyname);
+
+    /* Despite getting a key object from the callback, we also try to re-open it
+     * to make sure the callback is called before it is actually removed from the keyspace. */
+    RedisModuleKey *kp_open = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    assert(RedisModule_ValueLength(kp) == RedisModule_ValueLength(kp_open));
+    RedisModule_CloseKey(kp_open);
+
+    /* We also try to RM_Call a command that accesses that key, also to make sure it's still in the keyspace. */
+    char *size_command = NULL;
+    int key_type = RedisModule_KeyType(kp);
+    if (key_type == REDISMODULE_KEYTYPE_STRING) {
+        size_command = "STRLEN";
+    } else if (key_type == REDISMODULE_KEYTYPE_LIST) {
+        size_command = "LLEN";
+    } else if (key_type == REDISMODULE_KEYTYPE_HASH) {
+        size_command = "HLEN";
+    } else if (key_type == REDISMODULE_KEYTYPE_SET) {
+        size_command = "SCARD";
+    } else if (key_type == REDISMODULE_KEYTYPE_ZSET) {
+        size_command = "ZCARD";
+    } else if (key_type == REDISMODULE_KEYTYPE_STREAM) {
+        size_command = "XLEN";
+    }
+    if (size_command != NULL) {
+        RedisModuleCallReply *reply = RedisModule_Call(ctx, size_command, "s", key);
+        assert(reply != NULL);
+        assert(RedisModule_ValueLength(kp) == (size_t) RedisModule_CallReplyInteger(reply));
+        RedisModule_FreeCallReply(reply);
+    }
+
+    /* Now use the key object we got from the callback for various validations. */
+    RedisModuleString *prev = RedisModule_DictGetC(removed_event_log, (void*)keyname, strlen(keyname), NULL);
+    /* We keep object length */
+    RedisModuleString *v = RedisModule_CreateStringPrintf(ctx, "%zd", RedisModule_ValueLength(kp));
+    /* For string type, we keep value instead of length */
+    if (RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_STRING) {
+        RedisModule_FreeString(ctx, v);
+        size_t len;
+        /* We need to access the string value with RedisModule_StringDMA.
+         * RedisModule_StringDMA may call dbUnshareStringValue to free the origin object,
+         * so we also can test it. */
+        char *s = RedisModule_StringDMA(kp, &len, REDISMODULE_READ);
+        v = RedisModule_CreateString(ctx, s, len);
+    }
+    RedisModule_DictReplaceC(removed_event_log, (void*)keyname, strlen(keyname), v);
+    if (prev != NULL) {
+        RedisModule_FreeString(ctx, prev);
+    }
+
+    const char *subevent = "deleted";
+    if (sub == REDISMODULE_SUBEVENT_KEY_EXPIRED) {
+        subevent = "expired";
+    } else if (sub == REDISMODULE_SUBEVENT_KEY_EVICTED) {
+        subevent = "evicted";
+    } else if (sub == REDISMODULE_SUBEVENT_KEY_OVERWRITTEN) {
+        subevent = "overwritten";
+    }
+    RedisModule_DictReplaceC(removed_subevent_type, (void*)keyname, strlen(keyname), (void *)subevent);
+
+    RedisModuleString *prevexpire = RedisModule_DictGetC(removed_expiry_log, (void*)keyname, strlen(keyname), NULL);
+    RedisModuleString *expire = RedisModule_CreateStringPrintf(ctx, "%lld", RedisModule_GetAbsExpire(kp));
+    RedisModule_DictReplaceC(removed_expiry_log, (void*)keyname, strlen(keyname), (void *)expire);
+    if (prevexpire != NULL) {
+        RedisModule_FreeString(ctx, prevexpire);
+    }
+}
+
+static int cmdIsKeyRemoved(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc != 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char *key  = RedisModule_StringPtrLen(argv[1], NULL);
+
+    RedisModuleString *value = RedisModule_DictGetC(removed_event_log, (void*)key, strlen(key), NULL);
+
+    if (value == NULL) {
+        return RedisModule_ReplyWithError(ctx, "ERR Key was not removed");
+    }
+
+    const char *subevent = RedisModule_DictGetC(removed_subevent_type, (void*)key, strlen(key), NULL);
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithString(ctx, value);
+    RedisModule_ReplyWithSimpleString(ctx, subevent);
+
+    return REDISMODULE_OK;
+}
+
+static int cmdKeyExpiry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc != 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char* key  = RedisModule_StringPtrLen(argv[1], NULL);
+    RedisModuleString *expire = RedisModule_DictGetC(removed_expiry_log, (void*)key, strlen(key), NULL);
+    if (expire == NULL) {
+        return RedisModule_ReplyWithError(ctx, "ERR Key was not removed");
+    }
+    RedisModule_ReplyWithString(ctx, expire);
+    return REDISMODULE_OK;
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -332,13 +452,23 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_Config, configChangeCallback);
 
+    RedisModule_SubscribeToServerEvent(ctx,
+        RedisModuleEvent_Key, keyInfoCallback);
+
     event_log = RedisModule_CreateDict(ctx);
+    removed_event_log = RedisModule_CreateDict(ctx);
+    removed_subevent_type = RedisModule_CreateDict(ctx);
+    removed_expiry_log = RedisModule_CreateDict(ctx);
 
     if (RedisModule_CreateCommand(ctx,"hooks.event_count", cmdEventCount,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"hooks.event_last", cmdEventLast,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"hooks.clear", cmdEventsClear,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"hooks.is_key_removed", cmdIsKeyRemoved,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"hooks.pexpireat", cmdKeyExpiry,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
@@ -348,6 +478,29 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     clearEvents(ctx);
     RedisModule_FreeDict(ctx, event_log);
     event_log = NULL;
+
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(removed_event_log, "^", NULL, 0);
+    char* key;
+    size_t keyLen;
+    RedisModuleString* val;
+    while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
+        RedisModule_FreeString(ctx, val);
+    }
+    RedisModule_FreeDict(ctx, removed_event_log);
+    RedisModule_DictIteratorStop(iter);
+    removed_event_log = NULL;
+
+    RedisModule_FreeDict(ctx, removed_subevent_type);
+    removed_subevent_type = NULL;
+
+    iter = RedisModule_DictIteratorStartC(removed_expiry_log, "^", NULL, 0);
+    while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
+        RedisModule_FreeString(ctx, val);
+    }
+    RedisModule_FreeDict(ctx, removed_expiry_log);
+    RedisModule_DictIteratorStop(iter);
+    removed_expiry_log = NULL;
+
     return REDISMODULE_OK;
 }
 
