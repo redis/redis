@@ -629,9 +629,26 @@ int d2string(char *buf, size_t len, double value) {
 
 /* Convert a double into a string with 'fractional_digits' digits after the dot precision.
  * This is an optimized version of snprintf "%.<fractional_digits>f".
+ * We convert the double to long and multiply it  by 10 ^ <fractional_digits> to shift
+ * the decimal places.
+ * Note that multiply it of input value by 10 ^ <fractional_digits> can overflow but on the scenario
+ * that we currently use within redis this that is not possible.
+ * After we get the long representation we use the logic from ull2string function on this file
+ * which is based on the following article:
+ * https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920
+ *
+ * Input values:
+ * char: the buffer to store the string representation
+ * dstlen: the buffer length
+ * dvalue: the input double
+ * fractional_digits: the number of fractional digits after the dot precision
+ *
+ * Return values:
+ * Returns the number of characters needed to represent the number.
+ * If the buffer is not big enough to store the string, 0 is returned.
  */
 int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_digits) {
-    // min size of 2 ( due to 0. ) + n fractional_digitits + \0
+    /* min size of 2 ( due to 0. ) + n fractional_digitits + \0 */
     if ((int)dstlen < (fractional_digits+3))
         goto err;
     if (dvalue == 0) {
@@ -643,10 +660,10 @@ int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_
         dst[fractional_digits+3] = '\0';
         return fractional_digits + 2;
     }
-    // scale and round
+    /* scale and round */
     long long svalue = llrint(dvalue * pow(10.0, (double)fractional_digits));
     unsigned long long value;
-    // write sign
+    /* write sign */
     int negative = 0;
     if (svalue < 0) {
         if (svalue != LLONG_MIN) {
@@ -692,7 +709,7 @@ int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_
         dst[next] = digitsd[i + 1];
         dst[next - 1] = digitsd[i];
         next -= 2;
-        // dot position
+        /* dot position */
         if ( next == (length - (fractional_digits+1)) ) {
              next--;
         }

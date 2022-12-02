@@ -32,7 +32,6 @@
 #include "geohash_helper.h"
 #include "debugmacro.h"
 #include "pqsort.h"
-#include <math.h>
 
 /* Things exported from t_zset.c only for geo.c, since it is the only other
  * part of Redis that requires close zset introspection. */
@@ -212,12 +211,7 @@ int extractBoxOrReply(client *c, robj **argv, double *conversion,
  * the kilometer. */
 void addReplyDoubleDistance(client *c, double d) {
     char dbuf[128];
-
-    // instead of using snprintf "%.4f" we convert the double distance to long
-    // and multiply it by 10000 to shift the decimal places.
-    // we know beforehand that the long value will not overflow given we're taking about
-    // geo distances between 2 points.
-    int dlen = fixedpoint_d2string(dbuf, sizeof(dbuf),d, 4);
+    const int dlen = fixedpoint_d2string(dbuf, sizeof(dbuf),d, 4);
     addReplyBulkCBuffer(c, dbuf, dlen);
 }
 
