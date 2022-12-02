@@ -322,6 +322,60 @@ int prepareClientToWrite(client *c) {
  * Low level functions to add more data to output buffers.
  * -------------------------------------------------------------------------- */
 
+void reqresAppendBuffer(client *c, void *buf, size_t len) {
+    if (!server.req_res_logfile)
+        return;
+
+    if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE))
+        return;
+
+    if (!c->req_res_buf) {
+        c->req_res_buf_capacity = max(len, 1024);
+        c->req_res_buf = zmalloc(c->req_res_buf_capacity);
+    } else if (c->req_res_buf_capacity - c->req_res_buf_used < len) {
+        c->req_res_buf_capacity += len;
+        c->req_res_buf = zrealloc(c->req_res_buf, c->req_res_buf_capacity);
+    }
+
+    memcpy(c->req_res_buf + c->req_res_buf_used, buf, len);
+    c->req_res_buf_used += len;
+}
+
+//static void reqresAppendIov(client *c, struct iovec *iov, int iovcnt) {
+//    for (int i = 0; i < iovcnt; i++)
+//        reqresAppendBuffer(c, iov[i].iov_base, iov[i].iov_len);
+//}
+
+static void reqresAppendArg(client *c, char *arg, size_t arg_len) {
+    char argv_len_buf[32];
+    size_t argv_len_buf_len = ll2string(argv_len_buf,sizeof(argv_len_buf),(long)arg_len);
+    reqresAppendBuffer(c, argv_len_buf, argv_len_buf_len);
+    reqresAppendBuffer(c, "\r\n", 2);
+    reqresAppendBuffer(c, arg, arg_len);
+    reqresAppendBuffer(c, "\r\n", 2);
+}
+
+void reqresAppendArgv(client *c) {
+    robj **argv = c->argv;
+    int argc = c->argc;
+
+    if (argc == 0)
+        return;
+
+    for (int i = 0; i < argc; i++) {
+        if (sdsEncodedObject(argv[i])) {
+            reqresAppendArg(c, argv[i]->ptr, sdslen(argv[i]->ptr));
+        } else if (argv[i]->encoding == OBJ_ENCODING_INT) {
+            char buf[32];
+            size_t len = ll2string(buf,sizeof(buf),(long)argv[i]->ptr);
+            reqresAppendArg(c, buf, len);
+        } else {
+            serverPanic("Wrong encoding in reqresAppendArgv()");
+        }
+    }
+    reqresAppendArg(c, "__argv_end__", 12);
+}
+
 /* Attempts to add the reply to the static buffer in the client struct.
  * Returns the length of data that is added to the reply buffer.
  *
@@ -396,6 +450,8 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
                                         cmdname ? cmdname : "<unknown>");
         return;
     }
+
+    reqresAppendBuffer(c, (char *)s, len);
 
     size_t reply_len = _addReplyToBuffer(c,s,len);
     if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
@@ -1761,60 +1817,6 @@ client *lookupClientByID(uint64_t id) {
     return (c == raxNotFound) ? NULL : c;
 }
 
-void reqresAppendBuffer(client *c, void *buf, size_t len) {
-    if (!server.req_res_logfile)
-        return;
-
-    if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE))
-        return;
-
-    if (!c->req_res_buf) {
-        c->req_res_buf_capacity = max(len, 1024);
-        c->req_res_buf = zmalloc(c->req_res_buf_capacity);
-    } else if (c->req_res_buf_capacity - c->req_res_buf_used < len) {
-        c->req_res_buf_capacity += len;
-        c->req_res_buf = zrealloc(c->req_res_buf, c->req_res_buf_capacity);
-    }
-
-    memcpy(c->req_res_buf + c->req_res_buf_used, buf, len);
-    c->req_res_buf_used += len;
-}
-
-static void reqresAppendIov(client *c, struct iovec *iov, int iovcnt) {
-    for (int i = 0; i < iovcnt; i++)
-        reqresAppendBuffer(c, iov[i].iov_base, iov[i].iov_len);
-}
-
-static void reqresAppendArg(client *c, char *arg, size_t arg_len) {
-    char argv_len_buf[32];
-    size_t argv_len_buf_len = ll2string(argv_len_buf,sizeof(argv_len_buf),(long)arg_len);
-    reqresAppendBuffer(c, argv_len_buf, argv_len_buf_len);
-    reqresAppendBuffer(c, "\r\n", 2);
-    reqresAppendBuffer(c, arg, arg_len);
-    reqresAppendBuffer(c, "\r\n", 2);
-}
-
-void reqresAppendArgv(client *c) {
-    robj **argv = c->argv;
-    int argc = c->argc;
-
-    if (argc == 0)
-        return;
-
-    for (int i = 0; i < argc; i++) {
-        if (sdsEncodedObject(argv[i])) {
-            reqresAppendArg(c, argv[i]->ptr, sdslen(argv[i]->ptr));
-        } else if (argv[i]->encoding == OBJ_ENCODING_INT) {
-            char buf[32];
-            size_t len = ll2string(buf,sizeof(buf),(long)argv[i]->ptr);
-            reqresAppendArg(c, buf, len);
-        } else {
-            serverPanic("Wrong encoding in reqresAppendArgv()");
-        }
-    }
-    reqresAppendArg(c, "__argv_end__", 12);
-}
-
 /* This function should be called from _writeToClient when the reply list is not empty,
  * it gathers the scattered buffers from reply list and sends them away with connWritev.
  * If we write successfully, it returns C_OK, otherwise, C_ERR is returned,
@@ -1856,7 +1858,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
     *nwritten = connWritev(c->conn, iov, iovcnt);
     if (*nwritten <= 0) return C_ERR;
 
-    reqresAppendIov(c, iov, iovcnt);
+    //reqresAppendIov(c, iov, iovcnt);
 
     /* Locate the new node which has leftover data and
      * release all nodes in front of it. */
@@ -1906,7 +1908,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             *nwritten = connWrite(c->conn, o->buf+c->ref_block_pos,
                                   o->used-c->ref_block_pos);
             if (*nwritten <= 0) return C_ERR;
-            reqresAppendBuffer(c, o->buf+c->ref_block_pos, o->used-c->ref_block_pos);
+            //reqresAppendBuffer(c, o->buf+c->ref_block_pos, o->used-c->ref_block_pos);
             c->ref_block_pos += *nwritten;
         }
 
@@ -1935,7 +1937,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
     } else if (c->bufpos > 0) {
         *nwritten = connWrite(c->conn, c->buf + c->sentlen, c->bufpos - c->sentlen);
         if (*nwritten <= 0) return C_ERR;
-        reqresAppendBuffer(c, c->buf + c->sentlen, c->bufpos - c->sentlen);
+        //reqresAppendBuffer(c, c->buf + c->sentlen, c->bufpos - c->sentlen);
         c->sentlen += *nwritten;
 
         /* If the buffer was sent, set bufpos to zero to continue with
@@ -2007,19 +2009,6 @@ int writeToClient(client *c, int handler_installed) {
         if (!(c->flags & CLIENT_MASTER)) c->lastinteraction = server.unixtime;
     }
     if (!clientHasPendingReplies(c)) {
-        if (server.req_res_logfile) {
-            FILE *fp = fopen(server.req_res_logfile, "a");
-            serverAssert(fp);
-           
-            fwrite(c->req_res_buf, c->req_res_buf_used, 1, fp);
-            fflush(fp);
-            fclose(fp);
-
-            zfree(c->req_res_buf);
-            c->req_res_buf = NULL;
-            c->req_res_buf_used = c->req_res_buf_capacity = 0;
-        }
-
         c->sentlen = 0;
         /* Note that writeToClient() is called in a threaded way, but
          * aeDeleteFileEvent() is not thread safe: however writeToClient()

@@ -3584,6 +3584,19 @@ void afterCommand(client *c) {
          * So the messages are not interleaved with transaction response. */
         trackingHandlePendingKeyInvalidations();
     }
+
+    if (server.req_res_logfile) {
+        FILE *fp = fopen(server.req_res_logfile, "a");
+        serverAssert(fp);
+
+        fwrite(c->req_res_buf, c->req_res_buf_used, 1, fp);
+        fflush(fp);
+        fclose(fp);
+
+        zfree(c->req_res_buf);
+        c->req_res_buf = NULL;
+        c->req_res_buf_used = c->req_res_buf_capacity = 0;
+    }
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.

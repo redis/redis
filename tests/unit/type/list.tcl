@@ -8,6 +8,20 @@ start_server [list overrides [list save ""] ] {
     # 2. using push + insert + trim
     # 3. using push + insert + set
 
+    test "guy" {
+        set rd1 [redis_deferring_client]
+
+        $rd1 brpoplpush a b 0
+        $rd1 brpoplpush a b 0
+        after 1000
+        r lpush a data
+        assert_equal [r ping] {PONG}
+        r lpush a data2
+        puts [$rd1 read]
+        puts [$rd1 read]
+        $rd1 close
+    }
+
     test {reg node check compression with insert and pop} {
         r lpush list1 [string repeat a 500]
         r lpush list1 [string repeat b 500]
@@ -1910,20 +1924,23 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     }
 
     test "Regression for bug 593 - chaining BRPOPLPUSH with other blocking cmds" {
-        set rd1 [redis_deferring_client]
-        set rd2 [redis_deferring_client]
+        if {!$::log_req_res} {
+            # Piplining doesn't play well with --log-req-res
+            set rd1 [redis_deferring_client]
+            set rd2 [redis_deferring_client]
 
-        $rd1 brpoplpush a b 0
-        $rd1 brpoplpush a b 0
-        $rd2 brpoplpush b c 0
-        after 1000
-        r lpush a data
-        assert_equal [r ping] {PONG}
-        r lpush a data2
-        puts [$rd1 read]
-        puts [$rd1 read]
-        $rd1 close
-        $rd2 close
+            $rd1 brpoplpush a b 0
+            $rd1 brpoplpush a b 0
+            $rd2 brpoplpush b c 0
+            after 1000
+            r lpush a data
+            assert_equal [r ping] {PONG}
+            r lpush a data2
+            puts [$rd1 read]
+            puts [$rd1 read]
+            $rd1 close
+            $rd2 close
+        }
     }
 
     test "BLPOP/BLMOVE should increase dirty" {
