@@ -1516,7 +1516,6 @@ struct redisServer {
     int in_exec;                /* Are we inside EXEC? */
     int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
     const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
-    int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
     int module_ctx_nesting;     /* moduleCreateContext() nesting level */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
@@ -1554,7 +1553,7 @@ struct redisServer {
     clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
-    int in_nested_call;         /* If > 0, in a nested call of a call */
+    int call_nesting;           /* call() nesting level */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */
@@ -3139,6 +3138,8 @@ int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
+long long deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj);
+void deleteSlotKeyAndPropagate(redisDb *db, robj *keyobj);
 void propagateDeletion(redisDb *db, robj *key, int lazy);
 int keyIsExpired(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);

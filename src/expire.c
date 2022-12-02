@@ -182,11 +182,8 @@ void activeExpireCycle(int type) {
     long total_sampled = 0;
     long total_expired = 0;
 
-    /* Sanity: There can't be any pending commands to propagate when
-     * we're in cron */
+    /* Try to smoke-out bugs (server.also_propagate should be empty here) */
     serverAssert(server.also_propagate.numops == 0);
-    server.core_propagates = 1;
-    server.in_nested_call++;
 
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         /* Expired and checked in a single loop. */
@@ -266,8 +263,6 @@ void activeExpireCycle(int type) {
                         ttl = dictGetSignedIntegerVal(e)-now;
                         if (activeExpireCycleTryExpire(db,e,now)) {
                             expired++;
-                            /* Propagate the DEL command */
-                            postExecutionUnitOperations();
                         }
                         if (ttl > 0) {
                             /* We want the average TTL of keys yet
@@ -311,11 +306,6 @@ void activeExpireCycle(int type) {
         } while (sampled == 0 ||
                  (expired*100/sampled) > config_cycle_acceptable_stale);
     }
-
-    serverAssert(server.core_propagates); /* This function should not be re-entrant */
-
-    server.core_propagates = 0;
-    server.in_nested_call--;
 
     elapsed = ustime()-start;
     server.stat_expire_cycle_time_used += elapsed;
@@ -390,21 +380,16 @@ void expireSlaveKeys(void) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
                 dictEntry *expire = dictFind(db->expires,keyname);
-                int expired = 0;
 
-                if (expire &&
-                    activeExpireCycleTryExpire(server.db+dbid,expire,start))
-                {
-                    expired = 1;
-                }
-
-                /* If the key was not expired in this DB, we need to set the
-                 * corresponding bit in the new bitmap we set as value.
-                 * At the end of the loop if the bitmap is zero, it means we
-                 * no longer need to keep track of this key. */
-                if (expire && !expired) {
-                    noexpire++;
-                    new_dbids |= (uint64_t)1 << dbid;
+                if (expire) {
+                    if (!activeExpireCycleTryExpire(server.db+dbid,expire,start)) {
+                        /* If the key was not expired in this DB, we need to set the
+                         * corresponding bit in the new bitmap we set as value.
+                         * At the end of the loop if the bitmap is zero, it means we
+                         * no longer need to keep track of this key. */
+                        noexpire++;
+                        new_dbids |= (uint64_t)1 << dbid;
+                    }
                 }
             }
             dbid++;

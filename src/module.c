@@ -740,12 +740,9 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
     if (!(ctx->flags & REDISMODULE_CTX_THREAD_SAFE)) {
-        /* Modules take care of their own propagation, when we are
-         * outside of call() context (timers, events, etc.). */
-        if (--server.module_ctx_nesting == 0) {
-            if (!server.core_propagates) {
-                postExecutionUnitOperations();
-            }
+        server.module_ctx_nesting--;
+        postExecutionUnitOperations();
+        if (!server.module_ctx_nesting) {
             if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -7923,7 +7920,7 @@ void moduleGILBeforeUnlock() {
      * the bump-up from moduleGILAcquired. */
     serverAssert(server.module_ctx_nesting == 1);
     /* Restore ctx_nesting and propagate pending commands
-     * (because it's u clear when thread safe contexts are
+     * (because it's unclear when thread safe contexts are
      * released we have to propagate here). */
     server.module_ctx_nesting--;
     postExecutionUnitOperations();
@@ -8041,8 +8038,11 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
 }
 
 void firePostExecutionUnitJobs() {
-    /* Avoid propagation of commands. */
-    server.in_nested_call++;
+    /* Avoid propagation of commands.
+     * In that way, postExecutionUnitOperations will prevent
+     * recursive calls to firePostExecutionUnitJobs. */
+     // TODO: All command propagated from within this function will be wrapped in MULTI/EXEC - is this what we want?
+    server.call_nesting++;
     while (listLength(modulePostExecUnitJobs) > 0) {
         listNode *ln = listFirst(modulePostExecUnitJobs);
         RedisModulePostExecUnitJob *job = listNodeValue(ln);
@@ -8058,7 +8058,7 @@ void firePostExecutionUnitJobs() {
         moduleFreeContext(&ctx);
         zfree(job);
     }
-    server.in_nested_call--;
+    server.call_nesting--;
 }
 
 /* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
