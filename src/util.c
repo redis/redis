@@ -694,7 +694,7 @@ int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_
     /* Fractional only check to avoid representing 0.7750 as .7750.
      * This means we need to increment the length and store 0 as the first character.
      */
-    if((int)length==(fractional_digits+1)){
+    if ((int)length == (fractional_digits+1)) {
         length++;
         dst[0+negative] = '0';
     }
