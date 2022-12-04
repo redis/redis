@@ -2615,9 +2615,9 @@ void readQueryFromClient(connection *conn) {
      * 
      * Value of threshold is fine-tuned to keep querybuf memory consumption rather low and on the
      * other not too low in order to avoid triggering too much system calls */
-    if ((qblen + readlen > PROTO_BLOCKED_THRESHOLD) &&
+    if ((qblen + readlen + c->argv_len_sum > PROTO_BLOCKED_THRESHOLD) &&
         (isPausedActions(PAUSE_ACTION_QUERYBUF_THRESHOLD)) &&
-        (zmalloc_used_memory() > server.maxmemory  /* verify still OOM */)) {
+        (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_ERR)) {
         if (!(c->flags & CLIENT_BLOCKED)) {
             blockClient(c, BLOCKED_POSTPONE);
         }
