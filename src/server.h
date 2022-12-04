@@ -1761,7 +1761,7 @@ struct redisServer {
     int ps_parallism_rdb;  /* parallel swap parallelism for rdb save & load. */
     struct ctripRdbLoadCtx *rdb_load_ctx; /* parallel swap for rdb load */
     /* request wait */
-    struct requestListeners *request_listeners; /* server level request listeners */
+    struct locks *swap_locks; /* swap lock root */
     /* big object */
     int swap_evict_step_max_subkeys; /* max subkeys evict in one step. */
     unsigned long long swap_evict_step_max_memory; /* max memory evict in one step. */

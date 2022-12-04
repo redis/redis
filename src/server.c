@@ -2124,7 +2124,7 @@ void _rdbSaveBackground(client *c, swapCtx *ctx) {
     rsiptr = rdbPopulateSaveInfo(&rsi);
     rdbSaveBackground(server.rdb_filename,rsiptr);
     server.req_submitted &= ~REQ_SUBMITTED_BGSAVE;
-    clientReleaseRequestLocks(c,ctx);
+    clientReleaseLocks(c,ctx);
 }
 
 /* This is our timer interrupt, called server.hz times per second.

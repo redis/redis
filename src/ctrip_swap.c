@@ -29,13 +29,13 @@
 #include "ctrip_swap.h"
 
 
-list *clientRenewRequestLocks(client *c) {
+list *clientRenewLocks(client *c) {
     list *old = c->swap_locks;
     c->swap_locks = listCreate();
     return old;
 }
 
-void clientGotRequestIOAndLock(client *c, swapCtx *ctx, void *lock) {
+void clientGotLock(client *c, swapCtx *ctx, void *lock) {
     serverAssert(ctx->swap_lock == NULL);
     ctx->swap_lock = lock;
     switch (c->client_hold_mode) {
@@ -52,10 +52,10 @@ void clientGotRequestIOAndLock(client *c, swapCtx *ctx, void *lock) {
 
 void clientReleaseRequestIO(client *c, swapCtx *ctx) {
     UNUSED(c);
-    requestReleaseIO(ctx->swap_lock);
+    lockProceeded(ctx->swap_lock);
 }
 
-void clientReleaseRequestLocks(client *c, swapCtx *ctx) {
+void clientReleaseLocks(client *c, swapCtx *ctx) {
     list *locks;
     listNode *ln;
     listIter li;
@@ -63,16 +63,16 @@ void clientReleaseRequestLocks(client *c, swapCtx *ctx) {
     switch (c->client_hold_mode) {
     case CLIENT_HOLD_MODE_CMD:
     case CLIENT_HOLD_MODE_REPL:
-        locks = clientRenewRequestLocks(c);
+        locks = clientRenewLocks(c);
         listRewind(locks,&li);
         while ((ln = listNext(&li))) {
-            requestReleaseLock(listNodeValue(ln));
+            lockUnlock(listNodeValue(ln));
         }
         listRelease(locks);
         break;
     case CLIENT_HOLD_MODE_EVICT:
         if (ctx->swap_lock) {
-            requestReleaseLock(ctx->swap_lock);
+            lockUnlock(ctx->swap_lock);
         }
         break;
     default:
@@ -250,7 +250,7 @@ void continueProcessCommand(client *c) {
     /* post command */
     commandProcessed(c);
     c->flags |= CLIENT_SWAP_UNLOCKING;
-    clientReleaseRequestLocks(c,NULL/*ctx unused*/);
+    clientReleaseLocks(c,NULL/*ctx unused*/);
     c->flags &= ~CLIENT_SWAP_UNLOCKING;
 
     /* pipelined command might already read into querybuf, if process not
@@ -316,7 +316,7 @@ int keyExpiredAndShouldDelete(redisDb *db, robj *key) {
 #define NOSWAP_REASON_SWAPANADECIDED 4
 #define NOSWAP_REASON_UNEXPECTED 100
 
-void keyRequestProceed(void *listeners, redisDb *db, robj *key,
+void keyRequestProceed(void *lock, redisDb *db, robj *key,
         client *c, void *pd) {
     int reason_num = 0, retval = 0, swap_intention;
     void *datactx = NULL;
@@ -336,7 +336,7 @@ void keyRequestProceed(void *listeners, redisDb *db, robj *key,
 #endif
 
     serverAssert(c == ctx->c);
-    clientGotRequestIOAndLock(c,ctx,listeners);
+    clientGotLock(c,ctx,lock);
 
     if (db == NULL || key == NULL) {
         reason = "noswap needed for db/svr level request";
@@ -462,7 +462,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
                 key ? (sds)key->ptr : "<nil>");
 
         if (key_request->trace) swapTraceLock(key_request->trace);
-        requestGetIOAndLock(txid,db,key,keyRequestProceed,c,ctx,
+        lockLock(txid,db,key,keyRequestProceed,c,ctx,
                 (freefunc)swapCtxFree,msgs);
     }
 }
@@ -596,7 +596,8 @@ void swapInit() {
     }
 
     server.rdb_load_ctx = NULL;
-    server.request_listeners = serverRequestListenersCreate();
+
+    swapLockCreate();
 }
 
 

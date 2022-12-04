@@ -968,75 +968,74 @@ int parallelSyncDrain();
 int parallelSyncSwapRequestSubmit(swapRequest *req, int idx);
 
 /* Lock */
-#define DEFAULT_REQUEST_LISTENER_REENTRANT_SIZE 1
-#define REQUEST_NOTIFY_ACK  (1<<0)
-#define REQUEST_NOTIFY_RLS  (1<<1)
+#define LOCK_LINKS_BUF_SIZE 2
 
-typedef void (*requestProceed)(void *listeners, redisDb *db, robj *key, client *c, void *pd);
+typedef void (*lockProceedCallback)(void *lock, redisDb *db, robj *key, client *c, void *pd);
 
-typedef struct requestListenerEntry {
-  redisDb *db;    /* key level request listener might bind on svr/db level */
-  robj *key;      /* so we need to save db&key for each requst listener. */
+typedef struct lockLinkTarget {
+  int signaled;
+  int linked;
+} lockLinkTarget;
+
+typedef struct lockLinks {
+  struct lockLink *buf[LOCK_LINKS_BUF_SIZE];
+  struct lockLink **links;
+  int capacity;
+  int count;
+  int signaled;
+} lockLinks;
+
+typedef struct lockLink {
+  int64_t txid;
+  lockLinkTarget target;
+  lockLinks links;
+} lockLink;
+
+typedef struct lock {
+  lockLink link;
+  struct locks *locks;
+  listNode* locks_ln;
+  redisDb *db;
+  robj *key;
   client *c;
-  requestProceed proceed;
+  lockProceedCallback proceed;
   void *pd;
   freefunc pdfree;
   monotime lock_timer;
 #ifdef SWAP_DEBUG
   swapDebugMsgs *msgs;
 #endif
-} requestListenerEntry;
+} lock;
 
-typedef struct requestListener {
-  int64_t txid;
-  struct requestListenerEntry buf[DEFAULT_REQUEST_LISTENER_REENTRANT_SIZE];
-  struct requestListenerEntry *entries; /* hold entries that wait for same listener reentrantly. */
-  int capacity;
-  int count;
-  int proceeded;
-  int acked;
-  int notified;
-  int ntxlistener; /* # of txlistener of current and childs. */
-  int ntxrequest;
-  int ntxacked;
-} requestListener;
-
-typedef struct requestListeners {
-  list *listeners;                  /* list of listenters */
-  struct requestListeners *parent;  /* parent lisenter */
-  int nlistener;                   /* # of listeners of current and childs */
-  int level;                        /* key/db/svr */
+typedef struct locks {
+  int level;
+  list *lock_list;
+  struct locks *parent;
   union {
-      struct {
-          int dbnum;
-          struct requestListeners **dbs;
-      } svr;
-      struct {
-          redisDb *db;
-          dict *keys;
-      } db;
-      struct {
-          robj *key;
-      } key;
+    struct {
+      int dbnum;
+      struct locks **dbs;
+    } svr;
+    struct {
+      redisDb *db;
+      dict *keys;
+    } db;
+    struct {
+      robj *key;
+    } key;
   };
-  int64_t cur_txid;
-  int cur_ntxlistener;
-  int cur_ntxrequest; 
-  /* # of acked requests for successive GetIOAndLock of cur_txid. note that
-   * cur_ntxacked is not correct when requestReleaseLock. */
-  int cur_ntxacked; 
-} requestListeners;
+} locks;
 
-requestListeners *serverRequestListenersCreate(void);
-void serverRequestListenersRelease(requestListeners *s);
-int requestLockWouldBlock(int64_t txid, redisDb *db, robj *key);
-void requestGetIOAndLock(int64_t txid, redisDb *db, robj *key, requestProceed cb, client *c, void *pd, freefunc pdfree, void *msgs);
-int requestReleaseIO(void *listeners);
-int requestReleaseLock(void *listeners);
+void swapLockCreate(void);
+void swapLockDestroy(void);
+int lockWouldBlock(int64_t txid, redisDb *db, robj *key);
+void lockLock(int64_t txid, redisDb *db, robj *key, lockProceedCallback cb, client *c, void *pd, freefunc pdfree, void *msgs);
+void lockProceeded(void *lock);
+void lockUnlock(void *lock);
 
-list *clientRenewRequestLocks(client *c);
-void clientGotRequestIOAndLock(client *c, swapCtx *ctx, void *lock);
-void clientReleaseRequestLocks(client *c, swapCtx *ctx);
+list *clientRenewLocks(client *c);
+void clientGotLock(client *c, swapCtx *ctx, void *lock);
+void clientReleaseLocks(client *c, swapCtx *ctx);
 
 /* Evict */
 #define EVICT_SUCC_SWAPPED      1

@@ -35,7 +35,7 @@
 /* swap stats */
 #define SWAP_REQUEST_MEMORY_OVERHEAD (sizeof(swapRequest)+sizeof(swapCtx)+ \
                                       sizeof(wholeKeySwapData)/*typical*/+ \
-                                      sizeof(requestListener))
+                                      sizeof(lock) + sizeof(locks))
 
 static inline size_t estimateRIOSwapMemory(RIO *rio) {
     size_t memory = 0;

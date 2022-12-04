@@ -155,7 +155,7 @@ static void processFinishedReplCommands() {
             commandProcessed(wc);
             serverAssert(wc->client_hold_mode == CLIENT_HOLD_MODE_REPL);
             clientUnholdKeys(wc);
-            clientReleaseRequestLocks(wc,NULL/*ctx unused*/);
+            clientReleaseLocks(wc,NULL/*ctx unused*/);
             wc->CLIENT_REPL_CMD_DISCARDED = 0;
             continue;
         } else {
@@ -213,7 +213,7 @@ static void processFinishedReplCommands() {
 			}
 		}
 
-        clientReleaseRequestLocks(wc,NULL/*ctx unused*/);
+        clientReleaseLocks(wc,NULL/*ctx unused*/);
     }
     serverLog(LL_DEBUG, "< processFinishedReplCommands");
 }

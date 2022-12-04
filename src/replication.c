@@ -3498,7 +3498,7 @@ void replicationCron(void) {
 void _replicationStartPendingFork(client *c, swapCtx *ctx) {
     replicationStartPendingFork();
     server.req_submitted &= ~REQ_SUBMITTED_REPL_START;
-    clientReleaseRequestLocks(c,ctx);
+    clientReleaseLocks(c,ctx);
 }
 
 void ctrip_replicationStartPendingFork(void) {

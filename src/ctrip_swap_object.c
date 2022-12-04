@@ -259,7 +259,7 @@ sds objectDump(robj *o) {
 
 /* For big Hash/Set/Zset object, object might changed by swap thread in
  * createOrMergeObject, so iterating those big objects in main thread without
- * requestGetIOAndLock is not safe. intead we just estimate those object size. */
+ * lockLock is not safe. intead we just estimate those object size. */
 #define OBJECT_ESTIMATE_SIZE_SAMPLE 5
 size_t objectComputeSize(robj *o, size_t sample_size);
 size_t objectEstimateSize(robj *o) {
