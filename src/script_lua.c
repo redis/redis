@@ -783,12 +783,15 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
 /* ---------------------------------------------------------------------------
  * Lua redis.* functions implementations.
  * ------------------------------------------------------------------------- */
-#define LUA_CMD_OBJCACHE_SIZE 32
-#define LUA_CMD_OBJCACHE_MAX_LEN 64
+void freeLuaRedisArgv(robj **argv, int* argc);
 
-/* Cached across calls. */
+/* Cached argv array across calls. */
 static robj **lua_argv = NULL;
 static int lua_argv_size = 0;
+
+/* Cache of recently used small arguments to avoid malloc calls. */
+#define LUA_CMD_OBJCACHE_SIZE 32
+#define LUA_CMD_OBJCACHE_MAX_LEN 64
 static robj *lua_args_cached_objects[LUA_CMD_OBJCACHE_SIZE];
 static size_t lua_args_cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
 
@@ -801,7 +804,7 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
         return NULL;
     }
 
-    /* Build the arguments vector */
+    /* Build the arguments vector (reuse a cached argv from last call) */
     if (lua_argv_size < *argc) {
         lua_argv = zrealloc(lua_argv,sizeof(robj*)* *argc);
         lua_argv_size = *argc;
@@ -845,11 +848,7 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
      * is not a string or an integer (lua_isstring() return true for
      * integers as well). */
     if (j != *argc) {
-        j--;
-        while (j >= 0) {
-            decrRefCount(lua_argv[j]);
-            j--;
-        }
+        freeLuaRedisArgv(lua_argv, &j);
         luaPushError(lua, "Lua redis lib command arguments must be strings or integers");
         return NULL;
     }
@@ -857,7 +856,7 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
     return lua_argv;
 }
 
-void freeLuaRedisArgv(robj **argv, int* argc){
+void freeLuaRedisArgv(robj **argv, int* argc) {
     int j;
     for (j = 0; j < *argc; j++) {
         robj *o = argv[j];
@@ -880,12 +879,11 @@ void freeLuaRedisArgv(robj **argv, int* argc){
         }
     }
     if (argv != lua_argv) {
+        /* The command changed argv, scrap the cache and start over. */
         zfree(argv);
         lua_argv = NULL;
         lua_argv_size = 0;
     }
-    argv = NULL;
-    argc = 0;
 }
 
 static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
@@ -896,9 +894,9 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     client* c = rctx->c;
     sds reply;
 
-    int argc;
-    robj **argv = luaArgsToRedisArgv(lua, &argc);
-    if (argv == NULL) {
+    c->argv = luaArgsToRedisArgv(lua, &c->argc);
+    c->argv_len = lua_argv_size;
+    if (c->argv == NULL) {
         return raise_error ? luaError(lua) : 1;
     }
 
@@ -934,7 +932,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         ldbLog(cmdlog);
     }
 
-    scriptCall(rctx, argv, argc, &err);
+    scriptCall(rctx, &err);
     if (err) {
         luaPushError(lua, err);
         sdsfree(err);
@@ -980,9 +978,10 @@ cleanup:
     /* Clean up. Command code may have changed argv/argc so we use the
      * argv/argc of the client instead of the local variables. */
     freeLuaRedisArgv(c->argv, &c->argc);
-    c->argv_len_sum = 0;
-    c->argv_len = 0;
+    c->argc = c->argv_len = 0;
     c->user = NULL;
+    c->argv = NULL;
+    freeClientArgv(c);
     inuse--;
 
     if (raise_error) {
