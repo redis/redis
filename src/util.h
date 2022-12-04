@@ -74,6 +74,7 @@ int string2ld(const char *s, size_t slen, long double *dp);
 int string2d(const char *s, size_t slen, double *dp);
 int trimDoubleString(char *buf, size_t len);
 int d2string(char *buf, size_t len, double value);
+int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_digits);
 int ld2string(char *buf, size_t len, long double value, ld2string_mode mode);
 int double2ll(double d, long long *out);
 int yesnotoi(char *s);
