@@ -33,10 +33,39 @@
 #define LINK_SIGNAL_PROCEEDED 0
 #define LINK_SIGNAL_UNLOCK 1
 
-#define LINK_TO_LOCK(link_ptr) ((struct lock*)((char*)link_ptr-offsetof(struct lock,link)))
+#define LINK_TO_LOCK(link_ptr) ((struct lock*)((char*)(link_ptr)-offsetof(struct lock,link)))
 
 /* callback when link target is ready. */
 typedef void (*linkProceed)(struct lockLink *link, void *pd);
+
+static size_t lock_memory_used;
+
+static inline void *lock_malloc(size_t size) {
+    void *ptr = zmalloc(size);
+#ifdef HAVE_MALLOC_SIZE
+    if (ptr) lock_memory_used += zmalloc_size(ptr);
+#endif
+    return ptr;
+}
+
+static inline void *lock_realloc(void *oldptr, size_t size) {
+#ifdef HAVE_MALLOC_SIZE
+    if (oldptr) lock_memory_used -= zmalloc_size(oldptr);
+#endif
+    void *ptr = zrealloc(oldptr,size);
+#ifdef HAVE_MALLOC_SIZE
+    if (ptr) lock_memory_used += zmalloc_size(ptr);
+#endif
+    return ptr;
+}
+
+static inline void lock_free(void *ptr) {
+#ifdef HAVE_MALLOC_SIZE
+    if (ptr) lock_memory_used -= zmalloc_size(ptr);
+#endif
+    zfree(ptr);
+}
+
 
 static void lockLinksInit(lockLinks *links) {
     links->links = links->buf;
@@ -47,7 +76,7 @@ static void lockLinksInit(lockLinks *links) {
 
 static void lockLinksDeinit(lockLinks *links) {
     if (links->links && links->links != links->buf)
-        zfree(links->links);
+        lock_free(links->links);
     lockLinksInit(links);
 }
 
@@ -65,9 +94,9 @@ static void lockLinksMakeRoomFor(lockLinks *links, int count) {
     serverAssert(links->capacity >= count);
 
     if (links->links == links->buf) {
-        links->links = zmalloc(sizeof(lock*)*links->capacity);
+        links->links = lock_malloc(sizeof(lock*)*links->capacity);
     } else {
-        links->links = zrealloc(links->links,sizeof(lock*)*links->capacity);
+        links->links = lock_realloc(links->links,sizeof(lock*)*links->capacity);
     }
 }
 
@@ -169,7 +198,7 @@ dictType keyLevelLockDictType = {
 locks *locksCreate(int level, redisDb *db, robj *key, locks *parent) {
     locks *locks;
 
-    locks = zmalloc(sizeof(struct locks));
+    locks = lock_malloc(sizeof(struct locks));
     locks->lock_list = listCreate();
     locks->level = level;
     locks->parent = parent;
@@ -178,7 +207,7 @@ locks *locksCreate(int level, redisDb *db, robj *key, locks *parent) {
     case REQUEST_LEVEL_SVR:
         serverAssert(parent == NULL);
         locks->svr.dbnum = server.dbnum;
-        locks->svr.dbs = zmalloc(server.dbnum*sizeof(struct locks));
+        locks->svr.dbs = lock_malloc(server.dbnum*sizeof(struct locks));
         break;
     case REQUEST_LEVEL_DB:
         serverAssert(parent->level == REQUEST_LEVEL_SVR);
@@ -209,7 +238,7 @@ static void locksRelease(locks *locks) {
 
     switch (locks->level) {
     case REQUEST_LEVEL_SVR:
-        zfree(locks->svr.dbs);
+        lock_free(locks->svr.dbs);
         break;
     case REQUEST_LEVEL_DB:
         dictRelease(locks->db.keys);
@@ -223,7 +252,7 @@ static void locksRelease(locks *locks) {
         break;
     }
 
-    zfree(locks);
+    lock_free(locks);
 }
 
 const char *lockDump(lock *lock);
@@ -331,7 +360,7 @@ static inline int locksWouldBlock(locks *locks, int64_t txid) {
 lock *lockNew(int64_t txid, redisDb *db, robj *key, client *c,
         lockProceedCallback proceed, void *pd, freefunc pdfree,
         void *msgs) {
-    lock *lock = zmalloc(sizeof(struct lock));
+    lock *lock = lock_malloc(sizeof(struct lock));
 
     lockLinkInit(&lock->link,txid);
 
@@ -344,6 +373,7 @@ lock *lockNew(int64_t txid, redisDb *db, robj *key, client *c,
     lock->pd = pd;
     lock->pdfree = pdfree;
     lock->lock_timer = 0;
+    lock->conflict = 0;
 
     UNUSED(msgs);
 #ifdef SWAP_DEBUG
@@ -370,7 +400,7 @@ void lockFree(lock *lock) {
     lock->pd = NULL;
     lock->pdfree = NULL;
 
-    zfree(lock);
+    lock_free(lock);
 }
 
 const char *lockDump(lock *lock) {
@@ -394,6 +424,26 @@ const char *lockDump(lock *lock) {
     if (ptr < end) snprintf(ptr, end-ptr, "]");
 
     return repr;
+}
+
+static void lockStatUpdateLocked(lock *lock) {
+    int level = lock->locks->level;
+    lockStat *stat = server.swap_lock->stat;
+    lockInstantaneouStat *inst_stat = stat->instant+level;
+    lockCumulativeStat *cumu_stat = &stat->cumulative;
+
+    cumu_stat->request_count++;
+    inst_stat->request_count++;
+    if (lock->conflict) {
+        cumu_stat->conflict_count++;
+        inst_stat->conflict_count++;
+    }
+}
+
+static void lockStatUpdateUnlocked(lock *lock) {
+    lockCumulativeStat *cumu_stat = &server.swap_lock->stat->cumulative;
+    cumu_stat->request_count--;
+    if (lock->conflict) cumu_stat->conflict_count--;
 }
 
 static void lockProceed(lock *lock) {
@@ -438,19 +488,23 @@ static inline void lockDetachFromLocks(lock *lock) {
 void lockUnlock(void *lock_) {
     lock *lock = lock_;
     lockLinkUnlock(&lock->link,lockProceedByLink,NULL);
+    lockStatUpdateUnlocked(lock);
     lockDetachFromLocks(lock);
     lockFree(lock);
 }
 
 static inline void lockProceedIfReady(lock *lock) {
-    if (lockLinkTargetReady(&lock->link.target))
+    if (lockLinkTargetReady(&lock->link.target)) {
         lockProceed(lock);
+    } else {
+        lock->conflict = 1;
+    }
 }
 
 void lockLock(int64_t txid, redisDb *db, robj *key, lockProceedCallback cb,
         client *c, void *pd, freefunc pdfree, void *msgs) {
     lock *lock = lockNew(txid,db,key,c,cb,pd,pdfree,msgs);
-    locks *svrlocks = server.swap_locks, *dblocks, *keylocks, *locks;
+    locks *svrlocks = server.swap_lock->svrlocks, *dblocks, *keylocks, *locks;
 
     locksLinkLock(svrlocks,lock);
     if (db == NULL) {
@@ -484,10 +538,11 @@ end:
 #endif
 
     lockProceedIfReady(lock);
+    lockStatUpdateLocked(lock);
 }
 
 int lockWouldBlock(int64_t txid, redisDb *db, robj *key) {
-    locks *locks = server.swap_locks;
+    locks *locks = server.swap_lock->svrlocks;
 
     if (locksWouldBlock(locks,txid)) return 1;
     if (db == NULL) return 0;
@@ -500,25 +555,108 @@ int lockWouldBlock(int64_t txid, redisDb *db, robj *key) {
     return locksWouldBlock(locks,txid);
 }
 
+static lockInstantaneouStat *lockStatCreateInstantaneou() {
+    int i, metric_offset;
+    lockInstantaneouStat *inst_stats = lock_malloc(REQUEST_LEVEL_TYPES*sizeof(lockInstantaneouStat));
+    for (i = 0; i < REQUEST_LEVEL_TYPES; i++) {
+        metric_offset = SWAP_LOCK_STATS_METRIC_OFFSET + i * SWAP_LOCK_METRIC_SIZE;
+        inst_stats[i].name = requestLevelName(i);
+        inst_stats[i].request_count = 0;
+        inst_stats[i].conflict_count = 0;
+        inst_stats[i].stats_metric_idx_request = metric_offset+SWAP_LOCK_METRIC_REQUEST;
+        inst_stats[i].stats_metric_idx_conflict = metric_offset+SWAP_LOCK_METRIC_CONFLICT;
+    }
+    return inst_stats;
+}
+
+static void lockStatFreeInstantaneou(lockInstantaneouStat *stat) {
+    lock_free(stat);
+}
+
+static void lockStatInitCumulative(lockCumulativeStat *cumu_stat) {
+    cumu_stat->request_count = 0;
+    cumu_stat->conflict_count = 0;
+}
+
+void lockStatInit(lockStat *stat) {
+    lockStatInitCumulative(&stat->cumulative);
+    stat->instant = lockStatCreateInstantaneou();
+}
+
+void lockStatDeinit(lockStat *stat) {
+    lockStatFreeInstantaneou(stat->instant);
+}
+
+void trackSwapLockInstantaneousMetrics() {
+    lockInstantaneouStat *inst_stats = server.swap_lock->stat->instant;
+    for (int i = 0; i < REQUEST_LEVEL_TYPES; i++) {
+        long long request, conflict;
+        lockInstantaneouStat *inst_stat = inst_stats + i;
+        atomicGet(inst_stat->request_count,request);
+        trackInstantaneousMetric(inst_stat->stats_metric_idx_request,request);
+        atomicGet(inst_stat->conflict_count,conflict);
+        trackInstantaneousMetric(inst_stat->stats_metric_idx_conflict,conflict);
+    }
+}
+
+void resetSwapLockInstantaneousMetrics() {
+    for (int i = 0; i < REQUEST_LEVEL_TYPES; i++) {
+        lockInstantaneouStat *inst_stat = server.swap_lock->stat->instant+i;
+        inst_stat->request_count = 0;
+        inst_stat->conflict_count = 0;
+    }
+}
+
+sds genSwapLockInfoString(sds info) {
+    int j;
+
+    lockCumulativeStat *cumu_stat = &server.swap_lock->stat->cumulative;
+    info = sdscatprintf(info,
+            "swap_lock_used_memory:%lu\r\n"
+            "swap_lock_request:%ld\r\n"
+            "swap_lock_conflict:%ld\r\n",
+            lock_memory_used,
+            cumu_stat->request_count,
+            cumu_stat->conflict_count);
+
+    for (j = 0; j < REQUEST_LEVEL_TYPES; j++) {
+        long long request, conflict, rps, cps;
+        lockInstantaneouStat *lock_stat = server.swap_lock->stat->instant+j;
+        atomicGet(lock_stat->request_count,request);
+        atomicGet(lock_stat->conflict_count,conflict);
+        rps = getInstantaneousMetric(lock_stat->stats_metric_idx_request);
+        cps = getInstantaneousMetric(lock_stat->stats_metric_idx_conflict);
+        info = sdscatprintf(info,
+                "swap_lock_%s:request=%lld,conflict=%lld,request_ps=%lld,conflict_ps=%lld\r\n",
+                lock_stat->name,request,conflict,rps,cps);
+    }
+    return info;
+}
+
 void swapLockCreate() {
     int i;
-    locks *s = locksCreate(REQUEST_LEVEL_SVR,NULL,NULL,NULL);
-
+    locks *svrlocks = locksCreate(REQUEST_LEVEL_SVR,NULL,NULL,NULL);
     for (i = 0; i < server.dbnum; i++) {
         redisDb *db = server.db + i;
-        s->svr.dbs[i] = locksCreate(REQUEST_LEVEL_DB,db,NULL,s);
+        svrlocks->svr.dbs[i] = locksCreate(REQUEST_LEVEL_DB,db,NULL,svrlocks);
     }
-    server.swap_locks = s;
+    server.swap_lock->svrlocks = svrlocks;
+
+    lockStat *stat = lock_malloc(sizeof(lockStat));
+    lockStatInit(stat);
+    server.swap_lock->stat = stat;
 }
 
 void swapLockDestroy() {
     int i;
-    locks *s = server.swap_locks;
+    locks *svrlocks = server.swap_lock->svrlocks;
     for (i = 0; i < server.dbnum; i++) {
-        locksRelease(s->svr.dbs[i]);
+        locksRelease(svrlocks->svr.dbs[i]);
     }
-    locksRelease(s);
-    zfree(s);
+    locksRelease(svrlocks);
+    lock_free(svrlocks);
+
+    lock_free(server.swap_lock->stat);
 }
 
 

@@ -35,7 +35,7 @@
 /* swap stats */
 #define SWAP_REQUEST_MEMORY_OVERHEAD (sizeof(swapRequest)+sizeof(swapCtx)+ \
                                       sizeof(wholeKeySwapData)/*typical*/+ \
-                                      sizeof(lock) + sizeof(locks))
+                                      sizeof(lock))
 
 static inline size_t estimateRIOSwapMemory(RIO *rio) {
     size_t memory = 0;
@@ -107,7 +107,8 @@ void initStatsSwap() {
         server.ror_stats->compaction_filter_stats[i].name = swap_cf_names[i];
         server.ror_stats->compaction_filter_stats[i].filt_count = 0;
         server.ror_stats->compaction_filter_stats[i].scan_count = 0;
-        server.ror_stats->compaction_filter_stats[i].stats_metric_idx_filte = metric_offset;
+        server.ror_stats->compaction_filter_stats[i].stats_metric_idx_filte = metric_offset+COMPACTION_FILTER_METRIC_filt_count;
+        server.ror_stats->compaction_filter_stats[i].stats_metric_idx_scan = metric_offset+COMPACTION_FILTER_METRIC_SCAN_COUNT;
     }
     server.swap_debug_info = zmalloc(SWAP_DEBUG_INFO_TYPE*sizeof(swapDebugInfo));
     for (i = 0; i < SWAP_DEBUG_INFO_TYPE; i++) {
@@ -118,6 +119,7 @@ void initStatsSwap() {
         server.swap_debug_info[i].metric_idx_count = metric_offset+SWAP_DEBUG_COUNT;
         server.swap_debug_info[i].metric_idx_value = metric_offset+SWAP_DEBUG_VALUE;
     }
+
     server.swap_hit_stats = zcalloc(sizeof(swapHitStat));
 }
 
@@ -148,9 +150,9 @@ void trackSwapInstantaneousMetrics() {
     for (i = 0; i < CF_COUNT; i++) {
         cfs = server.ror_stats->compaction_filter_stats + i;
         atomicGet(cfs->filt_count,filt_count);
-        trackInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_filt_count,filt_count);
+        trackInstantaneousMetric(cfs->stats_metric_idx_filte,filt_count);
         atomicGet(cfs->scan_count,scan_count);
-        trackInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_SCAN_COUNT,scan_count);
+        trackInstantaneousMetric(cfs->stats_metric_idx_scan,scan_count);
     }
     if (server.swap_debug_trace_latency) {
         swapDebugInfo *d;
@@ -163,12 +165,14 @@ void trackSwapInstantaneousMetrics() {
             trackInstantaneousMetric(d->metric_idx_value,val);
         }
     }
+    trackSwapLockInstantaneousMetrics();
 }
 
 sds genSwapInfoString(sds info) {
     info = genSwapStorageInfoString(info);
     info = genSwapHitInfoString(info);
     info = genSwapExecInfoString(info);
+    info = genSwapLockInfoString(info);
     return info;
 }
 
@@ -213,8 +217,8 @@ sds genSwapExecInfoString(sds info) {
         atomicGet(cfs->scan_count,scan_count);
         info = sdscatprintf(info,"swap_compaction_filter_%s:filt_count=%lld,scan_count=%lld,filt_ps=%lld,scan_ps=%lld\r\n",
                 cfs->name,filt_count,scan_count,
-                getInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_filt_count),
-                getInstantaneousMetric(cfs->stats_metric_idx_filte + COMPACTION_FILTER_METRIC_SCAN_COUNT));
+                getInstantaneousMetric(cfs->stats_metric_idx_filte),
+                getInstantaneousMetric(cfs->stats_metric_idx_scan));
     }
     if (server.swap_debug_trace_latency) {
         swapDebugInfo *d;
@@ -247,6 +251,7 @@ void resetStatsSwap() {
         server.ror_stats->compaction_filter_stats[i].filt_count = 0;
         server.ror_stats->compaction_filter_stats[i].scan_count = 0;
     }
+    resetSwapLockInstantaneousMetrics();
 }
 
 void resetSwapHitStat() {

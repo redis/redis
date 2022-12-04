@@ -107,6 +107,7 @@ static inline int isMetaScanRequest(uint32_t intention_flag) {
 #define REQUEST_LEVEL_SVR  0
 #define REQUEST_LEVEL_DB   1
 #define REQUEST_LEVEL_KEY  2
+#define REQUEST_LEVEL_TYPES  3
 
 #define MAX_KEYREQUESTS_BUFFER 8
 
@@ -114,8 +115,8 @@ typedef void (*freefunc)(void *);
 
 static inline const char *requestLevelName(int level) {
   const char *name = "?";
-  const char *levels[] = {"svr","db","key"};
-  if (level >= 0 && (size_t)level < sizeof(levels)/sizeof(char*))
+  const char *levels[] = {"SVR","DB","KEY"};
+  if (level >= 0 && level < REQUEST_LEVEL_TYPES)
     name = levels[level];
   return name;
 }
@@ -1002,6 +1003,7 @@ typedef struct lock {
   void *pd;
   freefunc pdfree;
   monotime lock_timer;
+  int conflict;
 #ifdef SWAP_DEBUG
   swapDebugMsgs *msgs;
 #endif
@@ -1026,12 +1028,39 @@ typedef struct locks {
   };
 } locks;
 
+typedef struct lockInstantaneouStat {
+    const char *name;
+    redisAtomic long long request_count;
+    redisAtomic long long conflict_count;
+    int stats_metric_idx_request;
+    int stats_metric_idx_conflict;
+} lockInstantaneouStat;
+
+typedef struct lockCumulativeStat {
+  size_t request_count;
+  size_t conflict_count;
+} lockCumulativeStat;
+
+typedef struct lockStat {
+  lockCumulativeStat cumulative;
+  lockInstantaneouStat *instant; /* array of swap lock stats (one for each level). */
+} lockStat;
+
+typedef struct swapLock {
+  locks *svrlocks;
+  lockStat *stat;
+} swapLock;
+
 void swapLockCreate(void);
 void swapLockDestroy(void);
 int lockWouldBlock(int64_t txid, redisDb *db, robj *key);
 void lockLock(int64_t txid, redisDb *db, robj *key, lockProceedCallback cb, client *c, void *pd, freefunc pdfree, void *msgs);
 void lockProceeded(void *lock);
 void lockUnlock(void *lock);
+
+void trackSwapLockInstantaneousMetrics(void);
+void resetSwapLockInstantaneousMetrics(void);
+sds genSwapLockInfoString(sds info);
 
 list *clientRenewLocks(client *c);
 void clientGotLock(client *c, swapCtx *ctx, void *lock);
@@ -1151,17 +1180,23 @@ int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark)
 #define COMPACTION_FILTER_METRIC_SCAN_COUNT 1
 #define COMPACTION_FILTER_METRIC_SIZE 2
 
+#define SWAP_LOCK_METRIC_REQUEST 0
+#define SWAP_LOCK_METRIC_CONFLICT 1
+#define SWAP_LOCK_METRIC_SIZE 2
+
 #define SWAP_SWAP_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*SWAP_TYPES)
 #define SWAP_RIO_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*ROCKS_TYPES)
 #define SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT (COMPACTION_FILTER_METRIC_SIZE*CF_COUNT)
-#define SWAP_DEBUG_METRIC_COUNT (SWAP_DEBUG_SIZE*SWAP_DEBUG_INFO_TYPE)
+#define SWAP_DEBUG_STATS_METRIC_COUNT (SWAP_DEBUG_SIZE*SWAP_DEBUG_INFO_TYPE)
+#define SWAP_LOCK_STATS_METRIC_COUNT (SWAP_LOCK_METRIC_SIZE*REQUEST_LEVEL_TYPES)
 
 /* stats metrics are ordered mem>swap>rio */ 
 #define SWAP_SWAP_STATS_METRIC_OFFSET STATS_METRIC_COUNT_MEM
 #define SWAP_RIO_STATS_METRIC_OFFSET (SWAP_SWAP_STATS_METRIC_OFFSET+SWAP_SWAP_STATS_METRIC_COUNT)
 #define SWAP_COMPACTION_FILTER_STATS_METRIC_OFFSET (SWAP_RIO_STATS_METRIC_OFFSET+SWAP_RIO_STATS_METRIC_COUNT)
 #define SWAP_DEBUG_STATS_METRIC_OFFSET (SWAP_COMPACTION_FILTER_STATS_METRIC_OFFSET+SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT)
-#define SWAP_STATS_METRIC_COUNT (SWAP_SWAP_STATS_METRIC_COUNT+SWAP_RIO_STATS_METRIC_COUNT+SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT+SWAP_DEBUG_METRIC_COUNT)
+#define SWAP_LOCK_STATS_METRIC_OFFSET (SWAP_DEBUG_STATS_METRIC_OFFSET+SWAP_DEBUG_STATS_METRIC_COUNT)
+#define SWAP_STATS_METRIC_COUNT (SWAP_SWAP_STATS_METRIC_COUNT+SWAP_RIO_STATS_METRIC_COUNT+SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT+SWAP_DEBUG_STATS_METRIC_COUNT+SWAP_LOCK_STATS_METRIC_COUNT)
 
 typedef struct swapStat {
     const char *name;
@@ -1178,6 +1213,7 @@ typedef struct compactionFilterStat {
     redisAtomic long long filt_count;
     redisAtomic long long scan_count;
     int stats_metric_idx_filte;
+    int stats_metric_idx_scan;
 } compactionFilterStat;
 
 typedef struct swapHitStat {
@@ -1197,7 +1233,7 @@ sds genSwapHitInfoString(sds info);
 typedef struct rorStat {
     struct swapStat *swap_stats; /* array of swap stats (one for each swap type). */
     struct swapStat *rio_stats; /* array of rio stats (one for each rio type). */
-    struct compactionFilterStat *compaction_filter_stats;
+    struct compactionFilterStat *compaction_filter_stats; /* array of compaction filter stats (one for each column family). */
 } rorStat;
 
 void initStatsSwap(void);

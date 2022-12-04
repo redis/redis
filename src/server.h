@@ -142,7 +142,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define STATS_METRIC_NET_INPUT 1    /* Bytes read to network .*/
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
 #define STATS_METRIC_COUNT_MEM 3
-#define STATS_METRIC_COUNT_SWAP 61 /* define directly here to avoid dependcy cycle, will be checked later. */
+#define STATS_METRIC_COUNT_SWAP 67 /* define directly here to avoid dependcy cycle, will be checked later. */
 #define STATS_METRIC_COUNT (STATS_METRIC_COUNT_SWAP + STATS_METRIC_COUNT_MEM)
 
 /* Protocol and I/O related defines */
@@ -1761,7 +1761,7 @@ struct redisServer {
     int ps_parallism_rdb;  /* parallel swap parallelism for rdb save & load. */
     struct ctripRdbLoadCtx *rdb_load_ctx; /* parallel swap for rdb load */
     /* request wait */
-    struct locks *swap_locks; /* swap lock root */
+    struct swapLock *swap_lock;
     /* big object */
     int swap_evict_step_max_subkeys; /* max subkeys evict in one step. */
     unsigned long long swap_evict_step_max_memory; /* max memory evict in one step. */
