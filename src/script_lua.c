@@ -783,7 +783,7 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
 /* ---------------------------------------------------------------------------
  * Lua redis.* functions implementations.
  * ------------------------------------------------------------------------- */
-void freeLuaRedisArgv(robj **argv, int* argc);
+void freeLuaRedisArgv(robj **argv, int argc);
 
 /* Cached argv array across calls. */
 static robj **lua_argv = NULL;
@@ -848,7 +848,7 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
      * is not a string or an integer (lua_isstring() return true for
      * integers as well). */
     if (j != *argc) {
-        freeLuaRedisArgv(lua_argv, &j);
+        freeLuaRedisArgv(lua_argv, j);
         luaPushError(lua, "Lua redis lib command arguments must be strings or integers");
         return NULL;
     }
@@ -856,9 +856,9 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
     return lua_argv;
 }
 
-void freeLuaRedisArgv(robj **argv, int* argc) {
+void freeLuaRedisArgv(robj **argv, int argc) {
     int j;
-    for (j = 0; j < *argc; j++) {
+    for (j = 0; j < argc; j++) {
         robj *o = argv[j];
 
         /* Try to cache the object in the lua_args_cached_objects array.
@@ -977,7 +977,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 cleanup:
     /* Clean up. Command code may have changed argv/argc so we use the
      * argv/argc of the client instead of the local variables. */
-    freeLuaRedisArgv(c->argv, &c->argc);
+    freeLuaRedisArgv(c->argv, c->argc);
     c->argc = c->argv_len = 0;
     c->user = NULL;
     c->argv = NULL;
@@ -1148,7 +1148,7 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
         }
     }
 
-    freeLuaRedisArgv(argv, &argc);
+    freeLuaRedisArgv(argv, argc);
     if (raise_error)
         return luaError(lua);
     else
