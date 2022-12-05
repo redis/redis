@@ -2482,12 +2482,11 @@ start_server {tags {"zset"}} {
 
     test {zunionInterDiffGenericCommand acts on SET and ZSET} {
         # Test one key is big and one key is small separately.
+        # The first one test zdiff, zdiffstore with listpack encoded set.
+        # The second one test zinter, zinterstore, zintercard, zdiff, zdiffstore with listpack encoded set.
         foreach {big_key small_key zset_entries set_entries} {
-             # zdiff, zdiffstore with listpack encoded set
-             zset{t} set{t} {1 a 2 b 3 c 4 d} {a b c}
-             # zinter, zinterstore, zintercard, zdiff, zdiffstore
-             # with listpack encoded set
-             set{t} zset{t} {1 a 2 b 3 c} {a b c d}
+            zset{t} set{t} {1 a 2 b 3 c 4 d} {a b c}
+            set{t} zset{t} {1 a 2 b 3 c} {a b c d}
         } {
             r del zset{t} zset2{t} set{t}
 
