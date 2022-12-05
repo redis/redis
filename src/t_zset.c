@@ -365,7 +365,13 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
                 x = x->level[i].forward;
             }
         }
-        x = rank >= -n ? zslGetElementByRank(zsl, rank + n + 1) : NULL;
+        if (n > -10) {
+            for (i = -n; i > 1; i--) {
+                x = x->backward;
+            }
+        } else {
+            x = rank >= -n ? zslGetElementByRank(zsl, rank + n + 1) : NULL;
+        }
         /* Check if score >= min. */
         if (!zslValueGteMin(x->score, range)) return NULL;
     }
