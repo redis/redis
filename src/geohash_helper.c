@@ -216,21 +216,30 @@ GeoHashFix52Bits geohashAlign52Bits(const GeoHashBits hash) {
     return bits;
 }
 
+/* Calculate distance using simplified haversine great circle distance formula.
+ * Given longitude diff is 0 the asin(sqrt(a)) on the haversine is asin(sin(abs(u))).
+ * arcsin(sin(x)) equal to x when x ∈[−𝜋/2,𝜋/2]. Given latitude is between [−𝜋/2,𝜋/2]
+ * we can simplifiy arcsin(sin(x)) to x.
+ */
+double geohashGetLatDistance(double lat1d, double lat2d) {
+    return EARTH_RADIUS_IN_METERS * fabs(deg_rad(lat2d) - deg_rad(lat1d));
+}
+
 /* Calculate distance using haversine great circle distance formula. */
 double geohashGetDistance(double lon1d, double lat1d, double lon2d, double lat2d) {
-    double lat1r, lon1r, lat2r, lon2r, u, v;
-    lat1r = deg_rad(lat1d);
-    lon1r = deg_rad(lon1d);
-    lat2r = deg_rad(lat2d);
-    lon2r = deg_rad(lon2d);
-    u = sin((lat2r - lat1r) / 2);
-    v = sin((lon2r - lon1r) / 2);
-    double a = u * u;
+    const double lon1r = deg_rad(lon1d);
+    const double lon2r = deg_rad(lon2d);
+    const double v = sin((lon2r - lon1r) / 2);
     /* if v == 0 we can avoid doing expensive math */
     if (v != 0.0){
-        a += cos(lat1r) * cos(lat2r) * v * v;
+        const double lat1r = deg_rad(lat1d);
+        const double lat2r = deg_rad(lat2d);
+        double a = cos(lat1r) * cos(lat2r) * v * v;
+        const double u = sin((lat2r - lat1r) / 2);
+        a += (u * u);
+        return 2.0 * EARTH_RADIUS_IN_METERS * asin(sqrt(a));
     }
-    return 2.0 * EARTH_RADIUS_IN_METERS * asin(sqrt(a));
+    return geohashGetLatDistance(lat1d, lat2d);
 }
 
 int geohashGetDistanceIfInRadius(double x1, double y1,
@@ -259,7 +268,7 @@ int geohashGetDistanceIfInRectangle(double width_m, double height_m, double x1, 
                                     double x2, double y2, double *distance) {
     /* latitude distance is less expensive to compute than longitude distance
      * so we check first for the latitude condition */
-    double lat_distance = geohashGetDistance(x2, y2, x2, y1);
+    double lat_distance = geohashGetLatDistance(y2, y1);
     if (lat_distance > height_m/2) {
         return 0;
     }
