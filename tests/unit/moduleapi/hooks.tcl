@@ -85,6 +85,140 @@ tags "modules" {
             assert {[r hooks.event_count loading-rdb-start] == 1}
         }
 
+        test {Test key unlink hook} {
+            r set testkey1 hello
+            r del testkey1
+            assert {[r hooks.event_count key-info-testkey1] == 1}
+            assert_equal [r hooks.event_last key-info-testkey1] testkey1
+            r lpush testkey1 hello
+            r lpop testkey1
+            assert {[r hooks.event_count key-info-testkey1] == 2}
+            assert_equal [r hooks.event_last key-info-testkey1] testkey1
+            r set testkey2 world
+            r unlink testkey2
+            assert {[r hooks.event_count key-info-testkey2] == 1}
+            assert_equal [r hooks.event_last key-info-testkey2] testkey2
+        }
+
+        test {Test removed key event} {
+            r set str abcd
+            r set str abcde
+            # For String Type value is returned
+            assert_equal {abcd overwritten} [r hooks.is_key_removed str]
+            assert_equal -1 [r hooks.pexpireat str]
+
+            r del str
+            assert_equal {abcde deleted} [r hooks.is_key_removed str]
+            assert_equal -1 [r hooks.pexpireat str]
+
+            # test int encoded string
+            r set intstr 12345678
+            # incr doesn't fire event
+            r incr intstr
+            catch {[r hooks.is_key_removed intstr]} output
+            assert_match {ERR * removed} $output
+            r del intstr
+            assert_equal {12345679 deleted} [r hooks.is_key_removed intstr]
+
+            catch {[r hooks.is_key_removed not-exists]} output
+            assert_match {ERR * removed} $output
+
+            r hset hash f v
+            r hdel hash f
+            assert_equal {0 deleted} [r hooks.is_key_removed hash]
+
+            r hset hash f v a b
+            r del hash
+            assert_equal {2 deleted} [r hooks.is_key_removed hash]
+
+            r lpush list 1
+            r lpop list
+            assert_equal {0 deleted} [r hooks.is_key_removed list]
+
+            r lpush list 1 2 3
+            r del list
+            assert_equal {3 deleted} [r hooks.is_key_removed list]
+
+            r sadd set 1
+            r spop set
+            assert_equal {0 deleted} [r hooks.is_key_removed set]
+
+            r sadd set 1 2 3 4
+            r del set
+            assert_equal {4 deleted} [r hooks.is_key_removed set]
+
+            r zadd zset 1 f
+            r zpopmin zset
+            assert_equal {0 deleted} [r hooks.is_key_removed zset]
+
+            r zadd zset 1 f 2 d
+            r del zset
+            assert_equal {2 deleted} [r hooks.is_key_removed zset]
+
+            r xadd stream 1-1 f v
+            r xdel stream 1-1
+            # Stream does not delete object when del entry
+            catch {[r hooks.is_key_removed stream]} output
+            assert_match {ERR * removed} $output
+            r del stream
+            assert_equal {0 deleted} [r hooks.is_key_removed stream]
+
+            r xadd stream 2-1 f v
+            r del stream
+            assert_equal {1 deleted} [r hooks.is_key_removed stream]
+
+            # delete key because of active expire
+            set size [r dbsize]
+            r set active-expire abcd px 1
+            #ensure active expire
+            wait_for_condition 50 100 {
+                [r dbsize] == $size
+            } else {
+                fail "Active expire not trigger"
+            }
+            assert_equal {abcd expired} [r hooks.is_key_removed active-expire]
+            # current time is greater than pexpireat
+            set now [r time]
+            set mill [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)]
+            assert {$mill >= [r hooks.pexpireat active-expire]}
+
+            # delete key because of lazy expire
+            r debug set-active-expire 0
+            r set lazy-expire abcd px 1
+            after 10
+            r get lazy-expire
+            assert_equal {abcd expired} [r hooks.is_key_removed lazy-expire]
+            set now [r time]
+            set mill [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)]
+            assert {$mill >= [r hooks.pexpireat lazy-expire]}
+            r debug set-active-expire 1
+
+            # delete key not yet expired
+            set now [r time]
+            set expireat [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)+1000000]
+            r set not-expire abcd pxat $expireat
+            r del not-expire
+            assert_equal {abcd deleted} [r hooks.is_key_removed not-expire]
+            assert_equal $expireat [r hooks.pexpireat not-expire]
+
+            # Test key evict
+            set used [expr {[s used_memory] - [s mem_not_counted_for_evict]}]
+            set limit [expr {$used+100*1024}]
+            set old_policy [lindex [r config get maxmemory-policy] 1]
+            r config set maxmemory $limit
+            # We set policy volatile-random, so only keys with ttl will be evicted
+            r config set maxmemory-policy volatile-random
+            r setex volatile-key 10000 x
+            # We use SETBIT here, so we can set a big key and get the used_memory
+            # bigger than maxmemory. Next command will evict volatile keys. We
+            # can't use SET, as SET uses big input buffer, so it will fail.
+            r setbit big-key 1600000 0 ;# this will consume 200kb
+            r getbit big-key 0
+            assert_equal {x evicted} [r hooks.is_key_removed volatile-key]
+            r config set maxmemory-policy $old_policy
+            r config set maxmemory 0
+        } {OK} {needs:debug}
+
         test {Test flushdb hooks} {
             r flushdb
             assert_equal [r hooks.event_last flush-start] 9

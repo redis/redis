@@ -1956,5 +1956,20 @@ start_server {tags {"scripting"}} {
             r eval {local status, res = pcall(function() return foo end); return 'status: ' .. tostring(status) .. ' result: ' .. res} 0
         ]
     }
+
+    test "LUA test pcall with non string/integer arg" {
+        assert_error "ERR Lua redis lib command arguments must be strings or integers*" {
+            r eval {
+                local x={}
+                return redis.call("ping", x)
+            } 0
+        }
+        # run another command, to make sure the cached argv array survived
+        assert_equal [
+            r eval {
+                return redis.call("ping", "asdf")
+            } 0
+        ] {asdf}
+    }
 }
 

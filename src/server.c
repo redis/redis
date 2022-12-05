@@ -1888,6 +1888,7 @@ void initServerConfig(void) {
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
     memset(server.listeners, 0x00, sizeof(server.listeners));
     server.active_expire_enabled = 1;
+    server.lazy_expire_disabled = 0;
     server.skip_checksum_validation = 0;
     server.loading = 0;
     server.async_loading = 0;
