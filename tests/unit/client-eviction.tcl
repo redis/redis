@@ -552,7 +552,9 @@ start_server {} {
             # and eviction not occurring.
             while {true} {
                 $rr get k
-                if {[client_field test_client tot-mem] > 1000000} {
+                $rr flush
+                after 10
+                if {[client_field test_client tot-mem] > [mb 10]} {
                     break
                 }
             }
@@ -565,7 +567,7 @@ start_server {} {
             }
 
             # wait for the client to be disconnected
-            wait_for_condition 1000 50 {
+            wait_for_condition 5000 50 {
                 ![client_exists test_client]
             } else {
                 puts [r client list]
