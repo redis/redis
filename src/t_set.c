@@ -174,7 +174,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 return 1;
             }
         } else {
-            /* Check if listpack encoding is possible. */
+            /* Check if listpack encoding is safe not to cross any threshold. */
             size_t maxelelen = 0, totsize = 0;
             unsigned long n = intsetLen(set->ptr);
             if (n != 0) {
