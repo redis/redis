@@ -1967,7 +1967,6 @@ start_server {tags {"scripting"}} {
         # run another command, to make sure the cached argv array survived
         assert_equal [
             r eval {
-                local x={}
                 return redis.call("ping", "asdf")
             } 0
         ] {asdf}
