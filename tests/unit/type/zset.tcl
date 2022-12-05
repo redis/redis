@@ -2481,17 +2481,26 @@ start_server {tags {"zset"}} {
     } {1.7976931348623157e+308}
 
     test {zunionInterDiffGenericCommand acts on SET and ZSET} {
-        r del zset{t} zset2{t} set{t}
+        # Test one key is big and one key is small separately.
+        foreach {big_key small_key zset_entries set_entries} {
+             zset{t} set{t} {1 a 2 b 3 c 4 d} {a b c}
+             set{t} zset{t} {1 a 2 b 3 c} {a b c d}
+        } {
+            r del zset{t} zset2{t} set{t}
 
-        r zadd zset{t} 2 a 7 b 9 d 12 c
-        r sadd set{t} a b c
+            foreach {score entry} $zset_entries { r zadd zset{t} $score $entry }
+            foreach entry $set_entries { r sadd set{t} $entry }
 
-        assert_equal {a b d c} [r zunion 2 zset{t} set{t}]
-        assert_equal {4} [r zunionstore zset2{t} 2 zset{t} set{t}]
-        assert_equal {a b c} [r zinter 2 zset{t} set{t}]
-        assert_equal {3} [r zinterstore zset2{t} 2 zset{t} set{t}]
-        assert_equal {3} [r zintercard 2 zset{t} set{t}]
-        assert_equal {d} [r zdiff 2 zset{t} set{t}]
-        assert_equal {1} [r zdiffstore zset2{t} 2 zset{t} set{t}]
+            assert_equal {a b c d} [lsort [r zunion 2 zset{t} set{t}]]
+            assert_equal {4} [r zunionstore zset2{t} 2 zset{t} set{t}]
+            assert_equal {a b c} [lsort [r zinter 2 zset{t} set{t}]]
+            assert_equal {3} [r zinterstore zset2{t} 2 zset{t} set{t}]
+            assert_equal {3} [r zintercard 2 zset{t} set{t}]
+
+            assert_equal {d} [lsort [r zdiff 2 $big_key $small_key]]
+            assert_equal {1} [r zdiffstore zset2{t} 2 $big_key $small_key]
+            assert_equal {} [r zdiff 2 $small_key $big_key]
+            assert_equal {0} [r zdiffstore zset2{t} 2 $small_key $big_key]
+        }
     }
 }
