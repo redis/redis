@@ -2275,6 +2275,16 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
             } else {
                 return 0;
             }
+        } else if (op->encoding == OBJ_ENCODING_LISTPACK) {
+            zuiSdsFromValue(val);
+            unsigned char *lp = op->subject->ptr;
+            unsigned char *p = lpFirst(lp);
+            if (p && lpFind(lp, p, (unsigned char*)val->ele, sdslen(val->ele), 0)) {
+                *score = 1.0;
+                return 1;
+            } else {
+                return 0;
+            }
         } else {
             serverPanic("Unknown set encoding");
         }

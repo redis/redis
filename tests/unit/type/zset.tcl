@@ -2480,4 +2480,18 @@ start_server {tags {"zset"}} {
         r zscore zz dblmax
     } {1.7976931348623157e+308}
 
+    test {zunionInterDiffGenericCommand acts on SET and ZSET} {
+        r del zset{t} zset2{t} set{t}
+
+        r zadd zset{t} 2 a 7 b 9 d 12 c
+        r sadd set{t} a b c
+
+        assert_equal {a b d c} [r zunion 2 zset{t} set{t}]
+        assert_equal {4} [r zunionstore zset2{t} 2 zset{t} set{t}]
+        assert_equal {a b c} [r zinter 2 zset{t} set{t}]
+        assert_equal {3} [r zinterstore zset2{t} 2 zset{t} set{t}]
+        assert_equal {3} [r zintercard 2 zset{t} set{t}]
+        assert_equal {d} [r zdiff 2 zset{t} set{t}]
+        assert_equal {1} [r zdiffstore zset2{t} 2 zset{t} set{t}]
+    }
 }
