@@ -98,7 +98,7 @@ int scriptPrepareForRun(scriptRunCtx *r_ctx, client *engine_client, client *call
 void scriptResetRun(scriptRunCtx *r_ctx);
 int scriptSetResp(scriptRunCtx *r_ctx, int resp);
 int scriptSetRepl(scriptRunCtx *r_ctx, int repl);
-void scriptCall(scriptRunCtx *r_ctx, robj **argv, int argc, sds *err);
+void scriptCall(scriptRunCtx *r_ctx, sds *err);
 int scriptInterrupt(scriptRunCtx *r_ctx);
 void scriptKill(client *c, int is_eval);
 int scriptIsRunning();
