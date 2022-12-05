@@ -516,7 +516,7 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
     } else if (enc == OBJ_ENCODING_LISTPACK) {
         /* Preallocate the minimum two bytes per element (enc/value + backlen) */
         size_t estcap = cap * 2;
-        if (setobj->encoding == OBJ_ENCODING_INTSET) {
+        if (setobj->encoding == OBJ_ENCODING_INTSET && setTypeSize(setobj) > 0) {
             /* If we're converting from intset, we have a better estimate. */
             size_t s1 = lpEstimateBytesRepeatedInteger(intsetMin(setobj->ptr), cap);
             size_t s2 = lpEstimateBytesRepeatedInteger(intsetMax(setobj->ptr), cap);
