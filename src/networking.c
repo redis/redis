@@ -2405,7 +2405,7 @@ sds catClientInfoString(sds s, client *client) {
         total_mem += zmalloc_size(client->argv);
 
     return sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U pqbuf=%U pqbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2420,6 +2420,8 @@ sds catClientInfoString(sds s, client *client) {
         (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
         (unsigned long long) sdslen(client->querybuf),
         (unsigned long long) sdsavail(client->querybuf),
+        (unsigned long long) sdslen(client->pending_querybuf),
+        (unsigned long long) sdsavail(client->pending_querybuf),
         (unsigned long long) client->argv_len_sum,
         (unsigned long long) client->bufpos,
         (unsigned long long) listLength(client->reply),
