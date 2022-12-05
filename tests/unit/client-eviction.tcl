@@ -538,7 +538,6 @@ start_server {} {
         r config set maxmemory-clients 0
 
         test "client total memory grows during $type" {
-
             r setrange k [mb 1] v
             set rr [redis_client]
             $rr client setname test_client
@@ -549,15 +548,14 @@ start_server {} {
             $rr deferred 1
 
             # Fill output buffer in loop without reading it and make sure
-            # the tot-mem of client has increased and eviction not occurring.
-            set old_client_mem [client_field test_client tot-mem]
-            set retry 10
-            while {$retry} {
+            # the tot-mem of client has increased (OS buffers didn't swallow it)
+            # and eviction not occurring.
+            while {true} {
                 $rr get k
-                incr retry -1
+                if {[client_field test_client tot-mem] > 1000000} {
+                    break
+                }
             }
-            set mem [client_field test_client tot-mem]
-            assert {$mem > $old_client_mem}
 
             # Trigger the client eviction, by flipping the no-evict flag to off
             if {$type eq "client no-evict"} {
@@ -566,14 +564,12 @@ start_server {} {
                 r config set maxmemory-clients 1
             }
 
-            while true {
-                if { [catch {
-                    $rr get k
-                    $rr flush
-                   } e]} {
-                    assert {![client_exists test_client]}
-                    break
-                }
+            # wait for the client to be disconnected
+            wait_for_condition 200 10 {
+                ![client_exists test_client]
+            } else {
+                puts [client list]
+                fail "client was not disconnected"
             }
             $rr close
         }
