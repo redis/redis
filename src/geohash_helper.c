@@ -227,19 +227,18 @@ double geohashGetLatDistance(double lat1d, double lat2d) {
 
 /* Calculate distance using haversine great circle distance formula. */
 double geohashGetDistance(double lon1d, double lat1d, double lon2d, double lat2d) {
-    const double lon1r = deg_rad(lon1d);
-    const double lon2r = deg_rad(lon2d);
-    const double v = sin((lon2r - lon1r) / 2);
-    /* if v == 0 we can avoid doing expensive math */
-    if (v != 0.0){
-        const double lat1r = deg_rad(lat1d);
-        const double lat2r = deg_rad(lat2d);
-        double a = cos(lat1r) * cos(lat2r) * v * v;
-        const double u = sin((lat2r - lat1r) / 2);
-        a += (u * u);
-        return 2.0 * EARTH_RADIUS_IN_METERS * asin(sqrt(a));
-    }
-    return geohashGetLatDistance(lat1d, lat2d);
+    double lat1r, lon1r, lat2r, lon2r, u, v, a;
+    lon1r = deg_rad(lon1d);
+    lon2r = deg_rad(lon2d);
+    v = sin((lon2r - lon1r) / 2);
+    /* if v == 0 we can avoid doing expensive math when lons are practically the same */
+    if (v == 0.0)
+        return geohashGetLatDistance(lat1d, lat2d);
+    lat1r = deg_rad(lat1d);
+    lat2r = deg_rad(lat2d);
+    u = sin((lat2r - lat1r) / 2);
+    a = u * u + cos(lat1r) * cos(lat2r) * v * v;
+    return 2.0 * EARTH_RADIUS_IN_METERS * asin(sqrt(a));
 }
 
 int geohashGetDistanceIfInRadius(double x1, double y1,
