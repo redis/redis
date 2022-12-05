@@ -2433,7 +2433,7 @@ void initServer(void) {
     server.main_thread_id = pthread_self();
     server.current_client = NULL;
     server.errors = raxNew();
-    server.call_nesting = 0;
+    server.execution_nesting = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
@@ -3276,7 +3276,7 @@ static void propagatePendingCommands() {
  * be other considerations. So we basically want the `postUnitOperations` to trigger
  * after the entire chain finished. */
 void postExecutionUnitOperations() {
-    if (server.call_nesting)
+    if (server.execution_nesting)
         return;
 
     firePostExecutionUnitJobs();
@@ -3383,7 +3383,7 @@ void call(client *c, int flags) {
 
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call */
-    if (server.call_nesting++ == 0) {
+    if (server.execution_nesting++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
     }
 
@@ -3392,7 +3392,7 @@ void call(client *c, int flags) {
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
-    server.call_nesting--;
+    server.execution_nesting--;
 
     /* In order to avoid performance implication due to querying the clock using a system call 3 times,
      * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */

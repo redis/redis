@@ -1597,6 +1597,13 @@ long long deleteKeyAndPropagateLogic(redisDb *db, robj *keyobj,
     mstime_t latency;
     latencyStartMonitor(latency);
 
+    /* Increase nested call counter in order to prevent any
+     * RM_Call from within the notify CB to be propagated immediately.
+     * We want them in MULTI/EXEC with the DEL command.
+     * Note that this function may be called from within call() (e.g. lazy-expire),
+     * in which case incrementing execution_nesting has no meaning (because it's >0 anyway) */
+    server.execution_nesting++;
+
     /* Delete the key.
      *
      * We compute the amount of memory freed by db*Delete() alone.
@@ -1617,18 +1624,13 @@ long long deleteKeyAndPropagateLogic(redisDb *db, robj *keyobj,
     /* Handle latency */
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded(latency_event, latency);
-    
-    /* Increase nested call counter in order to prevent any
-     * RM_Call from within the notify CB to be propagated immediately.
-     * We want them in MULTI/EXEC with the DEL command.
-     * Note that this function may be called from within call (lazy-expire),
-     * in which case incrementing call_nesting has no meaning (because it's >0 anyway) */
-    server.call_nesting++;
+
     notifyKeyspaceEvent(notify_event, notify, keyobj, db->id);
-    server.call_nesting--;
 
     /* Propagate to replicas and AOF */
     propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
+
+    server.execution_nesting--;
 
     /* Propagate the DEL + any commands propagated by module from
      * within the KSN CB

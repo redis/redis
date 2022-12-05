@@ -742,7 +742,7 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
     if (!(ctx->flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_CALL))) {
-        server.call_nesting--;
+        server.execution_nesting--;
         postExecutionUnitOperations();
     }
     autoMemoryCollect(ctx);
@@ -796,7 +796,7 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
         out_ctx->next_yield_time = getMonotonicUs() + server.busy_reply_threshold * 1000;
 
     if (!(ctx_flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_CALL))) {
-        server.call_nesting++;
+        server.execution_nesting++;
     }
 }
 
@@ -7873,10 +7873,10 @@ void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
 void moduleGILAfterLock() {
     /* We should never get here if we already inside a module
      * code block which already opened a context. */
-    serverAssert(server.call_nesting == 0);
+    serverAssert(server.execution_nesting == 0);
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
-    server.call_nesting++;
+    server.execution_nesting++;
     updateCachedTime(0);
 }
 
@@ -7911,11 +7911,11 @@ void moduleGILBeforeUnlock() {
     /* We should never get here if we already inside a module
      * code block which already opened a context, except
      * the bump-up from moduleGILAcquired. */
-    serverAssert(server.call_nesting == 1);
+    serverAssert(server.execution_nesting == 1);
     /* Restore nesting level and propagate pending commands
      * (because it's unclear when thread safe contexts are
      * released we have to propagate here). */
-    server.call_nesting--;
+    server.execution_nesting--;
     postExecutionUnitOperations();
 }
 
@@ -8027,7 +8027,7 @@ void firePostExecutionUnitJobs() {
      * In that way, postExecutionUnitOperations will prevent
      * recursive calls to firePostExecutionUnitJobs. */
      // TODO: All command propagated from within this function will be wrapped in MULTI/EXEC - is this what we want?
-    server.call_nesting++;
+    server.execution_nesting++;
     while (listLength(modulePostExecUnitJobs) > 0) {
         listNode *ln = listFirst(modulePostExecUnitJobs);
         RedisModulePostExecUnitJob *job = listNodeValue(ln);
@@ -8043,7 +8043,7 @@ void firePostExecutionUnitJobs() {
         moduleFreeContext(&ctx);
         zfree(job);
     }
-    server.call_nesting--;
+    server.execution_nesting--;
 }
 
 /* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write

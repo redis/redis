@@ -417,7 +417,7 @@ void trackingHandlePendingKeyInvalidations(void) {
 
     /* Flush pending invalidation messages only when we are not in nested call.
      * So the messages are not interleaved with transaction response. */
-    if (server.call_nesting) return;
+    if (server.execution_nesting) return;
 
     listNode *ln;
     listIter li;

@@ -1552,7 +1552,9 @@ struct redisServer {
     clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
-    int call_nesting;           /* call() nesting level */
+    int execution_nesting;      /* Execution nesting level.
+                                 * e.g. call(), async module stuff (timers, events, etc.),
+                                 * cron stuff (active expire, eviction) */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */
