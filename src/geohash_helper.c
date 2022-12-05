@@ -219,7 +219,7 @@ GeoHashFix52Bits geohashAlign52Bits(const GeoHashBits hash) {
 /* Calculate distance using simplified haversine great circle distance formula.
  * Given longitude diff is 0 the asin(sqrt(a)) on the haversine is asin(sin(abs(u))).
  * arcsin(sin(x)) equal to x when x ∈[−𝜋/2,𝜋/2]. Given latitude is between [−𝜋/2,𝜋/2]
- * we can simplifiy arcsin(sin(x)) to x.
+ * we can simplify arcsin(sin(x)) to x.
  */
 double geohashGetLatDistance(double lat1d, double lat2d) {
     return EARTH_RADIUS_IN_METERS * fabs(deg_rad(lat2d) - deg_rad(lat1d));
