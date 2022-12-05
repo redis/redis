@@ -815,6 +815,30 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
     return &server.client_mem_usage_buckets[bucket_idx];
 }
 
+/*
+ * This method updates the client memory usage and update the
+ * server stats for client type.
+ *
+ * This method is called from the clientsCron to have updated
+ * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients to accurately
+ * provide information around clients memory usage.
+ *
+ * It is also used in updateClientMemUsageAndBucket to have latest
+ * client memory usage information to place it into appropriate client memory
+ * usage bucket.
+ */
+void updateClientMemoryUsage(client *c) {
+    size_t mem = getClientMemoryUsage(c, NULL);
+    int type = getClientType(c);
+    /* Now that we have the memory used by the client, remove the old
+     * value from the old category, and add it back. */
+    server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
+    server.stat_clients_type_memory[type] += mem;
+    /* Remember what we added and where, to remove it next time. */
+    c->last_memory_type = type;
+    c->last_memory_usage = mem;
+}
+
 int clientEvictionAllowed(client *c) {
     if (server.maxmemory_clients == 0 || c->flags & CLIENT_NO_EVICT) {
         return 0;
@@ -841,31 +865,6 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
     }
 }
 
-/*
- * This method updates the client memory usage and update the
- * server stats for client type.
- *
- * This method is called from the clientsCron to have updated
- * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients to accurately
- * provide information around clients memory usage.
- *
- * It is also used in updateClientMemUsageAndBucket to have latest
- * client memory usage information to place it into appropriate client memory
- * usage bucket.
- */
-int updateClientMemUsage(client *c) {
-    size_t mem = getClientMemoryUsage(c, NULL);
-    int type = getClientType(c);
-    /* Now that we have the memory used by the client, remove the old
-     * value from the old category, and add it back. */
-    server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
-    server.stat_clients_type_memory[type] += mem;
-    /* Remember what we added and where, to remove it next time. */
-    c->last_memory_type = type;
-    c->last_memory_usage = mem;
-    return 0;
-}
-
 /* This is called only if explicit clients when something changed their buffers,
  * so we can track clients' memory and enforce clients' maxmemory in real time.
  *
@@ -873,15 +872,17 @@ int updateClientMemUsage(client *c) {
  * all clients with roughly the same amount of memory. This way we group
  * together clients consuming about the same amount of memory and can quickly
  * free them in case we reach maxmemory-clients (client eviction).
+ *
+ * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
 int updateClientMemUsageAndBucket(client *c) {
     serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
     int allow_eviction = clientEvictionAllowed(c);
-    if (allow_eviction) {        
-        removeClientFromMemUsageBucket(c, allow_eviction);
+    removeClientFromMemUsageBucket(c, allow_eviction);
 
+    if (allow_eviction) {
         /* Update client memory usage. */
-        updateClientMemUsage(c);
+        updateClientMemoryUsage(c);
 
         /* Update the client in the mem usage buckets */
         clientMemUsageBucket *bucket = getMemUsageBucket(c->last_memory_usage);
@@ -894,6 +895,7 @@ int updateClientMemUsageAndBucket(client *c) {
             listAddNodeTail(bucket->clients, c);
             c->mem_usage_bucket_node = listLast(bucket->clients);
         }
+        return 1;
     }
     return 0;
 }
@@ -983,8 +985,11 @@ void clientsCron(void) {
          * in turn would make the INFO command too slow. So we perform this
          * computation incrementally and track the (not instantaneous but updated
          * to the second) total memory used by clients using clientsCron() in
-         * a more incremental way (depending on server.hz). */
-        if (updateClientMemUsage(c)) continue;
+         * a more incremental way (depending on server.hz).
+         * If client eviction is enabled, update the bucket as well. */
+        if (!updateClientMemUsageAndBucket(c))
+            updateClientMemoryUsage(c);
+
         if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
     }
 }

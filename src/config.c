@@ -2974,6 +2974,8 @@ static int applyClientMaxMemoryUsage(const char **err) {
     UNUSED(err);
     listIter li;
     listNode *ln;
+    /* When client eviction is enabled update memory buckets for all clients.
+     * When disabled, clear that data structure. */
     listRewind(server.clients, &li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
