@@ -174,13 +174,21 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 return 1;
             }
         } else {
-            size_t maxelelen = intsetLen(set->ptr) == 0 ?
-                0 : max(sdigits10(intsetMax(set->ptr)),
-                        sdigits10(intsetMin(set->ptr)));
+            /* Check if listpack encoding is possible. */
+            size_t maxelelen = 0, totsize = 0;
+            unsigned long n = intsetLen(set->ptr);
+            if (n != 0) {
+                size_t elelen1 = sdigits10(intsetMax(set->ptr));
+                size_t elelen2 = sdigits10(intsetMin(set->ptr));
+                maxelelen = max(elelen1, elelen2);
+                size_t s1 = lpEstimateBytesRepeatedInteger(intsetMax(set->ptr), n);
+                size_t s2 = lpEstimateBytesRepeatedInteger(intsetMin(set->ptr), n);
+                totsize = max(s1, s2);
+            }
             if (intsetLen((const intset*)set->ptr) < server.set_max_listpack_entries &&
                 len <= server.set_max_listpack_value &&
                 maxelelen <= server.set_max_listpack_value &&
-                lpSafeToAdd(NULL, maxelelen * intsetLen(set->ptr) + len))
+                lpSafeToAdd(NULL, totsize + len))
             {
                 /* In the "safe to add" check above we assumed all elements in
                  * the intset are of size maxelelen. This is an upper bound. */
@@ -188,6 +196,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                                         intsetLen(set->ptr) + 1, 1);
                 unsigned char *lp = set->ptr;
                 lp = lpAppend(lp, (unsigned char *)str, len);
+                lp = lpShrinkToFit(lp);
                 set->ptr = lp;
                 return 1;
             } else {
@@ -505,8 +514,14 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
         setobj->encoding = OBJ_ENCODING_HT;
         setobj->ptr = d;
     } else if (enc == OBJ_ENCODING_LISTPACK) {
-        /* Preallocate the minimum two bytes per element */
+        /* Preallocate the minimum two bytes per element (enc/value + backlen) */
         size_t estcap = cap * 2;
+        if (setobj->encoding == OBJ_ENCODING_INTSET) {
+            /* If we're converting from intset, we have a better estimate. */
+            size_t s1 = lpEstimateBytesRepeatedInteger(intsetMin(setobj->ptr), cap);
+            size_t s2 = lpEstimateBytesRepeatedInteger(intsetMax(setobj->ptr), cap);
+            estcap = max(s1, s2);
+        }
         unsigned char *lp = lpNew(estcap);
         char *str;
         size_t len;
