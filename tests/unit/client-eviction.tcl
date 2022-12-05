@@ -565,10 +565,10 @@ start_server {} {
             }
 
             # wait for the client to be disconnected
-            wait_for_condition 200 10 {
+            wait_for_condition 1000 50 {
                 ![client_exists test_client]
             } else {
-                puts [client list]
+                puts [r client list]
                 fail "client was not disconnected"
             }
             $rr close
