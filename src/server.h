@@ -1516,7 +1516,6 @@ struct redisServer {
     int in_exec;                /* Are we inside EXEC? */
     int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
     const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
-    int module_ctx_nesting;     /* moduleCreateContext() nesting level */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     int thp_enabled;                 /* If true, THP is enabled. */

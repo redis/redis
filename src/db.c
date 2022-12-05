@@ -1622,7 +1622,7 @@ long long deleteKeyAndPropagateLogic(redisDb *db, robj *keyobj,
      * RM_Call from within the notify CB to be propagated immediately.
      * We want them in MULTI/EXEC with the DEL command.
      * Note that this function may be called from within call (lazy-expire),
-     * in wich case incrementing call_nesting has no meaning (because it's >0 anyway) */
+     * in which case incrementing call_nesting has no meaning (because it's >0 anyway) */
     server.call_nesting++;
     notifyKeyspaceEvent(notify_event, notify, keyobj, db->id);
     server.call_nesting--;

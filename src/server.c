@@ -2510,7 +2510,6 @@ void initServer(void) {
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
     server.busy_module_yield_reply = NULL;
-    server.module_ctx_nesting = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
@@ -3277,14 +3276,22 @@ static void propagatePendingCommands() {
  * be other considerations. So we basically want the `postUnitOperations` to trigger
  * after the entire chain finished. */
 void postExecutionUnitOperations() {
-    if (server.call_nesting || server.module_ctx_nesting)
+    if (server.call_nesting)
         return;
 
     firePostExecutionUnitJobs();
 
     /* If we are at the top-most call() and not inside a an active module
-     * context (e.g. withing a module timer) we can propagate what we accumulated. */
+     * context (e.g. within a module timer) we can propagate what we accumulated. */
     propagatePendingCommands();
+
+    if (server.busy_module_yield_flags) {
+        blockingOperationEnds();
+        server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+        if (server.current_client)
+            unprotectClient(server.current_client);
+        unblockPostponedClients();
+    }
 }
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).

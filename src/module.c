@@ -181,6 +181,8 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_NEW_CLIENT (1<<7)  /* Free client object when the
                                               context is destroyed */
 #define REDISMODULE_CTX_CHANNELS_POS_REQUEST (1<<8)
+#define REDISMODULE_CTX_CALL (1<<9) /* Context created to server a command from call() */
+
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -739,18 +741,9 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
 
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
-    if (!(ctx->flags & REDISMODULE_CTX_THREAD_SAFE)) {
-        server.module_ctx_nesting--;
+    if (!(ctx->flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_CALL))) {
+        server.call_nesting--;
         postExecutionUnitOperations();
-        if (!server.module_ctx_nesting) {
-            if (server.busy_module_yield_flags) {
-                blockingOperationEnds();
-                server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
-                if (server.current_client)
-                    unprotectClient(server.current_client);
-                unblockPostponedClients();
-            }
-        }
     }
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
@@ -802,8 +795,8 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     else
         out_ctx->next_yield_time = getMonotonicUs() + server.busy_reply_threshold * 1000;
 
-    if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
-        server.module_ctx_nesting++;
+    if (!(ctx_flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_CALL))) {
+        server.call_nesting++;
     }
 }
 
@@ -7880,10 +7873,10 @@ void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
 void moduleGILAfterLock() {
     /* We should never get here if we already inside a module
      * code block which already opened a context. */
-    serverAssert(server.module_ctx_nesting == 0);
+    serverAssert(server.call_nesting == 0);
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
-    server.module_ctx_nesting++;
+    server.call_nesting++;
     updateCachedTime(0);
 }
 
@@ -7918,20 +7911,12 @@ void moduleGILBeforeUnlock() {
     /* We should never get here if we already inside a module
      * code block which already opened a context, except
      * the bump-up from moduleGILAcquired. */
-    serverAssert(server.module_ctx_nesting == 1);
-    /* Restore ctx_nesting and propagate pending commands
+    serverAssert(server.call_nesting == 1);
+    /* Restore nesting level and propagate pending commands
      * (because it's unclear when thread safe contexts are
      * released we have to propagate here). */
-    server.module_ctx_nesting--;
+    server.call_nesting--;
     postExecutionUnitOperations();
-
-    if (server.busy_module_yield_flags) {
-        blockingOperationEnds();
-        server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
-        if (server.current_client)
-            unprotectClient(server.current_client);
-        unblockPostponedClients();
-    }
 }
 
 /* Release the server lock after a thread safe API call was executed. */

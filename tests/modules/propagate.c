@@ -207,6 +207,7 @@ int propagateTestThreadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
     if (pthread_create(&tid,NULL,threadMain,NULL) != 0)
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     REDISMODULE_NOT_USED(tid);
+    sleep(10);
 
     RedisModule_ReplyWithSimpleString(ctx,"OK");
     return REDISMODULE_OK;
