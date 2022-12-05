@@ -2257,36 +2257,12 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
         return 0;
 
     if (op->type == OBJ_SET) {
-        if (op->encoding == OBJ_ENCODING_INTSET) {
-            if (zuiLongLongFromValue(val) &&
-                intsetFind(op->subject->ptr,val->ell))
-            {
-                *score = 1.0;
-                return 1;
-            } else {
-                return 0;
-            }
-        } else if (op->encoding == OBJ_ENCODING_HT) {
-            dict *ht = op->subject->ptr;
-            zuiSdsFromValue(val);
-            if (dictFind(ht,val->ele) != NULL) {
-                *score = 1.0;
-                return 1;
-            } else {
-                return 0;
-            }
-        } else if (op->encoding == OBJ_ENCODING_LISTPACK) {
-            zuiSdsFromValue(val);
-            unsigned char *lp = op->subject->ptr;
-            unsigned char *p = lpFirst(lp);
-            if (p && lpFind(lp, p, (unsigned char*)val->ele, sdslen(val->ele), 0)) {
-                *score = 1.0;
-                return 1;
-            } else {
-                return 0;
-            }
+        zuiSdsFromValue(val);
+        if (setTypeIsMember(op->subject, val->ele)) {
+            *score = 1.0;
+            return 1;
         } else {
-            serverPanic("Unknown set encoding");
+            return 0;
         }
     } else if (op->type == OBJ_ZSET) {
         zuiSdsFromValue(val);
