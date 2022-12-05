@@ -1170,11 +1170,11 @@ void cronUpdateMemoryStats() {
  * By doing so the server might avoid unnecessary eviction or rejection. */
 static void clientWritePauseDuringOOM() {
     int is_paused = getPauseActionsPurposeEndTime(PAUSE_OOM_THROTTLE);
-    
+
     /* if OOM and available pending lazyfree jobs then pause client-write to avoid overloading. 
      * Pause also evictions, since we might reach below maxmemory after lazyfree */
     if ((getMaxmemoryState(NULL,NULL,NULL,NULL) == C_ERR) &&
-        (bioPendingJobsOfType(BIO_LAZY_FREE))) {
+        (lazyfreeGetPendingObjectsCount())) {
         if (!is_paused) {
             pauseActions(PAUSE_OOM_THROTTLE, LLONG_MAX,
                          PAUSE_ACTION_EVICT | 

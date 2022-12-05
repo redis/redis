@@ -738,7 +738,7 @@ cant_free:
          * short wait here if such jobs exist, but don't wait long.  */
         mstime_t lazyfree_latency;
         latencyStartMonitor(lazyfree_latency);
-        while (bioPendingJobsOfType(BIO_LAZY_FREE) &&
+        while (lazyfreeGetPendingObjectsCount() &&
               elapsedUs(evictionTimer) < eviction_time_limit_us) {
             if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
                 result = EVICT_OK;
