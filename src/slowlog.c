@@ -42,16 +42,23 @@
 #include "server.h"
 #include "slowlog.h"
 
-/* Create a new slowlog entry.
- * Incrementing the ref count of all the objects retained is up to
- * this function. */
-slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long duration) {
-    slowlogEntry *se = zmalloc(sizeof(*se));
+/* Create a new slowlog entry when 'se' is NULL or update 'se' with new attributes.
+ * Incrementing the ref count of all the objects retained is up to this function. */
+slowlogEntry *slowlogCreateOrUpdateEntry(client *c, robj **argv, int argc, long long duration, slowlogEntry *se) {
     int j, slargc = argc;
-
+    if (se) {
+        for (j = 0; j < se->argc; j++)
+            decrRefCount(se->argv[j]);
+        /* We save se->argv here, use zrealloc later */
+        sdsfree(se->peerid);
+        sdsfree(se->cname);
+    } else {
+        se = zmalloc(sizeof(*se));
+        se->argv = NULL;
+    }
     if (slargc > SLOWLOG_ENTRY_MAX_ARGC) slargc = SLOWLOG_ENTRY_MAX_ARGC;
     se->argc = slargc;
-    se->argv = zmalloc(sizeof(robj*)*slargc);
+    se->argv = zrealloc(se->argv, sizeof(robj*)*slargc);
     for (j = 0; j < slargc; j++) {
         /* Logging too many arguments is a useless memory waste, so we stop
          * at SLOWLOG_ENTRY_MAX_ARGC, but use the last argument to specify
@@ -122,13 +129,26 @@ void slowlogInit(void) {
  * configured max length. */
 void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration) {
     if (server.slowlog_log_slower_than < 0) return; /* Slowlog disabled */
-    if (duration >= server.slowlog_log_slower_than)
+    if (unlikely(listLength(server.slowlog) > server.slowlog_max_len)) {
+        /* Each time we add one single node and check if the list length reaches
+         * server.slowlog_max_len, list length > server.slowlog_max_len only
+         * happens when we configure server.slowlog_max_len during execution. */
+        do {
+            listDelNode(server.slowlog, listLast(server.slowlog));
+        } while (listLength(server.slowlog) > server.slowlog_max_len);
+    }
+    if (duration < server.slowlog_log_slower_than) return; /* Not a slow command */
+    if (listLength(server.slowlog) < server.slowlog_max_len) {
         listAddNodeHead(server.slowlog,
-                        slowlogCreateEntry(c,argv,argc,duration));
-
-    /* Remove old entries if needed. */
-    while (listLength(server.slowlog) > server.slowlog_max_len)
-        listDelNode(server.slowlog,listLast(server.slowlog));
+                        slowlogCreateOrUpdateEntry(c, argv, argc, duration, NULL));
+    } else { /* list length == server.slowlog_max_len */
+        /* Reuse the last list node and its slowlogEntry */
+        listNode *ln = listLast(server.slowlog);
+        slowlogEntry *se = listNodeValue(ln);
+        listUnlinkNode(server.slowlog, ln);
+        slowlogCreateOrUpdateEntry(c, argv, argc, duration, se);
+        listLinkNodeHead(server.slowlog, ln);
+    }
 }
 
 /* Remove all the entries from the current slow log. */
