@@ -880,24 +880,25 @@ int updateClientMemUsageAndBucket(client *c) {
     int allow_eviction = clientEvictionAllowed(c);
     removeClientFromMemUsageBucket(c, allow_eviction);
 
-    if (allow_eviction) {
-        /* Update client memory usage. */
-        updateClientMemoryUsage(c);
-
-        /* Update the client in the mem usage buckets */
-        clientMemUsageBucket *bucket = getMemUsageBucket(c->last_memory_usage);
-        bucket->mem_usage_sum += c->last_memory_usage;
-        if (bucket != c->mem_usage_bucket) {
-            if (c->mem_usage_bucket)
-                listDelNode(c->mem_usage_bucket->clients,
-                            c->mem_usage_bucket_node);
-            c->mem_usage_bucket = bucket;
-            listAddNodeTail(bucket->clients, c);
-            c->mem_usage_bucket_node = listLast(bucket->clients);
-        }
-        return 1;
+    if (!allow_eviction) {
+        return 0;
     }
-    return 0;
+
+    /* Update client memory usage. */
+    updateClientMemoryUsage(c);
+
+    /* Update the client in the mem usage buckets */
+    clientMemUsageBucket *bucket = getMemUsageBucket(c->last_memory_usage);
+    bucket->mem_usage_sum += c->last_memory_usage;
+    if (bucket != c->mem_usage_bucket) {
+        if (c->mem_usage_bucket)
+            listDelNode(c->mem_usage_bucket->clients,
+                        c->mem_usage_bucket_node);
+        c->mem_usage_bucket = bucket;
+        listAddNodeTail(bucket->clients, c);
+        c->mem_usage_bucket_node = listLast(bucket->clients);
+    }
+    return 1;
 }
 
 /* Return the max samples in the memory usage of clients tracked by
