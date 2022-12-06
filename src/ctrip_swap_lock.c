@@ -68,10 +68,13 @@ static inline void lock_free(void *ptr) {
 
 
 static void lockLinksInit(lockLinks *links) {
+    memset(links->buf,0,sizeof(lock*)*LOCK_LINKS_BUF_SIZE);
     links->links = links->buf;
     links->capacity = LOCK_LINKS_BUF_SIZE;
     links->count = 0;
-    links->signaled = 0;
+    links->proceeded = 0;
+    links->unlocked = 0;
+    links->reserved = 0;
 }
 
 static void lockLinksDeinit(lockLinks *links) {
@@ -95,6 +98,7 @@ static void lockLinksMakeRoomFor(lockLinks *links, int count) {
 
     if (links->links == links->buf) {
         links->links = lock_malloc(sizeof(lock*)*links->capacity);
+        memcpy(links->links,links->buf,sizeof(lock*)*LOCK_LINKS_BUF_SIZE);
     } else {
         links->links = lock_realloc(links->links,sizeof(lock*)*links->capacity);
     }
@@ -102,12 +106,6 @@ static void lockLinksMakeRoomFor(lockLinks *links, int count) {
 
 static inline void lockLinksPush(lockLinks *links, void *target) {
     lockLinksMakeRoomFor(links,links->count+1);
-#ifdef LOCK_DEBUG
-    int64_t prev_txid = 0;
-    lockLink *target_link = target;
-    if (links->count > 0) prev_txid = links->links[links->count]->txid;
-    serverAssert(prev_txid <= target_link->txid);
-#endif
     links->links[links->count++] = target;
 }
 
@@ -143,41 +141,50 @@ void lockLinkDeinit(lockLink *link) {
     lockLinkTargetInit(&link->target);
 }
 
-void lockLinkLink(lockLink *from, lockLink *to) {
+void lockLinkLink(lockLink *from, lockLink *to, int *test_would_block) {
     serverAssert(from->txid <= to->txid);
+    int wont_block = (from->links.proceeded && from->txid == to->txid) ||
+            from->links.unlocked;
+
+    if (test_would_block) {
+       if (!wont_block) {
+           *test_would_block = 1;
+       }
+       return;
+    }
+
     lockLinksPush(&from->links,to);
     lockLinkTargetLinked(&to->target);
-}
-
-void lockLinkMigrate(lockLink *left, lockLink *to) {
-    for (int i = 0; i < left->links.count; i++) {
-        lockLink *from = left->links.links[i];
-        lockLinkLink(from,to);
+    if (wont_block) {
+        lockLinkTargetSignaled(&to->target);
     }
 }
 
-/* links has following property:
- *  target txid always increase (but not monitonic).
- *  no duplicate link (from and to are identical).  */
 static void lockLinkSignal(lockLink *link, int type, linkProceed cb,
         void *pd) {
-    while (link->links.signaled < link->links.count) {
-        lockLink *to = link->links.links[link->links.signaled];
+    if (type == LINK_SIGNAL_PROCEEDED) {
+        serverAssert(!link->links.proceeded && !link->links.unlocked);
+        link->links.proceeded = 1;
+    } else {
+        serverAssert(type == LINK_SIGNAL_UNLOCK);
+        serverAssert(link->links.proceeded);
+        link->links.unlocked = 1;
+    }
 
+    for (int i = 0; i < link->links.count; i++) {
+        lockLink *to = link->links.links[i];
         serverAssert(link->txid <= to->txid);
-        if (type == LINK_SIGNAL_PROCEEDED && link->txid < to->txid) {
-            /* signal is stoped if txid is greater, so that proceed won't
-             * trigger callback of other tx. */
-            break;
+        if ((type == LINK_SIGNAL_PROCEEDED && link->txid == to->txid) ||
+                (type == LINK_SIGNAL_UNLOCK && link->txid < to->txid)) {
+            lockLinkTargetSignaled(&to->target);
+            if (lockLinkTargetReady(&to->target)) {
+                cb(to,pd);
+            }
         }
-
-        lockLinkTargetSignaled(&to->target);
-        if (lockLinkTargetReady(&to->target)) cb(to,pd);
-        link->links.signaled++;
     }
 }
 
-void lockLinkProceed(lockLink *link, linkProceed cb, void *pd) {
+void lockLinkProceeded(lockLink *link, linkProceed cb, void *pd) {
     lockLinkSignal(link,LINK_SIGNAL_PROCEEDED,cb,pd);
 }
 
@@ -207,7 +214,7 @@ locks *locksCreate(int level, redisDb *db, robj *key, locks *parent) {
     case REQUEST_LEVEL_SVR:
         serverAssert(parent == NULL);
         locks->svr.dbnum = server.dbnum;
-        locks->svr.dbs = lock_malloc(server.dbnum*sizeof(struct locks));
+        locks->svr.dbs = lock_malloc(locks->svr.dbnum*sizeof(struct locks));
         break;
     case REQUEST_LEVEL_DB:
         serverAssert(parent->level == REQUEST_LEVEL_SVR);
@@ -223,6 +230,7 @@ locks *locksCreate(int level, redisDb *db, robj *key, locks *parent) {
         dictAdd(parent->db.keys,sdsdup(key->ptr),locks);
         break;
     default:
+        serverPanic("unexpected lock level");
         break;
     }
 
@@ -249,6 +257,7 @@ static void locksRelease(locks *locks) {
         decrRefCount(locks->key.key);
         break;
     default:
+        serverPanic("unexpected lock level");
         break;
     }
 
@@ -281,10 +290,9 @@ sds locksDump(locks *locks) {
         key = "?";
         break;
     }
-    result = sdscatprintf(result,"(level=%s,len=%ld,db=%d,key=%s):",
+    result = sdscatprintf(result,"(level=%s,db=%d,key=%s,lock_count=%ld):",
             requestLevelName(locks->level),
-            listLength(locks->lock_list),
-            db ? db->id : -1, key);
+            db ? db->id : -1, key, listLength(locks->lock_list));
 
     result = sdscat(result, "[");
     listRewind(locks->lock_list,&li);
@@ -299,45 +307,50 @@ sds locksDump(locks *locks) {
 }
 
 static inline lock *locksLastLock(locks *locks) {
+    if (locks == NULL) return NULL;
     listNode *ln = listLast(locks->lock_list);
     return ln ? listNodeValue(ln) : NULL;
 }
 
-static inline void locksLinkLock(locks *locks, lock* lock) {
+/* create link with upper or current level lock (if exits). */
+static inline void locksLinkLock(locks *locks, lock* lock, int *would_block) {
     struct lock *last;
     if ((last = locksLastLock(locks))) {
-        lockLinkLink(&last->link,&lock->link);
+        lockLinkLink(&last->link,&lock->link,would_block);
     }
 }
 
-static void dbLocksChildrenLinkLock(locks *locks, lock* lock) {
+static void dbLocksChildrenLinkLock(locks *locks, lock* lock, int *would_block) {
     dictEntry *de;
     dictIterator *di = dictGetIterator(locks->db.keys);
     serverAssert(locks->level == REQUEST_LEVEL_DB);
     while ((de = dictNext(di)) != NULL) {
         struct locks *keylocks = dictGetVal(de);
-        locksLinkLock(keylocks,lock);
+        locksLinkLock(keylocks,lock,would_block);
+        if (would_block && *would_block) break;
     }
     dictReleaseIterator(di);
 }
 
-static void svrLocksChildrenLinkLock(locks *locks, lock* lock) {
+static void svrLocksChildrenLinkLock(locks *locks, lock* lock, int *would_block) {
     serverAssert(locks->level == REQUEST_LEVEL_SVR);
-    for (int i = 0; i < server.dbnum; i++) {
+    for (int i = 0; i < locks->svr.dbnum; i++) {
         struct locks *dblocks = locks->svr.dbs[i];
-        locksLinkLock(dblocks,lock);
-        dbLocksChildrenLinkLock(dblocks,lock);
+        locksLinkLock(dblocks,lock,would_block);
+        if (would_block && *would_block) break;
+        dbLocksChildrenLinkLock(dblocks,lock,would_block);
+        if (would_block && *would_block) break;
     }
 }
 
-/* link all children of locks(not inlcuding locks) to lock */
-void locksChildrenLinksLock(locks *locks, lock* lock) {
+/* create link with all children of current level locks. */
+void locksChildrenLinksLock(locks *locks, lock* lock, int *would_block) {
     switch (locks->level) {
     case REQUEST_LEVEL_SVR:
-        svrLocksChildrenLinkLock(locks,lock);
+        svrLocksChildrenLinkLock(locks,lock,would_block);
         break;
     case REQUEST_LEVEL_DB:
-        dbLocksChildrenLinkLock(locks,lock);
+        dbLocksChildrenLinkLock(locks,lock,would_block);
         break;
     case REQUEST_LEVEL_KEY:
         break;
@@ -347,15 +360,38 @@ void locksChildrenLinksLock(locks *locks, lock* lock) {
     }
 }
 
-static inline int locksWouldBlock(locks *locks, int64_t txid) {
-    lock *last;
-    if (locks == NULL) return 0;
-    last = locksLastLock(locks);
-    if (last == NULL) return 0;
-    if (!lockLinkTargetReady(&last->link.target)) return 1;
-    serverAssert(txid >= last->link.txid);
-    return txid != last->link.txid;
+/* create children link (with higher target level) of left to lock */
+void lockMigrateChildrenLinks(lock *left, lock *lock, int *would_block) {
+    int level = left->locks->level;
+    for (int i = 0; i < left->link.links.count; i++) {
+        struct lock *from = LINK_TO_LOCK(left->link.links.links[i]);
+        if (from->locks == NULL || from->locks->level <= level) {
+            /* skip lower level or current (locks is NULL) lock */
+            continue;
+        }
+        lockLinkLink(&from->link,&lock->link,would_block);
+        if (would_block && *would_block) break;
+    }
 }
+
+static inline void locksChildrenLinkLock(locks* locks, lock *lock,
+        int *would_block) {
+    struct lock *last = locksLastLock(locks);
+    if (last == NULL) {
+        if (locks) {
+            locksChildrenLinksLock(locks,lock,would_block);
+        } else {
+            /* Note locks could be NULL if test would block */
+            serverAssert(would_block != NULL);
+        }
+    } else {
+        /* last->links is the 'right' part of last children, but it's
+         * equvilant to 'all' of last children, left can be represented
+         * by last itself. */
+        lockMigrateChildrenLinks(last,lock,would_block);
+    }
+}
+
 
 lock *lockNew(int64_t txid, redisDb *db, robj *key, client *c,
         lockProceedCallback proceed, void *pd, freefunc pdfree,
@@ -367,7 +403,8 @@ lock *lockNew(int64_t txid, redisDb *db, robj *key, client *c,
     lock->locks = NULL;
     lock->locks_ln = NULL;
     lock->db = db;
-    if (key) incrRefCount(lock->key);
+    if (key) incrRefCount(key);
+    lock->key = key;
     lock->c = c;
     lock->proceed = proceed;
     lock->pd = pd;
@@ -385,7 +422,6 @@ lock *lockNew(int64_t txid, redisDb *db, robj *key, client *c,
 
 void lockFree(lock *lock) {
     serverAssert(lockLinkTargetReady(&lock->link.target));
-    serverAssert(lock->link.links.signaled == lock->link.links.count);
     serverAssert(lock->locks_ln == NULL);
     serverAssert(lock->locks == NULL);
 
@@ -403,23 +439,26 @@ void lockFree(lock *lock) {
     lock_free(lock);
 }
 
+static inline const char *booleanRepr(int boolean) {
+    return boolean ? "true" : "false";
+}
+
 const char *lockDump(lock *lock) {
     static char repr[256];
     char *ptr = repr, *end = repr + sizeof(repr) - 1;
-    
+
     ptr += snprintf(ptr,end-ptr,
-            "txid=%ld,target=(signaled=%d,linked=%d),links=[",
-            lock->link.txid,lock->link.target.signaled,
-            lock->link.target.linked);
+            "txid=%ld,target=(linked=%d,signaled=%d),links=(proceed=%s,unlocked=%s,[",
+            lock->link.txid,lock->link.target.linked,lock->link.target.signaled,
+            booleanRepr(lock->link.links.proceeded),booleanRepr(lock->link.links.unlocked));
 
     for (int i = 0; i < lock->link.links.count && ptr < end; i++) {
         struct lockLink *target_link = lock->link.links.links[i];
         struct lock *target = LINK_TO_LOCK(target_link);
-        ptr += snprintf(ptr,end-ptr,"(txid=%ld,db=%d,key=%s,signaled=%s),",
+        ptr += snprintf(ptr,end-ptr,"(txid=%ld,db=%d,key=%s),",
                 target_link->txid,
                 target->db ? target->db->id : -1,
-                target->key ? (char*)target->key->ptr : "<nil>",
-                i < lock->link.links.signaled ? "true" : "false");
+                target->key ? (char*)target->key->ptr : "<nil>");
     }
     if (ptr < end) snprintf(ptr, end-ptr, "]");
 
@@ -459,16 +498,10 @@ void lockProceedByLink(lockLink *link, void *pd) {
 
 void lockProceeded(void *lock_) {
     lock *lock = lock_;
-    lockLinkProceed(&lock->link,lockProceedByLink,NULL);
+    lockLinkProceeded(&lock->link,lockProceedByLink,NULL);
 }
 
-static inline void lockAttachToLocks(lock *lock, locks* locks) {
-    struct lock *last = locksLastLock(locks);
-    if (last == NULL) {
-        locksChildrenLinksLock(locks,lock);
-    } else {
-        lockLinkMigrate(&last->link,&lock->link);
-    }
+static inline void lockAttachToLocks(lock *lock, locks *locks) {
     listAddNodeTail(locks->lock_list,lock);
     lock->locks = locks;
     lock->locks_ln = listLast(locks->lock_list);
@@ -479,6 +512,7 @@ static inline void lockDetachFromLocks(lock *lock) {
     lock->locks = NULL;
     listDelNode(locks->lock_list,lock->locks_ln);
     lock->locks_ln = NULL;
+    /* side effect: keylevel locks get destroyed if no lock left. */
     if (locks->level == REQUEST_LEVEL_KEY &&
             listLength(locks->lock_list) == 0) {
         locksRelease(locks);
@@ -494,26 +528,27 @@ void lockUnlock(void *lock_) {
 }
 
 static inline void lockProceedIfReady(lock *lock) {
-    if (lockLinkTargetReady(&lock->link.target)) {
+    lock->conflict = !lockLinkTargetReady(&lock->link.target);
+    lockStatUpdateLocked(lock);
+    if (!lock->conflict) {
         lockProceed(lock);
-    } else {
-        lock->conflict = 1;
     }
 }
 
-void lockLock(int64_t txid, redisDb *db, robj *key, lockProceedCallback cb,
+static void _lockLock(int *would_block,
+        int64_t txid, redisDb *db, robj *key, lockProceedCallback cb,
         client *c, void *pd, freefunc pdfree, void *msgs) {
     lock *lock = lockNew(txid,db,key,c,cb,pd,pdfree,msgs);
     locks *svrlocks = server.swap_lock->svrlocks, *dblocks, *keylocks, *locks;
 
-    locksLinkLock(svrlocks,lock);
+    locksLinkLock(svrlocks,lock,would_block);
     if (db == NULL) {
         locks = svrlocks;
         goto end;
     }
 
     dblocks = svrlocks->svr.dbs[db->id];
-    locksLinkLock(dblocks,lock);
+    locksLinkLock(dblocks,lock,would_block);
     if (key == NULL) {
         locks = dblocks;
         goto end;
@@ -521,38 +556,42 @@ void lockLock(int64_t txid, redisDb *db, robj *key, lockProceedCallback cb,
 
     keylocks = dictFetchValue(dblocks->db.keys,key->ptr);
     if (keylocks == NULL) {
-        keylocks = locksCreate(REQUEST_LEVEL_KEY,db,key,dblocks);
+        if (would_block == NULL) {
+            keylocks = locksCreate(REQUEST_LEVEL_KEY,db,key,dblocks);
+        } else {
+            /* keylocks will remain NULL if testing would block. */
+        }
     } else {
         serverAssert(locksLastLock(keylocks)!= NULL);;
     }
-    locksLinkLock(keylocks,lock);
+    locksLinkLock(keylocks,lock,would_block);
     locks = keylocks;
 
 end:
-    lockAttachToLocks(lock,locks);
+    locksChildrenLinkLock(locks,lock,would_block);
 
+    if (would_block == NULL) {
+        lockAttachToLocks(lock, locks);
 #ifdef SWAP_DEBUG
-    sds dump = locksDump(locks);
-    DEBUG_MSGS_APPEND(msgs,"lock","locks = %s, blocked=%d",dump,blocked);
-    sdsfree(dump);
+        sds dump = locksDump(locks);
+        DEBUG_MSGS_APPEND(msgs,"lock","locks = %s, blocked=%d",dump,blocked);
+        sdsfree(dump);
 #endif
+        lockProceedIfReady(lock);
+    } else {
+        lockFree(lock);
+    }
+}
 
-    lockProceedIfReady(lock);
-    lockStatUpdateLocked(lock);
+void lockLock(int64_t txid, redisDb *db, robj *key, lockProceedCallback cb,
+        client *c, void *pd, freefunc pdfree, void *msgs) {
+    _lockLock(NULL,txid,db,key,cb,c,pd,pdfree,msgs);
 }
 
 int lockWouldBlock(int64_t txid, redisDb *db, robj *key) {
-    locks *locks = server.swap_lock->svrlocks;
-
-    if (locksWouldBlock(locks,txid)) return 1;
-    if (db == NULL) return 0;
-
-    locks = locks->svr.dbs[db->id];
-    if (locksWouldBlock(locks,txid)) return 1;
-    if (key == NULL) return 0;
-
-    locks = dictFetchValue(locks->db.keys,key->ptr);
-    return locksWouldBlock(locks,txid);
+    int would_block = 0;
+    _lockLock(&would_block,txid,db,key,NULL,NULL,NULL,NULL,NULL);
+    return would_block;
 }
 
 static lockInstantaneouStat *lockStatCreateInstantaneou() {
@@ -635,31 +674,756 @@ sds genSwapLockInfoString(sds info) {
 
 void swapLockCreate() {
     int i;
+
     locks *svrlocks = locksCreate(REQUEST_LEVEL_SVR,NULL,NULL,NULL);
-    for (i = 0; i < server.dbnum; i++) {
+    for (i = 0; i < svrlocks->svr.dbnum; i++) {
         redisDb *db = server.db + i;
         svrlocks->svr.dbs[i] = locksCreate(REQUEST_LEVEL_DB,db,NULL,svrlocks);
     }
-    server.swap_lock->svrlocks = svrlocks;
 
     lockStat *stat = lock_malloc(sizeof(lockStat));
     lockStatInit(stat);
+
+    server.swap_lock = lock_malloc(sizeof(struct swapLock));
+    server.swap_lock->svrlocks = svrlocks;
     server.swap_lock->stat = stat;
 }
 
 void swapLockDestroy() {
     int i;
+
     locks *svrlocks = server.swap_lock->svrlocks;
-    for (i = 0; i < server.dbnum; i++) {
-        locksRelease(svrlocks->svr.dbs[i]);
+    for (i = 0; i < svrlocks->svr.dbnum; i++) {
+        locks *dblocks = svrlocks->svr.dbs[i];
+        serverAssert(dictSize(dblocks->db.keys) == 0);
+        locksRelease(dblocks);
     }
     locksRelease(svrlocks);
     lock_free(svrlocks);
 
     lock_free(server.swap_lock->stat);
+
+    lock_free(server.swap_lock);
 }
 
 
 #ifdef REDIS_TEST
+
+static int blocked;
+
+void proceedLater(void *lock, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(db), UNUSED(key), UNUSED(c);
+    void **pd = pd_;
+    *pd = lock;
+    blocked--;
+    lockProceeded(lock);
+}
+
+#define wait_init_suite() do {  \
+    if (server.hz != 10) {  \
+        server.hz = 10; \
+        server.dbnum = 4;   \
+        server.db = zmalloc(sizeof(redisDb)*server.dbnum);  \
+        for (int i = 0; i < server.dbnum; i++) server.db[i].id = i; \
+        swapLockCreate(); \
+    }   \
+} while (0)
+
+int swapLockTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    int error = 0;
+    redisDb *db, *db2;
+    robj *key1, *key2, *key3;
+    void *handle1, *handle2, *handle3, *handledb, *handledb2, *handlesvr;
+    int64_t txid = 0;
+
+    wait_init_suite();
+
+    TEST("lock: init") {
+        db = server.db, db2 = server.db+1;
+        key1 = createStringObject("key-1",5);
+        key2 = createStringObject("key-2",5);
+        key3 = createStringObject("key-3",5);
+    }
+
+   TEST("lock: parallel key") {
+       handle1 = NULL, handle2 = NULL, handle3 = NULL, handlesvr = NULL;
+       lockLock(txid++,db,key1,proceedLater,NULL,&handle1,NULL,NULL), blocked++;
+       lockLock(txid++,db,key2,proceedLater,NULL,&handle2,NULL,NULL), blocked++;
+       lockLock(txid++,db,key3,proceedLater,NULL,&handle3,NULL,NULL), blocked++;
+       test_assert(!blocked);
+       test_assert(lockWouldBlock(txid++,db,key1));
+       test_assert(lockWouldBlock(txid++,db,key2));
+       test_assert(lockWouldBlock(txid++,db,key3));
+       test_assert(lockWouldBlock(txid++,db,NULL));
+       lockUnlock(handle1);
+       test_assert(!lockWouldBlock(txid++,db,key1));
+       lockUnlock(handle2);
+       test_assert(!lockWouldBlock(txid++,db,key2));
+       lockUnlock(handle3);
+       test_assert(!lockWouldBlock(txid++,db,key3));
+       test_assert(!lockWouldBlock(txid++,NULL,NULL));
+   }
+
+   TEST("lock: pipelined key") {
+       int i, COUNT = 3;
+       void *handles[COUNT];
+       for (i = 0; i < COUNT; i++) {
+           blocked++;
+           lockLock(txid++,db,key1,proceedLater,NULL,&handles[i],NULL,NULL);
+       }
+       test_assert(lockWouldBlock(txid++,db,key1));
+       /* first one proceeded, others blocked */
+       test_assert(blocked == 2);
+       for (i = 0; i < COUNT-1; i++) {
+           lockUnlock(handles[i]);
+           test_assert(lockWouldBlock(txid++,db,key1));
+       }
+       test_assert(blocked == 0);
+       lockUnlock(handles[COUNT-1]);
+       test_assert(!lockWouldBlock(txid++,db,key1));
+   }
+
+   TEST("lock: parallel db") {
+       lockLock(txid++,db,NULL,proceedLater,NULL,&handledb,NULL,NULL), blocked++;
+       lockLock(txid++,db2,NULL,proceedLater,NULL,&handledb2,NULL,NULL), blocked++;
+       test_assert(!blocked);
+       test_assert(lockWouldBlock(txid++,db,NULL));
+       test_assert(lockWouldBlock(txid++,db2,NULL));
+       lockUnlock(handledb);
+       lockUnlock(handledb2);
+       test_assert(!lockWouldBlock(txid++,db,NULL));
+       test_assert(!lockWouldBlock(txid++,db2,NULL));
+   }
+
+    TEST("lock: mixed parallel-key/db/parallel-key") {
+        handle1 = NULL, handle2 = NULL, handle3 = NULL, handledb = NULL;
+        lockLock(txid++,db,key1,proceedLater,NULL,&handle1,NULL,NULL),blocked++;
+        lockLock(txid++,db,key2,proceedLater,NULL,&handle2,NULL,NULL),blocked++;
+        lockLock(txid++,db,NULL,proceedLater,NULL,&handledb,NULL,NULL),blocked++;
+        lockLock(txid++,db,key3,proceedLater,NULL,&handle3,NULL,NULL),blocked++;
+        /* key1/key2 proceeded, db/key3 blocked */
+        test_assert(lockWouldBlock(txid++,db,NULL));
+        test_assert(blocked == 2);
+        /* key1/key2 notify */
+        lockUnlock(handle1);
+        test_assert(lockWouldBlock(txid++,db,NULL));
+        lockUnlock(handle2);
+        test_assert(lockWouldBlock(txid++,db,NULL));
+        /* db proceeded, key3 still blocked. */
+        test_assert(blocked == 1);
+        test_assert(handle3 == NULL);
+        /* db notified, key3 proceeds but still blocked */
+        lockUnlock(handledb);
+        test_assert(!blocked);
+        test_assert(lockWouldBlock(txid++,db,NULL));
+        /* db3 proceed, noting would block */
+        lockUnlock(handle3);
+        test_assert(!lockWouldBlock(txid++,db,NULL));
+    }
+
+    TEST("lock: mixed parallel-key/server/parallel-key") {
+        handle1 = NULL, handle2 = NULL, handle3 = NULL, handlesvr = NULL;
+        lockLock(txid++,db,key1,proceedLater,NULL,&handle1,NULL,NULL),blocked++;
+        lockLock(txid++,db,key2,proceedLater,NULL,&handle2,NULL,NULL),blocked++;
+        lockLock(txid++,NULL,NULL,proceedLater,NULL,&handlesvr,NULL,NULL),blocked++;
+        lockLock(txid++,db,key3,proceedLater,NULL,&handle3,NULL,NULL),blocked++;
+        /* key1/key2 proceeded, svr/key3 blocked */
+        test_assert(lockWouldBlock(txid++,NULL,NULL));
+        test_assert(lockWouldBlock(txid++,db,NULL));
+        test_assert(blocked == 2);
+        /* key1/key2 notify */
+        lockUnlock(handle1);
+        test_assert(lockWouldBlock(txid++,NULL,NULL));
+        lockUnlock(handle2);
+        test_assert(lockWouldBlock(txid++,NULL,NULL));
+        /* svr proceeded, key3 still blocked. */
+        test_assert(blocked == 1);
+        test_assert(handle3 == NULL);
+        /* svr notified, db3 proceeds but still would block */
+        lockUnlock(handlesvr);
+        test_assert(!blocked);
+        test_assert(lockWouldBlock(txid++,NULL,NULL));
+        /* db3 proceed, noting would block */
+        lockUnlock(handle3);
+        test_assert(!lockWouldBlock(txid++,NULL,NULL));
+    }
+
+    TEST("lock: deinit") {
+        decrRefCount(key1), decrRefCount(key2), decrRefCount(key3);
+    }
+
+    return error;
+}
+
+
+static int proceeded = 0;
+void proceededCounter(void *lock, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(db), UNUSED(key), UNUSED(c);
+    void **pd = pd_;
+    *pd = lock;
+    proceeded++;
+    lockProceeded(lock);
+}
+
+#define reentrant_case_reset() do { \
+    proceeded = 0; \
+    handle1 = NULL, handle2 = NULL, handle3 = NULL, handle4 = NULL; \
+    handle5 = NULL, handle6 = NULL, handle7 = NULL, handle8 = NULL;\
+} while (0)
+
+locks *searchLocks(redisDb *db, robj *key) {
+    locks *svrlocks = server.swap_lock->svrlocks, *dblocks, *keylocks;
+    if (db == NULL) return svrlocks;
+    dblocks = svrlocks->svr.dbs[db->id];
+    if (key == NULL) return dblocks;
+    keylocks = dictFetchValue(dblocks->db.keys,key->ptr);
+    return keylocks;
+}
+
+int swapLockReentrantTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    int error = 0;
+    redisDb *db, *db2;
+    robj *key1, *key2;
+    void *handle1 = NULL, *handle2 = NULL, *handle3 = NULL, *handle4 = NULL, *handle5 = NULL, *handle6 = NULL,
+         *handle7 = NULL, *handle8 = NULL;
+
+    wait_init_suite();
+
+    TEST("lock-reentrant: init") {
+        db = server.db, db2 = server.db+1;
+        key1 = createStringObject("key-1",5);
+        key2 = createStringObject("key-2",5);
+    }
+
+   TEST("lock-reentrant: key (without prceeding listener)") {
+       test_assert(!lockWouldBlock(10,db,key1));
+       lockLock(10,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(!lockWouldBlock(10,db,key1));
+       lockLock(10,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 2);
+       test_assert(handle1 != NULL && handle2 != NULL);
+       test_assert(lockWouldBlock(11,db,key1));
+       lockLock(11,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       lockUnlock(handle1);
+       lockUnlock(handle2);
+       test_assert(proceeded == 3);
+       test_assert(searchLocks(db,key1) != NULL);
+       lockUnlock(handle3);
+       test_assert(searchLocks(db,key1) == NULL);
+       test_assert(proceeded == 3);
+       reentrant_case_reset();
+   }
+
+   TEST("lock-reentrant: key (with prceeding listener)") {
+       test_assert(!lockWouldBlock(20,db,key1));
+       lockLock(20,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(handle1 != NULL);
+       test_assert(proceeded == 1);
+       test_assert(lockWouldBlock(21,db,key1));
+       lockLock(21,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(lockWouldBlock(21,db,key1));
+       lockLock(21,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(lockWouldBlock(22,db,key1));
+       lockLock(22,db,key1,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 1);
+       lockUnlock(handle1);
+       test_assert(proceeded == 3);
+       test_assert(handle2 != NULL);
+       test_assert(handle3 != NULL);
+       lockUnlock(handle2);
+       test_assert(proceeded == 3);
+       lockUnlock(handle3);
+       test_assert(proceeded == 4);
+       test_assert(handle4 != NULL);
+       test_assert(searchLocks(db,key1) != NULL);
+       lockUnlock(handle4);
+       test_assert(searchLocks(db,key1) == NULL);
+       reentrant_case_reset();
+   }
+
+   TEST("lock-reentrant: db listener") {
+       lockLock(30,db,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(handle1 != NULL);
+       lockLock(30,db,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 2);
+       test_assert(handle2 != NULL);
+       lockLock(31,db,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 2);
+       lockLock(31,db2,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 3);
+       test_assert(handle4 != NULL);
+       lockUnlock(handle1);
+       lockUnlock(handle2);
+       test_assert(proceeded == 4);
+       test_assert(handle3 != NULL);
+       lockUnlock(handle3);
+       lockUnlock(handle4);
+       test_assert(proceeded == 4);
+       reentrant_case_reset();
+   }
+
+   TEST("lock-reentrant: svr listener") {
+       lockLock(40,NULL,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(handle1 != NULL);
+       lockLock(40,NULL,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 2);
+       test_assert(handle2 != NULL);
+       lockLock(41,NULL,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 2);
+       lockLock(41,NULL,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 2);
+       lockUnlock(handle1);
+       test_assert(proceeded == 2);
+       lockUnlock(handle2);
+       test_assert(proceeded == 4);
+       test_assert(handle3 != NULL);
+       test_assert(handle4 != NULL);
+       lockUnlock(handle3);
+       test_assert(proceeded == 4);
+       lockUnlock(handle4);
+       test_assert(proceeded == 4);
+       reentrant_case_reset();
+   }
+
+   TEST("lock-reentrant: db and svr listener") {
+       lockLock(50,db,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(handle1 != NULL);
+       lockLock(51,db,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(handle2 == NULL);
+       lockLock(51,db2,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 2);
+       test_assert(handle3 != NULL);
+       lockLock(51,NULL,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(handle4 == NULL);
+       test_assert(proceeded == 2);
+       lockUnlock(handle1);
+       test_assert(handle2 != NULL);
+       test_assert(handle4 != NULL);
+       test_assert(proceeded == 4);
+       lockUnlock(handle2);
+       lockUnlock(handle3);
+       lockUnlock(handle4);
+       test_assert(proceeded == 4);
+       reentrant_case_reset();
+   }
+
+   TEST("lock-reentrant: multi-level (with key & db listener)") {
+       lockLock(60,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(handle1 != NULL);
+       lockLock(61,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 1);
+       lockLock(61,db,key2,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 2);
+       test_assert(handle3 != NULL);
+       lockLock(61,db,key1,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 2);
+       lockLock(61,db,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
+       test_assert(proceeded == 2);
+       lockLock(61,db,key1,proceededCounter,NULL,&handle6,NULL,NULL);
+       test_assert(proceeded == 2);
+       lockLock(62,db,key2,proceededCounter,NULL,&handle7,NULL,NULL);
+       test_assert(proceeded == 2);
+       lockUnlock(handle1);
+       test_assert(proceeded == 6);
+       test_assert(handle2 != NULL);
+       test_assert(handle3 != NULL);
+       test_assert(handle4 != NULL);
+       test_assert(handle5 != NULL);
+       test_assert(handle6 != NULL);
+       lockUnlock(handle2);
+       lockUnlock(handle3);
+       lockUnlock(handle4);
+       lockUnlock(handle5);
+       test_assert(proceeded == 7);
+       lockUnlock(handle6);
+       test_assert(proceeded == 7);
+       test_assert(handle7 != NULL);
+       lockUnlock(handle7);
+       test_assert(proceeded == 7);
+       reentrant_case_reset();
+   }
+
+   TEST("lock-reentrant: multi-level (with key & svr listener)") {
+       lockLock(70,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1 && handle1 != NULL);
+       lockLock(70,db,key2,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 2 && handle2 != NULL);
+       test_assert(handle1 != handle2);
+       lockLock(71,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 2);
+       lockLock(71,db,key2,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 2);
+       lockLock(71,NULL,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
+       test_assert(proceeded == 2 && handle5 == NULL);
+       lockLock(72,NULL,NULL,proceededCounter,NULL,&handle6,NULL,NULL);
+       test_assert(proceeded == 2);
+       lockUnlock(handle1);
+       test_assert(proceeded == 3);
+       test_assert(handle3 != NULL);
+       lockUnlock(handle2);
+       test_assert(proceeded == 5);
+       test_assert(handle4 != NULL);
+       test_assert(handle5 != NULL);
+       lockUnlock(handle3);
+       lockUnlock(handle4);
+       test_assert(proceeded == 5);
+       lockUnlock(handle5);
+       test_assert(proceeded == 6);
+       test_assert(handle6 != NULL);
+       lockUnlock(handle6);
+       test_assert(proceeded == 6);
+       reentrant_case_reset();
+   }
+
+   TEST("lock-reentrant: multi-level (with key & db & svr listener)") {
+       lockLock(80,db,key2,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(handle1 != NULL);
+       lockLock(80,db2,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(handle2 != NULL);
+       test_assert(proceeded == 2);
+       lockLock(81,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(handle3 != NULL);
+       test_assert(handle2 != NULL );
+       test_assert(proceeded == 3);
+       lockLock(81,db,key2,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 3);
+       lockLock(81,db,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
+       test_assert(proceeded == 3);
+       lockLock(81,db2,NULL,proceededCounter,NULL,&handle6,NULL,NULL);
+       test_assert(proceeded == 3);
+       lockLock(81,NULL,NULL,proceededCounter,NULL,&handle7,NULL,NULL);
+       test_assert(proceeded == 3);
+       lockLock(82,NULL,NULL,proceededCounter,NULL,&handle8,NULL,NULL);
+       test_assert(proceeded == 3);
+       lockUnlock(handle1);
+       test_assert(proceeded == 5);
+       test_assert(handle4 != NULL);
+       test_assert(handle5 != NULL);
+       lockUnlock(handle2);
+       test_assert(proceeded == 7);
+       test_assert(handle6 != NULL);
+       test_assert(handle7 != NULL);
+       lockUnlock(handle3);
+       lockUnlock(handle4);
+       lockUnlock(handle5);
+       lockUnlock(handle6);
+       test_assert(proceeded == 7);
+       lockUnlock(handle7);
+       test_assert(proceeded == 8);
+       test_assert(handle8 != NULL);
+       lockUnlock(handle8);
+       test_assert(proceeded == 8);
+       reentrant_case_reset();
+   }
+
+   TEST("lock-reentrant: expand links buf") {
+       int i, COUNT = LOCK_LINKS_BUF_SIZE*4;
+       void *handles[COUNT];
+
+       for (i = 0; i < COUNT; i++) {
+           lockLock(90,db,key1,proceededCounter,NULL,&handles[i],NULL,NULL);
+       }
+       test_assert(proceeded == COUNT);
+       for (i = 0; i < COUNT; i++) {
+           lockUnlock(handles[i]);
+       }
+       test_assert(proceeded == COUNT);
+       reentrant_case_reset();
+   }
+
+    TEST("lock-reentrant: deinit") {
+        decrRefCount(key1), decrRefCount(key2);
+    }
+
+    return error;
+}
+
+void proceedWithoutAck(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(db), UNUSED(key), UNUSED(c);
+    void **pd = pd_;
+    *pd = listeners;
+    proceeded++;
+}
+
+void proceedRightaway(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(db), UNUSED(key), UNUSED(c);
+    void **pd = pd_;
+    *pd = listeners;
+    proceeded++;
+    lockProceeded(listeners);
+    lockUnlock(listeners);
+}
+
+#define ack_case_reset() do { \
+    proceeded = 0; \
+    handle1 = NULL, handle2 = NULL, handle3 = NULL, handle4 = NULL; \
+    handle5 = NULL, handle6 = NULL, handle7 = NULL, handle8 = NULL; \
+    handle9 = NULL, handle10 = NULL; \
+} while (0)
+
+int swapLockProceedTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    int error = 0;
+    redisDb *db, *db2;
+    robj *key1, *key2;
+    void *handle1, *handle2, *handle3, *handle4, *handle5, *handle6,
+         *handle7, *handle8, *handle9, *handle10;
+
+    wait_init_suite();
+
+    TEST("lock-proceeded: init") {
+        db = server.db, db2 = server.db+1;
+        key1 = createStringObject("key-1",5);
+        key2 = createStringObject("key-2",5);
+        ack_case_reset();
+        UNUSED(db2);
+    }
+
+    TEST("lock-proceeded: multi-level (db & svr)") {
+        test_assert(searchLocks(db,NULL) != NULL);
+        test_assert(!lockWouldBlock(10,db,NULL));
+        lockLock(10,db,NULL,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        test_assert(handle1 != NULL && proceeded == 1);
+        test_assert(lockWouldBlock(10,db,NULL));
+        lockLock(10,db,NULL,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+        test_assert(handle2 == NULL && proceeded == 1);
+        lockLock(10,db,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+        test_assert(handle3 == NULL && proceeded == 1);
+        lockLock(10,db2,NULL,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        test_assert(handle4 != NULL && proceeded == 2);
+        lockLock(10,db2,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        test_assert(handle5 == NULL && proceeded == 2);
+        lockLock(10,NULL,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
+        test_assert(handle6 == NULL && proceeded == 2);
+        lockLock(10,db2,key2,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+        test_assert(handle7 == NULL && proceeded == 2);
+        lockLock(11,db,key1,proceedWithoutAck,NULL,&handle8,NULL,NULL);
+        test_assert(handle8 == NULL && proceeded == 2);
+
+        lockProceeded(handle1);
+        test_assert(handle2 !=NULL && proceeded == 3);
+        lockProceeded(handle4);
+        test_assert(handle5 != NULL && proceeded == 4);
+        lockProceeded(handle5);
+        test_assert(handle6 == NULL && proceeded == 4);
+        lockProceeded(handle2);
+        test_assert(handle3 != NULL && proceeded == 5);
+        lockProceeded(handle3);
+        test_assert(handle6 != NULL && proceeded == 6);
+        lockProceeded(handle6);
+        test_assert(handle7 != NULL && proceeded == 7);
+        lockProceeded(handle7);
+        test_assert(handle8 == NULL && proceeded == 7);
+
+        lockUnlock(handle1), lockUnlock(handle2), lockUnlock(handle3),
+            lockUnlock(handle4), lockUnlock(handle5), lockUnlock(handle6),
+            lockUnlock(handle7);
+
+        test_assert(handle8 != NULL && proceeded == 8);
+        lockProceeded(handle8);
+        lockUnlock(handle8);
+
+        ack_case_reset();
+    }
+
+    TEST("lock-proceeded: multi-level (key & svr)") {
+        lockLock(20,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        test_assert(handle1 != NULL && proceeded == 1);
+        lockLock(20,db,key1,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+        test_assert(handle2 == NULL && proceeded == 1);
+        lockLock(20,db,key2,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+        test_assert(handle3 != NULL && proceeded == 2);
+        lockLock(20,db,key2,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        test_assert(handle4 == NULL && proceeded == 2);
+        lockLock(20,NULL,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        test_assert(handle5 == NULL && proceeded == 2);
+        lockProceeded(handle3);
+        test_assert(handle4 != NULL && proceeded == 3);
+        lockProceeded(handle1);
+        test_assert(handle2 != NULL && handle5 == NULL && proceeded == 4);
+        lockProceeded(handle2);
+        test_assert(handle5 == NULL && proceeded == 4);
+        lockProceeded(handle4);
+        test_assert(handle5 != NULL && proceeded == 5);
+        lockProceeded(handle5);
+        lockUnlock(handle1), lockUnlock(handle2), lockUnlock(handle3),
+            lockUnlock(handle4), lockUnlock(handle5);
+        test_assert(searchLocks(db,key1) == NULL);
+        ack_case_reset();
+    }
+
+    TEST("lock-proceeded: multi-level (key & db & svr)") {
+        lockLock(30,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        lockLock(30,db,key2,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+        test_assert(handle1 != handle2 && handle1 && handle2 && proceeded == 2);
+        lockLock(30,db2,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+        lockLock(30,db2,key2,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        test_assert(handle3 != handle4 && handle3 && handle4 && proceeded == 4);
+        lockLock(30,db,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        test_assert(handle5 == NULL && proceeded == 4);
+        lockLock(30,NULL,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
+        test_assert(handle6 == NULL && proceeded == 4);
+        lockLock(30,db,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+        test_assert(handle6 == NULL && proceeded == 4);
+
+        lockProceeded(handle4), lockProceeded(handle3), lockProceeded(handle2), lockProceeded(handle1);
+        test_assert(handle5 != NULL && proceeded == 5);
+        lockProceeded(handle5);
+        test_assert(handle6 != NULL && handle6 != handle5 && proceeded == 6);
+        lockProceeded(handle6);
+
+        lockUnlock(handle1), lockUnlock(handle2), lockUnlock(handle3),
+            lockUnlock(handle4), lockUnlock(handle5), lockUnlock(handle6);
+        lockProceeded(handle7);
+        lockUnlock(handle7);
+
+        ack_case_reset();
+    }
+
+    TEST("lock-proceeded: proceed ack disorder") {
+        test_assert(!lockWouldBlock(40,db,key1));
+        lockLock(40,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        test_assert(handle1 != NULL && proceeded == 1);
+        test_assert(lockWouldBlock(40,db,key1));
+        lockLock(40,db,key1,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+        test_assert(handle2 == NULL && proceeded == 1);
+        lockProceeded(handle1);
+        test_assert(handle2 != NULL && proceeded == 2);
+        test_assert(lockWouldBlock(41,db,key1));
+        lockProceeded(handle2);
+        test_assert(proceeded == 2);
+        test_assert(lockWouldBlock(41,db,key1));
+        lockUnlock(handle1);
+        test_assert(lockWouldBlock(41,db,key1));
+        lockLock(41,db,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+        test_assert(handle3 == NULL && proceeded == 2);
+        /* proceed iff previous tx finished. */
+        lockUnlock(handle2);
+        test_assert(handle3 != NULL && proceeded == 3);
+        lockLock(41,db,key1,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        test_assert(handle4 == NULL && proceeded == 3);
+        lockLock(41,db,key2,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        test_assert(handle5 != NULL && proceeded == 4);
+        lockLock(41,db,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
+        test_assert(handle6 == NULL && proceeded == 4);
+        lockLock(41,db,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+        test_assert(handle7 == NULL && proceeded == 4);
+        lockLock(42,db,key2,proceedWithoutAck,NULL,&handle8,NULL,NULL);
+        test_assert(handle8 == NULL && proceeded == 4);
+
+        lockProceeded(handle3);
+        test_assert(handle4 != NULL && handle6 == NULL && proceeded == 5);
+        lockProceeded(handle5);
+        test_assert(handle6 == NULL && proceeded == 5);
+        lockProceeded(handle4);
+        test_assert(handle6 != NULL && proceeded == 6);
+        lockProceeded(handle6);
+        test_assert(handle7 != NULL && handle8 == NULL && proceeded == 7);
+        lockProceeded(handle7);
+        lockUnlock(handle3), lockUnlock(handle4), lockUnlock(handle5),
+            lockUnlock(handle6), lockUnlock(handle7);
+        test_assert(handle8 != NULL && proceeded == 8);
+        lockProceeded(handle8);
+        lockUnlock(handle8);
+        test_assert(proceeded == 8);
+        ack_case_reset();
+    }
+
+    TEST("lock-proceeded: proceed rightaway") {
+        test_assert(!lockWouldBlock(50,db,key1));
+        lockLock(50,db,key1,proceedRightaway,NULL,&handle1,NULL,NULL);
+        test_assert(handle1 != NULL && proceeded == 1);
+        test_assert(!lockWouldBlock(50,db,key1));
+        lockLock(50,db,key1,proceedRightaway,NULL,&handle2,NULL,NULL);
+        test_assert(handle2 != NULL && proceeded == 2);
+        test_assert(!lockWouldBlock(51,db,key1));
+        lockLock(51,db,key1,proceedRightaway,NULL,&handle3,NULL,NULL);
+        test_assert(handle3 != NULL && proceeded == 3);
+        test_assert(!lockWouldBlock(51,db,NULL));
+        lockLock(51,db,NULL,proceedRightaway,NULL,&handle4,NULL,NULL);
+        test_assert(handle4 != NULL && proceeded == 4);
+        test_assert(!lockWouldBlock(51,NULL,NULL));
+        lockLock(51,NULL,NULL,proceedRightaway,NULL,&handle5,NULL,NULL);
+        test_assert(handle5 != NULL && proceeded == 5);
+        ack_case_reset();
+    }
+
+    TEST("lock-proceeded: proceed mixed later & rightaway") {
+        lockLock(60,db2,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        test_assert(handle1 != NULL && proceeded == 1);
+        lockLock(60,db2,key2,proceedRightaway,NULL,&handle2,NULL,NULL);
+        test_assert(handle2 != NULL && proceeded == 2);
+
+        lockLock(61,db,key1,proceedRightaway,NULL,&handle3,NULL,NULL);
+        test_assert(handle3 != NULL && proceeded == 3);
+        lockLock(61,db,key1,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        test_assert(handle4 != NULL && proceeded == 4);
+
+        lockLock(61,db,key1,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        test_assert(handle5 == NULL && proceeded == 4);
+        lockLock(61,db,key2,proceedRightaway,NULL,&handle6,NULL,NULL);
+        test_assert(handle6 != NULL && proceeded == 5);
+
+        lockLock(61,db2,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+        test_assert(handle7 == NULL && proceeded == 5);
+
+        lockLock(61,db,NULL,proceedWithoutAck,NULL,&handle8,NULL,NULL);
+        test_assert(handle8 == NULL && proceeded == 5);
+
+        lockLock(61,NULL,NULL,proceedWithoutAck,NULL,&handle9,NULL,NULL);
+        test_assert(handle9 == NULL && proceeded == 5);
+
+        lockLock(61,db,key1,proceedWithoutAck,NULL,&handle10,NULL,NULL);
+        test_assert(handle10 == NULL && proceeded == 5);
+
+        lockProceeded(handle4);
+        test_assert(handle5 != NULL && proceeded == 6);
+        lockProceeded(handle5);
+        test_assert(handle8 != NULL && handle9 == NULL && proceeded == 7);
+
+        lockProceeded(handle1);
+        test_assert(handle7 == NULL && proceeded == 7);
+        lockUnlock(handle1);
+        test_assert(handle7 != NULL && proceeded == 8);
+
+        lockProceeded(handle7), lockProceeded(handle8);
+
+        test_assert(handle9 != NULL && proceeded == 9);
+        lockProceeded(handle9);
+        test_assert(handle10 != NULL && proceeded == 10);
+        lockProceeded(handle10);
+
+        lockUnlock(handle4), lockUnlock(handle5), lockUnlock(handle7),
+            lockUnlock(handle8), lockUnlock(handle9), lockUnlock(handle10);
+
+        test_assert(!lockWouldBlock(62,db,key1));
+        ack_case_reset();
+    }
+
+    TEST("lock-proceeded: deinit") {
+        decrRefCount(key1), decrRefCount(key2);
+    }
+
+   return error;
+}
 
 #endif

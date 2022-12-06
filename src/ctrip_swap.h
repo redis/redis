@@ -983,7 +983,9 @@ typedef struct lockLinks {
   struct lockLink **links;
   int capacity;
   int count;
-  int signaled;
+  unsigned proceeded:1;
+  unsigned unlocked:1;
+  unsigned reserved:30;
 } lockLinks;
 
 typedef struct lockLink {
@@ -1002,8 +1004,8 @@ typedef struct lock {
   lockProceedCallback proceed;
   void *pd;
   freefunc pdfree;
-  monotime lock_timer;
   int conflict;
+  monotime lock_timer;
 #ifdef SWAP_DEBUG
   swapDebugMsgs *msgs;
 #endif
@@ -1595,9 +1597,9 @@ robj **mockSubKeys(int num,...);
 int swapDataSetTest(int argc, char **argv, int accurate);
 int swapDataZsetTest(int argc, char **argv, int accurate);
 int swapDataTest(int argc, char *argv[], int accurate);
-int swapWaitTest(int argc, char **argv, int accurate);
-int swapWaitReentrantTest(int argc, char **argv, int accurate);
-int swapWaitAckTest(int argc, char **argv, int accurate);
+int swapLockTest(int argc, char **argv, int accurate);
+int swapLockReentrantTest(int argc, char **argv, int accurate);
+int swapLockProceedTest(int argc, char **argv, int accurate);
 int swapCmdTest(int argc, char **argv, int accurate);
 int swapExecTest(int argc, char **argv, int accurate);
 int swapRdbTest(int argc, char **argv, int accurate);
