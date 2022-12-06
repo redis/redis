@@ -42,26 +42,34 @@ static size_t lock_memory_used;
 
 static inline void *lock_malloc(size_t size) {
     void *ptr = zmalloc(size);
+#ifdef LOCK_PRECISE_MMEORY_USED
 #ifdef HAVE_MALLOC_SIZE
     if (ptr) lock_memory_used += zmalloc_size(ptr);
+#endif
 #endif
     return ptr;
 }
 
 static inline void *lock_realloc(void *oldptr, size_t size) {
+#ifdef LOCK_PRECISE_MMEORY_USED
 #ifdef HAVE_MALLOC_SIZE
     if (oldptr) lock_memory_used -= zmalloc_size(oldptr);
 #endif
+#endif
     void *ptr = zrealloc(oldptr,size);
+#ifdef LOCK_PRECISE_MMEORY_USED
 #ifdef HAVE_MALLOC_SIZE
     if (ptr) lock_memory_used += zmalloc_size(ptr);
+#endif
 #endif
     return ptr;
 }
 
 static inline void lock_free(void *ptr) {
+#ifdef LOCK_PRECISE_MMEORY_USED
 #ifdef HAVE_MALLOC_SIZE
     if (ptr) lock_memory_used -= zmalloc_size(ptr);
+#endif
 #endif
     zfree(ptr);
 }
@@ -668,13 +676,22 @@ void resetSwapLockInstantaneousMetrics() {
 
 sds genSwapLockInfoString(sds info) {
     int j;
+    size_t memory_used = lock_memory_used;
 
     lockCumulativeStat *cumu_stat = &server.swap_lock->stat->cumulative;
+
+#ifdef LOCK_PRECISE_MMEORY_USED
+    memory_used = lock_memory_used;
+#else
+    memory_used = cumu_stat->request_count*(
+            sizeof(locks)+sizeof(lock)+sizeof(list));
+#endif
+
     info = sdscatprintf(info,
             "swap_lock_used_memory:%lu\r\n"
             "swap_lock_request:%ld\r\n"
             "swap_lock_conflict:%ld\r\n",
-            lock_memory_used,
+            memory_used,
             cumu_stat->request_count,
             cumu_stat->conflict_count);
 
