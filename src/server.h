@@ -3022,6 +3022,7 @@ int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
 unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
 unsigned long setTypeSize(const robj *subject);
 void setTypeConvert(robj *subject, int enc);
+int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
 
 /* Hash data type */

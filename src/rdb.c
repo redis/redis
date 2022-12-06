@@ -1875,14 +1875,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                      * of many small ones. It's OK since lpSafeToAdd doesn't
                      * care about individual elements, only the total size. */
                     setTypeConvert(o, OBJ_ENCODING_LISTPACK);
-                } else {
-                    setTypeConvert(o,OBJ_ENCODING_HT);
-                    if (dictTryExpand(o->ptr,len) != DICT_OK) {
-                        rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
-                        sdsfree(sdsele);
-                        decrRefCount(o);
-                        return NULL;
-                    }
+                } else if (setTypeConvertAndExpand(o, OBJ_ENCODING_HT, len, 0) != C_OK) {
+                    rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
+                    sdsfree(sdsele);
+                    decrRefCount(o);
+                    return NULL;
                 }
             }
 
@@ -1901,15 +1898,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         return NULL;
                     }
                     o->ptr = lpAppend(o->ptr, (unsigned char *)sdsele, elelen);
-                } else {
-                    setTypeConvert(o, OBJ_ENCODING_HT);
-                    if (dictTryExpand(o->ptr, len) != DICT_OK) {
-                        rdbReportCorruptRDB("OOM in dictTryExpand %llu",
-                                            (unsigned long long)len);
-                        sdsfree(sdsele);
-                        decrRefCount(o);
-                        return NULL;
-                    }
+                } else if (setTypeConvertAndExpand(o, OBJ_ENCODING_HT, len, 0) != C_OK) {
+                    rdbReportCorruptRDB("OOM in dictTryExpand %llu",
+                                        (unsigned long long)len);
+                    sdsfree(sdsele);
+                    decrRefCount(o);
+                    return NULL;
                 }
             }
 

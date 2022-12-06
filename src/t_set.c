@@ -159,7 +159,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 set->ptr = lp;
             } else {
                 /* Size limit is reached. Convert to hashtable and add. */
-                setTypeConvert(set, OBJ_ENCODING_HT);
+                setTypeConvertAndExpand(set, OBJ_ENCODING_HT, lpLength(lp) + 1, 1);
                 serverAssert(dictAdd(set->ptr,sdsnewlen(str,len),NULL) == DICT_OK);
             }
             return 1;
@@ -174,23 +174,34 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 return 1;
             }
         } else {
-            size_t maxelelen = intsetLen(set->ptr) == 0 ?
-                0 : max(sdigits10(intsetMax(set->ptr)),
-                        sdigits10(intsetMin(set->ptr)));
+            /* Check if listpack encoding is safe not to cross any threshold. */
+            size_t maxelelen = 0, totsize = 0;
+            unsigned long n = intsetLen(set->ptr);
+            if (n != 0) {
+                size_t elelen1 = sdigits10(intsetMax(set->ptr));
+                size_t elelen2 = sdigits10(intsetMin(set->ptr));
+                maxelelen = max(elelen1, elelen2);
+                size_t s1 = lpEstimateBytesRepeatedInteger(intsetMax(set->ptr), n);
+                size_t s2 = lpEstimateBytesRepeatedInteger(intsetMin(set->ptr), n);
+                totsize = max(s1, s2);
+            }
             if (intsetLen((const intset*)set->ptr) < server.set_max_listpack_entries &&
                 len <= server.set_max_listpack_value &&
                 maxelelen <= server.set_max_listpack_value &&
-                lpSafeToAdd(NULL, maxelelen * intsetLen(set->ptr) + len))
+                lpSafeToAdd(NULL, totsize + len))
             {
                 /* In the "safe to add" check above we assumed all elements in
                  * the intset are of size maxelelen. This is an upper bound. */
-                setTypeConvert(set, OBJ_ENCODING_LISTPACK);
+                setTypeConvertAndExpand(set, OBJ_ENCODING_LISTPACK,
+                                        intsetLen(set->ptr) + 1, 1);
                 unsigned char *lp = set->ptr;
                 lp = lpAppend(lp, (unsigned char *)str, len);
+                lp = lpShrinkToFit(lp);
                 set->ptr = lp;
                 return 1;
             } else {
-                setTypeConvert(set, OBJ_ENCODING_HT);
+                setTypeConvertAndExpand(set, OBJ_ENCODING_HT,
+                                        intsetLen(set->ptr) + 1, 1);
                 /* The set *was* an intset and this value is not integer
                  * encodable, so dictAdd should always work. */
                 serverAssert(dictAdd(set->ptr,sdsnewlen(str,len),NULL) == DICT_OK);
@@ -468,6 +479,14 @@ unsigned long setTypeSize(const robj *subject) {
  * to a hash table) is presized to hold the number of elements in the original
  * set. */
 void setTypeConvert(robj *setobj, int enc) {
+    setTypeConvertAndExpand(setobj, enc, setTypeSize(setobj), 1);
+}
+
+/* Converts a set to the specified encoding, pre-sizing it for 'cap' elements.
+ * The 'panic' argument controls whether to panic on OOM (panic=1) or return
+ * C_ERR on OOM (panic=0). If panic=1 is given, this function always returns
+ * C_OK. */
+int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic) {
     setTypeIterator *si;
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
                              setobj->encoding != enc);
@@ -477,7 +496,12 @@ void setTypeConvert(robj *setobj, int enc) {
         sds element;
 
         /* Presize the dict to avoid rehashing */
-        dictExpand(d, setTypeSize(setobj));
+        if (panic) {
+            dictExpand(d, cap);
+        } else if (dictTryExpand(d, cap) != DICT_OK) {
+            dictRelease(d);
+            return C_ERR;
+        }
 
         /* To add the elements we extract integers and create redis objects */
         si = setTypeInitIterator(setobj);
@@ -490,8 +514,14 @@ void setTypeConvert(robj *setobj, int enc) {
         setobj->encoding = OBJ_ENCODING_HT;
         setobj->ptr = d;
     } else if (enc == OBJ_ENCODING_LISTPACK) {
-        /* Preallocate the minimum one byte per element */
-        size_t estcap = setTypeSize(setobj);
+        /* Preallocate the minimum two bytes per element (enc/value + backlen) */
+        size_t estcap = cap * 2;
+        if (setobj->encoding == OBJ_ENCODING_INTSET && setTypeSize(setobj) > 0) {
+            /* If we're converting from intset, we have a better estimate. */
+            size_t s1 = lpEstimateBytesRepeatedInteger(intsetMin(setobj->ptr), cap);
+            size_t s2 = lpEstimateBytesRepeatedInteger(intsetMax(setobj->ptr), cap);
+            estcap = max(s1, s2);
+        }
         unsigned char *lp = lpNew(estcap);
         char *str;
         size_t len;
@@ -511,6 +541,7 @@ void setTypeConvert(robj *setobj, int enc) {
     } else {
         serverPanic("Unsupported set conversion");
     }
+    return C_OK;
 }
 
 /* This is a helper function for the COPY command.
