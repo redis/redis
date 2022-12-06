@@ -1881,6 +1881,10 @@ void initServerClientMemUsageBuckets() {
 }
 
 void freeServerClientMemUsageBuckets() {
+    if (!server.client_mem_usage_buckets)
+        return;
+    for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++)
+        listRelease(server.client_mem_usage_buckets[j].clients);
     zfree(server.client_mem_usage_buckets);
     server.client_mem_usage_buckets = NULL;
 }
