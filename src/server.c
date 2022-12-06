@@ -7024,6 +7024,24 @@ int main(int argc, char **argv) {
                          * so it will become `--save ""` and will follow the same reset thing. */
                         options = sdscat(options, "\"\"");
                     }
+                    else if ((j != argc-1) && argv[j+1][0] == '-' && argv[j+1][1] == '-' &&
+                        !strcasecmp(argv[j], "--sentinel"))
+                    {
+                        /* Special case: handle some things like `--sentinel --config value`.
+                         * It is a pseudo config option with no value. In this case, if next
+                         * argument starts with `--`, we will reset handled_last_config_arg flag.
+                         * We are doing it to be compatible with pre 7.0 behavior (which we
+                         * break it in #10660, 7.0.1). */
+                        options = sdscat(options, "");
+                        handled_last_config_arg = 1;
+                    }
+                    else if ((j == argc-1) && !strcasecmp(argv[j], "--sentinel")) {
+                        /* Special case: when --sentinel is the last argument.
+                         * It is a pseudo config option with no value. In this case, do nothing.
+                         * We are doing it to be compatible with pre 7.0 behavior (which we
+                         * break it in #10660, 7.0.1). */
+                        options = sdscat(options, "");
+                    }
                 } else {
                     /* Means that we are passing both config name and it's value in the same arg,
                      * like "--port 6380", so we need to reset handled_last_config_arg flag. */
