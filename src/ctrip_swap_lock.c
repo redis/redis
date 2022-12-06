@@ -485,8 +485,23 @@ static void lockStatUpdateUnlocked(lock *lock) {
     if (lock->conflict) cumu_stat->conflict_count--;
 }
 
+static inline void lockStartLatencyTraceIfNeeded(lock *lock) {
+    if (lock->conflict && server.swap_debug_trace_latency) {
+        elapsedStart(&lock->lock_timer);
+    } else {
+        lock->lock_timer = 0;
+    }
+}
+
+static inline void lockEndLatencyTraceIfNeeded(lock *lock) {
+    if (lock->lock_timer) {
+        metricDebugInfo(SWAP_DEBUG_LOCK_WAIT, elapsedUs(lock->lock_timer));
+    }
+}
+
 static void lockProceed(lock *lock) {
     serverAssert(lockLinkTargetReady(&lock->link.target));
+    lockEndLatencyTraceIfNeeded(lock);
     lock->proceed(lock,lock->db,lock->key,lock->c,lock->pd);
 }
 
@@ -530,6 +545,7 @@ void lockUnlock(void *lock_) {
 static inline void lockProceedIfReady(lock *lock) {
     lock->conflict = !lockLinkTargetReady(&lock->link.target);
     lockStatUpdateLocked(lock);
+    lockStartLatencyTraceIfNeeded(lock);
     if (!lock->conflict) {
         lockProceed(lock);
     }
