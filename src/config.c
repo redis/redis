@@ -2974,6 +2974,14 @@ static int applyClientMaxMemoryUsage(const char **err) {
     UNUSED(err);
     listIter li;
     listNode *ln;
+
+    /* server.client_mem_usage_buckets is an indication that the previous config
+     * was non-zero, in which case we can exit and no apply is needed. */
+    if(server.maxmemory_clients !=0 && server.client_mem_usage_buckets)
+        return 1;
+    if (server.maxmemory_clients != 0)
+        initServerClientMemUsageBuckets();
+
     /* When client eviction is enabled update memory buckets for all clients.
      * When disabled, clear that data structure. */
     listRewind(server.clients, &li);
@@ -2987,6 +2995,9 @@ static int applyClientMaxMemoryUsage(const char **err) {
             updateClientMemUsageAndBucket(c);
         }
     }
+
+    if (server.maxmemory_clients == 0)
+        freeServerClientMemUsageBuckets();
     return 1;
 }
 

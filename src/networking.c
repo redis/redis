@@ -4373,6 +4373,8 @@ size_t getClientEvictionLimit(void) {
 }
 
 void evictClients(void) {
+    if (!server.client_mem_usage_buckets)
+        return;
     /* Start eviction from topmost bucket (largest clients) */
     int curr_bucket = CLIENT_MEM_USAGE_BUCKETS-1;
     listIter bucket_iter;

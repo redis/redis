@@ -1870,6 +1870,21 @@ void createSharedObjects(void) {
     shared.maxstring = sdsnew("maxstring");
 }
 
+void initServerClientMemUsageBuckets() {
+    if (server.client_mem_usage_buckets)
+        return;
+    server.client_mem_usage_buckets = zmalloc(sizeof(clientMemUsageBucket)*CLIENT_MEM_USAGE_BUCKETS);
+    for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
+        server.client_mem_usage_buckets[j].mem_usage_sum = 0;
+        server.client_mem_usage_buckets[j].clients = listCreate();
+    }
+}
+
+void freeServerClientMemUsageBuckets() {
+    zfree(server.client_mem_usage_buckets);
+    server.client_mem_usage_buckets = NULL;
+}
+
 void initServerConfig(void) {
     int j;
     char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
@@ -2467,17 +2482,13 @@ void initServer(void) {
     server.cluster_drop_packet_filter = -1;
     server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     server.reply_buffer_resizing_enabled = 1;
+    server.client_mem_usage_buckets = NULL;
     resetReplicationBuffer();
 
     /* Make sure the locale is set on startup based on the config file. */
     if (setlocale(LC_COLLATE,server.locale_collate) == NULL) {
         serverLog(LL_WARNING, "Failed to configure LOCALE for invalid locale name.");
         exit(1);
-    }
-
-    for (j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
-        server.client_mem_usage_buckets[j].mem_usage_sum = 0;
-        server.client_mem_usage_buckets[j].clients = listCreate();
     }
 
     createSharedObjects();
@@ -2605,6 +2616,9 @@ void initServer(void) {
     ACLUpdateDefaultUserPassword(server.requirepass);
 
     applyWatchdogPeriod();
+
+    if (server.maxmemory_clients != 0)
+        initServerClientMemUsageBuckets();
 }
 
 void initListeners() {

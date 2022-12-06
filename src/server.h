@@ -1509,7 +1509,7 @@ struct redisServer {
     client *current_client;     /* Current client executing the command. */
 
     /* Stuff for client mem eviction */
-    clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];
+    clientMemUsageBucket* client_mem_usage_buckets;
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
@@ -3052,6 +3052,8 @@ void initConfigValues();
 void removeConfig(sds name);
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
+void initServerClientMemUsageBuckets();
+void freeServerClientMemUsageBuckets();
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
