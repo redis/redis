@@ -527,7 +527,9 @@ static inline void lockDetachFromLocks(lock *lock) {
     lock->locks = NULL;
     listDelNode(locks->lock_list,lock->locks_ln);
     lock->locks_ln = NULL;
-    /* side effect: keylevel locks get destroyed if no lock left. */
+}
+
+static inline void locksFreeIfEmptyKeyLevel(locks *locks) {
     if (locks->level == REQUEST_LEVEL_KEY &&
             listLength(locks->lock_list) == 0) {
         locksRelease(locks);
@@ -536,9 +538,11 @@ static inline void lockDetachFromLocks(lock *lock) {
 
 void lockUnlock(void *lock_) {
     lock *lock = lock_;
+    locks *locks = lock->locks;
+    lockDetachFromLocks(lock);
+    locksFreeIfEmptyKeyLevel(locks);
     lockLinkUnlock(&lock->link,lockProceedByLink,NULL);
     lockStatUpdateUnlocked(lock);
-    lockDetachFromLocks(lock);
     lockFree(lock);
 }
 
@@ -578,7 +582,7 @@ static void _lockLock(int *would_block,
             /* keylocks will remain NULL if testing would block. */
         }
     } else {
-        serverAssert(locksLastLock(keylocks)!= NULL);;
+        serverAssert(locksLastLock(keylocks)!= NULL);
     }
     locksLinkLock(keylocks,lock,would_block);
     locks = keylocks;
