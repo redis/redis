@@ -154,7 +154,6 @@ static void processFinishedReplCommands() {
         if (wc->CLIENT_REPL_CMD_DISCARDED) {
             commandProcessed(wc);
             serverAssert(wc->client_hold_mode == CLIENT_HOLD_MODE_REPL);
-            clientUnholdKeys(wc);
             clientReleaseLocks(wc,NULL/*ctx unused*/);
             wc->CLIENT_REPL_CMD_DISCARDED = 0;
             continue;
@@ -181,7 +180,6 @@ static void processFinishedReplCommands() {
         c->cmd = backup_cmd;
 
         commandProcessed(wc);
-        clientUnholdKeys(wc);
 
         serverAssert(wc->client_hold_mode == CLIENT_HOLD_MODE_REPL);
 

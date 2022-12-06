@@ -28,140 +28,20 @@
 
 #include "ctrip_swap.h"
 
-#define HC_HOLD_BITS        32
-#define HC_HOLD_MASK        ((1L<<HC_HOLD_BITS)-1)
-#define HC_INIT(hold, swap) ((swap << HC_HOLD_BITS) + hold)
-#define HC_HOLD(hc, swap)   (hc + (swap << HC_HOLD_BITS) + 1)
-#define HC_UNHOLD(hc)       (hc - 1)
-#define HC_HOLD_COUNT(hc)   ((hc) & HC_HOLD_MASK)
-#define HC_SWAP_COUNT(hc)   ((hc) >> HC_HOLD_BITS)
 
-#define DBIDS_CONTAIN(dbids,dbid) ((dbids) & (1ULL << (dbid)))
-#define DBIDS_ADD(dbids,dbid) ((dbids) | (1ULL << (dbid)))
-#define DBIDS_REM(dbids,dbid) ((dbids) & ~(1ULL << (dbid)))
-#define DBIDS_EMPTY(dbids) ((dbids) == 0)
 
-void dbHoldKey(redisDb *db, robj *key, int64_t swap) {
-    dictEntry *de;
-    int64_t hc;
 
-    /* Add key to server & client hold_keys */
-    if ((de = dictFind(db->hold_keys, key))) {
-        hc = dictGetSignedIntegerVal(de);
-        dictSetSignedIntegerVal(de, HC_HOLD(hc, swap));
-    } else {
-        incrRefCount(key);
-        dictAdd(db->hold_keys, key, (void*)HC_INIT(1, swap));
-    }
-}
 
-void clientHoldKey(client *c, int dbid, robj *key, int64_t swap) {
-    dictEntry *de;
-    uint64_t dbids = 0;
-    redisDb *db = server.db + dbid;
 
-    if ((de = dictFind(c->hold_keys, key))) {
-        dbids = dictGetSignedIntegerVal(de);
-        if (DBIDS_CONTAIN(dbids,dbid)) {
-            /* No need to hold key if it has already been holded */
-            return;
-        } else {
-            dictSetSignedIntegerVal(de, DBIDS_ADD(dbids,dbid));
-        }
-    } else {
-        incrRefCount(key);
-        dictAdd(c->hold_keys, key, (void*)DBIDS_ADD(dbids,dbid));
-    }
 
-    dbHoldKey(db,key,swap);
-}
-
-static void doDbUnholdKey(redisDb *db, robj *key, int64_t hc) {
-    dictDelete(db->hold_keys, key);
-
-    /* Evict key as soon as command finishs if there are saving child,
-     * so that keys won't be swapped in and out frequently and causing
-     * copy on write madness. */
-    if (HC_SWAP_COUNT(hc) > 0 && hasActiveChildProcess()) {
-        tryEvictKeyAsapLater(db, key);
-    }
-}
-
-void dbUnholdKey(redisDb *db, robj *key) {
-    dictEntry *de;
-    int64_t hc;
-
-    serverAssert(de = dictFind(db->hold_keys, key));
-    hc = HC_UNHOLD(dictGetSignedIntegerVal(de));
-
-    if (HC_HOLD_COUNT(hc) > 0) {
-        dictSetSignedIntegerVal(de, hc);
-    } else {
-        doDbUnholdKey(db, key, hc);
-    }
-}
-
-void clientUnholdKey(client *c, int dbid, robj *key) {
-    uint64_t dbids;
-    dictEntry *de;
-    redisDb *db = server.db + dbid;
-
-    if ((de = dictFind(c->hold_keys, key)) == NULL) return;
-    dbids = dictGetSignedIntegerVal(de);
-    if (!DBIDS_CONTAIN(dbids,dbid)) return;
-    if (DBIDS_EMPTY(DBIDS_REM(dbids,dbid))) {
-        dictDelete(c->hold_keys,key);
-    } else {
-        dictSetSignedIntegerVal(de,DBIDS_REM(dbids,dbid));
-    }
-
-    dbUnholdKey(db,key);
-}
-
-void clientUnholdKeys(client *c) {
-    dictIterator *di;
-    dictEntry *de;
-
-    di = dictGetIterator(c->hold_keys);
-    while ((de = dictNext(di))) {
-        robj *key = dictGetKey(de);
-        uint64_t dbids = dictGetSignedIntegerVal(de);
-        int dbid = 0;
-
-        while (dbids && dbid < server.dbnum) {
-            if ((dbids & 1) != 0) {
-                redisDb *db = server.db+dbid;
-                dbUnholdKey(db,key);
-            }
-            dbid++;
-            dbids >>= 1;
-        }
-    }
-    dictReleaseIterator(di);
-
-    dictEmpty(c->hold_keys, NULL);
-}
-
-int keyIsHolded(redisDb *db, robj *key) {
-    dictEntry *de;
-
-    if ((de = dictFind(db->hold_keys, key))) {
-        serverAssert(dictGetSignedIntegerVal(de) > 0);
-        return 1;
-    } else {
-        return 0;
-    }
-}
 
 void evictClientKeyRequestFinished(client *c, swapCtx *ctx) {
     UNUSED(ctx);
     robj *key = ctx->key_request->key;
-    int dbid = ctx->key_request->dbid;
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
     incrRefCount(key);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c,dbid,key);
     clientReleaseLocks(c,ctx);
     decrRefCount(key);
 
@@ -195,11 +75,6 @@ int tryEvictKey(redisDb *db, robj *key, int *evict_result) {
 
     if ((o = lookupKey(db, key, LOOKUP_NOTOUCH)) == NULL) {
         if (evict_result) *evict_result = EVICT_FAIL_ABSENT;
-        return 0;
-    }
-
-    if (keyIsHolded(db, key)) {
-        if (evict_result) *evict_result = EVICT_FAIL_HOLDED;
         return 0;
     }
 
@@ -322,7 +197,6 @@ int swapHoldTest(int argc, char *argv[], int accurate) {
 
     int error = 0;
     client *c;
-    redisDb *db1, *db2;
     robj *key1, *key2;
 
     TEST("hold: init") {
@@ -335,89 +209,6 @@ int swapHoldTest(int argc, char *argv[], int accurate) {
 
         key1 = createStringObject("key1",4);
         key2 = createStringObject("key2",4);
-        db1 = server.db+0;
-        db2 = server.db+1;
-    }
-
-    TEST("hold: db hold unhold key") {
-        test_assert(!keyIsHolded(db1,key1));
-        dbHoldKey(db1,key1,0);
-        test_assert(keyIsHolded(db1,key1));
-        dbHoldKey(db1,key1,0);
-        test_assert(keyIsHolded(db1,key1));
-        dbHoldKey(db1,key2,0);
-        test_assert(keyIsHolded(db1,key2));
-
-        dbUnholdKey(db1,key1);
-        test_assert(keyIsHolded(db1,key1));
-        dbUnholdKey(db1,key1);
-        test_assert(!keyIsHolded(db1,key1));
-        dbUnholdKey(db1,key2);
-        test_assert(!keyIsHolded(db1,key2));
-
-        test_assert(dictSize(c->hold_keys) == 0);
-        test_assert(dictSize(db1->hold_keys) == 0);
-        test_assert(dictSize(db2->hold_keys) == 0);
-    }
-
-    TEST("hold: client hold & unhold key") {
-        test_assert(!keyIsHolded(db1,key1));
-        test_assert(!keyIsHolded(db2,key1));
-        clientHoldKey(c,0,key1,0);
-        test_assert(keyIsHolded(db1,key1));
-        clientHoldKey(c,0,key1,0);
-        test_assert(keyIsHolded(db1,key1));
-        clientHoldKey(c,1,key1,0);
-        test_assert(keyIsHolded(db2,key1));
-        clientHoldKey(c,1,key1,0);
-        test_assert(keyIsHolded(db2,key1));
-
-        clientUnholdKey(c,1,key1);
-        test_assert(!keyIsHolded(db2,key1));
-
-        clientUnholdKey(c,0,key1);
-        test_assert(!keyIsHolded(db1,key1));
-
-        test_assert(dictSize(c->hold_keys) == 0);
-        test_assert(dictSize(db1->hold_keys) == 0);
-        test_assert(dictSize(db2->hold_keys) == 0);
-    }
-
-    TEST("hold: client unhold keys") {
-        clientHoldKey(c,0,key1,0);
-        clientHoldKey(c,1,key2,0);
-        clientUnholdKeys(c);
-        test_assert(!keyIsHolded(db1,key1));
-        test_assert(!keyIsHolded(db2,key2));
-        test_assert(dictSize(db1->hold_keys) == 0);
-        test_assert(dictSize(db2->hold_keys) == 0);
-
-        clientHoldKey(c,0,key1,0);
-        clientHoldKey(c,0,key1,0);
-        clientHoldKey(c,1,key1,0);
-        clientHoldKey(c,1,key1,0);
-        clientHoldKey(c,0,key2,0);
-        clientHoldKey(c,0,key2,0);
-        clientHoldKey(c,1,key2,0);
-        clientHoldKey(c,1,key2,0);
-        clientUnholdKeys(c);
-        test_assert(!keyIsHolded(db1,key1));
-        test_assert(!keyIsHolded(db2,key1));
-        test_assert(!keyIsHolded(db1,key2));
-        test_assert(!keyIsHolded(db2,key2));
-
-        test_assert(dictSize(c->hold_keys) == 0);
-        test_assert(dictSize(db1->hold_keys) == 0);
-        test_assert(dictSize(db2->hold_keys) == 0);
-    }
-
-    TEST("hold: client cant unhold not-holded key") {
-        dbHoldKey(db1,key1,0);
-        test_assert(keyIsHolded(db1,key1));
-        clientUnholdKey(c,0,key1);
-        test_assert(keyIsHolded(db1,key1));
-        dbUnholdKey(db1,key1);
-        test_assert(!keyIsHolded(db1,key1));
     }
 
     TEST("hold: deinit") {

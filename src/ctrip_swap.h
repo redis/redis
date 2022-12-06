@@ -1130,11 +1130,6 @@ int tryEvictKey(redisDb *db, robj *key, int *evict_result);
 void tryEvictKeyAsapLater(redisDb *db, robj *key);
 void swapEvictCommand(client *c);
 void swapDebugEvictKeys();
-void dbHoldKey(redisDb *db, robj *key, int64_t swap);
-void dbUnholdKey(redisDb *db, robj *key);
-void clientHoldKey(client *c, int dbid, robj *key, int64_t swap);
-void clientUnholdKeys(client *c);
-void clientUnholdKey(client *c, int dbid, robj *key);
 
 /* Expire */
 int submitExpireClientRequest(client *c, robj *key, int force);

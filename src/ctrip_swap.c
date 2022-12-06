@@ -257,7 +257,6 @@ void continueProcessCommand(client *c) {
 
     /* unhold keys for current command. */
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_CMD);
-    clientUnholdKeys(c);
     /* post command */
     commandProcessed(c);
     c->flags |= CLIENT_SWAP_UNLOCKING;
@@ -465,7 +464,6 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         robj *key = key_request->key;
         swapCtx *ctx = swapCtxCreate(c,key_request,cb);
 
-        if (key) clientHoldKey(c,key_request->dbid,key,0);
 #ifdef SWAP_DEBUG
         msgs = &ctx->msgs;
 #endif

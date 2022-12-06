@@ -31,12 +31,10 @@
 /* Passive expire */
 void expireClientKeyRequestFinished(client *c, swapCtx *ctx) {
     robj *key = ctx->key_request->key;
-    int dbid = ctx->key_request->dbid;
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
     incrRefCount(key);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c,dbid,key);
     clientReleaseLocks(c,ctx);
     decrRefCount(key);
 }
@@ -205,12 +203,10 @@ void scanExpireEmpty(scanExpire *scan_expire) {
 void metaScan4ScanExpireRequestFinished(client *c, swapCtx *ctx) {
     UNUSED(ctx);
     robj *key = ctx->key_request->key;
-    int dbid = ctx->key_request->dbid;
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
     incrRefCount(key);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c,dbid,key);
     clientReleaseLocks(c,ctx);
     decrRefCount(key);
 }
@@ -459,7 +455,6 @@ void slaveExpireClientKeyRequestFinished(client *c, swapCtx *ctx) {
     if (ctx->errcode) clientSwapError(c,ctx->errcode);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c,dbid,key);
     clientReleaseLocks(c,ctx);
     decrRefCount(key);
 }
