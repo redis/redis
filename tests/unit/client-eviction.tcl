@@ -140,7 +140,7 @@ start_server {} {
         set temp_maxmemory_clients 200000
         r config set maxmemory-clients $temp_maxmemory_clients
         
-        # Append watched keys until list maxes out maxmemroy clients and causes client eviction
+        # Append watched keys until list maxes out maxmemory clients and causes client eviction
         catch { 
             for {set j 0} {$j < $temp_maxmemory_clients} {incr j} {
                 $rr watch $j
@@ -467,7 +467,7 @@ start_server {} {
 start_server {} {
     test "evict clients in right order (large to small)" {
         # Note that each size step needs to be at least x2 larger than previous step 
-        # because of how the client-eviction size bucktting works
+        # because of how the client-eviction size bucketing works
         set sizes [list [kb 128] [mb 1] [mb 3]]
         set clients_per_size 3
         r client setname control
@@ -531,5 +531,52 @@ start_server {} {
     } {} {needs:debug}
 }
 
+start_server {} {
+    foreach type {"client no-evict" "maxmemory-clients disabled"} {
+        r flushall
+        r client no-evict on
+        r config set maxmemory-clients 0
+
+        test "client total memory grows during $type" {
+            r setrange k [mb 1] v
+            set rr [redis_client]
+            $rr client setname test_client
+            if {$type eq "client no-evict"} {
+                $rr client no-evict on
+                r config set maxmemory-clients 1
+            }
+            $rr deferred 1
+
+            # Fill output buffer in loop without reading it and make sure
+            # the tot-mem of client has increased (OS buffers didn't swallow it)
+            # and eviction not occurring.
+            while {true} {
+                $rr get k
+                $rr flush
+                after 10
+                if {[client_field test_client tot-mem] > [mb 10]} {
+                    break
+                }
+            }
+
+            # Trigger the client eviction, by flipping the no-evict flag to off
+            if {$type eq "client no-evict"} {
+                $rr client no-evict off
+            } else {
+                r config set maxmemory-clients 1
+            }
+
+            # wait for the client to be disconnected
+            wait_for_condition 5000 50 {
+                ![client_exists test_client]
+            } else {
+                puts [r client list]
+                fail "client was not disconnected"
+            }
+            $rr close
+        }
+    }
 }
+
+} ;# tags
 
