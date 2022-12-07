@@ -60,6 +60,22 @@ test "Set cluster hostnames and verify they are propagated" {
     wait_for_cluster_propagation
 }
 
+test "Set cluster nodenames and verify they are propagated" {
+    
+    #for {set j 0} {$j < $::cluster_master_nodes + $::cluster_replica_nodes} {incr j} {
+    #    R $j config set cluster-announce-nodename "node-$j.com"
+    #}
+    
+    #wait_for_condition 50 100 {
+    #    [are_nodenames_propagated "*node-*.com*"] eq 1
+    #} else {
+    #    fail "cluster nodenames were not propagated"
+    #}
+
+    # Now that everything is propagated, assert everyone agrees
+    #wait_for_cluster_propagation
+}
+
 test "Update hostnames and make sure they are all eventually propagated" {
     for {set j 0} {$j < [llength $::servers]} {incr j} {
         R $j config set cluster-announce-hostname "host-updated-$j.com"
@@ -73,6 +89,21 @@ test "Update hostnames and make sure they are all eventually propagated" {
 
     # Now that everything is propagated, assert everyone agrees
     wait_for_cluster_propagation
+}
+
+test "Update nodenames and make sure they are all eventually propagated" {
+    #for {set j 0} {$j < $::cluster_master_nodes + $::cluster_replica_nodes} {incr j} {
+    #    R $j config set cluster-announce-nodename "node-updated-$j.com"
+    #}
+    
+    #wait_for_condition 50 100 {
+    #    [are_nodenames_propagated "*node-updated-*.com*"] eq 1
+    #} else {
+    #    fail "cluster nodenames were not propagated"
+    #}
+
+    # Now that everything is propagated, assert everyone agrees
+    #wait_for_cluster_propagation
 }
 
 test "Remove hostnames and make sure they are all eventually propagated" {
@@ -239,5 +270,12 @@ test "Test hostname validation" {
 
     # Note this isn't a valid hostname, but it passes our internal validation
     R 0 config set cluster-announce-hostname "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-."
+}
+
+test "Test nodename validation" {
+    #catch {R 0 config set cluster-announce-nodename [string repeat x 256]} err
+    #assert_match "*must be less than 256 characters*" $err
+    #catch {R 0 config set cluster-announce-nodename "?.com"} err
+    #assert_match "*may only contain alphanumeric characters, hyphens or dots*" $err
 }
 }

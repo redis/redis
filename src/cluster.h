@@ -141,6 +141,7 @@ typedef struct clusterNode {
     long long repl_offset;      /* Last known repl offset for this node. */
     char ip[NET_IP_STR_LEN];    /* Latest known IP address of this node */
     sds hostname;               /* The known hostname for this node */
+    sds nodename;               /* The known human readable nodename for this node */
     int port;                   /* Latest known clients port (TLS or plain). */
     int pport;                  /* Latest known clients plaintext port. Only used
                                    if the main clients port is for TLS. */
@@ -262,6 +263,7 @@ typedef enum {
     CLUSTERMSG_EXT_TYPE_HOSTNAME,
     CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE,
     CLUSTERMSG_EXT_TYPE_SHARDID,
+    CLUSTERMSG_EXT_TYPE_NODENAME,
 } clusterMsgPingtypes; 
 
 /* Helper function for making sure extensions are eight byte aligned. */
@@ -283,6 +285,10 @@ typedef struct {
 } clusterMsgPingExtShardId;
 
 typedef struct {
+    char nodename[1]; /* The announced nodename, ends with \0. */
+} clusterMsgPingExtNodename;
+
+typedef struct {
     uint32_t length; /* Total length of this extension message (including this header) */
     uint16_t type; /* Type of this extension message (see clusterMsgPingExtTypes) */
     uint16_t unused; /* 16 bits of padding to make this structure 8 byte aligned. */
@@ -290,6 +296,7 @@ typedef struct {
         clusterMsgPingExtHostname hostname;
         clusterMsgPingExtForgottenNode forgotten_node;
         clusterMsgPingExtShardId shard_id;
+        clusterMsgPingExtNodename nodename;
     } ext[]; /* Actual extension information, formatted so that the data is 8 
               * byte aligned, regardless of its content. */
 } clusterMsgPingExt;
@@ -425,5 +432,6 @@ void clusterUpdateMyselfAnnouncedPorts(void);
 sds clusterGenNodesDescription(client *c, int filter, int use_pport);
 sds genClusterInfoString(void);
 void freeClusterLink(clusterLink *link);
+void clusterUpdateMyselfNodename(void);
 
 #endif /* __CLUSTER_H */
