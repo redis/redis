@@ -11,6 +11,64 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
+================================================================================
+Redis 7.0.6 Released Mon Dec 12 12:00:00 IST 2022
+================================================================================
+
+Upgrade urgency: MODERATE, Contains fixes for a few non-critical or unlikely bugs,
+and some dramatic optimizations to Geo, EVAL, and Sorted sets commands.
+
+Potentially Breaking Bug Fixes for new Redis 7.0 features
+=======================================================
+
+* RM_ResetDataset module API should not clear the functions (#11268)
+* RM_Call module API used with the "C" flag to run scripts, would now cause
+  the commands in the script to check ACL with the designated user (#10966)
+
+Performance and resource utilization improvements
+=================================================
+
+* Geo commands speedups (#11535, #11522, #11552, #11579)
+* Fix EVAL command performance regression from Redis 7.0 (#11521, #11541)
+* Reduce EXPIRE commands performance regression from Redis 7.0 (#11602)
+* Optimize commands returning double values, mainly affecting zset commands (#11093)
+* Optimize Lua parsing of some command responses (#11556)
+* Optimize client memory usage tracking operation while client eviction is disabled (#11348)
+
+Platform / toolchain support related improvements
+=================================================
+
+* Fix compilation on Solaris (#11327)
+
+Module API changes
+==================
+
+* RM_SetContextUser, RM_SetModuleUserACLString, RM_GetModuleUserACLString (#10966)
+* Fix crash in CLIENT_CHANGE event, when the selected database is not 0 (#11500)
+
+Changes in CLI tools
+====================
+
+* redis-benchmark avoid aborting on NOPERM from CONFIG GET (#11096)
+
+Bug Fixes
+=========
+
+* Avoid hang of diskless replication fork child when parent crashes (#11463)
+* Fix crash with module API of list iterator and RM_ListDelete (#11383)
+* Fix TLS error handling to avoid connection drops on timeouts (#11563)
+* Fix runtime changes to cluster-announce-*-port to take effect on the local node too (#10745)
+* Fix sentinel function that compares hostnames if failed resolve (#11419)
+* Fix MIGRATE with AUTH set to "keys" is getting wrong key names leading to MOVED or ACL errors (#11253)
+
+Fixes for issues in previous releases of Redis 7.0
+--------------------------------------------------
+
+* Fix command line startup --sentinel problem (#11591)
+* Fis missing FCALL commands in monitor (#11510)
+* Fix CLUSTER SHARDS showing empty hostname (#11297)
+* Replica that asks for rdb-only could have missed the EOF and hang (#11296)
+
 
 ================================================================================
 Redis 7.0.5 Released Wed Sep 21 20:00:00 IST 2022
