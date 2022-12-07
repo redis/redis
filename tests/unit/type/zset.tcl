@@ -2481,28 +2481,74 @@ start_server {tags {"zset"}} {
     } {1.7976931348623157e+308}
 
     test {zunionInterDiffGenericCommand acts on SET and ZSET} {
-        # Test one key is big and one key is small separately.
-        # The first one test zdiff, zdiffstore with listpack encoded set.
-        # The second one test zinter, zinterstore, zintercard, zdiff, zdiffstore with listpack encoded set.
-        foreach {big_key small_key zset_entries set_entries} {
-            zset{t} set{t} {1 a 2 b 3 c 4 d} {a b c}
-            set{t} zset{t} {1 a 2 b 3 c} {a b c d}
-        } {
-            r del zset{t} zset2{t} set{t}
+        r del set_small{t} set_big{t} zset_small{t} zset_big{t} zset_dest{t}
 
-            foreach {score entry} $zset_entries { r zadd zset{t} $score $entry }
-            foreach entry $set_entries { r sadd set{t} $entry }
+        foreach set_type {intset listpack hashtable} {
+            r config set set-max-listpack-entries 128
+            r del set_small{t} set_big{t}
+            r sadd set_small{t} 1 2 3
+            r sadd set_big{t} 1 2 3 4 5
 
-            assert_equal {a b c d} [lsort [r zunion 2 zset{t} set{t}]]
-            assert_equal {4} [r zunionstore zset2{t} 2 zset{t} set{t}]
-            assert_equal {a b c} [lsort [r zinter 2 zset{t} set{t}]]
-            assert_equal {3} [r zinterstore zset2{t} 2 zset{t} set{t}]
-            assert_equal {3} [r zintercard 2 zset{t} set{t}]
+            if {$set_type == "intset"} {
+                assert_encoding intset set_small{t}
+                assert_encoding intset set_big{t}
+            } elseif {$set_type == "listpack"} {
+                r sadd set_small{t} a
+                r srem set_small{t} a
+                r sadd set_big{t} a
+                r srem set_big{t} a
+                assert_encoding listpack set_small{t}
+                assert_encoding listpack set_big{t}
+            } elseif {$set_type == "hashtable"} {
+                r config set set-max-listpack-entries 0
+                r sadd set_small{t} a
+                r srem set_small{t} a
+                r sadd set_big{t} a
+                r srem set_big{t} a
+                assert_encoding hashtable set_small{t}
+                assert_encoding hashtable set_big{t}
+            }
 
-            assert_equal {d} [lsort [r zdiff 2 $big_key $small_key]]
-            assert_equal {1} [r zdiffstore zset2{t} 2 $big_key $small_key]
-            assert_equal {} [r zdiff 2 $small_key $big_key]
-            assert_equal {0} [r zdiffstore zset2{t} 2 $small_key $big_key]
+            foreach zset_type {listpack skiplist} {
+                r config set zset-max-listpack-entries 128
+                r del zset_small{t} zset_big{t}
+
+                if {$zset_type == "skiplist"} { r config set zset-max-listpack-entries 0 }
+
+                r zadd zset_small{t} 1 1 2 2 3 3
+                r zadd zset_big{t} 1 1 2 2 3 3 4 4 5 5
+
+                if {$zset_type == "listpack"} {
+                    assert_encoding listpack zset_small{t}
+                    assert_encoding listpack zset_big{t}
+                } elseif {$zset_type == "skiplist"} {
+                    assert_encoding skiplist zset_small{t}
+                    assert_encoding skiplist zset_big{t}
+                }
+
+                # Test one key is big and one key is small separately.
+                foreach {small_or_big set_key zset_key} {
+                    small set_small{t} zset_big{t}
+                    big set_big{t} zset_small{t}
+                } {
+                    assert_equal {1 2 3 4 5} [lsort [r zunion 2 $set_key $zset_key]]
+                    assert_equal {5} [r zunionstore zset_dest{t} 2 $set_key $zset_key]
+                    assert_equal {1 2 3} [lsort [r zinter 2 $set_key $zset_key]]
+                    assert_equal {3} [r zinterstore zset_dest{t} 2 $set_key $zset_key]
+                    assert_equal {3} [r zintercard 2 $set_key $zset_key]
+
+                    if {$small_or_big == "small"} {
+                        assert_equal {} [r zdiff 2 $set_key $zset_key]
+                        assert_equal {0} [r zdiffstore zset_dest{t} 2 $set_key $zset_key]
+                    } else {
+                        assert_equal {4 5} [lsort [r zdiff 2 $set_key $zset_key]]
+                        assert_equal {2} [r zdiffstore zset_dest{t} 2 $set_key $zset_key]
+                    }
+                }
+            }
         }
+
+        r config set set-max-listpack-entries 128
+        r config set zset-max-listpack-entries 128
     }
 }
