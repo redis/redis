@@ -3,6 +3,7 @@ ror-1.0.2 Released Tue Nov 29 17:05:48 CST 2022
 ================================================================================
 * [fix] eval/evalsha intention flags changed to INTENTION_IN_DEL.
 * [opt] gtid re-orgnized as a submodule
+* [opt] lock refactor: don't promote lock level.
 
 ================================================================================
 ror-1.0.1 Released Mon Nov 14 10:59:48 CST 2022

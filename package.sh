@@ -7,7 +7,7 @@ XREDIS_NAME=xredis-ror
 REDIS_VERSION=$(cat ${SCRIPT_DIR}/src/version.h| grep -w REDIS_VERSION | awk -F \" '{print $2}')
 XREDIS_VERSION=$(cat ${SCRIPT_DIR}/src/ctrip.h| grep -w XREDIS_VERSION | awk -F \" '{print $2}')
 SWAP_VERSION=$(cat ${SCRIPT_DIR}/src/version.h| grep -w SWAP_VERSION | awk -F \" '{print $2}')
-PKG_COMPILE_COUNT="0"
+PKG_COMPILE_COUNT="1"
 PKG_VERSION="$REDIS_VERSION-$XREDIS_VERSION-$SWAP_VERSION-$PKG_COMPILE_COUNT"
 
 OSRELEASE=""

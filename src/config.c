@@ -2565,7 +2565,7 @@ standardConfig configs[] = {
     createIntConfig("swap-evict-inprogress-limit", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.swap_evict_inprogress_limit, 128, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("swap-evict-inprogress-growth-rate", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.swap_evict_inprogress_growth_rate, 5*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.max_open_files", NULL, IMMUTABLE_CONFIG, -1, INT_MAX, server.rocksdb_max_open_files, -1, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("rocksdb.max_write_buffer_number", NULL, IMMUTABLE_CONFIG, 1, 256, server.rocksdb_max_write_buffer_number, 6, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.max_write_buffer_number", NULL, IMMUTABLE_CONFIG, 1, 256, server.rocksdb_max_write_buffer_number, 3, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.max_background_compactions", NULL, IMMUTABLE_CONFIG, 1, 64, server.rocksdb_max_background_compactions, 4, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.max_background_flushes", NULL, IMMUTABLE_CONFIG, -1, 64, server.rocksdb_max_background_flushes, -1, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.max_subcompactions", NULL, IMMUTABLE_CONFIG, 1, 64, server.rocksdb_max_subcompactions, 1, INTEGER_CONFIG, NULL, NULL),
