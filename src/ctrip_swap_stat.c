@@ -173,6 +173,7 @@ sds genSwapInfoString(sds info) {
     info = genSwapHitInfoString(info);
     info = genSwapExecInfoString(info);
     info = genSwapLockInfoString(info);
+    info = genSwapReplInfoString(info);
     return info;
 }
 

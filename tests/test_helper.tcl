@@ -29,7 +29,7 @@ set ::disk_tests {
     swap/ported/other
     swap/ported/stream-cgroups
     swap/ported/stream
-    swap/ported/replication-3 
+    swap/ported/replication-3
     swap/ported/rdb
     swap/ported/multi
     swap/ported/block-repl
@@ -37,6 +37,7 @@ set ::disk_tests {
     swap/ported/replication-4
     swap/unit/swap_mode
     swap/unit/dbsize
+    swap/unit/lock
     swap/unit/list
     swap/unit/dirty
     swap/unit/expire

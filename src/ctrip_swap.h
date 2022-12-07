@@ -145,7 +145,7 @@ typedef struct argRewriteRequest {
 static inline void argRewriteRequestInit(argRewriteRequest *arg_req) {
   arg_req->mstate_idx = -1;
   arg_req->arg_idx = -1;
-} 
+}
 
 typedef struct keyRequest{
   int dbid;
@@ -446,7 +446,7 @@ static inline int swapDataIsHot(swapData *data) {
 }
 static inline objectMeta *swapDataObjectMeta(swapData *d) {
     serverAssert(
-        !(d->object_meta && d->new_meta) || 
+        !(d->object_meta && d->new_meta) ||
         !(d->object_meta && d->cold_meta) ||
         !(d->new_meta && d->cold_meta));
 
@@ -1150,6 +1150,7 @@ char *rocksdbVersion(void);
 
 /* Repl */
 int submitReplClientRequests(client *c);
+sds genSwapReplInfoString(sds info);
 
 /* Swap */
 void swapInit(void);

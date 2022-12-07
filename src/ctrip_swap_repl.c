@@ -217,7 +217,7 @@ static void processFinishedReplCommands() {
     }
     serverLog(LL_DEBUG, "< processFinishedReplCommands");
 }
-     
+
 void replWorkerClientKeyRequestFinished(client *wc, swapCtx *ctx) {
     client *c;
     listNode *ln;
@@ -355,3 +355,11 @@ int submitReplClientRequests(client *c) {
     return -1;
 }
 
+sds genSwapReplInfoString(sds info) {
+    info = sdscatprintf(info,
+            "swap_repl_workers:free=%lu,used=%lu,swapping=%lu\r\n",
+            listLength(server.repl_worker_clients_free),
+            listLength(server.repl_worker_clients_used),
+            listLength(server.repl_swapping_clients));
+    return info;
+}
