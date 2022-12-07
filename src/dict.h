@@ -56,6 +56,12 @@ typedef struct dictType {
     void (*keyDestructor)(dict *d, void *key);
     void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
+    /* Flags */
+    /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
+     * dict is a set. When this flag is set, it's not possible to access the
+     * value of a dictEntry and it's also impossible to use dictSetKey(). Entry
+     * metadata can also not be used. */
+    unsigned int no_value:1;
     /* Allow each dict and dictEntry to carry extra caller-defined metadata. The
      * extra memory is initialized to 0 when allocated. */
     size_t (*dictEntryMetadataBytes)(dict *d);
@@ -146,6 +152,8 @@ int dictTryExpand(dict *d, unsigned long size);
 void *dictMetadata(dict *d);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
+long dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing);
+dictEntry *dictInsertAtIndex(dict *d, void *key, long index);
 dictEntry *dictAddOrFind(dict *d, void *key);
 int dictReplace(dict *d, void *key, void *val);
 int dictDelete(dict *d, const void *key);

@@ -127,17 +127,16 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
         /* Avoid duping the string if it is an sds string. */
         sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
         dict *ht = set->ptr;
-        dictEntry *de = dictAddRaw(ht,sdsval,NULL);
-        if (de && sdsval == str) {
-            /* String was added but we don't own this sds string. Dup it and
-             * replace it in the dict entry. */
-            dictSetKey(ht,de,sdsdup((sds)str));
-            dictSetVal(ht,de,NULL);
-        } else if (!de && sdsval != str) {
-            /* String was already a member. Free our temporary sds copy. */
+        long index = dictKeyIndex(ht, sdsval, dictHashKey(ht, sdsval), NULL);
+        if (index >= 0) {
+            /* Key doesn't already exist in the set. Add it but dup the key. */
+            if (sdsval == str) sdsval = sdsdup(sdsval);
+            dictInsertAtIndex(ht, sdsval, index);
+        } else if (sdsval != str) {
+            /* String is already a member. Free our temporary sds copy. */
             sdsfree(sdsval);
         }
-        return (de != NULL);
+        return (index >= 0);
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
@@ -1118,6 +1117,7 @@ void srandmemberWithCountCommand(client *c) {
         while (size > count) {
             dictEntry *de;
             de = dictGetFairRandomKey(d);
+            /* dictDelete(d, dictGetKey(de)); */
             dictUnlink(d,dictGetKey(de));
             sdsfree(dictGetKey(de));
             dictFreeUnlinkedEntry(d,de);
