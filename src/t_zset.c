@@ -2257,10 +2257,9 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
         return 0;
 
     if (op->type == OBJ_SET) {
-        zuiSdsFromValue(val);
-        /* There is no reason for zuiFind to go into the internals of the SET.
-         * It can simply use setTypeIsMember and don't care about encoding. */
-        if (setTypeIsMember(op->subject, val->ele)) {
+        char *str = val->ele ? val->ele : (char *)val->estr;
+        size_t len = val->ele ? sdslen(val->ele) : val->elen;
+        if (setTypeIsMemberAux(op->subject, str, len, val->ell, val->ele != NULL)) {
             *score = 1.0;
             return 1;
         } else {

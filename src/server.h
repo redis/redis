@@ -3014,6 +3014,7 @@ robj *setTypeCreate(sds value);
 int setTypeAdd(robj *subject, sds value);
 int setTypeRemove(robj *subject, sds value);
 int setTypeIsMember(robj *subject, sds value);
+int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 setTypeIterator *setTypeInitIterator(robj *subject);
 void setTypeReleaseIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);

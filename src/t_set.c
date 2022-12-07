@@ -33,7 +33,6 @@
 
 int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
-int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 
 /*-----------------------------------------------------------------------------
  * Set Commands
