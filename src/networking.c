@@ -1970,7 +1970,7 @@ int writeToClient(client *c, int handler_installed) {
      * Since this isn't thread safe we do this conditionally. In case of threaded writes this is done in
      * handleClientsWithPendingWritesUsingThreads(). */
     if (io_threads_op == IO_THREADS_OP_IDLE)
-        updateClientMemUsage(c);
+        updateClientMemUsageAndBucket(c);
     return C_OK;
 }
 
@@ -2420,7 +2420,7 @@ int processCommandAndResetClient(client *c) {
         commandProcessed(c);
         /* Update the client's memory to include output buffer growth following the
          * processed command. */
-        updateClientMemUsage(c);
+        updateClientMemUsageAndBucket(c);
     }
 
     if (server.current_client == NULL) deadclient = 1;
@@ -2557,7 +2557,7 @@ int processInputBuffer(client *c) {
      * important in case the query buffer is big and wasn't drained during
      * the above loop (because of partially sent big commands). */
     if (io_threads_op == IO_THREADS_OP_IDLE)
-        updateClientMemUsage(c);
+        updateClientMemUsageAndBucket(c);
 
     return C_OK;
 }
@@ -2995,9 +2995,11 @@ NULL
         /* CLIENT NO-EVICT ON|OFF */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
             c->flags |= CLIENT_NO_EVICT;
+            removeClientFromMemUsageBucket(c, 0);
             addReply(c,shared.ok);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             c->flags &= ~CLIENT_NO_EVICT;
+            updateClientMemUsageAndBucket(c);
             addReply(c,shared.ok);
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
@@ -4228,7 +4230,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         client *c = listNodeValue(ln);
 
         /* Update the client in the mem usage after we're done processing it in the io-threads */
-        updateClientMemUsage(c);
+        updateClientMemUsageAndBucket(c);
 
         /* Install the write handler if there are pending writes in some
          * of the clients. */
@@ -4337,7 +4339,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         }
 
         /* Once io-threads are idle we can update the client in the mem usage */
-        updateClientMemUsage(c);
+        updateClientMemUsageAndBucket(c);
 
         if (processPendingCommandAndInputBuffer(c) == C_ERR) {
             /* If the client is no longer valid, we avoid
@@ -4384,6 +4386,8 @@ size_t getClientEvictionLimit(void) {
 }
 
 void evictClients(void) {
+    if (!server.client_mem_usage_buckets)
+        return;
     /* Start eviction from topmost bucket (largest clients) */
     int curr_bucket = CLIENT_MEM_USAGE_BUCKETS-1;
     listIter bucket_iter;
