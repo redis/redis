@@ -465,7 +465,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
         while ((ln = listNext(&li)) != NULL) {
             client *c = ln->value;
             addReplyPubsubMessage(c,channel,message,*type.messageBulk);
-            updateClientMemUsage(c);
+            updateClientMemUsageAndBucket(c);
             receivers++;
         }
     }
@@ -491,7 +491,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
             while ((ln = listNext(&li)) != NULL) {
                 client *c = listNodeValue(ln);
                 addReplyPubsubPatMessage(c,pattern,channel,message);
-                updateClientMemUsage(c);
+                updateClientMemUsageAndBucket(c);
                 receivers++;
             }
         }
