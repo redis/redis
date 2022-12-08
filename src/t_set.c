@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+#include "intset.h"  /* Compact integer set structure */
 
 /*-----------------------------------------------------------------------------
  * Set Commands
