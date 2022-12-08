@@ -9877,7 +9877,7 @@ int RM_ExportSharedAPI(RedisModuleCtx *ctx, const char *apiname, void *func) {
  *         static int api_loaded = 0;
  *         if (api_loaded != 0) return 1; // APIs already resolved.
  *
- *         myFunctionPointer = RedisModule_GetOtherModuleAPI("...");
+ *         myFunctionPointer = RedisModule_GetSharedAPI("...");
  *         if (myFunctionPointer == NULL) return 0;
  *
  *         return 1;
