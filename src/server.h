@@ -3270,6 +3270,7 @@ void initClientBlockingState(client *c);
 void blockClient(client *c, int btype);
 void unblockClient(client *c);
 void unblockClientOnTimeout(client *c);
+void unblockClientOnError(client *c, const char *err_str);
 void queueClientForReprocessing(client *c);
 void replyToBlockedClientTimedOut(client *c);
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit);

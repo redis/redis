@@ -103,6 +103,8 @@ void blockClient(client *c, int btype) {
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors){
     const ustime_t total_cmd_duration = c->duration + blocked_us + reply_us;
     c->lastcmd->microseconds += total_cmd_duration;
+    c->lastcmd->calls++;
+    server.stat_numcommands++;
     if (had_errors)
         c->lastcmd->failed_calls++;
     if (server.latency_tracking_enabled)
@@ -111,6 +113,11 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_err
     slowlogPushCurrentCommand(c, c->lastcmd, total_cmd_duration);
     /* Log the reply duration event. */
     latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
+    if (!(c->lastcmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
+        robj **argv = c->original_argv ? c->original_argv : c->argv;
+        int argc = c->original_argv ? c->original_argc : c->argc;
+        replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
+    }
 }
 
 /* This function is called in the beforeSleep() function of the event loop
@@ -213,6 +220,7 @@ void replyToBlockedClientTimedOut(client *c) {
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM) {
         addReplyNullArray(c);
+        updateStatsOnUnblock(c, 0, 0, 0);
     } else if (c->bstate.btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bstate.reploffset));
     } else if (c->bstate.btype == BLOCKED_MODULE) {
@@ -617,9 +625,8 @@ static void unblockClientOnKey(client *c, robj *key) {
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
         c->flags |= CLIENT_REPROCESSING_COMMAND;
-        processCommandAndResetClient(c);
         /* Potentially this client might have been evicted */
-        if (server.current_client != NULL)
+        if (processCommandAndResetClient(c) == C_OK)
             c->flags &= ~CLIENT_REPROCESSING_COMMAND;
     }
 }
@@ -649,10 +656,23 @@ static void moduleUnblockClientOnKey(client *c, robj *key) {
 }
 
 /* Unblock a client which is currently Blocked on and provided a timeout.
+ * The implementation will first reply to the blocked client with null response
+ * or, in case of module blocked client the timeout callback will be used.
  * In this case since we might have a command pending
  * we want to remove the pending flag to indicate we already responded to the
  * command with timeout reply. */
 void unblockClientOnTimeout(client *c) {
+    replyToBlockedClientTimedOut(c);
+    if (c->flags & CLIENT_PENDING_COMMAND)
+        c->flags &= ~CLIENT_PENDING_COMMAND;
+    unblockClient(c);
+}
+
+/* Unblock a client which is currently Blocked with error.
+ * The err_str will be used to reply to the vlocked client */
+void unblockClientOnError(client *c, const char *err_str) {
+    addReplyError(c, err_str);
+    updateStatsOnUnblock(c, 0, 0, 1);
     if (c->flags & CLIENT_PENDING_COMMAND)
         c->flags &= ~CLIENT_PENDING_COMMAND;
     unblockClient(c);

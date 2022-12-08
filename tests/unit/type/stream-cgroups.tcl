@@ -223,7 +223,7 @@ start_server {
         r XDEL mystream 667
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 10 STREAMS mystream ">"
-        after 20
+        wait_for_blocked_clients_count 0
         assert {[$rd read] == {}} ;# before the fix, client didn't even block, but was served synchronously with {mystream {}}
         $rd close
     }
@@ -234,6 +234,7 @@ start_server {
         r XGROUP CREATE mystream mygroup $
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r DEL mystream
         assert_error "NOGROUP*" {$rd read}
         $rd close
@@ -245,6 +246,7 @@ start_server {
         r XGROUP CREATE mystream mygroup $
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r SET mystream val1
         assert_error "*WRONGTYPE*" {$rd read}
         $rd close
@@ -256,6 +258,7 @@ start_server {
         r XGROUP CREATE mystream mygroup $
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r MULTI
         r DEL mystream
         r SADD mystream e1
@@ -270,6 +273,7 @@ start_server {
         r XGROUP CREATE mystream mygroup $
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r FLUSHALL
         assert_error "*NOGROUP*" {$rd read}
         $rd close
@@ -286,6 +290,7 @@ start_server {
         $rd SELECT 9
         $rd read
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r SWAPDB 4 9
         assert_error "*NOGROUP*" {$rd read}
         $rd close
@@ -303,6 +308,7 @@ start_server {
         $rd SELECT 9
         $rd read
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r SWAPDB 4 9
         assert_error "*WRONGTYPE*" {$rd read}
         $rd close
@@ -313,6 +319,7 @@ start_server {
         r XADD mystream 666 f v
         set rd [redis_deferring_client]
         $rd XREAD BLOCK 0 STREAMS mystream "$"
+        wait_for_blocked_clients_count 1
         r DEL mystream
 
         r XADD mystream 667 f v
@@ -326,6 +333,7 @@ start_server {
         r XADD mystream 666 f v
         set rd [redis_deferring_client]
         $rd XREAD BLOCK 0 STREAMS mystream "$"
+        wait_for_blocked_clients_count 1
         r SET mystream val1
 
         r DEL mystream

@@ -3459,7 +3459,7 @@ void call(client *c, int flags) {
     /* Send the command to clients in MONITOR mode if applicable,
      * unless the client is unblocked and retring to process the command.
      * Administrative commands are considered too dangerous to be shown. */
-    if (!(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)) && !(c->flags & CLIENT_REPROCESSING_COMMAND)) {
+    if (!(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)) && !(c->flags & CLIENT_BLOCKED)) {
         robj **argv = c->original_argv ? c->original_argv : c->argv;
         int argc = c->original_argv ? c->original_argc : c->argc;
         replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
@@ -3471,15 +3471,9 @@ void call(client *c, int flags) {
         freeClientOriginalArgv(c);
 
     /* populate the per-command statistics that we show in INFO commandstats. */
-    if (flags & CMD_CALL_STATS) {
-        /* We want to increment the number of calls stats only once.
-         * why? because the blocked command can also be timedout or cancel, and we would still
-         * want to count for it. however we do want to accumulate the command processing time
-         * only after it is unblocked. */
-        if (!(c->flags & CLIENT_REPROCESSING_COMMAND))
-            real_cmd->calls++;
-
-        real_cmd->microseconds += duration;
+    if (flags & CMD_CALL_STATS && !(c->flags & CLIENT_BLOCKED)) {
+        real_cmd->calls++;
+        real_cmd->microseconds += c->duration;
         /* If the client is blocked we will handle latency stats and duration when it is unblocked. */
         if (server.latency_tracking_enabled && !(c->flags & CLIENT_BLOCKED))
             updateCommandLatencyHistogram(&(real_cmd->latency_histogram), c->duration*1000);
@@ -3543,7 +3537,7 @@ void call(client *c, int flags) {
         }
     }
 
-    if (!(c->flags & CLIENT_REPROCESSING_COMMAND))
+    if (!(c->flags & CLIENT_BLOCKED))
         server.stat_numcommands++;
 
     /* Record peak memory after each command and before the eviction that runs

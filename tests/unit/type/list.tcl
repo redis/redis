@@ -2252,13 +2252,12 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         # block a client on the list
         $rd BLPOP mylist 0
         wait_for_blocked_clients_count 1
-        assert {[regexp {calls=1,usec=([0-9]+),.*,rejected_calls=0,failed_calls=0} [cmdrstat blpop r] - duration_before]}
         
         # unblock the list
         r LPUSH mylist 1
         wait_for_blocked_clients_count 0
-        assert {[regexp {calls=1,usec=([0-9]+),.*,rejected_calls=0,failed_calls=0} [cmdrstat blpop r] - duration_after]}
-        assert_lessthan $duration_before $duration_after
+        
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdrstat blpop r]
         
         $rd close
     }

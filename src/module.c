@@ -7758,6 +7758,8 @@ void moduleBlockedClientTimedOut(client *c) {
     moduleFreeContext(&ctx);
     if (!bc->blocked_on_keys) {
         updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
+    } else {
+        updateStatsOnUnblock(c, 0, 0, server.stat_total_error_replies != prev_error_replies);
     }
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in

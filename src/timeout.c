@@ -40,7 +40,6 @@ int checkBlockedClientTimeout(client *c, mstime_t now) {
         && c->bstate.timeout < now)
     {
         /* Handle blocking operation specific timeout. */
-        replyToBlockedClientTimedOut(c);
         unblockClientOnTimeout(c);
         return 1;
     } else {

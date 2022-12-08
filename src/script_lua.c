@@ -980,6 +980,7 @@ cleanup:
     freeLuaRedisArgv(c->argv, c->argc);
     c->argc = c->argv_len = 0;
     c->user = NULL;
+    c->duration = 0;
     c->argv = NULL;
     freeClientArgv(c);
     inuse--;

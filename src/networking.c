@@ -2439,9 +2439,11 @@ int processCommandAndResetClient(client *c) {
 int processPendingCommandAndInputBuffer(client *c) {
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
+        c->flags |= CLIENT_REPROCESSING_COMMAND;
         if (processCommandAndResetClient(c) == C_ERR) {
             return C_ERR;
         }
+        c->flags &= ~CLIENT_REPROCESSING_COMMAND;
     }
 
     /* Now process client if it has more data in it's buffer.
@@ -3125,12 +3127,11 @@ NULL
          * it also doesn't expect to be unblocked by CLIENT UNBLOCK */
         if (target && target->flags & CLIENT_BLOCKED && moduleBlockedClientMayTimeout(target)) {
             if (unblock_error)
-                addReplyError(target,
+                unblockClientOnError(target,
                     "-UNBLOCKED client unblocked via CLIENT UNBLOCK");
             else
-                replyToBlockedClientTimedOut(target);
-            unblockClientOnTimeout(target);
-            updateStatsOnUnblock(target, 0, 0, 1);
+                unblockClientOnTimeout(target);
+
             addReply(c,shared.cone);
         } else {
             addReply(c,shared.czero);
