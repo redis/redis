@@ -947,10 +947,16 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
     } else if (o->type == OBJ_SET) {
+        char *str;
+        size_t len;
+        int64_t llele;
         setTypeIterator *si = setTypeInitIterator(o);
-        sds sdsele;
-        while ((sdsele = setTypeNextObject(si)) != NULL) {
-            listAddNodeTail(keys, createObject(OBJ_STRING, sdsele));
+        while (setTypeNext(si, &str, &len, &llele) != -1) {
+            if (str == NULL) {
+                listAddNodeTail(keys, createStringObjectFromLongLong(llele));
+            } else {
+                listAddNodeTail(keys, createStringObject(str, len));
+            }
         }
         setTypeReleaseIterator(si);
         cursor = 0;
