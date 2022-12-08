@@ -850,6 +850,15 @@ void addReplyDouble(client *c, double d) {
             addReplyProto(c, d > 0 ? ",inf\r\n" : ",-inf\r\n",
                               d > 0 ? 6 : 7);
         }
+    } else if (isnan(d)) {
+        /* Libc in some systems will format nan in a different way,
+         * like nan, -nan, NAN, nan(char-sequence).
+         * So we normalize it and create a single nan form in an explicit way. */
+        if (c->resp == 2) {
+            addReplyBulkCString(c, "nan");
+        } else {
+            addReplyProto(c, ",nan\r\n", 6);
+        }
     } else {
         char dbuf[MAX_LONG_DOUBLE_CHARS+32];
         int dlen = 0;
@@ -864,7 +873,7 @@ void addReplyDouble(client *c, double d) {
             dbuf[start] = '$';
 
             /* Convert `dlen` to string, putting it's digits after '$' and before the
-	     * formatted double string. */
+             * formatted double string. */
             for(int i = digits, val = dlen; val && i > 0 ; --i, val /= 10) {
                 dbuf[start + i] = "0123456789"[val % 10];
             }

@@ -779,6 +779,13 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
             memcpy(buf,"-inf",4);
             l = 4;
         }
+    } else if (isnan(value)) {
+        /* Libc in some systems will format nan in a different way,
+         * like nan, -nan, NAN, nan(char-sequence).
+         * So we normalize it and create a single nan form in an explicit way. */
+        if (len < 4) goto err; /* No room. 4 is "nan\0" */
+        memcpy(buf, "nan", 3);
+        l = 3;
     } else {
         switch (mode) {
         case LD_STR_AUTO:
@@ -1253,6 +1260,17 @@ static void test_ll2string(void) {
     assert(!strcmp(buf, "9223372036854775807"));
 }
 
+static void test_ld2string(void) {
+    char buf[32];
+    long double v;
+    int sz;
+
+    v = 0.0 / 0.0;
+    sz = ld2string(buf, sizeof(buf), v, LD_STR_AUTO);
+    assert(sz == 3);
+    assert(!strcmp(buf, "nan"));
+}
+
 static void test_fixedpoint_d2string(void) {
     char buf[32];
     double v;
@@ -1309,6 +1327,7 @@ int utilTest(int argc, char **argv, int flags) {
     test_string2ll();
     test_string2l();
     test_ll2string();
+    test_ld2string();
     test_fixedpoint_d2string();
     return 0;
 }
