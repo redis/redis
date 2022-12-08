@@ -873,7 +873,7 @@ void addReplyDouble(client *c, double d) {
             dbuf[start] = '$';
 
             /* Convert `dlen` to string, putting it's digits after '$' and before the
-	         * formatted double string. */
+             * formatted double string. */
             for(int i = digits, val = dlen; val && i > 0 ; --i, val /= 10) {
                 dbuf[start + i] = "0123456789"[val % 10];
             }
