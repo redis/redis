@@ -946,14 +946,21 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         } while (cursor &&
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
-    } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_INTSET) {
-        int pos = 0;
-        int64_t ll;
-
-        while(intsetGet(o->ptr,pos++,&ll))
-            listAddNodeTail(keys,createStringObjectFromLongLong(ll));
+    } else if (o->type == OBJ_SET) {
+        char *str;
+        size_t len;
+        int64_t llele;
+        setTypeIterator *si = setTypeInitIterator(o);
+        while (setTypeNext(si, &str, &len, &llele) != -1) {
+            if (str == NULL) {
+                listAddNodeTail(keys, createStringObjectFromLongLong(llele));
+            } else {
+                listAddNodeTail(keys, createStringObject(str, len));
+            }
+        }
+        setTypeReleaseIterator(si);
         cursor = 0;
-    } else if ((o->type == OBJ_HASH || o->type == OBJ_ZSET || o->type == OBJ_SET) &&
+    } else if ((o->type == OBJ_HASH || o->type == OBJ_ZSET) &&
                o->encoding == OBJ_ENCODING_LISTPACK)
     {
         unsigned char *p = lpFirst(o->ptr);

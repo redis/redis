@@ -2480,4 +2480,83 @@ start_server {tags {"zset"}} {
         r zscore zz dblmax
     } {1.7976931348623157e+308}
 
+    test {zunionInterDiffGenericCommand acts on SET and ZSET} {
+        r del set_small{t} set_big{t} zset_small{t} zset_big{t} zset_dest{t}
+
+        foreach set_type {intset listpack hashtable} {
+            # Restore all default configurations before each round of testing.
+            r config set set-max-intset-entries 512
+            r config set set-max-listpack-entries 128
+            r config set zset-max-listpack-entries 128
+
+            r del set_small{t} set_big{t}
+
+            if {$set_type == "intset"} {
+                r sadd set_small{t} 1 2 3
+                r sadd set_big{t} 1 2 3 4 5
+                assert_encoding intset set_small{t}
+                assert_encoding intset set_big{t}
+            } elseif {$set_type == "listpack"} {
+                # Add an "a" and then remove it, make sure the set is listpack encoding.
+                r sadd set_small{t} a 1 2 3
+                r sadd set_big{t} a 1 2 3 4 5
+                r srem set_small{t} a
+                r srem set_big{t} a
+                assert_encoding listpack set_small{t}
+                assert_encoding listpack set_big{t}
+            } elseif {$set_type == "hashtable"} {
+                r config set set-max-intset-entries 0
+                r config set set-max-listpack-entries 0
+                r sadd set_small{t} 1 2 3
+                r sadd set_big{t} 1 2 3 4 5
+                assert_encoding hashtable set_small{t}
+                assert_encoding hashtable set_big{t}
+            }
+
+            foreach zset_type {listpack skiplist} {
+                r del zset_small{t} zset_big{t}
+
+                if {$zset_type == "listpack"} {
+                    r zadd zset_small{t} 1 1 2 2 3 3
+                    r zadd zset_big{t} 1 1 2 2 3 3 4 4 5 5
+                    assert_encoding listpack zset_small{t}
+                    assert_encoding listpack zset_big{t}
+                } elseif {$zset_type == "skiplist"} {
+                    r config set zset-max-listpack-entries 0
+                    r zadd zset_small{t} 1 1 2 2 3 3
+                    r zadd zset_big{t} 1 1 2 2 3 3 4 4 5 5
+                    assert_encoding skiplist zset_small{t}
+                    assert_encoding skiplist zset_big{t}
+                }
+
+                # Test one key is big and one key is small separately.
+                # The reason for this is because we will sort the sets from smallest to largest.
+                # So set one big key and one small key, then the test can cover more code paths.
+                foreach {small_or_big set_key zset_key} {
+                    small set_small{t} zset_big{t}
+                    big set_big{t} zset_small{t}
+                } {
+                    # The result of these commands are not related to the order of the keys.
+                    assert_equal {1 2 3 4 5} [lsort [r zunion 2 $set_key $zset_key]]
+                    assert_equal {5} [r zunionstore zset_dest{t} 2 $set_key $zset_key]
+                    assert_equal {1 2 3} [lsort [r zinter 2 $set_key $zset_key]]
+                    assert_equal {3} [r zinterstore zset_dest{t} 2 $set_key $zset_key]
+                    assert_equal {3} [r zintercard 2 $set_key $zset_key]
+
+                    # The result of sdiff is related to the order of the keys.
+                    if {$small_or_big == "small"} {
+                        assert_equal {} [r zdiff 2 $set_key $zset_key]
+                        assert_equal {0} [r zdiffstore zset_dest{t} 2 $set_key $zset_key]
+                    } else {
+                        assert_equal {4 5} [lsort [r zdiff 2 $set_key $zset_key]]
+                        assert_equal {2} [r zdiffstore zset_dest{t} 2 $set_key $zset_key]
+                    }
+                }
+            }
+        }
+
+        r config set set-max-intset-entries 512
+        r config set set-max-listpack-entries 128
+        r config set zset-max-listpack-entries 128
+    }
 }
