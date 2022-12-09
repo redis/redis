@@ -41,6 +41,9 @@
 
 #define REDIS_TEST_ACCURATE     (1<<0)
 #define REDIS_TEST_LARGE_MEMORY (1<<1)
+#define REDIS_TEST_BENCHMARK    (1<<2)
+#define REDIS_TEST_FUZZ_CLUSTER (1<<3)
+#define REDIS_TEST_HUGE_KEY     (1<<4)
 
 extern int __failed_tests;
 extern int __test_num;

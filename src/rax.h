@@ -131,9 +131,10 @@ typedef struct raxNode {
 } raxNode;
 
 typedef struct rax {
-    raxNode *head;
-    uint64_t numele;
-    uint64_t numnodes;
+    raxNode *head;         /* Pointer to root node of tree */
+    uint64_t numele;       /* Number of keys in the tree */
+    uint64_t numnodes;     /* Number of rax nodes in the tree */
+    size_t alloc;          /* Total allocation size of the tree in bytes */
 } rax;
 
 /* Stack data structure used by raxLowWalk() in order to, optionally, return
@@ -206,6 +207,7 @@ void raxStop(raxIterator *it);
 int raxEOF(raxIterator *it);
 void raxShow(rax *rax);
 uint64_t raxSize(rax *rax);
+size_t raxAllocSize(rax *rax);
 unsigned long raxTouch(raxNode *n);
 void raxSetDebugMsg(int onoff);
 

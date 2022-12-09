@@ -206,6 +206,7 @@ rax *raxNew(void) {
     rax->numele = 0;
     rax->numnodes = 1;
     rax->head = raxNewNode(0,0);
+    rax->alloc = sizeof(rax) + rax_alloc_size(rax->head);
     if (rax->head == NULL) {
         rax_free(rax);
         return NULL;
@@ -523,9 +524,12 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
      * our key. We have just to reallocate the node and make space for the
      * data pointer. */
     if (i == len && (!h->iscompr || j == 0 /* not in the middle if j is 0 */)) {
+        size_t oldalloc = 0;
+
         debugf("### Insert: node representing key exists\n");
         /* Make space for the value pointer if needed. */
         if (!h->iskey || (h->isnull && overwrite)) {
+            oldalloc = rax_alloc_size(h);
             h = raxReallocForData(h,data);
             if (h) memcpy(parentlink,&h,sizeof(h));
         }
@@ -546,6 +550,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
          * will set h->iskey. */
         raxSetData(h,data);
         rax->numele++;
+        rax->alloc = rax->alloc - oldalloc + rax_alloc_size(h);
         return 1; /* Element inserted. */
     }
 
@@ -728,6 +733,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             return 0;
         }
         splitnode->data[0] = h->data[j];
+        rax->alloc += rax_alloc_size(splitnode);
 
         if (j == 0) {
             /* 3a: Replace the old node with the split node. */
@@ -752,6 +758,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             memcpy(parentlink,&trimmed,sizeof(trimmed));
             parentlink = cp; /* Set parentlink to splitnode parent. */
             rax->numnodes++;
+            rax->alloc += rax_alloc_size(trimmed);
         }
 
         /* 4: Create the postfix node: what remains of the original
@@ -766,6 +773,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             raxNode **cp = raxNodeLastChildPtr(postfix);
             memcpy(cp,&next,sizeof(next));
             rax->numnodes++;
+            rax->alloc += rax_alloc_size(postfix);
         } else {
             /* 4b: just use next as postfix node. */
             postfix = next;
@@ -778,6 +786,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         /* 6. Continue insertion: this will cause the splitnode to
          * get a new child (the non common character at the currently
          * inserted key). */
+        rax->alloc -= rax_alloc_size(h);
         rax_free(h);
         h = splitnode;
     } else if (h->iscompr && i == len) {
@@ -818,6 +827,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         raxNode **cp = raxNodeLastChildPtr(postfix);
         memcpy(cp,&next,sizeof(next));
         rax->numnodes++;
+        rax->alloc += rax_alloc_size(postfix);
 
         /* 3: Trim the compressed node. */
         trimmed->size = j;
@@ -830,6 +840,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             void *aux = raxGetData(h);
             raxSetData(trimmed,aux);
         }
+        rax->alloc += rax_alloc_size(trimmed);
 
         /* Fix the trimmed node child pointer to point to
          * the postfix node. */
@@ -839,6 +850,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         /* Finish! We don't need to continue with the insertion
          * algorithm for ALGO 2. The key is already inserted. */
         rax->numele++;
+        rax->alloc -= rax_alloc_size(h);
         rax_free(h);
         return 1; /* Key inserted. */
     }
@@ -847,6 +859,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
      * chars in our string. We need to insert the missing nodes. */
     while(i < len) {
         raxNode *child;
+        size_t oldalloc = rax_alloc_size(h);
 
         /* If this node is going to have a single child, and there
          * are other characters, so that that would result in a chain
@@ -873,14 +886,17 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             i++;
         }
         rax->numnodes++;
+        rax->alloc = rax->alloc - oldalloc + rax_alloc_size(h) + rax_alloc_size(child);
         h = child;
     }
+    size_t oldalloc = rax_alloc_size(h);
     raxNode *newh = raxReallocForData(h,data);
     if (newh == NULL) goto oom;
     h = newh;
     if (!h->iskey) rax->numele++;
     raxSetData(h,data);
     memcpy(parentlink,&h,sizeof(h));
+    rax->alloc = rax->alloc - oldalloc + rax_alloc_size(h);
     return 1; /* Element inserted. */
 
 oom:
@@ -1051,6 +1067,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
             child = h;
             debugf("Freeing child %p [%.*s] key:%d\n", (void*)child,
                 (int)child->size, (char*)child->data, child->iskey);
+            rax->alloc -= rax_alloc_size(child);
             rax_free(child);
             rax->numnodes--;
             h = raxStackPop(&ts);
@@ -1061,7 +1078,9 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
         if (child) {
             debugf("Unlinking child %p from parent %p\n",
                 (void*)child, (void*)h);
+            size_t oldalloc = rax_alloc_size(h);
             raxNode *new = raxRemoveChild(h,child);
+            rax->alloc = rax->alloc - oldalloc + rax_alloc_size(new);
             if (new != h) {
                 raxNode *parent = raxStackPeek(&ts);
                 raxNode **parentlink;
@@ -1072,6 +1091,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
                 }
                 memcpy(parentlink,&new,sizeof(new));
             }
+
 
             /* If after the removal the node has just a single child
              * and is not a key, we need to try to compress it. */
@@ -1180,6 +1200,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
             new->iscompr = 1;
             new->size = comprsize;
             rax->numnodes++;
+            rax->alloc += rax_alloc_size(new);
 
             /* Scan again, this time to populate the new node content and
              * to fix the new node child pointer. At the same time we free
@@ -1192,7 +1213,9 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
                 raxNode **cp = raxNodeLastChildPtr(h);
                 raxNode *tofree = h;
                 memcpy(&h,cp,sizeof(h));
-                rax_free(tofree); rax->numnodes--;
+                rax->alloc -= rax_alloc_size(tofree);
+                rax_free(tofree);
+                rax->numnodes--;
                 if (h->iskey || (!h->iscompr && h->size != 1)) break;
             }
             debugnode("New node",new);
@@ -1799,6 +1822,11 @@ int raxEOF(raxIterator *it) {
 /* Return the number of elements inside the radix tree. */
 uint64_t raxSize(rax *rax) {
     return rax->numele;
+}
+
+/* Return the rax tree allocation size in bytes */
+size_t raxAllocSize(rax *rax) {
+    return rax->alloc;
 }
 
 /* ----------------------------- Introspection ------------------------------ */
