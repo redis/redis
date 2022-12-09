@@ -653,7 +653,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c,shared.cone);
         /* Propagate as PEXPIREAT millisecond-timestamp
          * Only rewrite the command arg if not already PEXPIREAT */
-        if (strcasecmp(c->argv[0],"pexpireat")) {
+        if (strcasecmp(c->argv[0]->ptr,"pexpireat")) {
             rewriteClientCommandArgument(c,0,shared.pexpireat);
         }
 
