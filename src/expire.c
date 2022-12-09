@@ -651,10 +651,19 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     } else {
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
-        /* Propagate as PEXPIREAT millisecond-timestamp */
-        robj *when_obj = createStringObjectFromLongLong(when);
-        rewriteClientCommandVector(c, 3, shared.pexpireat, key, when_obj);
-        decrRefCount(when_obj);
+        /* Propagate as PEXPIREAT millisecond-timestamp
+         * Only rewrite the command arg if not already PEXPIREAT */
+        if (c->cmd->proc != pexpireatCommand) {
+            rewriteClientCommandArgument(c,0,shared.pexpireat);
+        }
+
+        /* Avoid creating a string object when it's the same as argv[2] parameter  */
+        if (basetime != 0 || unit == UNIT_SECONDS) {
+            robj *when_obj = createStringObjectFromLongLong(when);
+            rewriteClientCommandArgument(c,2,when_obj);
+            decrRefCount(when_obj);
+        }
+
         signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
         server.dirty++;
