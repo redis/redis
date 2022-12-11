@@ -3704,15 +3704,6 @@ int processCommand(client *c) {
         return C_ERR;
     }
 
-    /* If we're inside a module blocked context yielding that wants to avoid
-     * processing clients, postpone the command. */
-    if (server.busy_module_yield_flags != BUSY_MODULE_YIELD_NONE &&
-        !(server.busy_module_yield_flags & BUSY_MODULE_YIELD_CLIENTS))
-    {
-        blockPostponeClient(c);
-        return C_OK;
-    }
-
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth.
      * In case we are reprocessing a command after it was blocked, we do not have to repeat the same checks */
@@ -3744,6 +3735,16 @@ int processCommand(client *c) {
             }
         }
     }
+
+    /* If we're inside a module blocked context yielding that wants to avoid
+     * processing clients, postpone the command. */
+    if (server.busy_module_yield_flags != BUSY_MODULE_YIELD_NONE &&
+        !(server.busy_module_yield_flags & BUSY_MODULE_YIELD_CLIENTS))
+    {
+        blockPostponeClient(c);
+        return C_OK;
+    }
+
     uint64_t cmd_flags = getCommandFlags(c);
 
     int is_read_command = (cmd_flags & CMD_READONLY) ||
