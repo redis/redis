@@ -253,7 +253,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: test
-      uses: vmactions/freebsd-vm@v0.1.6
+      uses: vmactions/freebsd-vm@v0.3.0
       with:
         usesh: true
         sync: rsync
