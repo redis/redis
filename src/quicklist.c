@@ -1864,7 +1864,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             unsigned int sz;
             long long lv;
             ql_info(ql);
-            quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
+            assert(quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv));
             assert(data != NULL);
             assert(sz == 32);
             if (strcmp(populate, (char *)data))
@@ -1882,7 +1882,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             unsigned int sz;
             long long lv;
             ql_info(ql);
-            quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
+            assert(quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv));
             assert(data == NULL);
             assert(lv == 55513);
             ql_verify(ql, 0, 0, 0, 0);
@@ -2681,9 +2681,11 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                         if (step == 1) {
                             for (int i = 0; i < list_sizes[list] / 2; i++) {
                                 unsigned char *data;
-                                quicklistPop(ql, QUICKLIST_HEAD, &data, NULL, NULL);
+                                assert(quicklistPop(ql, QUICKLIST_HEAD, &data,
+                                                    NULL, NULL));
                                 zfree(data);
-                                quicklistPop(ql, QUICKLIST_TAIL, &data, NULL, NULL);
+                                assert(quicklistPop(ql, QUICKLIST_TAIL, &data,
+                                                    NULL, NULL));
                                 zfree(data);
                             }
                         }
