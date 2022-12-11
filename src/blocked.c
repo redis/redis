@@ -669,7 +669,7 @@ void unblockClientOnTimeout(client *c) {
 }
 
 /* Unblock a client which is currently Blocked with error.
- * The err_str will be used to reply to the vlocked client */
+ * The err_str will be used to reply to the blocked client */
 void unblockClientOnError(client *c, const char *err_str) {
     addReplyError(c, err_str);
     updateStatsOnUnblock(c, 0, 0, 1);
