@@ -341,6 +341,9 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
     x = zsl->header;
     if (n >= 0) {
         for (i = zsl->level - 1; i >= 0; i--) {
+            if (!x->level[0].forward || zslValueGteMin(x->level[0].forward->score, range)) {
+                break;
+            }
             /* Go forward while *OUT* of range. */
             while (x->level[i].forward && !zslValueGteMin(x->level[i].forward->score, range)) {
                 x = x->level[i].forward;
@@ -365,6 +368,7 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
                 x = x->level[i].forward;
             }
         }
+        /* If offset is small, we can just jump node by node */
         if (n > -10) {
             for (i = -n; i > 1; i--) {
                 x = x->backward;
@@ -678,6 +682,9 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
     x = zsl->header;
     if (n >= 0) {
         for (i = zsl->level - 1; i >= 0; i--) {
+            if (!x->level[0].forward || zslLexValueGteMin(x->level[0].forward->ele, range)) {
+                break;
+            }
             /* Go forward while *OUT* of range. */
             while (x->level[i].forward && !zslLexValueGteMin(x->level[i].forward->ele, range)) {
                 x = x->level[i].forward;
@@ -702,7 +709,14 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
                 x = x->level[i].forward;
             }
         }
-        x = rank >= -n ? zslGetElementByRank(zsl, rank + n + 1) : NULL;
+        /* If offset is small, we can just jump node by node */
+        if (n > -10) {
+            for (i = -n; i > 1; i--) {
+                x = x->backward;
+            }
+        } else {
+            x = rank >= -n ? zslGetElementByRank(zsl, rank + n + 1) : NULL;
+        }
         /* Check if score >= min. */
         if (!zslLexValueGteMin(x->ele, range)) return NULL;
     }
