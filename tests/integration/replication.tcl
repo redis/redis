@@ -226,6 +226,9 @@ start_server {tags {"repl external:skip"}} {
         }
 
         test {FLUSHDB / FLUSHALL should replicate} {
+            # we're attaching to a sub-replica, so we need to stop pings on the real master
+            r -1 config set repl-ping-replica-period 3600
+
             set repl [attach_to_replication_stream]
 
             r -1 set key value
