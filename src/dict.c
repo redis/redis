@@ -74,12 +74,19 @@ struct dictEntry {
                                  * by dictType's dictEntryMetadataBytes(). */
 };
 
+typedef struct {
+    void *key;
+    dictEntry *next;
+} dictEntry_no_value;
+
 /* -------------------------- private prototypes ---------------------------- */
 
 static int _dictExpandIfNeeded(dict *d);
 static signed char _dictNextExp(unsigned long size);
 static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
+static dictEntry **dictGetNextRef(dictEntry *de);
+static void dictSetNext(dictEntry *de, dictEntry *next);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -109,11 +116,56 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
 
 /* --------------------- dictEntry pointer bit tricks ----------------------  */
 
-/* Checks the LSB of a dictEntry pointer and determines if it is a key without a
- * dictEntry. This function can also be used to check if a key pointer can be
- * stored directly in a dict hashtable bucket without a dictEntry. */
+/* The 3 least significant bits in a pointer to a dictEntry determines what the
+ * pointer actually points to. If the least bit is set, it's a key. Otherwise,
+ * the bit pattern of the least 3 significant bits mark the kind of entry. */
+
+#define ENTRY_PTR_MASK     7 /* 111 */
+#define ENTRY_PTR_NORMAL   0 /* 000 */
+#define ENTRY_PTR_NO_VALUE 2 /* 010 */
+
+/* Returns 1 if the entry pointer is a pointer to a key, rather than to an
+ * allocated entry. Returns 0 otherwise. This function can also be used to check
+ * if a key pointer can be stored directly in a dict hashtable bucket without a
+ * dictEntry. */
 static inline int entryIsKey(const dictEntry *de) {
     return (uintptr_t)(void *)de & 1;
+}
+
+/* Returns 1 if the pointer is actually a pointer to a dictEntry struct. Returns
+ * 0 otherwise. */
+static inline int entryIsNormal(const dictEntry *de) {
+    return ((uintptr_t)(void *)de & ENTRY_PTR_MASK) == ENTRY_PTR_NORMAL;
+}
+
+/* Returns 1 if the entry is a special entry with key and next, but without
+ * value. Returns 0 otherwise. */
+static inline int entryIsNoValue(const dictEntry *de) {
+    return ((uintptr_t)(void *)de & ENTRY_PTR_MASK) == ENTRY_PTR_NO_VALUE;
+}
+
+/* Creates an entry without a value field. */
+static inline dictEntry *createEntryNoValue(void *key, dictEntry *next) {
+    dictEntry_no_value *entry = zmalloc(sizeof(*entry));
+    entry->key = key;
+    entry->next = next;
+    return (dictEntry *)(void *)((uintptr_t)(void *)entry | ENTRY_PTR_NO_VALUE);
+}
+
+static inline void *decodeMaskedPtr(const dictEntry *de) {
+    assert(!entryIsKey(de));
+    return (void *)((uintptr_t)(void *)de & ~ENTRY_PTR_MASK);
+}
+
+/* Decodes the pointer to an entry without value, when you know it is an entry
+ * without value. Hint: Use entryIsNoValue to check. */
+static inline dictEntry_no_value *decodeEntryNoValue(const dictEntry *de) {
+    return decodeMaskedPtr(de);
+}
+
+/* Returns 1 if the entry has a value field and 0 otherwise. */
+static inline int entryHasValue(const dictEntry *de) {
+    return entryIsNormal(de);
 }
 
 /* ----------------------------- API implementation ------------------------- */
@@ -271,14 +323,14 @@ int dictRehash(dict *d, int n) {
                 /* We can store the key directly in the destination bucket
                  * without an allocated entry. */
                 d->ht_table[1][h] = key;
-                if (!entryIsKey(de)) zfree(de);
+                if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
             } else {
                 if (entryIsKey(de)) {
                     /* We need an allocated entry. */
-                    de = zmalloc(sizeof(dictEntry));
-                    de->key = key;
+                    de = createEntryNoValue(key, d->ht_table[1][h]);
+                } else {
+                    dictSetNext(de, d->ht_table[1][h]);
                 }
-                de->next = d->ht_table[1][h];
                 d->ht_table[1][h] = de;
             }
             d->ht_used[0]--;
@@ -396,10 +448,16 @@ dictEntry *dictInsertAtIndex(dict *d, void *key, long index) {
     dictEntry *entry;
     int htidx = dictIsRehashing(d) ? 1 : 0;
     size_t metasize = dictEntryMetadataSize(d);
-    if (!metasize && d->type->no_value && entryIsKey(key) && !d->ht_table[htidx][index]) {
-        /* We can store the key directly in the destination bucket without the
-         * allocated entry. */
-        entry = key;
+    if (d->type->no_value) {
+        assert(!metasize); /* Entry metadata + no value not supported. */
+        if (entryIsKey(key) && !d->ht_table[htidx][index]) {
+            /* We can store the key directly in the destination bucket without the
+             * allocated entry. */
+            entry = key;
+        } else {
+            /* Allocate an entry without value. */
+            entry = createEntryNoValue(key, d->ht_table[htidx][index]);
+        }
     } else {
         /* Allocate the memory and store the new entry.
          * Insert the element in top, with the assumption that in a database
@@ -482,7 +540,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
             if (key == he_key || dictCompareKeys(d, key, he_key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
-                    prevHe->next = dictGetNext(he);
+                    dictSetNext(prevHe, dictGetNext(he));
                 else
                     d->ht_table[table][idx] = dictGetNext(he);
                 if (!nofree) {
@@ -536,7 +594,7 @@ void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
     if (he == NULL) return;
     dictFreeKey(d, he);
     dictFreeVal(d, he);
-    if (!entryIsKey(he)) zfree(he);
+    if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
 }
 
 /* Destroy an entire dictionary */
@@ -554,7 +612,7 @@ int _dictClear(dict *d, int htidx, void(callback)(dict*)) {
             nextHe = dictGetNext(he);
             dictFreeKey(d, he);
             dictFreeVal(d, he);
-            if (!entryIsKey(he)) zfree(he);
+            if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
             d->ht_used[htidx]--;
             he = nextHe;
         }
@@ -629,14 +687,15 @@ dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, 
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         dictEntry **ref = &d->ht_table[table][idx];
-        while(*ref) {
-            if (key==(*ref)->key || dictCompareKeys(d, key, (*ref)->key)) {
+        while (ref && *ref) {
+            void *de_key = dictGetKey(*ref);
+            if (key == de_key || dictCompareKeys(d, key, de_key)) {
                 *table_index = table;
                 *plink = ref;
                 dictPauseRehashing(d);
                 return *ref;
             }
-            ref = &(*ref)->next;
+            ref = dictGetNextRef(*ref);
         }
         if (!dictIsRehashing(d)) return NULL;
     }
@@ -646,15 +705,15 @@ dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, 
 void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table_index) {
     if (he == NULL) return;
     d->ht_used[table_index]--;
-    *plink = he->next;
+    *plink = dictGetNext(he);
     dictFreeKey(d, he);
     dictFreeVal(d, he);
-    zfree(he);
+    if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
     dictResumeRehashing(d);
 }
 
 void dictSetKey(dict *d, dictEntry* de, void *key) {
-    assert(!entryIsKey(de));
+    assert(!d->type->no_value);
     if (d->type->keyDup)
         de->key = d->type->keyDup(d, key);
     else
@@ -662,65 +721,87 @@ void dictSetKey(dict *d, dictEntry* de, void *key) {
 }
 
 void dictSetVal(dict *d, dictEntry *de, void *val) {
-    assert(!entryIsKey(de));
+    assert(entryHasValue(de));
     de->v.val = d->type->valDup ? d->type->valDup(d, val) : val;
 }
 
 void dictSetSignedIntegerVal(dictEntry *de, int64_t val) {
-    assert(!entryIsKey(de));
+    assert(entryHasValue(de));
     de->v.s64 = val;
 }
 
 void dictSetUnsignedIntegerVal(dictEntry *de, uint64_t val) {
-    assert(!entryIsKey(de));
+    assert(entryHasValue(de));
     de->v.u64 = val;
 }
 
 void dictSetDoubleVal(dictEntry *de, double val) {
-    assert(!entryIsKey(de));
+    assert(entryHasValue(de));
     de->v.d = val;
 }
 
 /* A pointer to the metadata section within the dict entry. */
 void *dictEntryMetadata(dictEntry *de) {
-    assert(!entryIsKey(de));
+    assert(entryHasValue(de));
     return &de->metadata;
 }
 
 void *dictGetKey(const dictEntry *de) {
     if (entryIsKey(de)) return (void*)de;
+    if (entryIsNoValue(de)) return decodeEntryNoValue(de)->key;
     return de->key;
 }
 
 void *dictGetVal(const dictEntry *de) {
-    assert(!entryIsKey(de));
+    assert(entryHasValue(de));
     return de->v.val;
 }
 
 int64_t dictGetSignedIntegerVal(const dictEntry *de) {
-    assert(!entryIsKey(de));
+    assert(entryHasValue(de));
     return de->v.s64;
 }
 
 uint64_t dictGetUnsignedIntegerVal(const dictEntry *de) {
-    assert(!entryIsKey(de));
+    assert(entryHasValue(de));
     return de->v.u64;
 }
 
 double dictGetDoubleVal(const dictEntry *de) {
-    assert(!entryIsKey(de));
+    assert(entryHasValue(de));
     return de->v.d;
 }
 
 /* Returns a mutable reference to the value as a double within the entry. */
 double *dictGetDoubleValPtr(dictEntry *de) {
-    assert(!entryIsKey(de));
+    assert(entryHasValue(de));
     return &de->v.d;
 }
 
+/* Returns the 'next' field of the entry or NULL if the entry doesn't have a
+ * 'next' field. */
 static dictEntry *dictGetNext(const dictEntry *de) {
     if (entryIsKey(de)) return NULL; /* there's no next */
+    if (entryIsNoValue(de)) return decodeEntryNoValue(de)->next;
     return de->next;
+}
+
+/* Returns a pointer to the 'next' field in the entry or NULL if the entry
+ * doesn't have a next field. */
+static dictEntry **dictGetNextRef(dictEntry *de) {
+    if (entryIsKey(de)) return NULL;
+    if (entryIsNoValue(de)) return &decodeEntryNoValue(de)->next;
+    return &de->next;
+}
+
+static void dictSetNext(dictEntry *de, dictEntry *next) {
+    assert(!entryIsKey(de));
+    if (entryIsNoValue(de)) {
+        dictEntry_no_value *entry = decodeEntryNoValue(de);
+        entry->next = next;
+    } else {
+        de->next = next;
+    }
 }
 
 /* Returns the memory usage in bytes of the dict, excluding the size of the keys
@@ -995,7 +1076,7 @@ static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragAllocFunc
             if (d->type->afterReplaceEntry)
                 d->type->afterReplaceEntry(d, newde);
         }
-        bucketref = &(*bucketref)->next;
+        bucketref = dictGetNextRef(*bucketref);
     }
 }
 
