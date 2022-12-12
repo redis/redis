@@ -324,12 +324,12 @@ int prepareClientToWrite(client *c) {
  * Low level functions to add more data to output buffers.
  * -------------------------------------------------------------------------- */
 
-void reqresAppendBuffer(client *c, void *buf, size_t len) {
+static size_t reqresAppendBuffer(client *c, void *buf, size_t len) {
     if (!server.req_res_logfile)
-        return;
+        return 0;
 
     if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE))
-        return;
+        return 0;
 
     if (!c->req_res_buf) {
         c->req_res_buf_capacity = max(len, 1024);
@@ -341,25 +341,27 @@ void reqresAppendBuffer(client *c, void *buf, size_t len) {
 
     memcpy(c->req_res_buf + c->req_res_buf_used, buf, len);
     c->req_res_buf_used += len;
+    return len;
 }
 
 /* Functions for requests */
 
-static void reqresAppendArg(client *c, char *arg, size_t arg_len) {
+static size_t reqresAppendArg(client *c, char *arg, size_t arg_len) {
     char argv_len_buf[32];
     size_t argv_len_buf_len = ll2string(argv_len_buf,sizeof(argv_len_buf),(long)arg_len);
-    reqresAppendBuffer(c, argv_len_buf, argv_len_buf_len);
-    reqresAppendBuffer(c, "\r\n", 2);
-    reqresAppendBuffer(c, arg, arg_len);
-    reqresAppendBuffer(c, "\r\n", 2);
+    size_t ret = reqresAppendBuffer(c, argv_len_buf, argv_len_buf_len);
+    ret += reqresAppendBuffer(c, "\r\n", 2);
+    ret += reqresAppendBuffer(c, arg, arg_len);
+    ret += reqresAppendBuffer(c, "\r\n", 2);
+    return ret;
 }
 
-void reqresAppendRequest(client *c) {
+size_t reqresAppendRequest(client *c) {
     robj **argv = c->argv;
     int argc = c->argc;
 
     if (argc == 0)
-        return;
+        return 0;
 
     sds cmd = argv[0]->ptr;
     if (!strcasecmp(cmd,"sync") ||
@@ -369,26 +371,28 @@ void reqresAppendRequest(client *c) {
         !strcasecmp(cmd,"ssubscribe") ||
         !strcasecmp(cmd,"psubscribe"))
     {
-        return;
+        return 0;
     }
 
+    size_t ret = 0;
     for (int i = 0; i < argc; i++) {
         if (sdsEncodedObject(argv[i])) {
-            reqresAppendArg(c, argv[i]->ptr, sdslen(argv[i]->ptr));
+            ret += reqresAppendArg(c, argv[i]->ptr, sdslen(argv[i]->ptr));
         } else if (argv[i]->encoding == OBJ_ENCODING_INT) {
             char buf[32];
             size_t len = ll2string(buf,sizeof(buf),(long)argv[i]->ptr);
-            reqresAppendArg(c, buf, len);
+            ret += reqresAppendArg(c, buf, len);
         } else {
             serverPanic("Wrong encoding in reqresAppendRequest()");
         }
     }
-    reqresAppendArg(c, "__argv_end__", 12);
+    return ret + reqresAppendArg(c, "__argv_end__", 12);
 }
 
 /* Functions for responses */
 
-static void reqresAppendResponseIov(client *c) {
+static size_t reqresAppendResponseIov(client *c) {
+    size_t ret = 0;
     struct iovec iov[IOV_MAX];
     int iovcnt = 0;
     size_t iov_bytes_len = 0;
@@ -420,23 +424,47 @@ static void reqresAppendResponseIov(client *c) {
     }
 
     if (iovcnt == 0)
-        return;
+        return 0;
 
     for (int i = 0; i < iovcnt; i++)
-        reqresAppendBuffer(c, iov[i].iov_base, iov[i].iov_len);
+        ret += reqresAppendBuffer(c, iov[i].iov_base, iov[i].iov_len);
+
+    return ret;
 }
 
-void reqresAppendResponse(client *c) {
+size_t reqresAppendResponse(client *c) {
+    size_t ret = 0;
+
     if (getClientType(c) == CLIENT_TYPE_SLAVE)
-        return;
+        return 0;
 
     /* When the reply list is not empty, it's better to use writev to save us some
      * system calls and TCP packets. */
     if (listLength(c->reply) > 0) {
-        reqresAppendResponseIov(c);
+        ret = reqresAppendResponseIov(c);
     } else if (c->bufpos > 0) {
-        reqresAppendBuffer(c, c->buf + c->sentlen, c->bufpos - c->sentlen);
+        ret = reqresAppendBuffer(c, c->buf + c->sentlen, c->bufpos - c->sentlen);
     }
+
+    if (!ret)
+        return 0;
+
+    /* We flush the buffer only if the client received a response, otherwise we will
+     * log only a request, without a response (e.g. a blocked client that disconnects) */
+    if (server.req_res_logfile) {
+        FILE *fp = fopen(server.req_res_logfile, "a");
+        serverAssert(fp);
+
+        fwrite(c->req_res_buf, c->req_res_buf_used, 1, fp);
+        fflush(fp);
+        fclose(fp);
+
+        zfree(c->req_res_buf);
+        c->req_res_buf = NULL;
+        c->req_res_buf_used = c->req_res_buf_capacity = 0;
+    }
+
+    return ret;
 }
 
 /* Attempts to add the reply to the static buffer in the client struct.
@@ -2510,19 +2538,6 @@ void commandProcessed(client *c) {
 
     reqresAppendResponse(c);
     resetClient(c);
-
-    if (server.req_res_logfile) {
-        FILE *fp = fopen(server.req_res_logfile, "a");
-        serverAssert(fp);
-
-        fwrite(c->req_res_buf, c->req_res_buf_used, 1, fp);
-        fflush(fp);
-        fclose(fp);
-
-        zfree(c->req_res_buf);
-        c->req_res_buf = NULL;
-        c->req_res_buf_used = c->req_res_buf_capacity = 0;
-    }
 
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
