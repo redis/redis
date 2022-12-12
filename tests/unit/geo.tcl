@@ -366,6 +366,13 @@ start_server {tags {"geo"}} {
         lindex [r geohash points test] 0
     } {ezs42e44yx0}
 
+    test {GEOHASH with only key as argument} {
+        r del points
+        r geoadd points 10 20 a 30 40 b
+        set result [r geohash points]
+        assert {$result eq {}}
+    } 
+
     test {GEOPOS simple} {
         r del points
         r geoadd points 10 20 a 30 40 b
@@ -383,6 +390,13 @@ start_server {tags {"geo"}} {
         lindex [r geopos points a x b] 1
     } {}
 
+    test {GEOPOS with only key as argument} {
+        r del points
+        r geoadd points 10 20 a 30 40 b
+        set result [r geopos points]
+        assert {$result eq {}}
+    }
+
     test {GEODIST simple & unit} {
         r del points
         r geoadd points 13.361389 38.115556 "Palermo" \
@@ -391,6 +405,8 @@ start_server {tags {"geo"}} {
         assert {$m > 166274 && $m < 166275}
         set km [r geodist points Palermo Catania km]
         assert {$km > 166.2 && $km < 166.3}
+        set dist [r geodist points Palermo Palermo]
+        assert {$dist eq 0.0000}
     }
 
     test {GEODIST missing elements} {

@@ -54,7 +54,45 @@ start_server {tags {"introspection"}} {
         # After killing `me`, the first ping will throw an error
         assert_error "*I/O error*" {r ping}
         assert_equal "PONG" [r ping]
+
+        $rd1 close
+        $rd2 close
+        $rd3 close
+        $rd4 close
     }
+
+    test "CLIENT KILL close the client connection during bgsave" {
+        # Start a slow bgsave, trigger an active fork.
+        r flushall
+        r set k v
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 1
+        } else {
+            fail "bgsave did not start in time"
+        }
+
+        # Kill (close) the connection
+        r client kill skipme no
+
+        # In the past, client connections needed to wait for bgsave
+        # to end before actually closing, now they are closed immediately.
+        assert_error "*I/O error*" {r ping} ;# get the error very quickly
+        assert_equal "PONG" [r ping]
+
+        # Make sure the bgsave is still in progress
+        assert_equal [s rdb_bgsave_in_progress] 1
+
+        # Stop the child before we proceed to the next test
+        r config set rdb-key-save-delay 0
+        r flushall
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 0
+        } else {
+            fail "bgsave did not stop in time"
+        }
+    } {} {needs:save}
 
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
@@ -73,6 +111,19 @@ start_server {tags {"introspection"}} {
         $rd read ;# Discard the OK
         r eval {redis.call('set',KEYS[1],ARGV[1])} 1 foo bar
         assert_match {*eval*} [$rd read]
+        assert_match {*lua*"set"*"foo"*"bar"*} [$rd read]
+        $rd close
+    }
+
+    test {MONITOR can log commands issued by functions} {
+        r function load replace {#!lua name=test
+            redis.register_function('test', function() return redis.call('set', 'foo', 'bar') end)
+        }
+        set rd [redis_deferring_client]
+        $rd monitor
+        $rd read ;# Discard the OK
+        r fcall test 0
+        assert_match {*fcall*test*} [$rd read]
         assert_match {*lua*"set"*"foo"*"bar"*} [$rd read]
         $rd close
     }

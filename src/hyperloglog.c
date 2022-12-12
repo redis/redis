@@ -662,12 +662,22 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
      * switch to dense representation. */
     if (count > HLL_SPARSE_VAL_MAX_VALUE) goto promote;
 
-    /* When updating a sparse representation, sometimes we may need to
-     * enlarge the buffer for up to 3 bytes in the worst case (XZERO split
-     * into XZERO-VAL-XZERO). Make sure there is enough space right now
-     * so that the pointers we take during the execution of the function
-     * will be valid all the time. */
-    o->ptr = sdsMakeRoomFor(o->ptr,3);
+    /* When updating a sparse representation, sometimes we may need to enlarge the
+     * buffer for up to 3 bytes in the worst case (XZERO split into XZERO-VAL-XZERO),
+     * and the following code does the enlarge job.
+     * Actually, we use a greedy strategy, enlarge more than 3 bytes to avoid the need
+     * for future reallocates on incremental growth. But we do not allocate more than
+     * 'server.hll_sparse_max_bytes' bytes for the sparse representation.
+     * If the available size of hyperloglog sds string is not enough for the increment
+     * we need, we promote the hypreloglog to dense representation in 'step 3'.
+     */
+    if (sdsalloc(o->ptr) < server.hll_sparse_max_bytes && sdsavail(o->ptr) < 3) {
+        size_t newlen = sdslen(o->ptr) + 3;
+        newlen += min(newlen, 300); /* Greediness: double 'newlen' if it is smaller than 300, or add 300 to it when it exceeds 300 */
+        if (newlen > server.hll_sparse_max_bytes)
+            newlen = server.hll_sparse_max_bytes;
+        o->ptr = sdsResize(o->ptr, newlen);
+    }
 
     /* Step 1: we need to locate the opcode we need to modify to check
      * if a value update is actually needed. */
@@ -824,17 +834,18 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
     /* Step 3: substitute the new sequence with the old one.
      *
      * Note that we already allocated space on the sds string
-     * calling sdsMakeRoomFor(). */
-     int seqlen = n-seq;
-     int oldlen = is_xzero ? 2 : 1;
-     int deltalen = seqlen-oldlen;
+     * calling sdsResize(). */
+    int seqlen = n-seq;
+    int oldlen = is_xzero ? 2 : 1;
+    int deltalen = seqlen-oldlen;
 
-     if (deltalen > 0 &&
-         sdslen(o->ptr)+deltalen > server.hll_sparse_max_bytes) goto promote;
-     if (deltalen && next) memmove(next+deltalen,next,end-next);
-     sdsIncrLen(o->ptr,deltalen);
-     memcpy(p,seq,seqlen);
-     end += deltalen;
+    if (deltalen > 0 &&
+        sdslen(o->ptr) + deltalen > server.hll_sparse_max_bytes) goto promote;
+    serverAssert(sdslen(o->ptr) + deltalen <= sdsalloc(o->ptr));
+    if (deltalen && next) memmove(next+deltalen,next,end-next);
+    sdsIncrLen(o->ptr,deltalen);
+    memcpy(p,seq,seqlen);
+    end += deltalen;
 
 updated:
     /* Step 4: Merge adjacent values if possible.

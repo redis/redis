@@ -30,6 +30,7 @@
 
 #include "server.h"
 #include "functions.h"
+#include "intset.h"  /* Compact integer set structure */
 #include <math.h>
 #include <ctype.h>
 
@@ -158,7 +159,6 @@ robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
     }
 
     if (value >= 0 && value < OBJ_SHARED_INTEGERS && valueobj == 0) {
-        incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
         if (value >= LONG_MIN && value <= LONG_MAX) {
@@ -234,6 +234,13 @@ robj *createQuicklistObject(void) {
     return o;
 }
 
+robj *createListListpackObject(void) {
+    unsigned char *lp = lpNew(0);
+    robj *o = createObject(OBJ_LIST,lp);
+    o->encoding = OBJ_ENCODING_LISTPACK;
+    return o;
+}
+
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType);
     robj *o = createObject(OBJ_SET,d);
@@ -245,6 +252,13 @@ robj *createIntsetObject(void) {
     intset *is = intsetNew();
     robj *o = createObject(OBJ_SET,is);
     o->encoding = OBJ_ENCODING_INTSET;
+    return o;
+}
+
+robj *createSetListpackObject(void) {
+    unsigned char *lp = lpNew(0);
+    robj *o = createObject(OBJ_SET, lp);
+    o->encoding = OBJ_ENCODING_LISTPACK;
     return o;
 }
 
@@ -296,6 +310,8 @@ void freeStringObject(robj *o) {
 void freeListObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistRelease(o->ptr);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        lpFree(o->ptr);
     } else {
         serverPanic("Unknown list encoding type");
     }
@@ -307,6 +323,7 @@ void freeSetObject(robj *o) {
         dictRelease((dict*) o->ptr);
         break;
     case OBJ_ENCODING_INTSET:
+    case OBJ_ENCODING_LISTPACK:
         zfree(o->ptr);
         break;
     default:
@@ -416,6 +433,8 @@ void dismissListObject(robj *o, size_t size_hint) {
                 node = node->next;
             }
         }
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
     } else {
         serverPanic("Unknown list encoding type");
     }
@@ -442,6 +461,8 @@ void dismissSetObject(robj *o, size_t size_hint) {
         dismissMemory(set->ht_table[1], DICTHT_SIZE(set->ht_size_exp[1])*sizeof(dictEntry*));
     } else if (o->encoding == OBJ_ENCODING_INTSET) {
         dismissMemory(o->ptr, intsetBlobLen((intset*)o->ptr));
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        dismissMemory(o->ptr, lpBytes((unsigned char *)o->ptr));
     } else {
         serverPanic("Unknown set encoding type");
     }
@@ -636,7 +657,6 @@ robj *tryObjectEncoding(robj *o) {
             value < OBJ_SHARED_INTEGERS)
         {
             decrRefCount(o);
-            incrRefCount(shared.integers[value]);
             return shared.integers[value];
         } else {
             if (o->encoding == OBJ_ENCODING_RAW) {
@@ -997,6 +1017,8 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
                 samples++;
             } while ((node = node->next) && samples < sample_size);
             asize += (double)elesize/samples*ql->len;
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -1187,7 +1209,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
-     * updateClientMemUsage(). */
+     * updateClientMemoryUsage(). */
     mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
                          server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];

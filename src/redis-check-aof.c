@@ -429,6 +429,19 @@ input_file_type getInputFileType(char *filepath) {
     }
 }
 
+void printAofStyle(int ret, char *aofFileName, char *aofType) {
+    if (ret == AOF_CHECK_OK) {
+        printf("%s %s is valid\n", aofType, aofFileName);
+    } else if (ret == AOF_CHECK_EMPTY) {
+        printf("%s %s is empty\n", aofType, aofFileName);
+    } else if (ret == AOF_CHECK_TIMESTAMP_TRUNCATED) {
+        printf("Successfully truncated AOF %s to timestamp %ld\n",
+            aofFileName, to_timestamp);
+    } else if (ret == AOF_CHECK_TRUNCATED) {
+        printf("Successfully truncated AOF %s\n", aofFileName);
+    }
+}
+
 /* Check if Multi Part AOF is valid. It will check the BASE file and INCR files 
  * at once according to the manifest instructions (this is somewhat similar to 
  * redis' AOF loading).
@@ -458,16 +471,7 @@ void checkMultiPartAof(char *dirpath, char *manifest_filepath, int fix) {
 
         printf("Start to check BASE AOF (%s format).\n", aof_preable ? "RDB":"RESP");
         ret = checkSingleAof(aof_filename, aof_filepath, last_file, fix, aof_preable);
-        if (ret == AOF_CHECK_OK) {
-            printf("BASE AOF %s is valid\n", aof_filename);
-        } else if (ret == AOF_CHECK_EMPTY) {
-            printf("BASE AOF %s is empty\n", aof_filename);
-        } else if (ret == AOF_CHECK_TIMESTAMP_TRUNCATED) {
-            printf("Successfully truncated AOF %s to timestamp %ld\n",
-                aof_filename, to_timestamp);
-        } else if (ret == AOF_CHECK_TRUNCATED) {
-            printf("Successfully truncated AOF %s\n", aof_filename);
-        }
+        printAofStyle(ret, aof_filename, (char *)"BASE AOF");
         sdsfree(aof_filepath);
     }
 
@@ -483,16 +487,7 @@ void checkMultiPartAof(char *dirpath, char *manifest_filepath, int fix) {
             sds aof_filepath = makePath(dirpath, aof_filename);
             last_file = ++aof_num == total_num;
             ret = checkSingleAof(aof_filename, aof_filepath, last_file, fix, 0);
-            if (ret == AOF_CHECK_OK) {
-                printf("INCR AOF %s is valid\n", aof_filename);
-            } else if (ret == AOF_CHECK_EMPTY) {
-                printf("INCR AOF %s is empty\n", aof_filename);
-            } else if (ret == AOF_CHECK_TIMESTAMP_TRUNCATED) {
-                printf("Successfully truncated AOF %s to timestamp %ld\n",
-                    aof_filename, to_timestamp);
-            } else if (ret == AOF_CHECK_TRUNCATED) {
-                printf("Successfully truncated AOF %s\n", aof_filename);
-            }
+            printAofStyle(ret, aof_filename, (char *)"INCR AOF");
             sdsfree(aof_filepath);
         }
     }
@@ -507,16 +502,7 @@ void checkMultiPartAof(char *dirpath, char *manifest_filepath, int fix) {
 void checkOldStyleAof(char *filepath, int fix, int preamble) {
     printf("Start checking Old-Style AOF\n");
     int ret = checkSingleAof(filepath, filepath, 1, fix, preamble);
-    if (ret == AOF_CHECK_OK) {
-        printf("AOF %s is valid\n", filepath);
-    } else if (ret == AOF_CHECK_EMPTY) {
-        printf("AOF %s is empty\n", filepath);
-    } else if (ret == AOF_CHECK_TIMESTAMP_TRUNCATED) {
-        printf("Successfully truncated AOF %s to timestamp %ld\n",
-            filepath, to_timestamp);
-    } else if (ret == AOF_CHECK_TRUNCATED) {
-        printf("Successfully truncated AOF %s\n", filepath);
-    }
+    printAofStyle(ret, filepath, (char *)"AOF");
 }
 
 int redis_check_aof_main(int argc, char **argv) {

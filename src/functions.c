@@ -608,20 +608,27 @@ void functionKillCommand(client *c) {
  * Note that it does not guarantee the command arguments are right. */
 uint64_t fcallGetCommandFlags(client *c, uint64_t cmd_flags) {
     robj *function_name = c->argv[1];
-    functionInfo *fi = dictFetchValue(curr_functions_lib_ctx->functions, function_name->ptr);
-    if (!fi)
+    c->cur_script = dictFind(curr_functions_lib_ctx->functions, function_name->ptr);
+    if (!c->cur_script)
         return cmd_flags;
+    functionInfo *fi = dictGetVal(c->cur_script);
     uint64_t script_flags = fi->f_flags;
     return scriptFlagsToCmdFlags(cmd_flags, script_flags);
 }
 
 static void fcallCommandGeneric(client *c, int ro) {
+    /* Functions need to be fed to monitors before the commands they execute. */
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+
     robj *function_name = c->argv[1];
-    functionInfo *fi = dictFetchValue(curr_functions_lib_ctx->functions, function_name->ptr);
-    if (!fi) {
+    dictEntry *de = c->cur_script;
+    if (!de)
+        de = dictFind(curr_functions_lib_ctx->functions, function_name->ptr);
+    if (!de) {
         addReplyError(c, "Function not found");
         return;
     }
+    functionInfo *fi = dictGetVal(de);
     engine *engine = fi->li->ei->engine;
 
     long long numkeys;

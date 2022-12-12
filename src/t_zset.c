@@ -57,6 +57,7 @@
  * from tail to head, useful for ZREVRANGE. */
 
 #include "server.h"
+#include "intset.h"  /* Compact integer set structure */
 #include <math.h>
 
 /*-----------------------------------------------------------------------------
@@ -1511,7 +1512,7 @@ int zsetDel(robj *zobj, sds ele) {
  * the one with the lowest score. Otherwise if 'reverse' is non-zero
  * the rank is computed considering as element with rank 0 the one with
  * the highest score. */
-long zsetRank(robj *zobj, sds ele, int reverse) {
+long zsetRank(robj *zobj, sds ele, int reverse, double *output_score) {
     unsigned long llen;
     unsigned long rank;
 
@@ -1535,6 +1536,8 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
         }
 
         if (eptr != NULL) {
+            if (output_score) 
+                *output_score = zzlGetScore(sptr);
             if (reverse)
                 return llen-rank;
             else
@@ -1554,6 +1557,8 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
             rank = zslGetRank(zsl,score,ele);
             /* Existing elements always have a rank. */
             serverAssert(rank != 0);
+            if (output_score)
+                *output_score = score;
             if (reverse)
                 return llen-rank;
             else
@@ -1971,6 +1976,10 @@ typedef struct {
                 dictIterator *di;
                 dictEntry *de;
             } ht;
+            struct {
+                unsigned char *lp;
+                unsigned char *p;
+            } lp;
         } set;
 
         /* Sorted set iterators. */
@@ -2025,6 +2034,9 @@ void zuiInitIterator(zsetopsrc *op) {
             it->ht.dict = op->subject->ptr;
             it->ht.di = dictGetIterator(op->subject->ptr);
             it->ht.de = dictNext(it->ht.di);
+        } else if (op->encoding == OBJ_ENCODING_LISTPACK) {
+            it->lp.lp = op->subject->ptr;
+            it->lp.p = lpFirst(it->lp.lp);
         } else {
             serverPanic("Unknown set encoding");
         }
@@ -2061,6 +2073,8 @@ void zuiClearIterator(zsetopsrc *op) {
             UNUSED(it); /* skip */
         } else if (op->encoding == OBJ_ENCODING_HT) {
             dictReleaseIterator(it->ht.di);
+        } else if (op->encoding == OBJ_ENCODING_LISTPACK) {
+            UNUSED(it);
         } else {
             serverPanic("Unknown set encoding");
         }
@@ -2091,14 +2105,7 @@ unsigned long zuiLength(zsetopsrc *op) {
         return 0;
 
     if (op->type == OBJ_SET) {
-        if (op->encoding == OBJ_ENCODING_INTSET) {
-            return intsetLen(op->subject->ptr);
-        } else if (op->encoding == OBJ_ENCODING_HT) {
-            dict *ht = op->subject->ptr;
-            return dictSize(ht);
-        } else {
-            serverPanic("Unknown set encoding");
-        }
+        return setTypeSize(op->subject);
     } else if (op->type == OBJ_ZSET) {
         if (op->encoding == OBJ_ENCODING_LISTPACK) {
             return zzlLength(op->subject->ptr);
@@ -2144,6 +2151,14 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
 
             /* Move to next element. */
             it->ht.de = dictNext(it->ht.di);
+        } else if (op->encoding == OBJ_ENCODING_LISTPACK) {
+            if (it->lp.p == NULL)
+                return 0;
+            val->estr = lpGetValue(it->lp.p, &val->elen, &val->ell);
+            val->score = 1.0;
+
+            /* Move to next element. */
+            it->lp.p = lpNext(it->lp.lp, it->lp.p);
         } else {
             serverPanic("Unknown set encoding");
         }
@@ -2243,26 +2258,13 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
         return 0;
 
     if (op->type == OBJ_SET) {
-        if (op->encoding == OBJ_ENCODING_INTSET) {
-            if (zuiLongLongFromValue(val) &&
-                intsetFind(op->subject->ptr,val->ell))
-            {
-                *score = 1.0;
-                return 1;
-            } else {
-                return 0;
-            }
-        } else if (op->encoding == OBJ_ENCODING_HT) {
-            dict *ht = op->subject->ptr;
-            zuiSdsFromValue(val);
-            if (dictFind(ht,val->ele) != NULL) {
-                *score = 1.0;
-                return 1;
-            } else {
-                return 0;
-            }
+        char *str = val->ele ? val->ele : (char *)val->estr;
+        size_t len = val->ele ? sdslen(val->ele) : val->elen;
+        if (setTypeIsMemberAux(op->subject, str, len, val->ell, val->ele != NULL)) {
+            *score = 1.0;
+            return 1;
         } else {
-            serverPanic("Unknown set encoding");
+            return 0;
         }
     } else if (op->type == OBJ_ZSET) {
         zuiSdsFromValue(val);
@@ -3763,17 +3765,43 @@ void zrankGenericCommand(client *c, int reverse) {
     robj *key = c->argv[1];
     robj *ele = c->argv[2];
     robj *zobj;
+    robj* reply;
     long rank;
+    int opt_withscore = 0;
+    double score;
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
-
-    serverAssertWithInfo(c,ele,sdsEncodedObject(ele));
-    rank = zsetRank(zobj,ele->ptr,reverse);
+    if (c->argc > 4) {
+        addReplyErrorArity(c);
+        return;
+    }
+    if (c->argc > 3) {
+        if (!strcasecmp(c->argv[3]->ptr, "withscore")) {
+            opt_withscore = 1;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+    reply = opt_withscore ? shared.nullarray[c->resp] : shared.null[c->resp];
+    if ((zobj = lookupKeyReadOrReply(c, key, reply)) == NULL || checkType(c, zobj, OBJ_ZSET)) {
+        return;
+    }
+    serverAssertWithInfo(c, ele, sdsEncodedObject(ele));
+    rank = zsetRank(zobj, ele->ptr, reverse, opt_withscore ? &score : NULL);
     if (rank >= 0) {
-        addReplyLongLong(c,rank);
+        if (opt_withscore) {
+            addReplyArrayLen(c, 2);
+        }
+        addReplyLongLong(c, rank);
+        if (opt_withscore) {
+            addReplyDouble(c, score);
+        }
     } else {
-        addReplyNull(c);
+        if (opt_withscore) {
+            addReplyNullArray(c);
+        } else {
+            addReplyNull(c);
+        }
     }
 }
 

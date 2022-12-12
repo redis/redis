@@ -135,10 +135,10 @@ void activeExpireCycle(int type) {
     int dbs_per_call = CRON_DBS_PER_CALL;
     long long start = ustime(), timelimit, elapsed;
 
-    /* When clients are paused the dataset should be static not just from the
-     * POV of clients not being able to write, but also from the POV of
-     * expires and evictions of keys not being performed. */
-    if (checkClientPauseTimeoutAndReturnIfPaused()) return;
+    /* If 'expire' action is paused, for whatever reason, then don't expire any key.
+     * Typically, at the end of the pause we will properly expire the key OR we
+     * will have failed over and the new primary will send us the expire. */
+    if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exit
@@ -267,7 +267,7 @@ void activeExpireCycle(int type) {
                         if (activeExpireCycleTryExpire(db,e,now)) {
                             expired++;
                             /* Propagate the DEL command */
-                            propagatePendingCommands();
+                            postExecutionUnitOperations();
                         }
                         if (ttl > 0) {
                             /* We want the average TTL of keys yet
@@ -637,8 +637,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (checkAlreadyExpired(when)) {
         robj *aux;
 
-        int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :
-                                                    dbSyncDelete(c->db,key);
+        int deleted = dbGenericDelete(c->db,key,server.lazyfree_lazy_expire,DB_FLAG_KEY_EXPIRED);
         serverAssertWithInfo(c,key,deleted);
         server.dirty++;
 
@@ -652,10 +651,19 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     } else {
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
-        /* Propagate as PEXPIREAT millisecond-timestamp */
-        robj *when_obj = createStringObjectFromLongLong(when);
-        rewriteClientCommandVector(c, 3, shared.pexpireat, key, when_obj);
-        decrRefCount(when_obj);
+        /* Propagate as PEXPIREAT millisecond-timestamp
+         * Only rewrite the command arg if not already PEXPIREAT */
+        if (c->cmd->proc != pexpireatCommand) {
+            rewriteClientCommandArgument(c,0,shared.pexpireat);
+        }
+
+        /* Avoid creating a string object when it's the same as argv[2] parameter  */
+        if (basetime != 0 || unit == UNIT_SECONDS) {
+            robj *when_obj = createStringObjectFromLongLong(when);
+            rewriteClientCommandArgument(c,2,when_obj);
+            decrRefCount(when_obj);
+        }
+
         signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
         server.dirty++;
