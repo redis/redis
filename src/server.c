@@ -3698,16 +3698,29 @@ int processCommand(client *c) {
 
     moduleCallCommandFilters(c);
 
+    /* in case we are starting to ProcessCommand and we already have a command we assume
+     * this is a reprocessing of this command, so we do not want to perform some of the actions*/
+    int client_reprocessing_command = c->cmd ? 1 : 0;
+
     /* Handle possible security attacks. */
     if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {
         securityWarningCommand(c);
         return C_ERR;
     }
 
+    /* If we're inside a module blocked context yielding that wants to avoid
+     * processing clients, postpone the command. */
+    if (server.busy_module_yield_flags != BUSY_MODULE_YIELD_NONE &&
+        !(server.busy_module_yield_flags & BUSY_MODULE_YIELD_CLIENTS))
+    {
+        blockPostponeClient(c);
+        return C_OK;
+    }
+
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth.
      * In case we are reprocessing a command after it was blocked, we do not have to repeat the same checks */
-    if (!(c->flags & CLIENT_REPROCESSING_COMMAND)) {
+    if (!client_reprocessing_command) {
         c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
         sds err;
         if (!commandCheckExistence(c, &err)) {
@@ -3734,15 +3747,6 @@ int processCommand(client *c) {
 
             }
         }
-    }
-
-    /* If we're inside a module blocked context yielding that wants to avoid
-     * processing clients, postpone the command. */
-    if (server.busy_module_yield_flags != BUSY_MODULE_YIELD_NONE &&
-        !(server.busy_module_yield_flags & BUSY_MODULE_YIELD_CLIENTS))
-    {
-        blockPostponeClient(c);
-        return C_OK;
     }
 
     uint64_t cmd_flags = getCommandFlags(c);

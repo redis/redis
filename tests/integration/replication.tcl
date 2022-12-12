@@ -182,7 +182,8 @@ start_server {tags {"repl external:skip"}} {
                 [$B lrange foo 0 -1] eq {a b c}
             } else {
                 fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-            }
+            }          
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdrstat blpop $B]
         }
     }
 }

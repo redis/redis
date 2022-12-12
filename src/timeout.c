@@ -70,7 +70,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
          * into keys no longer served by this server. */
         if (server.cluster_enabled) {
             if (clusterRedirectBlockedClientIfNeeded(c))
-                unblockClient(c);
+                unblockClientOnError(c, NULL);
         }
     }
     return 0;

@@ -269,10 +269,9 @@ void disconnectAllBlockedClients(void) {
             if (c->bstate.btype == BLOCKED_POSTPONE)
                 continue;
 
-            addReplyError(c,
+            unblockClientOnError(c,
                 "-UNBLOCKED force unblock from blocking operation, "
                 "instance state changed (master -> replica?)");
-            unblockClient(c);
             c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         }
     }
@@ -624,10 +623,7 @@ static void unblockClientOnKey(client *c, robj *key) {
      * we need to re process the command again */
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
-        c->flags |= CLIENT_REPROCESSING_COMMAND;
-        /* Potentially this client might have been evicted */
-        if (processCommandAndResetClient(c) == C_OK)
-            c->flags &= ~CLIENT_REPROCESSING_COMMAND;
+        processCommandAndResetClient(c);
     }
 }
 
@@ -669,9 +665,10 @@ void unblockClientOnTimeout(client *c) {
 }
 
 /* Unblock a client which is currently Blocked with error.
- * The err_str will be used to reply to the blocked client */
+ * If err_str is provided it will be used to reply to the blocked client */
 void unblockClientOnError(client *c, const char *err_str) {
-    addReplyError(c, err_str);
+    if (err_str)
+        addReplyError(c, err_str);
     updateStatsOnUnblock(c, 0, 0, 1);
     if (c->flags & CLIENT_PENDING_COMMAND)
         c->flags &= ~CLIENT_PENDING_COMMAND;

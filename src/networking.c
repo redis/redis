@@ -2439,11 +2439,9 @@ int processCommandAndResetClient(client *c) {
 int processPendingCommandAndInputBuffer(client *c) {
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
-        c->flags |= CLIENT_REPROCESSING_COMMAND;
         if (processCommandAndResetClient(c) == C_ERR) {
             return C_ERR;
         }
-        c->flags &= ~CLIENT_REPROCESSING_COMMAND;
     }
 
     /* Now process client if it has more data in it's buffer.
