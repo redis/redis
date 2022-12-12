@@ -8,20 +8,6 @@ start_server [list overrides [list save ""] ] {
     # 2. using push + insert + trim
     # 3. using push + insert + set
 
-    test "guy" {
-        set rd1 [redis_deferring_client]
-
-        $rd1 brpoplpush a b 0
-        $rd1 brpoplpush a b 0
-        after 1000
-        r lpush a data
-        assert_equal [r ping] {PONG}
-        r lpush a data2
-        puts [$rd1 read]
-        puts [$rd1 read]
-        $rd1 close
-    }
-
     test {reg node check compression with insert and pop} {
         r lpush list1 [string repeat a 500]
         r lpush list1 [string repeat b 500]
@@ -1319,18 +1305,19 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         }
     }
 
-    foreach {pop} {BLPOP BLMPOP_LEFT} {
-        test "$pop inside a transaction" {
-            r del x2list
-            r lpush x2list foo
-            r lpush x2list bar
-            r multi
-            bpop_command r $pop x2list 0
-            bpop_command r $pop x2list 0
-            bpop_command r $pop x2list 0
-            r exec
-        } {{x2list bar} {x2list foo} {}}
-    }
+foreach {pop} {BLPOP BLMPOP_LEFT} {
+    test "$pop inside a transaction" {
+        r del xlist
+        r lpush xlist foo
+        r lpush xlist bar
+        r multi
+
+        bpop_command r $pop xlist 0
+        bpop_command r $pop xlist 0
+        bpop_command r $pop xlist 0
+        r exec
+    } {{xlist bar} {xlist foo} {}}
+}
 
     test {BLMPOP propagate as pop with count command to replica} {
         set rd [redis_deferring_client]
@@ -1924,24 +1911,18 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     }
 
     test "Regression for bug 593 - chaining BRPOPLPUSH with other blocking cmds" {
-        if {!$::log_req_res} {
-            # Piplining doesn't play well with --log-req-res
-            set rd1 [redis_deferring_client]
-            set rd2 [redis_deferring_client]
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
 
-            $rd1 brpoplpush a b 0
-            $rd1 brpoplpush a b 0
-            $rd2 brpoplpush b c 0
-            after 1000
-            r lpush a data
-            assert_equal [r ping] {PONG}
-            r lpush a data2
-            puts [$rd1 read]
-            puts [$rd1 read]
-            $rd1 close
-            $rd2 close
-        }
-    }
+        $rd1 brpoplpush a b 0
+        $rd1 brpoplpush a b 0
+        $rd2 brpoplpush b c 0
+        after 1000
+        r lpush a data
+        $rd1 close
+        $rd2 close
+        r ping
+    } {PONG}
 
     test "BLPOP/BLMOVE should increase dirty" {
         r del lst{t} lst1{t}

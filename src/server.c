@@ -3584,19 +3584,6 @@ void afterCommand(client *c) {
          * So the messages are not interleaved with transaction response. */
         trackingHandlePendingKeyInvalidations();
     }
-
-    if (server.req_res_logfile) {
-        FILE *fp = fopen(server.req_res_logfile, "a");
-        serverAssert(fp);
-
-        fwrite(c->req_res_buf, c->req_res_buf_used, 1, fp);
-        fflush(fp);
-        fclose(fp);
-
-        zfree(c->req_res_buf);
-        c->req_res_buf = NULL;
-        c->req_res_buf_used = c->req_res_buf_capacity = 0;
-    }
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.
@@ -3673,16 +3660,6 @@ uint64_t getCommandFlags(client *c) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
-    if (strcasecmp(c->argv[0]->ptr,"sync") &&
-        strcasecmp(c->argv[0]->ptr,"psync") &&
-        strcasecmp(c->argv[0]->ptr,"monitor") &&
-        strcasecmp(c->argv[0]->ptr,"subscribe") &&
-        strcasecmp(c->argv[0]->ptr,"ssubscribe") &&
-        strcasecmp(c->argv[0]->ptr,"psubscribe"))
-    {
-        reqresAppendArgv(c);
-    }
-
     if (!scriptIsTimedout()) {
         /* Both EXEC and scripts call call() directly so there should be
          * no way in_exec or scriptIsRunning() is 1.
@@ -3692,6 +3669,7 @@ int processCommand(client *c) {
         serverAssert(!scriptIsRunning());
     }
 
+    reqresAppendRequest(c);
     moduleCallCommandFilters(c);
 
     /* Handle possible security attacks. */

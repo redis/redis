@@ -7,6 +7,7 @@ import subprocess
 import redis
 import time
 
+lineno = 1
 
 class Request(object):
     def __init__(self, f, docs):
@@ -15,12 +16,14 @@ class Request(object):
         self.argv = []
         while True:
             line = f.readline()
-            #print(line)
+            global lineno
+            lineno += 1
             if not line:
                 break
             length = int(line)
             arg = str(f.read(length))
             f.read(2)  # read \r\n
+            lineno += 1
             if arg == "__argv_end__":
                 break
             self.argv.append(arg)
@@ -49,7 +52,8 @@ class Response(object):
         self.queued = False
 
         line = f.readline()[:-2]
-        #print(line)
+        global lineno
+        lineno += 1
         if line[0] == '+':
             self.json = line[1:]
             if self.json == "QUEUED":
@@ -60,6 +64,7 @@ class Response(object):
         elif line[0] == '$':
             self.json = str(f.read(int(line[1:])))
             f.read(2)  # read \r\n
+            lineno += 1
         elif line[0] == ':':
             self.json = int(line[1:])
         elif line[0] == ',':
@@ -71,10 +76,12 @@ class Response(object):
         elif line[0] == '!':
             self.json = str(f.read(int(line[1:])))
             f.read(2)  # read \r\n
+            lineno += 1
             self.error = True
         elif line[0] == '=':
             self.json = str(f.read(int(line[1:])))[4:]   # skip "txt:" or "mkd:"
             f.read(2)  # read \r\n
+            lineno += 1 + self.json.count("\r\n")
             #print(self.json)
         elif line[0] == '(':
             self.json = long(line[1:])
@@ -126,6 +133,7 @@ if __name__ == '__main__':
     missing_schema = set()
     print("Processing files...")
     for filename in glob.glob('%s/tmp/*/*.reqres' % testdir):
+        lineno = 0
         with open(filename, "r", newline="\r\n", encoding="latin-1") as f:
             print("Processing %s ..." % filename)
             while True:
@@ -135,7 +143,10 @@ if __name__ == '__main__':
                         break
                     res = Response(f)
                 except json.decoder.JSONDecodeError as err:
-                   print("Error processing %s: %s" % (filename, err))
+                   print("JSON decoder error while processing %s:%d: %s" % (filename, i, err))
+                   exit(1)
+                except Exception as err:
+                   print("General error while processing %s:%d: %s" % (filename, lineno, err))
                    exit(1)
 
                 if res.error or res.queued:

@@ -201,6 +201,7 @@ void unblockClient(client *c) {
      * vector from module callbacks and updateStatsOnUnblock. */
     if (c->btype != BLOCKED_POSTPONE && c->btype != BLOCKED_SHUTDOWN) {
         freeClientOriginalArgv(c);
+        reqresAppendResponse(c);
         resetClient(c);
     }
 

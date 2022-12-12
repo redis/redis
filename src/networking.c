@@ -341,10 +341,7 @@ void reqresAppendBuffer(client *c, void *buf, size_t len) {
     c->req_res_buf_used += len;
 }
 
-//static void reqresAppendIov(client *c, struct iovec *iov, int iovcnt) {
-//    for (int i = 0; i < iovcnt; i++)
-//        reqresAppendBuffer(c, iov[i].iov_base, iov[i].iov_len);
-//}
+/* Functions for requests */
 
 static void reqresAppendArg(client *c, char *arg, size_t arg_len) {
     char argv_len_buf[32];
@@ -355,12 +352,23 @@ static void reqresAppendArg(client *c, char *arg, size_t arg_len) {
     reqresAppendBuffer(c, "\r\n", 2);
 }
 
-void reqresAppendArgv(client *c) {
+void reqresAppendRequest(client *c) {
     robj **argv = c->argv;
     int argc = c->argc;
 
     if (argc == 0)
         return;
+
+    sds cmd = argv[0]->ptr;
+    if (!strcasecmp(cmd,"sync") ||
+        !strcasecmp(cmd,"psync") ||
+        !strcasecmp(cmd,"monitor") ||
+        !strcasecmp(cmd,"subscribe") ||
+        !strcasecmp(cmd,"ssubscribe") ||
+        !strcasecmp(cmd,"psubscribe"))
+    {
+        return;
+    }
 
     for (int i = 0; i < argc; i++) {
         if (sdsEncodedObject(argv[i])) {
@@ -370,10 +378,63 @@ void reqresAppendArgv(client *c) {
             size_t len = ll2string(buf,sizeof(buf),(long)argv[i]->ptr);
             reqresAppendArg(c, buf, len);
         } else {
-            serverPanic("Wrong encoding in reqresAppendArgv()");
+            serverPanic("Wrong encoding in reqresAppendRequest()");
         }
     }
     reqresAppendArg(c, "__argv_end__", 12);
+}
+
+/* Functions for responses */
+
+static void reqresAppendResponseIov(client *c) {
+    struct iovec iov[IOV_MAX];
+    int iovcnt = 0;
+    size_t iov_bytes_len = 0;
+    /* If the static reply buffer is not empty,
+     * add it to the iov array for writev() as well. */
+    if (c->bufpos > 0) {
+        iov[iovcnt].iov_base = c->buf + c->sentlen;
+        iov[iovcnt].iov_len = c->bufpos - c->sentlen;
+        iov_bytes_len += iov[iovcnt++].iov_len;
+    }
+    /* The first node of reply list might be incomplete from the last call,
+     * thus it needs to be calibrated to get the actual data address and length. */
+    size_t offset = c->bufpos > 0 ? 0 : c->sentlen;
+    listIter iter;
+    listNode *next;
+    clientReplyBlock *o;
+    listRewind(c->reply, &iter);
+    while ((next = listNext(&iter)) && iovcnt < IOV_MAX) {
+        o = listNodeValue(next);
+        if (o->used == 0) { /* empty node, just release it and skip. */
+            offset = 0;
+            continue;
+        }
+
+        iov[iovcnt].iov_base = o->buf + offset;
+        iov[iovcnt].iov_len = o->used - offset;
+        iov_bytes_len += iov[iovcnt++].iov_len;
+        offset = 0;
+    }
+
+    if (iovcnt == 0)
+        return;
+
+    for (int i = 0; i < iovcnt; i++)
+        reqresAppendBuffer(c, iov[i].iov_base, iov[i].iov_len);
+}
+
+void reqresAppendResponse(client *c) {
+    if (getClientType(c) == CLIENT_TYPE_SLAVE)
+        return;
+
+    /* When the reply list is not empty, it's better to use writev to save us some
+     * system calls and TCP packets. */
+    if (listLength(c->reply) > 0) {
+        reqresAppendResponseIov(c);
+    } else if (c->bufpos > 0) {
+        reqresAppendBuffer(c, c->buf + c->sentlen, c->bufpos - c->sentlen);
+    }
 }
 
 /* Attempts to add the reply to the static buffer in the client struct.
@@ -450,8 +511,6 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
                                         cmdname ? cmdname : "<unknown>");
         return;
     }
-
-    reqresAppendBuffer(c, (char *)s, len);
 
     size_t reply_len = _addReplyToBuffer(c,s,len);
     if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
@@ -1858,8 +1917,6 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
     *nwritten = connWritev(c->conn, iov, iovcnt);
     if (*nwritten <= 0) return C_ERR;
 
-    //reqresAppendIov(c, iov, iovcnt);
-
     /* Locate the new node which has leftover data and
      * release all nodes in front of it. */
     ssize_t remaining = *nwritten;
@@ -1908,7 +1965,6 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             *nwritten = connWrite(c->conn, o->buf+c->ref_block_pos,
                                   o->used-c->ref_block_pos);
             if (*nwritten <= 0) return C_ERR;
-            //reqresAppendBuffer(c, o->buf+c->ref_block_pos, o->used-c->ref_block_pos);
             c->ref_block_pos += *nwritten;
         }
 
@@ -1937,7 +1993,6 @@ int _writeToClient(client *c, ssize_t *nwritten) {
     } else if (c->bufpos > 0) {
         *nwritten = connWrite(c->conn, c->buf + c->sentlen, c->bufpos - c->sentlen);
         if (*nwritten <= 0) return C_ERR;
-        //reqresAppendBuffer(c, c->buf + c->sentlen, c->bufpos - c->sentlen);
         c->sentlen += *nwritten;
 
         /* If the buffer was sent, set bufpos to zero to continue with
@@ -2439,7 +2494,21 @@ void commandProcessed(client *c) {
      *    since we have not applied the command. */
     if (c->flags & CLIENT_BLOCKED) return;
 
+    reqresAppendResponse(c);
     resetClient(c);
+
+    if (server.req_res_logfile) {
+        FILE *fp = fopen(server.req_res_logfile, "a");
+        serverAssert(fp);
+
+        fwrite(c->req_res_buf, c->req_res_buf_used, 1, fp);
+        fflush(fp);
+        fclose(fp);
+
+        zfree(c->req_res_buf);
+        c->req_res_buf = NULL;
+        c->req_res_buf_used = c->req_res_buf_capacity = 0;
+    }
 
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
