@@ -15,7 +15,9 @@ build-job:
   stage: build
   script:
       - sed -i 's@https://github.com/facebook/rocksdb@../../sr_zhao/rocksdb.git@' .gitmodules
+      - sed -i 's@https://github.com/ctripcorp/xredis-gtid.git@../../framework/xredis-gtid.git@' .gitmodules
       - git submodule update --init
+      - make clean & make distclean
       - make -j64
   cache:
       key: rocksdb
@@ -28,7 +30,9 @@ perf-trocks1:
       runner: ${CI_RUNNER_DESCRIPTION}
   script:
     - sed -i 's@https://github.com/facebook/rocksdb@../../sr_zhao/rocksdb.git@' .gitmodules
+    - sed -i 's@https://github.com/ctripcorp/xredis-gtid.git@../../framework/xredis-gtid.git@' .gitmodules
     - git submodule update --init
+    - make clean & make distclean
     - make -j64
     - sudo -E
       suite=10G_string
@@ -58,7 +62,9 @@ perf-trocks2:
       runner: ${CI_RUNNER_DESCRIPTION}
   script:
     - sed -i 's@https://github.com/facebook/rocksdb@../../sr_zhao/rocksdb.git@' .gitmodules
+    - sed -i 's@https://github.com/ctripcorp/xredis-gtid.git@../../framework/xredis-gtid.git@' .gitmodules
     - git submodule update --init
+    - make clean & make distclean
     - make -j64
     - sudo -E
       suite=10G_hash

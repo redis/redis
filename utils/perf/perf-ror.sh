@@ -136,7 +136,7 @@ setup_redis() {
     if [[ $existing_pids != "" ]]; then echo "cgroup pid($existing_pids) exists"; return 1; fi
 
     echo $redis_pid > $cg_pid_file
-    echo $((1024*1024*1024)) > $cg_limit_file
+    echo $((2*1024*1024*1024)) > $cg_limit_file
 
     echo "limit pagecache result: pid=$(cat $cg_pid_file), limit=$(( $(cat $cg_limit_file)/1024/1024 ))MB"
 
