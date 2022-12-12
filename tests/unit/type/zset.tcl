@@ -450,7 +450,7 @@ start_server {tags {"zset"}} {
             if {$::force_resp3} {
                 set nullres {_}
             } else {
-                set nullres {*-1}
+                set nullres {$-1}
             }
             r del zranktmp
             r zadd zranktmp 10 x
@@ -468,6 +468,11 @@ start_server {tags {"zset"}} {
             r readraw 0
 
             # withscores
+            if {$::force_resp3} {
+                set nullres {_}
+            } else {
+                set nullres {*-1}
+            }
             assert_equal {0 10} [r zrank zranktmp x withscore]
             assert_equal {1 20} [r zrank zranktmp y withscore]
             assert_equal {2 30} [r zrank zranktmp z withscore]
@@ -817,18 +822,18 @@ start_server {tags {"zset"}} {
 
         test "ZUNION/ZINTER/ZINTERCARD/ZDIFF with integer members - $encoding" {
             r del zsetd{t} zsetf{t}
-            r zadd zsetd{t} 1.1 1
-            r zadd zsetd{t} 2.2 2
-            r zadd zsetd{t} 3.3 3
-            r zadd zsetf{t} 1.1 1
-            r zadd zsetf{t} 3.3 3
-            r zadd zsetf{t} 4.4 4
+            r zadd zsetd{t} 1 1
+            r zadd zsetd{t} 2 2
+            r zadd zsetd{t} 3 3
+            r zadd zsetf{t} 1 1
+            r zadd zsetf{t} 3 3
+            r zadd zsetf{t} 4 4
 
-            assert_equal {1 2.2 2 2.2 4 4.4 3 6.6} [r zunion 2 zsetd{t} zsetf{t} withscores]
-            assert_equal {1 2.2 3 6.6} [r zinter 2 zsetd{t} zsetf{t} withscores]
+            assert_equal {1 2 2 2 4 4 3 6} [r zunion 2 zsetd{t} zsetf{t} withscores]
+            assert_equal {1 2 3 6} [r zinter 2 zsetd{t} zsetf{t} withscores]
             assert_equal 2 [r zintercard 2 zsetd{t} zsetf{t}]
             assert_equal 2 [r zintercard 2 zsetd{t} zsetf{t} limit 0]
-            assert_equal {2 2.2} [r zdiff 2 zsetd{t} zsetf{t} withscores]
+            assert_equal {2 2} [r zdiff 2 zsetd{t} zsetf{t} withscores]
         }
 
         test "ZUNIONSTORE with weights - $encoding" {
@@ -1027,7 +1032,7 @@ start_server {tags {"zset"}} {
                     lappend args zset_$i{t}
                     while {$num_elements} {
                         set ele [randomValue]
-                        r zadd zset_$i{t} 1.33 $ele
+                        r zadd zset_$i{t} [randomInt 100] $ele
                         if {$i == 0} {
                             set s($ele) x
                         } else {
@@ -1482,8 +1487,8 @@ start_server {tags {"zset"}} {
         r zadd zmscoretest 10 x
         r zadd zmscoretest 20 y
 
-        assert_equal [r zmscore zmscoretest x y] {10 20}
-    }
+        r zmscore zmscoretest x y
+    } {10 20}
 
     test {ZMSCORE retrieve from empty set} {
         r del zmscoretest
@@ -1732,14 +1737,14 @@ start_server {tags {"zset"}} {
             set lexset {}
             r del zset
             for {set j 0} {$j < $elements} {incr j} {
-                set e [randstring 0 30 simplealpha]
+                set e [randstring 0 30 alpha]
                 lappend lexset $e
                 r zadd zset 0 $e
             }
             set lexset [lsort -unique $lexset]
             for {set j 0} {$j < 100} {incr j} {
-                set min [randstring 0 30 simplealpha]
-                set max [randstring 0 30 simplealpha]
+                set min [randstring 0 30 alpha]
+                set max [randstring 0 30 alpha]
                 set mininc [randomInt 2]
                 set maxinc [randomInt 2]
                 if {$mininc} {set cmin "\[$min"} else {set cmin "($min"}
@@ -1797,7 +1802,7 @@ start_server {tags {"zset"}} {
             set lexset {}
             r del zset{t} zsetcopy{t}
             for {set j 0} {$j < $elements} {incr j} {
-                set e [randstring 0 30 simplealpha]
+                set e [randstring 0 30 alpha]
                 lappend lexset $e
                 r zadd zset{t} 0 $e
             }
@@ -1807,8 +1812,8 @@ start_server {tags {"zset"}} {
                 r zunionstore zsetcopy{t} 1 zset{t}
                 set lexsetcopy $lexset
 
-                set min [randstring 0 30 simplealpha]
-                set max [randstring 0 30 simplealpha]
+                set min [randstring 0 30 alpha]
+                set max [randstring 0 30 alpha]
                 set mininc [randomInt 2]
                 set maxinc [randomInt 2]
                 if {$mininc} {set cmin "\[$min"} else {set cmin "($min"}
