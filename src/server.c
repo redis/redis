@@ -430,14 +430,14 @@ struct redisCommand redisCommandTable[] = {
     {"sscan",sscanCommand,-3,
      "read-only random @set",
      0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
-
+    /*  (zset type) write command flag should be SWAP_IN_DEL, Because the index (score_cf data) needs to be deleted */
     {"zadd",zaddCommand,-4,
      "write use-memory fast @sortedset",
      0,NULL,getKeyRequestsZAdd,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zincrby",zincrbyCommand,4,
      "write use-memory fast @sortedset",
-     0,NULL,getKeyRequestsZincrby,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsZincrby,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zrem",zremCommand,-3,
      "write fast @sortedset",
@@ -485,7 +485,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"zrangestore",zrangestoreCommand,-5,
      "write use-memory @sortedset",
-     0,NULL,getKeyRequestsZrangestore,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,getKeyRequestsZrangestore,SWAP_IN,SWAP_IN_DEL,1,2,1,0,0,0},
 
     {"zrangebyscore",zrangebyscoreCommand,-4,
      "read-only @sortedset",
@@ -549,11 +549,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"bzpopmin",bzpopminCommand,-3,
      "write no-script fast @sortedset @blocking",
-     0,NULL,getKeyRequestsZpopMin,SWAP_IN,0,1,-2,1,0,0,0},
+     0,NULL,getKeyRequestsZpopMin,SWAP_IN,SWAP_IN_DEL,1,-2,1,0,0,0},
 
     {"bzpopmax",bzpopmaxCommand,-3,
      "write no-script fast @sortedset @blocking",
-     0,NULL,getKeyRequestsZpopMax,SWAP_IN,0,1,-2,1,0,0,0},
+     0,NULL,getKeyRequestsZpopMax,SWAP_IN,SWAP_IN_DEL,1,-2,1,0,0,0},
 
     {"zrandmember",zrandmemberCommand,-2,
      "read-only random @sortedset",
@@ -960,12 +960,12 @@ struct redisCommand redisCommandTable[] = {
 
     {"geoadd",geoaddCommand,-5,
      "write use-memory @geo",
-     0,NULL,getKeyRequestsGeoAdd,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsGeoAdd,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     /* GEORADIUS has store options that may write. */
     {"georadius",georadiusCommand,-6,
      "write use-memory @geo",
-     0,georadiusGetKeys,getKeyRequestsGeoRadius,SWAP_IN,0,1,1,1,0,0,0},
+     0,georadiusGetKeys,getKeyRequestsGeoRadius,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"georadius_ro",georadiusroCommand,-6,
      "read-only @geo",
@@ -973,7 +973,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"georadiusbymember",georadiusbymemberCommand,-5,
      "write use-memory @geo",
-     0,georadiusGetKeys,getKeyRequestsGeoRadiusByMember,SWAP_IN,0,1,1,1,0,0,0},
+     0,georadiusGetKeys,getKeyRequestsGeoRadiusByMember,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"georadiusbymember_ro",georadiusbymemberroCommand,-5,
      "read-only @geo",
@@ -997,7 +997,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"geosearchstore",geosearchstoreCommand,-8,
      "write use-memory @geo",
-      0,NULL,getKeyRequestsGeoSearchStore,SWAP_IN,0,1,2,1,0,0,0},
+      0,NULL,getKeyRequestsGeoSearchStore,SWAP_IN,SWAP_IN_DEL,1,2,1,0,0,0},
 
     {"pfselftest",pfselftestCommand,1,
      "admin @hyperloglog",

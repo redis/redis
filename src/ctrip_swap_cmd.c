@@ -99,11 +99,6 @@ void copyKeyRequest(keyRequest *dst, keyRequest *src) {
         dst->zs.reverse = src->zs.reverse;
         dst->zs.limit = src->zs.limit;
         break;
-    case KEYREQUEST_TYPE_LEX:
-        dst->zl.rangespec = zlexrangespecdup(src->zl.rangespec);
-        dst->zl.reverse = src->zl.reverse;
-        dst->zl.limit = src->zl.limit;
-        break;
     default:
         break;
     }
@@ -143,12 +138,6 @@ void moveKeyRequest(keyRequest *dst, keyRequest *src) {
         dst->zs.reverse = src->zs.reverse;
         dst->zs.limit = src->zs.limit;
         break;
-    case KEYREQUEST_TYPE_LEX:
-        dst->zl.rangespec = src->zl.rangespec;
-        src->zl.rangespec = NULL;
-        dst->zl.reverse = src->zl.reverse;
-        dst->zl.limit = src->zl.limit;
-        break;
     default:
         break;
     }
@@ -184,13 +173,6 @@ void keyRequestDeinit(keyRequest *key_request) {
         if (key_request->zs.rangespec != NULL) {
             zfree(key_request->zs.rangespec);
             key_request->zs.rangespec = NULL;
-        }
-        break;
-    case KEYREQUEST_TYPE_LEX:
-        if (key_request->zl.rangespec != NULL) {
-            zslFreeLexRange(key_request->zl.rangespec);
-            zfree(key_request->zl.rangespec);
-            key_request->zl.rangespec= NULL;
         }
         break;
     default:
@@ -265,22 +247,6 @@ void getKeyRequestsAppendScoreResult(getKeyRequestsResult *result, int level,
     key_request->zs.reverse = reverse;
     key_request->zs.rangespec = rangespec;
     key_request->zs.limit = limit;
-    key_request->cmd_intention = cmd_intention;
-    key_request->cmd_intention_flags = cmd_intention_flags;
-    key_request->dbid = dbid;
-}
-
-void getKeyRequestsAppendLexeResult(getKeyRequestsResult *result, int level,
-        robj *key, int reverse, zlexrangespec* rangespec, int limit, int cmd_intention,
-        int cmd_intention_flags, int dbid) {
-    expandKeyRequests(result);    
-    keyRequest *key_request = &result->key_requests[result->num++];
-    key_request->level = level;
-    key_request->key = key;
-    key_request->type = KEYREQUEST_TYPE_LEX;
-    key_request->zl.reverse = reverse;
-    key_request->zl.rangespec = rangespec; 
-    key_request->zl.limit = limit;
     key_request->cmd_intention = cmd_intention;
     key_request->cmd_intention_flags = cmd_intention_flags;
     key_request->dbid = dbid;
@@ -847,7 +813,8 @@ int getKeyRequestsZpopGeneric(int dbid, struct redisCommand *cmd, robj **argv, i
     getKeyRequestsPrepareResult(result,result->num+ argc - 2);
     for(int i = 1; i < argc - 1; i++) {
         incrRefCount(argv[i]);
-        getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, argv[i], 0, NULL, SWAP_IN, SWAP_IN_DEL, dbid);
+        getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, argv[i], 0, NULL, cmd->intention,
+            cmd->intention_flags, dbid);
     }
     return C_OK;
 }
@@ -863,10 +830,10 @@ int getKeyRequestsZpopMax(int dbid, struct redisCommand *cmd, robj **argv, int a
 int getKeyRequestsZrangestore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
     UNUSED(cmd), UNUSED(argc);
     getKeyRequestsPrepareResult(result,result->num+ 2);
-    for(int i = 1; i < 3; i++) {
-        incrRefCount(argv[i]);
-        getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, argv[i], 0, NULL, SWAP_IN, SWAP_IN_DEL, dbid);
-    }
+    incrRefCount(argv[1]);
+    getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, argv[1], 0, NULL, SWAP_IN, SWAP_IN_DEL, dbid);
+    incrRefCount(argv[2]);
+    getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, argv[2], 0, NULL, SWAP_IN, 0, dbid);
     return C_OK;
 }
 
@@ -943,17 +910,6 @@ int getKeyRequestsZrangeGeneric(int dbid, struct redisCommand *cmd, robj **argv,
             getKeyRequestsAppendScoreResult(result, REQUEST_LEVEL_KEY, key, direction == ZRANGE_DIRECTION_REVERSE, spec, opt_offset + opt_limit,cmd->intention, cmd->intention_flags, dbid);
         }
         break;
-    case ZRANGE_LEX:
-        {
-            zlexrangespec* lexrange = zmalloc(sizeof(zlexrangespec));
-            if (zslParseLexRange(minobj, maxobj, lexrange) != C_OK) {
-                decrRefCount(key);
-                zfree(lexrange);
-                return C_ERR;
-            }
-            getKeyRequestsAppendLexeResult(result, REQUEST_LEVEL_KEY, key, direction == ZRANGE_DIRECTION_REVERSE, lexrange, opt_offset + opt_limit, cmd->intention, cmd->intention_flags, dbid);
-        }
-        break;
     default:
         getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, key, 0, NULL, cmd->intention, cmd->intention_flags, dbid);
         break;
@@ -974,35 +930,7 @@ int getKeyRequestsZrevrangeByScore(int dbid, struct redisCommand *cmd, robj **ar
     return getKeyRequestsZrangeGeneric(dbid, cmd, argv, argc, result, ZRANGE_SCORE, ZRANGE_DIRECTION_REVERSE);
 }
 
-int getKeyRequestsZremRangeByScore1(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    if (argc < 4) return C_ERR;
-    robj* minobj = argv[2];
-    robj* maxobj = argv[3];
-    zrangespec* spec = zmalloc(sizeof(zrangespec));
-    if (zslParseRange(minobj, maxobj, spec) != C_OK) {
-        zfree(spec);
-        return C_ERR;
-    }
-    robj* key = argv[1];
-    incrRefCount(key);
-    getKeyRequestsPrepareResult(result,result->num+ 1);
-    getKeyRequestsAppendScoreResult(result, REQUEST_LEVEL_KEY, key, 0, spec, 0, cmd->intention, cmd->intention_flags, dbid);
-    return C_OK;
-}
 
-int getKeyRequestsZrangeByLexGeneric(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result, zrange_direction direction) {
-    if (argc < 4) return C_ERR;
-    zlexrangespec* lexrange = zmalloc(sizeof(zlexrangespec));
-    if (zslParseLexRange(argv[2],argv[3], lexrange) != C_OK) {
-        zfree(lexrange);
-        return C_ERR;
-    }
-    robj* key = argv[1];
-    incrRefCount(key);
-    getKeyRequestsPrepareResult(result,result->num+ 1);
-    getKeyRequestsAppendLexeResult(result, REQUEST_LEVEL_KEY, key, direction == ZRANGE_DIRECTION_REVERSE, lexrange, 0, cmd->intention, cmd->intention_flags, dbid);
-    return C_OK;
-}
 int getKeyRequestsZrevrangeByLex(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
     return getKeyRequestsZrangeGeneric(dbid, cmd, argv, argc, result, ZRANGE_LEX, ZRANGE_DIRECTION_REVERSE);
 }

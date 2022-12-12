@@ -51,23 +51,12 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
             /* No need to swap for pure hot key */
             *intention = SWAP_NOP;
             *intention_flags = 0;
-        } else if(req->type == KEYREQUEST_TYPE_SCORE || req->type == KEYREQUEST_TYPE_LEX) {
-            if (req->type == KEYREQUEST_TYPE_SCORE) {
-                datactx->type = TYPE_ZS;
-                datactx->zs.reverse = req->zs.reverse;
-                datactx->zs.limit = req->zs.limit;
-                datactx->zs.rangespec = req->zs.rangespec;
-                req->zs.rangespec = NULL;
-            } else if(req->type == KEYREQUEST_TYPE_LEX) {
-                datactx->type = TYPE_ZL;
-                datactx->zl.reverse = req->zl.reverse;
-                datactx->zl.limit = req->zl.limit;
-                datactx->zl.rangespec = req->zl.rangespec;
-                req->zl.rangespec = NULL;
-            } else {
-                serverAssert(0);
-            }
-            
+        } else if(req->type == KEYREQUEST_TYPE_SCORE ) {
+            datactx->type = TYPE_ZS;
+            datactx->zs.reverse = req->zs.reverse;
+            datactx->zs.limit = req->zs.limit;
+            datactx->zs.rangespec = req->zs.rangespec;
+            req->zs.rangespec = NULL;
             *intention = SWAP_IN;
             *intention_flags = 0;
             if (cmd_intention_flags == SWAP_IN_DEL 
@@ -314,30 +303,6 @@ int zsetEncodeKeys(swapData *data, int intention, void *datactx_,
                     rawkeys[1] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->maxex,
                         data->key->ptr, version, datactx->zs.rangespec->max + SCORE_DEVIATION);
                 }
-                
-            } else if(datactx->type == TYPE_ZL) {
-                *action = ROCKS_RANGE;
-                *numkeys = datactx->zl.limit;
-                cfs = zmalloc(sizeof(int)*2);
-                cfs[0] = DATA_CF;
-                cfs[1] = datactx->zl.reverse;
-                rawkeys = zmalloc(sizeof(sds) * 2);
-                if (datactx->zl.rangespec->min == shared.minstring) {
-                    rawkeys[0] = zsetEncodeIntervalKey(data->db, datactx->zl.rangespec->minex,
-                        data->key->ptr, version, NULL);
-                } else {
-                    rawkeys[0] = zsetEncodeIntervalKey(data->db, datactx->zl.rangespec->minex,
-                        data->key->ptr, version, datactx->zl.rangespec->min);
-                }
-                if (datactx->zl.rangespec->max == shared.maxstring) {
-                    serverAssert(datactx->zl.rangespec->maxex == 0);
-                    sds raw = rocksEncodeDataRangeEndKey(data->db,data->key->ptr,version);
-                    rawkeys[1] = encodeIntervalSds(datactx->zl.rangespec->maxex, raw);
-                } else {
-                    rawkeys[1] = zsetEncodeIntervalKey(data->db, datactx->zl.rangespec->maxex,
-                        data->key->ptr, version, datactx->zl.rangespec->max);
-                }
-                
             }
             *pcfs = cfs;
             *prawkeys = rawkeys;
@@ -733,13 +698,6 @@ void freeZsetSwapData(swapData *data_, void *datactx_) {
             if (datactx->zs.rangespec != NULL) {
                 zfree(datactx->zs.rangespec);
                 datactx->zs.rangespec = NULL;
-            }
-        break;
-        case TYPE_ZL:
-            if (datactx->zl.rangespec != NULL) {
-                zslFreeLexRange(datactx->zl.rangespec);
-                zfree(datactx->zl.rangespec);
-                datactx->zl.rangespec = NULL;
             }
         break;
         

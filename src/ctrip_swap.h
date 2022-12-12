@@ -135,7 +135,6 @@ typedef struct range {
 #define KEYREQUEST_TYPE_SUBKEY 1
 #define KEYREQUEST_TYPE_RANGE  2
 #define KEYREQUEST_TYPE_SCORE  3
-#define KEYREQUEST_TYPE_LEX 4
 
 typedef struct argRewriteRequest {
   int mstate_idx; /* >=0 if current command is a exec, means index in mstate; -1 means req not in multi/exec */
@@ -168,11 +167,6 @@ typedef struct keyRequest{
       int reverse;
       int limit;
     } zs; /* zset score*/
-    struct {
-      zlexrangespec* rangespec;
-      int reverse;
-      int limit;
-    } zl; /* zset lex */
   };
   argRewriteRequest list_arg_rewrite[2];
   swapCmdTrace *swap_cmd;
@@ -647,7 +641,6 @@ typedef struct zsetSwapData {
 } zsetSwapData;
 #define TYPE_NONE 0
 #define TYPE_ZS 1
-#define TYPE_ZL 2
 
 typedef struct zsetDataCtx {
 	baseBigDataCtx bdc;
@@ -658,11 +651,6 @@ typedef struct zsetDataCtx {
       int reverse;
       int limit;
     } zs;
-    struct {
-      zlexrangespec* rangespec;
-      int reverse;
-      int limit;
-    } zl;
   };
 
 } zsetDataCtx;

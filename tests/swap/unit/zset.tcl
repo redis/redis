@@ -1909,3 +1909,34 @@ start_server {tags {"hotfix zset zrem - zlen error bug"}} {
     wait_key_cold r zset 
     assert_equal [r zrange zset 0 -1] b
 }
+
+start_server {} {
+    r config set swap-debug-evict-keys 0
+    test {zremrangebylex crash} {
+        r ZADD myzset 1 d
+        r ZADD myzset 2 a
+        r ZADD myzset 3 b
+        r ZADD myzset 4 c   
+        assert_equal [r swap.evict myzset] 1
+        r zscore myzset a
+        # zremrangebylex: 
+        #    Note that lexicographical ordering relies on all elements having the same score. The reply is unspecified when the elements have different scores.
+        # del subkey {d a b c} 
+        r zremrangebylex myzset {[c} {(e}
+        # {}
+        r zrange myzset 0 -1
+    }
+}
+
+start_server {} {
+    r config set swap-debug-evict-keys 0
+    test {zincrby crash} {
+        r zadd myzset 1 a
+        r zadd myzset 3 b
+        assert_equal [r swap.evict myzset] 1
+        r zincrby myzset 10 a 
+        assert_equal   [r swap.evict myzset] 1
+        r zremrangebyscore myzset 0 2
+        r zrangebyscore myzset 2 20
+    }
+}

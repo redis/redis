@@ -53,6 +53,7 @@ start_server {tags {"zset"} overrides {save ""}} {
                         set max [randstring 0 30 alpha]
                         set mininc [randomInt 2]
                         set maxinc [randomInt 2]
+                        set block_timeout 0.1
                         if {$mininc} {set cmin "\[$min"} else {set cmin "($min"}
                         if {$maxinc} {set cmax "\[$max"} else {set cmax "($max"}
                         set a [randomInt 10]
@@ -114,8 +115,13 @@ start_server {tags {"zset"} overrides {save ""}} {
                             $r1 ZRANDMEMBER $myzset -5 
                         }  {
                             $r1 ZSCORE $myzset $v
+                        } {
+                            $r1 BZPOPMAX $myzset $otherzset $block_timeout
+                        } {
+                            $r1 BZPOPMIN $myzset $otherzset $block_timeout
+                        } {
+                            $r1 ZRANGESTORE $myzset $otherzset 2 -1
                         }
-
                         $r1 ZREMRANGEBYRANK $myzset $zset_max_length -1
 
                     }]
