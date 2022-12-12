@@ -187,8 +187,6 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 
-
-
 start_server {tags {"repl external:skip"}} {
     r set mykey foo
 
