@@ -857,7 +857,7 @@ start_server {tags {"repl external:skip"}} {
 
                     # wait for the replicas to start reading the rdb
                     # using the log file since the replica only responds to INFO once in 2mb
-                    wait_for_log_messages -1 {"*Loading DB in memory*"} 0 800 10
+                    wait_for_log_messages -1 {"*Loading DB in memory*"} 0 1500 10
 
                     if {$measure_time} {
                         set master_statfile "/proc/$master_pid/stat"
@@ -990,7 +990,7 @@ test "diskless replication child being killed is collected" {
             $replica replicaof $master_host $master_port
 
             # wait for the replicas to start reading the rdb
-            wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 800 10
+            wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 1500 10
 
             # wait to be sure the replica is hung and the master is blocked on write
             after 500
@@ -1075,7 +1075,7 @@ test "diskless replication read pipe cleanup" {
             $replica replicaof $master_host $master_port
 
             # wait for the replicas to start reading the rdb
-            wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 800 10
+            wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 1500 10
 
             set loglines [count_log_lines -1]
             # send FLUSHALL so the RDB child will be killed
