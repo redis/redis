@@ -3470,11 +3470,11 @@ void call(client *c, int flags) {
     if (!(c->flags & CLIENT_BLOCKED))
         freeClientOriginalArgv(c);
 
-    /* populate the per-command statistics that we show in INFO commandstats. */
+    /* populate the per-command statistics that we show in INFO commandstats.
+     * If the client is blocked we will handle latency stats and duration when it is unblocked. */
     if (flags & CMD_CALL_STATS && !(c->flags & CLIENT_BLOCKED)) {
         real_cmd->calls++;
         real_cmd->microseconds += c->duration;
-        /* If the client is blocked we will handle latency stats and duration when it is unblocked. */
         if (server.latency_tracking_enabled && !(c->flags & CLIENT_BLOCKED))
             updateCommandLatencyHistogram(&(real_cmd->latency_histogram), c->duration*1000);
     }
