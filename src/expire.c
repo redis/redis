@@ -56,7 +56,9 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     if (now > t) {
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
+        server.execution_nesting++; /* See comment in evict.c */
         deleteExpiredKeyAndPropagate(db,keyobj);
+        server.execution_nesting--;
         decrRefCount(keyobj);
         return 1;
     } else {
@@ -263,6 +265,8 @@ void activeExpireCycle(int type) {
                         ttl = dictGetSignedIntegerVal(e)-now;
                         if (activeExpireCycleTryExpire(db,e,now)) {
                             expired++;
+                            /* Propagate the DEL command */
+                            postExecutionUnitOperations();
                         }
                         if (ttl > 0) {
                             /* We want the average TTL of keys yet
@@ -380,16 +384,21 @@ void expireSlaveKeys(void) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
                 dictEntry *expire = dictFind(db->expires,keyname);
+                int expired = 0;
 
-                if (expire) {
-                    if (!activeExpireCycleTryExpire(server.db+dbid,expire,start)) {
-                        /* If the key was not expired in this DB, we need to set the
-                         * corresponding bit in the new bitmap we set as value.
-                         * At the end of the loop if the bitmap is zero, it means we
-                         * no longer need to keep track of this key. */
-                        noexpire++;
-                        new_dbids |= (uint64_t)1 << dbid;
-                    }
+                if (expire &&
+                    activeExpireCycleTryExpire(server.db+dbid,expire,start))
+                {
+                    expired = 1;
+                }
+
+                /* If the key was not expired in this DB, we need to set the
+                 * corresponding bit in the new bitmap we set as value.
+                 * At the end of the loop if the bitmap is zero, it means we
+                 * no longer need to keep track of this key. */
+                if (expire && !expired) {
+                    noexpire++;
+                    new_dbids |= (uint64_t)1 << dbid;
                 }
             }
             dbid++;

@@ -197,8 +197,8 @@ start_cluster 2 2 [list config_lines $modules] {
 
         assert_replication_stream $repl {
             {multi}
-            {keyspace.incr_dels}
             {del count_dels_{4oi}}
+            {keyspace.incr_dels}
             {exec}
         }
         close_replication_stream $repl
