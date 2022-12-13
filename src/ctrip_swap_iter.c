@@ -287,7 +287,9 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
     it->db = db;
     it->checkpoint_db = NULL;
 
-    if (rocks->checkpoint != NULL) {
+    if (rocks->snapshot) rocksdb_readoptions_set_snapshot(rocks->ropts, rocks->snapshot);
+    if (rocks->checkpoint_dir != NULL) {
+        serverLog(LL_WARNING, "[rocks] create iter from checkpoint %s.", rocks->checkpoint_dir);
         rocksdb_options_t* cf_opts[CF_COUNT];
         for (i = 0; i < CF_COUNT; i++) {
             /* disable cf cache since cache is useless for iterator */
@@ -317,6 +319,7 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
         meta_iter = rocksdb_create_iterator_cf(it->checkpoint_db, rocks->ropts,
                 it->cf_handles[META_CF]);
     } else {
+        serverLog(LL_WARNING, "[rocks] create iter from rocksdb.");
         data_iter = rocksdb_create_iterator_cf(rocks->db, rocks->ropts,
                 rocks->cf_handles[DATA_CF]);
         meta_iter = rocksdb_create_iterator_cf(rocks->db, rocks->ropts,

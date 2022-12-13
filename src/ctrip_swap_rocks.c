@@ -51,6 +51,8 @@ int rocksInit() {
 
     rocks->snapshot = NULL;
     rocks->checkpoint = NULL;
+    rocks->checkpoint_dir = NULL;
+    atomicSetWithSync(server.inflight_snapshot, 0);
     rocks->db_opts = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(rocks->db_opts, 1); 
     rocksdb_options_set_create_missing_column_families(rocks->db_opts, 1);
@@ -212,33 +214,45 @@ void rocksReleaseCheckpoint() {
     }
 }
 
-int rocksCreateCheckpoint(sds checkpoint_dir) {
-    rocksdb_checkpoint_t* checkpoint = NULL;
-    rocks *rocks = server.rocks; 
-    if (rocks->checkpoint != NULL) {
-        serverLog(LL_WARNING, "[rocks] release checkpoint before create.");
-        rocksReleaseCheckpoint();
+void rocksReleaseSnapshot() {
+    rocks *rocks = server.rocks;
+    if (NULL != rocks->snapshot) {
+        serverLog(LL_WARNING, "[rocks] release snapshot.");
+        rocksdb_release_snapshot(rocks->db, rocks->snapshot);
+        rocks->snapshot = NULL;
+        atomicDecr(server.inflight_snapshot, 1);
     }
-    char* err = NULL;
-    checkpoint = rocksdb_checkpoint_object_create(rocks->db, &err);
-    if (err != NULL) {
-        serverLog(LL_WARNING, "[rocks] checkpoint object create fail :%s\n", err);
-        goto error;
+}
+
+int rocksCreateSnapshot() {
+    rocks *rocks = server.rocks;
+    if (NULL != rocks->snapshot) {
+        rocksReleaseSnapshot();
     }
-    rocksdb_checkpoint_create(checkpoint, checkpoint_dir, 0, &err);
-    if (err != NULL) {
-        serverLog(LL_WARNING, "[rocks] checkpoint %s create fail: %s", checkpoint_dir, err);
-        goto error;
+
+    serverLog(LL_NOTICE, "[rocks] create snapshot.");
+    rocks->snapshot = rocksdb_create_snapshot(rocks->db);
+    atomicIncr(server.inflight_snapshot, 1);
+    return C_OK;
+}
+
+int readCheckpointDirFromPipe(int pipe) {
+    ssize_t nread = 0, pos = 0;
+    char checkpoint_dir[ROCKS_DIR_MAX_LEN] = {0};
+    while ((nread = read(pipe, checkpoint_dir + pos, sizeof(checkpoint_dir) - pos)) > 0) {
+        pos += nread;
     }
-    rocks->checkpoint = checkpoint;
-    rocks->checkpoint_dir = checkpoint_dir;
-    return 1;
-error:
-    if(checkpoint != NULL) {
-        rocksdb_checkpoint_object_destroy(checkpoint);
-    } 
-    sdsfree(checkpoint_dir);
-    return 0;
+
+    if (nread < 0) {
+        serverLog(LL_WARNING, "[rocks] read checkpoint dir from pipe fail: %s", strerror(errno));
+        return C_ERR;
+    } else if (0 == strlen(checkpoint_dir)) {
+        serverLog(LL_WARNING, "[rocks] read checkpoint dir from pipe empty.");
+        return C_ERR;
+    } else {
+        server.rocks->checkpoint_dir = sdsnew(checkpoint_dir);
+        return C_OK;
+    }
 }
 
 int rmdirRecursive(const char *path) {

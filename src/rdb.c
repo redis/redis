@@ -1445,13 +1445,25 @@ werr:
 
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
+    int pipefds[2], checkpoint_dir_pipe = 0, checkpoint_dir_pipe_writing = 0;
 
     if (hasActiveChildProcess()) return C_ERR;
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
 
-    if (rocksCreateCheckpoint(sdscatprintf(sdsempty(), "%s/tmp_%lld", ROCKS_DATA, ustime())) == 0) return C_ERR;
+    if (server.swap_mode != SWAP_MODE_MEMORY) {
+        if (pipe(pipefds) == -1) return C_ERR;
+        checkpoint_dir_pipe = pipefds[0];
+        checkpoint_dir_pipe_writing = pipefds[1];
+        anetNonBlock(NULL, checkpoint_dir_pipe_writing);
+
+        if (rocksCreateSnapshot() != C_OK) {
+            close(checkpoint_dir_pipe);
+            close(checkpoint_dir_pipe_writing);
+            return C_ERR;
+        }
+    }
 
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
@@ -1460,6 +1472,14 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         redisSetProcTitle("redis-rdb-bgsave");
         redisSetCpuAffinity(server.bgsave_cpulist);
 
+        if (server.swap_mode != SWAP_MODE_MEMORY) {
+            close(checkpoint_dir_pipe_writing);
+            if (C_ERR == readCheckpointDirFromPipe(checkpoint_dir_pipe)) {
+                serverLog(LL_WARNING, "wait checkpoint dir fail, exit.");
+                exit(1);
+            }
+            close(checkpoint_dir_pipe);
+        }
 
         retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
@@ -1472,11 +1492,20 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
             server.lastbgsave_status = C_ERR;
             serverLog(LL_WARNING,"Can't save in background: fork: %s",
                 strerror(errno));
+            if (checkpoint_dir_pipe) close(checkpoint_dir_pipe);
+            if (checkpoint_dir_pipe_writing) close(checkpoint_dir_pipe_writing);
             return C_ERR;
         }
         serverLog(LL_NOTICE,"Background saving started by pid %ld",(long) childpid);
         server.rdb_save_time_start = time(NULL);
         server.rdb_child_type = RDB_CHILD_TYPE_DISK;
+        if (server.swap_mode != SWAP_MODE_MEMORY) {
+            close(checkpoint_dir_pipe);
+            rocksdbCreateCheckpointPayload *pd = zcalloc(sizeof(rocksdbCreateCheckpointPayload));
+            pd->waiting_child = childpid;
+            pd->checkpoint_dir_pipe_writing = checkpoint_dir_pipe_writing;
+            submitUtilTask(CREATE_CHECKPOINT, pd, NULL);
+        }
         return C_OK;
     }
     return C_OK; /* unreached */
@@ -2948,6 +2977,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     listIter li;
     pid_t childpid;
     int pipefds[2], rdb_pipe_write, safe_to_exit_pipe;
+    int checkpoint_dir_pipe = 0, checkpoint_dir_pipe_writing = 0;
 
     if (hasActiveChildProcess()) return C_ERR;
 
@@ -2974,6 +3004,29 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     safe_to_exit_pipe = pipefds[0]; /* read end */
     server.rdb_child_exit_pipe = pipefds[1]; /* write end */
 
+    if (server.swap_mode != SWAP_MODE_MEMORY) {
+        if (pipe(pipefds) == -1) {
+            close(rdb_pipe_write);
+            close(server.rdb_pipe_read);
+            close(safe_to_exit_pipe);
+            close(server.rdb_child_exit_pipe);
+            return C_ERR;
+        }
+        checkpoint_dir_pipe = pipefds[0];
+        checkpoint_dir_pipe_writing = pipefds[1];
+        anetNonBlock(NULL, checkpoint_dir_pipe_writing);
+
+        if (rocksCreateSnapshot() != C_OK) {
+            close(rdb_pipe_write);
+            close(server.rdb_pipe_read);
+            close(safe_to_exit_pipe);
+            close(server.rdb_child_exit_pipe);
+            close(checkpoint_dir_pipe);
+            close(checkpoint_dir_pipe_writing);
+            return C_ERR;
+        }
+    }
+
     /* Collect the connections of the replicas we want to transfer
      * the RDB to, which are i WAIT_BGSAVE_START state. */
     server.rdb_pipe_conns = zmalloc(sizeof(connection *)*listLength(server.slaves));
@@ -2988,13 +3041,20 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         }
     }
 
-    if (rocksCreateCheckpoint(sdscatprintf(sdsempty(), "%s/tmp_%lld", ROCKS_DATA, ustime())) == 0) return C_ERR;
-
     /* Create the child process. */
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         /* Child */
         int retval, dummy;
         rio rdb;
+
+        if (server.swap_mode != SWAP_MODE_MEMORY) {
+            close(checkpoint_dir_pipe_writing);
+            if (C_ERR == readCheckpointDirFromPipe(checkpoint_dir_pipe)) {
+                serverLog(LL_WARNING, "wait checkpoint dir fail, exit.");
+                exit(1);
+            }
+            close(checkpoint_dir_pipe);
+        }
 
         rioInitWithFd(&rdb,rdb_pipe_write);
 
@@ -3039,6 +3099,8 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             }
             close(rdb_pipe_write);
             close(server.rdb_pipe_read);
+            if (checkpoint_dir_pipe) close(checkpoint_dir_pipe);
+            if (checkpoint_dir_pipe_writing) close(checkpoint_dir_pipe_writing);
             zfree(server.rdb_pipe_conns);
             server.rdb_pipe_conns = NULL;
             server.rdb_pipe_numconns = 0;
@@ -3051,6 +3113,13 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             close(rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */
             if (aeCreateFileEvent(server.el, server.rdb_pipe_read, AE_READABLE, rdbPipeReadHandler,NULL) == AE_ERR) {
                 serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");
+            }
+            if (server.swap_mode != SWAP_MODE_MEMORY) {
+                close(checkpoint_dir_pipe);
+                rocksdbCreateCheckpointPayload *pd = zcalloc(sizeof(rocksdbCreateCheckpointPayload));
+                pd->waiting_child = childpid;
+                pd->checkpoint_dir_pipe_writing = checkpoint_dir_pipe_writing;
+                submitUtilTask(CREATE_CHECKPOINT, pd, NULL);
             }
         }
         return (childpid == -1) ? C_ERR : C_OK;

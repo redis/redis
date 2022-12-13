@@ -840,6 +840,36 @@ static void executeGetRocksdbStats(swapRequest* req) {
     doNotify(req,0);
 }
 
+static void executeCreateCheckpoint(swapRequest* req) {
+    rocksdbCreateCheckpointPayload *pd = req->finish_pd;
+    sds checkpoint_dir = sdscatprintf(sdsempty(), "%s/tmp_%lld", ROCKS_DATA, ustime());
+    rocksdb_checkpoint_t* checkpoint = NULL;
+
+    char* err = NULL;
+    checkpoint = rocksdb_checkpoint_object_create(server.rocks->db, &err);
+    if (err != NULL) {
+        serverLog(LL_WARNING, "[rocks] checkpoint object create fail :%s\n", err);
+        goto error;
+    }
+    rocksdb_checkpoint_create(checkpoint, checkpoint_dir, 0, &err);
+    if (err != NULL) {
+        serverLog(LL_WARNING, "[rocks] checkpoint %s create fail: %s", checkpoint_dir, err);
+        goto error;
+    }
+    pd->checkpoint = checkpoint;
+    pd->checkpoint_dir = checkpoint_dir;
+    doNotify(req,0);
+    return;
+
+    error:
+    if(checkpoint != NULL) {
+        rocksdb_checkpoint_object_destroy(checkpoint);
+    }
+    sdsfree(checkpoint_dir);
+    pd->checkpoint = NULL;
+    pd->checkpoint_dir = NULL;
+    doNotify(req,0);
+}
 
 static void executeRocksdbUtils(swapRequest *req) {
     switch(req->intention_flags) {
@@ -849,6 +879,9 @@ static void executeRocksdbUtils(swapRequest *req) {
         case GET_ROCKSDB_STATS_TASK:
             executeGetRocksdbStats(req);
 			break;
+        case CREATE_CHECKPOINT:
+            executeCreateCheckpoint(req);
+            break;
         default:
             doNotify(req,SWAP_ERR_EXEC_UNEXPECTED_UTIL);
 			break;

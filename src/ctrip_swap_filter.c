@@ -70,8 +70,13 @@ static unsigned char metaVersionFilter(void* arg, int level, int cf, const char*
     const char* key;
     size_t key_len;
     filterState state;
+    size_t inflight_snapshot;
     atomicGet(filter_state, state);
     if (state == FILTER_STATE_CLOSE) return 0;
+    /* Since release 6.0, with compaction filter enabled, RocksDB always invoke filtering for any key,
+     * even if it knows it will make a snapshot not repeatable. */
+    atomicGet(server.inflight_snapshot, inflight_snapshot);
+    if (inflight_snapshot > 0) return 0;
     updateCompactionFiltScanCount(cf);
     int retval = decodekey(rawkey, rawkey_length, &dbid, &key, &key_len, &key_version);
     // serverLog(LL_WARNING, "%s %ld", key, key_len);

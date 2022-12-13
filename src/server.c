@@ -2069,6 +2069,7 @@ void checkChildrenDone(void) {
                 exit(1);
             }
             if (!bysignal && exitcode == 0) receiveChildInfo();
+            rocksReleaseSnapshot();
             rocksReleaseCheckpoint();
             resetChildState();
         } else {

@@ -1135,8 +1135,10 @@ int rocksInit(void);
 void rocksRelease(void);
 int rocksFlushDB(int dbid);
 void rocksCron(void);
-int rocksCreateCheckpoint(sds checkpoint_dir);
 void rocksReleaseCheckpoint(void);
+void rocksReleaseSnapshot(void);
+int rocksCreateSnapshot(void);
+int readCheckpointDirFromPipe(int pipe);
 struct rocksdbMemOverhead *rocksGetMemoryOverhead();
 void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh);
 sds genRocksdbInfoString(sds info);
@@ -1527,14 +1529,28 @@ static inline void clientSwapError(client *c, int swap_errcode) {
 
 #define COMPACT_RANGE_TASK 0
 #define GET_ROCKSDB_STATS_TASK 1
-#define TASK_COUNT 2
+#define EXCLUSIVE_TASK_COUNT 2
+#define CREATE_CHECKPOINT 2
 typedef struct rocksdbUtilTaskManager{
     struct {
         int stat;
-    } stats[TASK_COUNT];
+    } stats[EXCLUSIVE_TASK_COUNT];
 } rocksdbUtilTaskManager;
 rocksdbUtilTaskManager* createRocksdbUtilTaskManager();
 int submitUtilTask(int type, void* ctx, sds* error);
+
+typedef struct rocksdbCreateCheckpointPayload {
+    rocksdb_checkpoint_t *checkpoint;
+    sds checkpoint_dir;
+    pid_t waiting_child;
+    int checkpoint_dir_pipe_writing;
+} rocksdbCreateCheckpointPayload;
+
+typedef struct checkpointDirPipeWritePayload {
+    sds data;
+    ssize_t written;
+    pid_t waiting_child;
+} checkpointDirPipeWritePayload;
 
 /* swap trace */
 #define SLOWLOG_ENTRY_MAX_TRACE 16

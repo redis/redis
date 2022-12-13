@@ -1715,9 +1715,11 @@ struct redisServer {
     int rocksdb_disk_error_since;
     int swap_rocksdb_stats_collect_interval_ms;
     struct rocks *rocks;
+    redisAtomic size_t inflight_snapshot;
     struct rocksdbUtilTaskManager* util_task_manager;
     /* swap threads */
     int swap_threads_num;
+    int extra_swap_thread_idx;
     int total_swap_threads_num; /* swap_threads_num + extra_swap_threads_num */
     struct swapThread *swap_threads;
     /* async */
