@@ -3699,7 +3699,7 @@ int processCommand(client *c) {
     moduleCallCommandFilters(c);
 
     /* in case we are starting to ProcessCommand and we already have a command we assume
-     * this is a reprocessing of this command, so we do not want to perform some of the actions*/
+     * this is a reprocessing of this command, so we do not want to perform some of the actions again. */
     int client_reprocessing_command = c->cmd ? 1 : 0;
 
     /* Handle possible security attacks. */
@@ -3719,7 +3719,8 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth.
-     * In case we are reprocessing a command after it was blocked, we do not have to repeat the same checks */
+     * In case we are reprocessing a command after it was blocked,
+     * we do not have to repeat the same checks */
     if (!client_reprocessing_command) {
         c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
         sds err;
