@@ -925,7 +925,7 @@ void aof_background_fsync(int fd) {
 
 /* Close the fd on the basis of aof_background_fsync. */
 void aof_background_fsync_and_close(int fd) {
-    bioCreateCloseJob(fd, 1);
+    bioCreateCloseJob(fd, 1, 1);
 }
 
 /* Kills an AOFRW child process if exists */
