@@ -2007,18 +2007,11 @@ int handleClientsWithPendingWrites(void) {
     return processed;
 }
 
-/* Only reset the client cmd pointer and argv.
- * the client tracking for the command duration is also reset */
-redisCommandProc *resetLastCommand(client *c) {
-    redisCommandProc *lastCmd = c->cmd ? c->cmd->proc : NULL;
-    freeClientArgv(c);
-    c->duration = 0;
-    return lastCmd;
-}
-
 /* resetClient prepare the client to process the next command */
 void resetClient(client *c) {
-    redisCommandProc *prevcmd = resetLastCommand(c);
+    redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
+
+    freeClientArgv(c);
     c->cur_script = NULL;
     c->reqtype = 0;
     c->multibulklen = 0;
