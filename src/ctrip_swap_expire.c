@@ -323,15 +323,6 @@ int scanExpireDbCycle(redisDb *db, int type, long long timelimit) {
     elapsed = ustime() - start;
     expire_time = elapsed - scan_time;
 
-    double current_perc;
-    if (candidates > 0) 
-        current_perc = (double)total_removed/candidates;
-    else
-        current_perc = 0;
-
-    scan_expire->stale_percent = (current_perc*0.05) +
-                                 (scan_expire->stale_percent*0.95);
-
     scan_expire->stat_scan_time_used += scan_time;
     scan_expire->stat_expire_time_used += expire_time;
     stat_scan_expired_keys += total_removed;
@@ -342,6 +333,10 @@ update_stats:
         stat_last_update_time = start/1000000;
         scan_expire->stat_scan_per_sec = stat_scan_keys;
         scan_expire->stat_expired_per_sec = stat_scan_expired_keys;
+        if (stat_scan_keys > 0)
+            scan_expire->stale_percent = (double)stat_scan_expired_keys/stat_scan_keys;
+        else
+            scan_expire->stale_percent = 0;
         stat_scan_keys = 0;
         stat_scan_expired_keys = 0;
     }
