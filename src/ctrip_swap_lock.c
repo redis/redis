@@ -602,7 +602,8 @@ end:
         lockAttachToLocks(lock, locks);
 #ifdef SWAP_DEBUG
         sds dump = locksDump(locks);
-        DEBUG_MSGS_APPEND(msgs,"lock","locks = %s, blocked=%d",dump,blocked);
+        int conflict = !lockLinkTargetReady(&lock->link.target);
+        DEBUG_MSGS_APPEND(msgs,"lock","locks = %s, conflict=%d",dump,conflict);
         sdsfree(dump);
 #endif
         lockProceedIfReady(lock);

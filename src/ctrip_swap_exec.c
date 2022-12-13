@@ -640,6 +640,23 @@ void dumpRIO(RIO *rio) {
             repr = sdscat(repr,")\n");
         }
         break;
+    case ROCKS_RANGE:
+        repr = sdscatprintf(repr, "RANGE [%s] : reverse=%d, limit=%ld, (",
+                rioGetCFName(rio->range.cf),rio->range.reverse,rio->range.limit);
+        repr = sdscatrepr(repr, rio->range.start, sdslen(rio->range.start));
+        repr = sdscat(repr, ")=>(");
+        repr = sdscatrepr(repr, rio->range.end, sdslen(rio->range.end));
+        repr = sdscat(repr, ")\n");
+        for (int i = 0; i < rio->range.numkeys; i++) {
+            repr = sdscat(repr, "  (");
+            repr = sdscatrepr(repr, rio->range.rawkeys[i],
+                    sdslen(rio->range.rawkeys[i]));
+            repr = sdscat(repr, ")=>(");
+            repr = sdscatrepr(repr, rio->range.rawvals[i],
+                    sdslen(rio->range.rawvals[i]));
+            repr = sdscat(repr,")\n");
+        }
+        break;
     default:
         serverPanic("[rocks] Unknown io action: %d", rio->action);
         break;
