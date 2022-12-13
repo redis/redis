@@ -569,6 +569,12 @@ foreach testType {Successful Aborted} {
             # Remember the sync_full stat before the client kill.
             set sync_full [s 0 sync_full]
 
+            if {$testType == "Aborted"} {
+                # Set master with a slow rdb generation, so that we can easily intercept loading
+                # 10ms per key, with 2000 keys is 20 seconds
+                $master config set rdb-key-save-delay 10000
+            }
+
             # Force the replica to try another full sync (this time it will have matching master replid)
             $master multi
             $master client kill type replica
@@ -579,12 +585,16 @@ foreach testType {Successful Aborted} {
             }
             $master exec
 
+            # Wait for sync_full to get incremented from the previous value.
+            # After the client kill, make sure we do a reconnect, and do a FULL SYNC.
+            wait_for_condition 100 100 {
+                [s 0 sync_full] > $sync_full
+            } else {
+                fail "Master <-> Replica didn't start the full sync"
+            }
+
             switch $testType {
                 "Aborted" {
-                    # Set master with a slow rdb generation, so that we can easily intercept loading
-                    # 10ms per key, with 2000 keys is 20 seconds
-                    $master config set rdb-key-save-delay 10000
-
                     test {Diskless load swapdb (async_loading): replica enter async_loading} {
                         # Wait for the replica to start reading the rdb
                         wait_for_condition 100 100 {
@@ -655,16 +665,6 @@ foreach testType {Successful Aborted} {
                     $master config set rdb-key-save-delay 0
                 }
                 "Successful" {
-                    # Wait for sync_full to get incremented from the previous value.
-                    # The way to know that we're done with the full sync is not to check
-                    # that our state is up (could be up if we check too early), but rather
-                    # check that the sync_full counter got incremented.
-                    wait_for_condition 100 100 {
-                        [s 0 sync_full] > $sync_full
-                    } else {
-                        fail "Master <-> Replica didn't finish the full sync"
-                    }
-
                     # Let replica finish sync with master
                     wait_for_condition 100 100 {
                         [s -1 master_link_status] eq "up"
