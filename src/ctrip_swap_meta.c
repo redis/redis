@@ -354,32 +354,27 @@ int metaScanSwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
-int metaScanEncodeKeys(swapData *data, int intention, void *datactx_,
-        int *action, int *numkeys, int **pcfs, sds **prawkeys) {
-    int *cfs = NULL, retval = C_OK;
-    sds *rawkeys = NULL;
-    metaScanDataCtx *datactx = datactx_;
-
+int doSwap(swapData *data, int intention, void *datactx_, int *action) {
+    UNUSED(data), UNUSED(datactx_);
     switch (intention) {
-    case SWAP_IN:
-        cfs = zmalloc(sizeof(int));
-        rawkeys = zmalloc(sizeof(sds));
-        cfs[0] = META_CF;
-        rawkeys[0] = rocksEncodeMetaKey(data->db,datactx->seek);
-        *numkeys = datactx->limit;
-        *pcfs = cfs;
-        *prawkeys = rawkeys;
-        *action = ROCKS_ITERATE;
-        break;
-    default:
-        *action = 0;
-        *numkeys = 0;
-        *pcfs = NULL;
-        *prawkeys = NULL;
-        retval = SWAP_ERR_DATA_UNEXPECTED_INTENTION;
-        break;
+        case SWAP_IN:
+            *action = ROCKS_ITERATE;
+            break;
+        default:
+            *action = ROCKS_NOP;
+            return SWAP_ERR_DATA_UNEXPECTED_INTENTION;
     }
-    return retval;
+    return 0;
+}
+
+int metaScanEncodeRange(struct swapData *data, int intention, void *datactx_, int *limit,
+        uint32_t *flags, int *pcf, sds *start, sds *end) {
+    metaScanDataCtx *datactx = datactx_;
+    serverAssert(SWAP_IN == intention);
+    *pcf = META_CF;
+    *flags = 0;
+    *start = rocksEncodeMetaKey(data->db,datactx->seek);
+    *limit = datactx->limit;
 }
 
 int metaScanDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
@@ -463,8 +458,10 @@ void freeMetaScanSwapData(swapData *data, void *datactx_) {
 swapDataType metaScanSwapDataType = {
     .name = "metascan",
     .swapAna = metaScanSwapAna,
-    .encodeKeys = metaScanEncodeKeys,
+    .doSwap = doSwap,
+    .encodeKeys = NULL,
     .encodeData = NULL,
+    .encodeRange = metaScanEncodeRange,
     .decodeData = metaScanDecodeData,
     .swapIn = metaScanSwapIn,
     .swapOut = NULL,

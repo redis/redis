@@ -105,35 +105,37 @@ int wholeKeySwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
+int wholeKeyDoSwap(swapData *data, int intention, void *datactx_, int *action) {
+    switch (intention) {
+        case SWAP_IN:
+            *action = ROCKS_GET;
+            break;
+        case SWAP_DEL:
+            *action = ROCKS_DEL;
+            break;
+        case SWAP_OUT:
+            *action = ROCKS_PUT;
+            break;
+        default:
+            *action = ROCKS_NOP;
+            return SWAP_ERR_DATA_FAIL;
+    }
+    return 0;
+}
+
 int wholeKeyEncodeKeys(swapData *data, int intention, void *datactx,
-        int *action, int *numkeys, int **pcfs, sds **prawkeys) {
+        int *numkeys, int **pcfs, sds **prawkeys) {
     sds *rawkeys = zmalloc(sizeof(sds));
     int *cfs = zmalloc(sizeof(int));
 
     UNUSED(datactx);
+    serverAssert(intention == SWAP_IN || intention == SWAP_DEL);
     rawkeys[0] = rocksEncodeDataKey(data->db,data->key->ptr,SWAP_VERSION_ZERO,NULL);
     cfs[0] = DATA_CF;
     *numkeys = 1;
     *prawkeys = rawkeys;
     *pcfs = cfs;
 
-    switch (intention) {
-    case SWAP_IN:
-        *action = ROCKS_GET;
-        return 0;
-    case SWAP_DEL:
-        *action = ROCKS_DEL;
-        return 0;
-    case SWAP_OUT:
-    default:
-        sdsfree(rawkeys[0]);
-        zfree(rawkeys);
-        rawkeys = NULL;
-        *action = SWAP_NOP;
-        *numkeys = 0;
-        *prawkeys = NULL;
-        return SWAP_ERR_DATA_FAIL;
-    }
     return 0;
 }
 
@@ -146,7 +148,7 @@ static sds wholeKeyEncodeDataVal(swapData *data) {
 }
 
 int wholeKeyEncodeData(swapData *data, int intention, void *datactx,
-        int *action, int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
+        int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
     UNUSED(datactx);
     serverAssert(intention == SWAP_OUT);
     sds *rawkeys = zmalloc(sizeof(sds));
@@ -155,7 +157,6 @@ int wholeKeyEncodeData(swapData *data, int intention, void *datactx,
     rawkeys[0] = wholeKeyEncodeDataKey(data);
     rawvals[0] = wholeKeyEncodeDataVal(data);
     cfs[0] = DATA_CF;
-    *action = ROCKS_PUT;
     *numkeys = 1;
     *prawkeys = rawkeys;
     *prawvals = rawvals;
@@ -240,9 +241,11 @@ void *wholeKeyCreateOrMergeObject(swapData *data, void *decoded, void *datactx) 
 swapDataType wholeKeySwapDataType = {
     .name = "wholekey",
     .swapAna = wholeKeySwapAna,
+    .doSwap = wholeKeyDoSwap,
     .encodeKeys = wholeKeyEncodeKeys,
     .encodeData = wholeKeyEncodeData,
     .decodeData = wholeKeyDecodeData,
+    .encodeRange = NULL,
     .swapIn = wholeKeySwapIn,
     .swapOut = wholeKeySwapOut,
     .swapDel = wholeKeySwapDel,

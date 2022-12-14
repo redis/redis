@@ -111,11 +111,18 @@ int swapDataAna(swapData *d, struct keyRequest *key_request,
     return retval;
 }
 
+inline int swapDataDoSwap(swapData *d, int intention, void *datactx, int *action) {
+    if (d->type->doSwap)
+        return d->type->doSwap(d,intention,datactx,action);
+    else
+        return 0;
+}
+
 /* Swap-thread: decide how to encode keys by data and intention. */
 inline int swapDataEncodeKeys(swapData *d, int intention, void *datactx,
-        int *action, int *numkeys, int **cfs, sds **rawkeys) {
+        int *numkeys, int **cfs, sds **rawkeys) {
     if (d->type->encodeKeys)
-        return d->type->encodeKeys(d,intention,datactx,action,numkeys,cfs,rawkeys);
+        return d->type->encodeKeys(d,intention,datactx,numkeys,cfs,rawkeys);
     else
         return 0;
 }
@@ -123,10 +130,17 @@ inline int swapDataEncodeKeys(swapData *d, int intention, void *datactx,
 /* Swap-thread: decode how to encode val/subval by data and intention.
  * dataactx can be used store context of which subvals are encoded. */
 inline int swapDataEncodeData(swapData *d, int intention, void *datactx,
-        int *action, int *numkeys, int **cfs, sds **rawkeys, sds **rawvals) {
+        int *numkeys, int **cfs, sds **rawkeys, sds **rawvals) {
     if (d->type->encodeData)
-        return d->type->encodeData(d,intention,datactx,action,
-                numkeys,cfs,rawkeys,rawvals);
+        return d->type->encodeData(d,intention,datactx,numkeys,cfs,rawkeys,rawvals);
+    else
+        return 0;
+}
+
+inline int swapDataEncodeRange(struct swapData *d, int intention, void *datactx,
+        int *limit, uint32_t *flags, int *pcf, sds *start, sds *end) {
+    if (d->type->encodeRange)
+        return d->type->encodeRange(d,intention,datactx,limit,flags,pcf,start,end);
     else
         return 0;
 }

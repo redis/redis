@@ -1352,6 +1352,34 @@ int listSwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
+int listDoSwap(swapData *data, int intention, void *datactx_, int *action) {
+    UNUSED(data);
+    listDataCtx *datactx = datactx_;
+    listMeta *swap_meta = datactx->swap_meta;
+
+    switch (intention) {
+        case SWAP_IN:
+            if (swap_meta && swap_meta->len > 0) {
+                *action = ROCKS_MULTIGET;
+            } else {/* Swap in entire list(LREM/LINSERT/LPOS...) */
+                *action = ROCKS_SCAN;
+            }
+            break;
+        case SWAP_DEL:
+            *action = ROCKS_NOP;
+            break;
+        case SWAP_OUT:
+            *action = ROCKS_WRITE;
+            break;
+        default:
+            /* Should not happen .*/
+            *action = ROCKS_NOP;
+            return SWAP_ERR_DATA_FAIL;
+    }
+
+    return 0;
+}
+
 static inline sds listEncodeRidx(long ridx) {
     ridx = htonu64(ridx);
     return sdsnewlen(&ridx,sizeof(ridx));
@@ -1374,64 +1402,35 @@ static inline long listDecodeRidx(const char *str, size_t len) {
 }
 
 int listEncodeKeys(swapData *data, int intention, void *datactx_,
-        int *action, int *numkeys, int **pcfs, sds **prawkeys) {
+        int *numkeys, int **pcfs, sds **prawkeys) {
     listDataCtx *datactx = datactx_;
     listMeta *swap_meta = datactx->swap_meta;
     sds *rawkeys = NULL;
     int *cfs = NULL;
     uint64_t version = swapDataObjectVersion(data);
 
-    switch (intention) {
-    case SWAP_IN:
-        if (swap_meta && swap_meta->len > 0) {
-            int neles = 0;
-            listMetaIterator iter;
+    serverAssert(SWAP_IN == intention);
+    serverAssert(swap_meta && swap_meta->len);
+    int neles = 0;
+    listMetaIterator iter;
 
-            cfs = zmalloc(sizeof(int)*swap_meta->len);
-            rawkeys = zmalloc(sizeof(sds)*swap_meta->len);
+    cfs = zmalloc(sizeof(int)*swap_meta->len);
+    rawkeys = zmalloc(sizeof(sds)*swap_meta->len);
 
-            //TODO opt: use ROCKS_RANGE if too many eles
-            listMetaIteratorInitWithType(&iter,swap_meta,SEGMENT_TYPE_HOT);
-            while (!listMetaIterFinished(&iter)) {
-                long ridx = listMetaIterCur(&iter,NULL);
-                cfs[neles] = DATA_CF;
-                rawkeys[neles] = listEncodeSubkey(data->db,data->key->ptr,
-                        version,ridx);
-                neles++;
-                listMetaIterNext(&iter);
-            }
-
-            *numkeys = neles;
-            *pcfs = cfs;
-            *prawkeys = rawkeys;
-            *action = ROCKS_MULTIGET;
-        } else {/* Swap in entire list(LREM/LINSERT/LPOS...) */
-            cfs = zmalloc(sizeof(int));
-            rawkeys = zmalloc(sizeof(sds));
-            cfs[0] = DATA_CF;
-            rawkeys[0] = rocksEncodeDataScanPrefix(data->db,data->key->ptr,
-                    version);
-            *numkeys = 1;
-            *pcfs = cfs;
-            *prawkeys = rawkeys;
-            *action = ROCKS_SCAN;
-        }
-        return 0;
-    case SWAP_DEL:
-        *action = 0;
-        *numkeys = 0;
-        *pcfs = NULL;
-        *prawkeys = NULL;
-        return 0;
-    case SWAP_OUT:
-    default:
-        /* Should not happen .*/
-        *action = 0;
-        *numkeys = 0;
-        *pcfs = NULL;
-        *prawkeys = NULL;
-        return 0;
+    //TODO opt: use ROCKS_RANGE if too many eles
+    listMetaIteratorInitWithType(&iter,swap_meta,SEGMENT_TYPE_HOT);
+    while (!listMetaIterFinished(&iter)) {
+        long ridx = listMetaIterCur(&iter,NULL);
+        cfs[neles] = DATA_CF;
+        rawkeys[neles] = listEncodeSubkey(data->db,data->key->ptr,
+                version,ridx);
+        neles++;
+        listMetaIterNext(&iter);
     }
+
+    *numkeys = neles;
+    *pcfs = cfs;
+    *prawkeys = rawkeys;
 
     return 0;
 }
@@ -1461,7 +1460,7 @@ void encodeElement(long ridx, MOVE robj *ele, void *pd_) {
 }
 
 int listEncodeData(swapData *data, int intention, void *datactx_,
-        int *action, int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
+        int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
     metaList main;
     encodeElementPd *pd;
     listDataCtx *datactx = datactx_;
@@ -1483,7 +1482,6 @@ int listEncodeData(swapData *data, int intention, void *datactx_,
 
     metaListSelect(&main,swap_meta,encodeElement,pd);
 
-    *action = ROCKS_WRITE;
     *numkeys = pd->num;
     *pcfs = pd->cfs;
     *prawkeys = pd->rawkeys;
@@ -1491,6 +1489,20 @@ int listEncodeData(swapData *data, int intention, void *datactx_,
 
     zfree(pd);
     return 0;
+}
+
+int listEncodeRange(struct swapData *data, int intention, void *datactx_, int *limit,
+                    uint32_t *flags, int *pcf, sds *start, sds *end) {
+    listDataCtx *datactx = datactx_;
+    uint64_t version = swapDataObjectVersion(data);
+    serverAssert(SWAP_IN == intention);
+    serverAssert(NULL == datactx->swap_meta);
+
+    *flags = 0;
+    *pcf = DATA_CF;
+    *start = rocksEncodeDataRangeStartKey(data->db,data->key->ptr,version);
+    *end = rocksEncodeDataRangeEndKey(data->db,data->key->ptr,version);
+    *limit = 1;
 }
 
 int listDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
@@ -1847,8 +1859,10 @@ int listMergedIsHot(swapData *d, void *result, void *datactx) {
 swapDataType listSwapDataType = {
     .name = "list",
     .swapAna = listSwapAna,
+    .doSwap = listDoSwap,
     .encodeKeys = listEncodeKeys,
     .encodeData = listEncodeData,
+    .encodeRange = listEncodeRange,
     .decodeData = listDecodeData,
     .swapIn = listSwapIn,
     .swapOut = listSwapOut,

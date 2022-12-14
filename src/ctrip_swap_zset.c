@@ -237,6 +237,33 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
+int zsetDoSwap(swapData *data, int intention, void *datactx_, int *action) {
+    zsetDataCtx *datactx = datactx_;
+    switch (intention) {
+        case SWAP_IN:
+            if (datactx->type != TYPE_NONE) {
+                *action = ROCKS_RANGE;
+            } else if (datactx->bdc.num) { /* Swap in specific fields */
+                *action = ROCKS_MULTIGET;
+            } else { /* Swap in entire zset. */
+                *action = ROCKS_SCAN;
+            }
+            break;
+        case SWAP_DEL:
+            *action = ROCKS_NOP;
+            break;
+        case SWAP_OUT:
+            *action = ROCKS_WRITE;
+            break;
+        default:
+            /* Should not happen .*/
+            *action = ROCKS_NOP;
+            return SWAP_ERR_DATA_FAIL;
+    }
+
+    return 0;
+}
+
 sds zsetEncodeScoreKey(redisDb* db, sds key, uint64_t version,
         sds subkey, double score) {
     return encodeScoreKey(db, key, version, score, subkey);
@@ -271,83 +298,25 @@ double nextDouble(double value, uint64_t offset) {
 }
 
 int zsetEncodeKeys(swapData *data, int intention, void *datactx_,
-        int *action, int *numkeys, int **pcfs, sds **prawkeys) {
+        int *numkeys, int **pcfs, sds **prawkeys) {
     zsetDataCtx *datactx = datactx_;
     sds *rawkeys = NULL;
-    int *cfs = NULL;
+    int *cfs = NULL, i;
     uint64_t version = swapDataObjectVersion(data);
 
-    switch (intention) {
-    case SWAP_IN:
-        if (datactx->type != TYPE_NONE) {
-            *numkeys = 1;
-            if (datactx->type == TYPE_ZS) {
-                *action = ROCKS_RANGE;
-                *numkeys = datactx->zs.limit;
-                cfs = zmalloc(sizeof(int)*2);
-                cfs[0] = SCORE_CF;
-                cfs[1] = datactx->zs.reverse;
-                rawkeys = zmalloc(sizeof(sds) * 2);
-                if (datactx->zs.rangespec->minex) {
-                    rawkeys[0] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->minex,
-                        data->key->ptr, version, datactx->zs.rangespec->min);
-                } else {
-                    rawkeys[0] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->minex,
-                        data->key->ptr, version, datactx->zs.rangespec->min - SCORE_DEVIATION);
-                }
-                
-                if (datactx->zs.rangespec->maxex) {
-                    rawkeys[1] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->maxex,
-                        data->key->ptr, version, datactx->zs.rangespec->max);
-                } else {
-                    rawkeys[1] = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->maxex,
-                        data->key->ptr, version, datactx->zs.rangespec->max + SCORE_DEVIATION);
-                }
-            }
-            *pcfs = cfs;
-            *prawkeys = rawkeys;
-        } else if (datactx->bdc.num) { /* Swap in specific fields */
-            int i;
-            cfs = zmalloc(sizeof(int)*datactx->bdc.num);
-            rawkeys = zmalloc(sizeof(sds)*datactx->bdc.num);
-            for (i = 0; i < datactx->bdc.num; i++) {
-                cfs[i] = DATA_CF;
-                rawkeys[i] = rocksEncodeDataKey(data->db,
-                        data->key->ptr,version,datactx->bdc.subkeys[i]->ptr);
-            }
-            *numkeys = datactx->bdc.num;
-            *prawkeys = rawkeys;
-            *pcfs = cfs;
-            *action = ROCKS_MULTIGET;
-            
-        } else { /* Swap in entire zset. */
-            cfs = zmalloc(sizeof(int));
-            rawkeys = zmalloc(sizeof(sds));
-            cfs[0] = DATA_CF;
-            rawkeys[0] = rocksEncodeDataScanPrefix(data->db,
-                    data->key->ptr,version);
-            *numkeys = 1;
-            *pcfs = cfs;
-            *prawkeys = rawkeys;
-            *action = ROCKS_SCAN;
-        }
-        return 0;
+    serverAssert(intention == SWAP_IN);
+    serverAssert(datactx->type == TYPE_NONE);
+    serverAssert(datactx->bdc.num);
 
-    case SWAP_DEL:
-        *action = 0;
-        *numkeys = 0;
-        *pcfs = NULL;
-        *prawkeys = NULL;
-        return 0;
-    case SWAP_OUT:
-    default:
-        /* Should not happen .*/
-        *action = 0;
-        *numkeys = 0;
-        *pcfs = NULL;
-        *prawkeys = NULL;
-        return 0;
+    cfs = zmalloc(sizeof(int)*datactx->bdc.num);
+    rawkeys = zmalloc(sizeof(sds)*datactx->bdc.num);
+    for (i = 0; i < datactx->bdc.num; i++) {
+        cfs[i] = DATA_CF;
+        rawkeys[i] = rocksEncodeDataKey(data->db,data->key->ptr,version,datactx->bdc.subkeys[i]->ptr);
     }
+    *numkeys = datactx->bdc.num;
+    *prawkeys = rawkeys;
+    *pcfs = cfs;
 
     return 0;
 }
@@ -359,9 +328,6 @@ static sds zsetEncodeSubval(double score) {
     rdbSaveBinaryDoubleValue(&sdsrdb, score);
     return sdsrdb.io.buffer.ptr;
 }
-
-
-
 
 sds zsetEncodeScoreValue(sds subkey, double score) {
     UNUSED(subkey);
@@ -378,11 +344,10 @@ int zsetDecodeScoreValue(sds rawval, int rawlen, double* score) {
 }
 
 int zsetEncodeData(swapData *data, int intention, void *datactx_,
-        int *action, int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
+        int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
     zsetDataCtx *datactx = datactx_;
     uint64_t version = swapDataObjectVersion(data);
     if (datactx->bdc.num == 0) {
-        *action = ROCKS_WRITE;
         *numkeys = 0;
         *prawkeys = NULL;
         *prawvals = NULL;
@@ -406,12 +371,51 @@ int zsetEncodeData(swapData *data, int intention, void *datactx_,
                 version, datactx->bdc.subkeys[i]->ptr, score);
         rawvals[i * 2 + 1] = zsetEncodeScoreValue(datactx->bdc.subkeys[i]->ptr, score);
     }
-    *action = ROCKS_WRITE;
     *numkeys = datactx->bdc.num*2;
     *pcfs = cfs;
     *prawkeys = rawkeys;
     *prawvals = rawvals;
     return 0;
+}
+
+int zsetEncodeRange(struct swapData *data, int intention, void *datactx_, int *limit,
+        uint32_t *flags, int *pcf, sds *start, sds *end) {
+    zsetDataCtx *datactx = datactx_;
+    uint64_t version = swapDataObjectVersion(data);
+    serverAssert(intention == SWAP_IN);
+    serverAssert(0 == datactx->bdc.num);
+
+    if (datactx->type != TYPE_NONE) {
+        *limit = 1;
+        *flags = 0;
+        if (datactx->type == TYPE_ZS) {
+            *limit = datactx->zs.limit;
+            *pcf = SCORE_CF;
+            if (datactx->zs.reverse) *flags |= ROCKS_ITERATE_REVERSE;
+            if (datactx->zs.rangespec->minex) {
+                *start = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->minex,
+                                                        data->key->ptr, version, datactx->zs.rangespec->min);
+            } else {
+                *start = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->minex,
+                                                        data->key->ptr, version, datactx->zs.rangespec->min - SCORE_DEVIATION);
+            }
+
+            if (datactx->zs.rangespec->maxex) {
+                *end = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->maxex,
+                                                        data->key->ptr, version, datactx->zs.rangespec->max);
+            } else {
+                *end = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->maxex,
+                                                        data->key->ptr, version, datactx->zs.rangespec->max + SCORE_DEVIATION);
+            }
+
+        }
+    } else {
+        *limit = 1;
+        *flags = 0;
+        *pcf = DATA_CF;
+        *start = rocksEncodeDataRangeStartKey(data->db,data->key->ptr,version);
+        *end = rocksEncodeDataRangeEndKey(data->db,data->key->ptr,version);
+    }
 }
 
 static double zsetDecodeSubval(sds subval) {
@@ -780,8 +784,10 @@ int zsetRocksDel(struct swapData *data_,  void *datactx_, int inaction,
 swapDataType zsetSwapDataType = {
     .name = "zset",
     .swapAna = zsetSwapAna,
+    .doSwap = zsetDoSwap,
     .encodeKeys = zsetEncodeKeys,
     .encodeData = zsetEncodeData,
+    .encodeRange = zsetEncodeRange,
     .decodeData = zsetDecodeData,
     .swapIn = zsetSwapIn,
     .swapOut = zsetSwapOut,

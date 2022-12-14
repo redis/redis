@@ -385,8 +385,10 @@ typedef struct swapData {
 typedef struct swapDataType {
   char *name;
   int (*swapAna)(struct swapData *data, struct keyRequest *key_request, OUT int *intention, OUT uint32_t *intention_flags, void *datactx);
-  int (*encodeKeys)(struct swapData *data, int intention, void *datactx, OUT int *action, OUT int *num, OUT int **cfs, OUT sds **rawkeys);
-  int (*encodeData)(struct swapData *data, int intention, void *datactx, OUT int *action, OUT int *num, OUT int **cfs, OUT sds **rawkeys, OUT sds **rawvals);
+  int (*doSwap)(struct swapData *data, int intention, void *datactx, OUT int *action);
+  int (*encodeKeys)(struct swapData *data, int intention, void *datactx, OUT int *num, OUT int **cfs, OUT sds **rawkeys);
+  int (*encodeRange)(struct swapData *data, int intention, void *datactx, OUT int *limit, OUT uint32_t *flags, OUT int *cf, OUT sds *start, OUT sds *end);
+  int (*encodeData)(struct swapData *data, int intention, void *datactx, OUT int *num, OUT int **cfs, OUT sds **rawkeys, OUT sds **rawvals);
   int (*decodeData)(struct swapData *data, int num, int *cfs, sds *rawkeys, sds *rawvals, OUT void **decoded);
   int (*swapIn)(struct swapData *data, MOVE void *result, void *datactx);
   int (*swapOut)(struct swapData *data, void *datactx);
@@ -404,10 +406,12 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire, OUT void *
 int swapDataAlreadySetup(swapData *d);
 void swapDataMarkPropagateExpire(swapData *data);
 int swapDataAna(swapData *d, struct keyRequest *key_request, int *intention, uint32_t *intention_flag, void *datactx);
+int swapDataDoSwap(swapData *data, int intention, void *datactx_, int *action);
 sds swapDataEncodeMetaKey(swapData *d);
 sds swapDataEncodeMetaVal(swapData *d);
-int swapDataEncodeKeys(swapData *d, int intention, void *datactx, int *action, int *num, int **cfs, sds **rawkeys);
-int swapDataEncodeData(swapData *d, int intention, void *datactx, int *action, int *num, int **cfs, sds **rawkeys, sds **rawvals);
+int swapDataEncodeKeys(swapData *d, int intention, void *datactx, int *num, int **cfs, sds **rawkeys);
+int swapDataEncodeData(swapData *d, int intention, void *datactx, int *num, int **cfs, sds **rawkeys, sds **rawvals);
+int swapDataEncodeRange(struct swapData *data, int intention, void *datactx_, int *limit, uint32_t *flags, int *pcf, sds *start, sds *end);
 int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, OUT void **datactx);
 int swapDataDecodeData(swapData *d, int num, int *cfs, sds *rawkeys, sds *rawvals, void **decoded);
 int swapDataSwapIn(swapData *d, void *result, void *datactx);
@@ -803,6 +807,7 @@ void swapThreadsDispatch(swapRequest *req, int idx);
 int swapThreadsDrained();
 
 /* RIO */
+#define ROCKS_NOP               0
 #define ROCKS_GET             	1
 #define ROCKS_PUT            	  2
 #define ROCKS_DEL              	3
@@ -905,6 +910,9 @@ typedef struct RIO {
 	};
   sds err;
 } RIO;
+
+#define ROCKS_ITERATE_NO_LIMIT 0
+#define ROCKS_ITERATE_REVERSE (1<<0)
 
 void RIOInitGet(RIO *rio, int cf, sds rawkey);
 void RIOInitPut(RIO *rio, int cf, sds rawkey, sds rawval);

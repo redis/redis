@@ -190,55 +190,46 @@ static inline sds hashEncodeSubkey(redisDb *db, sds key, uint64_t version,
     return rocksEncodeDataKey(db,key,version,subkey);
 }
 
+int hashDoSwap(swapData *data, int intention, void *datactx_, int *action) {
+    UNUSED(data);
+    hashDataCtx *datactx = datactx_;
+    switch (intention) {
+        case SWAP_IN:
+            if (datactx->ctx.num > 0) *action = ROCKS_MULTIGET; /* Swap in specific fields */
+            else *action = ROCKS_SCAN; /* Swap in entire hash(HKEYS/HVALS...) */
+            break;
+        case SWAP_DEL:
+            /* No need to del data (meta will be deleted by exec) */
+            *action = ROCKS_NOP;
+            break;
+        case SWAP_OUT:
+            *action = ROCKS_WRITE;
+            break;
+        default:
+            *action = ROCKS_NOP;
+            return SWAP_ERR_DATA_FAIL;
+    }
+    return 0;
+}
+
 int hashEncodeKeys(swapData *data, int intention, void *datactx_,
-        int *action, int *numkeys, int **pcfs, sds **prawkeys) {
+        int *numkeys, int **pcfs, sds **prawkeys) {
     hashDataCtx *datactx = datactx_;
     sds *rawkeys = NULL;
     int *cfs = NULL;
     uint64_t version = swapDataObjectVersion(data);
 
-    switch (intention) {
-    case SWAP_IN:
-        if (datactx->ctx.num > 0) { /* Swap in specific fields */
-            int i;
-            cfs = zmalloc(sizeof(int)*datactx->ctx.num);
-            rawkeys = zmalloc(sizeof(sds)*datactx->ctx.num);
-            for (i = 0; i < datactx->ctx.num; i++) {
-                cfs[i] = DATA_CF;
-                rawkeys[i] = hashEncodeSubkey(data->db,data->key->ptr,
-                        version,datactx->ctx.subkeys[i]->ptr);
-            }
-            *numkeys = datactx->ctx.num;
-            *pcfs = cfs;
-            *prawkeys = rawkeys;
-            *action = ROCKS_MULTIGET;
-        } else {/* Swap in entire hash(HKEYS/HVALS...) */
-            cfs = zmalloc(sizeof(int));
-            rawkeys = zmalloc(sizeof(sds));
-            cfs[0] = DATA_CF;
-            rawkeys[0] = rocksEncodeDataScanPrefix(data->db,data->key->ptr,version);
-            *numkeys = datactx->ctx.num;
-            *pcfs = cfs;
-            *prawkeys = rawkeys;
-            *action = ROCKS_SCAN;
-        }
-        return 0;
-    case SWAP_DEL:
-        /* No need to del data (meta will be deleted by exec) */
-        *action = 0;
-        *numkeys = 0;
-        *pcfs = NULL;
-        *prawkeys = NULL;
-        return 0;
-    case SWAP_OUT:
-    default:
-        /* Should not happen .*/
-        *action = 0;
-        *numkeys = 0;
-        *pcfs = NULL;
-        *prawkeys = NULL;
-        return 0;
+    serverAssert(intention == SWAP_IN);
+    cfs = zmalloc(sizeof(int)*datactx->ctx.num);
+    rawkeys = zmalloc(sizeof(sds)*datactx->ctx.num);
+    for (int i = 0; i < datactx->ctx.num; i++) {
+        cfs[i] = DATA_CF;
+        rawkeys[i] = hashEncodeSubkey(data->db,data->key->ptr,
+                                      version,datactx->ctx.subkeys[i]->ptr);
     }
+    *numkeys = datactx->ctx.num;
+    *pcfs = cfs;
+    *prawkeys = rawkeys;
 
     return 0;
 }
@@ -247,8 +238,22 @@ static inline sds hashEncodeSubval(robj *subval) {
     return rocksEncodeValRdb(subval);
 }
 
+int hashEncodeRange(struct swapData *data, int intention, void *datactx_, int *limit,
+        uint32_t *flags, int *pcf, sds *start, sds *end) {
+    UNUSED(intention);
+    hashDataCtx *datactx = datactx_;
+    uint64_t version = swapDataObjectVersion(data);
+
+    *pcf = DATA_CF;
+    *flags = 0;
+    *start = rocksEncodeDataRangeStartKey(data->db,data->key->ptr,version);
+    *end = rocksEncodeDataRangeEndKey(data->db,data->key->ptr,version);
+    *limit = datactx->ctx.num;
+    return 0;
+}
+
 int hashEncodeData(swapData *data, int intention, void *datactx_,
-        int *action, int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
+        int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
     hashDataCtx *datactx = datactx_;
     int *cfs = zmalloc(datactx->ctx.num*sizeof(int));
     sds *rawkeys = zmalloc(datactx->ctx.num*sizeof(sds));
@@ -266,7 +271,6 @@ int hashEncodeData(swapData *data, int intention, void *datactx_,
         rawvals[i] = hashEncodeSubval(subval);
         decrRefCount(subval);
     }
-    *action = ROCKS_WRITE;
     *numkeys = datactx->ctx.num;
     *pcfs = cfs;
     *prawkeys = rawkeys;
@@ -473,7 +477,9 @@ void freeHashSwapData(swapData *data_, void *datactx_) {
 swapDataType hashSwapDataType = {
     .name = "hash",
     .swapAna = hashSwapAna,
+    .doSwap = hashDoSwap,
     .encodeKeys = hashEncodeKeys,
+    .encodeRange = hashEncodeRange,
     .encodeData = hashEncodeData,
     .decodeData = hashDecodeData,
     .swapIn = hashSwapIn,

@@ -744,19 +744,18 @@ static void executeSwapDelRequest(swapRequest *req) {
     rocksdb_writebatch_t *wb;
     swapData *data = req->data;
 
-    if ((errcode = swapDataEncodeKeys(data,req->intention,req->datactx,
-                &action,&numkeys,&cfs,&rawkeys))) {
+    if ((errcode = swapDataDoSwap(data,req->intention,req->datactx,&action)))
         goto end;
-    }
-    DEBUG_MSGS_APPEND(req->msgs,"exec-del-encodekeys",
-            "action=%s, numkeys=%d", rocksActionName(action), numkeys);
+    DEBUG_MSGS_APPEND(req->msgs,"exec-del-encodekeys","action=%s", rocksActionName(action));
 
-    if (numkeys > 0) {
+    if (action != ROCKS_NOP) {
+        if ((errcode = swapDataEncodeKeys(data,req->intention,req->datactx,&numkeys,&cfs,&rawkeys)))
+            goto end;
         if (action == ROCKS_WRITE) {
             wb = rocksdb_writebatch_create();
             for (i = 0; i < numkeys; i++) {
                 rocksdb_writebatch_delete_cf(wb, rioGetCF(cfs[i]),
-                        rawkeys[i], sdslen(rawkeys[i]));
+                                             rawkeys[i], sdslen(rawkeys[i]));
             }
             DEBUG_MSGS_APPEND(req->msgs,"exec-write","numkeys=%d.",numkeys);
             RIOInitWrite(rio,wb);
@@ -919,16 +918,16 @@ static inline int doSwapOutMeta(swapData *data) {
 }
 
 static void executeSwapOutRequest(swapRequest *req) {
-    int i, numkeys, errcode = 0, action, *cfs = NULL;
-    sds *rawkeys = NULL, *rawvals = NULL;
+    int i, numkeys, errcode = 0, action, *cfs = NULL;sds *rawkeys = NULL, *rawvals = NULL;
     RIO _rio = {0}, *rio = &_rio;
     rocksdb_writebatch_t *wb = NULL;
     swapData *data = req->data;
 
-    if ((errcode = swapDataEncodeData(data,req->intention,req->datactx,
-                &action,&numkeys,&cfs,&rawkeys,&rawvals))) {
+    if ((errcode = swapDataDoSwap(data,req->intention,req->datactx,&action)))
         goto end;
-    }
+    if ((errcode = swapDataEncodeData(data,req->intention,req->datactx,&numkeys,&cfs,
+                &rawkeys,&rawvals)))
+        goto end;
     DEBUG_MSGS_APPEND(req->msgs,"exec-out-encodedata",
             "action=%s, numkeys=%d", rocksActionName(action), numkeys);
 
@@ -1133,18 +1132,20 @@ int doAuxDel(swapRequest *req, RIO *rio) {
 
 static void executeSwapInRequest(swapRequest *req) {
     void *decoded;
-    int numkeys, errcode, action, *cfs = NULL;
-    sds *rawkeys = NULL;
+    int errcode, action;
     RIO _rio = {0}, *rio = &_rio;
     swapData *data = req->data;
-    if ((errcode = swapDataEncodeKeys(data,req->intention,req->datactx,
-                &action,&numkeys,&cfs,&rawkeys))) {
+    if ((errcode = swapDataDoSwap(data,req->intention,req->datactx,&action)))
         goto end;
-    }
-    DEBUG_MSGS_APPEND(req->msgs,"exec-in-encodekeys","action=%s, numkeys=%d",
-            rocksActionName(action),numkeys);
+    DEBUG_MSGS_APPEND(req->msgs,"exec-in-encodekeys","action=%s",rocksActionName(action));
 
     if (action == ROCKS_MULTIGET) {
+        int numkeys, *cfs = NULL;
+        sds *rawkeys = NULL;
+        if ((errcode = swapDataEncodeKeys(data,req->intention,
+                    req->datactx,&numkeys,&cfs,&rawkeys))) {
+            goto end;
+        }
         RIOInitMultiGet(rio,numkeys,cfs,rawkeys);
         if ((errcode = doRIO(rio))) {
             goto end;
@@ -1158,6 +1159,12 @@ static void executeSwapInRequest(swapRequest *req) {
         }
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata","decoded=%p",(void*)decoded);
     } else if (action == ROCKS_GET) {
+        int numkeys, *cfs = NULL;
+        sds *rawkeys = NULL;
+        if ((errcode = swapDataEncodeKeys(data,req->intention,
+                    req->datactx,&numkeys,&cfs,&rawkeys))) {
+            goto end;
+        }
         serverAssert(numkeys == 1);
         RIOInitGet(rio, cfs[0], rawkeys[0]);
         if ((errcode = doRIO(rio))) {
@@ -1182,13 +1189,20 @@ static void executeSwapInRequest(swapRequest *req) {
         zfree(rawkeys);
     } else if (action == ROCKS_SCAN) {
         int *tmpcfs, i;
-        RIOInitScan(rio,cfs[0],rawkeys[0]);
+        int limit, cf;
+        uint32_t flags = 0;
+        sds start = NULL,end = NULL;
+        if ((errcode = swapDataEncodeRange(data,req->intention,req->datactx,
+                    &limit,&flags,&cf,&start,&end))) {
+            goto end;
+        }
+        RIOInitScan(rio,cf,start);
         if ((errcode = doRIO(rio))) {
             goto end;
         }
         tmpcfs = zmalloc(sizeof(int)*rio->scan.numkeys);
-        for (i = 0; i < rio->scan.numkeys; i++) tmpcfs[i] = cfs[0];
-        DEBUG_MSGS_APPEND(req->msgs,"exec-in-scan","prefix=%s,rio=ok",rawkeys[0]);
+        for (i = 0; i < rio->scan.numkeys; i++) tmpcfs[i] = cf;
+        DEBUG_MSGS_APPEND(req->msgs,"exec-in-scan","prefix=%s,rio=ok",start);
         if ((errcode = swapDataDecodeData(data,rio->scan.numkeys,tmpcfs,rio->scan.rawkeys,
                     rio->scan.rawvals,&decoded))) {
             zfree(tmpcfs);
@@ -1196,21 +1210,24 @@ static void executeSwapInRequest(swapRequest *req) {
         }
         zfree(tmpcfs);
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata", "decoded=%p",(void*)decoded);
-
-        /* rawkeys not moved, only rawkeys[0] moved, free when done. */
-        zfree(cfs);
-        zfree(rawkeys);
     } else if (action == ROCKS_ITERATE) {
         int *tmpcfs, i;
-        RIOInitIterate(rio,cfs[0],rawkeys[0],numkeys);
+        int limit, cf;
+        uint32_t flags = 0;
+        sds start = NULL,end = NULL;
+        if ((errcode = swapDataEncodeRange(data,req->intention,req->datactx,
+                    &limit,&flags,&cf,&start,&end))) {
+            goto end;
+        }
+        RIOInitIterate(rio,cf,start,limit);
         if ((errcode = doRIO(rio))) {
             goto end;
         }
 
         tmpcfs = zmalloc(sizeof(int)*rio->iterate.numkeys);
-        for (i = 0; i < rio->iterate.numkeys; i++) tmpcfs[i] = cfs[0];
+        for (i = 0; i < rio->iterate.numkeys; i++) tmpcfs[i] = cf;
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-iterate","seek=%s,limit=%d,rio=ok",
-                rawkeys[0], numkeys);
+                start, numkeys);
         if ((errcode = swapDataDecodeData(data,rio->iterate.numkeys,tmpcfs,rio->iterate.rawkeys,
                     rio->iterate.rawvals,&decoded))) {
             zfree(tmpcfs);
@@ -1219,18 +1236,22 @@ static void executeSwapInRequest(swapRequest *req) {
         zfree(tmpcfs);
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata", "decoded=%p",(void*)decoded);
 
-        /* rawkeys not moved, only rawkeys[0] moved, free when done. */
-        zfree(cfs);
-        zfree(rawkeys);
     } else if (action == ROCKS_RANGE) {
         int *tmpcfs, i;
-        RIOInitRange(rio, cfs[0], rawkeys[0], rawkeys[1], cfs[1], numkeys);
+        int limit, cf;
+        uint32_t flags = 0;
+        sds start = NULL,end = NULL;
+        if ((errcode = swapDataEncodeRange(data,req->intention,req->datactx,
+                    &limit,&flags,&cf,&start,&end))) {
+            goto end;
+        }
+        RIOInitRange(rio, cf, start, end, flags & ROCKS_ITERATE_REVERSE, limit);
         if ((errcode = doRIO(rio))) {
             goto end;
         }
         tmpcfs = zmalloc(sizeof(int)*rio->range.numkeys);
-        for (i = 0; i < rio->range.numkeys; i++) tmpcfs[i] = cfs[0];
-        DEBUG_MSGS_APPEND(req->msgs,"exec-in-scan","prefix=%s,rio=ok",rawkeys[0]);
+        for (i = 0; i < rio->range.numkeys; i++) tmpcfs[i] = cf;
+        DEBUG_MSGS_APPEND(req->msgs,"exec-in-scan","prefix=%s,rio=ok",start);
         if ((errcode = swapDataDecodeData(data,rio->range.numkeys,tmpcfs,rio->range.rawkeys,
                     rio->range.rawvals,&decoded))) {
             zfree(tmpcfs);
@@ -1238,10 +1259,6 @@ static void executeSwapInRequest(swapRequest *req) {
         }
         zfree(tmpcfs);
         DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata", "decoded=%p",(void*)decoded);
-
-        /* rawkeys not moved, only rawkeys[0] moved, free when done. */
-        zfree(cfs);
-        zfree(rawkeys);
     } else {
         errcode = SWAP_ERR_EXEC_UNEXPECTED_ACTION;
         goto end;

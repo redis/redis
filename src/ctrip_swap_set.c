@@ -183,65 +183,61 @@ int setSwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
-static inline sds setEncodeSubkey(redisDb *db, sds key, uint64_t version, sds subkey) {
-    return rocksEncodeDataKey(db,key,version,subkey);
-}
-
-int setEncodeKeys(swapData *data, int intention, void *datactx_,
-                   int *action, int *numkeys, int **pcfs, sds **prawkeys) {
+int setDoSwap(swapData *data, int intention, void *datactx_, int *action) {
+    UNUSED(data);
     setDataCtx *datactx = datactx_;
-    sds *rawkeys = NULL;
-    int *cfs = NULL;
-    uint64_t version = swapDataObjectVersion(data);
 
     switch (intention) {
         case SWAP_IN:
             if (datactx->ctx.num > 0) { /* Swap in specific fields */
-                int i;
-                cfs = zmalloc(sizeof(int)*datactx->ctx.num);
-                rawkeys = zmalloc(sizeof(sds)*datactx->ctx.num);
-                for (i = 0; i < datactx->ctx.num; i++) {
-                    cfs[i] = DATA_CF;
-                    rawkeys[i] = setEncodeSubkey(data->db,data->key->ptr,
-                            version,datactx->ctx.subkeys[i]->ptr);
-                }
-                *numkeys = datactx->ctx.num;
-                *pcfs = cfs;
-                *prawkeys = rawkeys;
                 *action = ROCKS_MULTIGET;
             } else {/* Swap in entire set(SMEMBERS) */
-                cfs = zmalloc(sizeof(int));
-                rawkeys = zmalloc(sizeof(sds));
-                cfs[0] = DATA_CF;
-                rawkeys[0] = rocksEncodeDataScanPrefix(data->db,
-                        data->key->ptr,version);
-                *numkeys = datactx->ctx.num;
-                *pcfs = cfs;
-                *prawkeys = rawkeys;
                 *action = ROCKS_SCAN;
             }
-            return 0;
+            break;
         case SWAP_DEL:
-            *action = 0;
-            *numkeys = 0;
-            *pcfs = NULL;
-            *prawkeys = NULL;
-            return 0;
+            *action = ROCKS_NOP;
+            break;
         case SWAP_OUT:
+            *action = ROCKS_WRITE;
+            break;
         default:
             /* Should not happen .*/
-            *action = 0;
-            *numkeys = 0;
-            *pcfs = NULL;
-            *prawkeys = NULL;
-            return 0;
+            *action = ROCKS_NOP;
+            return SWAP_ERR_DATA_FAIL;
     }
 
     return 0;
 }
 
+static inline sds setEncodeSubkey(redisDb *db, sds key, uint64_t version, sds subkey) {
+    return rocksEncodeDataKey(db,key,version,subkey);
+}
+
+int setEncodeKeys(swapData *data, int intention, void *datactx_,
+                  int *numkeys, int **pcfs, sds **prawkeys) {
+    setDataCtx *datactx = datactx_;
+    sds *rawkeys = NULL;
+    int *cfs = NULL, i;
+    uint64_t version = swapDataObjectVersion(data);
+
+    serverAssert(datactx->ctx.num);
+    cfs = zmalloc(sizeof(int)*datactx->ctx.num);
+    rawkeys = zmalloc(sizeof(sds)*datactx->ctx.num);
+    for (i = 0; i < datactx->ctx.num; i++) {
+        cfs[i] = DATA_CF;
+        rawkeys[i] = setEncodeSubkey(data->db,data->key->ptr,
+                                     version,datactx->ctx.subkeys[i]->ptr);
+    }
+    *numkeys = datactx->ctx.num;
+    *pcfs = cfs;
+    *prawkeys = rawkeys;
+
+    return 0;
+}
+
 int setEncodeData(swapData *data, int intention, void *datactx_,
-                   int *action, int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
+                  int *numkeys, int **pcfs, sds **prawkeys, sds **prawvals) {
     setDataCtx *datactx = datactx_;
     uint64_t version = swapDataObjectVersion(data);
     int *cfs = zmalloc(datactx->ctx.num*sizeof(int));
@@ -254,11 +250,23 @@ int setEncodeData(swapData *data, int intention, void *datactx_,
                 version,datactx->ctx.subkeys[i]->ptr);
         rawvals[i] = sdsempty();
     }
-    *action = ROCKS_WRITE;
     *numkeys = datactx->ctx.num;
     *pcfs = cfs;
     *prawkeys = rawkeys;
     *prawvals = rawvals;
+    return 0;
+}
+
+int setEncodeRange(struct swapData *data, int intention, void *datactx_, int *limit,
+        uint32_t *flags, int *pcf, sds *start, sds *end) {
+    setDataCtx *datactx = datactx_;
+    uint64_t version = swapDataObjectVersion(data);
+
+    *pcf = DATA_CF;
+    *flags = 0;
+    *start = rocksEncodeDataRangeStartKey(data->db,data->key->ptr,version);
+    *end = rocksEncodeDataRangeEndKey(data->db,data->key->ptr,version);
+    *limit = datactx->ctx.num;
     return 0;
 }
 
@@ -434,8 +442,10 @@ void freeSetSwapData(swapData *data_, void *datactx_) {
 swapDataType setSwapDataType = {
     .name = "set",
     .swapAna = setSwapAna,
+    .doSwap = setDoSwap,
     .encodeKeys = setEncodeKeys,
     .encodeData = setEncodeData,
+    .encodeRange = setEncodeRange,
     .decodeData = setDecodeData,
     .swapIn = setSwapIn,
     .swapOut = setSwapOut,
