@@ -296,8 +296,7 @@ int scanExpireDbCycle(redisDb *db, int type, long long timelimit) {
     }
     scan_time = ustime() - start;
 
-    size_t total_removed = 0,
-           candidates = expireCandidatesSize(scan_expire->candidates);
+    size_t total_removed = 0;
     int drained = 0, iteration = 0;
     do {
         size_t removed = expireCandidatesRemoveExpired(

@@ -1781,18 +1781,30 @@ struct redisServer {
     unsigned long long rocksdb_meta_block_cache_size;
     unsigned long long rocksdb_data_block_cache_size;
     int rocksdb_max_open_files;
-    unsigned long long rocksdb_write_buffer_size;
-    unsigned long long rocksdb_target_file_size_base;
-    int rocksdb_max_write_buffer_number;
+    unsigned long long rocksdb_data_write_buffer_size;
+    unsigned long long rocksdb_meta_write_buffer_size;
+    unsigned long long rocksdb_data_target_file_size_base;
+    unsigned long long rocksdb_meta_target_file_size_base;
+    unsigned long long rocksdb_ratelimiter_rate_per_sec;
+    unsigned long long rocksdb_bytes_per_sync;
+    unsigned long long rocksdb_data_max_bytes_for_level_base;
+    unsigned long long rocksdb_meta_max_bytes_for_level_base;
+    int rocksdb_data_max_write_buffer_number;
+    int rocksdb_meta_max_write_buffer_number;
     int rocksdb_max_background_compactions;
     int rocksdb_max_background_flushes;
     int rocksdb_max_subcompactions;
-    int rocksdb_block_size;
-    int rocksdb_cache_index_and_filter_blocks;
+    int rocksdb_data_block_size;
+    int rocksdb_meta_block_size;
+    int rocksdb_data_cache_index_and_filter_blocks;
+    int rocksdb_meta_cache_index_and_filter_blocks;
     int rocksdb_enable_pipelined_write;
-    int rocksdb_level0_slowdown_writes_trigger;
-    int rocksdb_disable_auto_compactions;
-    int rocksdb_compression; /* rocksdb compresssion type: no/snappy/zlib. */
+    int rocksdb_data_level0_slowdown_writes_trigger;
+    int rocksdb_meta_level0_slowdown_writes_trigger;
+    int rocksdb_data_disable_auto_compactions;
+    int rocksdb_meta_disable_auto_compactions;
+    int rocksdb_data_compression; /* rocksdb compresssion type: no/snappy/zlib. */
+    int rocksdb_meta_compression;
 
     /* gtid executed */
     int gtid_enabled;  /* Is gtid enabled? */

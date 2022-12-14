@@ -2479,9 +2479,11 @@ standardConfig configs[] = {
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
     createBoolConfig("slave-repl-all", NULL, MODIFIABLE_CONFIG, server.repl_slave_repl_all, 0, NULL, NULL),
     createBoolConfig("swap-debug-trace-latency", NULL, MODIFIABLE_CONFIG, server.swap_debug_trace_latency, 0, NULL, NULL),
-    createBoolConfig("rocksdb.cache_index_and_filter_blocks", NULL, IMMUTABLE_CONFIG, server.rocksdb_cache_index_and_filter_blocks, 0, NULL, NULL),
+    createBoolConfig("rocksdb.data.cache_index_and_filter_blocks", "rocksdb.cache_index_and_filter_blocks", IMMUTABLE_CONFIG, server.rocksdb_data_cache_index_and_filter_blocks, 0, NULL, NULL),
+    createBoolConfig("rocksdb.meta.cache_index_and_filter_blocks", NULL, IMMUTABLE_CONFIG, server.rocksdb_meta_cache_index_and_filter_blocks, 0, NULL, NULL),
     createBoolConfig("rocksdb.enable_pipelined_write", NULL, IMMUTABLE_CONFIG, server.rocksdb_enable_pipelined_write, 0, NULL, NULL),
-    createBoolConfig("rocksdb.disable_auto_compactions", NULL, IMMUTABLE_CONFIG, server.rocksdb_disable_auto_compactions, 0, NULL, NULL),
+    createBoolConfig("rocksdb.data.disable_auto_compactions", "rocksdb.disable_auto_compactions", IMMUTABLE_CONFIG, server.rocksdb_data_disable_auto_compactions, 0, NULL, NULL),
+    createBoolConfig("rocksdb.meta.disable_auto_compactions", NULL, IMMUTABLE_CONFIG, server.rocksdb_meta_disable_auto_compactions, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -2515,7 +2517,13 @@ standardConfig configs[] = {
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, USER_FLAG_ALLCHANNELS, NULL, NULL),
     createEnumConfig("sanitize-dump-payload", NULL, MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
     createEnumConfig("swap-mode", NULL, IMMUTABLE_CONFIG, swap_mode_enum, server.swap_mode, SWAP_MODE_MEMORY, isValidSwapMode, NULL),
-    createEnumConfig("rocksdb.compression", NULL, IMMUTABLE_CONFIG, rocksdb_compression_enum, server.rocksdb_compression, rocksdb_no_compression, NULL, NULL),
+    createEnumConfig("rocksdb.data.compression","rocksdb.compression", IMMUTABLE_CONFIG, rocksdb_compression_enum, server.rocksdb_data_compression, rocksdb_snappy_compression, NULL, NULL),
+    createEnumConfig("rocksdb.meta.compression", NULL, IMMUTABLE_CONFIG, rocksdb_compression_enum, server.rocksdb_meta_compression, rocksdb_snappy_compression, NULL, NULL),
+
+    /* Integer configs */
+    createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.port, 6379, INTEGER_CONFIG, NULL, updatePort), /* TCP port. */
+    createIntConfig("io-threads", NULL, IMMUTABLE_CONFIG, 1, 128, server.io_threads_num, 1, INTEGER_CONFIG, NULL, NULL), /* Single threaded by default */
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
@@ -2565,12 +2573,15 @@ standardConfig configs[] = {
     createIntConfig("swap-evict-inprogress-limit", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.swap_evict_inprogress_limit, 128, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("swap-evict-inprogress-growth-rate", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.swap_evict_inprogress_growth_rate, 5*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.max_open_files", NULL, IMMUTABLE_CONFIG, -1, INT_MAX, server.rocksdb_max_open_files, -1, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("rocksdb.max_write_buffer_number", NULL, IMMUTABLE_CONFIG, 1, 256, server.rocksdb_max_write_buffer_number, 3, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.data.max_write_buffer_number", "rocksdb.max_write_buffer_number", IMMUTABLE_CONFIG, 1, 256, server.rocksdb_data_max_write_buffer_number, 3, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.meta.max_write_buffer_number", NULL, IMMUTABLE_CONFIG, 1, 256, server.rocksdb_meta_max_write_buffer_number, 3, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.max_background_compactions", NULL, IMMUTABLE_CONFIG, 1, 64, server.rocksdb_max_background_compactions, 4, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.max_background_flushes", NULL, IMMUTABLE_CONFIG, -1, 64, server.rocksdb_max_background_flushes, -1, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.max_subcompactions", NULL, IMMUTABLE_CONFIG, 1, 64, server.rocksdb_max_subcompactions, 1, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("rocksdb.block_size", NULL, IMMUTABLE_CONFIG, 512, INT_MAX, server.rocksdb_block_size, 8192, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("rocksdb.level0_slowdown_writes_trigger", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.rocksdb_level0_slowdown_writes_trigger, 20, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.data.block_size", "rocksdb.block_size", IMMUTABLE_CONFIG, 512, INT_MAX, server.rocksdb_data_block_size, 8192, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.meta.block_size", NULL, IMMUTABLE_CONFIG, 512, INT_MAX, server.rocksdb_meta_block_size, 8192, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.data.level0_slowdown_writes_trigger", "rocksdb.level0_slowdown_writes_trigger", IMMUTABLE_CONFIG, 1, INT_MAX, server.rocksdb_data_level0_slowdown_writes_trigger, 20, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.meta.level0_slowdown_writes_trigger", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.rocksdb_meta_level0_slowdown_writes_trigger, 20, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -2596,10 +2607,16 @@ standardConfig configs[] = {
     createULongLongConfig("swap-inprogress-memory-stop", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_inprogress_memory_stop, 128*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 128mb */
     createULongLongConfig("swap-evict-step-max-memory", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_evict_step_max_memory, 1*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1mb */
     createULongLongConfig("swap-repl-max-rocksdb-read-bps", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_repl_max_rocksdb_read_bps, 0, MEMORY_CONFIG, NULL, NULL), /* Default: unlimited */
+    createULongLongConfig("rocksdb.data.block_cache_size", "rocksdb.block_cache_size", IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_data_block_cache_size, 8*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("rocksdb.meta.block_cache_size", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_meta_block_cache_size, 512*1024*1024, MEMORY_CONFIG, NULL, NULL),
-    createULongLongConfig("rocksdb.data.block_cache_size", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_data_block_cache_size, 8*1024*1024, MEMORY_CONFIG, NULL, NULL),
-    createULongLongConfig("rocksdb.write_buffer_size", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_write_buffer_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
-    createULongLongConfig("rocksdb.target_file_size_base", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_target_file_size_base, 32*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createULongLongConfig("rocksdb.data.write_buffer_size", "rocksdb.write_buffer_size", IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_data_write_buffer_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createULongLongConfig("rocksdb.meta.write_buffer_size", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_meta_write_buffer_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createULongLongConfig("rocksdb.data.target_file_size_base", "rocksdb.target_file_size_base", IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_data_target_file_size_base, 32*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createULongLongConfig("rocksdb.meta.target_file_size_base", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_meta_target_file_size_base, 32*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createULongLongConfig("rocksdb.ratelimiter.rate_per_sec", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_ratelimiter_rate_per_sec, 512*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createULongLongConfig("rocksdb.bytes_per_sync", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_bytes_per_sync, 1*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createULongLongConfig("rocksdb.data.max_bytes_for_level_base", "rocksdb.max_bytes_for_level_base", IMMUTABLE_CONFIG, 1*1024*1024, ULLONG_MAX, server.rocksdb_data_max_bytes_for_level_base, 256*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createULongLongConfig("rocksdb.meta.max_bytes_for_level_base", NULL, IMMUTABLE_CONFIG, 1*1024*1024, ULLONG_MAX, server.rocksdb_meta_max_bytes_for_level_base, 256*1024*1024, MEMORY_CONFIG, NULL, NULL),
 
     /* Size_t configs */
     createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, 512, INTEGER_CONFIG, NULL, NULL),
@@ -2616,7 +2633,7 @@ standardConfig configs[] = {
     /* Other configs */
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
     createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
-    
+
     /* ctrip configs */
     createBoolConfig("gtid-enabled", NULL, MODIFIABLE_CONFIG, server.gtid_enabled, 0, NULL, NULL),
 #ifdef USE_OPENSSL
