@@ -1,4 +1,12 @@
 ================================================================================
+ror-1.0.3 Released Wen Dec 14 15:35:48 CST 2022
+================================================================================
+* [fix] zset bylex changed to swap in_delete.
+* [fix] zincrby swap in_delete.
+* [opt] async create checkpoint for bgsave.
+* [new] separate rocksdb parameter for data(score) and meta column family.
+
+================================================================================
 ror-1.0.2 Released Tue Nov 29 17:05:48 CST 2022
 ================================================================================
 * [fix] eval/evalsha intention flags changed to INTENTION_IN_DEL.
