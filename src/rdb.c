@@ -3030,19 +3030,6 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 exit(1);
             }
             db = rdb_loading_ctx->dbarray+dbid;
-            /* Cluster enabled nodes MUST maintain empty non zero databases as
-             * valid state. Otherwise, a key stored in non zero database becomes
-             * a poison pill that can replicate to other nodes, be SAVEed to RDB
-             * files, AND crash nodes trying to restore from that RDB.
-             * Crashing early gives a chance to detect, investigate and possibly
-             * save the offending data without propagating the error.
-             */
-            if (dbid != 0 && server.cluster_enabled) {
-                serverLog(LL_WARNING,
-                    "You can't have keys in a DB different than DB 0 when in "
-                    "Cluster mode. Exiting.");
-                exit(1); 
-            }
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
