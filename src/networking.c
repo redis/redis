@@ -1247,13 +1247,9 @@ void clientAcceptHandler(connection *conn) {
     client *c = connGetPrivateData(conn);
 
     if (connGetState(conn) != CONN_STATE_CONNECTED) {
-        char addr[NET_ADDR_STR_LEN] = {0};
-        char laddr[NET_ADDR_STR_LEN] = {0};
-        connFormatAddr(conn, addr, sizeof(addr), 1);
-        connFormatAddr(conn, laddr, sizeof(addr), 0);
         serverLog(LL_WARNING,
                   "Error accepting a client connection: %s (addr=%s laddr=%s)",
-                  connGetLastError(conn), addr, laddr);
+                  connGetLastError(conn), getClientPeerId(c), getClientSockname(c));
         freeClientAsync(c);
         return;
     }
