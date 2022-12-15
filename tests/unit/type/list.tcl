@@ -398,6 +398,11 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
        assert_equal [r lpop lst{t}] "dd"
        assert_equal [read_big_bulk {r rpop lst{t}}] $str_length
    } {} {large-memory}
+
+    # restore defaults
+    r config set proto-max-bulk-len 536870912
+    r config set client-query-buffer-limit 1073741824
+
 } ;# skip 32bit builds
 }
 } ;# run_solo
@@ -1239,7 +1244,6 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             set rd [redis_deferring_client]
             bpop_command $rd $pop blist1 0
             wait_for_blocked_client
-            after 1000
             r rpush blist1 foo
             assert_equal {blist1 foo} [$rd read]
             $rd close
@@ -1910,12 +1914,12 @@ foreach {type large} [array get largevalue] {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
 
-        $rd1 brpoplpush a b 0
-        $rd1 brpoplpush a b 0
+        $rd1 brpoplpush a{t} b{t} 0
+        $rd1 brpoplpush a{t} b{t} 0
         wait_for_blocked_clients_count 1
-        $rd2 brpoplpush b c 0
+        $rd2 brpoplpush b{t} c{t} 0
         wait_for_blocked_clients_count 2
-        r lpush a data
+        r lpush a{t} data
         $rd1 close
         $rd2 close
         r ping
