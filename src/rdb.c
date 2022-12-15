@@ -1462,8 +1462,10 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     rioInitWithFile(&rdb,fp);
     startSaving(RDBFLAGS_NONE);
 
-    if (server.rdb_save_incremental_fsync)
+    if (server.rdb_save_incremental_fsync) {
         rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
+        if (!(rsi && rsi->keep_cache)) rioEnableReclaimCache(&rdb,1);
+    }
 
     if (rdbSaveRio(req,&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
         errno = error;

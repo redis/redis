@@ -2225,12 +2225,10 @@ void readSyncBulkPayload(connection *conn) {
             bg_unlink(server.rdb_filename);
         }
 
-        if (reclaimFilePageCache(server.repl_transfer_fd, 0, 0) == -1) {
-            serverLog(LL_NOTICE,"Unable to reclaim cache after receiving RDB: %s", strerror(errno));
-        }
+        /* Reclaim the cache backed by rdb */
+        bioCreateCloseJob(server.repl_transfer_fd, 0, 1);
 
         zfree(server.repl_transfer_tmpfile);
-        close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
         server.repl_transfer_tmpfile = NULL;
     }

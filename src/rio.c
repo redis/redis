@@ -151,6 +151,9 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
 #else
             if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
 #endif
+            if (r->io.file.reclaim_cache) {
+                reclaimFilePageCache(fileno(r->io.file.fp), 0, 0);
+            }
             r->io.file.buffered = 0;
         }
     }
@@ -437,6 +440,15 @@ void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
 void rioSetAutoSync(rio *r, off_t bytes) {
     if(r->write != rioFileIO.write) return;
     r->io.file.autosync = bytes;
+}
+
+/* Set the file-based rio object to reclaim cache after the auto-fsync.
+ * Notice if auto-fsync is disabled this option will have no effect since 
+ * POSIX_FADV_DONTNEED skips the dirty pages.
+ * 
+ * This feature can reduce the cache footprint backed by the file. */
+void rioEnableReclaimCache(rio *r, int enabled) {
+    r->io.file.reclaim_cache = enabled;
 }
 
 /* Check the type of rio. */
