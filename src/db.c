@@ -592,12 +592,12 @@ int selectDb(client *c, int id) {
     return C_OK;
 }
 
-//TODO opt use dbsize
+size_t ctripDbSize(redisDb *db);
 long long dbTotalServerKeyCount() {
     long long total = 0;
     int j;
     for (j = 0; j < server.dbnum; j++) {
-        total += dictSize(server.db[j].dict);
+        total += ctripDbSize(server.db+j);
     }
     return total;
 }
