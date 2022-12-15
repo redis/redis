@@ -396,7 +396,7 @@ void expireSlaveKeys(void) {
                     activeExpireCycleTryExpire(server.db+dbid,expire,start))
                 {
                     expired = 1;
-                    /* Propagate the DEL command */
+                    /* DELs aren't propagated, but modules may want their hooks. */
                     postExecutionUnitOperations();
                 }
 
