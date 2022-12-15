@@ -425,6 +425,9 @@ void expireSlaveKeys(void) {
         if ((cycles % 64) == 0 && mstime()-start > 1) break;
         if (dictSize(slaveKeysWithExpire) == 0) break;
     }
+
+    /* DELs aren't propagated, but modules may want their hooks. */
+    propagatePendingCommands();
 }
 
 /* Track keys that received an EXPIRE or similar command in the context
