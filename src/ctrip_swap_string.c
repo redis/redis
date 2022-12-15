@@ -105,7 +105,8 @@ int wholeKeySwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
-int wholeKeyDoSwap(swapData *data, int intention, void *datactx_, int *action) {
+int wholeKeySwapAnaAction(swapData *data, int intention, void *datactx_, int *action) {
+    UNUSED(data), UNUSED(datactx_);
     switch (intention) {
         case SWAP_IN:
             *action = ROCKS_GET;
@@ -241,7 +242,7 @@ void *wholeKeyCreateOrMergeObject(swapData *data, void *decoded, void *datactx) 
 swapDataType wholeKeySwapDataType = {
     .name = "wholekey",
     .swapAna = wholeKeySwapAna,
-    .doSwap = wholeKeyDoSwap,
+    .swapAnaAction = wholeKeySwapAnaAction,
     .encodeKeys = wholeKeyEncodeKeys,
     .encodeData = wholeKeyEncodeData,
     .decodeData = wholeKeyDecodeData,
@@ -437,7 +438,8 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         int numkeys, action;
         int *cfs;
         sds *rawkeys = NULL;
-        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &action, &numkeys, &cfs, &rawkeys);
+        wholeKeySwapAnaAction(data, SWAP_IN, ctx, &action);
+        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_GET == action);
         test_assert(numkeys == 1);
         test_assert(cfs[0] == DATA_CF);
@@ -448,7 +450,8 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
 #endif
         test_assert(result == C_OK);
         FREE_SDSARRAY(rawkeys,1);
-        result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &action, &numkeys, &cfs, &rawkeys);
+        wholeKeySwapAnaAction(data, SWAP_DEL, ctx, &action);
+        result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_DEL == action);
         test_assert(numkeys == 1);
         test_assert(cfs[0] == DATA_CF);
@@ -469,7 +472,8 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         int numkeys, action;
         sds *rawkeys = NULL;
         int *cfs;
-        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &action, &numkeys, &cfs, &rawkeys);
+        wholeKeySwapAnaAction(data, SWAP_IN, ctx, &action);
+        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_GET == action);
         test_assert(numkeys == 1);
         test_assert(cfs[0] == DATA_CF);
@@ -480,7 +484,8 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
 #endif
         test_assert(result == C_OK);
         FREE_SDSARRAY(rawkeys,1);
-        result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &action, &numkeys, &cfs, &rawkeys);
+        wholeKeySwapAnaAction(data, SWAP_DEL, ctx, &action);
+        result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &numkeys, &cfs, &rawkeys);
         test_assert(ROCKS_DEL == action);
         test_assert(numkeys == 1);
         test_assert(cfs[0] == DATA_CF);
@@ -502,7 +507,8 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         int numkeys, action;
         sds *rawkeys = NULL, *rawvals = NULL;
         int *cfs;
-        int result = wholeKeyEncodeData(data, SWAP_OUT, ctx, &action, &numkeys, &cfs, &rawkeys, &rawvals);
+        wholeKeySwapAnaAction(data, SWAP_OUT, ctx, &action);
+        int result = wholeKeyEncodeData(data, SWAP_OUT, ctx, &numkeys, &cfs, &rawkeys, &rawvals);
         test_assert(result == C_OK);
         test_assert(ROCKS_PUT == action);
         test_assert(numkeys == 1);

@@ -32,8 +32,9 @@
 #include <limits.h>
 #include <math.h>
 
-#define RIO_SCAN_NUMKEYS_ALLOC_INIT 16
-#define RIO_SCAN_NUMKEYS_ALLOC_LINER 4096
+#define RIO_ITERATE_NUMKEYS_ALLOC_INIT 8
+#define RIO_ITERATE_NUMKEYS_ALLOC_LINER 4096
+#define min(a,b) (a > b? b: a)
 
 /* --- RIO --- */
 void RIOInitGet(RIO *rio, int cf, sds rawkey) {
@@ -74,15 +75,6 @@ void RIOInitMultiGet(RIO *rio, int numkeys, int *cfs, sds *rawkeys) {
     rio->err = NULL;
 }
 
-void RIOInitScan(RIO *rio, int cf, sds prefix) {
-    rio->action = ROCKS_SCAN;
-    rio->scan.cf = cf;
-    rio->scan.prefix = prefix;
-    rio->scan.rawkeys = NULL;
-    rio->scan.rawvals = NULL;
-    rio->err = NULL;
-}
-
 void RIOInitMultiDeleteRange(RIO* rio, int num, int* cf , sds* rawkeys) {
     rio->action = ROCKS_MULTI_DELETERANGE;
     rio->multidel_range.num = num;
@@ -92,30 +84,27 @@ void RIOInitMultiDeleteRange(RIO* rio, int num, int* cf , sds* rawkeys) {
 
 }
 
-void RIOInitIterate(RIO *rio, int cf, sds seek, int limit) {
+void RIOInititerate(RIO *rio, int cf, uint32_t flags, sds start, sds end, size_t limit) {
     rio->action = ROCKS_ITERATE;
     rio->iterate.cf = cf;
-    rio->iterate.seek = seek;
+    rio->iterate.flags = flags;
+    rio->iterate.start = start;
+    rio->iterate.end = end;
     rio->iterate.limit = limit;
     rio->iterate.numkeys = 0;
     rio->iterate.rawkeys = NULL;
     rio->iterate.rawvals = NULL;
+    rio->iterate.nextseek = NULL;
     rio->err = NULL;
 }
-
-void RIOInitRange(RIO *rio, int cf, sds start, sds end, int reverse, int limit) {
-    rio->action = ROCKS_RANGE;
-    rio->range.cf = cf;
-    rio->range.start = start;
-    rio->range.end = end;
-    rio->range.reverse = reverse;
-    rio->range.limit = limit;
-}
-
 
 void RIODeinit(RIO *rio) {
     int i;
 
+    if (rio->err) {
+        sdsfree(rio->err);
+        rio->err = NULL;
+    }
     switch (rio->action) {
     case  ROCKS_GET:
         sdsfree(rio->get.rawkey);
@@ -145,17 +134,6 @@ void RIODeinit(RIO *rio) {
         zfree(rio->multiget.rawvals);
         rio->multiget.rawvals = NULL;
         break;
-    case  ROCKS_SCAN:
-        sdsfree(rio->scan.prefix);
-        for (i = 0; i < rio->scan.numkeys; i++) {
-            if (rio->scan.rawkeys) sdsfree(rio->scan.rawkeys[i]);
-            if (rio->scan.rawvals) sdsfree(rio->scan.rawvals[i]);
-        }
-        zfree(rio->scan.rawkeys);
-        rio->scan.rawkeys = NULL;
-        zfree(rio->scan.rawvals);
-        rio->scan.rawvals = NULL;
-        break;
     case  ROCKS_WRITE:
         rocksdb_writebatch_destroy(rio->write.wb);
         rio->write.wb = NULL;
@@ -170,35 +148,25 @@ void RIODeinit(RIO *rio) {
         rio->multidel_range.rawkeys = NULL;
         rio->multidel_range.cf = NULL;
         break;
-    case  ROCKS_ITERATE:
-        sdsfree(rio->iterate.seek);
-        rio->iterate.seek = NULL;
-        for (i = 0; i <= rio->iterate.numkeys; i++) {
+    case ROCKS_ITERATE:
+        if (rio->iterate.start) {
+            sdsfree(rio->iterate.start);
+            rio->iterate.start = NULL;
+        }
+        if (rio->iterate.end) {
+            sdsfree(rio->iterate.end);
+            rio->iterate.end = NULL;
+        }
+        for (i = 0; i < rio->iterate.numkeys; i++) {
             if (rio->iterate.rawkeys) sdsfree(rio->iterate.rawkeys[i]);
             if (rio->iterate.rawvals) sdsfree(rio->iterate.rawvals[i]);
         }
-        zfree(rio->iterate.rawkeys);
+        if (rio->iterate.rawkeys) zfree(rio->iterate.rawkeys);
         rio->iterate.rawkeys = NULL;
-        zfree(rio->iterate.rawvals);
+        if (rio->iterate.rawvals) zfree(rio->iterate.rawvals);
         rio->iterate.rawvals = NULL;
-        break;
-    case  ROCKS_RANGE:
-        if (rio->range.start) {
-            sdsfree(rio->range.start);
-            rio->range.start = NULL;
-        }
-        if (rio->range.end) {
-            sdsfree(rio->range.end);
-            rio->range.end = NULL;
-        }
-        for (i = 0; i < rio->range.numkeys; i++) {
-            if (rio->range.rawkeys) sdsfree(rio->range.rawkeys[i]);
-            if (rio->range.rawvals) sdsfree(rio->range.rawvals[i]);
-        }
-        if (rio->range.rawkeys) zfree(rio->range.rawkeys);
-        rio->range.rawkeys = NULL;
-        if (rio->range.rawvals) zfree(rio->range.rawvals);
-        rio->range.rawvals = NULL;
+        if (rio->iterate.nextseek) sdsfree(rio->iterate.nextseek);
+        rio->iterate.nextseek = NULL;
         break;
     default:
         break;
@@ -335,159 +303,6 @@ end:
     return ret;
 }
 
-/*TODO opt cache iter (LRU) */
-static int doRIOScan(RIO *rio) {
-    int ret = 0;
-    char *err = NULL;
-    rocksdb_iterator_t *iter = NULL;
-    sds prefix = rio->scan.prefix;
-    size_t numkeys = 0, numalloc = 8;
-    sds *rawkeys = zmalloc(numalloc*sizeof(sds));
-    sds *rawvals = zmalloc(numalloc*sizeof(sds));
-
-    iter = rocksdb_create_iterator_cf(server.rocks->db,server.rocks->ropts,
-            rioGetCF(rio->scan.cf));
-    rocksdb_iter_seek(iter,prefix,sdslen(prefix));
-
-    while (rocksdb_iter_valid(iter)) {
-        size_t klen, vlen;
-        const char *rawkey, *rawval;
-        rawkey = rocksdb_iter_key(iter, &klen);
-
-        if (klen < sdslen(prefix) || memcmp(rawkey, prefix, sdslen(prefix)))
-            break;
-
-        numkeys++;
-        /* make room for key/val */
-        if (numkeys >= numalloc) {
-            if (numalloc >= RIO_SCAN_NUMKEYS_ALLOC_LINER) {
-                numalloc += RIO_SCAN_NUMKEYS_ALLOC_LINER;
-            } else {
-                numalloc *= 2;
-            }
-            rawkeys = zrealloc(rawkeys, numalloc*sizeof(sds));
-            rawvals = zrealloc(rawvals, numalloc*sizeof(sds));
-        }
-
-        rawval = rocksdb_iter_value(iter, &vlen);
-        rawkeys[numkeys-1] = sdsnewlen(rawkey, klen);
-        rawvals[numkeys-1] = sdsnewlen(rawval, vlen);
-
-        rocksdb_iter_next(iter);
-    }
-
-    rocksdb_iter_get_error(iter, &err);
-    if (err != NULL) {
-        rio->err = err;
-        serverLog(LL_WARNING,"[rocks] do rocksdb scan failed: %s", err);
-        ret = -1;
-    }
-    
-    rio->scan.numkeys = numkeys;
-    rio->scan.rawkeys = rawkeys;
-    rio->scan.rawvals = rawvals;
-    rocksdb_iter_destroy(iter);
-
-    return ret;
-}
-
-#define min(a,b)  (a > b? b: a)
-static int doRIORange(RIO* rio) {
-    int ret = 0;
-    rocksdb_iterator_t *iter = NULL;
-    
-    int reverse = rio->range.reverse;
-    int minex, maxex;
-    char* start, *end;
-    size_t start_len, end_len; 
-    serverAssert(decodeIntervalSds(rio->range.start, &minex, &start, &start_len) == C_OK);
-    serverAssert(decodeIntervalSds(rio->range.end, &maxex, &end, &end_len) == C_OK);
-    
-    iter = rocksdb_create_iterator_cf(server.rocks->db,server.rocks->ropts,
-            rioGetCF(rio->range.cf));
-    
-    if (reverse) {
-        rocksdb_iter_seek(iter, end, end_len);
-        if (!rocksdb_iter_valid(iter)) {
-            rocksdb_iter_seek_for_prev(iter,end,end_len);
-        } else {
-            size_t klen;
-            const char *rawkey;
-            rawkey = rocksdb_iter_key(iter, &klen);
-            if (memcmp(rawkey, end, end_len)) {
-                rocksdb_iter_seek_for_prev(iter,end,end_len);
-            }
-        }
-    } else {
-        rocksdb_iter_seek(iter, start, start_len);
-    }
-    size_t numkeys = 0, numalloc = 8;
-    sds *rawkeys = zmalloc(numalloc*sizeof(sds));
-    sds *rawvals = zmalloc(numalloc*sizeof(sds));
-
-    for(;rocksdb_iter_valid(iter); reverse?rocksdb_iter_prev(iter):rocksdb_iter_next(iter)) {
-        size_t klen, vlen;
-        const char *rawkey, *rawval;
-        rawkey = rocksdb_iter_key(iter, &klen);
-        int start_cmp_result = memcmp(rawkey, start, min(start_len, klen));
-        if (start_cmp_result == 0) {
-            if (start_len > klen) {
-                start_cmp_result = -1;
-            } else if(start_len < klen) {
-                start_cmp_result = 1;
-            }
-        }
-        if (start_cmp_result < 0
-             || (minex && start_cmp_result == 0)) {
-            if (!reverse) {
-                continue;
-            } else {
-                break;
-            }  
-        }
-        int end_cmp_result = memcmp(rawkey, end, min(end_len, klen));
-        if (end_cmp_result == 0) {
-            if (end_len > klen) {
-                end_cmp_result = -1;
-            } else if(end_len < klen) {
-                end_cmp_result = 1;
-            }
-        }
-
-        if (end_cmp_result > 0
-             || (maxex && end_cmp_result == 0)) {
-            if (reverse) {
-                continue;
-            } else {
-                break;
-            }
-        }
-        rawval = rocksdb_iter_value(iter, &vlen);
-        numkeys++;
-       
-        if (numkeys >=  numalloc) {
-            if (numalloc >= RIO_SCAN_NUMKEYS_ALLOC_LINER) {
-                numalloc += RIO_SCAN_NUMKEYS_ALLOC_LINER;
-            } else {
-                numalloc *= 2;
-            }
-            rawkeys = zrealloc(rawkeys, numalloc*sizeof(sds));
-            rawvals = zrealloc(rawvals, numalloc*sizeof(sds));
-        }
-        rawkeys[numkeys - 1] = sdsnewlen(rawkey, klen);
-        rawvals[numkeys - 1] = sdsnewlen(rawval, vlen);
-        if (rio->range.limit > 0 && rio->range.limit <= numkeys) {
-            break;
-        }
-    }
-    rio->range.numkeys = numkeys;
-    rio->range.rawkeys = rawkeys;
-    rio->range.rawvals = rawvals;
-    rocksdb_iter_destroy(iter);
-    return ret;
-}
-
-
 static int doRIOMultiDeleteRange(RIO *rio) {
     char *err = NULL;
     for(int i = 0; i < (rio->multidel_range.num/2);i++) {
@@ -507,54 +322,105 @@ static int doRIOMultiDeleteRange(RIO *rio) {
 
 static int doRIOIterate(RIO *rio) {
     int ret = 0;
+    size_t numkeys = 0;
     char *err = NULL;
-    rocksdb_iterator_t *iter;
-    sds seek = rio->iterate.seek;
-    int numkeys = 0;
-    int limit = rio->iterate.limit + 1; /*extra one to save nextseek */
-    sds *rawkeys = zmalloc(limit*sizeof(sds));
-    sds *rawvals = zmalloc(limit*sizeof(sds));
+    rocksdb_iterator_t *iter = NULL;
+    sds start = rio->iterate.start;
+    sds end = rio->iterate.end;
+    size_t limit = rio->iterate.limit;
 
-    iter = rocksdb_create_iterator_cf(server.rocks->db,server.rocks->ropts,
-            rioGetCF(rio->iterate.cf));
-    rocksdb_iter_seek(iter,seek,sdslen(seek));
+    int reverse = rio->iterate.flags & ROCKS_ITERATE_REVERSE;
+    int low_bound_exclude = rio->iterate.flags & ROCKS_ITERATE_LOW_BOUND_EXCLUDE;
+    int high_bound_exclude = rio->iterate.flags & ROCKS_ITERATE_HIGH_BOUND_EXCLUDE;
+    int next_seek = rio->iterate.flags & ROCKS_ITERATE_CONTINUOUSLY_SEEK;
+    int disable_cache = rio->iterate.flags & ROCKS_ITERATE_DISABLE_CACHE;
 
-    while (rocksdb_iter_valid(iter) && numkeys < rio->iterate.limit) {
-        size_t klen, vlen;
-        const char *rawkey, *rawval;
+    size_t numalloc = ROCKS_ITERATE_NO_LIMIT == limit ? RIO_ITERATE_NUMKEYS_ALLOC_INIT : limit;
+    numalloc = numalloc > RIO_ITERATE_NUMKEYS_ALLOC_LINER ? RIO_ITERATE_NUMKEYS_ALLOC_LINER : numalloc;
+    sds *rawkeys = zmalloc(numalloc*sizeof(sds));
+    sds *rawvals = zmalloc(numalloc*sizeof(sds));
+
+    size_t klen, vlen;
+    const char *rawkey, *rawval;
+    size_t start_len = start ? sdslen(start) : 0, end_len = end ? sdslen(end) : 0;
+
+    rocksdb_readoptions_t *ropts = NULL;
+    if (disable_cache) {
+        ropts = rocksdb_readoptions_create();
+        rocksdb_readoptions_set_verify_checksums(ropts, 0);
+        rocksdb_readoptions_set_fill_cache(ropts, 0);
+    }
+    iter = rocksdb_create_iterator_cf(server.rocks->db,NULL!=ropts?ropts:server.rocks->ropts,rioGetCF(rio->iterate.cf));
+
+    if (reverse) rocksdb_iter_seek_for_prev(iter,end,end_len);
+    else rocksdb_iter_seek(iter, start, start_len);
+    if (!rocksdb_iter_valid(iter)) goto end;
+
+    if (reverse && high_bound_exclude) {
         rawkey = rocksdb_iter_key(iter, &klen);
+        if (end_len == klen && 0 == memcmp(rawkey, end, end_len)) {
+            rocksdb_iter_prev(iter);
+        }
+    } else if (!reverse && low_bound_exclude) {
+        rawkey = rocksdb_iter_key(iter, &klen);
+        if (start_len == klen && 0 == memcmp(rawkey, start, start_len))
+            rocksdb_iter_next(iter);
+    }
+
+    sds bound = reverse ? start : end;
+    size_t bound_len = reverse ? start_len : end_len;
+    int bound_exclude = reverse ? low_bound_exclude : high_bound_exclude;
+    while (rocksdb_iter_valid(iter) && (limit == ROCKS_ITERATE_NO_LIMIT || numkeys < limit)) {
+        rawkey = rocksdb_iter_key(iter, &klen);
+        if (bound) {
+            int cmp_result = memcmp(rawkey, bound, min(bound_len, klen));
+            if (0 == cmp_result) {
+                if (bound_len != klen) cmp_result = klen > bound_len;
+                else if (bound_exclude) break;
+            }
+            if ((reverse && cmp_result < 0) || (!reverse && cmp_result > 0)) break;
+        }
+
         rawval = rocksdb_iter_value(iter, &vlen);
-        rawkeys[numkeys] = sdsnewlen(rawkey, klen);
-        rawvals[numkeys] = sdsnewlen(rawval, vlen);
         numkeys++;
-        rocksdb_iter_next(iter);
+
+        if (numkeys > numalloc) {
+            if (numalloc >= RIO_ITERATE_NUMKEYS_ALLOC_LINER) {
+                numalloc += RIO_ITERATE_NUMKEYS_ALLOC_LINER;
+            } else {
+                numalloc *= 2;
+            }
+            rawkeys = zrealloc(rawkeys, numalloc*sizeof(sds));
+            rawvals = zrealloc(rawvals, numalloc*sizeof(sds));
+        }
+        rawkeys[numkeys - 1] = sdsnewlen(rawkey, klen);
+        rawvals[numkeys - 1] = sdsnewlen(rawval, vlen);
+
+        if (reverse) rocksdb_iter_prev(iter);
+        else rocksdb_iter_next(iter);
     }
 
     rocksdb_iter_get_error(iter, &err);
     if (err != NULL) {
-        rio->err = err;
+        rio->err = sdsnew(err);
         serverLog(LL_WARNING,"[rocks] do rocksdb iterate failed: %s", err);
-        ret = -1;
+        zlibc_free(err);
+        ret = C_ERR;
     }
-    
+
+    /* save next seek */
+    if (next_seek && rocksdb_iter_valid(iter)) {
+        rawkey = rocksdb_iter_key(iter, &klen);
+        rio->iterate.nextseek = sdsnewlen(rawkey, klen);
+    }
+
+    end:
     rio->iterate.numkeys = numkeys;
     rio->iterate.rawkeys = rawkeys;
     rio->iterate.rawvals = rawvals;
-    
-    /* save nextseek */
-    if (rocksdb_iter_valid(iter)) {
-        size_t klen;
-        const char *rawkey;
-        rawkey = rocksdb_iter_key(iter, &klen);
-        rio->iterate.rawkeys[rio->iterate.numkeys] = sdsnewlen(rawkey, klen);
-        rio->iterate.rawvals[rio->iterate.numkeys] = NULL;
-    } else {
-        rio->iterate.rawkeys[rio->iterate.numkeys] = NULL;
-        rio->iterate.rawvals[rio->iterate.numkeys] = NULL;
-    }
 
-    rocksdb_iter_destroy(iter);
-
+    if (iter) rocksdb_iter_destroy(iter);
+    if (ropts) rocksdb_readoptions_destroy(ropts);
     return ret;
 }
 
@@ -588,29 +454,13 @@ void dumpRIO(RIO *rio) {
         repr = sdscat(repr, "MULTIGET:\n");
         for (int i = 0; i < rio->multiget.numkeys; i++) {
             repr = sdscatprintf(repr, "  ([%s] ", rioGetCFName(rio->multiget.cfs[i]));
-            repr = sdscatrepr(repr, rio->multiget.rawkeys[i],
-                    sdslen(rio->multiget.rawkeys[i]));
+            repr = sdscatrepr(repr, rio->multiget.rawkeys[i],sdslen(rio->multiget.rawkeys[i]));
             repr = sdscat(repr, ")=>(");
             if (rio->multiget.rawvals[i]) {
-                repr = sdscatrepr(repr, rio->multiget.rawvals[i],
-                        sdslen(rio->multiget.rawvals[i]));
+                repr = sdscatrepr(repr, rio->multiget.rawvals[i],sdslen(rio->multiget.rawvals[i]));
             } else {
                 repr = sdscatfmt(repr, "<nil>");
             }
-            repr = sdscat(repr,")\n");
-        }
-        break;
-    case ROCKS_SCAN:
-        repr = sdscatprintf(repr, "SCAN [%s]: (", rioGetCFName(rio->scan.cf));
-        repr = sdscatrepr(repr, rio->scan.prefix, sdslen(rio->scan.prefix));
-        repr = sdscat(repr, ")\n");
-        for (int i = 0; i < rio->scan.numkeys; i++) {
-            repr = sdscat(repr, "  (");
-            repr = sdscatrepr(repr, rio->scan.rawkeys[i],
-                    sdslen(rio->scan.rawkeys[i]));
-            repr = sdscat(repr, ")=>(");
-            repr = sdscatrepr(repr, rio->scan.rawvals[i],
-                    sdslen(rio->scan.rawvals[i]));
             repr = sdscat(repr,")\n");
         }
         break;
@@ -623,38 +473,30 @@ void dumpRIO(RIO *rio) {
         }
         break;
     case ROCKS_ITERATE:
-        repr = sdscatprintf(repr, "ITERATE [%s]: (", rioGetCFName(rio->iterate.cf));
-        repr = sdscatrepr(repr, rio->iterate.seek, sdslen(rio->iterate.seek));
-        repr = sdscat(repr, "=>");
-        sds nextseek = rio->iterate.rawkeys ? rio->iterate.rawkeys[rio->iterate.numkeys] : NULL;
-        if (nextseek)
-            repr = sdscatrepr(repr, nextseek, sdslen(nextseek));
+        repr = sdscatprintf(repr, "ITERATE [%s]: (flags=%d,limit=%lu",rioGetCFName(rio->iterate.cf),
+                            rio->iterate.flags, rio->iterate.limit);
+        if (rio->iterate.start) {
+            repr = sdscat(repr, ",start=");
+            repr = sdscatrepr(repr, rio->iterate.start, sdslen(rio->iterate.start));
+        }
+        if (rio->iterate.end) {
+            repr = sdscat(repr, ",end=");
+            repr = sdscatrepr(repr, rio->iterate.end, sdslen(rio->iterate.end));
+        }
         repr = sdscat(repr, ")\n");
         for (int i = 0; i < rio->iterate.numkeys; i++) {
             repr = sdscat(repr, "  (");
             repr = sdscatrepr(repr, rio->iterate.rawkeys[i],
-                    sdslen(rio->iterate.rawkeys[i]));
+                              sdslen(rio->iterate.rawkeys[i]));
             repr = sdscat(repr, ")=>(");
             repr = sdscatrepr(repr, rio->iterate.rawvals[i],
-                    sdslen(rio->iterate.rawvals[i]));
+                              sdslen(rio->iterate.rawvals[i]));
             repr = sdscat(repr,")\n");
         }
-        break;
-    case ROCKS_RANGE:
-        repr = sdscatprintf(repr, "RANGE [%s] : reverse=%d, limit=%ld, (",
-                rioGetCFName(rio->range.cf),rio->range.reverse,rio->range.limit);
-        repr = sdscatrepr(repr, rio->range.start, sdslen(rio->range.start));
-        repr = sdscat(repr, ")=>(");
-        repr = sdscatrepr(repr, rio->range.end, sdslen(rio->range.end));
-        repr = sdscat(repr, ")\n");
-        for (int i = 0; i < rio->range.numkeys; i++) {
-            repr = sdscat(repr, "  (");
-            repr = sdscatrepr(repr, rio->range.rawkeys[i],
-                    sdslen(rio->range.rawkeys[i]));
-            repr = sdscat(repr, ")=>(");
-            repr = sdscatrepr(repr, rio->range.rawvals[i],
-                    sdslen(rio->range.rawvals[i]));
-            repr = sdscat(repr,")\n");
+        if (rio->iterate.nextseek) {
+            repr = sdscat(repr, "nextseek=");
+            repr = sdscatrepr(repr, rio->iterate.nextseek, sdslen(rio->iterate.nextseek));
+            repr = sdscat(repr,"\n");
         }
         break;
     default:
@@ -692,17 +534,11 @@ int doRIO(RIO *rio) {
     case ROCKS_MULTIGET:
         ret = doRIOMultiGet(rio);
         break;
-    case ROCKS_SCAN:
-        ret = doRIOScan(rio);
-        break;
     case ROCKS_MULTI_DELETERANGE:
         ret = doRIOMultiDeleteRange(rio);
         break;
     case ROCKS_ITERATE:
         ret = doRIOIterate(rio);
-        break;
-    case ROCKS_RANGE:
-        ret = doRIORange(rio);
         break;
     default:
         serverPanic("[rocks] Unknown io action: %d", rio->action);
@@ -744,7 +580,7 @@ static void executeSwapDelRequest(swapRequest *req) {
     rocksdb_writebatch_t *wb;
     swapData *data = req->data;
 
-    if ((errcode = swapDataDoSwap(data,req->intention,req->datactx,&action)))
+    if ((errcode = swapDataSwapAnaAction(data,req->intention,req->datactx,&action)))
         goto end;
     DEBUG_MSGS_APPEND(req->msgs,"exec-del-encodekeys","action=%s", rocksActionName(action));
 
@@ -918,12 +754,13 @@ static inline int doSwapOutMeta(swapData *data) {
 }
 
 static void executeSwapOutRequest(swapRequest *req) {
-    int i, numkeys, errcode = 0, action, *cfs = NULL;sds *rawkeys = NULL, *rawvals = NULL;
+    int i, numkeys, errcode = 0, action, *cfs = NULL;
+    sds *rawkeys = NULL, *rawvals = NULL;
     RIO _rio = {0}, *rio = &_rio;
     rocksdb_writebatch_t *wb = NULL;
     swapData *data = req->data;
 
-    if ((errcode = swapDataDoSwap(data,req->intention,req->datactx,&action)))
+    if ((errcode = swapDataSwapAnaAction(data,req->intention,req->datactx,&action)))
         goto end;
     if ((errcode = swapDataEncodeData(data,req->intention,req->datactx,&numkeys,&cfs,
                 &rawkeys,&rawvals)))
@@ -1094,25 +931,13 @@ int doAuxDel(swapRequest *req, RIO *rio) {
         rawkeys = rio->multiget.rawkeys;
         rawvals = rio->multiget.rawvals;
         break;
-    case ROCKS_SCAN:
-        tmpcfs = zmalloc(sizeof(int)*rio->scan.numkeys);
-        for (i = 0; i < rio->scan.numkeys; i++)
-            tmpcfs[i] = rio->scan.cf;
-
-        numkeys = rio->scan.numkeys;
+    case ROCKS_ITERATE:
+        tmpcfs = zmalloc(sizeof(int)*rio->iterate.numkeys);
+        for (i = 0; i < rio->iterate.numkeys; i++) tmpcfs[i] = rio->iterate.cf;
+        numkeys = rio->iterate.numkeys;
         cfs = tmpcfs;
-        rawkeys = rio->scan.rawkeys;
-        rawvals = rio->scan.rawvals;
-        break;
-    case ROCKS_RANGE:
-        tmpcfs = zmalloc(sizeof(int)*rio->range.numkeys);
-        for (i = 0; i < rio->range.numkeys; i++)
-            tmpcfs[i] = rio->range.cf;
-
-        numkeys = rio->range.numkeys;
-        cfs = tmpcfs;
-        rawkeys = rio->range.rawkeys;
-        rawvals = rio->range.rawvals;
+        rawkeys = rio->iterate.rawkeys;
+        rawvals = rio->iterate.rawvals;
         break;
     default:
         numkeys = 0;
@@ -1135,7 +960,7 @@ static void executeSwapInRequest(swapRequest *req) {
     int errcode, action;
     RIO _rio = {0}, *rio = &_rio;
     swapData *data = req->data;
-    if ((errcode = swapDataDoSwap(data,req->intention,req->datactx,&action)))
+    if ((errcode = swapDataSwapAnaAction(data,req->intention,req->datactx,&action)))
         goto end;
     DEBUG_MSGS_APPEND(req->msgs,"exec-in-encodekeys","action=%s",rocksActionName(action));
 
@@ -1187,7 +1012,7 @@ static void executeSwapInRequest(swapRequest *req) {
         /* rawkeys not moved, only rawkeys[0] moved, free when done. */
         zfree(cfs);
         zfree(rawkeys);
-    } else if (action == ROCKS_SCAN) {
+    }  else if (action == ROCKS_ITERATE) {
         int *tmpcfs, i;
         int limit, cf;
         uint32_t flags = 0;
@@ -1196,64 +1021,19 @@ static void executeSwapInRequest(swapRequest *req) {
                     &limit,&flags,&cf,&start,&end))) {
             goto end;
         }
-        RIOInitScan(rio,cf,start);
+        RIOInititerate(rio, cf, flags, start, end, limit);
         if ((errcode = doRIO(rio))) {
             goto end;
         }
-        tmpcfs = zmalloc(sizeof(int)*rio->scan.numkeys);
-        for (i = 0; i < rio->scan.numkeys; i++) tmpcfs[i] = cf;
-        DEBUG_MSGS_APPEND(req->msgs,"exec-in-scan","prefix=%s,rio=ok",start);
-        if ((errcode = swapDataDecodeData(data,rio->scan.numkeys,tmpcfs,rio->scan.rawkeys,
-                    rio->scan.rawvals,&decoded))) {
-            zfree(tmpcfs);
-            goto end;
-        }
-        zfree(tmpcfs);
-        DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata", "decoded=%p",(void*)decoded);
-    } else if (action == ROCKS_ITERATE) {
-        int *tmpcfs, i;
-        int limit, cf;
-        uint32_t flags = 0;
-        sds start = NULL,end = NULL;
-        if ((errcode = swapDataEncodeRange(data,req->intention,req->datactx,
-                    &limit,&flags,&cf,&start,&end))) {
-            goto end;
-        }
-        RIOInitIterate(rio,cf,start,limit);
-        if ((errcode = doRIO(rio))) {
-            goto end;
-        }
-
         tmpcfs = zmalloc(sizeof(int)*rio->iterate.numkeys);
         for (i = 0; i < rio->iterate.numkeys; i++) tmpcfs[i] = cf;
-        DEBUG_MSGS_APPEND(req->msgs,"exec-in-iterate","seek=%s,limit=%d,rio=ok",
-                start, numkeys);
+        if (rio->iterate.nextseek) {
+            data->nextseek = rio->iterate.nextseek;
+            rio->iterate.nextseek = NULL;
+        }
+        DEBUG_MSGS_APPEND(req->msgs,"exec-in-iterate","start=%s,end=%s,limit=%d,flags=%d,rio=ok",start,end,limit,flags);
         if ((errcode = swapDataDecodeData(data,rio->iterate.numkeys,tmpcfs,rio->iterate.rawkeys,
                     rio->iterate.rawvals,&decoded))) {
-            zfree(tmpcfs);
-            goto end;
-        }
-        zfree(tmpcfs);
-        DEBUG_MSGS_APPEND(req->msgs,"exec-in-decodedata", "decoded=%p",(void*)decoded);
-
-    } else if (action == ROCKS_RANGE) {
-        int *tmpcfs, i;
-        int limit, cf;
-        uint32_t flags = 0;
-        sds start = NULL,end = NULL;
-        if ((errcode = swapDataEncodeRange(data,req->intention,req->datactx,
-                    &limit,&flags,&cf,&start,&end))) {
-            goto end;
-        }
-        RIOInitRange(rio, cf, start, end, flags & ROCKS_ITERATE_REVERSE, limit);
-        if ((errcode = doRIO(rio))) {
-            goto end;
-        }
-        tmpcfs = zmalloc(sizeof(int)*rio->range.numkeys);
-        for (i = 0; i < rio->range.numkeys; i++) tmpcfs[i] = cf;
-        DEBUG_MSGS_APPEND(req->msgs,"exec-in-scan","prefix=%s,rio=ok",start);
-        if ((errcode = swapDataDecodeData(data,rio->range.numkeys,tmpcfs,rio->range.rawkeys,
-                    rio->range.rawvals,&decoded))) {
             zfree(tmpcfs);
             goto end;
         }
@@ -1650,11 +1430,11 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        test_assert(sdscmp(rio->multiget.rawvals[0],rawval1) == 0);
        test_assert(sdscmp(rio->multiget.rawvals[1],rawval2) == 0);
 
-       RIOInitScan(rio,DATA_CF,prefix);
+       RIOInititerate(rio,DATA_CF,0,prefix,NULL,100);
        test_assert(doRIO(rio) == C_OK);
-       test_assert(rio->scan.numkeys == 2);
-       test_assert(sdscmp(rio->scan.rawvals[0],rawval1) == 0);
-       test_assert(sdscmp(rio->scan.rawvals[1],rawval2) == 0);
+       test_assert(rio->iterate.numkeys == 2);
+       test_assert(sdscmp(rio->iterate.rawvals[0],rawval1) == 0);
+       test_assert(sdscmp(rio->iterate.rawvals[1],rawval2) == 0);
    }
 
    TEST("exec: swap-out hot string") {

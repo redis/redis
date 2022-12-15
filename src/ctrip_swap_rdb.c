@@ -575,7 +575,7 @@ int rdbLoadSwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
-int rdbLoadDoSwap(swapData *data, int intention, void *datactx, int *action) {
+int rdbLoadSwapAnaAction(swapData *data, int intention, void *datactx, int *action) {
     UNUSED(data), UNUSED(intention), UNUSED(datactx);
     *action = ROCKS_WRITE;
     return 0;
@@ -599,7 +599,7 @@ int rdbLoadEncodeData(swapData *data_, int intention, void *datactx,
 swapDataType rdbLoadSwapDataType = {
     .name = "rdbload",
     .swapAna = rdbLoadSwapAna,
-    .doSwap = rdbLoadDoSwap,
+    .swapAnaAction = rdbLoadSwapAnaAction,
     .encodeKeys = NULL,
     .encodeData = rdbLoadEncodeData,
     .encodeRange = NULL,

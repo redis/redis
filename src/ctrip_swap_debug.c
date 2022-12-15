@@ -77,6 +77,23 @@ static int getCfOrReply(client *c, robj *cf) {
     }
 }
 
+static sds calculateNextPrefix(sds current) {
+    sds next = NULL;
+    size_t nextlen = sdslen(current);
+
+    do {
+        if (current[nextlen - 1] != (char)0xff) break;
+        nextlen--;
+    } while(nextlen > 0);
+
+    if (0 == nextlen) return NULL;
+
+    next = sdsnewlen(current, nextlen);
+    next[nextlen - 1]++;
+
+    return next;
+}
+
 void swapCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
@@ -211,14 +228,16 @@ NULL
         RIO _rio, *rio = &_rio;
         if ((cf = getCfOrReply(c,c->argv[2])) < 0) return;
         sds prefix = sdsdup(c->argv[3]->ptr);
-        RIOInitScan(rio,cf,prefix);
+        sds end = NULL;
+        if (0 != sdslen(prefix)) end = calculateNextPrefix(prefix);
+        RIOInititerate(rio, cf, 0, prefix, end, ROCKS_ITERATE_NO_LIMIT);
         doRIO(rio);
-        addReplyArrayLen(c,rio->scan.numkeys);
-        for (int i = 0; i < rio->scan.numkeys; i++) {
+        addReplyArrayLen(c,rio->iterate.numkeys);
+        for (int i = 0; i < rio->iterate.numkeys; i++) {
             sds repr = sdsempty();
-            repr = sdscatsds(repr, rio->scan.rawkeys[i]);
+            repr = sdscatsds(repr, rio->iterate.rawkeys[i]);
             repr = sdscat(repr, "=>");
-            repr = sdscatsds(repr, rio->scan.rawvals[i]);
+            repr = sdscatsds(repr, rio->iterate.rawvals[i]);
             addReplyBulkSds(c,repr);
         }
         RIODeinit(rio);

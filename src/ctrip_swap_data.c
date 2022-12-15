@@ -111,9 +111,9 @@ int swapDataAna(swapData *d, struct keyRequest *key_request,
     return retval;
 }
 
-inline int swapDataDoSwap(swapData *d, int intention, void *datactx, int *action) {
-    if (d->type->doSwap)
-        return d->type->doSwap(d,intention,datactx,action);
+inline int swapDataSwapAnaAction(swapData *d, int intention, void *datactx, int *action) {
+    if (d->type->swapAnaAction)
+        return d->type->swapAnaAction(d, intention, datactx, action);
     else
         return 0;
 }

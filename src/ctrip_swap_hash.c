@@ -190,13 +190,13 @@ static inline sds hashEncodeSubkey(redisDb *db, sds key, uint64_t version,
     return rocksEncodeDataKey(db,key,version,subkey);
 }
 
-int hashDoSwap(swapData *data, int intention, void *datactx_, int *action) {
+int hashSwapAnaAction(swapData *data, int intention, void *datactx_, int *action) {
     UNUSED(data);
     hashDataCtx *datactx = datactx_;
     switch (intention) {
         case SWAP_IN:
             if (datactx->ctx.num > 0) *action = ROCKS_MULTIGET; /* Swap in specific fields */
-            else *action = ROCKS_SCAN; /* Swap in entire hash(HKEYS/HVALS...) */
+            else *action = ROCKS_ITERATE; /* Swap in entire hash(HKEYS/HVALS...) */
             break;
         case SWAP_DEL:
             /* No need to del data (meta will be deleted by exec) */
@@ -238,17 +238,16 @@ static inline sds hashEncodeSubval(robj *subval) {
     return rocksEncodeValRdb(subval);
 }
 
-int hashEncodeRange(struct swapData *data, int intention, void *datactx_, int *limit,
+int hashEncodeRange(struct swapData *data, int intention, void *datactx, int *limit,
         uint32_t *flags, int *pcf, sds *start, sds *end) {
-    UNUSED(intention);
-    hashDataCtx *datactx = datactx_;
+    UNUSED(intention), UNUSED(datactx);
     uint64_t version = swapDataObjectVersion(data);
 
     *pcf = DATA_CF;
     *flags = 0;
     *start = rocksEncodeDataRangeStartKey(data->db,data->key->ptr,version);
     *end = rocksEncodeDataRangeEndKey(data->db,data->key->ptr,version);
-    *limit = datactx->ctx.num;
+    *limit = ROCKS_ITERATE_NO_LIMIT;
     return 0;
 }
 
@@ -477,7 +476,7 @@ void freeHashSwapData(swapData *data_, void *datactx_) {
 swapDataType hashSwapDataType = {
     .name = "hash",
     .swapAna = hashSwapAna,
-    .doSwap = hashDoSwap,
+    .swapAnaAction = hashSwapAnaAction,
     .encodeKeys = hashEncodeKeys,
     .encodeRange = hashEncodeRange,
     .encodeData = hashEncodeData,
@@ -890,8 +889,8 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         test_assert(hash1_ctx->ctx.num == (int)hashTypeLength(hash1_data_->d.value));
         serverAssert(hash1_ctx->ctx.subkeys != NULL);
 
-        hashEncodeData(hash1_data,intention,hash1_ctx,
-                &action,&numkeys,&cfs,&rawkeys,&rawvals);
+        hashSwapAnaAction(hash1_data,intention,hash1_ctx,&action);
+        hashEncodeData(hash1_data,intention,hash1_ctx,&numkeys,&cfs,&rawkeys,&rawvals);
         test_assert(action == ROCKS_WRITE);
         test_assert(numkeys == hash1_ctx->ctx.num);
 

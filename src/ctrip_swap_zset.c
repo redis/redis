@@ -237,16 +237,17 @@ int zsetSwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
-int zsetDoSwap(swapData *data, int intention, void *datactx_, int *action) {
+int zsetSwapAnaAction(swapData *data, int intention, void *datactx_, int *action) {
+    UNUSED(data);
     zsetDataCtx *datactx = datactx_;
     switch (intention) {
         case SWAP_IN:
             if (datactx->type != TYPE_NONE) {
-                *action = ROCKS_RANGE;
+                *action = ROCKS_ITERATE;
             } else if (datactx->bdc.num) { /* Swap in specific fields */
                 *action = ROCKS_MULTIGET;
             } else { /* Swap in entire zset. */
-                *action = ROCKS_SCAN;
+                *action = ROCKS_ITERATE;
             }
             break;
         case SWAP_DEL:
@@ -379,43 +380,42 @@ int zsetEncodeData(swapData *data, int intention, void *datactx_,
 }
 
 int zsetEncodeRange(struct swapData *data, int intention, void *datactx_, int *limit,
-        uint32_t *flags, int *pcf, sds *start, sds *end) {
+                    uint32_t *flags, int *pcf, sds *start, sds *end) {
     zsetDataCtx *datactx = datactx_;
     uint64_t version = swapDataObjectVersion(data);
     serverAssert(intention == SWAP_IN);
     serverAssert(0 == datactx->bdc.num);
 
+    *limit = ROCKS_ITERATE_NO_LIMIT;
+    *flags = 0;
     if (datactx->type != TYPE_NONE) {
-        *limit = 1;
-        *flags = 0;
         if (datactx->type == TYPE_ZS) {
             *limit = datactx->zs.limit;
             *pcf = SCORE_CF;
             if (datactx->zs.reverse) *flags |= ROCKS_ITERATE_REVERSE;
-            if (datactx->zs.rangespec->minex) {
-                *start = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->minex,
-                                                        data->key->ptr, version, datactx->zs.rangespec->min);
-            } else {
-                *start = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->minex,
-                                                        data->key->ptr, version, datactx->zs.rangespec->min - SCORE_DEVIATION);
-            }
+            if (datactx->zs.rangespec->minex) *flags |= ROCKS_ITERATE_LOW_BOUND_EXCLUDE;
 
+            *start = zsetEncodeScoreKey(data->db, data->key->ptr, version,
+                                        shared.emptystring->ptr, datactx->zs.rangespec->min);
             if (datactx->zs.rangespec->maxex) {
-                *end = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->maxex,
-                                                        data->key->ptr, version, datactx->zs.rangespec->max);
+                *end = zsetEncodeScoreKey(data->db, data->key->ptr, version,
+                                          shared.emptystring->ptr, datactx->zs.rangespec->max);
             } else {
-                *end = zsetEncodeIntervalScoreKey(data->db, datactx->zs.rangespec->maxex,
-                                                        data->key->ptr, version, datactx->zs.rangespec->max + SCORE_DEVIATION);
+                /* key saved as "xxxx[score][subkey]", but end_key formatted as "xxxx[score]".
+                 * So if we want keys with score datactx->zs.rangespec->max, we need search for score a bit wider.
+                 * The logic after swap will filter key with wanted score exactly. */
+                *end = zsetEncodeScoreKey(data->db, data->key->ptr, version,
+                                          shared.emptystring->ptr, datactx->zs.rangespec->max + SCORE_DEVIATION);
             }
 
         }
     } else {
-        *limit = 1;
-        *flags = 0;
         *pcf = DATA_CF;
         *start = rocksEncodeDataRangeStartKey(data->db,data->key->ptr,version);
         *end = rocksEncodeDataRangeEndKey(data->db,data->key->ptr,version);
     }
+
+    return 0;
 }
 
 static double zsetDecodeSubval(sds subval) {
@@ -784,7 +784,7 @@ int zsetRocksDel(struct swapData *data_,  void *datactx_, int inaction,
 swapDataType zsetSwapDataType = {
     .name = "zset",
     .swapAna = zsetSwapAna,
-    .doSwap = zsetDoSwap,
+    .swapAnaAction = zsetSwapAnaAction,
     .encodeKeys = zsetEncodeKeys,
     .encodeData = zsetEncodeData,
     .encodeRange = zsetEncodeRange,
@@ -1268,13 +1268,15 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zset1_data = createSwapData(db, key1,zset1);
         swapDataSetupZSet(zset1_data, (void**)&zset1_ctx);
         sds *rawkeys, *rawvals;
-        int *cfs;
+        int *cfs, cf, flags;
+        sds start, end;
 
         zset1_ctx->bdc.num = 2;
         zset1_ctx->bdc.subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
         zset1_data->object_meta = createZsetObjectMeta(0,2);
         // encodeKeys - swap in subkeys
-        zsetEncodeKeys(zset1_data, SWAP_IN, zset1_ctx, &action, &numkeys, &cfs, &rawkeys);
+        zsetSwapAnaAction(zset1_data, SWAP_IN, zset1_ctx, &action);
+        zsetEncodeKeys(zset1_data, SWAP_IN, zset1_ctx, &numkeys, &cfs, &rawkeys);
         test_assert(2 == numkeys);
         test_assert(DATA_CF == cfs[0] && DATA_CF == cfs[1]);
         test_assert(ROCKS_MULTIGET == action);
@@ -1284,19 +1286,21 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         
         // encodeKeys - swap in whole key
         zset1_ctx->bdc.num = 0;
-        zsetEncodeKeys(zset1_data, SWAP_IN, zset1_ctx, &action, &numkeys, &cfs, &rawkeys);
-        test_assert(ROCKS_SCAN == action);
-        test_assert(DATA_CF == cfs[0]);
+        zsetSwapAnaAction(zset1_data, SWAP_IN, zset1_ctx, &action);
+        zsetEncodeRange(zset1_data, SWAP_IN, zset1_ctx, &numkeys, &flags, &cf, &start, &end);
+        test_assert(ROCKS_ITERATE == action);
+        test_assert(DATA_CF == cf);
         sds empty = sdsnewlen("", 0);
         expectEncodedKey = rocksEncodeDataKey(db, key1->ptr, 0, empty);
-        test_assert(memcmp(expectEncodedKey, rawkeys[0], sdslen(rawkeys[0])) == 0);
+        test_assert(memcmp(expectEncodedKey, start, sdslen(rawkeys[0])) == 0);
         // encodeKeys - swap del
-        zsetEncodeKeys(zset1_data, SWAP_DEL, zset1_ctx, &action, &numkeys, &cfs, &rawkeys);
-        test_assert(0 == action && numkeys == 0);
+        zsetSwapAnaAction(zset1_data, SWAP_DEL, zset1_ctx, &action);
+        test_assert(0 == action);
 
         // encodeData - swap out
         zset1_ctx->bdc.num = 2;
-        zsetEncodeData(zset1_data, SWAP_OUT, zset1_ctx, &action, &numkeys, &cfs, &rawkeys, &rawvals);
+        zsetSwapAnaAction(zset1_data, SWAP_OUT, zset1_ctx, &action);
+        zsetEncodeData(zset1_data, SWAP_OUT, zset1_ctx, &numkeys, &cfs, &rawkeys, &rawvals);
         test_assert(action == ROCKS_WRITE);
         test_assert(4 == numkeys);
 

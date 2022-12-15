@@ -1352,7 +1352,7 @@ int listSwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
-int listDoSwap(swapData *data, int intention, void *datactx_, int *action) {
+int listSwapAnaAction(swapData *data, int intention, void *datactx_, int *action) {
     UNUSED(data);
     listDataCtx *datactx = datactx_;
     listMeta *swap_meta = datactx->swap_meta;
@@ -1362,7 +1362,7 @@ int listDoSwap(swapData *data, int intention, void *datactx_, int *action) {
             if (swap_meta && swap_meta->len > 0) {
                 *action = ROCKS_MULTIGET;
             } else {/* Swap in entire list(LREM/LINSERT/LPOS...) */
-                *action = ROCKS_SCAN;
+                *action = ROCKS_ITERATE;
             }
             break;
         case SWAP_DEL:
@@ -1417,7 +1417,6 @@ int listEncodeKeys(swapData *data, int intention, void *datactx_,
     cfs = zmalloc(sizeof(int)*swap_meta->len);
     rawkeys = zmalloc(sizeof(sds)*swap_meta->len);
 
-    //TODO opt: use ROCKS_RANGE if too many eles
     listMetaIteratorInitWithType(&iter,swap_meta,SEGMENT_TYPE_HOT);
     while (!listMetaIterFinished(&iter)) {
         long ridx = listMetaIterCur(&iter,NULL);
@@ -1502,7 +1501,8 @@ int listEncodeRange(struct swapData *data, int intention, void *datactx_, int *l
     *pcf = DATA_CF;
     *start = rocksEncodeDataRangeStartKey(data->db,data->key->ptr,version);
     *end = rocksEncodeDataRangeEndKey(data->db,data->key->ptr,version);
-    *limit = 1;
+    *limit = ROCKS_ITERATE_NO_LIMIT;
+    return 0;
 }
 
 int listDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
@@ -1859,7 +1859,7 @@ int listMergedIsHot(swapData *d, void *result, void *datactx) {
 swapDataType listSwapDataType = {
     .name = "list",
     .swapAna = listSwapAna,
-    .doSwap = listDoSwap,
+    .swapAnaAction = listSwapAnaAction,
     .encodeKeys = listEncodeKeys,
     .encodeData = listEncodeData,
     .encodeRange = listEncodeRange,
@@ -2973,8 +2973,8 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         hotctx->swap_meta = listMetaCreate();
         listMetaAppendSegment(hotctx->swap_meta,SEGMENT_TYPE_COLD,0,3);
 
-        listEncodeData(hotdata,SWAP_OUT,hotdatactx,
-                &action,&numkeys,&cfs,&rawkeys,&rawvals);
+        listSwapAnaAction(hotdata,SWAP_OUT,hotdatactx,&action);
+        listEncodeData(hotdata,SWAP_OUT,hotdatactx,&numkeys,&cfs,&rawkeys,&rawvals);
         test_assert(action == ROCKS_WRITE && numkeys == 3 && cfs[0] == DATA_CF);
         test_assert(!sdscmp(rawkeys[0],rawkey0) && !sdscmp(rawvals[0],rawval0));
 
@@ -3392,7 +3392,8 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
         /* save cold kvpair */
         rioInitWithBuffer(&rdb,sdsempty());
 
-        decodedMeta _decoded_meta, *decoded_meta = &_decoded_meta;
+        decodedResult _decoded_meta;
+        decodedMeta *decoded_meta = (decodedMeta*)&_decoded_meta;
         decoded_meta->dbid = db->id;
         decoded_meta->key = sdsdup(coldkey->ptr);
         decoded_meta->cf = META_CF;

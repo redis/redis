@@ -62,13 +62,6 @@ static inline size_t estimateRIOSwapMemory(RIO *rio) {
                 memory += sdsalloc(rio->multiget.rawvals[i]);
         }
         break;
-    case ROCKS_SCAN:
-        memory += sdsalloc(rio->scan.prefix);
-        for (i = 0; i < rio->scan.numkeys; i++) {
-            memory += sdsalloc(rio->scan.rawkeys[i]);
-            memory += sdsalloc(rio->scan.rawvals[i]);
-        }
-        break;
     default:
         break;
     }

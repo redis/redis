@@ -354,7 +354,7 @@ int metaScanSwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
-int doSwap(swapData *data, int intention, void *datactx_, int *action) {
+int SwapAnaAction(swapData *data, int intention, void *datactx_, int *action) {
     UNUSED(data), UNUSED(datactx_);
     switch (intention) {
         case SWAP_IN:
@@ -372,19 +372,18 @@ int metaScanEncodeRange(struct swapData *data, int intention, void *datactx_, in
     metaScanDataCtx *datactx = datactx_;
     serverAssert(SWAP_IN == intention);
     *pcf = META_CF;
-    *flags = 0;
+    *flags |= ROCKS_ITERATE_CONTINUOUSLY_SEEK;
     *start = rocksEncodeMetaKey(data->db,datactx->seek);
+    *end = NULL;
     *limit = datactx->limit;
+    return 0;
 }
 
 int metaScanDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
         sds *rawvals, void **pdecoded) {
     int i, retval = 0;
     metaScanResult *result = metaScanResultCreate();
-    sds nextseek_rawkey = rawkeys[num];
-
-    UNUSED(data);
-    serverAssert(rawvals && rawvals[num] == NULL);
+    sds nextseek_rawkey = data->nextseek;
 
     /* last entry in rawkeys is nextseek, NULL if iterate EOF. */
     if (nextseek_rawkey) {
@@ -393,6 +392,8 @@ int metaScanDecodeData(swapData *data, int num, int *cfs, sds *rawkeys,
         rocksDecodeMetaKey(nextseek_rawkey,sdslen(nextseek_rawkey),NULL,
                 &nextseek,&seeklen);
         metaScanResultSetNextSeek(result, sdsnewlen(nextseek,seeklen));
+        sdsfree(data->nextseek);
+        data->nextseek = NULL, nextseek_rawkey = NULL;
     }
 
     for (i = 0; i < num; i++) {
@@ -458,7 +459,7 @@ void freeMetaScanSwapData(swapData *data, void *datactx_) {
 swapDataType metaScanSwapDataType = {
     .name = "metascan",
     .swapAna = metaScanSwapAna,
-    .doSwap = doSwap,
+    .swapAnaAction = SwapAnaAction,
     .encodeKeys = NULL,
     .encodeData = NULL,
     .encodeRange = metaScanEncodeRange,
@@ -545,9 +546,10 @@ int metaScanTest(int argc, char *argv[], int accurate) {
     }
 
     TEST("metascan - scan") {
-        int action, numkeys, *cfs, retval, i;
+        int action, numkeys, *cfs, retval, i, cf, flags;
         int onumkeys, *ocfs;
         sds *rawkeys, *orawkeys, *orawvals;
+        sds start, end;
         metaScanDataCtx *datactx;
         metaScanDataCtxScan *scanctx;
         void *decoded;
@@ -563,18 +565,19 @@ int metaScanTest(int argc, char *argv[], int accurate) {
         test_assert(retval == 0);
         test_assert(datactx->limit == 3);
         test_assert(scanctx->cursor == 0);
-        swapDataEncodeKeys(data,SWAP_IN,datactx,&action,&numkeys,&cfs,&rawkeys);
+        swapDataSwapAnaAction(data,SWAP_IN,datactx,&action);
+        swapDataEncodeRange(data,SWAP_IN,datactx,&numkeys, &flags, &cf, &start, &end);
         test_assert(action == ROCKS_ITERATE);
         test_assert(numkeys == 3);
-        test_assert(cfs[0] == META_CF);
-        sdsfree(rawkeys[0]);
+        test_assert(cf == META_CF);
+        sdsfree(start);
         zfree(cfs);
         zfree(rawkeys);
 
         onumkeys = numkeys;
         sds lastkey = sdsfromlonglong(onumkeys);
-        orawkeys = zmalloc((onumkeys+1) * sizeof(sds));
-        orawvals = zmalloc((onumkeys+1) * sizeof(sds));
+        orawkeys = zmalloc((onumkeys) * sizeof(sds));
+        orawvals = zmalloc((onumkeys) * sizeof(sds));
         ocfs = zmalloc(onumkeys * sizeof(int));
         for (i = 0; i < onumkeys; i++) {
             ocfs[i] = META_CF;
@@ -583,8 +586,7 @@ int metaScanTest(int argc, char *argv[], int accurate) {
             orawvals[i] = rocksEncodeMetaVal(OBJ_HASH,-1,0,NULL);
             sdsfree(key);
         }
-        orawkeys[onumkeys] = rocksEncodeMetaKey(db,lastkey);
-        orawvals[onumkeys] = NULL;
+        data->nextseek = rocksEncodeMetaKey(db,lastkey);
         retval = swapDataDecodeData(data,onumkeys,ocfs,orawkeys,orawvals,&decoded);
         test_assert(retval == 0);
         result = (metaScanResult*)decoded;
@@ -593,10 +595,12 @@ int metaScanTest(int argc, char *argv[], int accurate) {
         test_assert(result->metas[0].object_type == OBJ_HASH);
         test_assert(!strcmp(result->metas[0].key,"0"));
         test_assert(!sdscmp(result->nextseek,lastkey));
-        for (i = 0; i <= onumkeys; i++) {
+        for (i = 0; i < onumkeys; i++) {
             if (orawkeys[i]) sdsfree(orawkeys[i]);
             if (orawvals[i]) sdsfree(orawvals[i]);
         }
+        sdsfree(data->nextseek);
+        data->nextseek = NULL;
         zfree(ocfs);
         zfree(orawkeys);
         zfree(orawvals);

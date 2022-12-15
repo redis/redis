@@ -376,7 +376,8 @@ typedef struct swapData {
   unsigned set_dirty:1;
   unsigned del_meta:1;
   unsigned reserved:29;
-  void *extends[3];
+  sds nextseek; /* own, moved from exec */
+  void *extends[2];
 } swapData;
 
 /* keyRequest: client request parse from command.
@@ -385,7 +386,7 @@ typedef struct swapData {
 typedef struct swapDataType {
   char *name;
   int (*swapAna)(struct swapData *data, struct keyRequest *key_request, OUT int *intention, OUT uint32_t *intention_flags, void *datactx);
-  int (*doSwap)(struct swapData *data, int intention, void *datactx, OUT int *action);
+  int (*swapAnaAction)(struct swapData *data, int intention, void *datactx, OUT int *action);
   int (*encodeKeys)(struct swapData *data, int intention, void *datactx, OUT int *num, OUT int **cfs, OUT sds **rawkeys);
   int (*encodeRange)(struct swapData *data, int intention, void *datactx, OUT int *limit, OUT uint32_t *flags, OUT int *cf, OUT sds *start, OUT sds *end);
   int (*encodeData)(struct swapData *data, int intention, void *datactx, OUT int *num, OUT int **cfs, OUT sds **rawkeys, OUT sds **rawvals);
@@ -406,7 +407,7 @@ int swapDataSetupMeta(swapData *d, int object_type, long long expire, OUT void *
 int swapDataAlreadySetup(swapData *d);
 void swapDataMarkPropagateExpire(swapData *data);
 int swapDataAna(swapData *d, struct keyRequest *key_request, int *intention, uint32_t *intention_flag, void *datactx);
-int swapDataDoSwap(swapData *data, int intention, void *datactx_, int *action);
+int swapDataSwapAnaAction(swapData *data, int intention, void *datactx_, int *action);
 sds swapDataEncodeMetaKey(swapData *d);
 sds swapDataEncodeMetaVal(swapData *d);
 int swapDataEncodeKeys(swapData *d, int intention, void *datactx, int *num, int **cfs, sds **rawkeys);
@@ -813,11 +814,9 @@ int swapThreadsDrained();
 #define ROCKS_DEL              	3
 #define ROCKS_WRITE             4
 #define ROCKS_MULTIGET          5
-#define ROCKS_SCAN              6
-#define ROCKS_MULTI_DELETERANGE       7
-#define ROCKS_ITERATE           8
-#define ROCKS_RANGE             9
-#define ROCKS_TYPES             10
+#define ROCKS_MULTI_DELETERANGE       6
+#define ROCKS_ITERATE          7
+#define ROCKS_TYPES             8
 
 #define SWAP_DEBUG_LOCK_WAIT            0
 #define SWAP_DEBUG_SWAP_QUEUE_WAIT      1
@@ -868,26 +867,13 @@ typedef struct RIO {
 			sds *rawkeys;
 			sds *rawvals;
 		} multiget;
-		struct {
-      int cf;
-			sds prefix;
-			int numkeys;
-			sds *rawkeys;
-			sds *rawvals;
-		} scan;
+
 		struct {
       int cf;
 			sds start_key;
       sds end_key;
 		} delete_range;
-    struct {
-      int cf;
-      sds seek;
-      int limit;
-      int numkeys;
-      sds *rawkeys;
-      sds *rawvals;
-    } iterate;
+
     struct {
       rocksdb_writebatch_t *wb;
     } multidel;
@@ -898,30 +884,34 @@ typedef struct RIO {
     } multidel_range;
 
     struct {
-      sds start;
-      sds end;
-      int reverse;
-      size_t limit;
-      int cf;
-      int numkeys;
-      sds *rawkeys;
-      sds *rawvals;
-    } range;
+        int cf;
+        uint32_t flags;
+        sds start;
+        sds end;
+        size_t limit;
+        int numkeys;
+        sds *rawkeys;
+        sds *rawvals;
+        sds nextseek; /* own */
+    } iterate;
 	};
   sds err;
 } RIO;
 
 #define ROCKS_ITERATE_NO_LIMIT 0
 #define ROCKS_ITERATE_REVERSE (1<<0)
+#define ROCKS_ITERATE_CONTINUOUSLY_SEEK (1<<1) /* return next seek start key */
+#define ROCKS_ITERATE_LOW_BOUND_EXCLUDE (1<<2)
+#define ROCKS_ITERATE_HIGH_BOUND_EXCLUDE (1<<3)
+#define ROCKS_ITERATE_DISABLE_CACHE (1<<4)
 
 void RIOInitGet(RIO *rio, int cf, sds rawkey);
 void RIOInitPut(RIO *rio, int cf, sds rawkey, sds rawval);
 void RIOInitDel(RIO *rio, int cf, sds rawkey);
 void RIOInitWrite(RIO *rio, rocksdb_writebatch_t *wb);
 void RIOInitMultiGet(RIO *rio, int numkeys, int *cfs, sds *rawkeys);
-void RIOInitScan(RIO *rio, int cf, sds prefix);
 void RIOInitMultiDeleteRange(RIO* rio, int num, int* cf , sds* rawkeys);
-void RIOInitIterate(RIO *rio, int cf, sds seek, int limit);
+void RIOInititerate(RIO *rio, int cf, uint32_t flags, sds start, sds end, size_t limit);
 void RIODeinit(RIO *rio);
 
 #define SWAP_MODE_ASYNC 0

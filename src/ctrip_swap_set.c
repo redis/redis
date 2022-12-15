@@ -183,17 +183,14 @@ int setSwapAna(swapData *data, struct keyRequest *req,
     return 0;
 }
 
-int setDoSwap(swapData *data, int intention, void *datactx_, int *action) {
+int setSwapAnaAction(swapData *data, int intention, void *datactx_, int *action) {
     UNUSED(data);
     setDataCtx *datactx = datactx_;
 
     switch (intention) {
         case SWAP_IN:
-            if (datactx->ctx.num > 0) { /* Swap in specific fields */
-                *action = ROCKS_MULTIGET;
-            } else {/* Swap in entire set(SMEMBERS) */
-                *action = ROCKS_SCAN;
-            }
+            if (datactx->ctx.num > 0) *action = ROCKS_MULTIGET; /* Swap in specific fields */
+            else *action = ROCKS_ITERATE; /* Swap in entire set(SMEMBERS) */
             break;
         case SWAP_DEL:
             *action = ROCKS_NOP;
@@ -216,6 +213,7 @@ static inline sds setEncodeSubkey(redisDb *db, sds key, uint64_t version, sds su
 
 int setEncodeKeys(swapData *data, int intention, void *datactx_,
                   int *numkeys, int **pcfs, sds **prawkeys) {
+    UNUSED(intention);
     setDataCtx *datactx = datactx_;
     sds *rawkeys = NULL;
     int *cfs = NULL, i;
@@ -257,16 +255,16 @@ int setEncodeData(swapData *data, int intention, void *datactx_,
     return 0;
 }
 
-int setEncodeRange(struct swapData *data, int intention, void *datactx_, int *limit,
+int setEncodeRange(struct swapData *data, int intention, void *datactx, int *limit,
         uint32_t *flags, int *pcf, sds *start, sds *end) {
-    setDataCtx *datactx = datactx_;
+    UNUSED(intention), UNUSED(datactx);
     uint64_t version = swapDataObjectVersion(data);
 
     *pcf = DATA_CF;
     *flags = 0;
     *start = rocksEncodeDataRangeStartKey(data->db,data->key->ptr,version);
     *end = rocksEncodeDataRangeEndKey(data->db,data->key->ptr,version);
-    *limit = datactx->ctx.num;
+    *limit = ROCKS_ITERATE_NO_LIMIT;
     return 0;
 }
 
@@ -442,7 +440,7 @@ void freeSetSwapData(swapData *data_, void *datactx_) {
 swapDataType setSwapDataType = {
     .name = "set",
     .swapAna = setSwapAna,
-    .doSwap = setDoSwap,
+    .swapAnaAction = setSwapAnaAction,
     .encodeKeys = setEncodeKeys,
     .encodeData = setEncodeData,
     .encodeRange = setEncodeRange,
@@ -740,13 +738,15 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         swapDataSetupSet(set1_data, (void**)&set1_ctx);
         sds *rawkeys, *rawvals;
         sds empty = sdsempty();
-        int *cfs;
+        int *cfs, cf, flags;
+        sds start, end;
 
         set1_ctx->ctx.num = 2;
         set1_ctx->ctx.subkeys = mockSubKeys(2, sdsdup(f1), sdsdup(f2));
         set1_data->object_meta = createSetObjectMeta(0,2);
         // encodeKeys - swap in subkeys
-        setEncodeKeys(set1_data, SWAP_IN, set1_ctx, &action, &numkeys, &cfs, &rawkeys);
+        setSwapAnaAction(set1_data, SWAP_IN, set1_ctx, &action);
+        setEncodeKeys(set1_data, SWAP_IN, set1_ctx, &numkeys, &cfs, &rawkeys);
         test_assert(2 == numkeys);
         test_assert(DATA_CF == cfs[0] && DATA_CF == cfs[1]);
         test_assert(ROCKS_MULTIGET == action);
@@ -756,19 +756,22 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
 
         // encodeKeys - swap in whole key
         set1_ctx->ctx.num = 0;
-        setEncodeKeys(set1_data, SWAP_IN, set1_ctx, &action, &numkeys, &cfs, &rawkeys);
-        test_assert(ROCKS_SCAN == action);
-        test_assert(DATA_CF == cfs[0]);
-        expectEncodedKey = setEncodeSubkey(db, key1->ptr, 0, empty);
-        test_assert(memcmp(expectEncodedKey, rawkeys[0], sdslen(rawkeys[0])) == 0);
+        setSwapAnaAction(set1_data, SWAP_IN, set1_ctx, &action);
+        setEncodeRange(set1_data, SWAP_IN, set1_ctx, &numkeys, &flags, &cf, &start, &end);
+        test_assert(ROCKS_ITERATE == action);
+        test_assert(DATA_CF == cf);
+        expectEncodedKey = rocksEncodeDataRangeStartKey(db, key1->ptr, 0);
+        test_assert(memcmp(expectEncodedKey, start, sdslen(start)) == 0);
 
         // encodeKeys - swap del
-        setEncodeKeys(set1_data, SWAP_DEL, set1_ctx, &action, &numkeys, &cfs, &rawkeys);
-        test_assert(0 == action && numkeys == 0);
+        set1_ctx->ctx.num = 2;
+        setSwapAnaAction(set1_data, SWAP_DEL, set1_ctx, &action);
+        test_assert(0 == action);
 
         // encodeData - swap out
         set1_ctx->ctx.num = 2;
-        setEncodeData(set1_data, SWAP_OUT, set1_ctx, &action, &numkeys, &cfs, &rawkeys, &rawvals);
+        setSwapAnaAction(set1_data, SWAP_OUT, set1_ctx, &action);
+        setEncodeData(set1_data, SWAP_OUT, set1_ctx, &numkeys, &cfs, &rawkeys, &rawvals);
         test_assert(action == ROCKS_WRITE);
         test_assert(2 == numkeys);
 
