@@ -396,6 +396,8 @@ void expireSlaveKeys(void) {
                     activeExpireCycleTryExpire(server.db+dbid,expire,start))
                 {
                     expired = 1;
+                    /* DELs aren't propagated, but modules may want their hooks. */
+                    postExecutionUnitOperations();
                 }
 
                 /* If the key was not expired in this DB, we need to set the
