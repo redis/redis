@@ -960,18 +960,37 @@ sds intervalInfo(sds info, char* rocksdb_stats) {
     return rocksdbStatsInfo(info, "interval", rocksdb_stats);
 }
 
+
+static uint64_t rocksdbUsedDbSize(rocksdb_t *db) {
+    char *err = NULL;
+    uint64_t used_db_size = 0, total_used_db_size = 0;
+    const char *begin_key = "\x0", *end_key = "\xff";
+    const size_t begin_key_len = 1, end_key_len = 1;
+
+    for (int i = 0; i < CF_COUNT; i++) {
+        rocksdb_column_family_handle_t *handle = server.rocks->cf_handles[i];
+        if (handle == NULL) continue;
+        rocksdb_approximate_sizes_cf(db,handle,1,&begin_key,&begin_key_len,
+                &end_key,&end_key_len,&used_db_size,&err);
+        if (err != NULL) {
+            serverLog(LL_WARNING, "rocksdb_approximate_sizes_cf failed: %s",err);
+            continue;
+        }
+        total_used_db_size += used_db_size;
+    }
+
+    return total_used_db_size;
+}
+
 sds genSwapStorageInfoString(sds info) {
-	char *err;
 	size_t swap_used_db_size = 0, swap_max_db_size = 0,
            swap_disk_capacity = 0, swap_used_disk_size = 0;
 	float swap_used_db_percent = 0, swap_used_disk_percent = 0;
 	rocksdb_t *db = server.rocks->db;
-	const char *begin_key = "\x0", *end_key = "\xff";
-	const size_t begin_key_len = 1, end_key_len = 1;
 	struct statvfs stat;
 
 	if (db) {
-		rocksdb_approximate_sizes(db,1,&begin_key,&begin_key_len,&end_key,&end_key_len,&swap_used_db_size,&err);
+        swap_used_db_size = rocksdbUsedDbSize(db);
 		swap_max_db_size = server.swap_max_db_size;
 		if (swap_max_db_size) swap_used_db_percent = (float)(swap_used_db_size) * 100/swap_max_db_size;
 	}
@@ -980,7 +999,7 @@ sds genSwapStorageInfoString(sds info) {
 		swap_disk_capacity = stat.f_blocks * stat.f_frsize;
 		swap_used_disk_size = (stat.f_blocks - stat.f_bavail) * stat.f_frsize;
 		if (swap_disk_capacity) swap_used_disk_percent = (float)swap_used_disk_size * 100 / swap_disk_capacity;
-	} 
+	}
 
 	info = sdscatprintf(info,
 			"swap_used_db_size:%lu\r\n"
