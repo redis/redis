@@ -279,3 +279,25 @@ int submitUtilTask(int type, void* pd, sds* error) {
     return 1;
 }
 
+sds genSwapThreadInfoString(sds info) {
+    size_t thread_depth = 0, async_depth;
+
+    pthread_mutex_lock(&server.CQ->lock);
+    async_depth = listLength(server.CQ->complete_queue);
+    pthread_mutex_unlock(&server.CQ->lock);
+
+    for (int i = 0; i < server.swap_threads_num; i++) {
+        swapThread *thread = server.swap_threads+i;
+        pthread_mutex_lock(&thread->lock);
+        thread_depth += listLength(thread->pending_reqs);
+        pthread_mutex_unlock(&thread->lock);
+    }
+    thread_depth /= server.swap_threads_num;
+
+    info = sdscatprintf(info,
+            "swap_thread_queue_depth:%lu\r\n"
+            "swap_async_queue_depth:%lu\r\n",
+            thread_depth, async_depth);
+
+    return info;
+}

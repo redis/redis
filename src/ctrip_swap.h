@@ -804,6 +804,7 @@ int swapThreadsInit();
 void swapThreadsDeinit();
 void swapThreadsDispatch(swapRequest *req, int idx);
 int swapThreadsDrained();
+sds genSwapThreadInfoString(sds info);
 
 /* RIO */
 #define ROCKS_NOP               0
