@@ -552,9 +552,9 @@ NULL
         /* The default behavior is to save the RDB file before loading
          * it back. */
         if (save) {
-            rdbSaveInfo rsi, *rsiptr;
-            rsiptr = rdbPopulateSaveInfo(&rsi);
-            if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) != C_OK) {
+            rdbSaveInfo rsi;
+            rdbPopulateSaveInfo(&rsi);
+            if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,&rsi) != C_OK) {
                 addReplyErrorObject(c,shared.err);
                 return;
             }

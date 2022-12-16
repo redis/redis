@@ -852,16 +852,16 @@ int startBgsaveForReplication(int mincapa, int req) {
     serverLog(LL_NOTICE,"Starting BGSAVE for SYNC with target: %s",
         socket_target ? "replicas sockets" : "disk");
 
-    rdbSaveInfo rsi, *rsiptr;
-    rsiptr = rdbPopulateSaveInfo(&rsi);
+    rdbSaveInfo rsi;
+    rdbPopulateSaveInfo(&rsi);
     /* Only do rdbSave* when rsiptr is not NULL,
      * otherwise slave will miss repl-stream-db. */
-    if (rsiptr) {
+    if (rsi.is_in_repl) {
         if (socket_target)
-            retval = rdbSaveToSlavesSockets(req,rsiptr);
+            retval = rdbSaveToSlavesSockets(req,&rsi);
         else {
-            rsiptr->keep_cache = 1; /* Keep the page cache since it'll get used soon */
-            retval = rdbSaveBackground(req,server.rdb_filename,rsiptr);
+            rsi.keep_cache = 1; /* Keep the page cache since it'll get used soon */
+            retval = rdbSaveBackground(req,server.rdb_filename,&rsi);
         }
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");

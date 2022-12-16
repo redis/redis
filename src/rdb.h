@@ -177,6 +177,6 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
 int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, sds *err);
 int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi);
 ssize_t rdbSaveFunctions(rio *rdb);
-rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi);
+void rdbPopulateSaveInfo(rdbSaveInfo *rsi);
 
 #endif
