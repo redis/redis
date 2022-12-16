@@ -854,8 +854,6 @@ int startBgsaveForReplication(int mincapa, int req) {
 
     rdbSaveInfo rsi;
     rdbPopulateSaveInfo(&rsi);
-    /* Only do rdbSave* when rsiptr is not NULL,
-     * otherwise slave will miss repl-stream-db. */
     if (rsi.is_in_repl) {
         if (socket_target)
             retval = rdbSaveToSlavesSockets(req,&rsi);
@@ -2227,9 +2225,9 @@ void readSyncBulkPayload(connection *conn) {
 
         /* Reclaim the cache backed by rdb */
         bioCreateCloseJob(server.repl_transfer_fd, 0, 1);
+        server.repl_transfer_fd = -1;
 
         zfree(server.repl_transfer_tmpfile);
-        server.repl_transfer_fd = -1;
         server.repl_transfer_tmpfile = NULL;
     }
 
