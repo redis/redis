@@ -627,6 +627,117 @@ int d2string(char *buf, size_t len, double value) {
     return len;
 }
 
+/* Convert a double into a string with 'fractional_digits' digits after the dot precision.
+ * This is an optimized version of snprintf "%.<fractional_digits>f".
+ * We convert the double to long and multiply it  by 10 ^ <fractional_digits> to shift
+ * the decimal places.
+ * Note that multiply it of input value by 10 ^ <fractional_digits> can overflow but on the scenario
+ * that we currently use within redis this that is not possible.
+ * After we get the long representation we use the logic from ull2string function on this file
+ * which is based on the following article:
+ * https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920
+ *
+ * Input values:
+ * char: the buffer to store the string representation
+ * dstlen: the buffer length
+ * dvalue: the input double
+ * fractional_digits: the number of fractional digits after the dot precision. between 1 and 17
+ *
+ * Return values:
+ * Returns the number of characters needed to represent the number.
+ * If the buffer is not big enough to store the string, 0 is returned.
+ */
+int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_digits) {
+    if (fractional_digits < 1 || fractional_digits > 17)
+        goto err;
+    /* min size of 2 ( due to 0. ) + n fractional_digitits + \0 */
+    if ((int)dstlen < (fractional_digits+3))
+        goto err;
+    if (dvalue == 0) {
+        dst[0] = '0';
+        dst[1] = '.';
+        memset(dst + 2, '0', fractional_digits);
+        dst[fractional_digits+2] = '\0';
+        return fractional_digits + 2;
+    }
+    /* scale and round */
+    static double powers_of_ten[] = {1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0,
+    10000000.0, 100000000.0, 1000000000.0, 10000000000.0, 100000000000.0, 1000000000000.0,
+    10000000000000.0, 100000000000000.0, 1000000000000000.0, 10000000000000000.0,
+    100000000000000000.0 };
+    long long svalue = llrint(dvalue * powers_of_ten[fractional_digits]);
+    unsigned long long value;
+    /* write sign */
+    int negative = 0;
+    if (svalue < 0) {
+        if (svalue != LLONG_MIN) {
+            value = -svalue;
+        } else {
+            value = ((unsigned long long) LLONG_MAX)+1;
+        }
+        if (dstlen < 2)
+            goto err;
+        negative = 1;
+        dst[0] = '-';
+        dst++;
+        dstlen--;
+    } else {
+        value = svalue;
+    }
+
+    static const char digitsd[201] =
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899";
+
+    /* Check length. */
+    uint32_t ndigits = digits10(value);
+    if (ndigits >= dstlen) goto err;
+    int integer_digits = ndigits - fractional_digits;
+    /* Fractional only check to avoid representing 0.7750 as .7750.
+     * This means we need to increment the length and store 0 as the first character.
+     */
+    if (integer_digits < 1) {
+        dst[0] = '0';
+        integer_digits = 1;
+    }
+    dst[integer_digits] = '.';
+    int size = integer_digits + 1 + fractional_digits;
+    /* fill with 0 from fractional digits until size */
+    memset(dst + integer_digits + 1, '0', fractional_digits);
+    int next = size - 1;
+    while (value >= 100) {
+        int const i = (value % 100) * 2;
+        value /= 100;
+        dst[next] = digitsd[i + 1];
+        dst[next - 1] = digitsd[i];
+        next -= 2;
+        /* dot position */
+        if (next == integer_digits) {
+            next--;
+        }
+    }
+
+    /* Handle last 1-2 digits. */
+    if (value < 10) {
+        dst[next] = '0' + (uint32_t) value;
+    } else {
+        int i = (uint32_t) value * 2;
+        dst[next] = digitsd[i + 1];
+        dst[next - 1] = digitsd[i];
+    }
+    /* Null term. */
+    dst[size] = '\0';
+    return size + negative;
+err:
+    /* force add Null termination */
+    if (dstlen > 0)
+        dst[0] = '\0';
+    return 0;
+}
+
 /* Trims off trailing zeros from a string representing a double. */
 int trimDoubleString(char *buf, size_t len) {
     if (strchr(buf,'.') != NULL) {
@@ -664,6 +775,13 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
             memcpy(buf,"-inf",4);
             l = 4;
         }
+    } else if (isnan(value)) {
+        /* Libc in some systems will format nan in a different way,
+         * like nan, -nan, NAN, nan(char-sequence).
+         * So we normalize it and create a single nan form in an explicit way. */
+        if (len < 4) goto err; /* No room. 4 is "nan\0" */
+        memcpy(buf, "nan", 3);
+        l = 3;
     } else {
         switch (mode) {
         case LD_STR_AUTO:
@@ -1138,6 +1256,78 @@ static void test_ll2string(void) {
     assert(!strcmp(buf, "9223372036854775807"));
 }
 
+static void test_ld2string(void) {
+    char buf[32];
+    long double v;
+    int sz;
+
+    v = 0.0 / 0.0;
+    sz = ld2string(buf, sizeof(buf), v, LD_STR_AUTO);
+    assert(sz == 3);
+    assert(!strcmp(buf, "nan"));
+}
+
+static void test_fixedpoint_d2string(void) {
+    char buf[32];
+    double v;
+    int sz;
+    v = 0.0;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 4);
+    assert(sz == 6);
+    assert(!strcmp(buf, "0.0000"));
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 1);
+    assert(sz == 3);
+    assert(!strcmp(buf, "0.0"));
+    /* set junk in buffer */
+    memset(buf,'A',32);
+    v = 0.0001;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 4);
+    assert(sz == 6);
+    assert(buf[sz] == '\0');
+    assert(!strcmp(buf, "0.0001"));
+    /* set junk in buffer */
+    memset(buf,'A',32);
+    v = 6.0642951598391699e-05;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 4);
+    assert(sz == 6);
+    assert(buf[sz] == '\0');
+    assert(!strcmp(buf, "0.0001"));
+    v = 0.01;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 4);
+    assert(sz == 6);
+    assert(!strcmp(buf, "0.0100"));
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 1);
+    assert(sz == 3);
+    assert(!strcmp(buf, "0.0"));
+    v = -0.01;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 4);
+    assert(sz == 7);
+    assert(!strcmp(buf, "-0.0100"));
+     v = -0.1;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 1);
+    assert(sz == 4);
+    assert(!strcmp(buf, "-0.1"));
+    v = 0.1;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 1);
+    assert(sz == 3);
+    assert(!strcmp(buf, "0.1"));
+    v = 0.01;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 17);
+    assert(sz == 19);
+    assert(!strcmp(buf, "0.01000000000000000"));
+    v = 10.01;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 4);
+    assert(sz == 7);
+    assert(!strcmp(buf, "10.0100"));
+    /* negative tests */
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 18);
+    assert(sz == 0);
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 0);
+    assert(sz == 0);
+    sz = fixedpoint_d2string(buf, 1, v, 1);
+    assert(sz == 0);
+}
+
 #define UNUSED(x) (void)(x)
 int utilTest(int argc, char **argv, int flags) {
     UNUSED(argc);
@@ -1147,6 +1337,8 @@ int utilTest(int argc, char **argv, int flags) {
     test_string2ll();
     test_string2l();
     test_ll2string();
+    test_ld2string();
+    test_fixedpoint_d2string();
     return 0;
 }
 #endif

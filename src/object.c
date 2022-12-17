@@ -30,6 +30,7 @@
 
 #include "server.h"
 #include "functions.h"
+#include "intset.h"  /* Compact integer set structure */
 #include <math.h>
 #include <ctype.h>
 
@@ -1208,7 +1209,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
-     * updateClientMemUsage(). */
+     * updateClientMemoryUsage(). */
     mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
                          server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];

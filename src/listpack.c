@@ -1221,6 +1221,15 @@ size_t lpBytes(unsigned char *lp) {
     return lpGetTotalBytes(lp);
 }
 
+/* Returns the size of a listpack consisting of an integer repeated 'rep' times. */
+size_t lpEstimateBytesRepeatedInteger(long long lval, unsigned long rep) {
+    uint64_t enclen;
+    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+    lpEncodeIntegerGetType(lval, intenc, &enclen);
+    unsigned long backlen = lpEncodeBacklen(NULL, enclen);
+    return LP_HDR_SIZE + (enclen + backlen) * rep + 1;
+}
+
 /* Seek the specified element and returns the pointer to the seeked element.
  * Positive indexes specify the zero-based element to seek from the head to
  * the tail, negative indexes specify elements starting from the tail, where

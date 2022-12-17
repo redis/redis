@@ -947,6 +947,10 @@ NULL
         else
             addReply(c, shared.ok);
     } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
+        if (!server.client_mem_usage_buckets) {
+            addReplyError(c,"maxmemory-clients is disabled.");
+            return;
+        }
         sds bucket_info = sdsempty();
         for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
             if (j == 0)

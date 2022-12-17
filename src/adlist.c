@@ -139,6 +139,22 @@ list *listAddNodeTail(list *list, void *value)
     return list;
 }
 
+/*
+ * Add a node that has already been allocated to the tail of list
+ */
+void listLinkNodeTail(list *list, listNode *node) {
+    if (list->len == 0) {
+        list->head = list->tail = node;
+        node->prev = node->next = NULL;
+    } else {
+        node->prev = list->tail;
+        node->next = NULL;
+        list->tail->next = node;
+        list->tail = node;
+    }
+    list->len++;
+}
+
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
 

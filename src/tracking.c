@@ -311,7 +311,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
         addReplyArrayLen(c,1);
         addReplyBulkCBuffer(c,keyname,keylen);
     }
-    updateClientMemUsage(c);
+    updateClientMemUsageAndBucket(c);
 }
 
 /* This function is called when a key is modified in Redis and in the case

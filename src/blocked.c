@@ -489,7 +489,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                 if (group) {
                     noack = receiver->bpop.xread_group_noack;
                     sds name = receiver->bpop.xread_consumer->ptr;
-                    consumer = streamLookupConsumer(group,name,SLC_DEFAULT);
+                    consumer = streamLookupConsumer(group,name);
                     if (consumer == NULL) {
                         consumer = streamCreateConsumer(group,name,rl->key,
                                                         rl->db->id,SCC_DEFAULT);
@@ -635,7 +635,7 @@ void handleClientsBlockedOnKeys(void) {
             if (!o) {
                 /* Edge case: If lookupKeyReadWithFlags decides to expire the key we have to
                  * take care of the propagation here, because afterCommand wasn't called */
-                propagatePendingCommands();
+                postExecutionUnitOperations();
             } else {
                 if (o->type == OBJ_LIST)
                     serveClientsBlockedOnListKey(o,rl);

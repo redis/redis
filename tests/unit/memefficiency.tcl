@@ -118,7 +118,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             if {[r config get activedefrag] eq "activedefrag yes"} {
                 # reset stats and load the AOF file
                 r config resetstat
-                r config set key-load-delay -50 ;# sleep on average 1/50 usec
+                r config set key-load-delay -25 ;# sleep on average 1/25 usec
                 r debug loadaof
                 r config set activedefrag no
                 # measure hits and misses right after aof loading

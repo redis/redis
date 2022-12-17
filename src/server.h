@@ -39,6 +39,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 #include <time.h>
 #include <limits.h>
@@ -70,7 +71,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
-#include "intset.h"  /* Compact integer set structure */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
@@ -99,6 +99,10 @@ typedef struct redisObject robj;
 #undef max
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
+
+/* Get the pointer of the outer struct from a member address */
+#define redis_member2struct(struct_name, member_name, member_addr) \
+            ((struct_name *)((char*)member_addr - offsetof(struct_name, member_name)))
 
 /* Error codes */
 #define C_OK                    0
@@ -285,6 +289,13 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* Key flags for when access type is unknown */
 #define CMD_KEY_FULL_ACCESS (CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE)
+
+/* Key flags for how key is removed */
+#define DB_FLAG_KEY_NONE 0
+#define DB_FLAG_KEY_DELETED (1ULL<<0)
+#define DB_FLAG_KEY_EXPIRED (1ULL<<1)
+#define DB_FLAG_KEY_EVICTED (1ULL<<2)
+#define DB_FLAG_KEY_OVERWRITE (1ULL<<3)
 
 /* Channel flags share the same flag space as the key flags */
 #define CMD_CHANNEL_PATTERN (1ULL<<11)     /* The argument is a channel pattern */
@@ -1131,6 +1142,7 @@ typedef struct client {
     time_t ctime;           /* Client creation time. */
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
     int slot;               /* The slot the client is executing against. Set to -1 if no slot is being used */
+    dictEntry *cur_script;  /* Cached pointer to the dictEntry of the script being executed. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
     int authenticated;      /* Needed when the default user requires auth. */
@@ -1184,7 +1196,7 @@ typedef struct client {
     rax *client_tracking_prefixes; /* A dictionary of prefixes we are already
                                       subscribed to in BCAST mode, in the
                                       context of client side caching. */
-    /* In updateClientMemUsage() we track the memory usage of
+    /* In updateClientMemoryUsage() we track the memory usage of
      * each client and add it to the sum of all the clients of a given type,
      * however we need to remember what was the old contribution of each
      * client, and in which category the client was, in order to remove it
@@ -1538,7 +1550,7 @@ struct redisServer {
     client *current_client;     /* Current client executing the command. */
 
     /* Stuff for client mem eviction */
-    clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];
+    clientMemUsageBucket* client_mem_usage_buckets;
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     int in_nested_call;         /* If > 0, in a nested call of a call */
@@ -1642,6 +1654,7 @@ struct redisServer {
     int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. */
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
     int active_expire_effort;       /* From 1 (default) to 10, active effort. */
+    int lazy_expire_disabled;       /* If > 0, don't trigger lazy expire */
     int active_defrag_enabled;
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
@@ -2419,6 +2432,7 @@ void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
+void firePostExecutionUnitJobs();
 void moduleCallCommandFilters(client *c);
 void ModuleForkDoneHandler(int exitcode, int bysignal);
 int TerminateModuleForkChild(int child_pid, int wait);
@@ -2433,7 +2447,7 @@ void moduleUnblockClient(client *c);
 int moduleBlockedClientMayTimeout(client *c);
 int moduleClientIsBlockedOnKeys(client *c);
 void moduleNotifyUserChanged(client *c);
-void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid);
+void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags);
 size_t moduleGetFreeEffort(robj *key, robj *val, int dbid);
 size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid);
 robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj *value);
@@ -2492,6 +2506,7 @@ void addReplyBulkCString(client *c, const char *s);
 void addReplyBulkCBuffer(client *c, const void *p, size_t len);
 void addReplyBulkLongLong(client *c, long long ll);
 void addReply(client *c, robj *obj);
+void addReplyStatusLength(client *c, const char *s, size_t len);
 void addReplySds(client *c, sds s);
 void addReplyBulkSds(client *c, sds s);
 void setDeferredReplyBulkSds(client *c, void *node, sds s);
@@ -2561,8 +2576,8 @@ int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
 int islocalClient(client *c);
-int updateClientMemUsage(client *c);
-void updateClientMemUsageBucket(client *c);
+int updateClientMemUsageAndBucket(client *c);
+void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
@@ -2897,7 +2912,7 @@ void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen, size_t totelele
 int zsetScore(robj *zobj, sds member, double *score);
 unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
 int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, double *newscore);
-long zsetRank(robj *zobj, sds ele, int reverse);
+long zsetRank(robj *zobj, sds ele, int reverse, double *score);
 int zsetDel(robj *zobj, sds ele);
 robj *zsetDup(robj *o);
 void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey, long count, int use_nested_array, int reply_nil_when_empty, int *deleted);
@@ -2941,7 +2956,7 @@ void startCommandExecution();
 int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
-void propagatePendingCommands();
+void postExecutionUnitOperations();
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
@@ -2996,8 +3011,11 @@ int restartServer(int flags, mstime_t delay);
 /* Set data type */
 robj *setTypeCreate(sds value);
 int setTypeAdd(robj *subject, sds value);
+int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeRemove(robj *subject, sds value);
+int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeIsMember(robj *subject, sds value);
+int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 setTypeIterator *setTypeInitIterator(robj *subject);
 void setTypeReleaseIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
@@ -3006,6 +3024,7 @@ int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
 unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
 unsigned long setTypeSize(const robj *subject);
 void setTypeConvert(robj *subject, int enc);
+int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
 
 /* Hash data type */
@@ -3100,6 +3119,8 @@ void initConfigValues();
 void removeConfig(sds name);
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
+void initServerClientMemUsageBuckets();
+void freeServerClientMemUsageBuckets();
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
@@ -3147,7 +3168,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 
 void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
-void dbOverwrite(redisDb *db, robj *key, robj *val);
+void dbReplaceValue(redisDb *db, robj *key, robj *val);
 
 #define SETKEY_KEEPTTL 1
 #define SETKEY_NO_SIGNAL 2
@@ -3155,6 +3176,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val);
 #define SETKEY_DOESNT_EXIST 8
 void setKey(client *c, redisDb *db, robj *key, robj *val, int flags);
 robj *dbRandomKey(redisDb *db);
+int dbGenericDelete(redisDb *db, robj *key, int async, int flags);
 int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);

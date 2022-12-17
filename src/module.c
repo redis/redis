@@ -216,7 +216,6 @@ struct RedisModuleKey {
         } stream;
     } u;
 };
-typedef struct RedisModuleKey RedisModuleKey;
 
 /* RedisModuleKey 'ztype' values. */
 #define REDISMODULE_ZSET_RANGE_NONE 0       /* This must always be 0. */
@@ -294,6 +293,9 @@ static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 /* Function pointer type for keyspace event notification subscriptions from modules. */
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 
+/* Function pointer type for post jobs */
+typedef void (*RedisModulePostNotificationJobFunc) (RedisModuleCtx *ctx, void *pd);
+
 /* Keyspace notification subscriber information.
  * See RM_SubscribeToKeyspaceEvents() for more information. */
 typedef struct RedisModuleKeyspaceSubscriber {
@@ -308,8 +310,20 @@ typedef struct RedisModuleKeyspaceSubscriber {
     int active;
 } RedisModuleKeyspaceSubscriber;
 
+typedef struct RedisModulePostExecUnitJob {
+    /* The module subscribed to the event */
+    RedisModule *module;
+    RedisModulePostNotificationJobFunc callback;
+    void *pd;
+    void (*free_pd)(void*);
+    int dbid;
+} RedisModulePostExecUnitJob;
+
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
+
+/* The module post keyspace jobs list */
+static list *modulePostExecUnitJobs;
 
 /* Data structures related to the exported dictionary data structure. */
 typedef struct RedisModuleDict {
@@ -729,8 +743,9 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
         /* Modules take care of their own propagation, when we are
          * outside of call() context (timers, events, etc.). */
         if (--server.module_ctx_nesting == 0) {
-            if (!server.core_propagates)
-                propagatePendingCommands();
+            if (!server.core_propagates) {
+                postExecutionUnitOperations();
+            }
             if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -2207,7 +2222,13 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
  * REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD:
  * Setting this flag indicates module awareness of diskless async replication (repl-diskless-load=swapdb)
  * and that redis could be serving reads during replication instead of blocking with LOADING status.
- */
+ *
+ * REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS:
+ * Declare that the module wants to get nested key-space notifications.
+ * By default, Redis will not fire key-space notifications that happened inside
+ * a key-space notification callback. This flag allows to change this behavior
+ * and fire nested key-space notifications. Notice: if enabled, the module
+ * should protected itself from infinite recursion. */
 void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
     ctx->module->options = options;
 }
@@ -7905,7 +7926,7 @@ void moduleGILBeforeUnlock() {
      * (because it's u clear when thread safe contexts are
      * released we have to propagate here). */
     server.module_ctx_nesting--;
-    propagatePendingCommands();
+    postExecutionUnitOperations();
 
     if (server.busy_module_yield_flags) {
         blockingOperationEnds();
@@ -8000,6 +8021,12 @@ void moduleReleaseGIL(void) {
  * so notification callbacks must to be fast, or they would slow Redis down.
  * If you need to take long actions, use threads to offload them.
  *
+ * Moreover, the fact that the notification is executed synchronously means
+ * that the notification code will be executed in the middle on Redis logic
+ * (commands logic, eviction, expire). Changing the key space while the logic
+ * runs is dangerous and discouraged. In order to react to key space events with
+ * write actions, please refer to `RM_AddPostExecutionUnitJob`.
+ *
  * See https://redis.io/topics/notifications for more information.
  */
 int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc callback) {
@@ -8010,6 +8037,53 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     sub->active = 0;
 
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
+    return REDISMODULE_OK;
+}
+
+void firePostExecutionUnitJobs() {
+    /* Avoid propagation of commands. */
+    server.in_nested_call++;
+    while (listLength(modulePostExecUnitJobs) > 0) {
+        listNode *ln = listFirst(modulePostExecUnitJobs);
+        RedisModulePostExecUnitJob *job = listNodeValue(ln);
+        listDelNode(modulePostExecUnitJobs, ln);
+
+        RedisModuleCtx ctx;
+        moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
+        selectDb(ctx.client, job->dbid);
+
+        job->callback(&ctx, job->pd);
+        if (job->free_pd) job->free_pd(job->pd);
+
+        moduleFreeContext(&ctx);
+        zfree(job);
+    }
+    server.in_nested_call--;
+}
+
+/* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
+ * operation (See `RM_SubscribeToKeyspaceEvents`). In order to still perform write actions in this scenario,
+ * Redis provides `RM_AddPostNotificationJob` API. The API allows to register a job callback which Redis will call
+ * when the following condition are promised to be fulfilled:
+ * 1. It is safe to perform any write operation.
+ * 2. The job will be called atomically along side the key space notification.
+ *
+ * Notice, one job might trigger key space notifications that will trigger more jobs.
+ * This raises a concerns of entering an infinite loops, we consider infinite loops
+ * as a logical bug that need to be fixed in the module, an attempt to protect against
+ * infinite loops by halting the execution could result in violation of the feature correctness
+ * and so Redis will make no attempt to protect the module from infinite loops.
+ *
+ * 'free_pd' can be NULL and in such case will not be used. */
+int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
+    RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
+    job->module = ctx->module;
+    job->callback = callback;
+    job->pd = privdata;
+    job->free_pd = free_privdata;
+    job->dbid = ctx->client->db->id;
+
+    listAddNodeTail(modulePostExecUnitJobs, job);
     return REDISMODULE_OK;
 }
 
@@ -8045,7 +8119,8 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
         RedisModuleKeyspaceSubscriber *sub = ln->value;
         /* Only notify subscribers on events matching the registration,
          * and avoid subscribers triggering themselves */
-        if ((sub->event_mask & type) && sub->active == 0) {
+        if ((sub->event_mask & type) &&
+            (sub->active == 0 || (sub->module->options & REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS))) {
             RedisModuleCtx ctx;
             moduleCreateContext(&ctx, sub->module, REDISMODULE_CTX_TEMP_CLIENT);
             selectDb(ctx.client, dbid);
@@ -8054,7 +8129,9 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
              * If the subscriber performs an action triggering itself,
              * it will not be notified about it. */
             sub->active = 1;
+            server.lazy_expire_disabled++;
             sub->notify_callback(&ctx, type, event, key);
+            server.lazy_expire_disabled--;
             sub->active = 0;
             moduleFreeContext(&ctx);
         }
@@ -9800,7 +9877,7 @@ int RM_ExportSharedAPI(RedisModuleCtx *ctx, const char *apiname, void *func) {
  *         static int api_loaded = 0;
  *         if (api_loaded != 0) return 1; // APIs already resolved.
  *
- *         myFunctionPointer = RedisModule_GetOtherModuleAPI("...");
+ *         myFunctionPointer = RedisModule_GetSharedAPI("...");
  *         if (myFunctionPointer == NULL) return 0;
  *
  *         return 1;
@@ -10348,18 +10425,19 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             cursor->done = 1;
             ret = 0;
         }
-    } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_INTSET) {
-        int pos = 0;
-        int64_t ll;
-        while(intsetGet(o->ptr,pos++,&ll)) {
-            robj *field = createObject(OBJ_STRING,sdsfromlonglong(ll));
+    } else if (o->type == OBJ_SET) {
+        setTypeIterator *si = setTypeInitIterator(o);
+        sds sdsele;
+        while ((sdsele = setTypeNextObject(si)) != NULL) {
+            robj *field = createObject(OBJ_STRING, sdsele);
             fn(key, field, NULL, privdata);
             decrRefCount(field);
         }
+        setTypeReleaseIterator(si);
         cursor->cursor = 1;
         cursor->done = 1;
         ret = 0;
-    } else if (o->type == OBJ_ZSET) {
+    } else if (o->type == OBJ_ZSET || o->type == OBJ_HASH) {
         unsigned char *p = lpSeek(o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;
@@ -10374,25 +10452,6 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             robj *value = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
                 createObject(OBJ_STRING,sdsfromlonglong(vll));
-            fn(key, field, value, privdata);
-            p = lpNext(o->ptr,p);
-            decrRefCount(field);
-            decrRefCount(value);
-        }
-        cursor->cursor = 1;
-        cursor->done = 1;
-        ret = 0;
-    } else if (o->type == OBJ_HASH) {
-        unsigned char *p = lpFirst(o->ptr);
-        unsigned char *vstr;
-        int64_t vlen;
-        unsigned char intbuf[LP_INTBUF_SIZE];
-        while(p) {
-            vstr = lpGet(p,&vlen,intbuf);
-            robj *field = createStringObject((char*)vstr,vlen);
-            p = lpNext(o->ptr,p);
-            vstr = lpGet(p,&vlen,intbuf);
-            robj *value = createStringObject((char*)vstr,vlen);
             fn(key, field, value, privdata);
             p = lpNext(o->ptr,p);
             decrRefCount(field);
@@ -10527,6 +10586,7 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_REPL_ASYNC_LOAD */
     -1, /* REDISMODULE_EVENT_EVENTLOOP */
     -1, /* REDISMODULE_EVENT_CONFIG */
+    REDISMODULE_KEYINFO_VERSION, /* REDISMODULE_EVENT_KEY */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -10801,6 +10861,22 @@ static uint64_t moduleEventVersions[] = {
  *                                    // name of each modified configuration item 
  *         uint32_t num_changes;      // The number of elements in the config_names array
  *
+ * * RedisModule_Event_Key
+ *
+ *     Called when a key is removed from the keyspace. We can't modify any key in
+ *     the event.
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_KEY_DELETED`
+ *     * `REDISMODULE_SUBEVENT_KEY_EXPIRED`
+ *     * `REDISMODULE_SUBEVENT_KEY_EVICTED`
+ *     * `REDISMODULE_SUBEVENT_KEY_OVERWRITTEN`
+ *
+ *     The data pointer can be casted to a RedisModuleKeyInfo
+ *     structure with the following fields:
+ *
+ *         RedisModuleKey *key;    // Key name
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
  * is given then REDISMODULE_ERR is returned. */
@@ -10880,11 +10956,20 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT;
     case REDISMODULE_EVENT_CONFIG:
         return subevent < _REDISMODULE_SUBEVENT_CONFIG_NEXT; 
+    case REDISMODULE_EVENT_KEY:
+        return subevent < _REDISMODULE_SUBEVENT_KEY_NEXT;
     default:
         break;
     }
     return 0;
 }
+
+typedef struct KeyInfo {
+    int32_t dbnum;
+    RedisModuleString *key;
+    robj *value;
+    int mode;
+} KeyInfo;
 
 /* This is called by the Redis internals every time we want to fire an
  * event that can be intercepted by some module. The pointer 'data' is useful
@@ -10922,6 +11007,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             RedisModuleClientInfoV1 civ1;
             RedisModuleReplicationInfoV1 riv1;
             RedisModuleModuleChangeV1 mcv1;
+            RedisModuleKey key;
+            RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, &key};
 
             /* Event specific context and data pointer setup. */
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
@@ -10953,11 +11040,20 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_CONFIG) {
                 moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_KEY) {
+                KeyInfo *info = data;
+                selectDb(ctx.client, info->dbnum);
+                moduleInitKey(&key, &ctx, info->key, info->value, info->mode);
+                moduledata = &ki;
             }
 
             el->module->in_hook++;
             el->callback(&ctx,el->event,subid,moduledata);
             el->module->in_hook--;
+
+            if (eid == REDISMODULE_EVENT_KEY) {
+                moduleCloseKey(&key);
+            }
 
             moduleFreeContext(&ctx);
         }
@@ -11002,9 +11098,21 @@ void processModuleLoadingProgressEvent(int is_aof) {
     }
 }
 
-/* When a module key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it 
+/* When a key is deleted (in dbAsyncDelete/dbSyncDelete/setKey), it
 *  will be called to tell the module which key is about to be released. */
-void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
+void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
+    server.lazy_expire_disabled++;
+    int subevent = REDISMODULE_SUBEVENT_KEY_DELETED;
+    if (flags & DB_FLAG_KEY_EXPIRED) {
+        subevent = REDISMODULE_SUBEVENT_KEY_EXPIRED;
+    } else if (flags & DB_FLAG_KEY_EVICTED) {
+        subevent = REDISMODULE_SUBEVENT_KEY_EVICTED;
+    } else if (flags & DB_FLAG_KEY_OVERWRITE) {
+        subevent = REDISMODULE_SUBEVENT_KEY_OVERWRITTEN;
+    }
+    KeyInfo info = {dbid, key, val, REDISMODULE_WRITE};
+    moduleFireServerEvent(REDISMODULE_EVENT_KEY, subevent, &info);
+
     if (val->type == OBJ_MODULE) {
         moduleValue *mv = val->ptr;
         moduleType *mt = mv->type;
@@ -11014,8 +11122,9 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
             mt->unlink2(&ctx,mv->value);
         } else if (mt->unlink != NULL) {
             mt->unlink(key,mv->value);
-        } 
+        }
     }
+    server.lazy_expire_disabled--;
 }
 
 /* Return the free_effort of the module, it will automatically choose to call 
@@ -11115,6 +11224,8 @@ void moduleInitModulesSystem(void) {
 
     /* Set up the keyspace notification subscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
+
+    modulePostExecUnitJobs = listCreate();
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();
@@ -12235,6 +12346,23 @@ int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
  * -------------------------------------------------------------------------- */
 
 /**
+ * Returns the full module options flags mask, using the return value
+ * the module can check if a certain set of module options are supported
+ * by the redis server version in use.
+ * Example:
+ *
+ *        int supportedFlags = RM_GetModuleOptionsAll();
+ *        if (supportedFlags & REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS) {
+ *              // REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS is supported
+ *        } else{
+ *              // REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS is not supported
+ *        }
+ */
+int RM_GetModuleOptionsAll() {
+    return _REDISMODULE_OPTIONS_FLAGS_NEXT - 1;
+}
+
+/**
  * Returns the full ContextFlags mask, using the return value
  * the module can check if a certain set of flags are supported
  * by the redis server version in use.
@@ -12825,6 +12953,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(NotifyKeyspaceEvent);
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
+    REGISTER_API(AddPostNotificationJob);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
     REGISTER_API(GetClusterNodeInfo);
@@ -12932,6 +13061,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(AuthenticateClientWithACLUser);
     REGISTER_API(AuthenticateClientWithUser);
     REGISTER_API(GetContextFlagsAll);
+    REGISTER_API(GetModuleOptionsAll);
     REGISTER_API(GetKeyspaceNotificationFlagsAll);
     REGISTER_API(IsSubEventSupported);
     REGISTER_API(GetServerVersion);

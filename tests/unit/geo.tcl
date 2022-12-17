@@ -405,6 +405,8 @@ start_server {tags {"geo"}} {
         assert {$m > 166274 && $m < 166275}
         set km [r geodist points Palermo Catania km]
         assert {$km > 166.2 && $km < 166.3}
+        set dist [r geodist points Palermo Palermo]
+        assert {$dist eq 0.0000}
     }
 
     test {GEODIST missing elements} {
@@ -512,6 +514,13 @@ start_server {tags {"geo"}} {
         r geoadd points -179.5 36 point2
         assert_equal {point1 point2} [r geosearch points fromlonlat 179 37 bybox 400 400 km asc]
         assert_equal {point2 point1} [r geosearch points fromlonlat -179 37 bybox 400 400 km asc]
+    }
+
+    test {GEOSEARCH with small distance} {
+        r del points
+        r geoadd points -122.407107 37.794300 1
+        r geoadd points -122.227336 37.794300 2
+        assert_equal {{1 0.0001} {2 9.8182}} [r GEORADIUS points -122.407107 37.794300 30 mi ASC WITHDIST]
     }
 
     foreach {type} {byradius bybox} {

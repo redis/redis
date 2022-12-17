@@ -598,11 +598,6 @@ void releaseSentinelAddr(sentinelAddr *sa) {
     zfree(sa);
 }
 
-/* Return non-zero if two addresses are equal. */
-int sentinelAddrIsEqual(sentinelAddr *a, sentinelAddr *b) {
-    return a->port == b->port && !strcasecmp(a->ip,b->ip);
-}
-
 /* Return non-zero if the two addresses are equal, either by address
  * or by hostname if they could not have been resolved.
  */
@@ -1616,7 +1611,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
 
-        if (sentinelAddrIsEqual(slave->addr,newaddr)) continue;
+        if (sentinelAddrOrHostnameEqual(slave->addr,newaddr)) continue;
         slaves[numslaves++] = dupSentinelAddr(slave->addr);
     }
     dictReleaseIterator(di);
@@ -1624,7 +1619,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
     /* If we are switching to a different address, include the old address
      * as a slave as well, so that we'll be able to sense / reconfigure
      * the old master. */
-    if (!sentinelAddrIsEqual(newaddr,master->addr)) {
+    if (!sentinelAddrOrHostnameEqual(newaddr,master->addr)) {
         slaves[numslaves++] = dupSentinelAddr(master->addr);
     }
 
@@ -2175,7 +2170,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
              * slave's address, a failover is in progress and the slave was
              * already successfully promoted. So as the address of this slave
              * we use the old master address instead. */
-            if (sentinelAddrIsEqual(slave_addr,master_addr))
+            if (sentinelAddrOrHostnameEqual(slave_addr,master_addr))
                 slave_addr = master->addr;
             line = sdscatprintf(sdsempty(),
                 "sentinel known-replica %s %s %d",
@@ -3182,7 +3177,17 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
 
 /* =========================== SENTINEL command ============================= */
 
-/* SENTINEL CONFIG SET <option> */
+const char* getLogLevel() {
+   switch (server.verbosity) {
+    case LL_DEBUG: return "debug";
+    case LL_VERBOSE: return "verbose";
+    case LL_NOTICE: return "notice";
+    case LL_WARNING: return "warning";
+    }
+    return "unknown";
+}
+
+/* SENTINEL CONFIG SET <option> <value>*/
 void sentinelConfigSetCommand(client *c) {
     robj *o = c->argv[3];
     robj *val = c->argv[4];
@@ -3213,6 +3218,17 @@ void sentinelConfigSetCommand(client *c) {
         sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
             NULL : sdsdup(val->ptr);
         drop_conns = 1;
+    } else if (!strcasecmp(o->ptr, "loglevel")) {
+        if (!strcasecmp(val->ptr, "debug"))
+            server.verbosity = LL_DEBUG;
+        else if (!strcasecmp(val->ptr, "verbose"))
+            server.verbosity = LL_VERBOSE;
+        else if (!strcasecmp(val->ptr, "notice"))
+            server.verbosity = LL_NOTICE;
+        else if (!strcasecmp(val->ptr, "warning"))
+            server.verbosity = LL_WARNING;
+        else
+            goto badfmt;
     } else {
         addReplyErrorFormat(c, "Invalid argument '%s' to SENTINEL CONFIG SET",
                             (char *) o->ptr);
@@ -3275,6 +3291,11 @@ void sentinelConfigGetCommand(client *c) {
         matches++;
     }
 
+    if (stringmatch(pattern, "loglevel", 1)) {
+        addReplyBulkCString(c, "loglevel");
+        addReplyBulkCString(c, getLogLevel());
+        matches++;
+    }
     setDeferredMapLen(c, replylen, matches);
 }
 

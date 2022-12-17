@@ -730,13 +730,20 @@ proc generate_fuzzy_traffic_on_key {key duration} {
         } else {
             set err [format "%s" $err] ;# convert to string for pattern matching
             if {[string match "*SIGTERM*" $err]} {
-                puts "command caused test to hang? $cmd"
-                exit 1
+                puts "commands caused test to hang:"
+                foreach cmd $sent {
+                    foreach arg $cmd {
+                        puts -nonewline "[string2printable $arg] "
+                    }
+                    puts ""
+                }
+                # Re-raise, let handler up the stack take care of this.
+                error $err $::errorInfo
             }
         }
     }
 
-    # print stats so that we know if we managed to generate commands that actually made senes
+    # print stats so that we know if we managed to generate commands that actually made sense
     #if {$::verbose} {
     #    set count [llength $sent]
     #    puts "Fuzzy traffic sent: $count, succeeded: $succeeded"

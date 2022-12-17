@@ -513,22 +513,18 @@ static int scriptVerifyAllowStale(client *c, sds *err) {
  * up to the engine to take and parse.
  * The err out variable is set only if error occurs and describe the error.
  * If err is set on reply is written to the run_ctx client. */
-void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
+void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     client *c = run_ctx->c;
 
     /* Setup our fake client for command execution */
-    c->argv = argv;
-    c->argc = argc;
     c->user = run_ctx->original_client->user;
 
     /* Process module hooks */
     moduleCallCommandFilters(c);
-    argv = c->argv;
-    argc = c->argc;
 
-    struct redisCommand *cmd = lookupCommand(argv, argc);
+    struct redisCommand *cmd = lookupCommand(c->argv, c->argc);
     c->cmd = c->lastcmd = c->realcmd = cmd;
-    if (scriptVerifyCommandArity(cmd, argc, err) != C_OK) {
+    if (scriptVerifyCommandArity(cmd, c->argc, err) != C_OK) {
         goto error;
     }
 
