@@ -398,6 +398,11 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
        assert_equal [r lpop lst{t}] "dd"
        assert_equal [read_big_bulk {r rpop lst{t}}] $str_length
    } {} {large-memory}
+
+    # restore defaults
+    r config set proto-max-bulk-len 536870912
+    r config set client-query-buffer-limit 1073741824
+
 } ;# skip 32bit builds
 }
 } ;# run_solo
@@ -727,7 +732,6 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del list
 
         bpop_command $rd $pop list 0
-        after 100 ;# Make sure rd is blocked before MULTI
         wait_for_blocked_client
 
         r multi
@@ -745,7 +749,6 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del list
 
         bpop_command $rd $pop list 0
-        after 100 ;# Make sure rd is blocked before MULTI
         wait_for_blocked_client
 
         r multi
@@ -766,9 +769,11 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
 
         # Data arriving after the BLPOP.
         $rd blpop list1{t} list2{t} list2{t} list1{t} 0
+        wait_for_blocked_client
         r lpush list1{t} a
         assert_equal [$rd read] {list1{t} a}
         $rd blpop list1{t} list2{t} list2{t} list1{t} 0
+        wait_for_blocked_client
         r lpush list2{t} b
         assert_equal [$rd read] {list2{t} b}
 
@@ -788,7 +793,6 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del list
 
         bpop_command $rd $pop list 0
-        after 100 ;# Make sure rd is blocked before MULTI
         wait_for_blocked_client
 
         r multi
@@ -803,12 +807,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop with variadic LPUSH" {
         set rd [redis_deferring_client]
         r del blist
-        if {$::valgrind} {after 100}
         bpop_command $rd $pop blist 0
-        if {$::valgrind} {after 100}
         wait_for_blocked_client
         assert_equal 2 [r lpush blist foo bar]
-        if {$::valgrind} {after 100}
         assert_equal {blist bar} [$rd read]
         assert_equal foo [lindex [r lrange blist 0 -1] 0]
         $rd close
@@ -901,6 +902,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del blist{t} target{t}
         r set target{t} nolist
         $rd brpoplpush blist{t} target{t} 0
+        wait_for_blocked_client
         r rpush blist{t} a b c
         assert_error "WRONGTYPE*" {$rd read}
         $rd close
@@ -913,7 +915,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del blist{t} target1{t} target2{t}
         r set target1{t} nolist
         $rd1 brpoplpush blist{t} target1{t} 0
+        wait_for_blocked_clients_count 1
         $rd2 brpoplpush blist{t} target2{t} 0
+        wait_for_blocked_clients_count 2
         r lpush blist{t} foo
 
         assert_error "WRONGTYPE*" {$rd1 read}
@@ -1240,7 +1244,6 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             set rd [redis_deferring_client]
             bpop_command $rd $pop blist1 0
             wait_for_blocked_client
-            after 1000
             r rpush blist1 foo
             assert_equal {blist1 foo} [$rd read]
             $rd close
@@ -1911,11 +1914,12 @@ foreach {type large} [array get largevalue] {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
 
-        $rd1 brpoplpush a b 0
-        $rd1 brpoplpush a b 0
-        $rd2 brpoplpush b c 0
-        after 1000
-        r lpush a data
+        $rd1 brpoplpush a{t} b{t} 0
+        $rd1 brpoplpush a{t} b{t} 0
+        wait_for_blocked_clients_count 1
+        $rd2 brpoplpush b{t} c{t} 0
+        wait_for_blocked_clients_count 2
+        r lpush a{t} data
         $rd1 close
         $rd2 close
         r ping
@@ -1927,6 +1931,7 @@ foreach {type large} [array get largevalue] {
 
         set dirty [s rdb_changes_since_last_save]
         $rd blpop lst{t} 0
+        wait_for_blocked_client
         r lpush lst{t} a
         assert_equal {lst{t} a} [$rd read]
         set dirty2 [s rdb_changes_since_last_save]
@@ -1934,6 +1939,7 @@ foreach {type large} [array get largevalue] {
 
         set dirty [s rdb_changes_since_last_save]
         $rd blmove lst{t} lst1{t} left left 0
+        wait_for_blocked_client
         r lpush lst{t} a
         assert_equal {a} [$rd read]
         set dirty2 [s rdb_changes_since_last_save]

@@ -1092,6 +1092,11 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
         assert_equal 1 [write_big_bulk $str_length "bbb"]
         assert_equal [read_big_bulk {r spop myset} yes "aaa"] $str_length
     } {} {large-memory}
+
+    # restore defaults
+    r config set proto-max-bulk-len 536870912
+    r config set client-query-buffer-limit 1073741824
+
 } ;# skip 32bit builds
 }
 } ;# run_solo
