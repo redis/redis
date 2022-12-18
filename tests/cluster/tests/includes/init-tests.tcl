@@ -43,6 +43,7 @@ test "Cluster nodes hard reset" {
         R $id config set key-load-delay 0
         R $id config set repl-diskless-load disabled
         R $id config set cluster-announce-hostname ""
+        R $id config set cluster-ping-interval 100
         R $id DEBUG DROP-CLUSTER-PACKET-FILTER -1
         R $id config rewrite
     }
@@ -59,13 +60,19 @@ test "Cluster Join and auto-discovery test" {
         set b [lindex $ids [expr $j+1]]
         set b_port [get_instance_attrib redis $b port]
         R $a cluster meet 127.0.0.1 $b_port
+        # Validate the node joined cluster and is connected
+        wait_for_condition 1000 50 {
+            [llength [get_cluster_nodes 0 connected]] == [expr $j+2]
+        } else {
+            fail "Node $j failed to join the mesh."
+        }
     }
 
     foreach_redis_id id {
         wait_for_condition 1000 50 {
             [llength [get_cluster_nodes $id]] == [llength $ids]
         } else {
-            fail "Cluster failed to join into a full mesh."
+            fail "Cluster failed to join into a full mesh. Node $id only knows [llength [get_cluster_nodes $id]] nodes."
         }
     }
 }
