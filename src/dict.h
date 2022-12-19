@@ -62,6 +62,9 @@ typedef struct dictType {
      * value of a dictEntry and it's also impossible to use dictSetKey(). Entry
      * metadata can also not be used. */
     unsigned int no_value:1;
+    /* If no_value = 1 and all keys are odd (LSB=1), setting keys_are_odd = 1
+     * enables one ore optimization. */
+    unsigned int keys_are_odd:1;
     /* Allow each dict and dictEntry to carry extra caller-defined metadata. The
      * extra memory is initialized to 0 when allocated. */
     size_t (*dictEntryMetadataBytes)(dict *d);

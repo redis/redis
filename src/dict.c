@@ -319,20 +319,27 @@ int dictRehash(dict *d, int n) {
                  * to get the bucket index in the smaller table. */
                 h = d->rehashidx & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
             }
-            if (d->type->no_value && entryIsKey(key) && !d->ht_table[1][h]) {
-                /* We can store the key directly in the destination bucket
-                 * without an allocated entry. */
-                d->ht_table[1][h] = key;
-                if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
-            } else {
-                if (entryIsKey(de)) {
-                    /* We need an allocated entry. */
+            if (d->type->no_value) {
+                if (d->type->keys_are_odd && !d->ht_table[1][h]) {
+                    /* Destination bucket is empty and we can store the key
+                     * directly without an allocated entry. Free the old entry
+                     * if it's an allocated entry. */
+                    assert(entryIsKey(key));
+                    if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
+                    de = key;
+                } else if (entryIsKey(de)) {
+                    /* We don't have an allocated entry but we need one. */
                     de = createEntryNoValue(key, d->ht_table[1][h]);
                 } else {
+                    /* Just move the existing entry to the destination table and
+                     * update the 'next' field. */
+                    assert(entryIsNoValue(de));
                     dictSetNext(de, d->ht_table[1][h]);
                 }
-                d->ht_table[1][h] = de;
+            } else {
+                dictSetNext(de, d->ht_table[1][h]);
             }
+            d->ht_table[1][h] = de;
             d->ht_used[0]--;
             d->ht_used[1]++;
             de = nextde;
@@ -450,9 +457,10 @@ dictEntry *dictInsertAtIndex(dict *d, void *key, long index) {
     size_t metasize = dictEntryMetadataSize(d);
     if (d->type->no_value) {
         assert(!metasize); /* Entry metadata + no value not supported. */
-        if (entryIsKey(key) && !d->ht_table[htidx][index]) {
+        if (d->type->keys_are_odd && !d->ht_table[htidx][index]) {
             /* We can store the key directly in the destination bucket without the
              * allocated entry. */
+            assert(entryIsKey(key));
             entry = key;
         } else {
             /* Allocate an entry without value. */
