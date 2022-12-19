@@ -194,6 +194,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
     r->io.file.fp = fp;
     r->io.file.buffered = 0;
     r->io.file.autosync = 0;
+    r->io.file.reclaim_cache = 0;
 }
 
 /* ------------------- Connection implementation -------------------
@@ -447,7 +448,7 @@ void rioSetAutoSync(rio *r, off_t bytes) {
  * POSIX_FADV_DONTNEED skips the dirty pages.
  * 
  * This feature can reduce the cache footprint backed by the file. */
-void rioEnableReclaimCache(rio *r, int enabled) {
+void rioSetReclaimCache(rio *r, int enabled) {
     r->io.file.reclaim_cache = enabled;
 }
 

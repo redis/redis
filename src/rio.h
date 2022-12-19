@@ -180,6 +180,6 @@ int rioWriteBulkObject(rio *r, struct redisObject *obj);
 
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len);
 void rioSetAutoSync(rio *r, off_t bytes);
-void rioEnableReclaimCache(rio *r, int enabled); 
+void rioSetReclaimCache(rio *r, int enabled); 
 uint8_t rioCheckType(rio *r);
 #endif

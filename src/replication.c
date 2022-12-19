@@ -860,8 +860,8 @@ int startBgsaveForReplication(int mincapa, int req) {
         if (socket_target)
             retval = rdbSaveToSlavesSockets(req,rsiptr);
         else {
-            rsiptr->keep_cache = 1; /* Keep the page cache since it'll get used soon */
-            retval = rdbSaveBackground(req,server.rdb_filename,rsiptr);
+            /* Keep the page cache since it'll get used soon */
+            retval = rdbSaveBackground(req,server.rdb_filename,rsiptr,RDBFLAGS_KEEP_CACHE);
         }
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
@@ -1358,17 +1358,17 @@ void removeRDBUsedToSyncReplicas(void) {
 void closeRepldbfd(client *myself) {
     listNode *ln;
     listIter li;
-    int shouldInvalidateCache = 1;
+    int reclaim = 1;
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
         if (slave != myself && slave->replstate == SLAVE_STATE_SEND_BULK) {
-            shouldInvalidateCache = 0;
+            reclaim = 0;
             break;
         }
     }
 
-    if (shouldInvalidateCache) {
+    if (reclaim) {
         bioCreateCloseJob(myself->repldbfd, 0, 1);
     } else {
         close(myself->repldbfd);

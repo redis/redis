@@ -1437,7 +1437,7 @@ werr: /* Write error. */
 }
 
 /* Save the DB on disk. Return C_ERR on error, C_OK on success. */
-int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
+int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
     FILE *fp = NULL;
@@ -1464,7 +1464,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
 
     if (server.rdb_save_incremental_fsync) {
         rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
-        if (!(rsi && rsi->keep_cache)) rioEnableReclaimCache(&rdb,1);
+        if (!(rdbflags & RDBFLAGS_KEEP_CACHE)) rioSetReclaimCache(&rdb,1);
     }
 
     if (rdbSaveRio(req,&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
@@ -1476,7 +1476,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp)) { err_op = "fflush"; goto werr; }
     if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
-    if (!(rsi && rsi->keep_cache) && reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
+    if (!(rdbflags & RDBFLAGS_KEEP_CACHE) && reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
         serverLog(LL_NOTICE,"Unable to reclaim cache after saving RDB: %s", strerror(errno));
     }
     if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
@@ -1515,7 +1515,7 @@ werr:
     return C_ERR;
 }
 
-int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi) {
+int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
@@ -1530,7 +1530,7 @@ int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi) {
         /* Child */
         redisSetProcTitle("redis-rdb-bgsave");
         redisSetCpuAffinity(server.bgsave_cpulist);
-        retval = rdbSave(req, filename,rsi);
+        retval = rdbSave(req, filename,rsi,rdbflags);
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
@@ -3580,7 +3580,7 @@ void saveCommand(client *c) {
 
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
-    if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
+    if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE) == C_OK) {
         addReply(c,shared.ok);
     } else {
         addReplyErrorObject(c,shared.err);
@@ -3617,7 +3617,7 @@ void bgsaveCommand(client *c) {
             "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
             "possible.");
         }
-    } else if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
+    } else if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE) == C_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReplyErrorObject(c,shared.err);

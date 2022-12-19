@@ -2344,7 +2344,7 @@ int rewriteAppendOnlyFile(char *filename) {
 
     if (server.aof_rewrite_incremental_fsync) {
         rioSetAutoSync(&aof,REDIS_AUTOSYNC_BYTES);
-        rioEnableReclaimCache(&aof,1);
+        rioSetReclaimCache(&aof,1);
     }
 
     startSaving(RDBFLAGS_AOF_PREAMBLE);
