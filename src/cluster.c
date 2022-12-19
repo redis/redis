@@ -7367,9 +7367,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         dbDelete(&server.db[0], key);
         propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
         signalModifiedKey(NULL, &server.db[0], key);
-        server.execution_nesting++; /* See comment in evict.c */
         moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
-        server.execution_nesting--;
         postExecutionUnitOperations();
         decrRefCount(key);
         j++;

@@ -56,9 +56,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     if (now > t) {
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
-        server.execution_nesting++; /* See comment in evict.c */
         deleteExpiredKeyAndPropagate(db,keyobj);
-        server.execution_nesting--;
         decrRefCount(keyobj);
         return 1;
     } else {

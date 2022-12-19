@@ -676,14 +676,8 @@ int performEvictions(void) {
             mem_freed += delta;
             server.stat_evictedkeys++;
             signalModifiedKey(NULL,db,keyobj);
-            /* Increase nested call counter
-             * we add this in order to prevent any RM_Call that may exist
-             * in the notify CB to be propagated immediately.
-             * we want them in multi/exec with the DEL command */
-            server.execution_nesting++;
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
-            server.execution_nesting--;
             propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
             postExecutionUnitOperations();
             decrRefCount(keyobj);
