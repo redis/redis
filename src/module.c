@@ -8120,6 +8120,10 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
      * Anyway, we want any propagated commands from within notify_callback
      * to be propagated inside a MULTI/EXEC together with the original
      * command that caused the KSN.
+     * Note that it's only relevant for KSNs which are not generated from within
+     * call(), for example active-expiry and eviction (because anyway
+     * execution_nesting is incremented from within call())
+     *
      * In order to do that we increment the execution_nesting counter, thus
      * preventing postExecutionUnitOperations (from within moduleFreeContext)
      * from propagating commands from CB. */
