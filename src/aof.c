@@ -2362,7 +2362,10 @@ int rewriteAppendOnlyFile(char *filename) {
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp)) goto werr;
     if (fsync(fileno(fp))) goto werr;
-    if (reclaimFilePageCache(fileno(fp), 0, 0) == -1) goto werr;
+    if (reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
+        /* A minor error. Just log to know what happens */
+        serverLog(LL_NOTICE,"Unable to reclaim page cache: %s", strerror(errno));
+    }
     if (fclose(fp)) { fp = NULL; goto werr; }
     fp = NULL;
 
