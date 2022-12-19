@@ -641,9 +641,9 @@ void flushAllDataAndResetRDB(int flags) {
     server.dirty += emptyData(-1,flags,NULL);
     if (server.child_type == CHILD_TYPE_RDB) killRDBChild();
     if (server.saveparamslen > 0) {
-        rdbSaveInfo rsi;
-        rdbPopulateSaveInfo(&rsi);
-        rdbSave(SLAVE_REQ_NONE,server.rdb_filename,&rsi);
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
     }
 
 #if defined(USE_JEMALLOC)

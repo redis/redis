@@ -1396,11 +1396,10 @@ typedef struct rdbSaveInfo {
     long long repl_offset;                  /* Replication offset. */
 
     /* Used only saving */
-    int keep_cache; /* Whether keep cache after saving */
-    int is_in_repl;  /* True if the instance is in a replication chain */
+    int keep_cache; /* Whether invalidate cache after saving */
 } rdbSaveInfo;
 
-#define RDB_SAVE_INFO_INIT {-1,0,"0000000000000000000000000000000000000000",-1,0,0}
+#define RDB_SAVE_INFO_INIT {-1,0,"0000000000000000000000000000000000000000",-1,0}
 
 struct malloc_stats {
     size_t zmalloc_used;

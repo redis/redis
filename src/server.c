@@ -1359,9 +1359,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             {
                 serverLog(LL_NOTICE,"%d changes in %d seconds. Saving...",
                     sp->changes, (int)sp->seconds);
-                rdbSaveInfo rsi;
-                rdbPopulateSaveInfo(&rsi);
-                rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,&rsi);
+                rdbSaveInfo rsi, *rsiptr;
+                rsiptr = rdbPopulateSaveInfo(&rsi);
+                rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
                 break;
             }
         }
@@ -1454,9 +1454,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         (server.unixtime-server.lastbgsave_try > CONFIG_BGSAVE_RETRY_DELAY ||
          server.lastbgsave_status == C_OK))
     {
-        rdbSaveInfo rsi;
-        rdbPopulateSaveInfo(&rsi);
-        if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,&rsi) == C_OK)
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK)
             server.rdb_bgsave_scheduled = 0;
     }
 
@@ -4295,10 +4295,10 @@ int finishShutdown(void) {
         if (server.supervised_mode == SUPERVISED_SYSTEMD)
             redisCommunicateSystemd("STATUS=Saving the final RDB snapshot\n");
         /* Snapshotting. Perform a SYNC SAVE and exit */
-        rdbSaveInfo rsi;
-        rdbPopulateSaveInfo(&rsi);
-        rsi.keep_cache = 1; /* Keep the page cache since it's likely to restart soon */
-        if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,&rsi) != C_OK) {
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        rsiptr->keep_cache = 1; /* Keep the page cache since it's likely to restart soon */
+        if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) != C_OK) {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
              * in the next cron() Redis will be notified that the background

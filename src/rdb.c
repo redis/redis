@@ -1195,7 +1195,7 @@ int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     if (rdbSaveAuxFieldStrInt(rdb,"used-mem",zmalloc_used_memory()) == -1) return -1;
 
     /* Handle saving options that generate aux fields. */
-    if (rsi->is_in_repl) {
+    if (rsi) {
         if (rdbSaveAuxFieldStrInt(rdb,"repl-stream-db",rsi->repl_stream_db)
             == -1) return -1;
         if (rdbSaveAuxFieldStrStr(rdb,"repl-id",server.replid)
@@ -1445,7 +1445,6 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     int error = 0;
     char *err_op;    /* For a detailed log */
 
-    serverAssert(rsi);
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
@@ -1465,7 +1464,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
 
     if (server.rdb_save_incremental_fsync) {
         rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
-        if (!rsi->keep_cache) rioEnableReclaimCache(&rdb,1);
+        if (!(rsi && rsi->keep_cache)) rioEnableReclaimCache(&rdb,1);
     }
 
     if (rdbSaveRio(req,&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
@@ -1477,7 +1476,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp)) { err_op = "fflush"; goto werr; }
     if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
-    if (!rsi->keep_cache && reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
+    if (!(rsi && rsi->keep_cache) && reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
         serverLog(LL_NOTICE,"Unable to reclaim cache after saving RDB: %s", strerror(errno));
     }
     if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
@@ -3579,9 +3578,9 @@ void saveCommand(client *c) {
 
     server.stat_rdb_saves++;
 
-    rdbSaveInfo rsi;
-    rdbPopulateSaveInfo(&rsi);
-    if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,&rsi) == C_OK) {
+    rdbSaveInfo rsi, *rsiptr;
+    rsiptr = rdbPopulateSaveInfo(&rsi);
+    if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
         addReply(c,shared.ok);
     } else {
         addReplyErrorObject(c,shared.err);
@@ -3603,8 +3602,8 @@ void bgsaveCommand(client *c) {
         }
     }
 
-    rdbSaveInfo rsi;
-    rdbPopulateSaveInfo(&rsi);
+    rdbSaveInfo rsi, *rsiptr;
+    rsiptr = rdbPopulateSaveInfo(&rsi);
 
     if (server.child_type == CHILD_TYPE_RDB) {
         addReplyError(c,"Background save already in progress");
@@ -3618,7 +3617,7 @@ void bgsaveCommand(client *c) {
             "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
             "possible.");
         }
-    } else if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,&rsi) == C_OK) {
+    } else if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReplyErrorObject(c,shared.err);
@@ -3628,13 +3627,13 @@ void bgsaveCommand(client *c) {
 /* Populate the rdbSaveInfo structure used to persist the replication
  * information inside the RDB file. Currently the structure explicitly
  * contains just the currently selected DB from the master stream, however
- * if the rdbSave*() family functions receive a rsi with is_in_repl is false also
+ * if the rdbSave*() family functions receive a NULL rsi structure also
  * the Replication ID/offset is not saved. The function populates 'rsi'
- * that is normally stack-allocated in the caller, update the is_in_repl to
- * true if the instance has a valid master client, otherwise rsi is initialized
- * with default value, and the RDB saving will not persist any replication related
+ * that is normally stack-allocated in the caller, returns the populated
+ * pointer if the instance has a valid master client, otherwise NULL
+ * is returned, and the RDB saving will not persist any replication related
  * information. */
-void rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
+rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
     rdbSaveInfo rsi_init = RDB_SAVE_INFO_INIT;
     *rsi = rsi_init;
 
@@ -3651,17 +3650,15 @@ void rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
          * So we can let repl_stream_db be 0, this allows a restarted slave
          * to reload replication ID/offset, it's safe because the next write
          * command must generate a SELECT statement. */
-        rsi->is_in_repl = 1;
         rsi->repl_stream_db = server.slaveseldb == -1 ? 0 : server.slaveseldb;
-        return;
+        return rsi;
     }
 
     /* If the instance is a slave we need a connected master
      * in order to fetch the currently selected DB. */
     if (server.master) {
-        rsi->is_in_repl = 1;
         rsi->repl_stream_db = server.master->db->id;
-        return;
+        return rsi;
     }
 
     /* If we have a cached master we can use it in order to populate the
@@ -3670,9 +3667,8 @@ void rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
      * master, so if we are disconnected the offset in the cached master
      * is valid. */
     if (server.cached_master) {
-        rsi->is_in_repl = 1;
         rsi->repl_stream_db = server.cached_master->db->id;
-        return;
+        return rsi;
     }
-    return;
+    return NULL;
 }
