@@ -3066,10 +3066,14 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            clusterNode *myself = server.cluster->myself;
-            for (int i = 0; i < db->dict_count; i++) {
-                /* We don't exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */
-                if (clusterNodeGetSlotBit(myself, i)) dictExpand(db->dict[i], (db_size / myself->numslots));
+            if (server.cluster_enabled) {
+                clusterNode *myself = server.cluster->myself;
+                for (int i = 0; i < db->dict_count; i++) {
+                    /* We don't exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */
+                    if (clusterNodeGetSlotBit(myself, i)) dictExpand(db->dict[i], (db_size / myself->numslots));
+                }
+            } else {
+                dictExpand(db->dict[0], db_size);
             }
             dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */

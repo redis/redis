@@ -72,6 +72,7 @@ void bugReportStart(void);
 void printCrashReport(void);
 void bugReportEnd(int killViaSignal, int sig);
 void logStackTrace(void *eip, int uplevel);
+void dbGetStats(char *buf, size_t bufsize, redisDb *db);
 
 /* ================================= Debugging ============================== */
 
@@ -898,7 +899,7 @@ NULL
         }
 
         stats = sdscatprintf(stats,"[Dictionary HT]\n");
-//        dictGetStats(buf,sizeof(buf),server.db[dbid].dict); FIXME (vitarb) get aggregated stats https://sim.amazon.com/issues/ELMO-63798
+        dbGetStats(buf,sizeof(buf),&server.db[dbid]);
         stats = sdscat(stats,buf);
 
         stats = sdscatprintf(stats,"[Expires HT]\n");
