@@ -714,7 +714,7 @@ tags "modules aof" {
             assert_equal [r get counter-2] 4
             assert_equal [r get using-call] 2
             assert_equal [r get after-call] 2
-            # 4+4+2+2 commands from AOF (just above) + 4 "INCR notifications" from AOF + 4 notfications for these INCRs
+            # 4+4+2+2 commands from AOF (just above) + 4 "INCR notifications" from AOF + 4 notifications for these INCRs
             assert_equal [r get notifications] 20
 
             assert_equal {OK} [r module unload propagate-test]
