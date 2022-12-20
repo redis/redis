@@ -624,6 +624,12 @@ typedef enum {
     CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT /* Show NULL or empty */
 } cluster_endpoint_type;
 
+/* Script behavior types, kill/yield readonly script */
+typedef enum {
+    SCRIPT_READONLY_TIMEOUT_YIELD = 0,
+    SCRIPT_READONLY_TIMEOUT_KILL = 1
+} script_readonly_timeout_behavior;
+
 /* RDB active child save type. */
 #define RDB_CHILD_TYPE_NONE 0
 #define RDB_CHILD_TYPE_DISK 1     /* RDB is written to disk. */
@@ -1915,6 +1921,7 @@ struct redisServer {
     mstime_t busy_reply_threshold;  /* Script / module timeout in milliseconds */
     int pre_command_oom_state;         /* OOM before command (script?) was started */
     int script_disable_deny_script;    /* Allow running commands marked "no-script" inside a script. */
+    int script_readonly_timeout_behavior;    /* Determines if we kill the script or return busy errors. */
     /* Lazy free */
     int lazyfree_lazy_eviction;
     int lazyfree_lazy_expire;

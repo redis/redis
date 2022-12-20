@@ -89,6 +89,10 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
     if (elapsed < server.busy_reply_threshold) {
         return SCRIPT_CONTINUE;
     }
+    else if (!(run_ctx->flags & SCRIPT_WRITE_DIRTY) && server.script_readonly_timeout_behavior == SCRIPT_READONLY_TIMEOUT_KILL) {
+         run_ctx->flags |= SCRIPT_KILLED;
+         return SCRIPT_KILL_ENGINE;
+    }
 
     serverLog(LL_WARNING,
             "Slow script detected: still in execution after %lld milliseconds. "

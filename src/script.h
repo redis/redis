@@ -56,6 +56,7 @@
  */
 #define SCRIPT_KILL 1
 #define SCRIPT_CONTINUE 2
+#define SCRIPT_KILL_ENGINE 3
 
 /* runCtx flags */
 #define SCRIPT_WRITE_DIRTY            (1ULL<<0) /* indicate that the current script already performed a write command */
