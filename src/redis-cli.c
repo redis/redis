@@ -7705,6 +7705,7 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
     ssize_t nread;
 
     /* Send the SYNC command. */
+    hi_sdsclear(c->obuf);
     if (cliWriteConn(c, "SYNC\r\n", 6) != 6) {
         fprintf(stderr,"Error writing to master\n");
         exit(1);
