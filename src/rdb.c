@@ -3066,7 +3066,11 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-//            dictExpand(db->dict,db_size); // FIXME (vitarb) potentially approximate number of keys per slot in cluster mode https://sim.amazon.com/issues/ELMO-63800
+            clusterNode *myself = server.cluster->myself;
+            for (int i = 0; i < db->dict_count; i++) {
+                /* We don't exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */
+                if (clusterNodeGetSlotBit(myself, i)) dictExpand(db->dict[i], (db_size / myself->numslots));
+            }
             dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
