@@ -182,11 +182,8 @@ void activeExpireCycle(int type) {
     long total_sampled = 0;
     long total_expired = 0;
 
-    /* Sanity: There can't be any pending commands to propagate when
-     * we're in cron */
+    /* Try to smoke-out bugs (server.also_propagate should be empty here) */
     serverAssert(server.also_propagate.numops == 0);
-    server.core_propagates = 1;
-    server.in_nested_call++;
 
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         /* Expired and checked in a single loop. */
@@ -311,11 +308,6 @@ void activeExpireCycle(int type) {
         } while (sampled == 0 ||
                  (expired*100/sampled) > config_cycle_acceptable_stale);
     }
-
-    serverAssert(server.core_propagates); /* This function should not be re-entrant */
-
-    server.core_propagates = 0;
-    server.in_nested_call--;
 
     elapsed = ustime()-start;
     server.stat_expire_cycle_time_used += elapsed;

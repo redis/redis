@@ -2481,7 +2481,7 @@ void initServer(void) {
     server.main_thread_id = pthread_self();
     server.current_client = NULL;
     server.errors = raxNew();
-    server.in_nested_call = 0;
+    server.execution_nesting = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
@@ -2554,8 +2554,6 @@ void initServer(void) {
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
     server.busy_module_yield_reply = NULL;
-    server.core_propagates = 0;
-    server.module_ctx_nesting = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
@@ -3323,16 +3321,19 @@ static void propagatePendingCommands() {
  * What we want to achieve is that the entire execution unit will be done atomically,
  * currently with respect to replication and post jobs, but in the future there might
  * be other considerations. So we basically want the `postUnitOperations` to trigger
- * after the entire chain finished.
- *
- * Current, in order to avoid massive code changes that could be risky to cherry-pick,
- * we count on the mechanism we already have such as `server.core_propagation`,
- * `server.module_ctx_nesting`, and `server.in_nested_call`. We understand that we probably
- * do not need all of those variable and we will make an attempt to re-arrange it on unstable
- * branch. */
+ * after the entire chain finished. */
 void postExecutionUnitOperations() {
+    if (server.execution_nesting)
+        return;
+
     firePostExecutionUnitJobs();
+
+    /* If we are at the top-most call() and not inside a an active module
+     * context (e.g. within a module timer) we can propagate what we accumulated. */
     propagatePendingCommands();
+
+    /* Module subsystem post-execution-unit logic */
+    modulePostExecutionUnitOperations();
 }
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).
@@ -3414,13 +3415,7 @@ void call(client *c, int flags) {
      * The only other option to get to call() without having processCommand
      * as an entry point is if a module triggers RM_Call outside of call()
      * context (for example, in a timer).
-     * In that case, the module is in charge of propagation.
-     *
-     * Because call() is re-entrant we have to cache and restore
-     * server.core_propagates. */
-    int prev_core_propagates = server.core_propagates;
-    if (!server.core_propagates && !(flags & CMD_CALL_FROM_MODULE))
-        server.core_propagates = 1;
+     * In that case, the module is in charge of propagation. */
 
     /* Call the command. */
     dirty = server.dirty;
@@ -3429,8 +3424,8 @@ void call(client *c, int flags) {
     const long long call_timer = ustime();
 
     /* Update cache time, in case we have nested calls we want to
-     * update only on the first call*/
-    if (server.in_nested_call++ == 0) {
+     * update only on the first call */
+    if (server.execution_nesting++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
     }
 
@@ -3439,7 +3434,7 @@ void call(client *c, int flags) {
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
-    server.in_nested_call--;
+    server.execution_nesting--;
 
     /* In order to avoid performance implication due to querying the clock using a system call 3 times,
      * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
@@ -3599,8 +3594,6 @@ void call(client *c, int flags) {
     if (!server.in_exec && server.client_pause_in_transaction) {
         server.client_pause_in_transaction = 0;
     }
-
-    server.core_propagates = prev_core_propagates;
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
@@ -3645,17 +3638,10 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
     UNUSED(c);
-    if (!server.in_nested_call) {
-        /* If we are at the top-most call() we can propagate what we accumulated.
-         * Should be done before trackingHandlePendingKeyInvalidations so that we
-         * reply to client before invalidating cache (makes more sense) */
-        if (server.core_propagates) {
-            postExecutionUnitOperations();
-        }
-        /* Flush pending invalidation messages only when we are not in nested call.
-         * So the messages are not interleaved with transaction response. */
-        trackingHandlePendingKeyInvalidations();
-    }
+    /* Should be done before trackingHandlePendingKeyInvalidations so that we
+     * reply to client before invalidating cache (makes more sense) */
+    postExecutionUnitOperations();
+    trackingHandlePendingKeyInvalidations();
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.

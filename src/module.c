@@ -181,6 +181,8 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_NEW_CLIENT (1<<7)  /* Free client object when the
                                               context is destroyed */
 #define REDISMODULE_CTX_CHANNELS_POS_REQUEST (1<<8)
+#define REDISMODULE_CTX_COMMAND (1<<9) /* Context created to serve a command from call() or AOF (which calls cmd->proc directly) */
+
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -737,23 +739,25 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
     return REDISMODULE_OK;
 }
 
+void modulePostExecutionUnitOperations() {
+    if (server.execution_nesting)
+        return;
+
+    if (server.busy_module_yield_flags) {
+        blockingOperationEnds();
+        server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+        if (server.current_client)
+            unprotectClient(server.current_client);
+        unblockPostponedClients();
+    }
+}
+
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
-    if (!(ctx->flags & REDISMODULE_CTX_THREAD_SAFE)) {
-        /* Modules take care of their own propagation, when we are
-         * outside of call() context (timers, events, etc.). */
-        if (--server.module_ctx_nesting == 0) {
-            if (!server.core_propagates) {
-                postExecutionUnitOperations();
-            }
-            if (server.busy_module_yield_flags) {
-                blockingOperationEnds();
-                server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
-                if (server.current_client)
-                    unprotectClient(server.current_client);
-                unblockPostponedClients();
-            }
-        }
+    /* See comment in moduleCreateContext */
+    if (!(ctx->flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
+        server.execution_nesting--;
+        postExecutionUnitOperations();
     }
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
@@ -805,8 +809,15 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     else
         out_ctx->next_yield_time = getMonotonicUs() + server.busy_reply_threshold * 1000;
 
-    if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
-        server.module_ctx_nesting++;
+    /* Increment the execution_nesting counter (module is about to execute some code),
+     * except in the following cases:
+     * 1. We came here from cmd->proc (either call() or AOF load).
+     *    In the former, the counter has been already incremented from within
+     *    call() and in the latter we don't care about execution_nesting
+     * 2. If we are running in a thread (execution_nesting will be dealt with
+     *    when locking/unlocking the GIL) */
+    if (!(ctx_flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
+        server.execution_nesting++;
     }
 }
 
@@ -815,7 +826,7 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
 void RedisModuleCommandDispatcher(client *c) {
     RedisModuleCommand *cp = c->cmd->module_cmd;
     RedisModuleCtx ctx;
-    moduleCreateContext(&ctx, cp->module, REDISMODULE_CTX_NONE);
+    moduleCreateContext(&ctx, cp->module, REDISMODULE_CTX_COMMAND);
 
     ctx.client = c;
     cp->func(&ctx,(void**)c->argv,c->argc);
@@ -7883,10 +7894,10 @@ void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
 void moduleGILAfterLock() {
     /* We should never get here if we already inside a module
      * code block which already opened a context. */
-    serverAssert(server.module_ctx_nesting == 0);
+    serverAssert(server.execution_nesting == 0);
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
-    server.module_ctx_nesting++;
+    server.execution_nesting++;
     updateCachedTime(0);
 }
 
@@ -7921,20 +7932,12 @@ void moduleGILBeforeUnlock() {
     /* We should never get here if we already inside a module
      * code block which already opened a context, except
      * the bump-up from moduleGILAcquired. */
-    serverAssert(server.module_ctx_nesting == 1);
-    /* Restore ctx_nesting and propagate pending commands
-     * (because it's u clear when thread safe contexts are
+    serverAssert(server.execution_nesting == 1);
+    /* Restore nesting level and propagate pending commands
+     * (because it's unclear when thread safe contexts are
      * released we have to propagate here). */
-    server.module_ctx_nesting--;
+    server.execution_nesting--;
     postExecutionUnitOperations();
-
-    if (server.busy_module_yield_flags) {
-        blockingOperationEnds();
-        server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
-        if (server.current_client)
-            unprotectClient(server.current_client);
-        unblockPostponedClients();
-    }
 }
 
 /* Release the server lock after a thread safe API call was executed. */
@@ -8041,8 +8044,10 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
 }
 
 void firePostExecutionUnitJobs() {
-    /* Avoid propagation of commands. */
-    server.in_nested_call++;
+    /* Avoid propagation of commands.
+     * In that way, postExecutionUnitOperations will prevent
+     * recursive calls to firePostExecutionUnitJobs. */
+    server.execution_nesting++;
     while (listLength(modulePostExecUnitJobs) > 0) {
         listNode *ln = listFirst(modulePostExecUnitJobs);
         RedisModulePostExecUnitJob *job = listNodeValue(ln);
@@ -8058,7 +8063,7 @@ void firePostExecutionUnitJobs() {
         moduleFreeContext(&ctx);
         zfree(job);
     }
-    server.in_nested_call--;
+    server.execution_nesting--;
 }
 
 /* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
@@ -8108,6 +8113,22 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
     /* Don't do anything if there aren't any subscribers */
     if (listLength(moduleKeyspaceSubscribers) == 0) return;
 
+    /* Ugly hack to handle modules which use write commands from within
+     * notify_callback, which they should NOT do!
+     * Modules should use RedisModules_AddPostNotificationJob instead.
+     *
+     * Anyway, we want any propagated commands from within notify_callback
+     * to be propagated inside a MULTI/EXEC together with the original
+     * command that caused the KSN.
+     * Note that it's only relevant for KSNs which are not generated from within
+     * call(), for example active-expiry and eviction (because anyway
+     * execution_nesting is incremented from within call())
+     *
+     * In order to do that we increment the execution_nesting counter, thus
+     * preventing postExecutionUnitOperations (from within moduleFreeContext)
+     * from propagating commands from CB. */
+    server.execution_nesting++;
+
     listIter li;
     listNode *ln;
     listRewind(moduleKeyspaceSubscribers,&li);
@@ -8136,6 +8157,8 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             moduleFreeContext(&ctx);
         }
     }
+
+    server.execution_nesting--;
 }
 
 /* Unsubscribe any notification subscribers this module has upon unloading */
