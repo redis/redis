@@ -1230,6 +1230,9 @@ void disconnectSlaves(void) {
     listNode *ln;
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
+        /* Flush pending output to slaves before disconnect so it will be
+         * more likely to psync when failover. */
+        writeToClient((client*)ln->value,0);
         freeClient((client*)ln->value);
     }
 }
