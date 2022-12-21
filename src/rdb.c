@@ -63,6 +63,9 @@ void rdbCheckSetError(const char *fmt, ...);
 
 #ifdef __GNUC__
 void rdbReportError(int corruption_error, int linenum, char *reason, ...) __attribute__ ((format (printf, 3, 4)));
+
+void expandDb(const redisDb *db, uint64_t db_size);
+
 #endif
 void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     va_list ap;
@@ -3066,15 +3069,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            if (server.cluster_enabled) {
-                clusterNode *myself = server.cluster->myself;
-                for (int i = 0; i < db->dict_count; i++) {
-                    /* We don't exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */
-                    if (clusterNodeGetSlotBit(myself, i)) dictExpand(db->dict[i], (db_size / myself->numslots));
-                }
-            } else {
-                dictExpand(db->dict[0], db_size);
-            }
+            expandDb(db, db_size);
             dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {

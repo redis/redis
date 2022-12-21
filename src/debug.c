@@ -716,7 +716,7 @@ NULL
         if (getPositiveLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
 
-//        dictExpand(c->db->dict,keys); FIXME (vitarb) find right dicts to expand https://sim.amazon.com/issues/ELMO-63796
+        expandDb(c->db, keys);
         long valsize = 0;
         if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
             return;

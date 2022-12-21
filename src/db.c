@@ -1775,6 +1775,20 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
     return 1;
 }
 
+/* Increases size of the main db to match desired number. In cluster mode resizes all individual dictionaries for slots that
+ * this node owns. */
+void expandDb(const redisDb *db, uint64_t db_size) {
+    if (server.cluster_enabled) {
+        clusterNode *myself = server.cluster->myself;
+        for (int i = 0; i < db->dict_count; i++) {
+            /* We don't exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */
+            if (clusterNodeGetSlotBit(myself, i)) dictExpand(db->dict[i], (db_size / myself->numslots));
+        }
+    } else {
+        dictExpand(db->dict[0], db_size);
+    }
+}
+
 /* -----------------------------------------------------------------------------
  * API to get key arguments from commands
  * ---------------------------------------------------------------------------*/

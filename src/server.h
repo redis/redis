@@ -3007,6 +3007,7 @@ unsigned long long int dbSize(const redisDb *db);
 dict *getDict(redisDb *db, sds key);
 dict *getRandomDict(redisDb *db, int shouldBeRehashing);
 unsigned long dbSlots(const redisDb *db);
+void expandDb(const redisDb *db, uint64_t db_size);
 
 /* Set data type */
 robj *setTypeCreate(sds value);
