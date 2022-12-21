@@ -136,6 +136,8 @@ typedef struct redisObject robj;
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
+#define INCREMENTAL_REHASHING_MAX_QUEUE_SIZE (1024*16)
+#define INCREMENTAL_REHASHING_THRESHOLD_MS 1
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -955,6 +957,7 @@ typedef struct redisDb {
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
+    list *rehashing;            /* List of dictionaries in this DB that are currently rehashing. */
     int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
 } redisDb;
 
@@ -3005,7 +3008,7 @@ void dismissMemoryInChild(void);
 int restartServer(int flags, mstime_t delay);
 unsigned long long int dbSize(const redisDb *db);
 dict *getDict(redisDb *db, sds key);
-dict *getRandomDict(redisDb *db, int shouldBeRehashing);
+dict *getRandomDict(redisDb *db);
 unsigned long dbSlots(const redisDb *db);
 void expandDb(const redisDb *db, uint64_t db_size);
 

@@ -291,6 +291,7 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     d->ht_used[1] = new_ht_used;
     d->ht_table[1] = new_ht_table;
     d->rehashidx = 0;
+    if (d->type->rehashingStarted) d->type->rehashingStarted(d);
     return DICT_OK;
 }
 
@@ -410,15 +411,16 @@ long long timeInMilliseconds(void) {
 /* Rehash in ms+"delta" milliseconds. The value of "delta" is larger 
  * than 0, and is smaller than 1 in most cases. The exact upper bound 
  * depends on the running time of dictRehash(d,100).*/
-int dictRehashMilliseconds(dict *d, int ms) {
+int dictRehashMilliseconds(dict *d, unsigned int ms) {
     if (d->pauserehash > 0) return 0;
 
-    long long start = timeInMilliseconds();
+    monotime timer;
+    elapsedStart(&timer);
     int rehashes = 0;
 
     while(dictRehash(d,100)) {
         rehashes += 100;
-        if (timeInMilliseconds()-start > ms) break;
+        if (elapsedMs(timer) >= ms) break;
     }
     return rehashes;
 }

@@ -7321,9 +7321,6 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
 unsigned int delKeysInSlot(unsigned int slot) {
     unsigned int j = 0;
 
-    server.core_propagates = 1;
-    server.in_nested_call++;
-
     dictIterator *iter = NULL;
     dictEntry *de = NULL;
     iter = dictGetSafeIterator(server.db->dict[slot]);
@@ -7340,7 +7337,6 @@ unsigned int delKeysInSlot(unsigned int slot) {
         server.dirty++;
     }
     dictReleaseIterator(iter);
-    serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
     return j;
 }

@@ -65,6 +65,7 @@ typedef struct dictType {
     void (*keyDestructor)(dict *d, void *key);
     void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
+    void (*rehashingStarted)(dict *d);
     /* Flags */
     /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
      * dict is a set. When this flag is set, it's not possible to access the
@@ -213,7 +214,7 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len);
 void dictEmpty(dict *d, void(callback)(dict*));
 void dictSetResizeEnabled(dictResizeEnable enable);
 int dictRehash(dict *d, int n);
-int dictRehashMilliseconds(dict *d, int ms);
+int dictRehashMilliseconds(dict *d, unsigned int ms);
 void dictSetHashFunctionSeed(uint8_t *seed);
 uint8_t *dictGetHashFunctionSeed(void);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *privdata);

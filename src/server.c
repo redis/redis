@@ -392,6 +392,16 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
+/* Adds dictionary to the rehashing list in cluster mode, which allows us
+ * to quickly find rehash targets during incremental rehashing.
+ * In non-cluster mode, we don't need this list as there is only one dictionary per DB. */
+void dictRehashingStarted(dict *d) {
+    if (!server.cluster_enabled || !server.activerehashing) return;
+    /* Safety check against queue overflow. */
+    if (listLength(server.db[0].rehashing) > INCREMENTAL_REHASHING_MAX_QUEUE_SIZE) return;
+    listAddNodeTail(server.db[0].rehashing, d);
+}
+
 /* Generic hash table type where keys are Redis Objects, Values
  * dummy pointers. */
 dictType objectKeyPointerValueDictType = {
@@ -447,6 +457,7 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
+    dictRehashingStarted,
 };
 
 /* Db->expires */
@@ -594,15 +605,36 @@ void tryResizeHashTables(int dbid) {
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
 int incrementallyRehash(int dbid) {
-    /* Keys dictionary */
-    dict *d = getRandomDict(&server.db[dbid], 1);
-    if (dictIsRehashing(d)) {
-        dictRehashMilliseconds(d, 1);
-        return 1; /* already used our millisecond for this loop... */
+    /* Rehash main dictionary. */
+    if (server.cluster_enabled) {
+        listNode *node, *nextNode;
+        monotime timer;
+        elapsedStart(&timer);
+        /* Our goal is to rehash as many slot specific dictionaries as we can before reaching predefined threshold,
+         * while removing those that already finished rehashing from the queue. */
+        while ((node = listFirst(server.db[dbid].rehashing))) {
+            if (dictIsRehashing((dict *) listNodeValue(node))) {
+                dictRehashMilliseconds(listNodeValue(node), INCREMENTAL_REHASHING_THRESHOLD_MS);
+                if (elapsedMs(timer) >= INCREMENTAL_REHASHING_THRESHOLD_MS) {
+                    return 1;  /* Reached the time limit. */
+                }
+            } else { /* It is possible that rehashing has already completed for this dictionary, simply remove it from the queue. */
+                nextNode = listNextNode(node);
+                listDelNode(server.db[dbid].rehashing, node);
+                node = nextNode;
+            }
+        }
+        /* When cluster mode is disabled, only one dict is used for the entire DB and rehashing list isn't populated. */
+    } else {
+        dict *d = server.db[dbid].dict[0];
+        if (dictIsRehashing(d)) {
+            dictRehashMilliseconds(d, INCREMENTAL_REHASHING_THRESHOLD_MS);
+            return 1; /* already used our millisecond for this loop... */
+        }
     }
-    /* Expires */
+    /* Rehash expires. */
     if (dictIsRehashing(server.db[dbid].expires)) {
-        dictRehashMilliseconds(server.db[dbid].expires,1);
+        dictRehashMilliseconds(server.db[dbid].expires, INCREMENTAL_REHASHING_THRESHOLD_MS);
         return 1; /* already used our millisecond for this loop... */
     }
     return 0;
@@ -872,7 +904,7 @@ int clientEvictionAllowed(client *c) {
 
 /* This function is used to cleanup the client's previously tracked memory usage.
  * This is called during incremental client memory usage tracking as well as
- * used to reset when client to bucket allocation is not required when 
+ * used to reset when client to bucket allocation is not required when
  * client eviction is disabled.  */
 void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
     if (c->mem_usage_bucket) {
@@ -2557,6 +2589,7 @@ void initServer(void) {
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
+        server.db[j].rehashing = listCreate();
         server.db[j].dict_count = slotCount;
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }

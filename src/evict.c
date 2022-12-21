@@ -593,7 +593,7 @@ int performEvictions(void) {
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
                     dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
-                           getRandomDict(db, 0) : db->expires;
+                           getRandomDict(db) : db->expires;
                     if ((keys = dictSize(dict)) != 0) {
                         evictionPoolPopulate(i, dict, db, pool);
                         total_keys += keys;
@@ -643,7 +643,7 @@ int performEvictions(void) {
                 j = (++next_db) % server.dbnum;
                 db = server.db+j;
                 dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) ?
-                       getRandomDict(db, 0) : db->expires;
+                       getRandomDict(db) : db->expires;
                 if (dictSize(dict) != 0) {
                     de = dictGetRandomKey(dict);
                     bestkey = dictGetKey(de);

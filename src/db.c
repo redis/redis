@@ -309,7 +309,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
     int maxtries = 100;
-    dict *randomDict = getRandomDict(db, 0);
+    dict *randomDict = getRandomDict(db);
 
     while(1) {
         sds key;
@@ -342,13 +342,13 @@ robj *dbRandomKey(redisDb *db) {
 }
 
 /* Return random non-empty dictionary from this DB, if shouldBeRehashing is set, then it ignores dicts that aren't rehashing. */
-dict *getRandomDict(redisDb *db, int shouldBeRehashing) {
+dict *getRandomDict(redisDb *db) {
     if (db->dict_count == 1) return db->dict[0];
 
     int i = 0, r = 0;
     for (int j = 0; j < CLUSTER_SLOTS; j++) {
         // Skip empty dicts or if we want only rehashing dicts and the dict isn't rehashing.
-        if (dictSize(db->dict[j]) == 0 || (shouldBeRehashing && !dictIsRehashing(db->dict[j]))) continue;
+        if (dictSize(db->dict[j]) == 0) continue;
         if (i == 0 || (rand() % (i + 1)) == 0) {
             r = j; // Select K-th non-empty bucket with 1/K probability, this keeps balanced probabilities for all non-empty buckets.
         }
