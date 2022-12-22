@@ -559,6 +559,7 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
         for (int j=0; j<tempDb[i].dict_count; j++) {
             dictRelease(tempDb[i].dict[j]);
         }
+        zfree(tempDb[i].dict);
         dictRelease(tempDb[i].expires);
     }
 
