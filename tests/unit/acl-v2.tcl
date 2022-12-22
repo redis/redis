@@ -491,7 +491,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         assert_equal "ERR wrong number of arguments for 'set' command" $e
     }
 
-    test {Test selectors with closing paranthesis} {
+    test {Test selectors with closing parenthesis} {
         r ACL SETUSER selector-store ON NOPASS +@all "(+@all ~bar))"
         puts [r ACL GETUSER selector-store]
 
@@ -500,7 +500,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         assert_match {*has no permissions to access the 'bar))' key*} [r ACL DRYRUN selector-store SET bar)) world]
     }
 
-    test {Test ACL SAVE/LOAD with selectors containing closing paranthesis} {
+    test {Test ACL SAVE/LOAD with selectors containing closing parenthesis} {
         set users_before_load [r ACL LIST]
         r ACL SAVE
         r ACL LOAD
