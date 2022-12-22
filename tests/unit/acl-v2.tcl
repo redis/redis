@@ -1,4 +1,6 @@
-start_server {tags {"acl external:skip"}} {
+set server_path [tmpdir "acl-v2.acl"]
+exec touch $server_path/user.acl
+start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags [list "acl" "external:skip"]] {
     set r2 [redis_client]
     test {Test basic multiple selectors} {
         r ACL SETUSER selector-1 on -@all resetkeys nopass
@@ -75,7 +77,8 @@ start_server {tags {"acl external:skip"}} {
 
     test {Test separate read permission} {
         r ACL SETUSER key-permission-R on nopass %R~read* +@all
-        $r2 auth key-permission-R password
+        catch {$r2 auth key-permission-R password} err
+        puts $err
         assert_equal PONG [$r2 PING]
         r set readstr bar
         assert_equal bar [$r2 get readstr]
@@ -486,6 +489,23 @@ start_server {tags {"acl external:skip"}} {
         
         catch {r ACL DRYRUN test-dry-run SET} e
         assert_equal "ERR wrong number of arguments for 'set' command" $e
+    }
+
+    test {Test selectors with closing paranthesis} {
+        r ACL SETUSER selector-store ON NOPASS +@all "(+@all ~bar))"
+        puts [r ACL GETUSER selector-store]
+
+        assert_equal "OK" [r ACL DRYRUN selector-store SET bar) world]
+        assert_equal "OK" [r ACL DRYRUN selector-store GET bar)]
+        assert_match {*has no permissions to access the 'bar))' key*} [r ACL DRYRUN selector-store SET bar)) world]
+    }
+
+    test {Test ACL SAVE/LOAD with selectors containing closing paranthesis} {
+        set users_before_load [r ACL LIST]
+        r ACL SAVE
+        r ACL LOAD
+        set users_after_load [r ACL LIST]
+        assert_equal $users_before_load $users_after_load
     }
 
     $r2 close

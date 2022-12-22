@@ -822,7 +822,7 @@ robj *ACLDescribeUser(user *u) {
         if (selector->flags & SELECTOR_FLAG_ROOT) {
             res = sdscatfmt(res, "%s", default_perm);
         } else {
-            res = sdscatfmt(res, " (%s)", default_perm);
+            res = sdscatfmt(res, " \"(%s)\"", default_perm);
         }
         sdsfree(default_perm);
     }
@@ -2188,7 +2188,7 @@ sds ACLLoadFromFile(const char *filename) {
         if (lines[i][0] == '\0') continue;
 
         /* Split into arguments */
-        argv = sdssplitlen(lines[i],sdslen(lines[i])," ",1,&argc);
+        argv = sdssplitargs(lines[i],&argc);
         if (argv == NULL) {
             errors = sdscatprintf(errors,
                      "%s:%d: unbalanced quotes in acl line. ",
