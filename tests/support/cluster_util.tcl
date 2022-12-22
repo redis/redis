@@ -1,5 +1,4 @@
-# Helper functions specifically for setting up and configuring redis
-# clusters.
+# Cluster helper functions
 
 # Check if cluster configuration is consistent.
 proc cluster_config_consistent {} {
@@ -103,7 +102,7 @@ proc start_cluster {masters replicas options code {slot_allocator continuous_slo
 
     # Configure the starting of multiple servers. Set cluster node timeout
     # aggressively since many tests depend on ping/pong messages. 
-    set cluster_options [list overrides [list cluster-enabled yes cluster-node-timeout 500]]
+    set cluster_options [list overrides [list cluster-enabled yes cluster-ping-interval 100 cluster-node-timeout 3000]]
     set options [concat $cluster_options $options]
 
     # Cluster mode only supports a single database, so before executing the tests
@@ -112,4 +111,42 @@ proc start_cluster {masters replicas options code {slot_allocator continuous_slo
     set ::singledb 1
     start_multiple_servers $node_count $options $code
     set ::singledb $old_singledb
+}
+
+# Test node for flag.
+proc cluster_has_flag {node flag} {
+    expr {[lsearch -exact [dict get $node flags] $flag] != -1}
+}
+
+# Returns the parsed "myself" node entry as a dictionary.
+proc cluster_get_myself id {
+    set nodes [get_cluster_nodes $id]
+    foreach n $nodes {
+        if {[cluster_has_flag $n myself]} {return $n}
+    }
+    return {}
+}
+
+# Returns a parsed CLUSTER NODES output as a list of dictionaries.
+proc get_cluster_nodes id {
+    set lines [split [R $id cluster nodes] "\r\n"]
+    set nodes {}
+    foreach l $lines {
+        set l [string trim $l]
+        if {$l eq {}} continue
+        set args [split $l]
+        set node [dict create \
+            id [lindex $args 0] \
+            addr [lindex $args 1] \
+            flags [split [lindex $args 2] ,] \
+            slaveof [lindex $args 3] \
+            ping_sent [lindex $args 4] \
+            pong_recv [lindex $args 5] \
+            config_epoch [lindex $args 6] \
+            linkstate [lindex $args 7] \
+            slots [lrange $args 8 end] \
+        ]
+        lappend nodes $node
+    }
+    return $nodes
 }

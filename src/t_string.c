@@ -168,7 +168,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
     if (unit == UNIT_SECONDS) *milliseconds *= 1000;
 
     if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
-        *milliseconds += mstime();
+        *milliseconds += commandTimeSnapshot();
     }
 
     if (*milliseconds <= 0) {
@@ -612,7 +612,7 @@ void incrDecrCommand(client *c, long long incr) {
     } else {
         new = createStringObjectFromLongLongForValue(value);
         if (o) {
-            dbOverwrite(c->db,c->argv[1],new);
+            dbReplaceValue(c->db,c->argv[1],new);
         } else {
             dbAdd(c->db,c->argv[1],new);
         }
@@ -667,7 +667,7 @@ void incrbyfloatCommand(client *c) {
     }
     new = createStringObjectFromLongDouble(value,1);
     if (o)
-        dbOverwrite(c->db,c->argv[1],new);
+        dbReplaceValue(c->db,c->argv[1],new);
     else
         dbAdd(c->db,c->argv[1],new);
     signalModifiedKey(c,c->db,c->argv[1]);

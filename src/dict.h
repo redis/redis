@@ -181,6 +181,8 @@ int dictReplace(dict *d, void *key, void *val);
 int dictDelete(dict *d, const void *key);
 dictEntry *dictUnlink(dict *d, const void *key);
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he);
+dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, int *table_index);
+void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table_index);
 void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
 void *dictFetchValue(dict *d, const void *key);

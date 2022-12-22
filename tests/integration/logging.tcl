@@ -39,7 +39,7 @@ if {!$::valgrind} {
     }
 
     set server_path [tmpdir server1.log]
-    start_server [list overrides [list dir $server_path]] {
+    start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
         test "Crash report generated on SIGABRT" {
             set pid [s process_id]
             exec kill -SIGABRT $pid
@@ -49,7 +49,7 @@ if {!$::valgrind} {
     }
 
     set server_path [tmpdir server2.log]
-    start_server [list overrides [list dir $server_path]] {
+    start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
         test "Crash report generated on DEBUG SEGFAULT" {
             catch {r debug segfault}
             set res [wait_for_log_messages 0 \"$crash_pattern\" 0 50 100]

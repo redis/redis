@@ -135,10 +135,10 @@ void activeExpireCycle(int type) {
     int dbs_per_call = CRON_DBS_PER_CALL;
     long long start = ustime(), timelimit, elapsed;
 
-    /* When clients are paused the dataset should be static not just from the
-     * POV of clients not being able to write, but also from the POV of
-     * expires and evictions of keys not being performed. */
-    if (checkClientPauseTimeoutAndReturnIfPaused()) return;
+    /* If 'expire' action is paused, for whatever reason, then don't expire any key.
+     * Typically, at the end of the pause we will properly expire the key OR we
+     * will have failed over and the new primary will send us the expire. */
+    if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exit
@@ -182,11 +182,8 @@ void activeExpireCycle(int type) {
     long total_sampled = 0;
     long total_expired = 0;
 
-    /* Sanity: There can't be any pending commands to propagate when
-     * we're in cron */
+    /* Try to smoke-out bugs (server.also_propagate should be empty here) */
     serverAssert(server.also_propagate.numops == 0);
-    server.core_propagates = 1;
-    server.in_nested_call++;
 
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         /* Expired and checked in a single loop. */
@@ -267,7 +264,7 @@ void activeExpireCycle(int type) {
                         if (activeExpireCycleTryExpire(db,e,now)) {
                             expired++;
                             /* Propagate the DEL command */
-                            propagatePendingCommands();
+                            postExecutionUnitOperations();
                         }
                         if (ttl > 0) {
                             /* We want the average TTL of keys yet
@@ -311,11 +308,6 @@ void activeExpireCycle(int type) {
         } while (sampled == 0 ||
                  (expired*100/sampled) > config_cycle_acceptable_stale);
     }
-
-    serverAssert(server.core_propagates); /* This function should not be re-entrant */
-
-    server.core_propagates = 0;
-    server.in_nested_call--;
 
     elapsed = ustime()-start;
     server.stat_expire_cycle_time_used += elapsed;
@@ -396,6 +388,8 @@ void expireSlaveKeys(void) {
                     activeExpireCycleTryExpire(server.db+dbid,expire,start))
                 {
                     expired = 1;
+                    /* DELs aren't propagated, but modules may want their hooks. */
+                    postExecutionUnitOperations();
                 }
 
                 /* If the key was not expired in this DB, we need to set the
@@ -488,7 +482,7 @@ int checkAlreadyExpired(long long when) {
      *
      * Instead we add the already expired key to the database with expire time
      * (possibly in the past) and wait for an explicit DEL from the master. */
-    return (when <= mstime() && !server.loading && !server.masterhost);
+    return (when <= commandTimeSnapshot() && !server.loading && !server.masterhost);
 }
 
 #define EXPIRE_NX (1<<0)
@@ -637,8 +631,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (checkAlreadyExpired(when)) {
         robj *aux;
 
-        int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :
-                                                    dbSyncDelete(c->db,key);
+        int deleted = dbGenericDelete(c->db,key,server.lazyfree_lazy_expire,DB_FLAG_KEY_EXPIRED);
         serverAssertWithInfo(c,key,deleted);
         server.dirty++;
 
@@ -652,10 +645,19 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     } else {
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
-        /* Propagate as PEXPIREAT millisecond-timestamp */
-        robj *when_obj = createStringObjectFromLongLong(when);
-        rewriteClientCommandVector(c, 3, shared.pexpireat, key, when_obj);
-        decrRefCount(when_obj);
+        /* Propagate as PEXPIREAT millisecond-timestamp
+         * Only rewrite the command arg if not already PEXPIREAT */
+        if (c->cmd->proc != pexpireatCommand) {
+            rewriteClientCommandArgument(c,0,shared.pexpireat);
+        }
+
+        /* Avoid creating a string object when it's the same as argv[2] parameter  */
+        if (basetime != 0 || unit == UNIT_SECONDS) {
+            robj *when_obj = createStringObjectFromLongLong(when);
+            rewriteClientCommandArgument(c,2,when_obj);
+            decrRefCount(when_obj);
+        }
+
         signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
         server.dirty++;
@@ -665,7 +667,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
 /* EXPIRE key seconds [ NX | XX | GT | LT] */
 void expireCommand(client *c) {
-    expireGenericCommand(c,mstime(),UNIT_SECONDS);
+    expireGenericCommand(c,commandTimeSnapshot(),UNIT_SECONDS);
 }
 
 /* EXPIREAT key unix-time-seconds [ NX | XX | GT | LT] */
@@ -675,7 +677,7 @@ void expireatCommand(client *c) {
 
 /* PEXPIRE key milliseconds [ NX | XX | GT | LT] */
 void pexpireCommand(client *c) {
-    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
+    expireGenericCommand(c,commandTimeSnapshot(),UNIT_MILLISECONDS);
 }
 
 /* PEXPIREAT key unix-time-milliseconds [ NX | XX | GT | LT] */
@@ -697,7 +699,7 @@ void ttlGenericCommand(client *c, int output_ms, int output_abs) {
      * TTL value otherwise. */
     expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
-        ttl = output_abs ? expire : expire-mstime();
+        ttl = output_abs ? expire : expire-commandTimeSnapshot();
         if (ttl < 0) ttl = 0;
     }
     if (ttl == -1) {

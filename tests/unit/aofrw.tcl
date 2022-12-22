@@ -78,10 +78,16 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
     }
 
     foreach d {string int} {
-        foreach e {quicklist} {
+        foreach e {listpack quicklist} {
             test "AOF rewrite of list with $e encoding, $d data" {
                 r flushall
-                set len 1000
+                if {$e eq {listpack}} {
+                    r config set list-max-listpack-size -2
+                    set len 10
+                } else {
+                    r config set list-max-listpack-size 10
+                    set len 1000
+                }
                 for {set j 0} {$j < $len} {incr j} {
                     if {$d eq {string}} {
                         set data [randstring 0 16 alpha]

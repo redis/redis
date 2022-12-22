@@ -10,6 +10,45 @@ start_server {tags {"pause network"}} {
         $rd close
     }
 
+    test "Test old pause-all takes precedence over new pause-write (less restrictive)" {
+        # Scenario:
+        # 1. Run 'PAUSE ALL' for 200msec
+        # 2. Run 'PAUSE WRITE' for 10 msec
+        # 3. Wait 50msec
+        # 4. 'GET FOO'.
+        # Expected that:
+        # - While the time of the second 'PAUSE' is shorter than first 'PAUSE',
+        #   pause-client feature will stick to the longer one, i.e, will be paused
+        #   up to 200msec.
+        # - The GET command will be postponed ~200msec, even though last command
+        #   paused only WRITE. This is because the first 'PAUSE ALL' command is
+        #   more restrictive than the second 'PAUSE WRITE' and pause-client feature
+        #   preserve most restrictive configuration among multiple settings.
+        set rd [redis_deferring_client]
+        $rd SET FOO BAR
+
+        set test_start_time [clock milliseconds]
+        r client PAUSE 200 ALL
+        r client PAUSE 20 WRITE
+        after 50
+        $rd get FOO
+        set elapsed [expr {[clock milliseconds]-$test_start_time}]
+        assert_lessthan 200 $elapsed
+    }
+
+    test "Test new pause time is smaller than old one, then old time preserved" {
+        r client PAUSE 60000 WRITE
+        r client PAUSE 10 WRITE
+        after 100
+        set rd [redis_deferring_client]
+        $rd SET FOO BAR
+        wait_for_blocked_clients_count 1 100 10
+
+        r client unpause
+        assert_match "OK" [$rd read]
+        $rd close
+    }
+
     test "Test write commands are paused by RO" {
         r client PAUSE 60000 WRITE
 
