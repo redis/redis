@@ -594,7 +594,7 @@ start_server {tags {"scripting"}} {
         start_server {tags {"scripting"}} {
             set repl [attach_to_replication_stream]
             # a command with 5 argsument
-            #r eval {redis.call('hmget', KEYS[1], 1, 2, 3)} 1 key
+            r eval {redis.call('hmget', KEYS[1], 1, 2, 3)} 1 key
             # then a command with 3 that is replicated as one with 4
             r eval {redis.call('incrbyfloat', KEYS[1], 1)} 1 key
             # then a command with 4 args
