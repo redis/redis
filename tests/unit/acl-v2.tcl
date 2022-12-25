@@ -77,8 +77,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
 
     test {Test separate read permission} {
         r ACL SETUSER key-permission-R on nopass %R~read* +@all
-        catch {$r2 auth key-permission-R password} err
-        puts $err
+        $r2 auth key-permission-R password
         assert_equal PONG [$r2 PING]
         r set readstr bar
         assert_equal bar [$r2 get readstr]
