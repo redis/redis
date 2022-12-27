@@ -1764,10 +1764,10 @@ void logStackTrace(void *eip, int uplevel) {
 
 #endif /* HAVE_BACKTRACE */
 
-sds genClusterDebugString(sds infostring){
+sds genClusterDebugString(sds infostring) {
     infostring = sdscatprintf(infostring, "\r\n# Cluster info\r\n");
     infostring = sdscatsds(infostring, genClusterInfoString()); 
-    infostring = sdscatprintf(infostring, "\r\n------ CLUSTER NODES OUTPUT ------\r\n");
+    infostring = sdscatprintf(infostring, "\n------ CLUSTER NODES OUTPUT ------\n");
     infostring =  sdscatsds(infostring, clusterGenNodesDescription(0, 0));
     
     return infostring;
