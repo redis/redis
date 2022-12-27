@@ -5526,7 +5526,7 @@ void clusterReplyMultiBulkSlots(client * c) {
     setDeferredArrayLen(c, slot_replylen, num_masters);
 }
 
-sds genClusterInfoString(){
+sds genClusterInfoString() {
     sds info = sdsempty();
     char *statestr[] = {"ok","fail"};
     int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;
