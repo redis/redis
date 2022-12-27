@@ -3,6 +3,22 @@ start_server {overrides {save ""}} {
     set master_port [srv 0 port]
     set master [srv 0 client]
 
+    test {swap-lock txid int overflow} {
+        r debug set-swap-txid 2147483500
+
+        set num 100
+        for {set i 0} {$i < $num} {incr i} {
+            set rds($i) [redis_deferring_client]
+        }
+        for {set i 0} {$i < $num} {incr i} {
+            $rds($i) get not-existing-key
+        }
+        for {set i 0} {$i < $num} {incr i} {
+            $rds($i) read
+            $rds($i) close
+        }
+    }
+
     test {swap-lock chaos} {
         set rounds 5
         set loaders 10

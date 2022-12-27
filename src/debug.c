@@ -912,6 +912,12 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"set-swap-debug-rio-delay") && c->argc == 3) {
         server.swap_debug_rio_delay = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-swap-txid") && c->argc == 3) {
+        long long value;
+        if (getLongLongFromObjectOrReply(c,c->argv[2],&value,NULL) != C_OK)
+            return;
+        server.swap_txid = value;
+        addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;

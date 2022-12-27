@@ -137,7 +137,7 @@ static inline int lockLinkTargetReady(lockLinkTarget *target) {
     return target->signaled == target->linked;
 }
 
-void lockLinkInit(lockLink *link, int txid) {
+void lockLinkInit(lockLink *link, int64_t txid) {
     link->txid = txid;
     lockLinksInit(&link->links);
     lockLinkTargetInit(&link->target);
