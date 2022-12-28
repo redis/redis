@@ -96,28 +96,36 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
                     fail "Slave still not connected after some time"
                 }  
 
-                set retry 10
-                while {$retry && ([$master debug digest] ne [$slave debug digest])}\
-                {
-                    after 1000
-                    incr retry -1
+                if {$::swap_mode == "disk"} {
+                    wait_for_condition 1000 50 {
+                        [gtid_cmp [get_gtid $slave] [get_gtid $master]]  == 1
+                    } else {
+                        fail "master slave gtid water sync err"
+                    }
+                } else {
+                    set retry 10
+                    while {$retry && ([$master debug digest] ne [$slave debug digest])}\
+                    {
+                        after 1000
+                        incr retry -1
+                    }
+                    assert {[$master dbsize] > 0}
+                    if {[$master debug digest] ne [$slave debug digest]} {
+                        set csv1 [csvdump r]
+                        set csv2 [csvdump {r -1}]
+                        set fd [open /tmp/repldump1.txt w]
+                        puts -nonewline $fd $csv1
+                        close $fd
+                        set fd [open /tmp/repldump2.txt w]
+                        puts -nonewline $fd $csv2
+                        close $fd
+                        puts "Master - Replica inconsistency"
+                        puts "Run diff -u against /tmp/repldump*.txt for more info"
+                    }
+                    assert_equal [r debug digest] [r -1 debug digest]
+                    assert_equal [gtid_cmp [get_gtid $slave] [get_gtid $master]] 1
                 }
-                assert {[$master dbsize] > 0}
-
-                if {[$master debug digest] ne [$slave debug digest]} {
-                    set csv1 [csvdump r]
-                    set csv2 [csvdump {r -1}]
-                    set fd [open /tmp/repldump1.txt w]
-                    puts -nonewline $fd $csv1
-                    close $fd
-                    set fd [open /tmp/repldump2.txt w]
-                    puts -nonewline $fd $csv2
-                    close $fd
-                    puts "Master - Replica inconsistency"
-                    puts "Run diff -u against /tmp/repldump*.txt for more info"
-                }
-                assert_equal [r debug digest] [r -1 debug digest]
-                assert_equal [gtid_cmp [get_gtid $slave] [get_gtid $master]] 1
+                
                 eval $cond
             }
         }
