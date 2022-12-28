@@ -152,6 +152,11 @@ static inline dictEntry *createEntryNoValue(void *key, dictEntry *next) {
     return (dictEntry *)(void *)((uintptr_t)(void *)entry | ENTRY_PTR_NO_VALUE);
 }
 
+static inline dictEntry *encodeMaskedPtr(const void *ptr, unsigned int bits) {
+    assert(((uintptr_t)ptr & ENTRY_PTR_MASK) == 0);
+    return (dictEntry *)(void *)((uintptr_t)ptr | bits);
+}
+
 static inline void *decodeMaskedPtr(const dictEntry *de) {
     assert(!entryIsKey(de));
     return (void *)((uintptr_t)(void *)de & ~ENTRY_PTR_MASK);
@@ -1074,12 +1079,34 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
 }
 
 
-/* Reallocate the dictEntry allocations in a bucket using the provided
- * allocation function in order to defrag them. */
-static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragAllocFunction *allocfn) {
-    while (bucketref && *bucketref && !entryIsKey(*bucketref)) {
-        dictEntry *de = *bucketref, *newde;
-        if ((newde = allocfn(de))) {
+/* Reallocate the dictEntry, key and value allocations in a bucket using the
+ * provided allocation functions in order to defrag them. */
+static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragFunctions *defragfns) {
+    dictDefragAllocFunction *allocfn = defragfns->defragAlloc;
+    dictDefragAllocFunction *defragkey = defragfns->defragKey;
+    dictDefragAllocFunction *defragval = defragfns->defragVal;
+    while (bucketref && *bucketref) {
+        dictEntry *de = *bucketref, *newde = NULL;
+        void *newkey = defragkey ? defragkey(dictGetKey(de)) : NULL;
+        void *newval = defragval ? defragval(dictGetVal(de)) : NULL;
+        if (entryIsKey(de)) {
+            if (newkey) *bucketref = newkey;
+            assert(entryIsKey(*bucketref));
+        } else if (entryIsNoValue(de)) {
+            dictEntry_no_value *entry = decodeEntryNoValue(de), *newentry;
+            if ((newentry = allocfn(entry))) {
+                newde = encodeMaskedPtr(newentry, ENTRY_PTR_NO_VALUE);
+                entry = newentry;
+            }
+            if (newkey) entry->key = newkey;
+        } else {
+            assert(entryIsNormal(de));
+            newde = allocfn(de);
+            if (newde) de = newde;
+            if (newkey) de->key = newkey;
+            if (newval) de->v.val = newval;
+        }
+        if (newde) {
             *bucketref = newde;
             if (d->type->afterReplaceEntry)
                 d->type->afterReplaceEntry(d, newde);
@@ -1220,14 +1247,14 @@ unsigned long dictScan(dict *d,
  * entries using the provided allocation function. This feature was added for
  * the active defrag feature.
  *
- * The 'defracallocfn' callback is called with a pointer to memory that callback
- * can reallocate. The callback should return a new memory address or NULL,
+ * The 'defracallocfn' callbacks are called with a pointer to memory that callback
+ * can reallocate. The callbacks should return a new memory address or NULL,
  * where NULL means that no reallocation happened and the old memory is still
  * valid. */
 unsigned long dictScanDefrag(dict *d,
                              unsigned long v,
                              dictScanFunction *fn,
-                             dictDefragAllocFunction *defragallocfn,
+                             dictDefragFunctions *defragfns,
                              void *privdata)
 {
     int htidx0, htidx1;
@@ -1244,8 +1271,8 @@ unsigned long dictScanDefrag(dict *d,
         m0 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx0]);
 
         /* Emit entries at cursor */
-        if (defragallocfn) {
-            dictDefragBucket(d, &d->ht_table[htidx0][v & m0], defragallocfn);
+        if (defragfns) {
+            dictDefragBucket(d, &d->ht_table[htidx0][v & m0], defragfns);
         }
         de = d->ht_table[htidx0][v & m0];
         while (de) {
@@ -1277,8 +1304,8 @@ unsigned long dictScanDefrag(dict *d,
         m1 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx1]);
 
         /* Emit entries at cursor */
-        if (defragallocfn) {
-            dictDefragBucket(d, &d->ht_table[htidx0][v & m0], defragallocfn);
+        if (defragfns) {
+            dictDefragBucket(d, &d->ht_table[htidx0][v & m0], defragfns);
         }
         de = d->ht_table[htidx0][v & m0];
         while (de) {
@@ -1291,8 +1318,8 @@ unsigned long dictScanDefrag(dict *d,
          * of the index pointed to by the cursor in the smaller table */
         do {
             /* Emit entries at cursor */
-            if (defragallocfn) {
-                dictDefragBucket(d, &d->ht_table[htidx1][v & m1], defragallocfn);
+            if (defragfns) {
+                dictDefragBucket(d, &d->ht_table[htidx1][v & m1], defragfns);
             }
             de = d->ht_table[htidx1][v & m1];
             while (de) {

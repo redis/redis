@@ -109,6 +109,11 @@ typedef struct dictIterator {
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 typedef void *(dictDefragAllocFunction)(void *ptr);
+typedef struct {
+    dictDefragAllocFunction *defragAlloc; /* Used for entries etc. */
+    dictDefragAllocFunction *defragKey;   /* Defrag-realloc keys (optional) */
+    dictDefragAllocFunction *defragVal;   /* Defrag-realloc values (optional) */
+} dictDefragFunctions;
 
 /* This is the initial size of every hash table */
 #define DICT_HT_INITIAL_EXP      2
@@ -203,7 +208,7 @@ int dictRehashMilliseconds(dict *d, int ms);
 void dictSetHashFunctionSeed(uint8_t *seed);
 uint8_t *dictGetHashFunctionSeed(void);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *privdata);
-unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dictDefragAllocFunction *allocfn, void *privdata);
+unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
 uint64_t dictGetHash(dict *d, const void *key);
 dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 
