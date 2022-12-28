@@ -897,6 +897,12 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  * together clients consuming about the same amount of memory and can quickly
  * free them in case we reach maxmemory-clients (client eviction).
  *
+ * Note: This function filters clients of type monitor, master or replica regardless
+ * of whether the eviction is enabled or not, so the memory usage we get from these
+ * types of clients via the INFO command may be out of date. If someday we wanna
+ * improve that to make monitors' memory usage more accurate, we need to re-add this
+ * function call to `replicationFeedMonitors()`.
+ *
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
 int updateClientMemUsageAndBucket(client *c) {
