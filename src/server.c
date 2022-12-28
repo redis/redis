@@ -92,6 +92,10 @@ const char *replstateToString(int replstate);
 
 /*============================ Utility functions ============================ */
 
+/* This macro tells if we are in the context of loading an AOF. */
+#define isAOFLoadingContext() \
+    ((server.current_client && server.current_client->id == CLIENT_ID_AOF) ? 1 : 0)
+
 /* We use a private localtime implementation which is fork-safe. The logging
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
@@ -3355,7 +3359,9 @@ void call(client *c, int flags) {
     long long dirty;
     uint64_t client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->realcmd;
-    int update_command_stats = 1;
+    /* When call() is issued during loading the AOF we don't want commands called
+     * from module, exec or LUA to go into the slowlog or to populate statistics. */
+    int update_command_stats = !isAOFLoadingContext();
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
@@ -3421,11 +3427,6 @@ void call(client *c, int flags) {
         c->flags &= ~CLIENT_CLOSE_AFTER_COMMAND;
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
     }
-
-    /* When call() is issued during loading the AOF we don't want commands called
-     * from module, exec or LUA to go into the slowlog or to populate statistics. */
-    if ((server.loading && c->flags & CLIENT_SCRIPT) || (c->id == CLIENT_ID_AOF))
-        update_command_stats = 0;
 
     /* If the caller is Lua, we want to force the EVAL caller to propagate
      * the script if the command flag or client flag are forcing the
