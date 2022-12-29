@@ -32,10 +32,14 @@
 #include "cluster.h"
 #include "script.h"
 #include "fpconv_dtoa.h"
+#include <net/if.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
 #include <ctype.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
@@ -1232,6 +1236,12 @@ int clientHasPendingReplies(client *c) {
 
 /* Return true if client connected from loopback interface */
 int islocalClient(client *c) {
+    struct ifaddrs *ifa, *addrs;
+    struct sockaddr_in *s4;
+    struct sockaddr_in6 *s6;
+    void *in_addr;
+    char loip[NET_IP_STR_LEN + 1];
+
     /* unix-socket */
     if (c->flags & CLIENT_UNIX_SOCKET) return 1;
 
@@ -1239,7 +1249,34 @@ int islocalClient(client *c) {
     char cip[NET_IP_STR_LEN+1] = { 0 };
     connAddrPeerName(c->conn, cip, sizeof(cip)-1, NULL);
 
-    return !strcmp(cip,"127.0.0.1") || !strcmp(cip,"::1");
+    if (getifaddrs(&addrs) != 0) return 0;
+    for (ifa = addrs; ifa != NULL; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr ||
+            !(ifa->ifa_flags & IFF_UP) ||
+            !(ifa->ifa_flags & IFF_LOOPBACK))
+            continue;
+
+        switch (ifa->ifa_addr->sa_family) {
+            case AF_INET:
+                s4 = (struct sockaddr_in *)ifa->ifa_addr;
+                in_addr = &s4->sin_addr;
+                break;
+            case AF_INET6:
+                s6 = (struct sockaddr_in6 *)ifa->ifa_addr;
+                in_addr = &s6->sin6_addr;
+                break;
+            default:
+                continue;
+        }
+
+        if (inet_ntop(ifa->ifa_addr->sa_family, in_addr, loip, sizeof(loip)) &&
+            !strncmp(cip, loip, NET_IP_STR_LEN))
+            return 1;
+    }
+
+    freeifaddrs(addrs);
+
+    return 0;
 }
 
 void clientAcceptHandler(connection *conn) {
