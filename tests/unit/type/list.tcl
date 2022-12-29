@@ -2284,7 +2284,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd BLPOP mylist 0
         wait_for_blocked_clients_count 1
         
-        # unblock the client on timout
+        # unblock the client on timeout
         r client unblock $id timeout
         
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdrstat blpop r]
