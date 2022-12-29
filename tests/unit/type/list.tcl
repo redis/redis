@@ -2274,13 +2274,18 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         
         # create a test client
         set rd [redis_deferring_client]
-        
+        $rd client id
+        set id [$rd read]
+
         # reset the server stats
         r config resetstat
         
         # block a client on the list
-        $rd BLPOP mylist 0.01
-        wait_for_blocked_clients_count 0
+        $rd BLPOP mylist 0
+        wait_for_blocked_clients_count 1
+        
+        # unblock the client on timout
+        r client unblock $id timeout
         
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdrstat blpop r]
         
