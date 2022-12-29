@@ -97,9 +97,11 @@ void blockClient(client *c, int btype) {
     addClientToTimeoutTable(c);
 }
 
-/* This function is called after a client has finished a blocking operation
- * in order to update the total command duration, log the command into
- * the Slow log if needed, and log the reply duration event if needed. */
+/* Usually when a client is unblocked due to being blocked while processing some command
+ * he will attempt to reprocess the command which will update the statistics.
+ * However in case the client was timed out or in case of module blocked client is being unblocked
+ * the command will not be reprocessed and we need to make stats update.
+ * This function will make updates to the commandstats, slowlog and monitors.*/
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors){
     const ustime_t total_cmd_duration = c->duration + blocked_us + reply_us;
     c->lastcmd->microseconds += total_cmd_duration;

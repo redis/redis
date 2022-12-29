@@ -3505,9 +3505,11 @@ void call(client *c, int flags) {
         slowlogPushCurrentCommand(c, real_cmd, c->duration);
 
     /* Send the command to clients in MONITOR mode if applicable,
-     * unless the client is unblocked and retring to process the command.
+     * unless the client is unblocked and retring to process the command
+     * or we are currently in the process of loading AOF.
      * Administrative commands are considered too dangerous to be shown. */
-    if (!(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)) && !(c->flags & CLIENT_BLOCKED)) {
+    if (update_command_stats &&
+        !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)) && !(c->flags & CLIENT_BLOCKED)) {
         robj **argv = c->original_argv ? c->original_argv : c->argv;
         int argc = c->original_argv ? c->original_argc : c->argc;
         replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
