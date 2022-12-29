@@ -57,6 +57,7 @@
  * from tail to head, useful for ZREVRANGE. */
 
 #include "server.h"
+#include "intset.h"  /* Compact integer set structure */
 #include <math.h>
 
 /*-----------------------------------------------------------------------------
@@ -2257,26 +2258,13 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
         return 0;
 
     if (op->type == OBJ_SET) {
-        if (op->encoding == OBJ_ENCODING_INTSET) {
-            if (zuiLongLongFromValue(val) &&
-                intsetFind(op->subject->ptr,val->ell))
-            {
-                *score = 1.0;
-                return 1;
-            } else {
-                return 0;
-            }
-        } else if (op->encoding == OBJ_ENCODING_HT) {
-            dict *ht = op->subject->ptr;
-            zuiSdsFromValue(val);
-            if (dictFind(ht,val->ele) != NULL) {
-                *score = 1.0;
-                return 1;
-            } else {
-                return 0;
-            }
+        char *str = val->ele ? val->ele : (char *)val->estr;
+        size_t len = val->ele ? sdslen(val->ele) : val->elen;
+        if (setTypeIsMemberAux(op->subject, str, len, val->ell, val->ele != NULL)) {
+            *score = 1.0;
+            return 1;
         } else {
-            serverPanic("Unknown set encoding");
+            return 0;
         }
     } else if (op->type == OBJ_ZSET) {
         zuiSdsFromValue(val);

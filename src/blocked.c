@@ -309,8 +309,6 @@ void handleClientsBlockedOnKeys(void) {
     /* This function is called only when also_propagate is in its basic state
      * (i.e. not from call(), module context, etc.) */
     serverAssert(server.also_propagate.numops == 0);
-    int prev_core_propagates = server.core_propagates;
-    server.core_propagates = 1;
 
     while(listLength(server.ready_keys) != 0) {
         list *l;
@@ -339,11 +337,6 @@ void handleClientsBlockedOnKeys(void) {
         }
         listRelease(l); /* We have the new list on place at this point. */
     }
-
-    serverAssert(server.core_propagates); /* This function should not be re-entrant */
-
-    server.core_propagates = prev_core_propagates;
-
     in_handling_blocked_clients = 0;
 }
 

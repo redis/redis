@@ -71,7 +71,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
-#include "intset.h"  /* Compact integer set structure */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
@@ -1183,7 +1182,7 @@ typedef struct client {
     rax *client_tracking_prefixes; /* A dictionary of prefixes we are already
                                       subscribed to in BCAST mode, in the
                                       context of client side caching. */
-    /* In updateClientMemUsage() we track the memory usage of
+    /* In updateClientMemoryUsage() we track the memory usage of
      * each client and add it to the sum of all the clients of a given type,
      * however we need to remember what was the old contribution of each
      * client, and in which category the client was, in order to remove it
@@ -1502,8 +1501,6 @@ struct redisServer {
     int in_exec;                /* Are we inside EXEC? */
     int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
     const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
-    int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
-    int module_ctx_nesting;     /* moduleCreateContext() nesting level */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     int thp_enabled;                 /* If true, THP is enabled. */
@@ -1537,10 +1534,12 @@ struct redisServer {
     client *current_client;     /* Current client executing the command. */
 
     /* Stuff for client mem eviction */
-    clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];
+    clientMemUsageBucket* client_mem_usage_buckets;
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
-    int in_nested_call;         /* If > 0, in a nested call of a call */
+    int execution_nesting;      /* Execution nesting level.
+                                 * e.g. call(), async module stuff (timers, events, etc.),
+                                 * cron stuff (active expire, eviction) */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */
@@ -2421,6 +2420,7 @@ void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 void firePostExecutionUnitJobs();
 void moduleCallCommandFilters(client *c);
+void modulePostExecutionUnitOperations();
 void ModuleForkDoneHandler(int exitcode, int bysignal);
 int TerminateModuleForkChild(int child_pid, int wait);
 ssize_t rdbSaveModulesAux(rio *rdb, int when);
@@ -2563,8 +2563,8 @@ int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
 int islocalClient(client *c);
-int updateClientMemUsage(client *c);
-void updateClientMemUsageBucket(client *c);
+int updateClientMemUsageAndBucket(client *c);
+void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
@@ -2998,8 +2998,11 @@ int restartServer(int flags, mstime_t delay);
 /* Set data type */
 robj *setTypeCreate(sds value);
 int setTypeAdd(robj *subject, sds value);
+int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeRemove(robj *subject, sds value);
+int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeIsMember(robj *subject, sds value);
+int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 setTypeIterator *setTypeInitIterator(robj *subject);
 void setTypeReleaseIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
@@ -3008,6 +3011,7 @@ int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
 unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
 unsigned long setTypeSize(const robj *subject);
 void setTypeConvert(robj *subject, int enc);
+int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
 
 /* Hash data type */
@@ -3102,6 +3106,8 @@ void initConfigValues();
 void removeConfig(sds name);
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
+void initServerClientMemUsageBuckets();
+void freeServerClientMemUsageBuckets();
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;

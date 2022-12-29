@@ -7359,9 +7359,6 @@ void slotToKeyDestroy(redisDb *db) {
 unsigned int delKeysInSlot(unsigned int hashslot) {
     unsigned int j = 0;
 
-    server.core_propagates = 1;
-    server.in_nested_call++;
-
     dictEntry *de = (*server.db->slots_to_keys).by_slot[hashslot].head;
     while (de != NULL) {
         sds sdskey = dictGetKey(de);
@@ -7376,10 +7373,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         j++;
         server.dirty++;
     }
-    serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
-    server.core_propagates = 0;
-    server.in_nested_call--;
     return j;
 }
 

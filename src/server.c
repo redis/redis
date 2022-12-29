@@ -843,37 +843,44 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
     return &server.client_mem_usage_buckets[bucket_idx];
 }
 
-/* This is called both on explicit clients when something changed their buffers,
- * so we can track clients' memory and enforce clients' maxmemory in real time,
- * and also from the clientsCron. We call it from the cron so we have updated
- * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients and in case a configuration
- * change requires us to evict a non-active client.
+/*
+ * This method updates the client memory usage and update the
+ * server stats for client type.
  *
- * This also adds the client to the correct memory usage bucket. Each bucket contains
- * all clients with roughly the same amount of memory. This way we group
- * together clients consuming about the same amount of memory and can quickly
- * free them in case we reach maxmemory-clients (client eviction).
+ * This method is called from the clientsCron to have updated
+ * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients to accurately
+ * provide information around clients memory usage.
+ *
+ * It is also used in updateClientMemUsageAndBucket to have latest
+ * client memory usage information to place it into appropriate client memory
+ * usage bucket.
  */
-int updateClientMemUsage(client *c) {
-    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+void updateClientMemoryUsage(client *c) {
     size_t mem = getClientMemoryUsage(c, NULL);
     int type = getClientType(c);
+    /* Now that we have the memory used by the client, remove the old
+     * value from the old category, and add it back. */
+    server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
+    server.stat_clients_type_memory[type] += mem;
+    /* Remember what we added and where, to remove it next time. */
+    c->last_memory_type = type;
+    c->last_memory_usage = mem;
+}
 
-    /* Remove the old value of the memory used by the client from the old
-     * category, and add it back. */
-    if (type != c->last_memory_type) {
-        server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
-        server.stat_clients_type_memory[type] += mem;
-        c->last_memory_type = type;
-    } else {
-        server.stat_clients_type_memory[type] += mem - c->last_memory_usage;
+int clientEvictionAllowed(client *c) {
+    if (server.maxmemory_clients == 0 || c->flags & CLIENT_NO_EVICT) {
+        return 0;
     }
+    int type = getClientType(c);
+    return (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB);
+}
 
-    int allow_eviction =
-            (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
-            !(c->flags & CLIENT_NO_EVICT);
 
-    /* Update the client in the mem usage buckets */
+/* This function is used to cleanup the client's previously tracked memory usage.
+ * This is called during incremental client memory usage tracking as well as
+ * used to reset when client to bucket allocation is not required when 
+ * client eviction is disabled.  */
+void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
     if (c->mem_usage_bucket) {
         c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
         /* If this client can't be evicted then remove it from the mem usage
@@ -884,23 +891,48 @@ int updateClientMemUsage(client *c) {
             c->mem_usage_bucket_node = NULL;
         }
     }
-    if (allow_eviction) {
-        clientMemUsageBucket *bucket = getMemUsageBucket(mem);
-        bucket->mem_usage_sum += mem;
-        if (bucket != c->mem_usage_bucket) {
-            if (c->mem_usage_bucket)
-                listDelNode(c->mem_usage_bucket->clients,
-                            c->mem_usage_bucket_node);
-            c->mem_usage_bucket = bucket;
-            listAddNodeTail(bucket->clients, c);
-            c->mem_usage_bucket_node = listLast(bucket->clients);
-        }
+}
+
+/* This is called only if explicit clients when something changed their buffers,
+ * so we can track clients' memory and enforce clients' maxmemory in real time.
+ *
+ * This also adds the client to the correct memory usage bucket. Each bucket contains
+ * all clients with roughly the same amount of memory. This way we group
+ * together clients consuming about the same amount of memory and can quickly
+ * free them in case we reach maxmemory-clients (client eviction).
+ *
+ * Note: This function filters clients of type monitor, master or replica regardless
+ * of whether the eviction is enabled or not, so the memory usage we get from these
+ * types of clients via the INFO command may be out of date. If someday we wanna
+ * improve that to make monitors' memory usage more accurate, we need to re-add this
+ * function call to `replicationFeedMonitors()`.
+ *
+ * returns 1 if client eviction for this client is allowed, 0 otherwise.
+ */
+int updateClientMemUsageAndBucket(client *c) {
+    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+    int allow_eviction = clientEvictionAllowed(c);
+    removeClientFromMemUsageBucket(c, allow_eviction);
+
+    if (!allow_eviction) {
+        return 0;
     }
 
-    /* Remember what we added, to remove it next time. */
-    c->last_memory_usage = mem;
+    /* Update client memory usage. */
+    updateClientMemoryUsage(c);
 
-    return 0;
+    /* Update the client in the mem usage buckets */
+    clientMemUsageBucket *bucket = getMemUsageBucket(c->last_memory_usage);
+    bucket->mem_usage_sum += c->last_memory_usage;
+    if (bucket != c->mem_usage_bucket) {
+        if (c->mem_usage_bucket)
+            listDelNode(c->mem_usage_bucket->clients,
+                        c->mem_usage_bucket_node);
+        c->mem_usage_bucket = bucket;
+        listAddNodeTail(bucket->clients, c);
+        c->mem_usage_bucket_node = listLast(bucket->clients);
+    }
+    return 1;
 }
 
 /* Return the max samples in the memory usage of clients tracked by
@@ -988,8 +1020,11 @@ void clientsCron(void) {
          * in turn would make the INFO command too slow. So we perform this
          * computation incrementally and track the (not instantaneous but updated
          * to the second) total memory used by clients using clientsCron() in
-         * a more incremental way (depending on server.hz). */
-        if (updateClientMemUsage(c)) continue;
+         * a more incremental way (depending on server.hz).
+         * If client eviction is enabled, update the bucket as well. */
+        if (!updateClientMemUsageAndBucket(c))
+            updateClientMemoryUsage(c);
+
         if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
     }
 }
@@ -1869,6 +1904,25 @@ void createSharedObjects(void) {
     shared.maxstring = sdsnew("maxstring");
 }
 
+void initServerClientMemUsageBuckets() {
+    if (server.client_mem_usage_buckets)
+        return;
+    server.client_mem_usage_buckets = zmalloc(sizeof(clientMemUsageBucket)*CLIENT_MEM_USAGE_BUCKETS);
+    for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
+        server.client_mem_usage_buckets[j].mem_usage_sum = 0;
+        server.client_mem_usage_buckets[j].clients = listCreate();
+    }
+}
+
+void freeServerClientMemUsageBuckets() {
+    if (!server.client_mem_usage_buckets)
+        return;
+    for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++)
+        listRelease(server.client_mem_usage_buckets[j].clients);
+    zfree(server.client_mem_usage_buckets);
+    server.client_mem_usage_buckets = NULL;
+}
+
 void initServerConfig(void) {
     int j;
     char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
@@ -2437,7 +2491,7 @@ void initServer(void) {
     server.main_thread_id = pthread_self();
     server.current_client = NULL;
     server.errors = raxNew();
-    server.in_nested_call = 0;
+    server.execution_nesting = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
@@ -2465,17 +2519,13 @@ void initServer(void) {
     server.cluster_drop_packet_filter = -1;
     server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     server.reply_buffer_resizing_enabled = 1;
+    server.client_mem_usage_buckets = NULL;
     resetReplicationBuffer();
 
     /* Make sure the locale is set on startup based on the config file. */
     if (setlocale(LC_COLLATE,server.locale_collate) == NULL) {
         serverLog(LL_WARNING, "Failed to configure LOCALE for invalid locale name.");
         exit(1);
-    }
-
-    for (j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
-        server.client_mem_usage_buckets[j].mem_usage_sum = 0;
-        server.client_mem_usage_buckets[j].clients = listCreate();
     }
 
     createSharedObjects();
@@ -2514,8 +2564,6 @@ void initServer(void) {
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
     server.busy_module_yield_reply = NULL;
-    server.core_propagates = 0;
-    server.module_ctx_nesting = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
@@ -2610,6 +2658,9 @@ void initServer(void) {
     ACLUpdateDefaultUserPassword(server.requirepass);
 
     applyWatchdogPeriod();
+
+    if (server.maxmemory_clients != 0)
+        initServerClientMemUsageBuckets();
 }
 
 void initListeners() {
@@ -3280,16 +3331,19 @@ static void propagatePendingCommands() {
  * What we want to achieve is that the entire execution unit will be done atomically,
  * currently with respect to replication and post jobs, but in the future there might
  * be other considerations. So we basically want the `postUnitOperations` to trigger
- * after the entire chain finished.
- *
- * Current, in order to avoid massive code changes that could be risky to cherry-pick,
- * we count on the mechanism we already have such as `server.core_propagation`,
- * `server.module_ctx_nesting`, and `server.in_nested_call`. We understand that we probably
- * do not need all of those variable and we will make an attempt to re-arrange it on unstable
- * branch. */
+ * after the entire chain finished. */
 void postExecutionUnitOperations() {
+    if (server.execution_nesting)
+        return;
+
     firePostExecutionUnitJobs();
+
+    /* If we are at the top-most call() and not inside a an active module
+     * context (e.g. within a module timer) we can propagate what we accumulated. */
     propagatePendingCommands();
+
+    /* Module subsystem post-execution-unit logic */
+    modulePostExecutionUnitOperations();
 }
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).
@@ -3372,13 +3426,7 @@ void call(client *c, int flags) {
      * The only other option to get to call() without having processCommand
      * as an entry point is if a module triggers RM_Call outside of call()
      * context (for example, in a timer).
-     * In that case, the module is in charge of propagation.
-     *
-     * Because call() is re-entrant we have to cache and restore
-     * server.core_propagates. */
-    int prev_core_propagates = server.core_propagates;
-    if (!server.core_propagates && !(flags & CMD_CALL_FROM_MODULE))
-        server.core_propagates = 1;
+     * In that case, the module is in charge of propagation. */
 
     /* Call the command. */
     dirty = server.dirty;
@@ -3387,8 +3435,8 @@ void call(client *c, int flags) {
     const long long call_timer = ustime();
 
     /* Update cache time, in case we have nested calls we want to
-     * update only on the first call*/
-    if (server.in_nested_call++ == 0) {
+     * update only on the first call */
+    if (server.execution_nesting++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
     }
 
@@ -3397,7 +3445,7 @@ void call(client *c, int flags) {
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
-    server.in_nested_call--;
+    server.execution_nesting--;
 
     /* In order to avoid performance implication due to querying the clock using a system call 3 times,
      * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
@@ -3554,8 +3602,6 @@ void call(client *c, int flags) {
     if (!server.in_exec && server.client_pause_in_transaction) {
         server.client_pause_in_transaction = 0;
     }
-
-    server.core_propagates = prev_core_propagates;
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
@@ -3600,17 +3646,10 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
     UNUSED(c);
-    if (!server.in_nested_call) {
-        /* If we are at the top-most call() we can propagate what we accumulated.
-         * Should be done before trackingHandlePendingKeyInvalidations so that we
-         * reply to client before invalidating cache (makes more sense) */
-        if (server.core_propagates) {
-            postExecutionUnitOperations();
-        }
-        /* Flush pending invalidation messages only when we are not in nested call.
-         * So the messages are not interleaved with transaction response. */
-        trackingHandlePendingKeyInvalidations();
-    }
+    /* Should be done before trackingHandlePendingKeyInvalidations so that we
+     * reply to client before invalidating cache (makes more sense) */
+    postExecutionUnitOperations();
+    trackingHandlePendingKeyInvalidations();
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.
@@ -6824,6 +6863,7 @@ int iAmMaster(void) {
 
 #ifdef REDIS_TEST
 #include "testhelp.h"
+#include "intset.h"  /* Compact integer set structure */
 
 int __failed_tests = 0;
 int __test_num = 0;
@@ -7038,6 +7078,24 @@ int main(int argc, char **argv) {
                          * In this case, we append an empty "" config value to the options,
                          * so it will become `--save ""` and will follow the same reset thing. */
                         options = sdscat(options, "\"\"");
+                    }
+                    else if ((j != argc-1) && argv[j+1][0] == '-' && argv[j+1][1] == '-' &&
+                        !strcasecmp(argv[j], "--sentinel"))
+                    {
+                        /* Special case: handle some things like `--sentinel --config value`.
+                         * It is a pseudo config option with no value. In this case, if next
+                         * argument starts with `--`, we will reset handled_last_config_arg flag.
+                         * We are doing it to be compatible with pre 7.0 behavior (which we
+                         * break it in #10660, 7.0.1). */
+                        options = sdscat(options, "");
+                        handled_last_config_arg = 1;
+                    }
+                    else if ((j == argc-1) && !strcasecmp(argv[j], "--sentinel")) {
+                        /* Special case: when --sentinel is the last argument.
+                         * It is a pseudo config option with no value. In this case, do nothing.
+                         * We are doing it to be compatible with pre 7.0 behavior (which we
+                         * break it in #10660, 7.0.1). */
+                        options = sdscat(options, "");
                     }
                 } else {
                     /* Means that we are passing both config name and it's value in the same arg,
