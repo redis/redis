@@ -1270,8 +1270,10 @@ int islocalClient(client *c) {
         }
 
         if (inet_ntop(ifa->ifa_addr->sa_family, in_addr, loip, sizeof(loip)) &&
-            !strncmp(cip, loip, NET_IP_STR_LEN))
+            !strncmp(cip, loip, NET_IP_STR_LEN)) {
+            freeifaddrs(addrs);
             return 1;
+        }
     }
 
     freeifaddrs(addrs);
