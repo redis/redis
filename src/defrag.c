@@ -248,11 +248,11 @@ void activeDefragSdsDict(dict* d, int val_type) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = activeDefragSds,
-        .defragVal = (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS ? activeDefragSds :
-                      val_type == DEFRAG_SDS_DICT_VAL_IS_STROB ? activeDefragStringOb :
-                      val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR ? activeDefragAlloc :
-                      val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ? activeDefragLuaScript :
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragVal = (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
+                      val_type == DEFRAG_SDS_DICT_VAL_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
+                      val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR ? (dictDefragAllocFunction *)activeDefragAlloc :
+                      val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ? (dictDefragAllocFunction *)activeDefragLuaScript :
                       NULL)
     };
     do {
@@ -404,7 +404,7 @@ void scanLaterSet(robj *ob, unsigned long *cursor) {
     dict *d = ob->ptr;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = activeDefragSds
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds
     };
     *cursor = dictScanDefrag(d, *cursor, scanCallbackCountScanned, &defragfns, NULL);
 }
@@ -415,8 +415,8 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
     dict *d = ob->ptr;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = activeDefragSds,
-        .defragVal = activeDefragSds
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragVal = (dictDefragAllocFunction *)activeDefragSds
     };
     *cursor = dictScanDefrag(d, *cursor, scanCallbackCountScanned, &defragfns, NULL);
 }
