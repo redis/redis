@@ -3871,6 +3871,23 @@ void clusterLogCantFailover(int reason) {
     lastlog_time = time(NULL);
     serverLog(LL_WARNING,"Currently unable to failover: %s", msg);
 }
+/* This function emits a log when an election is attempted but doesn't succeed. */
+static void clusterLogNeededquorumNotReached(int cur_vote, int cur_quorum) {
+    static time_t lastlog_time = 0;
+    static int last_vote;
+    static int last_quorum;
+
+    /* Don't log if we have same vote and quorum for some time. 
+    (logging frequency is the same as in clusterLogCantFailover()) */
+    if (last_vote == cur_vote && last_quorum == cur_quorum && 
+        time(NULL)-lastlog_time < CLUSTER_CANT_FAILOVER_RELOG_PERIOD) 
+        return;
+
+    last_vote = cur_vote;
+    last_quorum = cur_quorum;
+    lastlog_time = time(NULL);
+    serverLog(LL_WARNING, "Currently unable to failover as the majority was not reached. Needed quorum: %i. Number of votes received so far: %i", cur_quorum, cur_vote);
+}
 
 /* This function implements the final part of automatic and manual failovers,
  * where the slave grabs its master's hash slots, and propagates the new
@@ -4084,6 +4101,7 @@ void clusterHandleSlaveFailover(void) {
         clusterFailoverReplaceYourMaster();
     } else {
         clusterLogCantFailover(CLUSTER_CANT_FAILOVER_WAITING_VOTES);
+        clusterLogNeededquorumNotReached(server.cluster->failover_auth_count, needed_quorum);
     }
 }
 
