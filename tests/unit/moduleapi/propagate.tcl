@@ -733,13 +733,16 @@ tags "modules aof" {
             r set foo bar
             r EVAL {return redis.call('SET', KEYS[1], ARGV[1])} 1 foo bar2
             r test.rm_call_replicate set foo bar3
+            r EVAL {return redis.call('test.rm_call_replicate',ARGV[1],KEYS[1],ARGV[2])} 1 foo set bar4
+            
             r multi
-            r set foo bar4
-            r EVAL {return redis.call('SET', KEYS[1], ARGV[1])} 1 foo bar5
-            r test.rm_call_replicate set foo bar6
+            r set foo bar5
+            r EVAL {return redis.call('SET', KEYS[1], ARGV[1])} 1 foo bar6
+            r test.rm_call_replicate set foo bar7
+            r EVAL {return redis.call('test.rm_call_replicate',ARGV[1],KEYS[1],ARGV[2])} 1 foo set bar8
             r exec
 
-            assert_match {*calls=6,*,rejected_calls=0,failed_calls=0} [cmdrstat set r]
+            assert_match {*calls=8,*,rejected_calls=0,failed_calls=0} [cmdrstat set r]
             
             
             # Load the AOF

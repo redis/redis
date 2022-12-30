@@ -7767,8 +7767,7 @@ void moduleBlockedClientTimedOut(client *c) {
     long long prev_error_replies = server.stat_total_error_replies;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
-    long blocked_duration = bc->blocked_on_keys ? 0 : bc->background_duration;
-    updateStatsOnUnblock(c, blocked_duration, 0, server.stat_total_error_replies != prev_error_replies);
+    updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
 
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in
