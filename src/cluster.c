@@ -3872,7 +3872,7 @@ void clusterLogCantFailover(int reason) {
     serverLog(LL_WARNING,"Currently unable to failover: %s", msg);
 }
 
-/* This function emits a log when an election is attempted but doesn't succeed. */
+/* This function emits a log when an election is attempted but doesn't succeed because the quorum is not reached. */
 static void clusterLogNeededquorumNotReached(int cur_vote, int cur_quorum) {
     static time_t lastlog_time = 0;
     static int last_vote;
