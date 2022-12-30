@@ -332,8 +332,6 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
     dictEntry *entry;
     int htidx;
 
-    if (dictIsRehashing(d)) _dictRehashStep(d);
-
     /* Get the index of the new element, or -1 if
      * the element already exists. */
     if ((index = _dictKeyIndex(d, key, dictHashKey(d,key), existing)) == -1)
@@ -355,6 +353,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 
     /* Set the hash entry fields. */
     dictSetKey(d, entry, key);
+    if (dictIsRehashing(d)) _dictRehashStep(d);
     return entry;
 }
 
