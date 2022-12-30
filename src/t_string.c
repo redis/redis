@@ -31,7 +31,7 @@
 #include <math.h> /* isnan(), isinf() */
 
 /* Forward declarations */
-int getGenericCommand(client *c);
+int getGenericCommand(client *c, int write, int *found);
 
 /*-----------------------------------------------------------------------------
  * String Commands
@@ -85,10 +85,10 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 
     if (flags & OBJ_SET_GET) {
-        if (getGenericCommand(c) == C_ERR) return;
+        if (getGenericCommand(c, 1, &found) == C_ERR) return;
+    } else {
+        found = (lookupKeyWrite(c->db,key) != NULL);
     }
-
-    found = (lookupKeyWrite(c->db,key) != NULL);
 
     if ((flags & OBJ_SET_NX && found) ||
         (flags & OBJ_SET_XX && !found))
@@ -312,11 +312,27 @@ void psetexCommand(client *c) {
     setGenericCommand(c,OBJ_PX,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
 
-int getGenericCommand(client *c) {
+/* The getGenericCommand() function is called in order to implement GET, GETDEL and GETSET command.
+ * If 'write' is zero, we use lookupKeyReadOrReply() to look for the key and reply, otherwise we use
+ * lookupKey() with LOOKUP_READ|LOOKUP_WRITE flags to get the effect of both read and write. (GETSET 
+ * command use this). 
+ * If 'found' is not NULL, we set *found to 1 if we found the key, or 0 if the key doesn't exist. */
+int getGenericCommand(client *c, int write, int *found) {
     robj *o;
+    if (found) *found = 0;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
-        return C_OK;
+    if (write) {
+        o = lookupKeyWriteWithFlags(c->db, c->argv[1], LOOKUP_READ); /* Use LOOKUP_READ|LOOKUP_WRITE */
+        if (!o) {
+            addReplyOrErrorObject(c, shared.null[c->resp]);
+            return C_OK;
+        }
+    } else {
+        if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
+            return C_OK;
+    }
+
+    if (found) *found = 1;
 
     if (checkType(c,o,OBJ_STRING)) {
         return C_ERR;
@@ -327,7 +343,7 @@ int getGenericCommand(client *c) {
 }
 
 void getCommand(client *c) {
-    getGenericCommand(c);
+    getGenericCommand(c, 0, NULL);
 }
 
 /*
@@ -411,7 +427,7 @@ void getexCommand(client *c) {
 }
 
 void getdelCommand(client *c) {
-    if (getGenericCommand(c) == C_ERR) return;
+    if (getGenericCommand(c, 0, NULL) == C_ERR) return;
     if (dbSyncDelete(c->db, c->argv[1])) {
         /* Propagate as DEL command */
         rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
@@ -422,9 +438,11 @@ void getdelCommand(client *c) {
 }
 
 void getsetCommand(client *c) {
-    if (getGenericCommand(c) == C_ERR) return;
+    int found, setkey_flags;
+    if (getGenericCommand(c, 1, &found) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c,c->db,c->argv[1],c->argv[2],0);
+    setkey_flags = found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
+    setKey(c,c->db,c->argv[1],c->argv[2],setkey_flags);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 
