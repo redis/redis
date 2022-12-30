@@ -2418,20 +2418,6 @@ void xreadCommand(client *c) {
              * of the stream and the data we extracted from it. */
             if (c->resp == 2) addReplyArrayLen(c,2);
             addReplyBulk(c,c->argv[streams_arg+i]);
-            streamConsumer *consumer = NULL;
-            streamPropInfo spi = {c->argv[i+streams_arg],groupname};
-            if (groups) {
-                consumer = streamLookupConsumer(groups[i],consumername->ptr,SLC_DEFAULT);
-                if (consumer == NULL) {
-                    consumer = streamCreateConsumer(groups[i],consumername->ptr,
-                                                    c->argv[streams_arg+i],
-                                                    c->db->id,SCC_DEFAULT);
-                    if (noack)
-                        streamPropagateConsumerCreation(c,spi.keyname,
-                                                        spi.groupname,
-                                                        consumer->name);
-                }
-            }
             int flags = 0;
             if (noack) flags |= STREAM_RWR_NOACK;
             if (serve_history) flags |= STREAM_RWR_HISTORY;
