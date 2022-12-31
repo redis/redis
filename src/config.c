@@ -2904,7 +2904,7 @@ static sds getConfigReplicaOfOption(standardConfig *config) {
 
 int allowProtectedAction(int config, client *c) {
     return (config == PROTECTED_ACTION_ALLOWED_YES) ||
-           (config == PROTECTED_ACTION_ALLOWED_LOCAL && islocalClient(c));
+           (config == PROTECTED_ACTION_ALLOWED_LOCAL && (connIsLocal(c->conn) == 1));
 }
 
 
