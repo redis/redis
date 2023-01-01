@@ -3420,7 +3420,7 @@ void call(client *c, int flags) {
     /* We want to be aware of a client which is making a first time attempt to execut this command
      * and a client which is reprocessing command again (after being unblocked).
      * Blocked clients can be blocked in different places and not always it means the call() function has been
-     * called. For example this is requiered for avoiding double loging to monitors.*/
+     * called. For example this is required for avoiding double logging to monitors.*/
     int reprocessing_command = ((!server.execution_nesting) && (c->flags & CLIENT_EXECUTING_COMMAND)) ? 1 : 0;
 
     /* Initialization: clear the flags that must be set by the command on
