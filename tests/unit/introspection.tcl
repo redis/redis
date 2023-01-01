@@ -173,6 +173,26 @@ start_server {tags {"introspection"}} {
 
         $rd close
     }
+    
+    test {MONITOR log blocked command only once} {
+        set rd [redis_deferring_client]
+        set bc [redis_deferring_client]
+
+        r del mylist
+        
+        $rd monitor
+        $rd read ; # Discard the OK
+        
+        $bc blpop mylist 0
+        wait_for_blocked_clients_count 1
+        assert_match {*"blpop"*"mylist"*"0"*} [$rd read]
+        r lpush mylist 1
+        wait_for_blocked_clients_count 0
+        assert_no_match {*"blpop"*"mylist"*"0"*} [$rd read]
+        
+        $rd close
+        $bc close
+    }
 
     test {CLIENT GETNAME should return NIL if name is not assigned} {
         r client getname
