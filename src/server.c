@@ -3440,7 +3440,7 @@ void call(client *c, int flags) {
 
     const long long call_timer = ustime();
 
-    /* Update cache time, anf indicate we are starting command execution.
+    /* Update cache time, and indicate we are starting command execution.
      * in case we have nested calls we want to update only on the first call */
     if (server.execution_nesting++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
