@@ -181,7 +181,6 @@ start_server {tags {"introspection"}} {
         
         set rd [redis_deferring_client]
         set bc [redis_deferring_client]
-        puts [r client list]
         r del mylist
         
         $rd monitor
