@@ -1120,8 +1120,13 @@ void hrandfieldCommand(client *c) {
         if (c->argc > 4 || (c->argc == 4 && strcasecmp(c->argv[3]->ptr,"withvalues"))) {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
-        } else if (c->argc == 4)
+        } else if (c->argc == 4) {
             withvalues = 1;
+            if (l < LONG_MIN/2 || l > LONG_MAX/2) {
+                addReplyError(c,"value is out of range");
+                return;
+            }
+        }
         hrandfieldWithCountCommand(c, l, withvalues);
         return;
     }
