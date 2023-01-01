@@ -3480,11 +3480,7 @@ void waitCommand(client *c) {
 
     /* Otherwise block the client and put it into our list of clients
      * waiting for ack from slaves. */
-    c->bpop.timeout = timeout;
-    c->bpop.reploffset = offset;
-    c->bpop.numreplicas = numreplicas;
-    listAddNodeHead(server.clients_waiting_acks,c);
-    blockClient(c,BLOCKED_WAIT);
+    blockForReplication(c,timeout,offset,numreplicas);
 
     /* Make sure that the server will send an ACK request to all the slaves
      * before returning to the event loop. */
@@ -3518,16 +3514,16 @@ void processClientsWaitingReplicas(void) {
          * offset and number of replicas, we remember it so the next client
          * may be unblocked without calling replicationCountAcksByOffset()
          * if the requested offset / replicas were equal or less. */
-        if (last_offset && last_offset >= c->bpop.reploffset &&
-                           last_numreplicas >= c->bpop.numreplicas)
+        if (last_offset && last_offset >= c->bstate.reploffset &&
+                           last_numreplicas >= c->bstate.numreplicas)
         {
             unblockClient(c);
             addReplyLongLong(c,last_numreplicas);
         } else {
-            int numreplicas = replicationCountAcksByOffset(c->bpop.reploffset);
+            int numreplicas = replicationCountAcksByOffset(c->bstate.reploffset);
 
-            if (numreplicas >= c->bpop.numreplicas) {
-                last_offset = c->bpop.reploffset;
+            if (numreplicas >= c->bstate.numreplicas) {
+                last_offset = c->bstate.reploffset;
                 last_numreplicas = numreplicas;
                 unblockClient(c);
                 addReplyLongLong(c,numreplicas);

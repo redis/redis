@@ -7215,10 +7215,10 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
  * returns 1. Otherwise 0 is returned and no operation is performed. */
 int clusterRedirectBlockedClientIfNeeded(client *c) {
     if (c->flags & CLIENT_BLOCKED &&
-        (c->btype == BLOCKED_LIST ||
-         c->btype == BLOCKED_ZSET ||
-         c->btype == BLOCKED_STREAM ||
-         c->btype == BLOCKED_MODULE))
+        (c->bstate.btype == BLOCKED_LIST ||
+         c->bstate.btype == BLOCKED_ZSET ||
+         c->bstate.btype == BLOCKED_STREAM ||
+         c->bstate.btype == BLOCKED_MODULE))
     {
         dictEntry *de;
         dictIterator *di;
@@ -7234,11 +7234,11 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
 
         /* If the client is blocked on module, but not on a specific key,
          * don't unblock it (except for the CLUSTER_FAIL case above). */
-        if (c->btype == BLOCKED_MODULE && !moduleClientIsBlockedOnKeys(c))
+        if (c->bstate.btype == BLOCKED_MODULE && !moduleClientIsBlockedOnKeys(c))
             return 0;
 
         /* All keys must belong to the same slot, so check first key only. */
-        di = dictGetIterator(c->bpop.keys);
+        di = dictGetIterator(c->bstate.keys);
         if ((de = dictNext(di)) != NULL) {
             robj *key = dictGetKey(de);
             int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));

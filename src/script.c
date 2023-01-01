@@ -559,7 +559,7 @@ void scriptCall(scriptRunCtx *run_ctx, sds *err) {
         goto error;
     }
 
-    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
+    int call_flags = CMD_CALL_NONE;
     if (run_ctx->repl_flags & PROPAGATE_AOF) {
         call_flags |= CMD_CALL_PROPAGATE_AOF;
     }

@@ -6158,7 +6158,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     server.replication_allowed = replicate && server.replication_allowed;
 
     /* Run the command */
-    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_FROM_MODULE;
+    int call_flags = CMD_CALL_FROM_MODULE;
     if (replicate) {
         if (!(flags & REDISMODULE_ARGV_NO_AOF))
             call_flags |= CMD_CALL_PROPAGATE_AOF;
@@ -7282,7 +7282,7 @@ void RM_LatencyAddSample(const char *event, mstime_t latency) {
  * The structure RedisModuleBlockedClient will be always deallocated when
  * running the list of clients blocked by a module that need to be unblocked. */
 void unblockClientFromModule(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Call the disconnection callback if any. Note that
      * bc->disconnect_callback is set to NULL if the client gets disconnected
@@ -7346,8 +7346,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     int islua = scriptIsRunning();
     int ismulti = server.in_exec;
 
-    c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    c->bstate.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     ctx->module->blocked_clients++;
 
     /* We need to handle the invalid operation of calling modules blocking
@@ -7371,16 +7371,16 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->unblocked = 0;
     bc->background_timer = 0;
     bc->background_duration = 0;
-    c->bpop.timeout = timeout;
+    c->bstate.timeout = timeout;
 
     if (islua || ismulti) {
-        c->bpop.module_blocked_handle = NULL;
+        c->bstate.module_blocked_handle = NULL;
         addReplyError(c, islua ?
             "Blocking module command called from Lua script" :
             "Blocking module command called from transaction");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,-1,timeout,NULL,NULL,NULL,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
@@ -7397,7 +7397,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
  * This function returns 1 if client was served (and should be unblocked) */
 int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
     int served = 0;
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Protect against re-processing: don't serve clients that are already
      * in the unblocking list for any reason (including RM_UnblockClient()
@@ -7566,14 +7566,14 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
 /* This API is used by the Redis core to unblock a client that was blocked
  * by a module. */
 void moduleUnblockClient(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     moduleUnblockClientByHandle(bc,NULL);
 }
 
 /* Return true if the client 'c' was blocked by a module using
  * RM_BlockClientOnKeys(). */
 int moduleClientIsBlockedOnKeys(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     return bc->blocked_on_keys;
 }
 
@@ -7740,10 +7740,10 @@ void moduleHandleBlockedClients(void) {
  * moduleBlockedClientTimedOut().
  */
 int moduleBlockedClientMayTimeout(client *c) {
-    if (c->btype != BLOCKED_MODULE)
+    if (c->bstate.btype != BLOCKED_MODULE)
         return 1;
 
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     return (bc && bc->timeout_callback != NULL);
 }
 
@@ -7752,7 +7752,7 @@ int moduleBlockedClientMayTimeout(client *c) {
  * does not need to do any cleanup. Eventually the module will call the
  * API to unblock the client and the memory will be released. */
 void moduleBlockedClientTimedOut(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Protect against re-processing: don't serve clients that are already
      * in the unblocking list for any reason (including RM_UnblockClient()
@@ -7767,9 +7767,8 @@ void moduleBlockedClientTimedOut(client *c) {
     long long prev_error_replies = server.stat_total_error_replies;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
-    if (!bc->blocked_on_keys) {
-        updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
-    }
+    updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
+
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in
      * this case, and the user can still hook using the timeout callback. */

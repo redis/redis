@@ -1147,7 +1147,7 @@ void shutdownCommand(client *c) {
         return;
     }
 
-    blockClient(c, BLOCKED_SHUTDOWN);
+    blockClientShutdown(c);
     if (prepareForShutdown(flags) == C_OK) exit(0);
     /* If we're here, then shutdown is ongoing (the client is still blocked) or
      * failed (the client has received an error). */
