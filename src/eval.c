@@ -473,7 +473,7 @@ sds luaCreateFunction(client *c, robj *body) {
 void prepareLuaClient(void) {
     /* Select the right DB in the context of the Lua client */
     selectDb(lctx.lua_client,server.script_caller->db->id);
-    lctx.lua_client->resp = 2; /* Default is RESP2, scripts can change it. */
+    lctx.lua_client->resp = 3; /* Default is RESP2, scripts can change it. */
 
     /* If we are in MULTI context, flag Lua client as CLIENT_MULTI. */
     if (server.script_caller->flags & CLIENT_MULTI) {

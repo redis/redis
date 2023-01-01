@@ -216,7 +216,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
     /* Select the right DB in the context of the Lua client */
     selectDb(script_client, curr_client->db->id);
-    script_client->resp = 2; /* Default is RESP2, scripts can change it. */
+    script_client->resp = 3; /* Default is RESP2, scripts can change it. */
 
     /* If we are in MULTI context, flag Lua client as CLIENT_MULTI. */
     if (curr_client->flags & CLIENT_MULTI) {

@@ -5941,7 +5941,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* We have to assign argv_len, which is equal to argc in that case (RM_Call)
      * because we may be calling a command that uses rewriteClientCommandArgument */
     c->argc = c->argv_len = argc;
-    c->resp = 2;
+    c->resp = 3;
     if (flags & REDISMODULE_ARGV_RESP_3) {
         c->resp = 3;
     } else if (flags & REDISMODULE_ARGV_RESP_AUTO) {

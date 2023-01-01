@@ -138,7 +138,7 @@ client *createClient(connection *conn) {
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
-    c->resp = 2;
+    c->resp = 3;
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
@@ -1512,7 +1512,7 @@ void clearClientConnectionState(client *c) {
 
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
     selectDb(c,0);
-    c->resp = 2;
+    c->resp = 3;
 
     clientSetDefaultAuth(c);
     moduleNotifyUserChanged(c);
