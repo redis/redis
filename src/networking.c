@@ -2027,6 +2027,7 @@ void resetClient(client *c) {
     c->bulklen = -1;
     c->slot = -1;
     c->duration = 0;
+    c->flags &= ~CLIENT_EXECUTING_COMMAND;
 
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);

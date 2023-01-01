@@ -115,11 +115,6 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_err
     slowlogPushCurrentCommand(c, c->lastcmd, total_cmd_duration);
     /* Log the reply duration event. */
     latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
-    if (!(c->lastcmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
-        robj **argv = c->original_argv ? c->original_argv : c->argv;
-        int argc = c->original_argv ? c->original_argc : c->argc;
-        replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
-    }
 }
 
 /* This function is called in the beforeSleep() function of the event loop

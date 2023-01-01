@@ -3417,6 +3417,12 @@ void call(client *c, int flags) {
      * from module, exec or LUA to go into the slowlog or to populate statistics. */
     int update_command_stats = !isAOFLoadingContext();
 
+    /* We want to be aware of a client which is making a first time attempt to execut this command
+     * and a client which is reprocessing command again (after being unblocked).
+     * Blocked clients can be blocked in different places and not always it means the call() function has been
+     * called. For example this is requiered for avoiding double loging to monitors.*/
+    int reprocessing_command = ((!server.execution_nesting) && (c->flags & CLIENT_EXECUTING_COMMAND)) ? 1 : 0;
+
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
@@ -3434,10 +3440,11 @@ void call(client *c, int flags) {
 
     const long long call_timer = ustime();
 
-    /* Update cache time, in case we have nested calls we want to
-     * update only on the first call */
+    /* Update cache time, anf indicate we are starting command execution.
+     * in case we have nested calls we want to update only on the first call */
     if (server.execution_nesting++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
+        c->flags |= CLIENT_EXECUTING_COMMAND;
     }
 
     monotime monotonic_start = 0;
@@ -3445,7 +3452,13 @@ void call(client *c, int flags) {
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
-    server.execution_nesting--;
+
+    if (--server.execution_nesting == 0) {
+        /* In case client is blocked after trying to execute the command,
+         * it means the execution is not yet completed and we MIGHT reprocess the command in the future. */
+        if (!(c->flags & CLIENT_BLOCKED))
+            c->flags &= ~(CLIENT_EXECUTING_COMMAND);
+    }
 
     /* In order to avoid performance implication due to querying the clock using a system call 3 times,
      * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
@@ -3505,11 +3518,11 @@ void call(client *c, int flags) {
         slowlogPushCurrentCommand(c, real_cmd, c->duration);
 
     /* Send the command to clients in MONITOR mode if applicable,
-     * unless the client is unblocked and retring to process the command
-     * or we are currently in the process of loading AOF.
-     * Administrative commands are considered too dangerous to be shown. */
-    if (update_command_stats &&
-        !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)) && !(c->flags & CLIENT_BLOCKED)) {
+     * since some administrative commands are considered too dangerous to be shown.
+     * Other exceptions is a client which is unblocked and retring to process the command
+     * or we are currently in the process of loading AOF. */
+    if (update_command_stats && !reprocessing_command &&
+        !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
         robj **argv = c->original_argv ? c->original_argv : c->argv;
         int argc = c->original_argv ? c->original_argc : c->argc;
         replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
