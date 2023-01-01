@@ -3417,7 +3417,7 @@ void call(client *c, int flags) {
      * from module, exec or LUA to go into the slowlog or to populate statistics. */
     int update_command_stats = !isAOFLoadingContext();
 
-    /* We want to be aware of a client which is making a first time attempt to execut this command
+    /* We want to be aware of a client which is making a first time attempt to execute this command
      * and a client which is reprocessing command again (after being unblocked).
      * Blocked clients can be blocked in different places and not always it means the call() function has been
      * called. For example this is required for avoiding double logging to monitors.*/
