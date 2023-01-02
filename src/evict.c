@@ -262,8 +262,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
  * So the remaining 16 bits are used in order to store the "decrement time",
  * a reduced-precision Unix time (we take 16 bits of the time converted
  * in minutes since we don't care about wrapping around) where the LOG_C
- * counter is halved if it has an high value, or just decremented if it
- * has a low value.
+ * counter is decremented according to its last decrement time.
  *
  * New keys don't start at zero, in order to have the ability to collect
  * some accesses before being trashed away, so they start at LFU_INIT_VAL.
@@ -272,9 +271,9 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
  * (or having a smaller value) have a very high chance of being incremented
  * on access.
  *
- * During decrement, the value of the logarithmic counter is halved if
- * its current value is greater than two times the LFU_INIT_VAL, otherwise
- * it is just decremented by one.
+ * During decrement, we account for the number of periods elapsed since the
+ * last decrement time. Because the counter is logarithmic, decrementing the
+ * counter effectively halves its popularity.
  * --------------------------------------------------------------------------*/
 
 /* Return the current time in minutes, just taking the least significant
