@@ -41,6 +41,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#define NETWORK_LOOPBACK_MASK (IFF_RUNNING|IFF_LOOPBACK|IFF_UP)
+
 static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 int postponeClientRead(client *c);
@@ -1252,8 +1254,7 @@ int islocalClient(client *c) {
     if (getifaddrs(&addrs) != 0) return 0;
     for (ifa = addrs; ifa != NULL; ifa = ifa->ifa_next) {
         if (!ifa->ifa_addr ||
-            !(ifa->ifa_flags & IFF_UP) ||
-            !(ifa->ifa_flags & IFF_LOOPBACK))
+            (ifa->ifa_flags & NETWORK_LOOPBACK_MASK) != NETWORK_LOOPBACK_MASK)
             continue;
 
         switch (ifa->ifa_addr->sa_family) {
