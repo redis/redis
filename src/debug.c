@@ -35,6 +35,7 @@
 #include "bio.h"
 #include "quicklist.h"
 #include "fpconv_dtoa.h"
+#include "cluster.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -1763,6 +1764,15 @@ void logStackTrace(void *eip, int uplevel) {
 
 #endif /* HAVE_BACKTRACE */
 
+sds genClusterDebugString(sds infostring) {
+    infostring = sdscatprintf(infostring, "\r\n# Cluster info\r\n");
+    infostring = sdscatsds(infostring, genClusterInfoString()); 
+    infostring = sdscatprintf(infostring, "\n------ CLUSTER NODES OUTPUT ------\n");
+    infostring = sdscatsds(infostring, clusterGenNodesDescription(0, 0));
+    
+    return infostring;
+}
+
 /* Log global server info */
 void logServerInfo(void) {
     sds infostring, clients;
@@ -1772,6 +1782,9 @@ void logServerInfo(void) {
     argv[0] = createStringObject("all", strlen("all"));
     dict *section_dict = genInfoSectionDict(argv, 1, NULL, &all, &everything);
     infostring = genRedisInfoString(section_dict, all, everything);
+    if (server.cluster_enabled){
+        infostring = genClusterDebugString(infostring);
+    }
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
     clients = getAllClientsInfoString(-1);
