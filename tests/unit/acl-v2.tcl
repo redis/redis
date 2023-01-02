@@ -492,7 +492,6 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
 
     test {Test selectors with closing parenthesis} {
         r ACL SETUSER selector-store ON NOPASS +@all "(+@all ~bar))"
-        puts [r ACL GETUSER selector-store]
 
         assert_equal "OK" [r ACL DRYRUN selector-store SET bar) world]
         assert_equal "OK" [r ACL DRYRUN selector-store GET bar)]
