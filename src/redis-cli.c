@@ -7699,8 +7699,8 @@ static ssize_t readConn(redisContext *c, char *buf, size_t len)
  * send_sync if 1 means we will explicitly send SYNC command. If 0 means
  * we will not send SYNC command, will send the command that in c->obuf.
  *
- * returns 0 in case an EOF marker is used.
- * Or returns 0 in case a PSYNC +CONTINUE is used. */
+ * Returns the size of the RDB payload to read, or 0 in case an EOF marker is used and the size
+ * is unknown, also returns 0 in case a PSYNC +CONTINUE was found (no RDB payload). */
 unsigned long long sendSync(redisContext *c, char *out_eof, int send_sync) {
     /* To start we need to send the SYNC command and return the payload.
      * The hiredis client lib does not understand this part of the protocol
