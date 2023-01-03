@@ -7431,7 +7431,7 @@ void RM_RegisterCustomAuthCallback(RedisModuleCtx *ctx, RedisModuleCustomAuthCal
     listAddNodeTail(moduleCustomAuthCallbacks, auth_ctx);
 }
 
-/* Returns 1 if the module has any custom auth cbs registered. If `should_unregister` is  non zero,
+/* Returns 1 if the module has any custom auth callbacks registered. If `should_unregister` is  non zero,
  * all the module's custom auth cbs are unregistered.
  * Returns 0 otherwise - if the Module has no custom auth cb registered. */
 int moduleSearchOrUnregisterCustomAuthCBs(RedisModule *module, int should_unregister) {
