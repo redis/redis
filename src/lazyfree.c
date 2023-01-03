@@ -2,7 +2,6 @@
 #include "bio.h"
 #include "atomicvar.h"
 #include "functions.h"
-#include "cluster.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;

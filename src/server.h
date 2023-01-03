@@ -3095,7 +3095,7 @@ sds keyspaceEventsFlagsToString(int flags);
 #define MEMORY_CONFIG (1<<0) /* Indicates if this value can be loaded as a memory value */
 #define PERCENT_CONFIG (1<<1) /* Indicates if this value can be loaded as a percent (and stored as a negative int) */
 #define OCTAL_CONFIG (1<<2) /* This value uses octal representation */
-#define SLOT_MASK_SHIFT 48
+#define SLOT_MASK_SHIFT 48 /* Slot id is stored in high bits of the Scan API cursor, this number defines by how many bits it's shifted. */
 
 /* Enum Configs contain an array of configEnum objects that match a string with an integer. */
 typedef struct configEnum {

@@ -46,7 +46,7 @@
 #include "dict.h"
 #include "zmalloc.h"
 #include "redisassert.h"
-#include "server.h"
+#include "monotonic.h"
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to disable
  * resizing and rehashing of the hash table as needed. This is very important
@@ -106,18 +106,6 @@ uint8_t *dictGetHashFunctionSeed(void) {
 
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
-
-typedef struct dictStats {
-    int htidx;
-    unsigned long buckets;
-    unsigned long maxChainLen;
-    unsigned long totalChainLen;
-    unsigned long htSize;
-    unsigned long htUsed;
-    unsigned long *clvector;
-} dictStats;
-
-size_t _dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats);
 
 uint64_t dictGenHashFunction(const void *key, size_t len) {
     return siphash(key,len,dict_hash_function_seed);
@@ -1521,14 +1509,14 @@ dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash)
 
 /* ------------------------------- Debugging ---------------------------------*/
 #define DICT_STATS_VECTLEN 50
-void _dictFreeStats(dictStats *stats) {
+void dictFreeStats(dictStats *stats) {
     zfree(stats->clvector);
     zfree(stats);
 }
 
-void _dictCombineStats(dictStats *from, dictStats *into) {
+void dictCombineStats(dictStats *from, dictStats *into) {
     into->buckets += from->buckets;
-    into->maxChainLen = max(from->maxChainLen, into->maxChainLen);
+    into->maxChainLen = (from->maxChainLen > into->maxChainLen) ? from->maxChainLen : into->maxChainLen;
     into->totalChainLen += from->totalChainLen;
     into->htSize += from->htSize;
     into->htUsed += from->htUsed;
@@ -1537,7 +1525,7 @@ void _dictCombineStats(dictStats *from, dictStats *into) {
     }
 }
 
-dictStats* _dictGetStatsHt(dict *d, int htidx) {
+dictStats* dictGetStatsHt(dict *d, int htidx) {
     unsigned long *clvector = zcalloc(sizeof(unsigned long) * DICT_STATS_VECTLEN);
     dictStats *stats = zcalloc(sizeof(dictStats));
     stats->htidx = htidx;
@@ -1569,7 +1557,7 @@ dictStats* _dictGetStatsHt(dict *d, int htidx) {
 }
 
 
-size_t _dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats) {/* Generate human readable stats. */
+size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats) {/* Generate human readable stats. */
     if (stats->htUsed == 0) {
         return snprintf(buf,bufsize,
                         "No stats available for empty dictionaries\n");
@@ -1601,55 +1589,20 @@ size_t _dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats) {/* Generat
     return strlen(buf);
 }
 
-void dbGetStats(char *buf, size_t bufsize, redisDb *db) {
-    size_t l;
-    char *orig_buf = buf;
-    size_t orig_bufsize = bufsize;
-    dictStats *mainHtStats = NULL;
-    dictStats *rehashHtStats = NULL;
-
-    for (int i = 0; i < db->dict_count; i++) {
-        dictStats *stats = _dictGetStatsHt(db->dict[i], 0);
-        if (!mainHtStats) mainHtStats = stats;
-        else {
-            _dictCombineStats(stats, mainHtStats);
-            _dictFreeStats(stats);
-        }
-        if (dictIsRehashing(db->dict[i])) {
-            stats = _dictGetStatsHt(db->dict[i], 1);
-            if (!rehashHtStats) rehashHtStats = stats;
-            else {
-                _dictCombineStats(stats, rehashHtStats);
-                _dictFreeStats(stats);
-            }
-        }
-    }
-    l = _dictGetStatsMsg(buf, bufsize, mainHtStats);
-    _dictFreeStats(mainHtStats);
-    buf += l;
-    bufsize -= l;
-    if (rehashHtStats && bufsize > 0) {
-        _dictGetStatsMsg(buf, bufsize, rehashHtStats);
-        _dictFreeStats(rehashHtStats);
-    }
-    /* Make sure there is a NULL term at the end. */
-    if (orig_bufsize) orig_buf[orig_bufsize - 1] = '\0';
-}
-
 void dictGetStats(char *buf, size_t bufsize, dict *d) {
     size_t l;
     char *orig_buf = buf;
     size_t orig_bufsize = bufsize;
 
-    dictStats *mainHtStats = _dictGetStatsHt(d, 0);
-    l = _dictGetStatsMsg(buf, bufsize, mainHtStats);
-    _dictFreeStats(mainHtStats);
+    dictStats *mainHtStats = dictGetStatsHt(d, 0);
+    l = dictGetStatsMsg(buf, bufsize, mainHtStats);
+    dictFreeStats(mainHtStats);
     buf += l;
     bufsize -= l;
     if (dictIsRehashing(d) && bufsize > 0) {
-        dictStats *rehashHtStats = _dictGetStatsHt(d, 1);
-        _dictGetStatsMsg(buf, bufsize, rehashHtStats);
-        _dictFreeStats(rehashHtStats);
+        dictStats *rehashHtStats = dictGetStatsHt(d, 1);
+        dictGetStatsMsg(buf, bufsize, rehashHtStats);
+        dictFreeStats(rehashHtStats);
     }
     /* Make sure there is a NULL term at the end. */
     if (orig_bufsize) orig_buf[orig_bufsize-1] = '\0';

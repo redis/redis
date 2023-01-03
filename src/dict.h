@@ -113,6 +113,16 @@ typedef struct dictIterator {
     unsigned long long fingerprint;
 } dictIterator;
 
+typedef struct dictStats {
+    int htidx;
+    unsigned long buckets;
+    unsigned long maxChainLen;
+    unsigned long totalChainLen;
+    unsigned long htSize;
+    unsigned long htUsed;
+    unsigned long *clvector;
+} dictStats;
+
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 typedef void *(dictDefragAllocFunction)(void *ptr);
 typedef struct {
@@ -222,6 +232,11 @@ unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dic
 uint64_t dictGetHash(dict *d, const void *key);
 dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 unsigned long rev(unsigned long v);
+
+size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats);
+dictStats* dictGetStatsHt(dict *d, int htidx);
+void dictCombineStats(dictStats *from, dictStats *into);
+void dictFreeStats(dictStats *stats);
 
 #ifdef REDIS_TEST
 int dictTest(int argc, char *argv[], int flags);

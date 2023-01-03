@@ -2229,10 +2229,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     /* Record timestamp at the beginning of rewriting AOF. */
     if (server.aof_timestamp_enabled) {
         sds ts = genAofTimestampAnnotationIfNeeded(1);
-        if (rioWrite(aof, ts, sdslen(ts)) == 0) {
-            sdsfree(ts);
-            goto werr;
-        }
+        if (rioWrite(aof,ts,sdslen(ts)) == 0) { sdsfree(ts); goto werr; }
         sdsfree(ts);
     }
 

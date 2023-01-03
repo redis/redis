@@ -341,16 +341,16 @@ robj *dbRandomKey(redisDb *db) {
     }
 }
 
-/* Return random non-empty dictionary from this DB, if shouldBeRehashing is set, then it ignores dicts that aren't rehashing. */
+/* Return random non-empty dictionary from this DB. */
 dict *getRandomDict(redisDb *db) {
     if (db->dict_count == 1) return db->dict[0];
 
     int i = 0, r = 0;
     for (int j = 0; j < CLUSTER_SLOTS; j++) {
-        // Skip empty dicts or if we want only rehashing dicts and the dict isn't rehashing.
+        /* Skip empty dicts or if we want only rehashing dicts and the dict isn't rehashing. */
         if (dictSize(db->dict[j]) == 0) continue;
         if (i == 0 || (rand() % (i + 1)) == 0) {
-            r = j; // Select K-th non-empty bucket with 1/K probability, this keeps balanced probabilities for all non-empty buckets.
+            r = j; /* Select K-th non-empty bucket with 1/K probability, this keeps balanced probabilities for all non-empty buckets. */
         }
         i++;
     }
@@ -2526,4 +2526,39 @@ int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResu
         keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
     }
     return 1;
+}
+
+void dbGetStats(char *buf, size_t bufsize, redisDb *db) {
+    size_t l;
+    char *orig_buf = buf;
+    size_t orig_bufsize = bufsize;
+    dictStats *mainHtStats = NULL;
+    dictStats *rehashHtStats = NULL;
+
+    for (int i = 0; i < db->dict_count; i++) {
+        dictStats *stats = dictGetStatsHt(db->dict[i], 0);
+        if (!mainHtStats) mainHtStats = stats;
+        else {
+            dictCombineStats(stats, mainHtStats);
+            dictFreeStats(stats);
+        }
+        if (dictIsRehashing(db->dict[i])) {
+            stats = dictGetStatsHt(db->dict[i], 1);
+            if (!rehashHtStats) rehashHtStats = stats;
+            else {
+                dictCombineStats(stats, rehashHtStats);
+                dictFreeStats(stats);
+            }
+        }
+    }
+    l = dictGetStatsMsg(buf, bufsize, mainHtStats);
+    dictFreeStats(mainHtStats);
+    buf += l;
+    bufsize -= l;
+    if (rehashHtStats && bufsize > 0) {
+        dictGetStatsMsg(buf, bufsize, rehashHtStats);
+        dictFreeStats(rehashHtStats);
+    }
+    /* Make sure there is a NULL term at the end. */
+    if (orig_bufsize) orig_buf[orig_bufsize - 1] = '\0';
 }
