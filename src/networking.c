@@ -1241,14 +1241,14 @@ int islocalClient(client *c) {
     struct sockaddr_in *s4;
     struct sockaddr_in6 *s6;
     void *in_addr;
-    char loip[NET_IP_STR_LEN + 1];
+    char loip[NET_IP_STR_LEN];
 
     /* unix-socket */
     if (c->flags & CLIENT_UNIX_SOCKET) return 1;
 
     /* tcp */
-    char cip[NET_IP_STR_LEN+1] = { 0 };
-    connAddrPeerName(c->conn, cip, sizeof(cip)-1, NULL);
+    char cip[NET_IP_STR_LEN] = { 0 };
+    connAddrPeerName(c->conn, cip, sizeof(cip), NULL);
 
     if (getifaddrs(&addrs) != 0) return 0;
     for (ifa = addrs; ifa != NULL; ifa = ifa->ifa_next) {
