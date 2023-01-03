@@ -1971,5 +1971,28 @@ start_server {tags {"scripting"}} {
             } 0
         ] {asdf}
     }
-}
 
+    test "LUA test trim string as expected" {
+        # test that when using LUA cache mechanism, if there is free space in the argv array, the string is trimmed.
+        r eval {
+            return redis.call("SET", "foo", "x")
+        } 0
+
+        # Jemalloc will allocate for the requested 63 bytes, 80 bytes.
+        # We can't test for larger sizes because LUA_CMD_OBJCACHE_MAX_LEN is 64.
+        # This value will be recycled to be used in the next argument.
+        # We use SETNX to avoid saving the string which will prevent us to reuse it in the next command.
+        r eval {
+            return redis.call("SETNX", "foo", string.rep("a", 63))
+        } 0
+
+        # Jemalloc will allocate for the request 50 bytes, 56 bytes.
+        # we can't test for smaller sizes because OBJ_ENCODING_EMBSTR_SIZE_LIMIT is 44 where no trim is done.
+        r eval {
+            return redis.call("SET", "foo", string.rep("a", 50))
+        } 0
+
+        # Assert we trim the string object to 56 bytes and don't keep the 80 bytes from the previous array.
+        assert { [r memory usage foo] < 105}; # 56 + overhead
+    }
+}

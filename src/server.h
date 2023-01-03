@@ -3272,6 +3272,10 @@ typedef struct luaScript {
     robj *body;
 } luaScript;
 
+/* Cache of recently used small arguments to avoid malloc calls. */
+#define LUA_CMD_OBJCACHE_SIZE 32
+#define LUA_CMD_OBJCACHE_MAX_LEN 64
+
 /* Blocked clients API */
 void processUnblockedClients(void);
 void initClientBlockingState(client *c);

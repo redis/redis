@@ -610,11 +610,16 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 
 /* Optimize the SDS string inside the string object to require little space,
  * in case there is more than 10% of free space at the end of the SDS
- * string. This happens because the query buffer SDS may be used directly as the SDS string
- * when an argument len is > PROTO_MBULK_BIG_ARG. */
+ * string.
+ * A string may have free space in the following cases:
+ * 1. When the arg len is greater than PROTO_MBULK_BIG_ARG the query buffer may be used directly as the SDS string.
+ * 2. When using the LUA arguments cache mechanism. */
 void trimStringObjectIfNeeded(robj *o) {
     size_t len = sdslen(o->ptr);
-    if (len < PROTO_MBULK_BIG_ARG) return;
+
+    /* We detect if we are in LUA mode by checking that the server.script_caller is not NULL. */
+    if (len < PROTO_MBULK_BIG_ARG &&
+       (server.script_caller == NULL || len > LUA_CMD_OBJCACHE_MAX_LEN)) return;    
     if (o->encoding == OBJ_ENCODING_RAW &&
         sdsavail(o->ptr) > len/10)
     {
