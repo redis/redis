@@ -7739,10 +7739,8 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
  * progress, the API returns NULL. Otherwise, the client is blocked and the RM_BlockedClient is
  * returned similar to the RM_BlockClient API. */
 RedisModuleBlockedClient *RM_BlockClientOnAuth(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback reply_callback, void (*free_privdata)(RedisModuleCtx*,void*)) {
-    /* If the client is not in the middle of custom auth, return NULL. */
-    if (ctx && ctx->client && !(ctx->client->flags & CLIENT_CUSTOM_AUTH)) {
-        return NULL;
-    }
+    /* Assert that the client is in the middle of custom auth. */
+    serverAssert(ctx->client->flags & CLIENT_CUSTOM_AUTH);
     RedisModuleBlockedClient *bc = moduleBlockClient(ctx,NULL,NULL,free_privdata,0, NULL,0,NULL,0);
     bc->auth_reply_cb = reply_callback;
     return bc;
