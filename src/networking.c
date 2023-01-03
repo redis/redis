@@ -41,8 +41,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define NETWORK_LOOPBACK_MASK (IFF_RUNNING|IFF_LOOPBACK|IFF_UP)
-
 static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 int postponeClientRead(client *c);
@@ -1237,6 +1235,7 @@ int clientHasPendingReplies(client *c) {
 }
 
 /* Return true if client connected from loopback interface */
+#define NETWORK_LOOPBACK_MASK (IFF_RUNNING|IFF_LOOPBACK|IFF_UP)
 int islocalClient(client *c) {
     struct ifaddrs *ifa, *addrs;
     struct sockaddr_in *s4;
