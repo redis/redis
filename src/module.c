@@ -7543,10 +7543,7 @@ int handleCustomAuthIfComplete(client *c, long long ver, robj *clientname, int i
 /* Search for & attempt next custom auth callback after skipping the ones already attempted.
  * Returns the result of the custom auth callback. */
 int attemptNextCustomAuthCb(client *c, RedisModuleCustomAuthCtx *prev_auth_ctx, robj *username, robj *password, const char **err) {
-    int skipped_prev_callbacks = 0;
-    if (prev_auth_ctx == NULL) {
-        skipped_prev_callbacks = 1;
-    }
+    int skipped_prev_callbacks = prev_auth_ctx == NULL;
     RedisModuleCustomAuthCtx *cur_auth_ctx = NULL;
     listNode *ln;
     listIter li;
