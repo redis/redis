@@ -4861,7 +4861,7 @@ int verifyClusterConfigWithData(void) {
 
     /* Make sure we only have keys in DB0. */
     for (j = 1; j < server.dbnum; j++) {
-        if (dictSize(server.db[j].dict)) return C_ERR;
+        serverAssert(dictSize(server.db[j].dict) == 0);
     }
 
     /* Check that all the slots we see populated memory have a corresponding
