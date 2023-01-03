@@ -311,7 +311,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
         addReplyArrayLen(c,1);
         addReplyBulkCBuffer(c,keyname,keylen);
     }
-    updateClientMemUsage(c);
+    updateClientMemUsageAndBucket(c);
 }
 
 /* This function is called when a key is modified in Redis and in the case
@@ -414,6 +414,10 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
 
 void trackingHandlePendingKeyInvalidations(void) {
     if (!listLength(server.tracking_pending_keys)) return;
+
+    /* Flush pending invalidation messages only when we are not in nested call.
+     * So the messages are not interleaved with transaction response. */
+    if (server.execution_nesting) return;
 
     listNode *ln;
     listIter li;

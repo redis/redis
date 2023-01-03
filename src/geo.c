@@ -211,7 +211,7 @@ int extractBoxOrReply(client *c, robj **argv, double *conversion,
  * the kilometer. */
 void addReplyDoubleDistance(client *c, double d) {
     char dbuf[128];
-    int dlen = snprintf(dbuf, sizeof(dbuf), "%.4f", d);
+    const int dlen = fixedpoint_d2string(dbuf, sizeof(dbuf), d, 4);
     addReplyBulkCBuffer(c, dbuf, dlen);
 }
 

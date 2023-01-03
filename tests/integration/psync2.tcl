@@ -304,6 +304,10 @@ start_server {} {
         # In absence of pings, are the instances really able to have
         # the exact same offset?
         $R($master_id) config set repl-ping-replica-period 3600
+        for {set j 0} {$j < 5} {incr j} {
+            if {$j == $master_id} continue
+            $R($j) config set repl-timeout 10000
+        }
         wait_for_condition 500 100 {
             [status $R($master_id) master_repl_offset] == [status $R(0) master_repl_offset] &&
             [status $R($master_id) master_repl_offset] == [status $R(1) master_repl_offset] &&

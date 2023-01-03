@@ -158,12 +158,14 @@ client *createClient(connection *conn) {
     c->original_argc = 0;
     c->original_argv = NULL;
     c->cmd = c->lastcmd = c->realcmd = NULL;
+    c->cur_script = NULL;
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;
     c->flags = 0;
     c->slot = -1;
     c->ctime = c->lastinteraction = server.unixtime;
+    c->duration = 0;
     clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
     c->repl_start_cmd_stream_on_ack = 0;
@@ -183,15 +185,7 @@ client *createClient(connection *conn) {
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
-    c->btype = BLOCKED_NONE;
-    c->bpop.timeout = 0;
-    c->bpop.keys = dictCreate(&objectKeyHeapPointerValueDictType);
-    c->bpop.target = NULL;
-    c->bpop.xread_group = NULL;
-    c->bpop.xread_consumer = NULL;
-    c->bpop.xread_group_noack = 0;
-    c->bpop.numreplicas = 0;
-    c->bpop.reploffset = 0;
+    initClientBlockingState(c);
     c->woff = 0;
     c->watched_keys = listCreate();
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
@@ -849,6 +843,15 @@ void addReplyDouble(client *c, double d) {
             addReplyProto(c, d > 0 ? ",inf\r\n" : ",-inf\r\n",
                               d > 0 ? 6 : 7);
         }
+    } else if (isnan(d)) {
+        /* Libc in some systems will format nan in a different way,
+         * like nan, -nan, NAN, nan(char-sequence).
+         * So we normalize it and create a single nan form in an explicit way. */
+        if (c->resp == 2) {
+            addReplyBulkCString(c, "nan");
+        } else {
+            addReplyProto(c, ",nan\r\n", 6);
+        }
     } else {
         char dbuf[MAX_LONG_DOUBLE_CHARS+32];
         int dlen = 0;
@@ -863,7 +866,7 @@ void addReplyDouble(client *c, double d) {
             dbuf[start] = '$';
 
             /* Convert `dlen` to string, putting it's digits after '$' and before the
-	     * formatted double string. */
+             * formatted double string. */
             for(int i = digits, val = dlen; val && i > 0 ; --i, val /= 10) {
                 dbuf[start + i] = "0123456789"[val % 10];
             }
@@ -1578,7 +1581,7 @@ void freeClient(client *c) {
 
     /* Deallocate structures used to block on blocking ops. */
     if (c->flags & CLIENT_BLOCKED) unblockClient(c);
-    dictRelease(c->bpop.keys);
+    dictRelease(c->bstate.keys);
 
     /* UNWATCH all the keys */
     unwatchAllKeys(c);
@@ -1969,7 +1972,7 @@ int writeToClient(client *c, int handler_installed) {
      * Since this isn't thread safe we do this conditionally. In case of threaded writes this is done in
      * handleClientsWithPendingWritesUsingThreads(). */
     if (io_threads_op == IO_THREADS_OP_IDLE)
-        updateClientMemUsage(c);
+        updateClientMemUsageAndBucket(c);
     return C_OK;
 }
 
@@ -2018,10 +2021,13 @@ void resetClient(client *c) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
     freeClientArgv(c);
+    c->cur_script = NULL;
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
     c->slot = -1;
+    c->duration = 0;
+    c->flags &= ~CLIENT_EXECUTING_COMMAND;
 
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
@@ -2418,7 +2424,7 @@ int processCommandAndResetClient(client *c) {
         commandProcessed(c);
         /* Update the client's memory to include output buffer growth following the
          * processed command. */
-        updateClientMemUsage(c);
+        updateClientMemUsageAndBucket(c);
     }
 
     if (server.current_client == NULL) deadclient = 1;
@@ -2555,7 +2561,7 @@ int processInputBuffer(client *c) {
      * important in case the query buffer is big and wasn't drained during
      * the above loop (because of partially sent big commands). */
     if (io_threads_op == IO_THREADS_OP_IDLE)
-        updateClientMemUsage(c);
+        updateClientMemUsageAndBucket(c);
 
     return C_OK;
 }
@@ -2993,9 +2999,11 @@ NULL
         /* CLIENT NO-EVICT ON|OFF */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
             c->flags |= CLIENT_NO_EVICT;
+            removeClientFromMemUsageBucket(c, 0);
             addReply(c,shared.ok);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             c->flags &= ~CLIENT_NO_EVICT;
+            updateClientMemUsageAndBucket(c);
             addReply(c,shared.ok);
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
@@ -3129,12 +3137,11 @@ NULL
          * it also doesn't expect to be unblocked by CLIENT UNBLOCK */
         if (target && target->flags & CLIENT_BLOCKED && moduleBlockedClientMayTimeout(target)) {
             if (unblock_error)
-                addReplyError(target,
+                unblockClientOnError(target,
                     "-UNBLOCKED client unblocked via CLIENT UNBLOCK");
             else
-                replyToBlockedClientTimedOut(target);
-            unblockClient(target);
-            updateStatsOnUnblock(target, 0, 0, 1);
+                unblockClientOnTimeout(target);
+
             addReply(c,shared.cone);
         } else {
             addReply(c,shared.czero);
@@ -4226,7 +4233,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         client *c = listNodeValue(ln);
 
         /* Update the client in the mem usage after we're done processing it in the io-threads */
-        updateClientMemUsage(c);
+        updateClientMemUsageAndBucket(c);
 
         /* Install the write handler if there are pending writes in some
          * of the clients. */
@@ -4335,7 +4342,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         }
 
         /* Once io-threads are idle we can update the client in the mem usage */
-        updateClientMemUsage(c);
+        updateClientMemUsageAndBucket(c);
 
         if (processPendingCommandAndInputBuffer(c) == C_ERR) {
             /* If the client is no longer valid, we avoid
@@ -4382,6 +4389,8 @@ size_t getClientEvictionLimit(void) {
 }
 
 void evictClients(void) {
+    if (!server.client_mem_usage_buckets)
+        return;
     /* Start eviction from topmost bucket (largest clients) */
     int curr_bucket = CLIENT_MEM_USAGE_BUCKETS-1;
     listIter bucket_iter;
