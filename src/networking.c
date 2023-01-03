@@ -3494,8 +3494,7 @@ int getAuthOrHelloAuthCmdArgs(client *c, robj **username, robj **password, long 
     if (is_auth_cmd) {
         *username = c->argv[1];
         *password = c->argv[2];
-    }
-    else {
+    } else {
         parseHelloCmdArgsOrReply(c, ver, username, password, clientname);
     }
     return is_auth_cmd;
