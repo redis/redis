@@ -7703,7 +7703,7 @@ static ssize_t readConn(redisContext *c, char *buf, size_t len)
  * is unknown, also returns 0 in case a PSYNC +CONTINUE was found (no RDB payload).
  *
  * The out_full_mode parameter if 1 means this is a full sync, if 0 means this is partial mode. */
-unsigned long long sendSync(redisContext *c, char *out_eof, int *out_full_mode, int send_sync) {
+unsigned long long sendSync(redisContext *c, char *out_eof, int send_sync, int *out_full_mode) {
     /* To start we need to send the SYNC command and return the payload.
      * The hiredis client lib does not understand this part of the protocol
      * and we don't want to mess with its buffers, so everything is performed
@@ -7745,7 +7745,9 @@ unsigned long long sendSync(redisContext *c, char *out_eof, int *out_full_mode, 
         exit(1);
     }
 
-    /* Handling PSYNC responses. */
+    /* Handling PSYNC responses.
+     * Read +FULLRESYNC <replid> <offset>\r\n, after that is the $<payload> or the $EOF:<40 bytes delimiter>
+     * Read +CONTINUE <replid>\r\n or +CONTINUE\r\n, after that is the command stream */
     if (!strncmp(buf, "+FULLRESYNC", 11) ||
         !strncmp(buf, "+CONTINUE", 9))
     {
@@ -7782,24 +7784,25 @@ static void slaveMode(int send_sync) {
     static char lastbytes[RDB_EOF_MARK_SIZE];
     static int usemark = 0;
     static int out_full_mode;
-    unsigned long long payload = sendSync(context,eofmark,&out_full_mode,send_sync);
+    unsigned long long payload = sendSync(context, eofmark, send_sync, &out_full_mode);
     char buf[1024];
     int original_output = config.output;
-    char *command = out_full_mode ? "SYNC" : "PSYNC";
+    char *info = out_full_mode ? "Full resync" : "Partial resync";
 
     if (out_full_mode == 1 && payload == 0) {
-        /* SYNC with EOF marker. */
+        /* SYNC with EOF marker or PSYNC +FULLRESYNC with EOF marker. */
         payload = ULLONG_MAX;
         memset(lastbytes,0,RDB_EOF_MARK_SIZE);
         usemark = 1;
-        fprintf(stderr,"%s with master, discarding "
-                       "bytes of bulk transfer until EOF marker...\n", command);
+        fprintf(stderr, "%s with master, discarding "
+                        "bytes of bulk transfer until EOF marker...\n", info);
     } else if (out_full_mode == 1 && payload != 0) {
         /* SYNC without EOF marker or PSYNC +FULLRESYNC. */
-        fprintf(stderr,"%s with master, discarding %llu "
-                       "bytes of bulk transfer...\n", command, payload);
+        fprintf(stderr, "%s with master, discarding %llu "
+                        "bytes of bulk transfer...\n", info, payload);
     } else if (out_full_mode == 0 && payload == 0) {
         /* PSYNC +CONTINUE (no RDB payload). */
+        fprintf(stderr, "%s with master...\n", info);
     }
 
     /* Discard the payload. */
@@ -7808,7 +7811,7 @@ static void slaveMode(int send_sync) {
 
         nread = readConn(context,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
-            fprintf(stderr,"Error reading RDB payload while %sing\n", command);
+            fprintf(stderr,"Error reading RDB payload while %sing\n", info);
             exit(1);
         }
         payload -= nread;
@@ -7829,12 +7832,12 @@ static void slaveMode(int send_sync) {
 
     if (usemark) {
         unsigned long long offset = ULLONG_MAX - payload;
-        fprintf(stderr,"%s done after %llu bytes. Logging commands from master.\n", command, offset);
+        fprintf(stderr,"%s done after %llu bytes. Logging commands from master.\n", info, offset);
         /* put the slave online */
         sleep(1);
         sendReplconf("ACK", "0");
     } else
-        fprintf(stderr,"%s done. Logging commands from master.\n", command);
+        fprintf(stderr,"%s done. Logging commands from master.\n", info);
 
     /* Now we can use hiredis to read the incoming protocol. */
     config.output = OUTPUT_CSV;
@@ -7863,7 +7866,7 @@ static void getRDB(clusterManagerNode *node) {
     static char eofmark[RDB_EOF_MARK_SIZE];
     static char lastbytes[RDB_EOF_MARK_SIZE];
     static int usemark = 0;
-    unsigned long long payload = sendSync(s, eofmark, NULL, 1);
+    unsigned long long payload = sendSync(s, eofmark, 1, NULL);
     char buf[4096];
 
     if (payload == 0) {
