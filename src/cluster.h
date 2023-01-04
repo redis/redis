@@ -402,7 +402,7 @@ clusterNode *clusterLookupNode(const char *name, int length);
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
 void migrateCloseTimedoutSockets(void);
-int verifyClusterConfigWithData(void);
+void verifyClusterConfigWithData(void);
 unsigned long getClusterConnectionsCount(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message, int sharded);
