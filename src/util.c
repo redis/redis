@@ -436,6 +436,11 @@ int string2ll(const char *s, size_t slen, long long *value) {
         /* Abort on only a negative sign. */
         if (plen == slen)
             return 0;
+        // -0 is very rare, but possible
+        if (slen == 2 && p[0] == '0') {
+           if (value != NULL) *value = 0;
+           return 1;
+        }
     }
 
     /* First digit should be 1-9, otherwise the string should just be 0. */
