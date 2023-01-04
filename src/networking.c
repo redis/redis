@@ -356,6 +356,9 @@ size_t reqresAppendRequest(client *c) {
     if (argc == 0)
         return 0;
 
+    if (!server.req_res_logfile)
+        return 0;
+
     sds cmd = argv[0]->ptr;
     if (!strcasecmp(cmd,"sync") ||
         !strcasecmp(cmd,"psync") ||
@@ -427,6 +430,9 @@ static size_t reqresAppendResponseIov(client *c) {
 
 size_t reqresAppendResponse(client *c) {
     size_t ret = 0;
+
+    if (!server.req_res_logfile)
+        return 0;
 
     if (getClientType(c) == CLIENT_TYPE_SLAVE)
         return 0;

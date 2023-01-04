@@ -3750,12 +3750,14 @@ int processCommand(client *c) {
         serverAssert(!scriptIsRunning());
     }
 
-    reqresAppendRequest(c);
     moduleCallCommandFilters(c);
 
     /* in case we are starting to ProcessCommand and we already have a command we assume
      * this is a reprocessing of this command, so we do not want to perform some of the actions again. */
     int client_reprocessing_command = c->cmd ? 1 : 0;
+
+    if (!client_reprocessing_command)
+        reqresAppendRequest(c);
 
     /* Handle possible security attacks. */
     if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {

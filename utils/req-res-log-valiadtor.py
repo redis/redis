@@ -6,6 +6,7 @@ import jsonschema
 import subprocess
 import redis
 import time
+import argparse
 
 lineno = 1
 
@@ -109,20 +110,30 @@ srcdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../src")
 testdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../tests")
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--server', type=str, default='%s/redis-server' % srcdir)
+    parser.add_argument('--port', type=int, default=6534)
+    parser.add_argument('--cli', type=str, default='%s/redis-cli' % srcdir)
+    parser.add_argument('--module', type=str, action='append', default=[])
+    args = parser.parse_args()
+
     print('Starting Redis server')
-    redis_proc = subprocess.Popen(['%s/redis-server' % srcdir, '--port', '6534'], stdout=subprocess.PIPE)
+    redis_args = [args.server, '--port', str(args.port)]
+    for module in args.module:
+        redis_args += ['--loadmodule', 'tests/modules/%s.so' % module]
+    redis_proc = subprocess.Popen(redis_args, stdout=subprocess.PIPE)
     
     while True:
         try:
             print('Connecting to Redis...')
-            r = redis.Redis(port=6534)
+            r = redis.Redis(port=args.port)
             r.ping()
             break
         except Exception as e:
             time.sleep(0.1)
             pass
 
-    cli_proc = subprocess.Popen(['%s/redis-cli' % srcdir, '-p', '6534', '--json', 'command', 'docs'], stdout=subprocess.PIPE)
+    cli_proc = subprocess.Popen([args.cli, '-p', str(args.port), '--json', 'command', 'docs'], stdout=subprocess.PIPE)
     stdout, stderr = cli_proc.communicate()
     docs = json.loads(stdout)
 

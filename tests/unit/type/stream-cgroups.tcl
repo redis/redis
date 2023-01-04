@@ -1,3 +1,20 @@
+proc stream_response_interpreter {id response} {
+    if {!$::force_resp3 || $::redis::testing_resp3($id) == 1} {
+        return $response
+    }
+    if  {[string is list $response] && ([llength $response]&1) == 0 && [llength [lindex $response 0]] ne 2} {
+        set tuparray {}
+        foreach {key val} $response {
+            set tmp {}
+            lappend tmp $key
+            lappend tmp $val
+            lappend tuparray $tmp
+        }
+        return $tuparray
+    }
+    return $response
+}
+
 start_server {
     tags {"stream"}
 } {
@@ -49,9 +66,11 @@ start_server {
         # XREADGROUP should return only the new elements "a 1" "b 1"
         # and not the element "foo bar" which was pre existing in the
         # stream (see previous test)
+        r set_response_interpreter stream_response_interpreter
         set reply [
             r XREADGROUP GROUP mygroup consumer-1 STREAMS mystream ">"
         ]
+        r reset_response_interpreter
         assert {[llength [lindex $reply 0 1]] == 2}
         lindex $reply 0 1 0 1
     } {a 1}
@@ -151,7 +170,9 @@ start_server {
         r del mystream
         r xgroup create s g $ MKSTREAM
         r xadd s * f1 v1
+        r set_response_interpreter stream_response_interpreter
         set c [llength [lindex [r xreadgroup group g c streams s >] 0 1]]
+        r reset_response_interpreter
         assert {$c == 1}
         set pending [r xpending s g - + 10 c]
         set id1 [lindex $pending 0 0]

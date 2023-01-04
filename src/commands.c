@@ -4977,6 +4977,14 @@ const char *DBSIZE_tips[] = {
 NULL
 };
 
+/* DBSIZE_ReplySchema reply schema */
+struct commandReplySchemaElement DBSIZE_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The number of keys in the currently-selected database."},
+};
+
+struct commandReplySchema DBSIZE_ReplySchema = {DBSIZE_ReplySchema_elements,.length=2};
+
 /********** DEBUG ********************/
 
 /* DEBUG history */
@@ -9469,7 +9477,7 @@ struct redisCommand redisCommandTable[] = {
 {"bgsave","Asynchronously save the dataset to disk","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,BGSAVE_History,BGSAVE_tips,bgsaveCommand,-1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT,0,.args=BGSAVE_Args},
 {"command","Get array of Redis command details","O(N) where N is the total number of Redis commands","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_History,COMMAND_tips,commandCommand,-1,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.subcommands=COMMAND_Subcommands},
 {"config","A container for server configuration commands","Depends on subcommand.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_History,CONFIG_tips,NULL,-2,0,0,.subcommands=CONFIG_Subcommands},
-{"dbsize","Return the number of keys in the selected database","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,DBSIZE_History,DBSIZE_tips,dbsizeCommand,1,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE},
+{"dbsize","Return the number of keys in the selected database","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,DBSIZE_History,DBSIZE_tips,dbsizeCommand,1,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,.reply_schema=&DBSIZE_ReplySchema},
 {"debug","A container for debugging commands","Depends on subcommand.","1.0.0",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_SERVER,DEBUG_History,DEBUG_tips,debugCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_PROTECTED,0},
 {"failover","Start a coordinated failover between this server and one of its replicas.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FAILOVER_History,FAILOVER_tips,failoverCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=FAILOVER_Args},
 {"flushall","Remove all keys from all databases","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FLUSHALL_History,FLUSHALL_tips,flushallCommand,-1,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=FLUSHALL_Args,.reply_schema=&FLUSHALL_ReplySchema},
