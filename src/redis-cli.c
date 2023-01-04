@@ -7737,7 +7737,7 @@ unsigned long long sendSync(redisContext *c, int send_sync, char *out_eof, int *
         }
         if (*p == '\n' && p != buf) break;
         if (*p != '\n') p++;
-        if (p >= buf + sizeof(buf)) break;
+        if (p >= buf + sizeof(buf) - 1) break; /* Go back one more char for null-term. */
     }
     *p = '\0';
     if (buf[0] == '-') {
@@ -7762,7 +7762,7 @@ unsigned long long sendSync(redisContext *c, int send_sync, char *out_eof, int *
             }
             if (*p == '\n' && p != buf) break;
             if (*p != '\n') p++;
-            if (p >= buf + sizeof(buf)) break;
+            if (p >= buf + sizeof(buf) - 1) break; /* Go back one more char for null-term. */
         }
         *p = '\0';
 
