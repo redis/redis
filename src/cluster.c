@@ -4835,24 +4835,29 @@ void clusterUpdateState(void) {
  *       this slots, we set the slots as IMPORTING from our point of view
  *       in order to justify we have those slots, and in order to make
  *       redis-cli aware of the issue, so that it can try to fix it.
- * 2) We validate that there is only data in DB0. This should have been
- *    validated while processing the RDB file.
+ * 2) If we find data in a DB different than DB0 we return C_ERR to
+ *    signal the caller it should quit the server with an error message
+ *    or take other actions.
+ *
+ * The function always returns C_OK even if it will try to correct
+ * the error described in "1". However if data is found in DB different
+ * from DB0, C_ERR is returned.
  *
  * The function also uses the logging facility in order to warn the user
  * about desynchronizations between the data we have in memory and the
  * cluster configuration. */
-void verifyClusterConfigWithData(void) {
+int verifyClusterConfigWithData(void) {
     int j;
     int update_config = 0;
 
     /* Return ASAP if a module disabled cluster redirections. In that case
      * every master can store keys about every possible hash slot. */
     if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
-        return;
+        return C_OK;
 
     /* If this node is a slave, don't perform the check at all as we
      * completely depend on the replication stream. */
-    if (nodeIsSlave(myself)) return;
+    if (nodeIsSlave(myself)) return C_OK;
 
     /* Make sure we only have keys in DB0. */
     for (j = 1; j < server.dbnum; j++) {
@@ -4887,7 +4892,7 @@ void verifyClusterConfigWithData(void) {
         }
     }
     if (update_config) clusterSaveConfigOrDie(1);
-    return;
+    return C_OK;
 }
 
 /* -----------------------------------------------------------------------------
