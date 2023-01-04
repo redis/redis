@@ -4887,6 +4887,7 @@ void verifyClusterConfigWithData(void) {
         }
     }
     if (update_config) clusterSaveConfigOrDie(1);
+    return;
 }
 
 /* -----------------------------------------------------------------------------
