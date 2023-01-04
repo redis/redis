@@ -2566,7 +2566,6 @@ int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
-int islocalClient(client *c);
 int updateClientMemUsageAndBucket(client *c);
 void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);

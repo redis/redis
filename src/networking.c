@@ -1223,18 +1223,6 @@ int clientHasPendingReplies(client *c) {
     }
 }
 
-/* Return true if client connected from loopback interface */
-int islocalClient(client *c) {
-    /* unix-socket */
-    if (c->flags & CLIENT_UNIX_SOCKET) return 1;
-
-    /* tcp */
-    char cip[NET_IP_STR_LEN+1] = { 0 };
-    connAddrPeerName(c->conn, cip, sizeof(cip)-1, NULL);
-
-    return !strcmp(cip,"127.0.0.1") || !strcmp(cip,"::1");
-}
-
 void clientAcceptHandler(connection *conn) {
     client *c = connGetPrivateData(conn);
 
@@ -1253,7 +1241,7 @@ void clientAcceptHandler(connection *conn) {
     if (server.protected_mode &&
         DefaultUser->flags & USER_FLAG_NOPASS)
     {
-        if (!islocalClient(c)) {
+        if (connIsLocal(conn) != 1) {
             char *err =
                 "-DENIED Redis is running in protected mode because protected "
                 "mode is enabled and no password is set for the default user. "
