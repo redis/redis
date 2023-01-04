@@ -182,7 +182,8 @@ start_server {tags {"repl external:skip"}} {
                 [$B lrange foo 0 -1] eq {a b c}
             } else {
                 fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-            }
+            }          
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdrstat blpop $B]
         }
     }
 }
@@ -226,6 +227,9 @@ start_server {tags {"repl external:skip"}} {
         }
 
         test {FLUSHDB / FLUSHALL should replicate} {
+            # we're attaching to a sub-replica, so we need to stop pings on the real master
+            r -1 config set repl-ping-replica-period 3600
+
             set repl [attach_to_replication_stream]
 
             r -1 set key value
@@ -566,6 +570,15 @@ foreach testType {Successful Aborted} {
                 redis.register_function('test', function() return 'hello2' end)
             }
 
+            # Remember the sync_full stat before the client kill.
+            set sync_full [s 0 sync_full]
+
+            if {$testType == "Aborted"} {
+                # Set master with a slow rdb generation, so that we can easily intercept loading
+                # 10ms per key, with 2000 keys is 20 seconds
+                $master config set rdb-key-save-delay 10000
+            }
+
             # Force the replica to try another full sync (this time it will have matching master replid)
             $master multi
             $master client kill type replica
@@ -576,12 +589,16 @@ foreach testType {Successful Aborted} {
             }
             $master exec
 
+            # Wait for sync_full to get incremented from the previous value.
+            # After the client kill, make sure we do a reconnect, and do a FULL SYNC.
+            wait_for_condition 100 100 {
+                [s 0 sync_full] > $sync_full
+            } else {
+                fail "Master <-> Replica didn't start the full sync"
+            }
+
             switch $testType {
                 "Aborted" {
-                    # Set master with a slow rdb generation, so that we can easily intercept loading
-                    # 10ms per key, with 2000 keys is 20 seconds
-                    $master config set rdb-key-save-delay 10000
-
                     test {Diskless load swapdb (async_loading): replica enter async_loading} {
                         # Wait for the replica to start reading the rdb
                         wait_for_condition 100 100 {
@@ -857,7 +874,7 @@ start_server {tags {"repl external:skip"}} {
 
                     # wait for the replicas to start reading the rdb
                     # using the log file since the replica only responds to INFO once in 2mb
-                    wait_for_log_messages -1 {"*Loading DB in memory*"} 0 800 10
+                    wait_for_log_messages -1 {"*Loading DB in memory*"} 0 1500 10
 
                     if {$measure_time} {
                         set master_statfile "/proc/$master_pid/stat"
@@ -990,7 +1007,7 @@ test "diskless replication child being killed is collected" {
             $replica replicaof $master_host $master_port
 
             # wait for the replicas to start reading the rdb
-            wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 800 10
+            wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 1500 10
 
             # wait to be sure the replica is hung and the master is blocked on write
             after 500
@@ -1075,7 +1092,7 @@ test "diskless replication read pipe cleanup" {
             $replica replicaof $master_host $master_port
 
             # wait for the replicas to start reading the rdb
-            wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 800 10
+            wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 1500 10
 
             set loglines [count_log_lines -1]
             # send FLUSHALL so the RDB child will be killed

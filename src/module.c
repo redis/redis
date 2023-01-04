@@ -181,6 +181,8 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_NEW_CLIENT (1<<7)  /* Free client object when the
                                               context is destroyed */
 #define REDISMODULE_CTX_CHANNELS_POS_REQUEST (1<<8)
+#define REDISMODULE_CTX_COMMAND (1<<9) /* Context created to serve a command from call() or AOF (which calls cmd->proc directly) */
+
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -737,23 +739,25 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
     return REDISMODULE_OK;
 }
 
+void modulePostExecutionUnitOperations() {
+    if (server.execution_nesting)
+        return;
+
+    if (server.busy_module_yield_flags) {
+        blockingOperationEnds();
+        server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+        if (server.current_client)
+            unprotectClient(server.current_client);
+        unblockPostponedClients();
+    }
+}
+
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
-    if (!(ctx->flags & REDISMODULE_CTX_THREAD_SAFE)) {
-        /* Modules take care of their own propagation, when we are
-         * outside of call() context (timers, events, etc.). */
-        if (--server.module_ctx_nesting == 0) {
-            if (!server.core_propagates) {
-                postExecutionUnitOperations();
-            }
-            if (server.busy_module_yield_flags) {
-                blockingOperationEnds();
-                server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
-                if (server.current_client)
-                    unprotectClient(server.current_client);
-                unblockPostponedClients();
-            }
-        }
+    /* See comment in moduleCreateContext */
+    if (!(ctx->flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
+        server.execution_nesting--;
+        postExecutionUnitOperations();
     }
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
@@ -805,8 +809,15 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     else
         out_ctx->next_yield_time = getMonotonicUs() + server.busy_reply_threshold * 1000;
 
-    if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
-        server.module_ctx_nesting++;
+    /* Increment the execution_nesting counter (module is about to execute some code),
+     * except in the following cases:
+     * 1. We came here from cmd->proc (either call() or AOF load).
+     *    In the former, the counter has been already incremented from within
+     *    call() and in the latter we don't care about execution_nesting
+     * 2. If we are running in a thread (execution_nesting will be dealt with
+     *    when locking/unlocking the GIL) */
+    if (!(ctx_flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
+        server.execution_nesting++;
     }
 }
 
@@ -815,7 +826,7 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
 void RedisModuleCommandDispatcher(client *c) {
     RedisModuleCommand *cp = c->cmd->module_cmd;
     RedisModuleCtx ctx;
-    moduleCreateContext(&ctx, cp->module, REDISMODULE_CTX_NONE);
+    moduleCreateContext(&ctx, cp->module, REDISMODULE_CTX_COMMAND);
 
     ctx.client = c;
     cp->func(&ctx,(void**)c->argv,c->argc);
@@ -6147,7 +6158,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     server.replication_allowed = replicate && server.replication_allowed;
 
     /* Run the command */
-    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_FROM_MODULE;
+    int call_flags = CMD_CALL_FROM_MODULE;
     if (replicate) {
         if (!(flags & REDISMODULE_ARGV_NO_AOF))
             call_flags |= CMD_CALL_PROPAGATE_AOF;
@@ -7271,7 +7282,7 @@ void RM_LatencyAddSample(const char *event, mstime_t latency) {
  * The structure RedisModuleBlockedClient will be always deallocated when
  * running the list of clients blocked by a module that need to be unblocked. */
 void unblockClientFromModule(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Call the disconnection callback if any. Note that
      * bc->disconnect_callback is set to NULL if the client gets disconnected
@@ -7335,8 +7346,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     int islua = scriptIsRunning();
     int ismulti = server.in_exec;
 
-    c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    c->bstate.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     ctx->module->blocked_clients++;
 
     /* We need to handle the invalid operation of calling modules blocking
@@ -7360,16 +7371,16 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->unblocked = 0;
     bc->background_timer = 0;
     bc->background_duration = 0;
-    c->bpop.timeout = timeout;
+    c->bstate.timeout = timeout;
 
     if (islua || ismulti) {
-        c->bpop.module_blocked_handle = NULL;
+        c->bstate.module_blocked_handle = NULL;
         addReplyError(c, islua ?
             "Blocking module command called from Lua script" :
             "Blocking module command called from transaction");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,-1,timeout,NULL,NULL,NULL,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
@@ -7386,7 +7397,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
  * This function returns 1 if client was served (and should be unblocked) */
 int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
     int served = 0;
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Protect against re-processing: don't serve clients that are already
      * in the unblocking list for any reason (including RM_UnblockClient()
@@ -7555,14 +7566,14 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
 /* This API is used by the Redis core to unblock a client that was blocked
  * by a module. */
 void moduleUnblockClient(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     moduleUnblockClientByHandle(bc,NULL);
 }
 
 /* Return true if the client 'c' was blocked by a module using
  * RM_BlockClientOnKeys(). */
 int moduleClientIsBlockedOnKeys(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     return bc->blocked_on_keys;
 }
 
@@ -7729,10 +7740,10 @@ void moduleHandleBlockedClients(void) {
  * moduleBlockedClientTimedOut().
  */
 int moduleBlockedClientMayTimeout(client *c) {
-    if (c->btype != BLOCKED_MODULE)
+    if (c->bstate.btype != BLOCKED_MODULE)
         return 1;
 
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     return (bc && bc->timeout_callback != NULL);
 }
 
@@ -7741,7 +7752,7 @@ int moduleBlockedClientMayTimeout(client *c) {
  * does not need to do any cleanup. Eventually the module will call the
  * API to unblock the client and the memory will be released. */
 void moduleBlockedClientTimedOut(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Protect against re-processing: don't serve clients that are already
      * in the unblocking list for any reason (including RM_UnblockClient()
@@ -7756,9 +7767,8 @@ void moduleBlockedClientTimedOut(client *c) {
     long long prev_error_replies = server.stat_total_error_replies;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
-    if (!bc->blocked_on_keys) {
-        updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
-    }
+    updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
+
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in
      * this case, and the user can still hook using the timeout callback. */
@@ -7883,10 +7893,10 @@ void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
 void moduleGILAfterLock() {
     /* We should never get here if we already inside a module
      * code block which already opened a context. */
-    serverAssert(server.module_ctx_nesting == 0);
+    serverAssert(server.execution_nesting == 0);
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
-    server.module_ctx_nesting++;
+    server.execution_nesting++;
     updateCachedTime(0);
 }
 
@@ -7921,20 +7931,12 @@ void moduleGILBeforeUnlock() {
     /* We should never get here if we already inside a module
      * code block which already opened a context, except
      * the bump-up from moduleGILAcquired. */
-    serverAssert(server.module_ctx_nesting == 1);
-    /* Restore ctx_nesting and propagate pending commands
-     * (because it's u clear when thread safe contexts are
+    serverAssert(server.execution_nesting == 1);
+    /* Restore nesting level and propagate pending commands
+     * (because it's unclear when thread safe contexts are
      * released we have to propagate here). */
-    server.module_ctx_nesting--;
+    server.execution_nesting--;
     postExecutionUnitOperations();
-
-    if (server.busy_module_yield_flags) {
-        blockingOperationEnds();
-        server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
-        if (server.current_client)
-            unprotectClient(server.current_client);
-        unblockPostponedClients();
-    }
 }
 
 /* Release the server lock after a thread safe API call was executed. */
@@ -8041,8 +8043,10 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
 }
 
 void firePostExecutionUnitJobs() {
-    /* Avoid propagation of commands. */
-    server.in_nested_call++;
+    /* Avoid propagation of commands.
+     * In that way, postExecutionUnitOperations will prevent
+     * recursive calls to firePostExecutionUnitJobs. */
+    server.execution_nesting++;
     while (listLength(modulePostExecUnitJobs) > 0) {
         listNode *ln = listFirst(modulePostExecUnitJobs);
         RedisModulePostExecUnitJob *job = listNodeValue(ln);
@@ -8058,7 +8062,7 @@ void firePostExecutionUnitJobs() {
         moduleFreeContext(&ctx);
         zfree(job);
     }
-    server.in_nested_call--;
+    server.execution_nesting--;
 }
 
 /* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
@@ -8108,6 +8112,22 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
     /* Don't do anything if there aren't any subscribers */
     if (listLength(moduleKeyspaceSubscribers) == 0) return;
 
+    /* Ugly hack to handle modules which use write commands from within
+     * notify_callback, which they should NOT do!
+     * Modules should use RedisModules_AddPostNotificationJob instead.
+     *
+     * Anyway, we want any propagated commands from within notify_callback
+     * to be propagated inside a MULTI/EXEC together with the original
+     * command that caused the KSN.
+     * Note that it's only relevant for KSNs which are not generated from within
+     * call(), for example active-expiry and eviction (because anyway
+     * execution_nesting is incremented from within call())
+     *
+     * In order to do that we increment the execution_nesting counter, thus
+     * preventing postExecutionUnitOperations (from within moduleFreeContext)
+     * from propagating commands from CB. */
+    server.execution_nesting++;
+
     listIter li;
     listNode *ln;
     listRewind(moduleKeyspaceSubscribers,&li);
@@ -8136,6 +8156,8 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             moduleFreeContext(&ctx);
         }
     }
+
+    server.execution_nesting--;
 }
 
 /* Unsubscribe any notification subscribers this module has upon unloading */

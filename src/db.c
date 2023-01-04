@@ -696,7 +696,7 @@ void flushallCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* This command implements DEL and LAZYDEL. */
+/* This command implements DEL and UNLINK. */
 void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
@@ -1147,7 +1147,7 @@ void shutdownCommand(client *c) {
         return;
     }
 
-    blockClient(c, BLOCKED_SHUTDOWN);
+    blockClientShutdown(c);
     if (prepareForShutdown(flags) == C_OK) exit(0);
     /* If we're here, then shutdown is ongoing (the client is still blocked) or
      * failed (the client has received an error). */

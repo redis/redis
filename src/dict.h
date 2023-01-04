@@ -131,6 +131,15 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 #define dictSetDoubleVal(entry, _val_) \
     do { (entry)->v.d = _val_; } while(0)
 
+#define dictIncrSignedIntegerVal(entry, _val_) \
+    ((entry)->v.s64 += _val_)
+
+#define dictIncrUnsignedIntegerVal(entry, _val_) \
+    ((entry)->v.u64 += _val_)
+
+#define dictIncrDoubleVal(entry, _val_) \
+    ((entry)->v.d += _val_)
+
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
         (d)->type->keyDestructor((d), (entry)->key)
