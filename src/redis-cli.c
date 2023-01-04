@@ -7703,7 +7703,7 @@ static ssize_t readConn(redisContext *c, char *buf, size_t len)
  * is unknown, also returns 0 in case a PSYNC +CONTINUE was found (no RDB payload).
  *
  * The out_full_mode parameter if 1 means this is a full sync, if 0 means this is partial mode. */
-unsigned long long sendSync(redisContext *c, char *out_eof, int send_sync, int *out_full_mode) {
+unsigned long long sendSync(redisContext *c, int send_sync, char *out_eof, int *out_full_mode) {
     /* To start we need to send the SYNC command and return the payload.
      * The hiredis client lib does not understand this part of the protocol
      * and we don't want to mess with its buffers, so everything is performed
@@ -7784,7 +7784,7 @@ static void slaveMode(int send_sync) {
     static char lastbytes[RDB_EOF_MARK_SIZE];
     static int usemark = 0;
     static int out_full_mode;
-    unsigned long long payload = sendSync(context, eofmark, send_sync, &out_full_mode);
+    unsigned long long payload = sendSync(context, send_sync, eofmark, &out_full_mode);
     char buf[1024];
     int original_output = config.output;
     char *info = out_full_mode ? "Full resync" : "Partial resync";
@@ -7866,7 +7866,7 @@ static void getRDB(clusterManagerNode *node) {
     static char eofmark[RDB_EOF_MARK_SIZE];
     static char lastbytes[RDB_EOF_MARK_SIZE];
     static int usemark = 0;
-    unsigned long long payload = sendSync(s, eofmark, 1, NULL);
+    unsigned long long payload = sendSync(s, 1, eofmark, NULL);
     char buf[4096];
 
     if (payload == 0) {
