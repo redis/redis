@@ -3869,7 +3869,7 @@ void clusterLogCantFailover(int reason) {
         break;
     }
     lastlog_time = time(NULL);
-    serverLog(LL_WARNING,"Currently unable to failover: %s", msg);
+    serverLog(LL_NOTICE,"Currently unable to failover: %s", msg);
 }
 
 /* This function emits a log when an election is attempted but doesn't succeed because the quorum is not reached. */
@@ -3887,7 +3887,7 @@ static void clusterLogNeededquorumNotReached(int cur_vote, int cur_quorum) {
     last_vote = cur_vote;
     last_quorum = cur_quorum;
     lastlog_time = time(NULL);
-    serverLog(LL_WARNING, "Currently unable to failover as the majority was not reached. Needed quorum: %i. Number of votes received so far: %i", cur_quorum, cur_vote);
+    serverLog(LL_NOTICE, "Currently unable to failover as the majority was not reached. Needed quorum: %i. Number of votes received so far: %i", cur_quorum, cur_vote);
 }
 
 /* This function implements the final part of automatic and manual failovers,
