@@ -339,6 +339,7 @@ typedef struct RedisModuleDictIter {
 
 typedef struct RedisModuleCommandFilterCtx {
     RedisModuleString **argv;
+    int argv_len;
     int argc;
 } RedisModuleCommandFilterCtx;
 
@@ -10078,6 +10079,7 @@ void moduleCallCommandFilters(client *c) {
 
     RedisModuleCommandFilterCtx filter = {
         .argv = c->argv,
+        .argv_len = c->argv_len,
         .argc = c->argc
     };
 
@@ -10094,6 +10096,7 @@ void moduleCallCommandFilters(client *c) {
     }
 
     c->argv = filter.argv;
+    c->argv_len = filter.argv_len;
     c->argc = filter.argc;
 }
 
@@ -10125,7 +10128,10 @@ int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *fctx, int pos, RedisM
 
     if (pos < 0 || pos > fctx->argc) return REDISMODULE_ERR;
 
-    fctx->argv = zrealloc(fctx->argv, (fctx->argc+1)*sizeof(RedisModuleString *));
+    if (fctx->argv_len < fctx->argc+1) {
+        fctx->argv_len = fctx->argc+1;
+        fctx->argv = zrealloc(fctx->argv, fctx->argv_len*sizeof(RedisModuleString *));
+    }
     for (i = fctx->argc; i > pos; i--) {
         fctx->argv[i] = fctx->argv[i-1];
     }
