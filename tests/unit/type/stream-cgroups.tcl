@@ -99,7 +99,7 @@ start_server {
     }
 
     test {XPENDING with IDLE} {
-        after 20
+        after 15
         set pending [r XPENDING mystream mygroup IDLE 99999999 - + 10 consumer-1]
         assert {[llength $pending] == 0}
         set pending [r XPENDING mystream mygroup IDLE 1 - + 10 consumer-1]
@@ -530,7 +530,7 @@ start_server {
         assert {[llength [r XPENDING mystream mygroup - + 10 consumer1]] == 1}
         assert {[llength [r XPENDING mystream mygroup - + 10 consumer2]] == 0}
 
-        after 200
+        after 15 
         set reply [
             r XCLAIM mystream mygroup consumer2 10 $id1
         ]
@@ -544,7 +544,7 @@ start_server {
 
         # Consumer 1 reads another 2 items from stream
         r XREADGROUP GROUP mygroup consumer1 count 2 STREAMS mystream >
-        after 200
+        after 15
 
         # Delete item 2 from the stream. Now consumer 1 has PEL that contains
         # only item 3. Try to use consumer 2 to claim the deleted item 2
@@ -558,7 +558,7 @@ start_server {
         # Delete item 3 from the stream. Now consumer 1 has PEL that is empty.
         # Try to use consumer 2 to claim the deleted item 3 from the PEL
         # of consumer 1, this should be NOP
-        after 200
+        after 15
         r XDEL mystream $id3
         set reply [
             r XCLAIM mystream mygroup consumer2 10 $id3
@@ -581,7 +581,7 @@ start_server {
         ]
         assert {[llength [lindex $reply 0 1 0 1]] == 2}
         assert {[lindex $reply 0 1 0 1] eq {a 1}}
-        after 200
+        after 15
         set reply [
             r XCLAIM mystream mygroup consumer2 10 $id1
         ]
@@ -595,7 +595,7 @@ start_server {
         assert {[lindex $reply 0 3] == 2}
 
         # Consumer 3 then claims pending item 1 from the PEL of consumer 2 using JUSTID
-        after 200
+        after 15
         set reply [
             r XCLAIM mystream mygroup consumer3 10 $id1 JUSTID
         ]
@@ -620,7 +620,7 @@ start_server {
         set reply [r XREADGROUP GROUP mygroup consumer1 count 1 STREAMS mystream >]
         assert {[llength [lindex $reply 0 1 0 1]] == 2}
         assert {[lindex $reply 0 1 0 1] eq {a 1}}
-        after 200
+        after 15 
         # re-claim with the same consumer that already has it
         assert {[llength [r XCLAIM mystream mygroup consumer1 10 $id1]] == 1}
 
@@ -644,7 +644,7 @@ start_server {
         set reply [r XREADGROUP GROUP mygroup consumer1 count 1 STREAMS mystream >]
         assert_equal [llength [lindex $reply 0 1 0 1]] 2
         assert_equal [lindex $reply 0 1 0 1] {a 1}
-        after 200
+        after 15
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 1]
         assert_equal [llength $reply] 3
         assert_equal [lindex $reply 0] "0-0"
@@ -657,7 +657,7 @@ start_server {
         r XREADGROUP GROUP mygroup consumer1 count 3 STREAMS mystream >
 
         # For min-idle-time
-        after 200
+        after 15
 
         # Delete item 2 from the stream. Now consumer 1 has PEL that contains
         # only item 3. Try to use consumer 2 to claim the deleted item 2
@@ -681,7 +681,7 @@ start_server {
         # Delete item 3 from the stream. Now consumer 1 has PEL that is empty.
         # Try to use consumer 2 to claim the deleted item 3 from the PEL
         # of consumer 1, this should return nil
-        after 200
+        after 15
 
         r XDEL mystream $id4
 
@@ -712,7 +712,7 @@ start_server {
         r XREADGROUP GROUP mygroup consumer1 count 90 STREAMS mystream >
 
         # For min-idle-time
-        after 200
+        after 15
 
         # Claim 2 entries
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
@@ -861,10 +861,10 @@ start_server {
         r DEL mystream
         r XGROUP CREATE mystream mygroup $ MKSTREAM
         r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream >
-        after 100
+        after 15
         set reply [r xinfo consumers mystream mygroup]
         set consumer_info [lindex $reply 0]
-        assert {[dict get $consumer_info idle] >= 100} ;# consumer idle (seen-time)
+        assert {[dict get $consumer_info idle] >= 15} ;# consumer idle (seen-time)
         assert_equal [dict get $consumer_info inactive] "-1" ;# consumer inactive (active-time)
 
         r XADD mystream * f v
@@ -872,15 +872,15 @@ start_server {
         set reply [r xinfo consumers mystream mygroup]
         set consumer_info [lindex $reply 0]
         assert_equal [lindex $consumer_info 1] "Alice" ;# consumer name
-        assert {[dict get $consumer_info idle] < 80} ;# consumer idle (seen-time)
-        assert {[dict get $consumer_info inactive] < 80} ;# consumer inactive (active-time)
+        assert {[dict get $consumer_info idle] < 10} ;# consumer idle (seen-time)
+        assert {[dict get $consumer_info inactive] < 10} ;# consumer inactive (active-time)
 
-        after 100
+        after 15
         r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream >
         set reply [r xinfo consumers mystream mygroup]
         set consumer_info [lindex $reply 0]
-        assert {[dict get $consumer_info idle] < 80} ;# consumer idle (seen-time)
-        assert {[dict get $consumer_info inactive] >= 100} ;# consumer inactive (active-time)
+        assert {[dict get $consumer_info idle] < 10} ;# consumer idle (seen-time)
+        assert {[dict get $consumer_info inactive] >= 15} ;# consumer inactive (active-time)
 
 
         # Simulate loading from RDB
