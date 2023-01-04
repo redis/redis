@@ -176,6 +176,7 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
             return C_ERR;
         }
         tval = (long long) ftval;
+        if (tval == 0 && ftval > 0) tval = 1;
     } else {
         if (getLongLongFromObjectOrReply(c,object,&tval,
             "timeout is not an integer or out of range") != C_OK)
