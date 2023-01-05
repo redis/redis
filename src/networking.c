@@ -40,6 +40,7 @@
 static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 int postponeClientRead(client *c);
+char *getClientSockname(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
@@ -1228,8 +1229,8 @@ void clientAcceptHandler(connection *conn) {
 
     if (connGetState(conn) != CONN_STATE_CONNECTED) {
         serverLog(LL_WARNING,
-                "Error accepting a client connection: %s",
-                connGetLastError(conn));
+                  "Error accepting a client connection: %s (addr=%s laddr=%s)",
+                  connGetLastError(conn), getClientPeerId(c), getClientSockname(c));
         freeClientAsync(c);
         return;
     }
@@ -1279,14 +1280,16 @@ void clientAcceptHandler(connection *conn) {
 
 void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
-    char conninfo[100];
     UNUSED(ip);
 
     if (connGetState(conn) != CONN_STATE_ACCEPTING) {
+        char addr[NET_ADDR_STR_LEN] = {0};
+        char laddr[NET_ADDR_STR_LEN] = {0};
+        connFormatAddr(conn, addr, sizeof(addr), 1);
+        connFormatAddr(conn, laddr, sizeof(addr), 0);
         serverLog(LL_VERBOSE,
-            "Accepted client connection in error state: %s (conn: %s)",
-            connGetLastError(conn),
-            connGetInfo(conn, conninfo, sizeof(conninfo)));
+                  "Accepted client connection in error state: %s (addr=%s laddr=%s)",
+                  connGetLastError(conn), addr, laddr);
         connClose(conn);
         return;
     }
@@ -1319,10 +1322,13 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
 
     /* Create connection and client */
     if ((c = createClient(conn)) == NULL) {
+        char addr[NET_ADDR_STR_LEN] = {0};
+        char laddr[NET_ADDR_STR_LEN] = {0};
+        connFormatAddr(conn, addr, sizeof(addr), 1);
+        connFormatAddr(conn, laddr, sizeof(addr), 0);
         serverLog(LL_WARNING,
-            "Error registering fd event for the new client: %s (conn: %s)",
-            connGetLastError(conn),
-            connGetInfo(conn, conninfo, sizeof(conninfo)));
+                  "Error registering fd event for the new client connection: %s (addr=%s laddr=%s)",
+                  connGetLastError(conn), addr, laddr);
         connClose(conn); /* May be already closed, just ignore errors */
         return;
     }
@@ -1339,11 +1345,10 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
      * Because of that, we must do nothing else afterwards.
      */
     if (connAccept(conn, clientAcceptHandler) == C_ERR) {
-        char conninfo[100];
         if (connGetState(conn) == CONN_STATE_ERROR)
             serverLog(LL_WARNING,
-                    "Error accepting a client connection: %s (conn: %s)",
-                    connGetLastError(conn), connGetInfo(conn, conninfo, sizeof(conninfo)));
+                      "Error accepting a client connection: %s (addr=%s laddr=%s)",
+                      connGetLastError(conn), getClientPeerId(c), getClientSockname(c));
         freeClient(connGetPrivateData(conn));
         return;
     }
