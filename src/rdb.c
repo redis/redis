@@ -1323,8 +1323,9 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
     written += res;
 
-    for (int i = 0; i < db->dict_count; i++) {
-        dict *d = db->dict[i];
+    dict *d;
+    dbIterator *dbit = dbGetIterator(db);
+    while ((d = dbNextDict(dbit))) {
         if (!dictSize(d)) continue;
         di = dictGetSafeIterator(d);
         /* Iterate this DB writing every entry */
@@ -1358,7 +1359,8 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
         }
 
         dictReleaseIterator(di);
-    } 
+    }
+    dbReleaseIterator(dbit);
     return written;
 
 werr:

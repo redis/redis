@@ -588,11 +588,13 @@ int htNeedsResize(dict *dict) {
 /* If the percentage of used slots in the HT reaches HASHTABLE_MIN_FILL
  * we resize the hash table to save memory */
 void tryResizeHashTables(int dbid) {
-    for (int i = 0; i < server.db[dbid].dict_count; i++) {
-        dict *d = server.db[dbid].dict[i];
+    dict *d;
+    dbIterator *dbit = dbGetIterator(&server.db[dbid]);
+    while ((d = dbNextDict(dbit))) {
         if (htNeedsResize(d))
             dictResize(d);
     }
+    dbReleaseIterator(dbit);
     if (htNeedsResize(server.db[dbid].expires))
         dictResize(server.db[dbid].expires);
 }

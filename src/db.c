@@ -48,6 +48,32 @@
 int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 
+
+dict *dbNextDict(dbIterator *iter) {
+    while (iter->index < iter->db->dict_count - 1) {
+        iter->index++;
+        dict *d = iter->db->dict[iter->index];
+        if (!server.cluster_enabled) return d; /* There is a single dictionary in non cluster mode. */
+        clusterNode *myself = server.cluster->myself;
+        /* We need a non-empty dictionary that's owned by this node. */
+        if (clusterNodeGetSlotBit(myself, iter->index) && dictSize(d) > 0) {
+            return d;
+        }
+    }
+    return NULL;
+}
+
+dbIterator *dbGetIterator(redisDb *db) {
+    dbIterator *iter = zmalloc(sizeof(*iter));
+    iter->db = db;
+    iter->index = -1;
+    return iter;
+}
+
+void dbReleaseIterator(dbIterator *iter) {
+    zfree(iter);
+}
+
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
  * Then logarithmically increment the counter, and update the access time. */
@@ -782,8 +808,9 @@ void keysCommand(client *c) {
     int plen = sdslen(pattern), allkeys;
     long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
-    for (int i = 0; i < c->db->dict_count; i++) {
-        dict *d = c->db->dict[i];
+    dict *d;
+    dbIterator *dbit = dbGetIterator(c->db);
+    while ((d = dbNextDict(dbit))) {
         if (dictSize(d) == 0) continue;
         di = dictGetSafeIterator(d);
         allkeys = (pattern[0] == '*' && plen == 1);
@@ -803,6 +830,7 @@ void keysCommand(client *c) {
             break;}
         dictReleaseIterator(di);
     }
+    dbReleaseIterator(dbit);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
@@ -969,6 +997,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             /* In cluster mode there is a separate dictionary for each slot.
              * If cursor is empty, we should try exploring next non-empty slot. */
             while (o == NULL && !cursor && slot < c->db->dict_count - 1) {
+                // TODO (vitarb@) Consider using dbIterator, or add slot ownership check.
                 slot++; ht = c->db->dict[slot];
                 if (dictSize(ht) > 0) {
                     hasUnvisitedSlot = 1;
@@ -1097,17 +1126,23 @@ void dbsizeCommand(client *c) {
 
 unsigned long long int dbSize(const redisDb *db) {
     unsigned long long size = 0;
-    for (int i = 0; i < db->dict_count; i++) {
-        size += dictSize(db->dict[i]);
+    dict *d;
+    dbIterator *dbit = dbGetIterator(db);
+    while ((d = dbNextDict(dbit))) {
+        size += dictSize(d);
     }
+    dbReleaseIterator(dbit);
     return size;
 }
 
 unsigned long dbSlots(const redisDb *db) {
     unsigned long slots = 0;
-    for (int i = 0; i < db->dict_count; i++) {
-        slots += dictSlots(db->dict[i]);
+    dict *d;
+    dbIterator *dbit = dbGetIterator(db);
+    while ((d = dbNextDict(dbit))) {
+        slots += dictSlots(d);
     }
+    dbReleaseIterator(dbit);
     return slots;
 }
 
@@ -1780,11 +1815,13 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
  * this node owns. */
 void expandDb(const redisDb *db, uint64_t db_size) {
     if (server.cluster_enabled) {
-        clusterNode *myself = server.cluster->myself;
-        for (int i = 0; i < db->dict_count; i++) {
+        dict *d;
+        dbIterator *dbit = dbGetIterator(db);
+        while ((d = dbNextDict(dbit))) {
             /* We don't exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */
-            if (clusterNodeGetSlotBit(myself, i)) dictExpand(db->dict[i], (db_size / myself->numslots));
+            dictExpand(d, (db_size / server.cluster->myself->numslots));
         }
+        dbReleaseIterator(dbit);
     } else {
         dictExpand(db->dict[0], db_size);
     }
@@ -2534,16 +2571,17 @@ void dbGetStats(char *buf, size_t bufsize, redisDb *db) {
     size_t orig_bufsize = bufsize;
     dictStats *mainHtStats = NULL;
     dictStats *rehashHtStats = NULL;
-
-    for (int i = 0; i < db->dict_count; i++) {
-        dictStats *stats = dictGetStatsHt(db->dict[i], 0);
+    dict *d;
+    dbIterator *dbit = dbGetIterator(db);
+    while ((d = dbNextDict(dbit))) {
+        dictStats *stats = dictGetStatsHt(d, 0);
         if (!mainHtStats) mainHtStats = stats;
         else {
             dictCombineStats(stats, mainHtStats);
             dictFreeStats(stats);
         }
-        if (dictIsRehashing(db->dict[i])) {
-            stats = dictGetStatsHt(db->dict[i], 1);
+        if (dictIsRehashing(d)) {
+            stats = dictGetStatsHt(d, 1);
             if (!rehashHtStats) rehashHtStats = stats;
             else {
                 dictCombineStats(stats, rehashHtStats);
@@ -2551,6 +2589,7 @@ void dbGetStats(char *buf, size_t bufsize, redisDb *db) {
             }
         }
     }
+    dbReleaseIterator(dbit);
     l = dictGetStatsMsg(buf, bufsize, mainHtStats);
     dictFreeStats(mainHtStats);
     buf += l;

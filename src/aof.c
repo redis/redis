@@ -2238,8 +2238,9 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
         redisDb *db = server.db + j;
-        for (int k = 0; k < db->dict_count; k++) {
-            dict *d = db->dict[k];
+        dict *d;
+        dbIterator *dbit = dbGetIterator(db);
+        while ((d = dbNextDict(dbit))) {
             if (dictSize(d) == 0) continue;
             di = dictGetSafeIterator(d);
 
@@ -2316,6 +2317,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             dictReleaseIterator(di);
             di = NULL;
         }
+        dbReleaseIterator(dbit);
     }
     return C_OK;
 

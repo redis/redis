@@ -2354,6 +2354,17 @@ typedef struct {
     unsigned char *lpi; /* listpack iterator */
 } setTypeIterator;
 
+/* Struture for DB iterator that allows iterating across multiple slot specific dictionaries in cluster mode. */
+typedef struct dbIterator {
+    redisDb *db;
+    int index;
+} dbIterator;
+
+/* dbIterator specific functions */
+dict *dbNextDict(dbIterator *iter);
+dbIterator *dbGetIterator(redisDb *db);
+void dbReleaseIterator(dbIterator *iter);
+
 /* Structure to hold hash iteration abstraction. Note that iteration over
  * hashes involves both fields and values. Because it is possible that
  * not both are required, store pointers in the iterator to avoid
