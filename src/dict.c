@@ -47,8 +47,8 @@
 #include "zmalloc.h"
 #include "redisassert.h"
 
-/* Using dictEnableResize() / dictDisableResize() we make possible to
- * enable/disable resizing of the hash table as needed. This is very important
+/* Using dictEnableResize() / dictDisableResize() we make possible to disable
+ * resizing and rehashing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
  * around when there is a child performing saving operations.
  *
@@ -210,7 +210,7 @@ int dictTryExpand(dict *d, unsigned long size) {
  * work it does would be unbound and the function may block for a long time. */
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
-    if (!dictIsRehashing(d)) return 0;
+    if (!dict_can_resize || !dictIsRehashing(d)) return 0;
 
     while(n-- && d->ht_used[0] != 0) {
         dictEntry *de, *nextde;
