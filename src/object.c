@@ -1036,6 +1036,8 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             if (samples) asize += (double)elesize/samples*dictSize(d);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             asize = sizeof(*o)+zmalloc_size(o->ptr);
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {
             serverPanic("Unknown set encoding");
         }

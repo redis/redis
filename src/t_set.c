@@ -969,6 +969,11 @@ void spopCommand(client *c) {
  * implementation for more info. */
 #define SRANDMEMBER_SUB_STRATEGY_MUL 3
 
+/* If client is trying to ask for a very large number of random elements,
+ * queuing may consume an unlimited amount of memory, so we want to limit
+ * the number of randoms per time. */
+#define SRANDFIELD_RANDOM_SAMPLE_LIMIT 1000
+
 void srandmemberWithCountCommand(client *c) {
     long l;
     unsigned long count, size;
@@ -1010,13 +1015,19 @@ void srandmemberWithCountCommand(client *c) {
 
         if (set->encoding == OBJ_ENCODING_LISTPACK && count > 1) {
             /* Specialized case for listpack, traversing it only once. */
-            listpackEntry *entries = zmalloc(count * sizeof(listpackEntry));
-            lpRandomEntries(set->ptr, count, entries);
-            for (unsigned long i = 0; i < count; i++) {
-                if (entries[i].sval)
-                    addReplyBulkCBuffer(c, entries[i].sval, entries[i].slen);
-                else
-                    addReplyBulkLongLong(c, entries[i].lval);
+            unsigned long limit, sample_count;
+            limit = count > SRANDFIELD_RANDOM_SAMPLE_LIMIT ? SRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
+            listpackEntry *entries = zmalloc(limit * sizeof(listpackEntry));
+            while (count) {
+                sample_count = count > limit ? limit : count;
+                count -= sample_count;
+                lpRandomEntries(set->ptr, sample_count, entries);
+                for (unsigned long i = 0; i < sample_count; i++) {
+                    if (entries[i].sval)
+                        addReplyBulkCBuffer(c, entries[i].sval, entries[i].slen);
+                    else
+                        addReplyBulkLongLong(c, entries[i].lval);
+                }
             }
             zfree(entries);
             return;
