@@ -3854,7 +3854,7 @@ static void clusterManagerShowNodes(void) {
 
 static void clusterManagerShowClusterInfo(void) {
     int masters = 0;
-    int keys = 0;
+    long long keys = 0;
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);
@@ -3863,7 +3863,7 @@ static void clusterManagerShowClusterInfo(void) {
         if (!(node->flags & CLUSTER_MANAGER_FLAG_SLAVE)) {
             if (!node->name) continue;
             int replicas = 0;
-            int dbsize = -1;
+            long long dbsize = -1;
             char name[9];
             memcpy(name, node->name, 8);
             name[8] = '\0';
