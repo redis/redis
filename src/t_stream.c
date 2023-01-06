@@ -53,6 +53,12 @@
  * will return NULL. */
 #define STREAM_LISTPACK_MAX_SIZE (1<<30)
 
+/* Flags for stream subscriber. */
+#define STREAM_PUBSUB_NONE (0)
+#define STREAM_PUBSUB_NOACK (1)
+#define STREAM_PUBSUB_GROUP (1<<1)
+#define STREAM_PUBSUB_INVALID (1<<2)
+
 void streamFreeCG(streamCG *cg);
 void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
@@ -76,6 +82,12 @@ stream *streamNew(void) {
     s->max_deleted_entry_id.ms = 0;
     s->entries_added = 0;
     s->cgroups = NULL; /* Created on demand to save memory when not used. */
+    s->subscribers = listCreate();
+    listSetFreeMethod(s->subscribers, zfree);
+    s->group_subscribers = dictCreate(&keylistDictType);
+    s->client_to_subscriber = dictCreate(&objectKeyPointerValueDictType);
+    s->pub_ids = listCreate();
+    listSetFreeMethod(s->pub_ids, zfree);
     return s;
 }
 
@@ -84,6 +96,10 @@ void freeStream(stream *s) {
     raxFreeWithCallback(s->rax,(void(*)(void*))lpFree);
     if (s->cgroups)
         raxFreeWithCallback(s->cgroups,(void(*)(void*))streamFreeCG);
+    listRelease(s->subscribers);
+    dictRelease(s->group_subscribers);
+    dictRelease(s->client_to_subscriber);
+    listRelease(s->pub_ids);
     zfree(s);
 }
 
@@ -672,7 +688,7 @@ typedef struct {
     int id_given; /* Was an ID different than "*" specified? for XADD only. */
     int seq_given; /* Was an ID different than "ms-*" specified? for XADD only. */
     int no_mkstream; /* if set to 1 do not create new stream */
-
+    int publish; /* Whether should be published */
     /* XADD + XTRIM common options */
     int trim_strategy; /* TRIM_STRATEGY_* */
     int trim_strategy_arg_idx; /* Index of the count in MAXLEN/MINID, for rewriting. */
@@ -980,6 +996,8 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             i++;
         } else if (xadd && !strcasecmp(opt,"nomkstream")) {
             args->no_mkstream = 1;
+        } else if (xadd && !strcasecmp(opt,"publish")) {
+            args->publish = 1;
         } else if (xadd) {
             /* If we are here is a syntax error or a valid ID. */
             if (streamParseStrictIDOrReply(c,c->argv[i],&args->id,0,&args->seq_given) != C_OK)
@@ -2078,6 +2096,11 @@ void xaddCommand(client *c) {
     /* We need to signal to blocked clients that there is new data on this
      * stream. */
     signalKeyAsReady(c->db, c->argv[1], OBJ_STREAM);
+
+    /* Signal subscribers. */
+    if (parsed_args.publish) {
+        signalPublishStream(c->db, c->argv[1], s, &id);
+    }
 }
 
 /* XRANGE/XREVRANGE actual implementation.
@@ -2485,14 +2508,31 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     cg->consumers = raxNew();
     cg->last_id = *id;
     cg->entries_read = entries_read;
-    raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
+    cg->subscribers = NULL;
+    cg->receiver = NULL;
+    raxInsert(s->cgroups, (unsigned char*)name, namelen, cg, NULL);
     return cg;
 }
 
-/* Free a consumer group and all its associated data. */
+/* Free a consumer group and all its associated data. Note that we should not
+ * free subscribers entry here, because we still need to unsubscribe all its 
+ * subscribers after the group is destroyed. */
 void streamFreeCG(streamCG *cg) {
     raxFreeWithCallback(cg->pel,(void(*)(void*))streamFreeNACK);
     raxFreeWithCallback(cg->consumers,(void(*)(void*))streamFreeConsumer);
+    /* Need to clear each subscriber's pointers, and mark them as invalid. */
+    if (cg->subscribers) {
+        list* subscribers = dictGetVal(cg->subscribers);
+        listIter li;
+        listRewind(subscribers, &li);
+        listNode* ln = NULL;
+        while ((ln = listNext(&li)) != NULL) {
+            streamSubscriber* sub = listNodeValue(ln);
+            sub->group = NULL;
+            sub->consumer = NULL;
+            sub->flags |= STREAM_PUBSUB_INVALID;
+        }
+    }
     zfree(cg);
 }
 
@@ -2556,6 +2596,23 @@ void streamDelConsumer(streamCG *cg, streamConsumer *consumer) {
     raxRemove(cg->consumers,(unsigned char*)consumer->name,
               sdslen(consumer->name),NULL);
     streamFreeConsumer(consumer);
+
+    /* Clear every subscriber's pointer, and mark subscribers who use this consumer
+       as invalid. */
+    if (cg->subscribers) {
+        list* subscribers = dictGetVal(cg->subscribers);
+        listIter li;
+        listRewind(subscribers, &li);
+        listNode* ln = NULL;
+        while ((ln = listNext(&li)) != NULL) {
+            streamSubscriber* sub = listNodeValue(ln);
+            if (sub->consumer != consumer) {
+                continue;
+            }
+            sub->consumer = NULL;
+            sub->flags |= STREAM_PUBSUB_INVALID;
+        }
+    }
 }
 
 /* -----------------------------------------------------------------------
@@ -2705,6 +2762,8 @@ NULL
                                 c->argv[2],c->db->id);
             /* We want to unblock any XREADGROUP consumers with -NOGROUP. */
             signalKeyAsReady(c->db,c->argv[2],OBJ_STREAM);
+            /* Signal to unsubscribe all clients subscribed as a consumer in this group. */
+            signalPublishStream(c->db, c->argv[2], NULL, NULL);
         } else {
             addReply(c,shared.czero);
         }
@@ -2723,6 +2782,8 @@ NULL
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-delconsumer",
                                 c->argv[2],c->db->id);
+            /* Signal to unsubscribe all clients subscribed as this consumer. */
+            signalPublishStream(c->db, c->argv[2], NULL, NULL);
         }
         addReplyLongLong(c,pending);
     } else {
@@ -4031,4 +4092,545 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
         return 0;
 
     return 1;
+}
+
+/* -----------------------------------------------------------------------
+ * Stream pubsub commands
+ * ----------------------------------------------------------------------- */
+
+void addReplyStreamSubscribed(client* c, robj* key, int dbid) {
+    if (c->resp == 2) {
+        addReply(c, shared.mbulkhdr[4]);
+    } else {
+        addReplyPushLen(c, 4);
+    }
+    addReply(c, shared.xsubscribebulk);
+    addReplyBulk(c, key);
+    addReplyLongLong(c, dbid);
+    addReplyLongLong(c, c->subscribed_key_cnt);
+}
+
+void addReplyStreamGroupSubscribed(client* c, robj* key, int dbid, robj* group, robj* consumer) {
+    if (c->resp == 2) {
+        addReply(c, shared.mbulkhdr[6]);
+    } else {
+        addReplyPushLen(c, 6);
+    }
+    addReply(c, shared.xsubscribegroupbulk);
+    addReplyBulk(c, key);
+    addReplyLongLong(c, dbid);
+    addReplyBulk(c, group);
+    addReplyBulk(c, consumer);
+    addReplyLongLong(c, c->subscribed_key_cnt);
+}
+
+void addReplyStreamUnsubscribed(client* c, robj* key, int dbid) {
+    if (c->resp == 2) {
+        addReply(c, shared.mbulkhdr[4]);
+    } else {
+        addReplyPushLen(c, 4);
+    }
+    addReply(c, shared.xunsubscribebulk);
+    addReplyBulk(c, key);
+    addReplyLongLong(c, dbid);
+    addReplyLongLong(c, c->subscribed_key_cnt);
+}
+
+int xpubsubAddKeyToKeyListDict(dict* d, robj* key, void* val) {
+    dictEntry* de = dictFind(d, key);
+    if (de) {
+        list* l = dictGetVal(de);
+        listNode* ln = listSearchKey(l, val);
+        if (ln) {
+            return 0;
+        }
+        listAddNodeTail(l, val);
+    } else {
+        list* l = listCreate();
+        listAddNodeTail(l, val);
+        dictAdd(d, key, l);
+        incrRefCount(key);
+    }
+    return 1;
+}
+
+int xpubsubRemoveKeyFromKeyListDict(dict* d, robj* key, void* val) {
+    dictEntry* de = dictFind(d, key);
+    if (!de) {
+        return 0;
+    }
+    list* l = dictGetVal(de);
+    listNode* ln = listSearchKey(l, val);
+    if (!ln) {
+        return 0;
+    }
+    listDelNode(l, ln);
+    if (listLength(l) == 0) {
+        dictDelete(d, key);
+    }
+    return 1;
+}
+
+int xpubsubAddKeyToClient(client* c, redisDb* db, robj* key) {
+    if (xpubsubAddKeyToKeyListDict(c->subscribed_keys, key, db)) {
+        c->subscribed_key_cnt++;
+        c->flags |= CLIENT_KEY_PUBSUB;
+        return 1;
+    }
+    return 0;
+}
+
+int xpubsubAddClientToKey(redisDb* db, robj* key, client* c) {
+    return xpubsubAddKeyToKeyListDict(db->subscribed_keys, key, c);
+}
+
+int xpubsubRemoveKeyFromClient(client* c, redisDb* db, robj* key) {
+    if (xpubsubRemoveKeyFromKeyListDict(c->subscribed_keys, key, db)) {
+        if (--c->subscribed_key_cnt == 0) {
+            c->flags &= ~CLIENT_KEY_PUBSUB;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+int xpubsubRemoveClientFromKey(redisDb* db, robj* key, client* c) {
+    return xpubsubRemoveKeyFromKeyListDict(db->subscribed_keys, key, c);
+}
+
+int xpubsubAddClientToStream(robj* key, stream* s, streamCG* group, robj* group_name, 
+                             robj* consumer_name, int noack, client* c) {
+    robj* client_id_obj = createStringObjectFromLongLong(c->id);
+    if (dictFind(s->client_to_subscriber, client_id_obj) != NULL) {
+        decrRefCount(client_id_obj);
+        return 0;
+    }
+    streamSubscriber* sub = zmalloc(sizeof(streamSubscriber));
+    sub->c = c;
+    if (group && group_name && consumer_name) {
+        streamConsumer* csm = streamLookupConsumer(group, consumer_name->ptr);
+        if (csm == NULL) {
+            csm = streamCreateConsumer(group, consumer_name->ptr, key, c->db->id, SCC_DEFAULT);
+            csm->seen_time = commandTimeSnapshot();
+            streamPropagateConsumerCreation(c, key, group_name, csm->name);
+        }
+        sub->group = group;
+        sub->consumer = csm;
+        sub->flags = STREAM_PUBSUB_GROUP;
+        if (noack) {
+            sub->flags |= STREAM_PUBSUB_NOACK;
+        }
+        list* subscribers = NULL;
+        if (!group->subscribers) {
+            subscribers = listCreate();
+            listSetFreeMethod(subscribers, zfree);
+            group->subscribers = dictAddRaw(s->group_subscribers, group_name, NULL);
+            dictSetVal(s->group_subscribers, group->subscribers, subscribers);
+            incrRefCount(group_name);
+        } else {
+            subscribers = dictGetVal(group->subscribers);
+        }
+        listAddNodeTail(subscribers, sub);
+        if (listLength(subscribers) == 1) {
+            group->receiver = listFirst(subscribers);
+        }
+        dictAdd(s->client_to_subscriber, client_id_obj, listLast(subscribers));
+    } else {
+        sub->group = NULL;
+        sub->consumer = NULL;
+        sub->flags = STREAM_PUBSUB_NONE;
+        listAddNodeTail(s->subscribers, sub);
+        dictAdd(s->client_to_subscriber, client_id_obj, listLast(s->subscribers));
+    }   
+    return 1;
+}
+
+int xpubsubRemoveClientFromStream(stream* s, client* c) {
+    robj* client_id_obj = createStringObjectFromLongLong(c->id);
+    dictEntry* de = dictFind(s->client_to_subscriber, client_id_obj);
+    if (!de) {
+        decrRefCount(client_id_obj);
+        return 0;
+    }
+    listNode* ln = dictGetVal(de);
+    streamSubscriber sub = *(streamSubscriber*)listNodeValue(ln);
+    if (!(sub.flags & STREAM_PUBSUB_GROUP)) {
+        listDelNode(s->subscribers, ln);
+    } else if (sub.group) {
+        if (sub.group->receiver == ln) {
+            sub.group->receiver = listNextNode(ln);
+        }
+        list* subscribers = dictGetVal(sub.group->subscribers);
+        listDelNode(subscribers, ln);
+        if (listLength(subscribers) == 0) {
+            robj* group_name = dictGetKey(sub.group->subscribers);
+            dictDelete(s->group_subscribers, group_name);
+            sub.group->subscribers = NULL;
+            sub.group->receiver = NULL;
+        } else if (sub.group->receiver == NULL) {
+            sub.group->receiver = listFirst(subscribers);
+        }
+    }
+    dictDelete(s->client_to_subscriber, client_id_obj);
+    decrRefCount(client_id_obj);
+    return 1;
+}
+
+void xpubsubUnsubscribeAllKeys(client* c, int notify) {
+    int unsubscribed_cnt = 0;
+    dictIterator* di = dictGetSafeIterator(c->subscribed_keys);
+    dictEntry* de = NULL;
+    while ((de = dictNext(di)) != NULL) {
+        robj* key = dictGetKey(de);
+        list* db_list = dictGetVal(de);
+        listIter li;
+        listRewind(db_list, &li);
+        listNode* ln = NULL;
+        while ((ln = listNext(&li)) != NULL) {
+            redisDb* db = listNodeValue(ln);
+            xpubsubRemoveClientFromKey(db, key, c);
+            robj* o = lookupKeyRead(db, key);
+            if (o && o->type == OBJ_STREAM) {
+                xpubsubRemoveClientFromStream(o->ptr, c);
+            }
+            c->subscribed_key_cnt--;
+            if (notify) {
+                addReplyStreamUnsubscribed(c, key, db->id);
+            }
+            unsubscribed_cnt++;
+        }
+    }
+    if (notify && unsubscribed_cnt == 0) {
+        addReplyNullArray(c);
+    }
+    dictReleaseIterator(di);
+    dictEmpty(c->subscribed_keys, NULL);
+}
+
+/* This is only used for unsubscribing clients from a key cannot be found 
+ * (deleted, moved ...), so only remove key subscribe info and notify clients,
+ * no need to handle subscription info inside the key. */
+void xpubsubUnsubscribeAllClients(redisDb* db, robj* key) {
+    dictEntry* de = dictFind(db->subscribed_keys, key);
+    if (!de) {
+        return;
+    }
+    list* client_list = dictGetVal(de);
+    listIter li;
+    listRewind(client_list, &li);
+    listNode* ln = NULL;
+    while ((ln = listNext(&li)) != NULL) {
+        client* c = listNodeValue(ln);
+        xpubsubRemoveKeyFromClient(c, db, key);
+        addReplyStreamUnsubscribed(c, key, db->id);
+    }
+    dictDelete(db->subscribed_keys, key);
+}
+
+void xpubsubUnsubscribeAllClientsInCG(redisDb* db, robj* key, stream* s, robj* group_name, streamCG* cg) {
+    dictEntry* de = dictFind(s->group_subscribers, group_name);
+    if (!de) {
+        return;
+    }
+    list* subscribers = dictGetVal(de);
+    listIter li;
+    listRewind(subscribers, &li);
+    listNode* ln = NULL;
+    while ((ln = listNext(&li)) != NULL) {
+        streamSubscriber sub = *(streamSubscriber*)listNodeValue(ln);
+        xpubsubRemoveKeyFromClient(sub.c, db, key);
+        xpubsubRemoveClientFromKey(db, key, sub.c);
+        xpubsubRemoveClientFromStream(s, sub.c);
+        addReplyStreamUnsubscribed(sub.c, key, db->id);
+    }
+    dictDelete(s->group_subscribers, group_name);
+    if (cg) {
+        cg->receiver = NULL;
+        cg->subscribers = NULL;
+    }
+}
+
+/* XSUBSCRIBE key [key ...]
+ * XSUBSCRIBEGROUP GROUP group consumer [NOACK] STREAMS key [key ...] */
+void xsubscribeCommand(client* c) {
+    /* A client that has CLIENT_DENY_BLOCKING flag on expect a reply per command. */
+    if (c->flags & CLIENT_DENY_BLOCKING) {
+        addReplyError(c, "XSUBSCRIBE isn't allowed for a DENY BLOCKING client");
+        return;
+    }
+    /* Variables. */
+    int xsubscribe_group = sdslen(c->argv[0]->ptr) > 10;
+    robj* group_name = NULL;
+    robj* consumer_name = NULL;
+    int noack = 0;
+    robj** keys = NULL;
+    long key_cnt = 0;
+    /* Parse and check arguments. */
+    if (!xsubscribe_group) {
+        key_cnt = c->argc - 1;
+        keys = c->argv + 1;
+    } else {
+        group_name = c->argv[1];
+        consumer_name = c->argv[2];
+        if (getLongFromObjectOrReply(c, c->argv[3], &key_cnt, NULL) != C_OK) {
+            return;
+        }
+        if (key_cnt < 1) {
+            addReplyErrorFormat(c, "at least 1 key is needed for '%s' command", c->cmd->fullname);
+            return;
+        }
+        if (key_cnt > c->argc - 4 || key_cnt < c->argc - 5) {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+        keys = c->argv + 4;
+        if (key_cnt == c->argc - 5) {
+            if (!strcasecmp("noack", c->argv[c->argc - 1]->ptr)) {
+                noack = 1;
+            } else {
+                addReplyErrorObject(c, shared.syntaxerr);
+                return;
+            }
+        }
+    }
+    /* Find streams and groups. */
+    stream** streams = zmalloc(sizeof(stream*) * key_cnt);
+    streamCG** groups = group_name ? zmalloc(sizeof(streamCG*) * key_cnt) : NULL;
+    for (int i = 0; i < key_cnt; i++) {
+        robj* o = lookupKeyRead(c->db, keys[i]);
+        if (checkType(c, o, OBJ_STREAM)) {
+            zfree(streams);
+            zfree(groups);
+            return;
+        }
+        streams[i] = o ? o->ptr : NULL;
+        if (group_name == NULL) {
+            continue;
+        }
+        groups[i] = streams[i] ? streamLookupCG(streams[i], group_name->ptr) : NULL;
+        if (groups[i] == NULL) {
+            addReplyErrorFormat(c, "-NOGROUP No such key '%s' or consumer group '%s' in XSUBSCRIBEGROUP",
+                                (char*)keys[i]->ptr, (char*)group_name->ptr);
+            zfree(streams);
+            zfree(groups);
+            return;
+        }
+    }
+    /* Add subscribe information to stream and clients. */
+    int subscribed_cnt = 0;
+    for (int i = 0; i < key_cnt; i++) {
+        if (!streams[i]) {
+            continue;
+        }
+        robj* key = keys[i];
+        if (!xpubsubAddKeyToClient(c, c->db, key)) {
+            continue;
+        }
+        xpubsubAddClientToKey(c->db, key, c);
+        if (xsubscribe_group) {
+            xpubsubAddClientToStream(key, streams[i], groups[i], group_name, consumer_name, noack, c);
+            addReplyStreamGroupSubscribed(c, key, c->db->id, group_name, consumer_name);
+        } else {
+            xpubsubAddClientToStream(key, streams[i], NULL, NULL, NULL, 0, c);
+            addReplyStreamSubscribed(c, key, c->db->id);
+        }
+        subscribed_cnt++;
+    }
+    /* Reply here if no subscription is made. */
+    if (subscribed_cnt == 0) {
+        addReplyNullArray(c);
+    }
+    /* Free. */
+    zfree(streams);
+    zfree(groups);
+    /* This command is considered as executing a part of XREAD or XREADGROUP, the
+       propagation either is unnecessary or will be done in streamReplyWithRange
+       when XADD PUBLISH is called. */
+    preventCommandPropagation(c);
+}
+
+/* XUNSUBSCRIBE [channel ...] */
+void xunsubscribeCommand(client* c) {
+    if (c->argc == 1) {
+        xpubsubUnsubscribeAllKeys(c, 1);
+        return;
+    }
+    /* Find streams. */
+    int key_cnt = c->argc - 1;
+    robj** keys = c->argv + 1;
+    stream** streams = zmalloc(sizeof(stream*) * key_cnt);
+    for (int i = 0; i < key_cnt; i++) {
+        robj* o = lookupKeyRead(c->db, keys[i]);
+        if (checkType(c, o, OBJ_STREAM)) {
+            zfree(streams);
+            return;
+        }
+        streams[i] = o ? o->ptr : NULL;
+    }
+    /* Unsubscribe */
+    int unsubscribed_cnt = 0;
+    for (int i = 0; i < key_cnt; i++) {
+        if (!streams[i]) {
+            continue;
+        }
+        if (!xpubsubRemoveKeyFromClient(c, c->db, keys[i])) {
+            continue;
+        }
+        xpubsubRemoveClientFromKey(c->db, keys[i], c);
+        xpubsubRemoveClientFromStream(streams[i], c);
+        addReplyStreamUnsubscribed(c, keys[i], c->db->id);
+        unsubscribed_cnt++;
+    }
+    if (unsubscribed_cnt == 0) {
+        addReplyNullArray(c);
+    }
+}
+
+void signalPublishStream(redisDb* db, robj* key, stream* s, streamID* id) {
+    dictEntry* de = dictFind(db->subscribed_keys, key);
+    if (!de) {
+        return;
+    }
+    if (dictAdd(db->publishing_keys, key, NULL) == DICT_OK) {
+        incrRefCount(key);
+        readyList* rl = zmalloc(sizeof(readyList));
+        rl->key = key;
+        rl->db = db;
+        incrRefCount(key);
+        listAddNodeTail(server.publishing_keys, rl);
+    }
+    if (!s || !id) {
+        return;
+    }
+    if (dictSize(s->client_to_subscriber) > 0) {
+        streamID* pub_id = zmalloc(sizeof(streamID));
+        pub_id->ms = id->ms;
+        pub_id->seq = id->seq;
+        listAddNodeTail(s->pub_ids, pub_id);
+    }
+}
+
+/* Stream publish message: this function adds a header to client reply. */
+void addReplyStreamPubsubMessageHdr(client* c, robj* key, int dbid, int len) {
+    if (c->resp == 2) {
+        addReply(c, shared.mbulkhdr[4]);
+    } else {
+        addReplyPushLen(c, 4);
+    }
+    addReply(c, shared.xmessagebulk);
+    addReplyBulk(c, key);
+    addReplyLongLong(c, dbid);
+    addReplyArrayLen(c, len);
+}
+
+/* Stream publish message: this function adds actual stream content to client reply. */
+void addReplyStreamPubsubMessageContent(streamSubscriber* sub, robj* key, stream* s, robj* group_name) {
+    int flag = STREAM_RWR_RAWENTRIES;
+    if (sub->flags & STREAM_PUBSUB_NOACK) {
+        flag |= STREAM_RWR_NOACK;
+    }
+    streamPropInfo* spi = NULL;
+    if (group_name) {
+        spi = zmalloc(sizeof(streamPropInfo));
+        spi->keyname = key;
+        incrRefCount(key);
+        spi->groupname = group_name;
+        incrRefCount(group_name);
+    }
+    listIter id_li;
+    listRewind(s->pub_ids, &id_li);
+    listNode* id_ln = NULL;
+    while ((id_ln = listNext(&id_li)) != NULL) {
+        streamID* id = listNodeValue(id_ln);
+        streamReplyWithRange(sub->c, s, id, id, 0, 0, sub->group, sub->consumer, flag, spi);
+    }
+    if (spi) {
+        decrRefCount(group_name);
+        decrRefCount(key);
+        zfree(spi);
+    } 
+}
+
+int streamPublish(redisDb* db, robj* key, stream* s) {
+    if (dictSize(s->client_to_subscriber) == 0) {
+        return 0;
+    }
+    int need_propagation = 0;
+    int len = listLength(s->pub_ids);
+    /* Publish to all clients subscribed with XSUBSCRIBE. */
+    listIter li;
+    listRewind(s->subscribers, &li);
+    listNode* ln = NULL;
+    while ((ln = listNext(&li)) != NULL) {
+        streamSubscriber* sub = listNodeValue(ln);
+        addReplyStreamPubsubMessageHdr(sub->c, key, db->id, len);
+        addReplyStreamPubsubMessageContent(sub, key, s, NULL);
+    }
+    /* Publish to all clients subscribed with XSUBSCRIBEGROUP. Also handle those 
+       group subscribers whose group or consumer was destroyed. */
+    dictIterator* di = dictGetSafeIterator(s->group_subscribers);
+    dictEntry* de = NULL;
+    while ((de = dictNext(di)) != NULL) {
+        robj* group_name = dictGetKey(de);
+        streamCG* cg = streamLookupCG(s, group_name->ptr);
+        if (!cg) {
+            xpubsubUnsubscribeAllClientsInCG(db, key, s, group_name, NULL);
+            continue;
+        }
+        if (!cg->subscribers) {
+            continue;
+        }
+        list* subscribers = dictGetVal(cg->subscribers);
+        /* Scan the whole list to delete invalid subscribers. */
+        listIter sub_li;
+        listRewind(subscribers, &sub_li);
+        listNode* sub_ln = NULL;
+        while ((sub_ln = listNext(&sub_li)) != NULL) {
+            /* Copy the streamSubscriber to avoid it being freed. */
+            streamSubscriber sub = *(streamSubscriber*)listNodeValue(sub_ln);
+            if (!(sub.flags & STREAM_PUBSUB_INVALID)) {
+                continue;
+            }
+            xpubsubRemoveKeyFromClient(sub.c, db, key);
+            xpubsubRemoveClientFromKey(db, key, sub.c);
+            xpubsubRemoveClientFromStream(s, sub.c);
+            addReplyStreamUnsubscribed(sub.c, key, db->id);
+        }
+        /* Publish to the current receiver. */
+        if (!cg->receiver || listLength(s->pub_ids) == 0) {
+            continue;
+        }
+        streamSubscriber* psub = listNodeValue(cg->receiver);
+        addReplyStreamPubsubMessageHdr(psub->c, key, db->id, len);
+        addReplyStreamPubsubMessageContent(psub, key, s, group_name);
+        cg->receiver = listNextNode(cg->receiver);
+        if (!cg->receiver) {
+            cg->receiver = listFirst(subscribers);
+        }
+        need_propagation = 1;
+    }
+    dictReleaseIterator(di);
+    /* Clear list of streamIDs after publish. */
+    listEmpty(s->pub_ids);
+    return need_propagation;
+}
+
+int handlePublishKeys() {
+    int need_propagation = 0;
+    listIter li;
+    listRewind(server.publishing_keys, &li);
+    listNode* ln = NULL;
+    while ((ln = listNext(&li)) != NULL) {
+        readyList* rl = listNodeValue(ln);
+        robj* o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
+        if (o && o->type == OBJ_STREAM) {
+            need_propagation |= streamPublish(rl->db, rl->key, o->ptr);
+        } else {
+            xpubsubUnsubscribeAllClients(rl->db, rl->key);
+        }
+        dictDelete(rl->db->publishing_keys, rl->key);
+        decrRefCount(rl->key);
+    }
+    listEmpty(server.publishing_keys);
+    return need_propagation;
 }

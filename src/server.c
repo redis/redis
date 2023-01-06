@@ -1697,6 +1697,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * since the unblocked clients may write data. */
     handleClientsBlockedOnKeys();
 
+    /* Process publishing subscribed keys. */
+    if (listLength(server.publishing_keys) && handlePublishKeys()) {
+        postExecutionUnitOperations();
+    }
+
     /* Write the AOF buffer on disk,
      * must be done before handleClientsWithPendingWritesUsingThreads,
      * in case of appendfsync=always. */
@@ -1849,6 +1854,12 @@ void createSharedObjects(void) {
     shared.psubscribebulk = createStringObject("$10\r\npsubscribe\r\n",17);
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
 
+    shared.xmessagebulk = createStringObject("$8\r\nxmessage\r\n", 14);
+    shared.xgroupmessagebulk = createStringObject("$13\r\nxgroupmessage\r\n", 20);
+    shared.xsubscribebulk = createStringObject("$10\r\nxsubscribe\r\n", 17);
+    shared.xsubscribegroupbulk = createStringObject("$15\r\nxsubscribegroup\r\n", 22);
+    shared.xunsubscribebulk = createStringObject("$12\r\nxunsubscribe\r\n", 19);
+    
     /* Shared command names */
     shared.del = createStringObject("DEL",3);
     shared.unlink = createStringObject("UNLINK",6);
@@ -2519,6 +2530,8 @@ void initServer(void) {
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
     server.ready_keys = listCreate();
+    server.publishing_keys = listCreate();
+    listSetFreeMethod(server.publishing_keys, zfree);
     server.tracking_pending_keys = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
@@ -2564,6 +2577,8 @@ void initServer(void) {
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
+        server.db[j].subscribed_keys = dictCreate(&keylistDictType);
+        server.db[j].publishing_keys = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].watched_keys = dictCreate(&keylistDictType);
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
@@ -4010,6 +4025,21 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    if ((c->flags & CLIENT_KEY_PUBSUB && c->resp == 2) && 
+        c->cmd->proc != pingCommand &&
+        c->cmd->proc != xsubscribeCommand && 
+        c->cmd->proc != xunsubscribeCommand &&
+        c->cmd->proc != xackCommand &&
+        c->cmd->proc != selectCommand &&
+        c->cmd->proc != quitCommand && 
+        c->cmd->proc != resetCommand) {
+        rejectCommandFormat(c,
+            "Can't execute '%s': only XSUBSCRIBE(GROUP) / XUNSUBSCRIBE"
+            " XACK / SELECT / PING / QUIT / RESET are allowed in this context",
+            c->cmd->fullname);
+        return C_OK;
+    }
+
     /* Only allow commands with flag "t", such as INFO, REPLICAOF and so on,
      * when replica-serve-stale-data is no and we are a replica with a broken
      * link with master. */
@@ -4088,6 +4118,8 @@ int processCommand(client *c) {
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
+        if (listLength(server.publishing_keys) && handlePublishKeys())
+            postExecutionUnitOperations();
     }
 
     return C_OK;
@@ -4438,7 +4470,8 @@ void pingCommand(client *c) {
         return;
     }
 
-    if (c->flags & CLIENT_PUBSUB && c->resp == 2) {
+    if ((c->flags & CLIENT_PUBSUB && c->resp == 2) ||
+        (c->flags & CLIENT_KEY_PUBSUB && c->resp == 2)) {
         addReply(c,shared.mbulkhdr[2]);
         addReplyBulkCBuffer(c,"pong",4);
         if (c->argc == 1)

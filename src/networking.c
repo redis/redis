@@ -192,6 +192,7 @@ client *createClient(connection *conn) {
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
     c->pubsub_patterns = listCreate();
     c->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
+    c->subscribed_keys = dictCreate(&keylistDictType);
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
@@ -1508,6 +1509,8 @@ void clearClientConnectionState(client *c) {
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
 
+    xpubsubUnsubscribeAllKeys(c,0);
+
     if (c->name) {
         decrRefCount(c->name);
         c->name = NULL;
@@ -1515,7 +1518,7 @@ void clearClientConnectionState(client *c) {
 
     /* Selectively clear state flags not covered above */
     c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
-                  CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT);
+                  CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT|CLIENT_KEY_PUBSUB);
 }
 
 void freeClient(client *c) {
@@ -1587,6 +1590,10 @@ void freeClient(client *c) {
     dictRelease(c->pubsub_channels);
     listRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
+
+    /* Unsubscribe from all keys */
+    xpubsubUnsubscribeAllKeys(c,0);
+    dictRelease(c->subscribed_keys);
 
     /* Free data structures. */
     listRelease(c->reply);
@@ -2724,6 +2731,7 @@ sds catClientInfoString(sds s, client *client) {
     }
     if (client->flags & CLIENT_MASTER) *p++ = 'M';
     if (client->flags & CLIENT_PUBSUB) *p++ = 'P';
+    if (client->flags & CLIENT_KEY_PUBSUB) *p++ = 'k';
     if (client->flags & CLIENT_MULTI) *p++ = 'x';
     if (client->flags & CLIENT_BLOCKED) *p++ = 'b';
     if (client->flags & CLIENT_TRACKING) *p++ = 't';

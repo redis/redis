@@ -1,23 +1,14 @@
 {
-    "GROUPS": {
-        "summary": "List the consumer groups of a stream",
-        "complexity": "O(1)",
+    "XSUBSCRIBE": {
+        "summary": "Listen for messages published to the given streams",
+        "complexity": "O(N) where N is the number of streams to subscribe to.",
         "group": "stream",
-        "since": "5.0.0",
-        "arity": 3,
-        "container": "XINFO",
-        "history": [
-            [
-                "7.0.0",
-                "Added the `entries-read` and `lag` fields"
-            ],
-            [
-                "7.2.0",
-                "Added `num-subscribers` fields"
-            ]
-        ],
-        "function": "xinfoCommand",
+        "since": "7.2.0",
+        "arity": -2,
+        "function": "xsubscribeCommand",
+        "history": [],
         "command_flags": [
+            "NOSCRIPT",
             "READONLY"
         ],
         "acl_categories": [
@@ -31,12 +22,12 @@
                 ],
                 "begin_search": {
                     "index": {
-                        "pos": 2
+                        "pos": 1
                     }
                 },
                 "find_keys": {
                     "range": {
-                        "lastkey": 0,
+                        "lastkey": -1,
                         "step": 1,
                         "limit": 0
                     }
@@ -47,7 +38,8 @@
             {
                 "name": "key",
                 "type": "key",
-                "key_spec_index": 0
+                "key_spec_index": 0,
+                "multiple": true
             }
         ]
     }

@@ -7289,6 +7289,8 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
     return 0;
 }
 
+// TODO: stream pubsub unsubscribe when key migrated
+
 /* Slot to Key API. This is used by Redis Cluster in order to obtain in
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster and in other conditions when we need to

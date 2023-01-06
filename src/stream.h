@@ -21,6 +21,12 @@ typedef struct stream {
     streamID max_deleted_entry_id;  /* The maximal ID that was deleted. */
     uint64_t entries_added; /* All time count of elements added. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
+    list *subscribers;      /* List of subscribers subscribed by using XSUBSCRIBE. */
+    dict *group_subscribers;    /* List of subscribers subscribed by using XSUBSCRIBEGROUP. */
+    dict *client_to_subscriber; /* An index for subscribers list, including those in groups.
+                                   We use client id as key, and value points to the listNode
+                                   holding the corresponding streamSubscriber structure. */
+    list *pub_ids;          /* List of streamIDs that need to be published. */
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without
@@ -70,6 +76,10 @@ typedef struct streamCG {
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
+    dictEntry *subscribers; /* A pointer to the dictEntry whose value is the list of 
+                               subscribers subscribed as a consumer in this group. */
+    listNode *receiver;     /* The subscriber to which the next group publish message
+                               should be sent. */
 } streamCG;
 
 /* A specific consumer in a consumer group.  */
@@ -87,6 +97,14 @@ typedef struct streamConsumer {
                                    in the "pel" of the consumer group structure
                                    itself, so the value is shared. */
 } streamConsumer;
+
+/* A subscriber of the stream. */
+typedef struct streamSubscriber {
+    client* c;
+    streamCG* group;
+    streamConsumer* consumer;
+    int flags;
+} streamSubscriber;
 
 /* Pending (yet not acknowledged) message in a consumer group. */
 typedef struct streamNACK {

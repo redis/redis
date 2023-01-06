@@ -62,6 +62,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
         !mustObeyClient(c) &&         /* No timeout for masters and AOF */
         !(c->flags & CLIENT_BLOCKED) && /* No timeout for BLPOP */
         !(c->flags & CLIENT_PUBSUB) &&  /* No timeout for Pub/Sub clients */
+        !(c->flags & CLIENT_KEY_PUBSUB) && /* No timeout for key Pub/Sub clients */
         (now - c->lastinteraction > server.maxidletime))
     {
         serverLog(LL_VERBOSE,"Closing idle client");

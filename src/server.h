@@ -389,6 +389,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                       memory eviction. */
 #define CLIENT_ALLOW_OOM (1ULL<<44) /* Client used by RM_Call is allowed to fully execute
                                        scripts even when in OOM */
+#define CLIENT_KEY_PUBSUB (1ULL<<45) /* Client subscribed to keys */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -951,6 +952,8 @@ typedef struct redisDb {
                                              * data, and should be unblocked if key is deleted (XREADEDGROUP).
                                              * This is a subset of blocking_keys*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
+    dict *subscribed_keys;      /* Keys subscribed by clients */
+    dict *publishing_keys;      /* Keys with new message to publish */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
@@ -1164,6 +1167,8 @@ typedef struct client {
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     dict *pubsubshard_channels;  /* shard level channels a client is interested in (SSUBSCRIBE) */
+    dict *subscribed_keys;   /* keys subscribed (XSUBSCRIBE/XSUSCRIBEGROUP)*/
+    long subscribed_key_cnt; /* total count of keys subscribed */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
@@ -1252,10 +1257,11 @@ struct sharedObjectsStruct {
     *slowevalerr, *slowscripterr, *slowmoduleerr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
-    *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
-    *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
-    *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,  
-    *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire, 
+    *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *xsubscribebulk, 
+    *xsubscribegroupbulk, *xunsubscribebulk, *xmessagebulk, *xgroupmessagebulk,
+    *del, *unlink, *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, 
+    *zpopmax, *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, 
+    *xclaim, *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire, 
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
@@ -1842,6 +1848,8 @@ struct redisServer {
     unsigned int blocked_clients_by_type[BLOCKED_NUM];
     list *unblocked_clients; /* list of clients to unblock before next loop */
     list *ready_keys;        /* List of readyList structures for BLPOP & co */
+    /* Key subscribes */
+    list* publishing_keys; /* List of readyList structures for key publish */
     /* Client side caching. */
     unsigned int tracking_clients;  /* # of clients with tracking enabled.*/
     size_t tracking_table_max_keys; /* Max number of keys in tracking table. */
@@ -2389,7 +2397,8 @@ extern dictType sdsHashDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
-extern dict *modules;
+extern dictType keylistDictType;
+extern dict* modules;
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes
@@ -3054,6 +3063,11 @@ int serverPubsubSubscriptionCount();
 int serverPubsubShardSubscriptionCount();
 size_t pubsubMemOverhead(client *c);
 
+/* Stream Pub / Sub */
+void xpubsubUnsubscribeAllKeys(client* c, int notify);
+void signalPublishStream(redisDb* db, robj* key, stream* s, streamID* id);
+int handlePublishKeys();
+
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
 int keyspaceEventsStringToFlags(char *classes);
@@ -3155,7 +3169,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 #define LOOKUP_NOSTATS (1<<2)  /* Don't update keyspace hits/misses counters. */
 #define LOOKUP_WRITE (1<<3)    /* Delete expired keys even in replicas. */
 #define LOOKUP_NOEXPIRE (1<<4) /* Avoid deleting lazy expired keys. */
-#define LOKKUP_NOEFFECTS (LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH | LOOKUP_NOEXPIRE) /* Avoid any effects from fetching the key */
+#define LOOKUP_NOEFFECTS (LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH | LOOKUP_NOEXPIRE) /* Avoid any effects from fetching the key */
 
 void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
@@ -3222,6 +3236,7 @@ int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int xsubscribegroupGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
@@ -3584,6 +3599,8 @@ void xautoclaimCommand(client *c);
 void xinfoCommand(client *c);
 void xdelCommand(client *c);
 void xtrimCommand(client *c);
+void xsubscribeCommand(client *c);
+void xunsubscribeCommand(client *c);
 void lolwutCommand(client *c);
 void aclCommand(client *c);
 void lcsCommand(client *c);

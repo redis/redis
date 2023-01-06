@@ -6231,6 +6231,7 @@ struct redisCommandArg XADD_data_Subargs[] = {
 struct redisCommandArg XADD_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"nomkstream",ARG_TYPE_PURE_TOKEN,-1,"NOMKSTREAM",NULL,"6.2.0",CMD_ARG_OPTIONAL},
+{"publish",ARG_TYPE_PURE_TOKEN,-1,"PUBLISH",NULL,"7.2.0",CMD_ARG_OPTIONAL},
 {"trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XADD_trim_Subargs},
 {"id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XADD_id_selector_Subargs},
 {"data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=XADD_data_Subargs},
@@ -6457,6 +6458,7 @@ struct redisCommandArg XINFO_CONSUMERS_Args[] = {
 /* XINFO GROUPS history */
 commandHistory XINFO_GROUPS_History[] = {
 {"7.0.0","Added the `entries-read` and `lag` fields"},
+{"7.2.0","Added `num-subscribers` fields"},
 {0}
 };
 
@@ -6681,6 +6683,38 @@ struct redisCommandArg XSETID_Args[] = {
 {0}
 };
 
+/********** XSUBSCRIBE ********************/
+
+/* XSUBSCRIBE history */
+#define XSUBSCRIBE_History NULL
+
+/* XSUBSCRIBE tips */
+#define XSUBSCRIBE_tips NULL
+
+/* XSUBSCRIBE argument table */
+struct redisCommandArg XSUBSCRIBE_Args[] = {
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{0}
+};
+
+/********** XSUBSCRIBEGROUP ********************/
+
+/* XSUBSCRIBEGROUP history */
+#define XSUBSCRIBEGROUP_History NULL
+
+/* XSUBSCRIBEGROUP tips */
+#define XSUBSCRIBEGROUP_tips NULL
+
+/* XSUBSCRIBEGROUP argument table */
+struct redisCommandArg XSUBSCRIBEGROUP_Args[] = {
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"noack",ARG_TYPE_PURE_TOKEN,-1,"NOACK",NULL,NULL,CMD_ARG_OPTIONAL},
+{0}
+};
+
 /********** XTRIM ********************/
 
 /* XTRIM history */
@@ -6722,6 +6756,20 @@ struct redisCommandArg XTRIM_trim_Subargs[] = {
 struct redisCommandArg XTRIM_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XTRIM_trim_Subargs},
+{0}
+};
+
+/********** XUNSUBSCRIBE ********************/
+
+/* XUNSUBSCRIBE history */
+#define XUNSUBSCRIBE_History NULL
+
+/* XUNSUBSCRIBE tips */
+#define XUNSUBSCRIBE_tips NULL
+
+/* XUNSUBSCRIBE argument table */
+struct redisCommandArg XUNSUBSCRIBE_Args[] = {
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -7393,7 +7441,10 @@ struct redisCommand redisCommandTable[] = {
 {"xreadgroup","Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XREADGROUP_History,XREADGROUP_tips,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys,.args=XREADGROUP_Args},
 {"xrevrange","Return a range of elements in a stream, with IDs matching the specified IDs interval, in reverse order (from greater to smaller IDs) compared to XRANGE","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XREVRANGE_History,XREVRANGE_tips,xrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XREVRANGE_Args},
 {"xsetid","An internal command for replicating stream values","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XSETID_History,XSETID_tips,xsetidCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XSETID_Args},
+{"xsubscribe","Listen for messages published to the given streams","O(N) where N is the number of streams to subscribe to.","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XSUBSCRIBE_History,XSUBSCRIBE_tips,xsubscribeCommand,-2,CMD_NOSCRIPT|CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=XSUBSCRIBE_Args},
+{"xsubscribegroup","Listen for messages published to the given streams using consumer group","O(N) where N is the number of streams to subscribe to.","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XSUBSCRIBEGROUP_History,XSUBSCRIBEGROUP_tips,xsubscribeCommand,-5,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},xsubscribegroupGetKeys,.args=XSUBSCRIBEGROUP_Args},
 {"xtrim","Trims the stream to (approximately if '~' is passed) a certain size","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XTRIM_History,XTRIM_tips,xtrimCommand,-4,CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XTRIM_Args},
+{"xunsubscribe","Stop listening for messages published to the given streams","O(N) where N is the number of streams to unsubscribe from.","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XUNSUBSCRIBE_History,XUNSUBSCRIBE_tips,xunsubscribeCommand,-1,CMD_NOSCRIPT|CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=XUNSUBSCRIBE_Args},
 /* string */
 {"append","Append a value to a key","O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,APPEND_History,APPEND_tips,appendCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=APPEND_Args},
 {"decr","Decrement the integer value of a key by one","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,DECR_History,DECR_tips,decrCommand,2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DECR_Args},

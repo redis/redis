@@ -62,6 +62,13 @@
                 "since": "6.2.0"
             },
             {
+                "token": "PUBLISH",
+                "name": "publish",
+                "type": "pure-token",
+                "optional": true,
+                "since": "7.2.0"
+            },
+            {
                 "name": "trim",
                 "type": "block",
                 "optional": true,
