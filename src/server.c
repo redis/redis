@@ -625,7 +625,7 @@ int incrementallyRehash(int dbid) {
  * for dict.c to resize or rehash the tables accordingly to the fact we have an
  * active fork child running. */
 void updateDictResizePolicy() {
-    if (!hasActiveChildProcess() && server.in_fork_child != CHILD_TYPE_NONE)
+    if (!hasActiveChildProcess() && server.in_fork_child == CHILD_TYPE_NONE)
         dictEnableResize();
     else
         dictDisableResize();
