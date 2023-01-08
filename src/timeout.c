@@ -29,6 +29,8 @@
 #include "server.h"
 #include "cluster.h"
 
+#include <math.h>
+
 /* ========================== Clients timeouts ============================= */
 
 /* Check if this blocked client timedout (does nothing if the client is
@@ -169,7 +171,7 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
         if (getLongDoubleFromObjectOrReply(c,object,&ftval,
             "timeout is not a float or out of range") != C_OK)
             return C_ERR;
-        tval = (long long) (ftval * 1000.0);
+        tval = (long long) ceill(ftval * 1000.0);
     } else {
         if (getLongLongFromObjectOrReply(c,object,&tval,
             "timeout is not an integer or out of range") != C_OK)
