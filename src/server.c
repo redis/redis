@@ -624,7 +624,7 @@ int incrementallyRehash(int dbid) {
  * memory pages are copied). The goal of this function is to update the ability
  * for dict.c to resize or rehash the tables accordingly to the fact we have an
  * active fork child running. */
-void updateDictResizePolicy() {
+void updateDictResizePolicy(void) {
     if (server.in_fork_child != CHILD_TYPE_NONE)
         dictSetResizeEnabled(DICT_RESIZE_FORBID);
     else if (hasActiveChildProcess())

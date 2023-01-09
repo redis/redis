@@ -2968,7 +2968,7 @@ void _serverLog(int level, const char *fmt, ...);
 void serverLogRaw(int level, const char *msg);
 void serverLogFromHandler(int level, const char *msg);
 void usage(void);
-void updateDictResizePolicy();
+void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
 void populateCommandTable(void);
 void resetCommandTableStats(dict* commands);
