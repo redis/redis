@@ -2689,6 +2689,8 @@ NULL
 
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"set") && c->argc == 4) {
+        serverLog(LL_NOTICE,"config item %s updated to %s by client: %s",
+                (sds)c->argv[2]->ptr,(sds)c->argv[3]->ptr,getClientPeerId(c));
         configSetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"get") && c->argc == 3) {
         configGetCommand(c);
