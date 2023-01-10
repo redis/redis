@@ -64,8 +64,6 @@ void rdbCheckSetError(const char *fmt, ...);
 #ifdef __GNUC__
 void rdbReportError(int corruption_error, int linenum, char *reason, ...) __attribute__ ((format (printf, 3, 4)));
 
-void expandDb(const redisDb *db, uint64_t db_size);
-
 #endif
 void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     va_list ap;
