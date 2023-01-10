@@ -10263,7 +10263,7 @@ typedef struct {
 } ScanCBData;
 
 typedef struct RedisModuleScanCursor{
-    unsigned long cursor;
+    unsigned long long cursor;
     int done;
 }RedisModuleScanCursor;
 
@@ -10365,11 +10365,17 @@ int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanC
     }
     int ret = 1;
     ScanCBData data = { ctx, privdata, fn };
-//    cursor->cursor = dictScan(ctx->client->db->dict, cursor->cursor, moduleScanCallback, &data); FIXME (vitarb) https://sim.amazon.com/issues/ELMO-63799
+    int slot = getAndClearSlotIdFromCursor(&cursor->cursor);
+    dict *dict = ctx->client->db->dict[slot];
+    cursor->cursor = dictScan(dict, cursor->cursor, moduleScanCallback, &data);
     if (cursor->cursor == 0) {
-        cursor->done = 1;
-        ret = 0;
+        dict = dbGetNextUnvisitedSlot(ctx->client->db, &slot);
+        if (dict == NULL) {
+            cursor->done = 1;
+            ret = 0;
+        }
     }
+    addSlotIdToCursor(slot, &cursor->cursor);
     errno = 0;
     return ret;
 }

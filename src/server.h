@@ -2363,7 +2363,13 @@ typedef struct dbIterator {
 /* dbIterator specific functions */
 dict *dbNextDict(dbIterator *iter);
 dbIterator *dbGetIterator(redisDb *db);
+dbIterator *dbGetIteratorAt(redisDb *db, int slot);
+dict *dbGetNextUnvisitedSlot(redisDb *db, int *slot);
 void dbReleaseIterator(dbIterator *iter);
+
+/* SCAN specific commands for easy cursor manipulation, shared between main code and modules. */
+int getAndClearSlotIdFromCursor(unsigned long long int *cursor);
+void addSlotIdToCursor(int slot, unsigned long long int *cursor);
 
 /* Structure to hold hash iteration abstraction. Note that iteration over
  * hashes involves both fields and values. Because it is possible that
@@ -3107,6 +3113,7 @@ sds keyspaceEventsFlagsToString(int flags);
 #define PERCENT_CONFIG (1<<1) /* Indicates if this value can be loaded as a percent (and stored as a negative int) */
 #define OCTAL_CONFIG (1<<2) /* This value uses octal representation */
 #define SLOT_MASK_SHIFT 48 /* Slot id is stored in high bits of the Scan API cursor, this number defines by how many bits it's shifted. */
+#define SLOT_MASK ((unsigned long long)(CLUSTER_SLOTS - 1) << SLOT_MASK_SHIFT)
 
 /* Enum Configs contain an array of configEnum objects that match a string with an integer. */
 typedef struct configEnum {

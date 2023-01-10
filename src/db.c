@@ -48,7 +48,6 @@
 int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 
-
 dict *dbNextDict(dbIterator *iter) {
     while (iter->index < iter->db->dict_count - 1) {
         iter->index++;
@@ -64,10 +63,29 @@ dict *dbNextDict(dbIterator *iter) {
 }
 
 dbIterator *dbGetIterator(redisDb *db) {
+    return dbGetIteratorAt(db, 0);
+}
+
+dbIterator *dbGetIteratorAt(redisDb *db, int slot) {
+    serverAssert(slot == 0 || server.cluster_enabled);
     dbIterator *iter = zmalloc(sizeof(*iter));
     iter->db = db;
-    iter->index = -1;
+    iter->index = slot - 1; /* Start one slot ahead, as dbNextDict increments index right away. */
     return iter;
+}
+
+dict *dbGetNextUnvisitedSlot(redisDb *db, int *slot) {
+    if (*slot < db->dict_count - 1) {
+        dbIterator *dbit = dbGetIteratorAt(db, *slot + 1); /* Scan on the current slot has already returned 0, find next non-empty dict. */
+        dict *dict = dbNextDict(dbit);
+        if (dict != NULL) {
+            *slot = dbit->index;
+            return dict;
+        }
+        dbReleaseIterator(dbit);
+    }
+    *slot = -1;
+    return NULL;
 }
 
 void dbReleaseIterator(dbIterator *iter) {
@@ -958,12 +976,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
 
     /* Handle the case of a hash table. */
     ht = NULL;
-    unsigned long long slot_mask = (unsigned long long)(CLUSTER_SLOTS - 1) << SLOT_MASK_SHIFT;
     /* During main dictionary traversal in cluster mode, 48 lower bits in the cursor are used for positioning in the HT.
      * Following 14 bits are used for the slot number, ranging from 0 to 2^14-1.
      * Slot is always 0 at the start of iteration and can be incremented only in cluster mode. */
-    int slot = (int) ((cursor & slot_mask) >> SLOT_MASK_SHIFT);
-    cursor = cursor & ~slot_mask; // clear slot mask from cursor for the time of iteration.
+    int slot = getAndClearSlotIdFromCursor(&cursor);
     if (o == NULL) {
         ht = c->db->dict[slot];
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
@@ -990,24 +1006,17 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * it is possible to fetch more data in a type-dependent way. */
         privdata[0] = keys;
         privdata[1] = o;
-        int hasUnvisitedSlot;
         do {
-            hasUnvisitedSlot = 0;
             cursor = dictScan(ht, cursor, scanCallback, privdata);
             /* In cluster mode there is a separate dictionary for each slot.
              * If cursor is empty, we should try exploring next non-empty slot. */
-            while (o == NULL && !cursor && slot < c->db->dict_count - 1) {
-                // TODO (vitarb@) Consider using dbIterator, or add slot ownership check.
-                slot++; ht = c->db->dict[slot];
-                if (dictSize(ht) > 0) {
-                    hasUnvisitedSlot = 1;
-                    break; // Found next non-empty slot.
-                }
+            if (o == NULL && !cursor) {
+                ht = dbGetNextUnvisitedSlot(c->db, &slot);
             }
-        } while ((cursor || hasUnvisitedSlot) &&
+        } while ((cursor || slot > 0) &&
                  maxiterations-- &&
-              listLength(keys) < (unsigned long)count);
-        if (cursor) cursor |= ((unsigned long long) slot) << SLOT_MASK_SHIFT;
+                 listLength(keys) < (unsigned long) count);
+        addSlotIdToCursor(slot, &cursor);
     } else if (o->type == OBJ_SET) {
         char *str;
         size_t len;
@@ -1109,6 +1118,18 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
 cleanup:
     listSetFreeMethod(keys,decrRefCountVoid);
     listRelease(keys);
+}
+
+void addSlotIdToCursor(int slot, unsigned long long int *cursor) {
+    if (slot > 0) {
+        (*cursor) |= ((unsigned long long) slot) << SLOT_MASK_SHIFT;
+    }
+}
+
+int getAndClearSlotIdFromCursor(unsigned long long int *cursor) {
+    int slot = (int) ((*cursor & SLOT_MASK) >> SLOT_MASK_SHIFT);
+    (*cursor) = (*cursor) & ~SLOT_MASK;
+    return slot;
 }
 
 /* The SCAN command completely relies on scanGenericCommand. */
