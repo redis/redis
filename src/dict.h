@@ -157,6 +157,12 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define randomULong() random()
 #endif
 
+typedef enum {
+    DICT_RESIZE_ENABLE,
+    DICT_RESIZE_AVOID,
+    DICT_RESIZE_FORBID,
+} dictResizeEnable;
+
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
 int dictExpand(dict *d, unsigned long size);
@@ -182,8 +188,7 @@ void dictGetStats(char *buf, size_t bufsize, dict *d);
 uint64_t dictGenHashFunction(const void *key, int len);
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len);
 void dictEmpty(dict *d, void(callback)(void*));
-void dictEnableResize(void);
-void dictDisableResize(void);
+void dictSetResizeEnabled(dictResizeEnable enable);
 int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
 void dictSetHashFunctionSeed(uint8_t *seed);
