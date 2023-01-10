@@ -76,17 +76,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl bgsa
 
                 # Wait for the slave to reach the "online"
                 # state from the POV of the master.
-                set retry 5000
-                while {$retry} {
-                    set info [$master info]
-                    if {[string match {*slave0:*state=online*} $info]} {
-                        break
-                    } else {
-                        incr retry -1
-                        after 100
-                    }
-                }
-                if {$retry == 0} {
+                wait_slave_online $master 5000 100 {
                     error "assertion:Slave not correctly synchronized"
                 }
 

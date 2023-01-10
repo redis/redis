@@ -110,6 +110,25 @@ proc waitForBgrewriteaof r {
     }
 }
 
+proc wait_slave_online {master maxtries delay elsescript} {
+    set retry $maxtries
+    while {$retry} {
+        set info [$master info]
+        if {[string match {*slave0:*state=online*} $info]} {
+            break
+        } else {
+            incr retry -1
+            after $delay
+        }
+    }
+    if {$retry == 0} {
+        # https://github.com/google/sanitizers/issues/774 for more detail.
+        puts "wait slave online timeout, that's may ok on ASan open. For ASan may hang fork child process."
+        set errcode [catch [uplevel 1 $elsescript] result]
+        return -code $errcode $result
+    }
+}
+
 proc wait_for_sync r {
     wait_for_condition 50 300 {
         [status $r master_link_status] eq "up"
