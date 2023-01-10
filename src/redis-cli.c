@@ -3889,7 +3889,7 @@ static void clusterManagerShowClusterInfo(void) {
                 return;
             };
             if (reply != NULL) freeReplyObject(reply);
-            printf("%s:%d (%s...) -> %d keys | %d slots | %d slaves.\n",
+            printf("%s:%d (%s...) -> %lld keys | %d slots | %d slaves.\n",
                    node->ip, node->port, name, dbsize,
                    node->slots_count, replicas);
             masters++;
