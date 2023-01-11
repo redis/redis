@@ -3871,17 +3871,12 @@ void clusterLogCantFailover(int reason) {
     lastlog_time = time(NULL);
     serverLog(LL_NOTICE,"Currently unable to failover: %s", msg);
     
-    static int last_vote;
-    static int last_quorum;
     int cur_vote = server.cluster->failover_auth_count;
     int cur_quorum = (server.cluster->size / 2) + 1;
-    /* Emits a log when an election is attemped but doesn't succeed.
+    /* Emits a log when an election is attemped but doesn't succeed or failover attempt expired.
        But don't log if we have same vote and quorum as last time. */
-    if (reason == CLUSTER_CANT_FAILOVER_WAITING_VOTES) {
-        if (last_vote == cur_vote && last_quorum == cur_quorum) return;
-        last_vote = cur_vote;
-        last_quorum = cur_quorum;
-        serverLog(LL_NOTICE, "Needed quorum: %i. Number of votes received so far: %i", cur_quorum, cur_vote);
+    if (reason == CLUSTER_CANT_FAILOVER_WAITING_VOTES || reason == CLUSTER_CANT_FAILOVER_EXPIRED) {
+        serverLog(LL_NOTICE, "Needed quorum: %d. Number of votes received so far: %d", cur_quorum, cur_vote);
     } 
 }
 
