@@ -1,18 +1,4 @@
 start_server {tags {"hash"}} {
-    proc hash_response_interpreter {id response} {
-        if {!$::force_resp3 || $::redis::testing_resp3($id) == 1} {
-            return $response
-        }
-        if {[string is list $response] && [string is list [lindex $response 0]] && [llength [lindex $response 0]] eq 2} {
-            set flatarray {}
-            foreach pair $response {
-                lappend flatarray {*}$pair
-            }
-            return $flatarray
-        }
-        return $response
-    }
-
     test {HSET/HLEN - Small hash creation} {
         array set smallhash {}
         for {set i 0} {$i < 8} {incr i} {
@@ -106,8 +92,6 @@ start_server {tags {"hash"}} {
         hashtable {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {[randstring 70 90 alpha] 10}}
         listpack {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {10 j}} " {
         test "HRANDFIELD with <count> - $type" {
-            r set_response_interpreter hash_response_interpreter
-
             set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
             r config set hash-max-ziplist-value 10
             create_hash myhash $contents
@@ -234,8 +218,8 @@ start_server {tags {"hash"}} {
             }
         }
         r config set hash-max-ziplist-value $original_max_value
-        r reset_response_interpreter
     }
+
 
     test {HSET/HLEN - Big hash creation} {
         array set bighash {}

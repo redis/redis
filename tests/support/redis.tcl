@@ -41,7 +41,7 @@ array set ::redis::tls {}
 array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
 array set ::redis::statestack {} ;# Stack of states, for nested mbulks
-array set ::redis::response_interpreters {}
+array set ::redis::curr_argv {}
 array set ::redis::testing_resp3 {}
 
 proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {readraw 0}} {
@@ -64,7 +64,7 @@ proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {re
     set ::redis::deferred($id) $defer
     set ::redis::readraw($id) $readraw
     set ::redis::reconnect($id) 0
-    set ::redis::response_interpreters($id) 0
+    set ::redis::curr_argv($id) 0
     set ::redis::testing_resp3($id) 0
     set ::redis::tls($id) $tls
     ::redis::redis_reset_state $id
@@ -127,16 +127,14 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         set fd $::redis::fd($id)
     }
 
-    # TODO:GUYBE should be case insensitive
-    if {$method eq {hello}} {
+    if {[string compare -nocase $method "HELLO"] == 0} {
         if {[lindex $argv 0] == 3} {
             set ::redis::testing_resp3($id) 1
         } else {
             set ::redis::testing_resp3($id) 0
-        }
-
-        if {$::force_resp3} {
-            return
+            if {$::force_resp3} {
+                lset argv 0 3
+            }
         }
     }
 
@@ -163,9 +161,10 @@ proc ::redis::__dispatch__raw__ {id method argv} {
             return -code error "I/O error reading reply"
         }
 
+        set ::redis::curr_argv($id) [concat $method $argv]
         if {!$deferred} {
             if {$blocking} {
-                return [::redis::redis_read_reply $id $fd]
+                ::redis::redis_read_reply $id $fd
             } else {
                 # Every well formed reply read will pop an element from this
                 # list and use it as a callback. So pipelining is supported
@@ -186,14 +185,6 @@ proc ::redis::__method__blocking {id fd val} {
 
 proc ::redis::__method__reconnect {id fd val} {
     set ::redis::reconnect($id) $val
-}
-
-proc ::redis::__method__set_response_interpreter {id fd val} {
-    set ::redis::response_interpreters($id) $val
-}
-
-proc ::redis::__method__reset_response_interpreter {id fd} {
-    set ::redis::response_interpreters($id) 0
 }
 
 proc ::redis::__method__read {id fd} {
@@ -226,6 +217,7 @@ proc ::redis::__method__close {id fd} {
     catch {unset ::redis::statestack($id)}
     catch {unset ::redis::callback($id)}
     catch {unset ::redis::response_interpreters($id)}
+    catch {unset ::redis::curr_argv($id)}
     catch {unset ::redis::testing_resp3($id)}
     catch {interp alias {} ::redis::redisHandle$id {}}
 }
@@ -378,12 +370,7 @@ proc ::redis::redis_read_reply_logic {id fd} {
 
 proc ::redis::redis_read_reply {id fd} {
     set response [redis_read_reply_logic $id $fd]
-    set interpreter $::redis::response_interpreters($id)
-    if {$interpreter ne 0} {
-        return [$interpreter $id $response]
-    } else {
-        return $response
-    }
+    ::response_transformers::transform_response_if_needed $id $::redis::curr_argv($id) $response
 }
 
 proc ::redis::redis_reset_state id {

@@ -12,6 +12,7 @@ source tests/support/cluster_util.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
+source tests/support/response_transformers.tcl
 
 set ::all_tests {
     unit/printver
@@ -237,7 +238,7 @@ proc reconnect {args} {
     # select the right db when we don't have to authenticate
     if {![dict exists $config "requirepass"] && !$::singledb} {
         $client select 9
-        # if force-resp3: $client hello 3
+        # if force-resp3: $client debug client-default-resp 3 && $client debug log-req-res yes
     }
 
     # re-set $srv in the servers list

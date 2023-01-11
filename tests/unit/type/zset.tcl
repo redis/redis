@@ -96,22 +96,6 @@ start_server {tags {"zset"}} {
         }
     }
 
-    proc zset_response_interpreter {id response} {
-        if {!$::force_resp3 || $::redis::testing_resp3($id) == 1} {
-            return $response
-        }
-        if {[string is list $response] && [string is list [lindex $response 0]] && [llength [lindex $response 0]] eq 2} {
-            set flatarray {}
-            foreach pair $response {
-                lappend flatarray {*}$pair
-            }
-            return $flatarray
-        }
-        return $response
-    }
-
-    r set_response_interpreter zset_response_interpreter
-
     proc basics {encoding} {
         set original_max_entries [lindex [r config get zset-max-ziplist-entries] 1]
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
@@ -447,10 +431,9 @@ start_server {tags {"zset"}} {
         }
 
         test "ZRANK/ZREVRANK basics - $encoding" {
+            set nullres {$-1}
             if {$::force_resp3} {
                 set nullres {_}
-            } else {
-                set nullres {$-1}
             }
             r del zranktmp
             r zadd zranktmp 10 x
@@ -468,10 +451,9 @@ start_server {tags {"zset"}} {
             r readraw 0
 
             # withscores
+            set nullres {*-1}
             if {$::force_resp3} {
                 set nullres {_}
-            } else {
-                set nullres {*-1}
             }
             assert_equal {0 10} [r zrank zranktmp x withscore]
             assert_equal {1 20} [r zrank zranktmp y withscore]
@@ -1020,7 +1002,6 @@ start_server {tags {"zset"}} {
         }
 
         test "ZDIFF fuzzing - $encoding" {
-            r reset_response_interpreter
             for {set j 0} {$j < 100} {incr j} {
                 unset -nocomplain s
                 array set s {}
@@ -1044,7 +1025,6 @@ start_server {tags {"zset"}} {
                 set result [lsort [r zdiff [llength $args] {*}$args]]
                 assert_equal $result [lsort [array names s]]
             }
-            r set_response_interpreter zset_response_interpreter
         }
 
         foreach {pop} {ZPOPMIN ZPOPMAX} {
