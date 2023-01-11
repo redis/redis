@@ -415,6 +415,10 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
 void trackingHandlePendingKeyInvalidations(void) {
     if (!listLength(server.tracking_pending_keys)) return;
 
+    /* Flush pending invalidation messages only when we are not in nested call.
+     * So the messages are not interleaved with transaction response. */
+    if (server.execution_nesting) return;
+
     listNode *ln;
     listIter li;
 

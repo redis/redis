@@ -209,11 +209,8 @@ void activeExpireCycle(int type) {
     long total_sampled = 0;
     long total_expired = 0;
 
-    /* Sanity: There can't be any pending commands to propagate when
-     * we're in cron */
+    /* Try to smoke-out bugs (server.also_propagate should be empty here) */
     serverAssert(server.also_propagate.numops == 0);
-    server.core_propagates = 1;
-    server.in_nested_call++;
 
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         /* Scan callback data including expired and checked count per iteration. */
@@ -309,11 +306,6 @@ void activeExpireCycle(int type) {
                  (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale);
     }
 
-    serverAssert(server.core_propagates); /* This function should not be re-entrant */
-
-    server.core_propagates = 0;
-    server.in_nested_call--;
-
     elapsed = ustime()-start;
     server.stat_expire_cycle_time_used += elapsed;
     latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
@@ -393,6 +385,8 @@ void expireSlaveKeys(void) {
                     activeExpireCycleTryExpire(server.db+dbid,expire,start))
                 {
                     expired = 1;
+                    /* DELs aren't propagated, but modules may want their hooks. */
+                    postExecutionUnitOperations();
                 }
 
                 /* If the key was not expired in this DB, we need to set the
@@ -648,10 +642,19 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     } else {
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
-        /* Propagate as PEXPIREAT millisecond-timestamp */
-        robj *when_obj = createStringObjectFromLongLong(when);
-        rewriteClientCommandVector(c, 3, shared.pexpireat, key, when_obj);
-        decrRefCount(when_obj);
+        /* Propagate as PEXPIREAT millisecond-timestamp
+         * Only rewrite the command arg if not already PEXPIREAT */
+        if (c->cmd->proc != pexpireatCommand) {
+            rewriteClientCommandArgument(c,0,shared.pexpireat);
+        }
+
+        /* Avoid creating a string object when it's the same as argv[2] parameter  */
+        if (basetime != 0 || unit == UNIT_SECONDS) {
+            robj *when_obj = createStringObjectFromLongLong(when);
+            rewriteClientCommandArgument(c,2,when_obj);
+            decrRefCount(when_obj);
+        }
+
         signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
         server.dirty++;

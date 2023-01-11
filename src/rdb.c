@@ -34,6 +34,7 @@
 #include "fpconv_dtoa.h"
 #include "stream.h"
 #include "functions.h"
+#include "intset.h"  /* Compact integer set structure */
 
 #include <math.h>
 #include <fcntl.h>

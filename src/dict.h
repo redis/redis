@@ -153,6 +153,12 @@ typedef struct {
 #define randomULong() random()
 #endif
 
+typedef enum {
+    DICT_RESIZE_ENABLE,
+    DICT_RESIZE_AVOID,
+    DICT_RESIZE_FORBID,
+} dictResizeEnable;
+
 /* API */
 dict *dictCreate(dictType *type);
 int dictExpand(dict *d, unsigned long size);
@@ -178,6 +184,9 @@ void dictSetVal(dict *d, dictEntry *de, void *val);
 void dictSetSignedIntegerVal(dictEntry *de, int64_t val);
 void dictSetUnsignedIntegerVal(dictEntry *de, uint64_t val);
 void dictSetDoubleVal(dictEntry *de, double val);
+int64_t dictIncrSignedIntegerVal(dictEntry *de, int64_t val);
+uint64_t dictIncrUnsignedIntegerVal(dictEntry *de, uint64_t val);
+double dictIncrDoubleVal(dictEntry *de, double val);
 void *dictEntryMetadata(dictEntry *de);
 void *dictGetKey(const dictEntry *de);
 void *dictGetVal(const dictEntry *de);
@@ -201,8 +210,7 @@ void dictGetStats(char *buf, size_t bufsize, dict *d);
 uint64_t dictGenHashFunction(const void *key, size_t len);
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len);
 void dictEmpty(dict *d, void(callback)(dict*));
-void dictEnableResize(void);
-void dictDisableResize(void);
+void dictSetResizeEnabled(dictResizeEnable enable);
 int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
 void dictSetHashFunctionSeed(uint8_t *seed);

@@ -56,7 +56,6 @@ void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
-sds clusterGenNodesDescription(int filter, int use_pport);
 list *clusterGetNodesInMyShard(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
@@ -5527,6 +5526,84 @@ void clusterReplyMultiBulkSlots(client * c) {
     setDeferredArrayLen(c, slot_replylen, num_masters);
 }
 
+sds genClusterInfoString() {
+    sds info = sdsempty();
+    char *statestr[] = {"ok","fail"};
+    int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;
+    uint64_t myepoch;
+    int j;
+
+    for (j = 0; j < CLUSTER_SLOTS; j++) {
+        clusterNode *n = server.cluster->slots[j];
+
+        if (n == NULL) continue;
+        slots_assigned++;
+        if (nodeFailed(n)) {
+            slots_fail++;
+        } else if (nodeTimedOut(n)) {
+            slots_pfail++;
+        } else {
+            slots_ok++;
+        }
+    }
+
+    myepoch = (nodeIsSlave(myself) && myself->slaveof) ?
+                myself->slaveof->configEpoch : myself->configEpoch;
+
+    info = sdscatprintf(info,
+        "cluster_state:%s\r\n"
+        "cluster_slots_assigned:%d\r\n"
+        "cluster_slots_ok:%d\r\n"
+        "cluster_slots_pfail:%d\r\n"
+        "cluster_slots_fail:%d\r\n"
+        "cluster_known_nodes:%lu\r\n"
+        "cluster_size:%d\r\n"
+        "cluster_current_epoch:%llu\r\n"
+        "cluster_my_epoch:%llu\r\n"
+        , statestr[server.cluster->state],
+        slots_assigned,
+        slots_ok,
+        slots_pfail,
+        slots_fail,
+        dictSize(server.cluster->nodes),
+        server.cluster->size,
+        (unsigned long long) server.cluster->currentEpoch,
+        (unsigned long long) myepoch
+    );
+
+    /* Show stats about messages sent and received. */
+    long long tot_msg_sent = 0;
+    long long tot_msg_received = 0;
+
+    for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
+        if (server.cluster->stats_bus_messages_sent[i] == 0) continue;
+        tot_msg_sent += server.cluster->stats_bus_messages_sent[i];
+        info = sdscatprintf(info,
+            "cluster_stats_messages_%s_sent:%lld\r\n",
+            clusterGetMessageTypeString(i),
+            server.cluster->stats_bus_messages_sent[i]);
+    }
+    info = sdscatprintf(info,
+        "cluster_stats_messages_sent:%lld\r\n", tot_msg_sent);
+
+    for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
+        if (server.cluster->stats_bus_messages_received[i] == 0) continue;
+        tot_msg_received += server.cluster->stats_bus_messages_received[i];
+        info = sdscatprintf(info,
+            "cluster_stats_messages_%s_received:%lld\r\n",
+            clusterGetMessageTypeString(i),
+            server.cluster->stats_bus_messages_received[i]);
+    }
+    info = sdscatprintf(info,
+        "cluster_stats_messages_received:%lld\r\n", tot_msg_received);
+
+    info = sdscatprintf(info,
+        "total_cluster_links_buffer_limit_exceeded:%llu\r\n",
+        server.cluster->stat_cluster_links_buffer_limit_exceeded);
+
+    return info;
+}
+
 void clusterCommand(client *c) {
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
@@ -5859,78 +5936,8 @@ NULL
         addReplySds(c,reply);
     } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
         /* CLUSTER INFO */
-        char *statestr[] = {"ok","fail"};
-        int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;
-        uint64_t myepoch;
-        int j;
-
-        for (j = 0; j < CLUSTER_SLOTS; j++) {
-            clusterNode *n = server.cluster->slots[j];
-
-            if (n == NULL) continue;
-            slots_assigned++;
-            if (nodeFailed(n)) {
-                slots_fail++;
-            } else if (nodeTimedOut(n)) {
-                slots_pfail++;
-            } else {
-                slots_ok++;
-            }
-        }
-
-        myepoch = (nodeIsSlave(myself) && myself->slaveof) ?
-                  myself->slaveof->configEpoch : myself->configEpoch;
-
-        sds info = sdscatprintf(sdsempty(),
-            "cluster_state:%s\r\n"
-            "cluster_slots_assigned:%d\r\n"
-            "cluster_slots_ok:%d\r\n"
-            "cluster_slots_pfail:%d\r\n"
-            "cluster_slots_fail:%d\r\n"
-            "cluster_known_nodes:%lu\r\n"
-            "cluster_size:%d\r\n"
-            "cluster_current_epoch:%llu\r\n"
-            "cluster_my_epoch:%llu\r\n"
-            , statestr[server.cluster->state],
-            slots_assigned,
-            slots_ok,
-            slots_pfail,
-            slots_fail,
-            dictSize(server.cluster->nodes),
-            server.cluster->size,
-            (unsigned long long) server.cluster->currentEpoch,
-            (unsigned long long) myepoch
-        );
-
-        /* Show stats about messages sent and received. */
-        long long tot_msg_sent = 0;
-        long long tot_msg_received = 0;
-
-        for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
-            if (server.cluster->stats_bus_messages_sent[i] == 0) continue;
-            tot_msg_sent += server.cluster->stats_bus_messages_sent[i];
-            info = sdscatprintf(info,
-                "cluster_stats_messages_%s_sent:%lld\r\n",
-                clusterGetMessageTypeString(i),
-                server.cluster->stats_bus_messages_sent[i]);
-        }
-        info = sdscatprintf(info,
-            "cluster_stats_messages_sent:%lld\r\n", tot_msg_sent);
-
-        for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
-            if (server.cluster->stats_bus_messages_received[i] == 0) continue;
-            tot_msg_received += server.cluster->stats_bus_messages_received[i];
-            info = sdscatprintf(info,
-                "cluster_stats_messages_%s_received:%lld\r\n",
-                clusterGetMessageTypeString(i),
-                server.cluster->stats_bus_messages_received[i]);
-        }
-        info = sdscatprintf(info,
-            "cluster_stats_messages_received:%lld\r\n", tot_msg_received);
-
-        info = sdscatprintf(info,
-            "total_cluster_links_buffer_limit_exceeded:%llu\r\n",
-            server.cluster->stat_cluster_links_buffer_limit_exceeded);
+       
+        sds info = genClusterInfoString();
 
         /* Produce the reply protocol. */
         addReplyVerbatim(c,info,sdslen(info),"txt");
@@ -7215,10 +7222,10 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
  * returns 1. Otherwise 0 is returned and no operation is performed. */
 int clusterRedirectBlockedClientIfNeeded(client *c) {
     if (c->flags & CLIENT_BLOCKED &&
-        (c->btype == BLOCKED_LIST ||
-         c->btype == BLOCKED_ZSET ||
-         c->btype == BLOCKED_STREAM ||
-         c->btype == BLOCKED_MODULE))
+        (c->bstate.btype == BLOCKED_LIST ||
+         c->bstate.btype == BLOCKED_ZSET ||
+         c->bstate.btype == BLOCKED_STREAM ||
+         c->bstate.btype == BLOCKED_MODULE))
     {
         dictEntry *de;
         dictIterator *di;
@@ -7234,11 +7241,11 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
 
         /* If the client is blocked on module, but not on a specific key,
          * don't unblock it (except for the CLUSTER_FAIL case above). */
-        if (c->btype == BLOCKED_MODULE && !moduleClientIsBlockedOnKeys(c))
+        if (c->bstate.btype == BLOCKED_MODULE && !moduleClientIsBlockedOnKeys(c))
             return 0;
 
         /* All keys must belong to the same slot, so check first key only. */
-        di = dictGetIterator(c->bpop.keys);
+        di = dictGetIterator(c->bstate.keys);
         if ((de = dictNext(di)) != NULL) {
             robj *key = dictGetKey(de);
             int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));
@@ -7363,9 +7370,6 @@ void slotToKeyDestroy(redisDb *db) {
 unsigned int delKeysInSlot(unsigned int hashslot) {
     unsigned int j = 0;
 
-    server.core_propagates = 1;
-    server.in_nested_call++;
-
     dictEntry *de = (*server.db->slots_to_keys).by_slot[hashslot].head;
     while (de != NULL) {
         sds sdskey = dictGetKey(de);
@@ -7380,10 +7384,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         j++;
         server.dirty++;
     }
-    serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
-    server.core_propagates = 0;
-    server.in_nested_call--;
     return j;
 }
 

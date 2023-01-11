@@ -11,6 +11,13 @@ start_server {} {
 
     set sub_replica [srv -2 client]
 
+    # Because we will test partial resync later, we don’t want a timeout to cause
+    # the master-replica disconnect, then the extra reconnections will break the
+    # sync_partial_ok stat test
+    $master config set repl-timeout 3600
+    $replica config set repl-timeout 3600
+    $sub_replica config set repl-timeout 3600
+
     # Build replication chain
     $replica replicaof $master_host $master_port
     $sub_replica replicaof $replica_host $replica_port

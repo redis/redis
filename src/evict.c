@@ -567,17 +567,8 @@ int performEvictions(void) {
     monotime evictionTimer;
     elapsedStart(&evictionTimer);
 
-    /* Unlike active-expire and blocked client, we can reach here from 'CONFIG SET maxmemory'
-     * so we have to back-up and restore server.core_propagates. */
-    int prev_core_propagates = server.core_propagates;
+    /* Try to smoke-out bugs (server.also_propagate should be empty here) */
     serverAssert(server.also_propagate.numops == 0);
-    server.core_propagates = 1;
-
-    /* Increase nested call counter
-     * we add this in order to prevent any RM_Call that may exist
-     * in the notify CB to be propagated immediately.
-     * we want them in multi/exec with the DEL command */
-    server.in_nested_call++;
 
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
@@ -746,11 +737,6 @@ cant_free:
         latencyEndMonitor(lazyfree_latency);
         latencyAddSampleIfNeeded("eviction-lazyfree",lazyfree_latency);
     }
-
-    serverAssert(server.core_propagates); /* This function should not be re-entrant */
-
-    server.core_propagates = prev_core_propagates;
-    server.in_nested_call--;
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);
