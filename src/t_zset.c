@@ -1428,7 +1428,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 /* Note that we did not removed the original element from
                  * the hash table representing the sorted set, so we just
                  * update the score. */
-                dictGetVal(de) = &znode->score; /* Update score ptr. */
+                dictSetVal(zs->dict, de, &znode->score); /* Update score ptr. */
                 *out_flags |= ZADD_OUT_UPDATED;
             }
             return 1;
@@ -2741,7 +2741,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                      * Here we access directly the dictEntry double
                      * value inside the union as it is a big speedup
                      * compared to using the getDouble/setDouble API. */
-                    zunionInterAggregate(&existing->v.d,score,aggregate);
+                    double *existing_score_ptr = dictGetDoubleValPtr(existing);
+                    zunionInterAggregate(existing_score_ptr, score, aggregate);
                 }
             }
             zuiClearIterator(&src[i]);

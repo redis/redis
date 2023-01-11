@@ -258,7 +258,7 @@ void activeExpireCycle(int type) {
                         /* Get the next entry now since this entry may get
                          * deleted. */
                         dictEntry *e = de;
-                        de = de->next;
+                        de = dictGetNext(de);
 
                         ttl = dictGetSignedIntegerVal(e)-now;
                         if (activeExpireCycleTryExpire(db,e,now)) {
@@ -444,8 +444,8 @@ void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
      * representing the key: we don't want to need to take those keys
      * in sync with the main DB. The keys will be removed by expireSlaveKeys()
      * as it scans to find keys to remove. */
-    if (de->key == key->ptr) {
-        de->key = sdsdup(key->ptr);
+    if (dictGetKey(de) == key->ptr) {
+        dictSetKey(slaveKeysWithExpire, de, sdsdup(key->ptr));
         dictSetUnsignedIntegerVal(de,0);
     }
 

@@ -7288,7 +7288,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
  * understand if we have keys for a given hash slot. */
 
 void slotToKeyAddEntry(dictEntry *entry, redisDb *db) {
-    sds key = entry->key;
+    sds key = dictGetKey(entry);
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
     slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
     slot_to_keys->count++;
@@ -7305,7 +7305,7 @@ void slotToKeyAddEntry(dictEntry *entry, redisDb *db) {
 }
 
 void slotToKeyDelEntry(dictEntry *entry, redisDb *db) {
-    sds key = entry->key;
+    sds key = dictGetKey(entry);
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
     slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
     slot_to_keys->count--;
@@ -7337,7 +7337,7 @@ void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
         dictEntryNextInSlot(prev) = entry;
     } else {
         /* The replaced entry was the first in the list. */
-        sds key = entry->key;
+        sds key = dictGetKey(entry);
         unsigned int hashslot = keyHashSlot(key, sdslen(key));
         slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
         slot_to_keys->head = entry;

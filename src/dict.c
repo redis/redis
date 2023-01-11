@@ -58,6 +58,22 @@
 static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static unsigned int dict_force_resize_ratio = 5;
 
+/* -------------------------- types ----------------------------------------- */
+
+struct dictEntry {
+    void *key;
+    union {
+        void *val;
+        uint64_t u64;
+        int64_t s64;
+        double d;
+    } v;
+    struct dictEntry *next;     /* Next entry in the same hash bucket. */
+    void *metadata[];           /* An arbitrary number of bytes (starting at a
+                                 * pointer-aligned address) of size as returned
+                                 * by dictType's dictEntryMetadataBytes(). */
+};
+
 /* -------------------------- private prototypes ---------------------------- */
 
 static int _dictExpandIfNeeded(dict *d);
@@ -594,6 +610,98 @@ void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table
     dictFreeVal(d, he);
     zfree(he);
     dictResumeRehashing(d);
+}
+
+void dictSetKey(dict *d, dictEntry* de, void *key) {
+    if (d->type->keyDup)
+        de->key = d->type->keyDup(d, key);
+    else
+        de->key = key;
+}
+
+void dictSetVal(dict *d, dictEntry *de, void *val) {
+    de->v.val = d->type->valDup ? d->type->valDup(d, val) : val;
+}
+
+void dictSetSignedIntegerVal(dictEntry *de, int64_t val) {
+    de->v.s64 = val;
+}
+
+void dictSetUnsignedIntegerVal(dictEntry *de, uint64_t val) {
+    de->v.u64 = val;
+}
+
+void dictSetDoubleVal(dictEntry *de, double val) {
+    de->v.d = val;
+}
+
+int64_t dictIncrSignedIntegerVal(dictEntry *de, int64_t val) {
+    return de->v.s64 += val;
+}
+
+uint64_t dictIncrUnsignedIntegerVal(dictEntry *de, uint64_t val) {
+    return de->v.u64 += val;
+}
+
+double dictIncrDoubleVal(dictEntry *de, double val) {
+    return de->v.d += val;
+}
+
+/* Only used when the next in hash bucket has been reallocated. */
+void dictSetNext(dictEntry *de, dictEntry *next) {
+    de->next = next;
+}
+
+/* A pointer to the metadata section within the dict entry. */
+void *dictMetadata(dictEntry *de) {
+    return &de->metadata;
+}
+
+void *dictGetKey(const dictEntry *de) {
+    return de->key;
+}
+
+void *dictGetVal(const dictEntry *de) {
+    return de->v.val;
+}
+
+int64_t dictGetSignedIntegerVal(const dictEntry *de) {
+    return de->v.s64;
+}
+
+uint64_t dictGetUnsignedIntegerVal(const dictEntry *de) {
+    return de->v.u64;
+}
+
+double dictGetDoubleVal(const dictEntry *de) {
+    return de->v.d;
+}
+
+/* Returns a mutable reference to the value as a double within the entry. */
+double *dictGetDoubleValPtr(dictEntry *de) {
+    return &de->v.d;
+}
+
+/* The next entry in same hash bucket. */
+dictEntry *dictGetNext(const dictEntry *de) {
+    return de->next;
+}
+
+/* A pointer to the 'next' field within the entry, or NULL if there is no next
+ * field. */
+dictEntry **dictGetNextRef(dictEntry *de) {
+    return &de->next;
+}
+
+/* Returns the memory usage in bytes of the dict, excluding the size of the keys
+ * and values. */
+size_t dictMemUsage(const dict *d) {
+    return dictSize(d) * sizeof(dictEntry) +
+        dictSlots(d) * sizeof(dictEntry*);
+}
+
+size_t dictEntryMemUsage(void) {
+    return sizeof(dictEntry);
 }
 
 /* A fingerprint is a 64 bit number that represents the state of the dictionary

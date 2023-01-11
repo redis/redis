@@ -1029,7 +1029,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
-                elesize += sizeof(struct dictEntry) + sdsZmallocSize(ele);
+                elesize += dictEntryMemUsage() + sdsZmallocSize(ele);
                 samples++;
             }
             dictReleaseIterator(di);
@@ -1053,7 +1053,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
                     zmalloc_size(zsl->header);
             while(znode != NULL && samples < sample_size) {
                 elesize += sdsZmallocSize(znode->ele);
-                elesize += sizeof(struct dictEntry)+zmalloc_size(znode);
+                elesize += dictEntryMemUsage()+zmalloc_size(znode);
                 samples++;
                 znode = znode->level[0].forward;
             }
@@ -1072,7 +1072,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
                 ele = dictGetKey(de);
                 ele2 = dictGetVal(de);
                 elesize += sdsZmallocSize(ele) + sdsZmallocSize(ele2);
-                elesize += sizeof(struct dictEntry);
+                elesize += dictEntryMemUsage();
                 samples++;
             }
             dictReleaseIterator(di);
@@ -1242,14 +1242,12 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
         mh->db[mh->num_dbs].dbid = j;
 
-        mem = dictSize(db->dict) * sizeof(dictEntry) +
-              dictSlots(db->dict) * sizeof(dictEntry*) +
+        mem = dictMemUsage(db->dict) +
               dictSize(db->dict) * sizeof(robj);
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 
-        mem = dictSize(db->expires) * sizeof(dictEntry) +
-              dictSlots(db->expires) * sizeof(dictEntry*);
+        mem = dictMemUsage(db->expires);
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
         mem_total+=mem;
 
@@ -1547,7 +1545,7 @@ NULL
         }
         size_t usage = objectComputeSize(c->argv[2],dictGetVal(de),samples,c->db->id);
         usage += sdsZmallocSize(dictGetKey(de));
-        usage += sizeof(dictEntry);
+        usage += dictEntryMemUsage();
         usage += dictMetadataSize(c->db->dict);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {

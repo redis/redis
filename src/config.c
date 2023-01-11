@@ -989,8 +989,8 @@ void configGetCommand(client *c) {
             /* Note that hidden configs require an exact match (not a pattern) */
             if (config->flags & HIDDEN_CONFIG) continue;
             if (dictFind(matches, config->name)) continue;
-            if (stringmatch(name, de->key, 1)) {
-                dictAdd(matches, de->key, config);
+            if (stringmatch(name, dictGetKey(de), 1)) {
+                dictAdd(matches, dictGetKey(de), config);
             }
         }
         dictReleaseIterator(di);
@@ -1000,7 +1000,7 @@ void configGetCommand(client *c) {
     addReplyMapLen(c, dictSize(matches));
     while ((de = dictNext(di)) != NULL) {
         standardConfig *config = (standardConfig *) dictGetVal(de);
-        addReplyBulkCString(c, de->key);
+        addReplyBulkCString(c, dictGetKey(de));
         addReplyBulkSds(c, config->interface.get(config));
     }
     dictReleaseIterator(di);
@@ -1754,7 +1754,7 @@ int rewriteConfig(char *path, int force_write) {
         standardConfig *config = dictGetVal(de);
         /* Only rewrite the primary names */
         if (config->flags & ALIAS_CONFIG) continue;
-        if (config->interface.rewrite) config->interface.rewrite(config, de->key, state);
+        if (config->interface.rewrite) config->interface.rewrite(config, dictGetKey(de), state);
     }
     dictReleaseIterator(di);
 
