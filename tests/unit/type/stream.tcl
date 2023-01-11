@@ -431,18 +431,18 @@ start_server {
     test {XREAD + multiple XADD inside transaction} {
         r XADD s2 * old abcd1234
         set rd [redis_deferring_client]
-        $rd XREAD BLOCK 20000 STREAMS s1 s2 s3 $ $ $
+        $rd XREAD BLOCK 20000 STREAMS s1{t} s2{t} s3{t} $ $ $
         wait_for_blocked_clients_count 1
         r MULTI
-        r XADD s1 * field one
-        r XADD s2 * field two
-        r XADD s3 * field three
+        r XADD s1{t} * field one
+        r XADD s2{t} * field two
+        r XADD s3{t} * field three
         r EXEC
         set res [$rd read]
         assert_equal [llength $res] 3
-        assert_equal [lindex $res 0 0] {s1}
-        assert_equal [lindex $res 1 0] {s2}
-        assert_equal [lindex $res 2 0] {s3}
+        assert_equal [lindex $res 0 0] {s1{t}}
+        assert_equal [lindex $res 1 0] {s2{t}}
+        assert_equal [lindex $res 2 0] {s3{t}}
         $rd close
     }
 

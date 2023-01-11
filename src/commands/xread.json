@@ -1,7 +1,7 @@
 {
     "XREAD": {
         "summary": "Return never seen elements in multiple streams, with IDs greater than the ones reported by the caller for each stream. Can block.",
-        "complexity": "For each stream mentioned: O(N) with N being the number of elements being returned, it means that XREAD-ing with a fixed COUNT is O(1). Note that when the BLOCK option is used, XADD will pay O(M) time in order to serve the M clients blocked on the stream getting new data.",
+        "complexity": "O(N^2+NM) where N is the number of streams and M is the number of elements returned. When reading from a single stream, if M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when the command blocks, XADD will pay the O(L) time in order to serve the L clients blocked on the stream getting new data.",
         "group": "stream",
         "since": "5.0.0",
         "arity": -4,
