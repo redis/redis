@@ -3873,7 +3873,7 @@ void clusterLogCantFailover(int reason) {
     
     int cur_vote = server.cluster->failover_auth_count;
     int cur_quorum = (server.cluster->size / 2) + 1;
-    /* Emits a log when an election is attemped but doesn't succeed or failover attempt expired. */
+    /* Emits a log when an election is in progress and waiting for votes or when the failover attempt expired. */
     if (reason == CLUSTER_CANT_FAILOVER_WAITING_VOTES || reason == CLUSTER_CANT_FAILOVER_EXPIRED) {
         serverLog(LL_NOTICE, "Needed quorum: %d. Number of votes received so far: %d", cur_quorum, cur_vote);
     } 
