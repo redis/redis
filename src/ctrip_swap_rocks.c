@@ -70,6 +70,7 @@ int rocksInit() {
     rocks->snapshot = NULL;
     rocks->checkpoint = NULL;
     rocks->checkpoint_dir = NULL;
+    rocks->rdb_checkpoint_dir = NULL;
     atomicSetWithSync(server.inflight_snapshot, 0);
     rocks->db_opts = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(rocks->db_opts, 1);
@@ -284,7 +285,7 @@ int readCheckpointDirFromPipe(int pipe) {
         serverLog(LL_WARNING, "[rocks] read checkpoint dir from pipe empty.");
         return C_ERR;
     } else {
-        server.rocks->checkpoint_dir = sdsnew(checkpoint_dir);
+        server.rocks->rdb_checkpoint_dir = sdsnew(checkpoint_dir);
         return C_OK;
     }
 }

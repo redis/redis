@@ -1096,6 +1096,7 @@ typedef struct rocks {
     const rocksdb_snapshot_t *snapshot;
     rocksdb_checkpoint_t* checkpoint;
     sds checkpoint_dir;
+    sds rdb_checkpoint_dir; /* checkpoint dir use for rdb saved */
 } rocks;
 
 typedef struct rocksdbMemOverhead {

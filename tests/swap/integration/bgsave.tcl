@@ -1,4 +1,4 @@
-start_server {} {
+start_server {tags {"swap bgsave"}} {
     set redis_host [srv 0 host]
     set redis_port [srv 0 port]
 
@@ -42,5 +42,24 @@ start_server {} {
     }
 
     stop_bg_complex_data $load_handle0
+}
+
+start_server {tags {"swap bgsave"}} {
+    set redis_host [srv 0 host]
+    set redis_port [srv 0 port]
+
+    set load_handle0 [start_bg_complex_data $redis_host $redis_port 0 1000000]
+    after 10000
+    stop_bg_complex_data $load_handle0
+
+    test "debug reload after bgsave" {
+        r set k1 v1
+        r swap.evict k1
+        r bgsave
+        r del k1
+        r debug reload
+        assert_equal [r get k1] {}
+    }
+
 }
 
