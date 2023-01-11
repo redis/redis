@@ -169,6 +169,9 @@ typedef struct clusterDictEntryMetadata {
     dictEntry *next;            /* Next entry with key in the same slot */
 } clusterDictEntryMetadata;
 
+typedef struct {
+    redisDb *db;                /* A link back to the db this dict belongs to */
+} clusterDictMetadata;
 
 typedef struct clusterState {
     clusterNode *myself;  /* This node */
@@ -409,7 +412,7 @@ void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 unsigned int keyHashSlot(char *key, int keylen);
 void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
 void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
-void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db);
+void slotToKeyReplaceEntry(dict *d, dictEntry *entry);
 void slotToKeyInit(redisDb *db);
 void slotToKeyFlush(redisDb *db);
 void slotToKeyDestroy(redisDb *db);
