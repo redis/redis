@@ -26,14 +26,16 @@ start_server {overrides {save ""} tags {"swap" "select"}} {
     
     test {multi-db expire} {
         r select 0
-        r psetex key2 1 db0
+        r set key2 db0
         r select 1
-        r psetex key2 1 db1
+        r set key2 db1
 
         r select 0
         assert_equal [r get key2] db0
+        r pexpire key2 1
         r select 1
         assert_equal [r get key2] db1
+        r pexpire key2 1
 
         after 1000
 
