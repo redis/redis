@@ -31,6 +31,12 @@ proc assert_match {pattern value} {
     }
 }
 
+proc assert_not_equal {value expected {detail ""}} {
+    if {!($expected ne $value)} {
+        assert_failed "Expected '$value' not equal to '$expected'" $detail
+    }
+}
+
 proc assert_equal {value expected {detail ""}} {
     if {$expected ne $value} {
         if {$detail ne ""} {
