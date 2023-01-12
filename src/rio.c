@@ -152,6 +152,13 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
             if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
 #endif
             if (r->io.file.reclaim_cache) {
+                /* In Linux sync_file_range just issue a writeback request to
+                 * OS, and when posix_fadvise is called, the dirty page may
+                 * still be in flushing, which means it would be ignored by
+                 * posix_fadvise.
+                 * 
+                 * So we posix_fadvise the whole file, and the writeback-ed 
+                 * pages will have other chances to be reclaimed. */
                 reclaimFilePageCache(fileno(r->io.file.fp), 0, 0);
             }
             r->io.file.buffered = 0;

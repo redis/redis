@@ -1467,7 +1467,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
         if (!(rdbflags & RDBFLAGS_KEEP_CACHE)) rioSetReclaimCache(&rdb,1);
     }
 
-    if (rdbSaveRio(req,&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
+    if (rdbSaveRio(req,&rdb,&error,rdbflags,rsi) == C_ERR) {
         errno = error;
         err_op = "rdbSaveRio";
         goto werr;
