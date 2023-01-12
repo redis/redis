@@ -391,13 +391,11 @@ static size_t reqresAppendResponseIov(client *c) {
     size_t ret = 0;
     struct iovec iov[IOV_MAX];
     int iovcnt = 0;
-    size_t iov_bytes_len = 0;
     /* If the static reply buffer is not empty,
      * add it to the iov array for writev() as well. */
     if (c->bufpos > 0) {
         iov[iovcnt].iov_base = c->buf + c->sentlen;
-        iov[iovcnt].iov_len = c->bufpos - c->sentlen;
-        iov_bytes_len += iov[iovcnt++].iov_len;
+        iov[iovcnt++].iov_len = c->bufpos - c->sentlen;
     }
     /* The first node of reply list might be incomplete from the last call,
      * thus it needs to be calibrated to get the actual data address and length. */
@@ -414,8 +412,7 @@ static size_t reqresAppendResponseIov(client *c) {
         }
 
         iov[iovcnt].iov_base = o->buf + offset;
-        iov[iovcnt].iov_len = o->used - offset;
-        iov_bytes_len += iov[iovcnt++].iov_len;
+        iov[iovcnt++].iov_len = o->used - offset;
         offset = 0;
     }
 

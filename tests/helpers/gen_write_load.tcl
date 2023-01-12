@@ -1,6 +1,8 @@
 source tests/support/redis.tcl
+source tests/support/response_transformers.tcl
 
 set ::tlsdir "tests/tls"
+set ::force_resp3 0
 
 proc gen_write_load {host port seconds tls} {
     set start_time [clock seconds]
