@@ -1106,10 +1106,12 @@ typedef struct {
     size_t capacity;
     /* Vars for offsets within the client's reply */
     struct {
-        size_t full_nodes;
-        size_t last_node_offset;
-    } reply_list_offset;
-    size_t reply_buf_offset;
+    size_t reply_buf;
+        struct {
+            int index;
+            size_t bytes;
+        } last_node;
+    } offset;
 } clientReqResInfo;
 
 typedef struct client {

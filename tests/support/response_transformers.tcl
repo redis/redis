@@ -22,7 +22,7 @@ proc transfrom_map_to_tupple_array {argv response} {
     return $tuparray
 }
 
-proc transfrom_map_or_tuple_array_to_flat_array {response} {
+proc transfrom_map_or_tuple_array_to_flat_array {argv response} {
     set flatarray {}
     foreach pair $response {
         lappend flatarray {*}$pair
@@ -33,7 +33,7 @@ proc transfrom_map_or_tuple_array_to_flat_array {response} {
 proc transfrom_withscores_command {argv response} {
     foreach ele $argv {
         if {[string compare -nocase $ele "WITHSCORES"] == 0} {
-            return [transfrom_map_or_tuple_array_to_flat_array $response]
+            return [transfrom_map_or_tuple_array_to_flat_array $argv $response]
         }
     }
     return $response
@@ -41,7 +41,7 @@ proc transfrom_withscores_command {argv response} {
 
 proc transfrom_zpopmin_zpopmax {argv response} {
     if {[llength $argv] == 3} {
-        return [transfrom_map_or_tuple_array_to_flat_array $response]
+        return [transfrom_map_or_tuple_array_to_flat_array $argv $response]
     }
     return $response
 }

@@ -368,6 +368,19 @@ size_t reqresAppendRequest(client *c) {
         return 0;
     }
 
+    /* At this point we also remember the current reply offset, so that
+     * we won't write the same bytes (in case we couldn't write all pending
+     * data to socket in the previous writeToClient) */
+    memset(&c->reqres.offset, 0, sizeof(c->reqres.offset));
+    if (c->bufpos > 0) {
+        /* Here, `sentlen` represents the offset in the static buffer. */
+        c->reqres.offset.reply_buf = c->sentlen;
+    } else if (listLength(c->reply)) {
+        /* Here, `sentlen` represents the offset in the last reply node. */
+        c->reqres.offset.last_node.index = listLength(c->reply) - 1;
+        c->reqres.offset.last_node.bytes = c->sentlen;
+    }
+
     size_t ret = 0;
     for (int i = 0; i < argc; i++) {
         if (sdsEncodedObject(argv[i])) {
@@ -385,44 +398,6 @@ size_t reqresAppendRequest(client *c) {
 
 /* Functions for responses */
 
-static size_t reqresAppendResponseIov(client *c) {
-    size_t ret = 0;
-    struct iovec iov[IOV_MAX];
-    int iovcnt = 0;
-    /* If the static reply buffer is not empty,
-     * add it to the iov array for writev() as well. */
-    if (c->bufpos > 0) {
-        iov[iovcnt].iov_base = c->buf + c->sentlen;
-        iov[iovcnt++].iov_len = c->bufpos - c->sentlen;
-    }
-    /* The first node of reply list might be incomplete from the last call,
-     * thus it needs to be calibrated to get the actual data address and length. */
-    size_t offset = c->bufpos > 0 ? 0 : c->sentlen;
-    listIter iter;
-    listNode *next;
-    clientReplyBlock *o;
-    listRewind(c->reply, &iter);
-    while ((next = listNext(&iter)) && iovcnt < IOV_MAX) {
-        o = listNodeValue(next);
-        if (o->used == 0) { /* empty node, just release it and skip. */
-            offset = 0;
-            continue;
-        }
-
-        iov[iovcnt].iov_base = o->buf + offset;
-        iov[iovcnt++].iov_len = o->used - offset;
-        offset = 0;
-    }
-
-    if (iovcnt == 0)
-        return 0;
-
-    for (int i = 0; i < iovcnt; i++)
-        ret += reqresAppendBuffer(c, iov[i].iov_base, iov[i].iov_len);
-
-    return ret;
-}
-
 size_t reqresAppendResponse(client *c) {
     size_t ret = 0;
 
@@ -432,31 +407,50 @@ size_t reqresAppendResponse(client *c) {
     if (getClientType(c) == CLIENT_TYPE_SLAVE)
         return 0;
 
-    /* When the reply list is not empty, it's better to use writev to save us some
-     * system calls and TCP packets. */
-    if (listLength(c->reply) > 0) {
-        ret = reqresAppendResponseIov(c);
-    } else if (c->bufpos > 0) {
-        ret = reqresAppendBuffer(c, c->buf + c->sentlen, c->bufpos - c->sentlen);
+    /* First append the static reply buffer */
+    if (c->bufpos > 0) {
+        ret += reqresAppendBuffer(c, c->buf + c->reqres.offset.reply_buf, c->bufpos - c->reqres.offset.reply_buf);
+    }
+
+    /* Now, append reply bytes from the reply list */
+    int i = 0;
+    listIter iter;
+    listNode *curr;
+    clientReplyBlock *o;
+    listRewind(c->reply, &iter);
+    while ((curr = listNext(&iter)) != NULL) {
+        /* Skip nodes we had already processed */
+        if (i++ < c->reqres.offset.last_node.index)
+            continue;
+        o = listNodeValue(curr);
+        if (o->used == 0)
+            continue;
+
+        if (i == c->reqres.offset.last_node.index) {
+            /* Write the potentially incomplete node from last writeToClient */
+            ret += reqresAppendBuffer(c,
+                                      o->buf + c->reqres.offset.last_node.bytes,
+                                      o->used - c->reqres.offset.last_node.bytes);
+        } else {
+            /* New node */
+            ret += reqresAppendBuffer(c, o->buf, o->used);
+        }
     }
 
     if (!ret)
         return 0;
 
-    /* We flush the buffer only if the client received a response, otherwise we will
-     * log only a request, without a response (e.g. a blocked client that disconnects) */
-    if (server.req_res_logfile) {
-        FILE *fp = fopen(server.req_res_logfile, "a");
-        serverAssert(fp);
+    /* Flush both request and response to file */
+    FILE *fp = fopen(server.req_res_logfile, "a");
+    serverAssert(fp);
 
-        fwrite(c->reqres.buf, c->reqres.used, 1, fp);
-        fflush(fp);
-        fclose(fp);
+    fwrite(c->reqres.buf, c->reqres.used, 1, fp);
+    fflush(fp);
+    fclose(fp);
 
-        zfree(c->reqres.buf);
-        c->reqres.buf = NULL;
-        c->reqres.used = c->reqres.capacity = 0;
-    }
+    zfree(c->reqres.buf);
+    c->reqres.buf = NULL;
+    c->reqres.used = c->reqres.capacity = 0;
 
     return ret;
 }

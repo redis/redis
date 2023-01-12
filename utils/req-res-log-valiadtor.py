@@ -142,6 +142,7 @@ if __name__ == '__main__':
 
     # Create all command objects
     missing_schema = set()
+    command_counter = dict()
     print("Processing files...")
     for filename in glob.glob('%s/tmp/*/*.reqres' % testdir):
         lineno = 0
@@ -167,18 +168,28 @@ if __name__ == '__main__':
                     missing_schema.add(req.command)
                     continue
 
+                command_counter[req.command] = command_counter.get(req.command, 0) + 1
+
                 try:
                     jsonschema.validate(instance=res.json, schema=req.schema)
                 except jsonschema.ValidationError as err:
-                    print("JSON schema validation error on %s: %s" % (filename, err))
-                    print("Command: %s" % req.command)
+                    print(f"JSON schema validation error on {filename}: {err}")
+                    print(f"Command: {req.command}")
                     try:
-                        print("Response: %s" % res)
+                        print(f"Response: {res}")
                     except UnicodeDecodeError as err:
                        print("Response: (unprintable)")
-                    print("Schema: %s" % json.dumps(req.schema, indent=2))
+                    print(f"Schema: {json.dumps(req.schema, indent=2)}")
                     exit(1)
         
     print("Done.")
+    print("Hits per command:")
+    for k, v in sorted(command_counter.items()):
+        print(f"  {k}: {v}")
     if missing_schema:
-        print("WARNING! The following commands are missing a reply_schema: {}".format(sorted(missing_schema)))
+        print("WARNING! The following commands are missing a reply_schema:")
+        for k in sorted(missing_schema):
+            print(f"  {k}")
+
+
+
