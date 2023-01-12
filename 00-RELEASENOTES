@@ -12,6 +12,27 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 7.0.8 Released Mon Jan 16 12:00:00 IDT 2023
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues.
+
+Security Fixes:
+* (CVE-2022-35977) Integer overflow in the Redis SETRANGE and SORT/SORT_RO
+  commands can drive Redis to OOM panic
+* (CVE-2023-22458) Integer overflow in the Redis HRANDFIELD and ZRANDMEMBER
+  commands can lead to denial-of-service
+
+Bug Fixes
+=========
+
+* Avoid possible hang when client issues long KEYS, SRANDMEMBER, HRANDFIELD,
+  and ZRANDMEMBER commands and gets disconnected by client output buffer limit (#11676)
+* Make sure that fork child doesn't do incremental rehashing (#11692)
+* Fix a bug where blocking commands with a sub-second timeout would block forever (#11688)
+* Fix sentinel issue if replica changes IP (#11590)
+
+================================================================================
 Redis 7.0.7 Released Fri Dec 16 12:00:00 IST 2022
 ================================================================================
 
