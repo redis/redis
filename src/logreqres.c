@@ -63,7 +63,7 @@
  * <number of characters>
  * <the argument>
  *
- * After __argv_end__ the response appears, adn the format is
+ * After __argv_end__ the response appears, and the format is
  * RESP (2 or 3, depending on what the client has configured)
  */
 
