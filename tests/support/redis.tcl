@@ -133,6 +133,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         } else {
             set ::redis::testing_resp3($id) 0
             if {$::force_resp3} {
+                # If we are in force_resp3 we run HELLO 2 as HELLO 3
                 lset argv 0 3
             }
         }
@@ -216,7 +217,6 @@ proc ::redis::__method__close {id fd} {
     catch {unset ::redis::state($id)}
     catch {unset ::redis::statestack($id)}
     catch {unset ::redis::callback($id)}
-    catch {unset ::redis::response_interpreters($id)}
     catch {unset ::redis::curr_argv($id)}
     catch {unset ::redis::testing_resp3($id)}
     catch {interp alias {} ::redis::redisHandle$id {}}
@@ -317,10 +317,10 @@ proc ::redis::redis_read_bool fd {
 
 proc ::redis::redis_read_double {id fd} {
     set v [redis_read_line $fd]
-    if {!$::force_resp3 || $::redis::testing_resp3($id) == 1} {
-        return [expr {double($v)}]
-    } else {
+    if {[should_transform_to_resp2 $id]} {
         return $v
+    } else {
+        return [expr {double($v)}]
     }
 }
 
@@ -448,4 +448,13 @@ proc ::redis::redis_readable {fd id} {
             }
         }
     }
+}
+
+proc ::redis::test_expects_resp3 {id} {
+    return $::redis::testing_resp3($id)
+}
+
+# when forcing resp3 some tests that rely on resp2 can fail, so we have to translate the resp3 response to resp2
+proc ::redis::should_transform_to_resp2 {id} {
+    return [expr {$::force_resp3 && [test_expects_resp3 $id] == 0}]
 }

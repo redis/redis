@@ -238,7 +238,14 @@ proc reconnect {args} {
     # select the right db when we don't have to authenticate
     if {![dict exists $config "requirepass"] && !$::singledb} {
         $client select 9
-        # if force-resp3: $client debug client-default-resp 3 && $client debug log-req-res yes
+
+        if {$::force_resp3} {
+            $client debug set-client-default-resp 3
+        }
+
+        if {$::log_req_res} {
+            $client debug set-req-res-logfile stdout.reqres
+        }
     }
 
     # re-set $srv in the servers list

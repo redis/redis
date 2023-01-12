@@ -325,8 +325,6 @@ start_server {tags {"introspection"}} {
             logfile
             dir
             socket-mark-id
-            req-res-logfile
-            client-default-resp
         }
 
         if {!$::tls} {

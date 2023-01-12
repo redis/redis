@@ -2,15 +2,6 @@ package require Tcl 8.5
 
 namespace eval response_transformers {}
 
-proc test_expects_resp3 {id} {
-    return $::redis::testing_resp3($id)
-}
-
-# when forcing resp3 some tests that rely on resp2 can fail, so we have to translate the resp3 response to resp2
-proc should_transform_to_resp2 {id} {
-    return [expr {$::force_resp3 && [test_expects_resp3 $id] == 0}]
-}
-
 proc transfrom_map_to_tupple_array {argv response} {
     set tuparray {}
     foreach {key val} $response {
@@ -65,7 +56,7 @@ set ::trasformer_funcs {
 }
 
 proc ::response_transformers::transform_response_if_needed {id argv response} {
-    if {![should_transform_to_resp2 $id] || $::redis::readraw($id)} {
+    if {![::redis::should_transform_to_resp2 $id] || $::redis::readraw($id)} {
         return $response
     }
 
