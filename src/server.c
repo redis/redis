@@ -2537,7 +2537,7 @@ void initServer(void) {
     server.reply_buffer_resizing_enabled = 1;
     server.client_mem_usage_buckets = NULL;
     resetReplicationBuffer();
-    if (server.maxmemory && server.maxmemory_reserved_scale) {
+    if (server.maxmemory) {
         server.maxmemory_available = (unsigned long long)server.maxmemory / 100.0 * (100 - server.maxmemory_reserved_scale);
     }
 
