@@ -833,24 +833,8 @@ NULL
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
-    }
-#ifdef LOG_REQ_RES
-    else if (!strcasecmp(c->argv[1]->ptr,"set-client-default-resp") && c->argc == 3) {
-        server.client_default_resp = atoi(c->argv[2]->ptr);
-        serverLog(LL_WARNING, "GUYBE set resp %d", server.client_default_resp);
-        addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"set-req-res-logfile") && c->argc == 3) {
-        if (server.req_res_logfile) {
-            zfree(server.req_res_logfile);
-            server.req_res_logfile = NULL;
-        }
-        if (sdslen(c->argv[2]->ptr))
-            server.req_res_logfile = zstrdup(c->argv[2]->ptr);
-        addReply(c,shared.ok);
-    }
-#endif
-    else if (!strcasecmp(c->argv[1]->ptr,"quicklist-packed-threshold") &&
-             c->argc == 3)
+    } else if (!strcasecmp(c->argv[1]->ptr,"quicklist-packed-threshold") &&
+               c->argc == 3)
     {
         int memerr;
         unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);

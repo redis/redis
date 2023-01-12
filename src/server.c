@@ -1979,8 +1979,6 @@ void initServerConfig(void) {
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
-    server.client_default_resp = 2;
-    server.req_res_logfile = NULL;
 
     server.latency_tracking_info_percentiles_len = 3;
     server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
@@ -3767,8 +3765,6 @@ int processCommand(client *c) {
         return C_ERR;
     }
 
-    serverLog(LL_WARNING, "GUYBE cmd %s", c->argv[0]->ptr);
-
     /* If we're inside a module blocked context yielding that wants to avoid
      * processing clients, postpone the command. */
     if (server.busy_module_yield_flags != BUSY_MODULE_YIELD_NONE &&
@@ -4620,59 +4616,34 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
     }
 }
 
-/* Must match redisCommandRESP2Type */
-const char *RESP2_TYPE_STR[] = {
-    "simple-string",
-    "error",
-    "integer",
-    "bulk-string",
-    "null-bulk-string",
-    "array",
-    "null-array",
-};
-
-/* Must match redisCommandRESP3Type */
-const char *RESP3_TYPE_STR[] = {
-    "simple-string",
-    "error",
-    "integer",
-    "double",
-    "bulk-string",
-    "array",
-    "map",
-    "set",
-    "bool",
-    "null",
-};
-
-void addReplyCommandReplySchema(client *c, struct commandReplySchema *rs) {
+void addReplyJson(client *c, struct jsonObject *rs) {
     addReplyMapLen(c, rs->length);
 
     for (int i = 0; i < rs->length; i++) {
-        struct commandReplySchemaElement *curr = &rs->schema[i];
+        struct jsonObjectElement *curr = &rs->elements[i];
         addReplyBulkCString(c, curr->key);
         switch (curr->type) {
-            case (SCHEMA_VAL_TYPE_BOOLEAN):
+            case (JSON_TYPE_BOOLEAN):
                 addReplyBool(c, curr->value.boolean);
                 break;
-            case (SCHEMA_VAL_TYPE_INTEGER):
+            case (JSON_TYPE_INTEGER):
                 addReplyLongLong(c, curr->value.integer);
                 break;
-            case (SCHEMA_VAL_TYPE_STRING):
+            case (JSON_TYPE_STRING):
                 addReplyBulkCString(c, curr->value.string);
                 break;
-            case (SCHEMA_VAL_TYPE_SCHEMA):
-                addReplyCommandReplySchema(c, curr->value.schema);
+            case (JSON_TYPE_OBJECT):
+                addReplyJson(c, curr->value.object);
                 break;
-            case (SCHEMA_VAL_TYPE_SCHEMA_ARRAY):
+            case (JSON_TYPE_ARRAY):
                 addReplyArrayLen(c, curr->value.array.length);
                 for (int k = 0; k < curr->value.array.length; k++) {
-                    struct commandReplySchema *schema = curr->value.array.schemas[k];
-                    addReplyCommandReplySchema(c, schema);
+                    struct jsonObject *object = curr->value.array.objects[k];
+                    addReplyJson(c, object);
                 }
                 break;
             default:
-                serverPanic("Invalid schema type %d", curr->type);
+                serverPanic("Invalid JSON type %d", curr->type);
         }
     }
 }
@@ -4917,7 +4888,7 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     }
     if (cmd->reply_schema) {
         addReplyBulkCString(c, "reply_schema");
-        addReplyCommandReplySchema(c, cmd->reply_schema);
+        addReplyJson(c, cmd->reply_schema);
     }
     if (cmd->args) {
         addReplyBulkCString(c, "arguments");

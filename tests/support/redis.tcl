@@ -41,8 +41,8 @@ array set ::redis::tls {}
 array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
 array set ::redis::statestack {} ;# Stack of states, for nested mbulks
-array set ::redis::curr_argv {}
-array set ::redis::testing_resp3 {}
+array set ::redis::curr_argv {} ;# Remember the current argv, to be used in response_transformers.tcl
+array set ::redis::testing_resp3 {} ;# Indicating if the current client is using RESP3 (in order to test RESP3 specific behavior)
 
 proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {readraw 0}} {
     if {$tls} {
@@ -129,13 +129,11 @@ proc ::redis::__dispatch__raw__ {id method argv} {
 
     if {[llength $argv] > 0 && [string compare -nocase $method "HELLO"] == 0} {
         if {[lindex $argv 0] == 3} {
-            puts "set test resp3 to 1"
             set ::redis::testing_resp3($id) 1
         } else {
-            puts "set test resp3 to 0"
             set ::redis::testing_resp3($id) 0
             if {$::force_resp3} {
-                # If we are in force_resp3 we run HELLO 2 as HELLO 3
+                # If we are in force_resp3 we run HELLO 3 instead of HELLO 2
                 lset argv 0 3
             }
         }

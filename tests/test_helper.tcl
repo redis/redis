@@ -229,27 +229,16 @@ proc reconnect {args} {
     set port [dict get $srv "port"]
     set config [dict get $srv "config"]
     set client [redis $host $port 0 $::tls]
-
-    # select the right db when we don't have to authenticate
-    if {![dict exists $config "requirepass"] && !$::singledb} {
-        $client select 9
-
-        if {$::force_resp3} {
-            $client debug set-client-default-resp 3
-            $client close
-            set client [redis $host $port 0 $::tls]
-        }
-
-        if {$::log_req_res} {
-            $client debug set-req-res-logfile stdout.reqres
-        }
-    }
-
     if {[dict exists $srv "client"]} {
         set old [dict get $srv "client"]
         $old close
     }
     dict set srv "client" $client
+
+    # select the right db when we don't have to authenticate
+    if {![dict exists $config "requirepass"] && !$::singledb} {
+        $client select 9
+    }
 
     # re-set $srv in the servers list
     lset ::servers end+$level $srv

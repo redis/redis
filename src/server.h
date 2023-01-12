@@ -1101,16 +1101,16 @@ typedef struct {
 
 typedef struct {
     /* Vars for log buffer */
-    unsigned char *buf;
+    unsigned char *buf; /* Buffer holding the data (request and response) */
     size_t used;
     size_t capacity;
     /* Vars for offsets within the client's reply */
     struct {
-    size_t reply_buf;
+        size_t reply_buf; /* Offset within the static reply buffer */
         struct {
             int index;
             size_t bytes;
-        } last_node;
+        } last_node; /* Offset within the reply block list */
     } offset;
 } clientReqResInfo;
 
@@ -2122,61 +2122,34 @@ typedef struct redisCommandArg {
     int num_args;
 } redisCommandArg;
 
-/* Must be synced with RESP2_TYPE_STR and generate-command-code.py */
-typedef enum {
-    RESP2_SIMPLE_STRING,
-    RESP2_ERROR,
-    RESP2_INTEGER,
-    RESP2_BULK_STRING,
-    RESP2_NULL_BULK_STRING,
-    RESP2_ARRAY,
-    RESP2_NULL_ARRAY,
-} redisCommandRESP2Type;
-
-/* Must be synced with RESP3_TYPE_STR and generate-command-code.py */
-typedef enum {
-    RESP3_SIMPLE_STRING,
-    RESP3_ERROR,
-    RESP3_INTEGER,
-    RESP3_DOUBLE,
-    RESP3_BULK_STRING,
-    RESP3_ARRAY,
-    RESP3_MAP,
-    RESP3_SET,
-    RESP3_BOOL,
-    RESP3_NULL,
-} redisCommandRESP3Type;
-
 /* Must be synced with generate-command-code.py */
 typedef enum {
-    SCHEMA_VAL_TYPE_STRING,
-    SCHEMA_VAL_TYPE_INTEGER,
-    SCHEMA_VAL_TYPE_BOOLEAN,
-    SCHEMA_VAL_TYPE_SCHEMA,
-    SCHEMA_VAL_TYPE_SCHEMA_ARRAY,
-} replySchemaValueType;
+    JSON_TYPE_STRING,
+    JSON_TYPE_INTEGER,
+    JSON_TYPE_BOOLEAN,
+    JSON_TYPE_OBJECT,
+    JSON_TYPE_ARRAY,
+} jsonType;
 
-struct commandReplySchema;
-
-typedef struct commandReplySchemaElement {
+typedef struct jsonObjectElement {
     const char *key;
-    replySchemaValueType type;
+    jsonType type;
     union {
         const char *string;
-        int integer;
+        long long integer;
         int boolean;
-        struct commandReplySchema *schema;
+        struct jsonObject *object;
         struct {
-            struct commandReplySchema **schemas;
+            struct jsonObject **objects;
             int length;
         } array;
     } value;
-} commandReplySchemaElement;
+} jsonObjectElement;
 
-typedef struct commandReplySchema {
-    struct commandReplySchemaElement *schema;
+typedef struct jsonObject {
+    struct jsonObjectElement *elements;
     int length;
-} commandReplySchema;
+} jsonObject;
 
 /* WARNING! This struct must match RedisModuleCommandHistoryEntry */
 typedef struct {
@@ -2322,7 +2295,7 @@ struct redisCommand {
     /* Array of arguments (may be NULL) */
     struct redisCommandArg *args;
     /* Reply schema */
-    struct commandReplySchema *reply_schema;
+    struct jsonObject *reply_schema;
 
     /* Runtime populated data */
     long long microseconds, calls, rejected_calls, failed_calls;

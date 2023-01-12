@@ -2,6 +2,8 @@ package require Tcl 8.5
 
 namespace eval response_transformers {}
 
+# Transform a map response into an array of tuples (tuple = array with 2 elements)
+# Used for XREAD[GROUP] 
 proc transfrom_map_to_tupple_array {argv response} {
     set tuparray {}
     foreach {key val} $response {
@@ -13,7 +15,9 @@ proc transfrom_map_to_tupple_array {argv response} {
     return $tuparray
 }
 
-proc transfrom_map_or_tuple_array_to_flat_array {argv response} {
+# Transform an array of tuples to a flat array
+# e.g. HRANDFIELD returns an array of tuples in RESP3, but a flat array in RESP2
+proc transfrom_tuple_array_to_flat_array {argv response} {
     set flatarray {}
     foreach pair $response {
         lappend flatarray {*}$pair
@@ -21,18 +25,22 @@ proc transfrom_map_or_tuple_array_to_flat_array {argv response} {
     return $flatarray
 }
 
+# With some zset commands, we only need to transfrom the response if the request had WITHSCORES
+# (otherwise the returned reponse is a flat array in both RESPs)
 proc transfrom_zset_withscores_command {argv response} {
     foreach ele $argv {
         if {[string compare -nocase $ele "WITHSCORES"] == 0} {
-            return [transfrom_map_or_tuple_array_to_flat_array $argv $response]
+            return [transfrom_tuple_array_to_flat_array $argv $response]
         }
     }
     return $response
 }
 
+# With ZPOPMIN/ZPOPMAX, we only need to transfrom the response if the request had COUNT (3rd arg)
+# (otherwise the returned reponse is a flat array in both RESPs)
 proc transfrom_zpopmin_zpopmax {argv response} {
     if {[llength $argv] == 3} {
-        return [transfrom_map_or_tuple_array_to_flat_array $argv $response]
+        return [transfrom_tuple_array_to_flat_array $argv $response]
     }
     return $response
 }
@@ -40,7 +48,7 @@ proc transfrom_zpopmin_zpopmax {argv response} {
 set ::trasformer_funcs {
     XREAD transfrom_map_to_tupple_array
     XREADGROUP transfrom_map_to_tupple_array
-    HRANDFIELD transfrom_map_or_tuple_array_to_flat_array
+    HRANDFIELD transfrom_tuple_array_to_flat_array
     ZRANDMEMBER transfrom_zset_withscores_command
     ZRANGE transfrom_zset_withscores_command
     ZRANGEBYSCORE transfrom_zset_withscores_command

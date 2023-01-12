@@ -35,29 +35,6 @@ GROUPS = {
     "bitmap": "COMMAND_GROUP_BITMAP",
 }
 
-RESP2_TYPES = {
-    "simple-string": "RESP2_SIMPLE_STRING",
-    "error": "RESP2_ERROR",
-    "integer": "RESP2_INTEGER",
-    "bulk-string": "RESP2_BULK_STRING",
-    "null-bulk-string": "RESP2_NULL_BULK_STRING",
-    "array": "RESP2_ARRAY",
-    "null-array": "RESP2_NULL_ARRAY",
-}
-
-RESP3_TYPES = {
-    "simple-string": "RESP3_SIMPLE_STRING",
-    "error": "RESP3_ERROR",
-    "integer": "RESP3_INTEGER",
-    "double": "RESP3_DOUBLE",
-    "bulk-string": "RESP3_BULK_STRING",
-    "array": "RESP3_ARRAY",
-    "map": "RESP3_MAP",
-    "set": "RESP3_SET",
-    "bool": "RESP3_BOOL",
-    "null": "RESP3_NULL",
-}
-
 
 def get_optional_desc_string(desc, field, force_uppercase=False):
     v = desc.get(field, None)
@@ -280,19 +257,19 @@ class ReplySchema(object):
     def write(self, f):
         def struct_code(name, k, v):
             if isinstance(v, ReplySchema):
-                t = "SCHEMA_VAL_TYPE_SCHEMA"
-                vstr = ".value.schema=&%s" % name
+                t = "JSON_TYPE_OBJECT"
+                vstr = ".value.object=&%s" % name
             elif isinstance(v, list):
-                t = "SCHEMA_VAL_TYPE_SCHEMA_ARRAY"
-                vstr = ".value.array={.schemas=%s,.length=%d}" % (name, len(v))
+                t = "JSON_TYPE_ARRAY"
+                vstr = ".value.array={.objects=%s,.length=%d}" % (name, len(v))
             elif isinstance(v, bool):
-                t = "SCHEMA_VAL_TYPE_BOOLEAN"
+                t = "JSON_TYPE_BOOLEAN"
                 vstr = ".value.boolean=%d" % int(v)
             elif isinstance(v, str):
-                t = "SCHEMA_VAL_TYPE_STRING"
+                t = "JSON_TYPE_STRING"
                 vstr = ".value.string=\"%s\"" % v
             elif isinstance(v, int):
-                t = "SCHEMA_VAL_TYPE_INTEGER"
+                t = "JSON_TYPE_INTEGER"
                 vstr = ".value.integer=%d" % v
             
             return "\"%s\",%s,%s" % (k, t, vstr)
@@ -305,18 +282,18 @@ class ReplySchema(object):
                     schema.write(f)
                 name = ("%s_%s" % (self.name, k)).replace("-", "_").replace(":", "")
                 f.write("/* %s array reply schema */\n" % name)
-                f.write("struct commandReplySchema *%s[] = {\n" % name)
+                f.write("struct jsonObject *%s[] = {\n" % name)
                 for i, schema in enumerate(v):
                     f.write("&%s,\n" % schema.name)
                 f.write("};\n\n")
             
         f.write("/* %s reply schema */\n" % self.name)
-        f.write("struct commandReplySchemaElement %s_elements[] = {\n" % self.name)
+        f.write("struct jsonObjectElement %s_elements[] = {\n" % self.name)
         for k, v in self.schema.items():
             name = ("%s_%s" % (self.name, k)).replace("-", "_").replace(":", "")
             f.write("{%s},\n" % struct_code(name, k, v))
         f.write("};\n\n")
-        f.write("struct commandReplySchema %s = {%s_elements,.length=%d};\n\n" % (self.name, self.name, len(self.schema)))
+        f.write("struct jsonObject %s = {%s_elements,.length=%d};\n\n" % (self.name, self.name, len(self.schema)))
 
 
 class Command(object):

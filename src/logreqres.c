@@ -78,6 +78,7 @@ static size_t reqresAppendBuffer(client *c, void *buf, size_t len) {
     if (!server.req_res_logfile)
         return 0;
 
+    /* Ignore client with streaming non-standard response */
     if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE))
         return 0;
 
@@ -97,7 +98,7 @@ static size_t reqresAppendBuffer(client *c, void *buf, size_t len) {
 /* Functions for requests */
 
 static size_t reqresAppendArg(client *c, char *arg, size_t arg_len) {
-    char argv_len_buf[32];
+    char argv_len_buf[LONG_STR_SIZE];
     size_t argv_len_buf_len = ll2string(argv_len_buf,sizeof(argv_len_buf),(long)arg_len);
     size_t ret = reqresAppendBuffer(c, argv_len_buf, argv_len_buf_len);
     ret += reqresAppendBuffer(c, "\r\n", 2);
@@ -118,6 +119,7 @@ size_t reqresAppendRequest(client *c) {
     if (!server.req_res_logfile)
         return 0;
 
+    /* Ignore commands that have streaming non-standard response */
     sds cmd = argv[0]->ptr;
     if (!strcasecmp(cmd,"sync") ||
         !strcasecmp(cmd,"psync") ||
@@ -147,7 +149,7 @@ size_t reqresAppendRequest(client *c) {
         if (sdsEncodedObject(argv[i])) {
             ret += reqresAppendArg(c, argv[i]->ptr, sdslen(argv[i]->ptr));
         } else if (argv[i]->encoding == OBJ_ENCODING_INT) {
-            char buf[32];
+            char buf[LONG_STR_SIZE];
             size_t len = ll2string(buf,sizeof(buf),(long)argv[i]->ptr);
             ret += reqresAppendArg(c, buf, len);
         } else {
