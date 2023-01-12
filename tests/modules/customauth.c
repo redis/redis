@@ -148,22 +148,6 @@ int test_rm_register_blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString **a
     return REDISMODULE_OK;
 }
 
-int test_rm_unregister_auth_cbs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-    if (RedisModule_UnregisterCustomAuthCallbacks(ctx) == REDISMODULE_OK) {
-        RedisModule_ReplyWithSimpleString(ctx, "OK");
-        return REDISMODULE_OK;
-    }
-    else if (errno == ENOENT) {
-        RedisModule_ReplyWithError(ctx, "ERR - no custom auth cbs registered by this module");
-    }
-    else if (errno == EINPROGRESS) {
-        RedisModule_ReplyWithError(ctx, "ERR - cannot unregister cbs as custom auth is in progress");
-    }
-    return REDISMODULE_ERR;
-}
-
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -172,8 +156,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"testmoduleone.rm_register_auth_cb", test_rm_register_auth_cb,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"testmoduleone.rm_register_blocking_auth_cb", test_rm_register_blocking_auth_cb,"",0,0,0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_CreateCommand(ctx,"testmoduleone.rm_unregister_auth_cbs", test_rm_unregister_auth_cbs,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     return REDISMODULE_OK;
 }

@@ -1159,7 +1159,6 @@ REDISMODULE_API int (*RedisModule_DictCompareC)(RedisModuleDictIter *di, const c
 REDISMODULE_API int (*RedisModule_DictCompare)(RedisModuleDictIter *di, const char *op, RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RegisterInfoFunc)(RedisModuleCtx *ctx, RedisModuleInfoFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_RegisterCustomAuthCallback)(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback cb) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_UnregisterCustomAuthCallbacks)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_InfoAddSection)(RedisModuleInfoCtx *ctx, const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_InfoBeginDictField)(RedisModuleInfoCtx *ctx, const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_InfoEndDictField)(RedisModuleInfoCtx *ctx) REDISMODULE_ATTR;
@@ -1503,7 +1502,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(DictCompareC);
     REDISMODULE_GET_API(RegisterInfoFunc);
     REDISMODULE_GET_API(RegisterCustomAuthCallback);
-    REDISMODULE_GET_API(UnregisterCustomAuthCallbacks);
     REDISMODULE_GET_API(InfoAddSection);
     REDISMODULE_GET_API(InfoBeginDictField);
     REDISMODULE_GET_API(InfoEndDictField);

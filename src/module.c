@@ -7431,8 +7431,8 @@ void RM_RegisterCustomAuthCallback(RedisModuleCtx *ctx, RedisModuleCustomAuthCal
     listAddNodeTail(moduleCustomAuthCallbacks, auth_ctx);
 }
 
-/* Returns 1 if the module has any custom auth callbacks registered. If `should_unregister` is  non zero,
- * all the module's custom auth cbs are unregistered.
+/* Returns 1 if the module has any custom auth callbacks registered. If `should_unregister` is
+ * non-zero, all the module's custom auth cbs are unregistered.
  * Returns 0 otherwise - if the Module has no custom auth cb registered. */
 int moduleSearchOrUnregisterCustomAuthCBs(RedisModule *module, int should_unregister) {
     int callback_found = 0;
@@ -7464,29 +7464,6 @@ int isCustomAuthInProgress() {
         }
     }
     return 0;
-}
-
-/* Unregister ALL the custom auth callbacks that this module had registered.
- * Returns REDISMODULE_ERR in the following cases:
- * - `ctx` is NULL.
- * - ENOENT: The module does not have any custom auth cbs registered.
- * - EINPROGRESS: Custom Auth is in progress and the module has a custom auth cb registered.
- * Returns REDISMODULE_OK if the module had custom auth cbs and they were unregistered. */
-int RM_UnregisterCustomAuthCallbacks(RedisModuleCtx *ctx) {
-    if (!ctx) {
-        return REDISMODULE_ERR;
-    }
-    /* Search and return early if the Module does not have any custom auth cbs registered. */
-    if (!moduleSearchOrUnregisterCustomAuthCBs(ctx->module, 0)) {
-        errno = ENOENT;
-        return REDISMODULE_ERR;
-    }
-    if (isCustomAuthInProgress()) {
-        errno = EINPROGRESS;
-        return REDISMODULE_ERR;
-    }
-    moduleSearchOrUnregisterCustomAuthCBs(ctx->module, 1);
-    return REDISMODULE_OK;
 }
 
 /* Returns 0 when custom auth is in progress with a blocking implementation OR when it has been
@@ -13429,5 +13406,4 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RegisterEnumConfig);
     REGISTER_API(LoadConfigs);
     REGISTER_API(RegisterCustomAuthCallback);
-    REGISTER_API(UnregisterCustomAuthCallbacks);
 }
