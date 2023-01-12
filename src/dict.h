@@ -94,10 +94,6 @@ struct dict {
     /* Keep small vars at end for optimal (minimal) struct padding */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
     signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
-
-    void *metadata[];           /* An arbitrary number of bytes (starting at a
-                                 * pointer-aligned address) of size as defined
-                                 * by dictType's dictEntryBytes. */
 };
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call

@@ -185,12 +185,7 @@ static void _dictReset(dict *d, int htidx)
 /* Create a new hash table */
 dict *dictCreate(dictType *type)
 {
-    size_t metasize = type->dictMetadataBytes ? type->dictMetadataBytes() : 0;
-    dict *d = zmalloc(sizeof(*d) + metasize);
-    if (metasize) {
-        memset(dictMetadata(d), 0, metasize);
-    }
-
+    dict *d = zmalloc(sizeof(*d));
     _dictInit(d,type);
     return d;
 }
@@ -423,11 +418,6 @@ int dictRehashMilliseconds(dict *d, unsigned int ms) {
  * while it is actively used. */
 static void _dictRehashStep(dict *d) {
     if (d->pauserehash == 0) dictRehash(d,1);
-}
-
-/* Return a pointer to the metadata section within the dict. */
-void *dictMetadata(dict *d) {
-    return &d->metadata;
 }
 
 /* Add an element to the target hash table */
@@ -793,12 +783,6 @@ double dictIncrDoubleVal(dictEntry *de, double val) {
     return de->v.d += val;
 }
 
-/* A pointer to the metadata section within the dict entry. */
-void *dictEntryMetadata(dictEntry *de) {
-    assert(entryHasValue(de));
-    return &de->metadata;
-}
-
 void *dictGetKey(const dictEntry *de) {
     if (entryIsKey(de)) return (void*)de;
     if (entryIsNoValue(de)) return decodeEntryNoValue(de)->key;
@@ -1148,8 +1132,6 @@ static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragFunctions
         }
         if (newde) {
             *bucketref = newde;
-            if (d->type->afterReplaceEntry)
-                d->type->afterReplaceEntry(d, newde);
         }
         bucketref = dictGetNextRef(*bucketref);
     }

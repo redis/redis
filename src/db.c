@@ -308,7 +308,7 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
         freeObjAsync(key,old,db->id);
     } else {
         /* This is just decrRefCount(old); */
-        db->dict->type->valDestructor(d, old);
+        d->type->valDestructor(d, old);
     }
 }
 
