@@ -3868,7 +3868,14 @@ void clusterLogCantFailover(int reason) {
         break;
     }
     lastlog_time = time(NULL);
-    serverLog(LL_WARNING,"Currently unable to failover: %s", msg);
+    serverLog(LL_NOTICE,"Currently unable to failover: %s", msg);
+    
+    int cur_vote = server.cluster->failover_auth_count;
+    int cur_quorum = (server.cluster->size / 2) + 1;
+    /* Emits a log when an election is in progress and waiting for votes or when the failover attempt expired. */
+    if (reason == CLUSTER_CANT_FAILOVER_WAITING_VOTES || reason == CLUSTER_CANT_FAILOVER_EXPIRED) {
+        serverLog(LL_NOTICE, "Needed quorum: %d. Number of votes received so far: %d", cur_quorum, cur_vote);
+    } 
 }
 
 /* This function implements the final part of automatic and manual failovers,
