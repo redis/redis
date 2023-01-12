@@ -783,6 +783,8 @@ void keysCommand(client *c) {
             }
             decrRefCount(keyobj);
         }
+        if (c->flags & CLIENT_CLOSE_ASAP)
+            break;
     }
     dictReleaseIterator(di);
     setDeferredArrayLen(c,replylen,numkeys);
