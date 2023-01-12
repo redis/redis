@@ -25,8 +25,8 @@ proc transfrom_tuple_array_to_flat_array {argv response} {
     return $flatarray
 }
 
-# With some zset commands, we only need to transfrom the response if the request had WITHSCORES
-# (otherwise the returned reponse is a flat array in both RESPs)
+# With some zset commands, we only need to transform the response if the request had WITHSCORES
+# (otherwise the returned response is a flat array in both RESPs)
 proc transfrom_zset_withscores_command {argv response} {
     foreach ele $argv {
         if {[string compare -nocase $ele "WITHSCORES"] == 0} {
@@ -36,8 +36,8 @@ proc transfrom_zset_withscores_command {argv response} {
     return $response
 }
 
-# With ZPOPMIN/ZPOPMAX, we only need to transfrom the response if the request had COUNT (3rd arg)
-# (otherwise the returned reponse is a flat array in both RESPs)
+# With ZPOPMIN/ZPOPMAX, we only need to transform the response if the request had COUNT (3rd arg)
+# (otherwise the returned response is a flat array in both RESPs)
 proc transfrom_zpopmin_zpopmax {argv response} {
     if {[llength $argv] == 3} {
         return [transfrom_tuple_array_to_flat_array $argv $response]

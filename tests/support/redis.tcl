@@ -450,11 +450,7 @@ proc ::redis::redis_readable {fd id} {
     }
 }
 
-proc ::redis::test_expects_resp3 {id} {
-    return $::redis::testing_resp3($id)
-}
-
 # when forcing resp3 some tests that rely on resp2 can fail, so we have to translate the resp3 response to resp2
 proc ::redis::should_transform_to_resp2 {id} {
-    return [expr {$::force_resp3 && [test_expects_resp3 $id] == 0}]
+    return [expr {$::force_resp3 && !$::redis::testing_resp3($id)}]
 }

@@ -1553,7 +1553,11 @@ struct redisServer {
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* Current client executing the command. */
+
+#ifdef LOG_REQ_RES
+    char *req_res_logfile; /* Path of log file for logging all requests and their replies. If NULL, no logging will be performed */
     unsigned int client_default_resp;
+#endif
 
     /* Stuff for client mem eviction */
     clientMemUsageBucket* client_mem_usage_buckets;
@@ -1765,7 +1769,6 @@ struct redisServer {
     int replication_allowed;        /* Are we allowed to replicate? */
     /* Logging */
     char *logfile;                  /* Path of log file */
-    char *req_res_logfile;          /* Path of log file for logging all requests and their replies. If NULL, no logging will be performed */
     int syslog_enabled;             /* Is syslog enabled? */
     char *syslog_ident;             /* Syslog ident */
     int syslog_facility;            /* Syslog facility */

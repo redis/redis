@@ -138,7 +138,11 @@ client *createClient(connection *conn) {
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
+#ifdef LOG_REQ_RES
     c->resp = server.client_default_resp;
+#else
+    c->resp = 2;
+#endif
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
