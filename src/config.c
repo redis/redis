@@ -2472,7 +2472,7 @@ static int updateMaxmemoryReserved(const char **err){
             server.maxmemory_reserved_scale = 60;
         }
     }
-    server.maxmemory_reserved = (unsigned long long)server.maxmemory / 100.0 * server.maxmemory_reserved_scale;
+    server.maxmemory_available= (unsigned long long)server.maxmemory / 100.0 * (100 - server.maxmemory_reserved_scale);
     return 1;
 }
 
@@ -2483,7 +2483,7 @@ static int updateMaxmemory(const char **err) {
         if (server.maxmemory < used) {
             serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET (%llu) is smaller than the current memory usage (%zu). This will result in key eviction and/or the inability to accept new write commands depending on the maxmemory-policy.", server.maxmemory, used);
         }
-        server.maxmemory_reserved = (unsigned long long)server.maxmemory / 100.0 * server.maxmemory_reserved_scale;
+        server.maxmemory_available= (unsigned long long)server.maxmemory / 100.0 * (100 - server.maxmemory_reserved_scale);
         startEvictionTimeProc();
     }
     return 1;

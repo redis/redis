@@ -409,7 +409,7 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
     }
 
     if (server.maxmemory_reserved_scale) {
-        if (mem_reported <= server.maxmemory_reserved && !level) return C_OK;
+        if (mem_reported <= server.maxmemory_available && !level) return C_OK;
     } else if (mem_reported <= server.maxmemory && !level) 
         return C_OK;
 
@@ -422,23 +422,23 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
     /* Compute the ratio of memory usage. */
     if (level) {
         if (server.maxmemory_reserved_scale)
-            *level = (float)mem_used / (float)server.maxmemory_reserved;
+            *level = (float)mem_used / (float)server.maxmemory_available;
         else
             *level = (float)mem_used / (float)server.maxmemory;
     }
 
     if (server.maxmemory_reserved_scale) {
-        if (mem_reported <= server.maxmemory_reserved) return C_OK;
+        if (mem_reported <= server.maxmemory_available) return C_OK;
     } else if (mem_reported <= server.maxmemory) return C_OK;
 
     /* Check if we are still over the memory limit. */
     if (server.maxmemory_reserved_scale) {
-        if (mem_used <= server.maxmemory_reserved) return C_OK;
+        if (mem_used <= server.maxmemory_available) return C_OK;
     } else if (mem_used <= server.maxmemory) return C_OK;
 
     /* Compute how much memory we need to free. */
     if (server.maxmemory_reserved_scale) {
-        mem_tofree = mem_used - server.maxmemory_reserved;
+        mem_tofree = mem_used - server.maxmemory_available;
     } else
         mem_tofree = mem_used - server.maxmemory;
 
@@ -564,10 +564,10 @@ int performEvictions(void) {
     int slaves = listLength(server.slaves);
     int result = EVICT_FAIL;
     
-    serverLog(LL_WARNING,"-------------------------------------------------");
-    serverLog(LL_WARNING,"Current maxmemory reserved scale is: %d",server.maxmemory_reserved_scale);
-    serverLog(LL_WARNING,"Current maxmemory reserved size is: %lld",server.maxmemory_reserved);
-    serverLog(LL_WARNING,"Current maxmemory is: %lld",server.maxmemory);
+    //serverLog(LL_WARNING,"-------------------------------------------------");
+    //serverLog(LL_WARNING,"Current maxmemory reserved scale is: %d",server.maxmemory_reserved_scale);
+    //serverLog(LL_WARNING,"Current maxmemory reserved size is: %lld",server.maxmemory_reserved);
+    //serverLog(LL_WARNING,"Current maxmemory is: %lld",server.maxmemory);
     if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree,NULL) == C_OK) {
         result = EVICT_OK;
         goto update_metrics;
