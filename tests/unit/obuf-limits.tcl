@@ -211,4 +211,20 @@ start_server {tags {"obuf-limits external:skip"}} {
         assert_equal "v2" [r get k2]
         assert_equal "v3" [r get k3]
     }
+
+    test "Obuf limit, HRANDFIELD with huge count stopped mid-run" {
+        r config set client-output-buffer-limit {normal 1000000 0 0}
+        r hset myhash a b
+        catch {r hrandfield myhash -999999999} e
+        assert_match "*I/O error*" $e
+        reconnect
+    }
+
+    test "Obuf limit, KEYS stopped mid-run" {
+        r config set client-output-buffer-limit {normal 100000 0 0}
+        populate 1000 "long-key-name-prefix-of-100-chars-------------------------------------------------------------------"
+        catch {r keys *} e
+        assert_match "*I/O error*" $e
+        reconnect
+    }
 }
