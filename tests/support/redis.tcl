@@ -127,10 +127,12 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         set fd $::redis::fd($id)
     }
 
-    if {[string compare -nocase $method "HELLO"] == 0} {
+    if {[llength $argv] > 0 && [string compare -nocase $method "HELLO"] == 0} {
         if {[lindex $argv 0] == 3} {
+            puts "set test resp3 to 1"
             set ::redis::testing_resp3($id) 1
         } else {
+            puts "set test resp3 to 0"
             set ::redis::testing_resp3($id) 0
             if {$::force_resp3} {
                 # If we are in force_resp3 we run HELLO 2 as HELLO 3

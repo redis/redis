@@ -837,6 +837,7 @@ NULL
 #ifdef LOG_REQ_RES
     else if (!strcasecmp(c->argv[1]->ptr,"set-client-default-resp") && c->argc == 3) {
         server.client_default_resp = atoi(c->argv[2]->ptr);
+        serverLog(LL_WARNING, "GUYBE set resp %d", server.client_default_resp);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-req-res-logfile") && c->argc == 3) {
         if (server.req_res_logfile) {

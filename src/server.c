@@ -1979,6 +1979,8 @@ void initServerConfig(void) {
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
+    server.client_default_resp = 2;
+    server.req_res_logfile = NULL;
 
     server.latency_tracking_info_percentiles_len = 3;
     server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
@@ -3764,6 +3766,8 @@ int processCommand(client *c) {
         securityWarningCommand(c);
         return C_ERR;
     }
+
+    serverLog(LL_WARNING, "GUYBE cmd %s", c->argv[0]->ptr);
 
     /* If we're inside a module blocked context yielding that wants to avoid
      * processing clients, postpone the command. */

@@ -21,7 +21,7 @@ proc transfrom_map_or_tuple_array_to_flat_array {argv response} {
     return $flatarray
 }
 
-proc transfrom_withscores_command {argv response} {
+proc transfrom_zset_withscores_command {argv response} {
     foreach ele $argv {
         if {[string compare -nocase $ele "WITHSCORES"] == 0} {
             return [transfrom_map_or_tuple_array_to_flat_array $argv $response]
@@ -41,16 +41,16 @@ set ::trasformer_funcs {
     XREAD transfrom_map_to_tupple_array
     XREADGROUP transfrom_map_to_tupple_array
     HRANDFIELD transfrom_map_or_tuple_array_to_flat_array
-    ZRANDMEMBER transfrom_withscores_command
-    ZRANGE transfrom_withscores_command
-    ZRANGEBYSCORE transfrom_withscores_command
-    ZRANGEBYLEX transfrom_withscores_command
-    ZREVRANGE transfrom_withscores_command
-    ZREVRANGEBYSCORE transfrom_withscores_command
-    ZREVRANGEBYLEX transfrom_withscores_command
-    ZUNION transfrom_withscores_command
-    ZDIFF transfrom_withscores_command
-    ZINTER transfrom_withscores_command
+    ZRANDMEMBER transfrom_zset_withscores_command
+    ZRANGE transfrom_zset_withscores_command
+    ZRANGEBYSCORE transfrom_zset_withscores_command
+    ZRANGEBYLEX transfrom_zset_withscores_command
+    ZREVRANGE transfrom_zset_withscores_command
+    ZREVRANGEBYSCORE transfrom_zset_withscores_command
+    ZREVRANGEBYLEX transfrom_zset_withscores_command
+    ZUNION transfrom_zset_withscores_command
+    ZDIFF transfrom_zset_withscores_command
+    ZINTER transfrom_zset_withscores_command
     ZPOPMIN transfrom_zpopmin_zpopmax
     ZPOPMAX transfrom_zpopmin_zpopmax
 }

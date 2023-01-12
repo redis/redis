@@ -138,6 +138,7 @@ client *createClient(connection *conn) {
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
+    serverLog(LL_WARNING, "GUYBE new client resp %d", server.client_default_resp);
     c->resp = server.client_default_resp;
     c->conn = conn;
     c->name = NULL;

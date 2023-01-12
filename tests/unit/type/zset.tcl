@@ -1,4 +1,6 @@
 start_server {tags {"zset"}} {
+    puts [r hello]
+
     proc create_zset {key items} {
         r del $key
         foreach {score entry} $items {
