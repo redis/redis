@@ -1099,6 +1099,19 @@ typedef struct {
     size_t mem_usage_sum;
 } clientMemUsageBucket;
 
+typedef struct {
+    /* Vars for log buffer */
+    unsigned char *buf;
+    size_t used;
+    size_t capacity;
+    /* Vars for offsets within the client's reply */
+    struct {
+        size_t full_nodes;
+        size_t last_node_offset;
+    } reply_list_offset;
+    size_t reply_buf_offset;
+} clientReqResInfo;
+
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
@@ -1211,9 +1224,7 @@ typedef struct client {
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
 
-    unsigned char *req_res_buf;
-    size_t req_res_buf_used;
-    size_t req_res_buf_capacity;
+    clientReqResInfo reqres;
 } client;
 
 /* ACL information */

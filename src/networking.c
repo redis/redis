@@ -145,9 +145,7 @@ client *createClient(connection *conn) {
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
     c->buf_peak_last_reset_time = server.unixtime;
-    c->req_res_buf = NULL;
-    c->req_res_buf_used = 0;
-    c->req_res_buf_capacity = 0;
+    memset(&c->reqres, 0, sizeof(c->reqres));
     c->ref_repl_buf_node = NULL;
     c->ref_block_pos = 0;
     c->qb_pos = 0;
@@ -324,16 +322,16 @@ static size_t reqresAppendBuffer(client *c, void *buf, size_t len) {
     if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE))
         return 0;
 
-    if (!c->req_res_buf) {
-        c->req_res_buf_capacity = max(len, 1024);
-        c->req_res_buf = zmalloc(c->req_res_buf_capacity);
-    } else if (c->req_res_buf_capacity - c->req_res_buf_used < len) {
-        c->req_res_buf_capacity += len;
-        c->req_res_buf = zrealloc(c->req_res_buf, c->req_res_buf_capacity);
+    if (!c->reqres.buf) {
+        c->reqres.capacity = max(len, 1024);
+        c->reqres.buf = zmalloc(c->reqres.capacity);
+    } else if (c->reqres.capacity - c->reqres.used < len) {
+        c->reqres.capacity += len;
+        c->reqres.buf = zrealloc(c->reqres.buf, c->reqres.capacity);
     }
 
-    memcpy(c->req_res_buf + c->req_res_buf_used, buf, len);
-    c->req_res_buf_used += len;
+    memcpy(c->reqres.buf + c->reqres.used, buf, len);
+    c->reqres.used += len;
     return len;
 }
 
@@ -451,13 +449,13 @@ size_t reqresAppendResponse(client *c) {
         FILE *fp = fopen(server.req_res_logfile, "a");
         serverAssert(fp);
 
-        fwrite(c->req_res_buf, c->req_res_buf_used, 1, fp);
+        fwrite(c->reqres.buf, c->reqres.used, 1, fp);
         fflush(fp);
         fclose(fp);
 
-        zfree(c->req_res_buf);
-        c->req_res_buf = NULL;
-        c->req_res_buf_used = c->req_res_buf_capacity = 0;
+        zfree(c->reqres.buf);
+        c->reqres.buf = NULL;
+        c->reqres.used = c->reqres.capacity = 0;
     }
 
     return ret;
