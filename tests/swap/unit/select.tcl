@@ -398,7 +398,11 @@ start_server {overrides {save ""} tags {"swap" "select"}} {
             for {set db 0} {$db < $dbnum} {incr db} {
                 $master select $db
                 $slave select $db
-                assert_equal [$master dbsize] [$slave dbsize]
+                wait_for_condition 500 10 {
+                    [$master dbsize] eq [$slave dbsize]
+                } else {
+                    fail "db$db dbsize not match"
+                }
             }
         }
     }
