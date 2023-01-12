@@ -35,6 +35,7 @@ set ::disk_tests {
     swap/ported/block-repl
     swap/ported/replication-2
     swap/ported/replication-4
+    swap/ported/psync2-reg
     swap/unit/swap_mode
     swap/unit/dbsize
     swap/unit/lock
@@ -100,7 +101,6 @@ set ::disk_tests {
     unit/pubsub
     integration/logging
     integration/redis-cli
-    integration/psync2-reg
     integration/psync2-pingoff
     integration/failover
     integration/corrupt-dump
