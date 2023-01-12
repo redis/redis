@@ -244,6 +244,9 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 
 /* Return slot-specific dictionary for key based on key's hash slot in CME, or 0 in CMD.*/
 dict *getDict(redisDb *db, sds key) {
+    if (db->current_dict) {
+        return db->current_dict;
+    }
     return db->dict[(server.cluster_enabled ? keyHashSlot(key, (int) sdslen(key)) : 0)];
 }
 

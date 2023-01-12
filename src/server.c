@@ -2593,6 +2593,7 @@ void initServer(void) {
         server.db[j].defrag_later = listCreate();
         server.db[j].rehashing = listCreate();
         server.db[j].dict_count = slotCount;
+        server.db[j].current_dict = NULL;
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
@@ -4098,7 +4099,8 @@ int processCommand(client *c) {
         blockPostponeClient(c);
         return C_OK;       
     }
-
+    /* Set current dictionary for the command, this optimization helps avoid redundant CRC hash calculations to determine key slot. */
+    if (c->slot >= 0) c->db->current_dict = c->db->dict[c->slot];
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand &&
@@ -4116,7 +4118,7 @@ int processCommand(client *c) {
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
-
+    c->db->current_dict = NULL;
     return C_OK;
 }
 
