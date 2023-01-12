@@ -701,6 +701,8 @@ void srandmemberWithCountCommand(client *c) {
             } else {
                 addReplyBulkCBuffer(c,ele,sdslen(ele));
             }
+            if (c->flags & CLIENT_CLOSE_ASAP)
+                break;
         }
         return;
     }
