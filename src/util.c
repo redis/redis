@@ -1116,7 +1116,7 @@ int fsyncFileDir(const char *filename) {
 
  /* free OS pages backed by file */
 int reclaimFilePageCache(int fd, size_t offset, size_t length) {
-#ifdef __linux__
+#ifdef HAVE_FADVISE
     int ret = posix_fadvise(fd, offset, length, POSIX_FADV_DONTNEED);
     if (ret) return -1;
     return 0;
