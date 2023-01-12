@@ -1029,6 +1029,8 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withvalues)
                     addReplyBulkCBuffer(c, value, sdslen(value));
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
         } else if (hash->encoding == OBJ_ENCODING_ZIPLIST) {
             ziplistEntry *keys, *vals = NULL;
@@ -1042,6 +1044,8 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 count -= sample_count;
                 ziplistRandomPairs(hash->ptr, sample_count, keys, vals);
                 harndfieldReplyWithZiplist(c, sample_count, keys, vals);
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
             zfree(keys);
             zfree(vals);

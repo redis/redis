@@ -4078,6 +4078,8 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withscores)
                     addReplyDouble(c, *(double*)dictGetVal(de));
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
         } else if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
             ziplistEntry *keys, *vals = NULL;
@@ -4091,6 +4093,8 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 count -= sample_count;
                 ziplistRandomPairs(zsetobj->ptr, sample_count, keys, vals);
                 zarndmemberReplyWithZiplist(c, sample_count, keys, vals);
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
             zfree(keys);
             zfree(vals);
