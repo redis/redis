@@ -33,6 +33,12 @@
 #include "cluster.h"
 #include "cluster_slot.h"
 
+#define DEFAULT_SLOT -1
+#define DEFAULT_STAT 0
+#define UNASSIGNED_SLOT 0
+#define ORDER_BY_KEY_COUNT 1
+#define ORDER_BY_INVALID -1
+
 /* -----------------------------------------------------------------------------
  * Cluster slot public APIs.
  * More to be added as part of cluster.c/h refactoring task. See issue #8948.
@@ -52,10 +58,6 @@ int getSlotOrReply(client *c, robj *o) {
 /* -----------------------------------------------------------------------------
  * CLUSTER SLOT-STATS command
  * -------------------------------------------------------------------------- */
-
-#define DEFAULT_SLOT -1
-#define DEFAULT_STAT 0
-#define UNASSIGNED_SLOT 0
 
 typedef struct sortedSlotStatEntry {
     int slot;
@@ -81,24 +83,23 @@ static int countAssignedSlotsFromSlotsArray(unsigned char *slots) {
     return count;
 }
 
-static int countAssignedSlotsFromEntireShard() {
+static int countAssignedSlotsFromCurrentShard() {
     int count = 0;
-    for (int slot = 0; slot < CLUSTER_SLOTS; slot++) {
-        if (doesSlotBelongToCurrentShard(slot)) count++;
+    clusterNode *n = server.cluster->myself;
+    if (nodeIsSlave(n)) {
+        count = n->slaveof->numslots;
+    } else {
+        count = server.cluster->myself->numslots;
     }
     return count;
 }
 
-static int checkSlotAssignment(client *c, unsigned char *slots, int start_slot, int end_slot) {
+static void checkSlotAssignment(unsigned char *slots, int start_slot, int end_slot) {
     for (int slot = start_slot; slot <= end_slot; slot++) {
         if (doesSlotBelongToCurrentShard(slot)) {
-            if (slots[slot]++ == 1) {
-                addReplyErrorFormat(c,"Slot %d specified multiple times",(int)slot);
-                return C_ERR;
-            }
+            slots[slot]++;
         }
     }
-    return C_OK;
 }
 
 static uint64_t getSingleSlotStat(int slot, int order_by) {
@@ -123,19 +124,16 @@ static int slotStatEntryDescCmp(const void *a, const void *b) {
 }
 
 static void sortSlotStats(sortedSlotStatEntry sorted[], int order_by, int desc) {
+    int i = 0;
+    
     for (int slot = 0; slot < CLUSTER_SLOTS; slot++) {
         if (doesSlotBelongToCurrentShard(slot)) {
-            sorted[slot].slot = slot;
-            sorted[slot].stat = getSingleSlotStat(slot, order_by);
-        } else {
-            /* Even if the slot does not belong to the current shard,
-             * we should fill the entry with default values so that qsort() does not segfault.
-             * These entries will be filtered and ignored upon addReplySortedSlotStats(). */
-            sorted[slot].slot = DEFAULT_SLOT;
-            sorted[slot].stat = DEFAULT_STAT;
+            sorted[i].slot = slot;
+            sorted[i].stat = getSingleSlotStat(slot, order_by);
+            i++;
         }
     }
-    qsort(sorted, CLUSTER_SLOTS, sizeof(sortedSlotStatEntry), (desc) ? slotStatEntryDescCmp : slotStatEntryAscCmp);
+    qsort(sorted, i, sizeof(sortedSlotStatEntry), (desc) ? slotStatEntryDescCmp : slotStatEntryAscCmp);
 }
 
 static void addReplySingleSlotStat(client *c, int slot) {
@@ -150,92 +148,24 @@ static void addReplySlotStats(client *c, unsigned char *slots) {
     addReplyMapLen(c, num_slots_assigned);
 
     for (int slot = 0; slot < CLUSTER_SLOTS; slot++) {
-        if (!slots[slot]) continue;
-        addReplySingleSlotStat(c, slot);
+        if (slots[slot]) addReplySingleSlotStat(c, slot);
     }
 }
 
-static void addReplySortedSlotStats(client *c, sortedSlotStatEntry sorted[], int limit) {
-    int num_slots_assigned = countAssignedSlotsFromEntireShard();
+static void addReplySortedSlotStats(client *c, sortedSlotStatEntry sorted[], long limit) {
+    int num_slots_assigned = countAssignedSlotsFromCurrentShard();
     int len = min(limit, num_slots_assigned);
     addReplyMapLen(c, len);
 
-    for (int i = 0; i < CLUSTER_SLOTS; i++) {
-        if (sorted[i].slot == DEFAULT_SLOT) continue;
-        if (len <= 0) break;
-
+    for (int i = 0; i < len; i++) {
         addReplySingleSlotStat(c, sorted[i].slot);
-        len--;
     }
 }
 
-static void sortAndAddReplySlotStats(client *c, int order_by, int limit, int desc) {
+static void sortAndAddReplySlotStats(client *c, int order_by, long limit, int desc) {
     sortedSlotStatEntry sorted[CLUSTER_SLOTS];
     sortSlotStats(sorted, order_by, desc);
     addReplySortedSlotStats(c, sorted, limit);
-}
-
-static int checkSlotStatsOrderByArgumentOrReply(client *c, int *order_by, int *limit, int *desc) {
-    *limit = CLUSTER_SLOTS;
-    *desc = 1;
-    *order_by = ORDER_BY_INVALID;
-
-    if (!strcasecmp(c->argv[3]->ptr, "key_count")) {
-        *order_by = ORDER_BY_KEY_COUNT;
-    }
-
-    if (*order_by == ORDER_BY_INVALID) {
-        addReplyError(c, "unrecognized sort column for ORDER BY. The supported columns are, 1) key_count.");
-        return C_ERR;
-    }
-
-    int i = 4; /* Next argument index, following ORDERBY */
-    while(i < c->argc) {
-        int moreargs = c->argc > i+1;
-        if (!strcasecmp(c->argv[i]->ptr,"limit") && moreargs) {
-            long tmp;
-            if (getRangeLongFromObjectOrReply(
-                c, c->argv[i+1], 1, CLUSTER_SLOTS+1, &tmp, 
-                "limit has to lie in between 1 and 16384 (maximum number of slots)") != C_OK)
-                return C_ERR;
-            *limit = tmp;
-            i++;
-        } else if (!strcasecmp(c->argv[i]->ptr,"asc")) {
-            *desc = 0;
-        } else if (!strcasecmp(c->argv[i]->ptr,"desc")) {
-            *desc = 1;
-        } else {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return C_ERR;
-        }
-        i++;
-    }
-
-    return C_OK;
-}
-
-static int checkSlotStatsSlotsRangeArgumentOrReply(client *c, unsigned char *slots) {
-    if (c->argc % 2 == 0) {
-        addReplyErrorArity(c);
-        return C_ERR;
-    }
-    
-    int startslot, endslot;
-    for (int i = 3; i < c->argc; i += 2) {
-        if ((startslot = getSlotOrReply(c,c->argv[i])) == C_ERR ||
-            (endslot = getSlotOrReply(c,c->argv[i+1])) == C_ERR) {
-            return C_ERR;
-        }
-        if (startslot > endslot) {
-            addReplyErrorFormat(c,"start slot number %d is greater than end slot number %d", startslot, endslot);
-            return C_ERR;
-        }
-        if (checkSlotAssignment(c, slots, startslot, endslot) == C_ERR) {
-            return C_ERR;
-        }
-    }
-
-    return C_OK;
 }
 
 void clusterSlotStatsCommand(client *c) {
@@ -256,25 +186,59 @@ void clusterSlotStatsCommand(client *c) {
     }
 
     /* Parse additional arguments. */
-    for (int i = 2; i < c->argc; i++) {
-        if (!strcasecmp(c->argv[2]->ptr,"slotsrange")) {
-            /* CLUSTER SLOT-STATS SLOTSRANGE start-slot end-slot [start-slot end-slot ...] */
-            if (checkSlotStatsSlotsRangeArgumentOrReply(c, slots) == C_ERR) {
-                return;
-            }
-            addReplySlotStats(c, slots);
-            return;
-        } else if (!strcasecmp(c->argv[2]->ptr,"orderby")) {
-            /* CLUSTER SLOT-STATS ORDERBY column [LIMIT limit] [ASC | DESC] */
-            int limit, desc, order_by;
-            if (checkSlotStatsOrderByArgumentOrReply(c, &order_by, &limit, &desc) == C_ERR) {
-                return;
-            }
-            sortAndAddReplySlotStats(c, order_by, limit, desc);
-            return;
-        } else {
-            addReplySubcommandSyntaxError(c);
+    if (!strcasecmp(c->argv[2]->ptr,"slotsrange") && c->argc == 5) {
+        /* CLUSTER SLOT-STATS SLOTSRANGE start-slot end-slot */
+        int startslot, endslot;
+        if ((startslot = getSlotOrReply(c,c->argv[3])) == C_ERR ||
+            (endslot = getSlotOrReply(c,c->argv[4])) == C_ERR) {
             return;
         }
+        if (startslot > endslot) {
+            addReplyErrorFormat(c,"start slot number %d is greater than end slot number %d", startslot, endslot);
+            return;
+        }
+        checkSlotAssignment(slots, startslot, endslot);
+        addReplySlotStats(c, slots);
+    } else if (!strcasecmp(c->argv[2]->ptr,"orderby") && c->argc >= 4) {
+        /* CLUSTER SLOT-STATS ORDERBY column [LIMIT limit] [ASC | DESC] */
+        int desc = 1, order_by = ORDER_BY_INVALID;
+        if (!strcasecmp(c->argv[3]->ptr, "key_count")) {
+            order_by = ORDER_BY_KEY_COUNT;
+        } else {
+            addReplyError(c, "unrecognized sort column for ORDER BY. The supported columns are: key_count.");
+            return;
+        }
+        int i = 4; /* Next argument index, following ORDERBY */
+        int limit_counter = 0, asc_desc_counter = 0;
+        long limit;
+        while(i < c->argc) {
+            int moreargs = c->argc > i+1;
+            if (!strcasecmp(c->argv[i]->ptr,"limit") && moreargs) {
+                if (getRangeLongFromObjectOrReply(
+                    c, c->argv[i+1], 1, CLUSTER_SLOTS, &limit,
+                    "limit has to lie in between 1 and 16384 (maximum number of slots)") != C_OK)
+                    return;
+                i++;
+                limit_counter++;
+            } else if (!strcasecmp(c->argv[i]->ptr,"asc")) {
+                desc = 0;
+                asc_desc_counter++;
+            } else if (!strcasecmp(c->argv[i]->ptr,"desc")) {
+                desc = 1;
+                asc_desc_counter++;
+            } else {
+                addReplyErrorObject(c,shared.syntaxerr);
+                return;
+            }
+
+            if (limit_counter > 1 || asc_desc_counter > 1) {
+                addReplyError(c, "you cannot provide multiple filters of the same type.");
+                return;
+            }
+            i++;
+        }
+        sortAndAddReplySlotStats(c, order_by, limit, desc);
+    } else {
+        addReplySubcommandSyntaxError(c);
     }
 }

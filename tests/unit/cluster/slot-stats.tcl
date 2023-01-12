@@ -19,62 +19,19 @@ proc initialize_expected_slots_dict_with_range {start_slot end_slot} {
     return $expected_slots
 }
 
-proc get_slot_stats_slot {slot_stats slot_index} {
-    assert {[expr {$slot_index%2}] == 0}
-    return [lindex $slot_stats $slot_index 0]
-}
-
-proc get_slot_stats_key_count {slot_stats slot_index} {
-    assert {[expr {$slot_index%2}] == 0}
-    return [lindex $slot_stats [expr {$slot_index+1}] 1]
-}
-
-proc get_slot_stats_given_orderby_column {slot_stats orderby index} {
-    if {$orderby == "key_count"} {
-        return [get_slot_stats_key_count $slot_stats $index]
-    }
-    # TODO: Add "cpu_usage" metric support. See issue #11423.
-    fail "Given orderby column $orderby is not supported."
-}
-
 proc assert_empty_slot_stats {slot_stats} {
-    set slot_stats_length [llength $slot_stats]
-
-    for {set i 0} {$i < $slot_stats_length} {incr i 2} {
-        set slot [get_slot_stats_slot $slot_stats $i]
-        assert {[get_slot_stats_key_count $slot_stats $i] == 0}
+    dict for {slot stats} $slot_stats {
+        assert {[dict get $stats key_count] == 0}
     }
 }
 
 proc assert_empty_slot_stats_with_exception {slot_stats exception_slots} {
-    set slot_stats_length [llength $slot_stats]
-
-    for {set i 0} {$i < $slot_stats_length} {incr i 2} {
-        set slot [get_slot_stats_slot $slot_stats $i]
-
+    dict for {slot stats} $slot_stats {
         if {[dict exists $exception_slots $slot]} {
             set expected_key_count [dict get $exception_slots $slot]
-            assert {[get_slot_stats_key_count $slot_stats $i] == $expected_key_count}
+            assert {[dict get $stats key_count] == $expected_key_count}
         } else {
-            assert {[get_slot_stats_key_count $slot_stats $i] == 0}
-        }
-    }
-}
-
-proc assert_equal_slot_stats {slot_stats_1 slot_stats_2} {
-    set slot_stats_length [llength $slot_stats_1]
-    assert {$slot_stats_length == [llength $slot_stats_2]}
-    
-    for {set i 0} {$i < $slot_stats_length} {incr i 2} {
-        assert {[lindex $slot_stats_1 $i 0] == [lindex $slot_stats_2 $i 0]}
-        set sub_list_1 [lindex $slot_stats_1 [expr {$i+1}]]
-        set sub_list_2 [lindex $slot_stats_2 [expr {$i+1}]]
-        
-        set sub_list_length [llength $sub_list_1]
-        assert {$sub_list_length == [llength $sub_list_2]}
-
-        for {set j 0} {$j < $sub_list_length} {incr j 1} {
-            assert {[lindex $sub_list_1 $j] == [lindex $sub_list_2 $j]}
+            assert {[dict get $stats key_count] == 0}
         }
     }
 }
@@ -86,11 +43,7 @@ proc assert_all_slots_have_been_seen {expected_slots} {
 }
 
 proc assert_slot_visibility {slot_stats expected_slots} {
-    set slot_stats_length [llength $slot_stats]
-    assert {$slot_stats_length/2 == [dict size $expected_slots]}
-
-    for {set i 0} {$i < $slot_stats_length} {incr i 2} {
-        set slot [get_slot_stats_slot $slot_stats $i]
+    dict for {slot _} $slot_stats {
         assert {[dict exists $expected_slots $slot]}
         dict set expected_slots $slot 1
     }
@@ -99,24 +52,20 @@ proc assert_slot_visibility {slot_stats expected_slots} {
 }
 
 proc assert_slot_stats_key_count {slot_stats expected_slots_key_count} {
-    set slot_stats_length [llength $slot_stats]
-
-    for {set i 0} {$i < $slot_stats_length} {incr i 2} {
-        set slot [get_slot_stats_slot $slot_stats $i]
-
+    dict for {slot stats} $slot_stats {
         if {[dict exists $expected_slots_key_count $slot]} {
-            set key_count [get_slot_stats_key_count $slot_stats $i]
-            set key_count_expected [get_slot_stats_key_count $slot_stats $i]
+            set key_count [dict get $stats key_count]
+            set key_count_expected [dict get $expected_slots_key_count $slot]
             assert {$key_count == $key_count_expected}
         }
     }
 }
 
 proc assert_slot_stats_monotonic_order {slot_stats orderby is_desc} {
-    set slot_stats_length [llength $slot_stats]
     set prev_metric -1
-    for {set i 0} {$i < $slot_stats_length} {incr i 2} {
-        set curr_metric [get_slot_stats_given_orderby_column $slot_stats $orderby $i]
+
+    dict for {_ stats} $slot_stats {
+        set curr_metric [dict get $stats $orderby]
         if {$prev_metric != -1} {
             if {$is_desc == 1} {
                 assert {$prev_metric >= $curr_metric}
@@ -163,19 +112,16 @@ start_cluster 1 0 {tags {external:skip cluster}} {
     test "CLUSTER SLOT-STATS contains correct metrics upon key introduction" {
         R 0 SET $key TEST
         set slot_stats [R 0 CLUSTER SLOT-STATS]
-        set slot_stats_length [lindex $slot_stats]
         assert_empty_slot_stats_with_exception $slot_stats $expected_slots_to_key_count
     }
 
     test "CLUSTER SLOT-STATS contains correct metrics upon key mutation" {
         R 0 SET $key NEW_VALUE
         set slot_stats [R 0 CLUSTER SLOT-STATS]
-        set slot_stats_length [lindex $slot_stats]
         assert_empty_slot_stats_with_exception $slot_stats $expected_slots_to_key_count
     }
 
     test "CLUSTER SLOT-STATS contains correct metrics upon key deletion" {
-        set key "FOO"
         R 0 DEL $key
         set slot_stats [R 0 CLUSTER SLOT-STATS]
         assert_empty_slot_stats $slot_stats
@@ -264,12 +210,18 @@ start_cluster 1 0 {tags {external:skip cluster}} {
     }
 
     test "CLUSTER SLOT-STATS ORDERBY LIMIT correct response pagination, where limit is less than number of assigned slots" {
+        R 0 FLUSHALL SYNC
+
         set limit 5
         set slot_stats_desc [R 0 CLUSTER SLOT-STATS ORDERBY key_count LIMIT $limit DESC]
         set slot_stats_asc [R 0 CLUSTER SLOT-STATS ORDERBY key_count LIMIT $limit ASC]
-        set slot_stats_desc_length [expr {[llength $slot_stats_desc]/2}]
-        set slot_stats_asc_length [expr {[llength $slot_stats_asc]/2}]
+        set slot_stats_desc_length [dict size $slot_stats_desc]
+        set slot_stats_asc_length [dict size $slot_stats_asc]
         assert {$limit == $slot_stats_desc_length && $limit == $slot_stats_asc_length}
+        
+        set expected_slots [dict create 0 0 1 0 2 0 3 0 4 0]
+        assert_slot_visibility $slot_stats_desc $expected_slots
+        assert_slot_visibility $slot_stats_asc $expected_slots
     }
 
     test "CLUSTER SLOT-STATS ORDERBY LIMIT correct response pagination, where limit is greater than number of assigned slots" {
@@ -282,10 +234,14 @@ start_cluster 1 0 {tags {external:skip cluster}} {
         set limit 5
         set slot_stats_desc [R 0 CLUSTER SLOT-STATS ORDERBY key_count LIMIT $limit DESC]
         set slot_stats_asc [R 0 CLUSTER SLOT-STATS ORDERBY key_count LIMIT $limit ASC]
-        set slot_stats_desc_length [expr {[llength $slot_stats_desc]/2}]
-        set slot_stats_asc_length [expr {[llength $slot_stats_asc]/2}]
+        set slot_stats_desc_length [dict size $slot_stats_desc]
+        set slot_stats_asc_length [dict size $slot_stats_asc]
         set expected_response_length [expr min($num_assigned_slots, $limit)]
         assert {$expected_response_length == $slot_stats_desc_length && $expected_response_length == $slot_stats_asc_length}
+
+        set expected_slots [dict create 100 0 101 0]
+        assert_slot_visibility $slot_stats_desc $expected_slots
+        assert_slot_visibility $slot_stats_asc $expected_slots
     }
 }
 
@@ -317,7 +273,7 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         wait_for_replica_key_exists $key 1
 
         set slot_stats_replica [R 1 CLUSTER SLOT-STATS]
-        assert_equal_slot_stats $slot_stats_master $slot_stats_replica
+        assert {$slot_stats_master eq $slot_stats_replica}
     }
 
     test "CLUSTER SLOT-STATS key_count replication for existing keys" {
@@ -329,7 +285,7 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         wait_for_replica_key_exists $key 1
 
         set slot_stats_replica [R 1 CLUSTER SLOT-STATS]
-        assert_equal_slot_stats $slot_stats_master $slot_stats_replica
+        assert {$slot_stats_master eq $slot_stats_replica}
     }
 
     test "CLUSTER SLOT-STATS key_count replication for deleting keys" {
@@ -341,6 +297,6 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         wait_for_replica_key_exists $key 0
 
         set slot_stats_replica [R 1 CLUSTER SLOT-STATS]
-        assert_equal_slot_stats $slot_stats_master $slot_stats_replica
+        assert {$slot_stats_master eq $slot_stats_replica}
     }
 }

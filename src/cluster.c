@@ -5306,7 +5306,6 @@ void clusterCommand(client *c) {
 "    Set slot state.",
 "SLOT-STATS",
 "    Return array of slot usage statistics for slots assigned to the current node.",
-"    The following metrics are tracked and reported; 1) key_count.",
 "REPLICAS <node-id>",
 "    Return <node-id> replicas.",
 "SAVECONFIG",

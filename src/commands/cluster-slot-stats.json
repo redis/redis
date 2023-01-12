@@ -8,7 +8,6 @@
         "container": "CLUSTER",
         "function": "clusterSlotStatsCommand",
         "command_flags": [
-            "READONLY",
             "STALE"
         ],
         "command_tips": [
@@ -25,7 +24,6 @@
                         "name": "slotsrange",
                         "type": "block",
                         "optional": true,
-                        "multiple": true,
                         "arguments": [
                             {
                                 "name": "start-slot",
