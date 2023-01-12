@@ -598,4 +598,14 @@ start_server {tags {"string"}} {
     test {LCS indexes with match len and minimum match len} {
         dict get [r LCS virus1{t} virus2{t} IDX WITHMATCHLEN MINMATCHLEN 5] matches
     } {{{1 222} {13 234} 222}}
+
+    test {SETRANGE with huge offset} {
+        foreach value {9223372036854775807 2147483647} {
+            catch {[r setrange K $value A]} res
+            # expecting a different error on 32 and 64 bit systems
+            if {![string match "*string exceeds maximum allowed size*" $res] && ![string match "*out of range*" $res]} {
+                assert_equal $res "expecting an error"
+           }
+        }
+    }
 }
