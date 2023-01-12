@@ -168,4 +168,12 @@ start_server {tags {"obuf-limits"}} {
         assert_equal "v2" [r get k2]
         assert_equal "v3" [r get k3]
     }
+
+    test "Obuf limit, SRANDMEMBER with huge count stopped mid-run" {
+        r config set client-output-buffer-limit {normal 1000000 0 0}
+        r sadd myset a
+        catch {r srandmember myset -999999999} e
+        assert_match "*I/O error*" $e
+        reconnect
+    }
 }
