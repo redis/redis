@@ -40,6 +40,12 @@ proc assert_failed {expected_err detail} {
      error "assertion:$expected_err $detail"
 }
 
+proc assert_not_equal {value expected {detail ""}} {
+    if {!($expected ne $value)} {
+        assert_failed "Expected '$value' not equal to '$expected'" $detail
+    }
+}
+
 proc assert_equal {value expected {detail ""}} {
     if {$expected ne $value} {
         assert_failed "Expected '$value' to be equal to '$expected'" $detail
