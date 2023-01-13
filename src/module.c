@@ -11709,7 +11709,7 @@ int moduleUnload(sds name) {
     module->name = NULL; /* The name was already freed by dictDelete(). */
     moduleFreeModuleStructure(module);
 
-    /* Recompute Commmand Bits for all users once the modules has been completely unloaded */
+    /* Recompute command bits for all users once the modules has been completely unloaded. */
     ACLRecomputeCommandBitsFromCommandRulesAllUsers();
     return C_OK;
 }

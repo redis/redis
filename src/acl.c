@@ -638,7 +638,7 @@ void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector,
     dictReleaseIterator(di);
 }
 
-/* This funtion is responsible for recomputing the command bits for all selectors of the existing users.
+/* This function is responsible for recomputing the command bits for all selectors of the existing users.
  * It uses the 'command_rules', a string representation of the ordered categories and commands, 
  * to recompute the command bits. */
 void ACLRecomputeCommandBitsFromCommandRulesAllUsers() {
