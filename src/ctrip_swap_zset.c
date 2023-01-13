@@ -1290,8 +1290,8 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         test_assert(ROCKS_ITERATE == action);
         test_assert(DATA_CF == cf);
         sds empty = sdsnewlen("", 0);
-        expectEncodedKey = rocksEncodeDataKey(db, key1->ptr, 0, empty);
-        test_assert(memcmp(expectEncodedKey, start, sdslen(rawkeys[0])) == 0);
+        expectEncodedKey = rocksEncodeDataRangeStartKey(db, key1->ptr, 0);
+        test_assert(memcmp(expectEncodedKey, start, sdslen(start)) == 0);
         // encodeKeys - swap del
         zsetSwapAnaAction(zset1_data, SWAP_DEL, zset1_ctx, &action);
         test_assert(0 == action);

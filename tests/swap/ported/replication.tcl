@@ -945,8 +945,8 @@ test {swap on rocksdb flush and crash} {
         set master_host [srv 0 host]
         set master_port [srv 0 port]
         start_server {} {
-            r config set swap-debug-before-exec-swap-delay 2000
-            r config set swap-debug-init-rocksdb-delay 2000
+            r config set swap-debug-before-exec-swap-delay-micro 2000000
+            r config set swap-debug-init-rocksdb-delay-micro 2000000
             r config set swap-rocksdb-stats-collect-interval-ms 1000
             after 1000; # wait for rocksdb-stats-fresh job starting
             r slaveof $master_host $master_port

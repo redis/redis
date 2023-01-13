@@ -1747,11 +1747,11 @@ struct redisServer {
     unsigned long long swap_inprogress_memory_stop; /* swap memory to (almost) stop swap requests */
     int swap_maxmemory_oom_percentage; /* reject denyoom commands if server used more memory than
                                   maxmemory*swap_maxmemory_oom_percentage */
-    int swap_debug_rio_delay; /* sleep swap_debug_rio_delay ms to simulate ssd delay. */
-    int swap_debug_swapout_notify_delay; /* sleep swap_debug_swapout_notify_delay ms
+    int swap_debug_rio_delay_micro; /* sleep swap_debug_rio_delay microsencods to simulate ssd delay. */
+    int swap_debug_swapout_notify_delay_micro; /* sleep swap_debug_swapout_notify_delay microsencods
                                         to simulate notify queue blocked after swap out */
-    int swap_debug_before_exec_swap_delay; /* sleep swap_debug_before_exec_swap_delay ms before exec swap request */
-    int swap_debug_init_rocksdb_delay; /* sleep swap_debug_init_rocksdb_delay ms before init rocksdb */
+    int swap_debug_before_exec_swap_delay_micro; /* sleep swap_debug_before_exec_swap_delay microsencods before exec swap request */
+    int swap_debug_init_rocksdb_delay_micro; /* sleep swap_debug_init_rocksdb_delay microsencods before init rocksdb */
     int swap_debug_rio_error; /* mock rio error */
     int swap_debug_trace_latency;
     /* repl swap */

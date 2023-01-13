@@ -62,8 +62,8 @@ static inline void rocks_init_option_compression(rocksdb_options_t *opts, int co
 }
 
 int rocksInit() {
-    if (server.swap_debug_init_rocksdb_delay)
-        usleep(server.swap_debug_init_rocksdb_delay * 1000);
+    if (server.swap_debug_init_rocksdb_delay_micro)
+        usleep(server.swap_debug_init_rocksdb_delay_micro);
     rocks *rocks = zcalloc(sizeof(struct rocks));
     char *errs[3] = {NULL}, dir[ROCKS_DIR_MAX_LEN];
 

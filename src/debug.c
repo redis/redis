@@ -909,8 +909,8 @@ NULL
         mallctl_string(c, c->argv+2, c->argc-2);
         return;
 #endif
-    } else if (!strcasecmp(c->argv[1]->ptr,"set-swap-debug-rio-delay") && c->argc == 3) {
-        server.swap_debug_rio_delay = atoi(c->argv[2]->ptr);
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-swap-debug-rio-delay-micro") && c->argc == 3) {
+        server.swap_debug_rio_delay_micro = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-swap-txid") && c->argc == 3) {
         long long value;

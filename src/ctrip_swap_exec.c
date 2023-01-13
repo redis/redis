@@ -510,8 +510,8 @@ void dumpRIO(RIO *rio) {
 int doRIO(RIO *rio) {
     int ret;
     monotime io_timer;
-    if (server.swap_debug_rio_delay)
-        usleep(server.swap_debug_rio_delay*1000);
+    if (server.swap_debug_rio_delay_micro)
+        usleep(server.swap_debug_rio_delay_micro);
     if (server.swap_debug_rio_error > 0) {
         server.swap_debug_rio_error--;
         return SWAP_ERR_EXEC_RIO_FAIL;
@@ -823,7 +823,7 @@ static void executeSwapOutRequest(swapRequest *req) {
 end:
 
     DEBUG_MSGS_APPEND(req->msgs,"exec-out-end","errcode=%d",errcode);
-    if (server.swap_debug_swapout_notify_delay) usleep(server.swap_debug_swapout_notify_delay*1000);
+    if (server.swap_debug_swapout_notify_delay_micro) usleep(server.swap_debug_swapout_notify_delay_micro);
     doNotify(req,errcode);
     if (cfs) zfree(cfs);
     if (rawkeys) {
@@ -1130,8 +1130,8 @@ static inline int swapRequestIsMetaType(swapRequest *req) {
 static void executeSwapRequest(swapRequest *req) {
     serverAssert(req->errcode == 0);
 
-    if (server.swap_debug_before_exec_swap_delay)
-        usleep(server.swap_debug_before_exec_swap_delay * 1000);
+    if (server.swap_debug_before_exec_swap_delay_micro)
+        usleep(server.swap_debug_before_exec_swap_delay_micro);
     /* do execute swap */
     switch (req->intention) {
     case SWAP_NOP:

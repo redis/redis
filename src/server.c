@@ -2852,10 +2852,10 @@ void initServerConfig(void) {
     /* swap */
     server.swap_max_db_size = 0;
     server.swap_debug_evict_keys = 0;
-    server.swap_debug_rio_delay = 0;
-    server.swap_debug_swapout_notify_delay = 0;
-    server.swap_debug_before_exec_swap_delay = 0;
-    server.swap_debug_init_rocksdb_delay = 0;
+    server.swap_debug_rio_delay_micro = 0;
+    server.swap_debug_swapout_notify_delay_micro = 0;
+    server.swap_debug_before_exec_swap_delay_micro = 0;
+    server.swap_debug_init_rocksdb_delay_micro = 0;
     server.swap_debug_rio_error = 0;
     server.swap_debug_trace_latency = 0;
 

@@ -1,5 +1,5 @@
 start_server {tags "clients"} {
-    r config set swap-debug-rio-delay 1000
+    r config set swap-debug-rio-delay-micro 1000000
     set host [srv 0 host]
     set port [srv 0 port]
 
