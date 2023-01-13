@@ -1032,11 +1032,29 @@ int isCommandNameValid(const char *name) {
     return 1;
 }
 
+/* Helper for commandFlagsFromString(). Turns a string representing command
+ * flags into the ACL Category Flags.
+ *
+ * Returns 'REDISMODULE_OK' if acl category flag is recognized or
+ * returns 'REDISMODULE_ERR' if not recognized  */
+int matchAclCategoriesFlags(char *flag, int64_t *acl_categories){
+    if (flag[0] == '@'){
+        uint64_t this_flag = ACLGetCommandCategoryFlagByName(flag + 1);
+        if (this_flag) {
+            *acl_categories |= (int64_t) this_flag;
+            serverLog(LL_NOTICE,"Recognized acl category flag %s on module load", flag);
+            return REDISMODULE_OK;
+        }
+    }
+    return REDISMODULE_ERR; /* Unrecognized */
+}
+
 /* Helper for RM_CreateCommand(). Turns a string representing command
- * flags into the command flags used by the Redis core.
+ * flags into the command flags used by the Redis core and acl category flags used by Redis ACL
+ * which allows users to access the module commands by acl categories.
  *
  * It returns the set of flags, or -1 if unknown flags are found. */
-int64_t commandFlagsFromString(char *s) {
+int64_t commandFlagsFromString(char *s, int64_t *acl_categories) {
     int count, j;
     int64_t flags = 0;
     sds *tokens = sdssplitlen(s,strlen(s)," ",1,&count);
@@ -1062,7 +1080,11 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
         else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY;
-        else break;
+        else if (!matchAclCategoriesFlags(t, acl_categories));
+        else {
+            serverLog(LL_WARNING,"Unrecognized command flag %s on module load", t);
+            break;
+        }
     }
     sdsfreesplitres(tokens,count);
     if (j != count) return -1; /* Some token not processed correctly. */
@@ -1145,6 +1167,10 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  *                     RM_Yield.
  * * **"getchannels-api"**: The command implements the interface to return
  *                          the arguments that are channels.
+ * 
+ * Commands can also be added to ACL categories by providing the name of the category
+ * prefixed by '@' in the set of flags 'strflags'.
+ * Example, `@write` marks the command as part of the @write ACL category.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -1166,7 +1192,8 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * For non-trivial key arguments, you may pass 0,0,0 and use
  * RedisModule_SetCommandInfo to set key specs using a more advanced scheme. */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
-    int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
+    int64_t acl_categories = 0;
+    int64_t flags = strflags ? commandFlagsFromString((char*)strflags, &acl_categories) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
@@ -1186,6 +1213,10 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     serverAssert(dictAdd(server.commands, sdsdup(declared_name), cp->rediscmd) == DICT_OK);
     serverAssert(dictAdd(server.orig_commands, sdsdup(declared_name), cp->rediscmd) == DICT_OK);
     cp->rediscmd->id = ACLGetCommandID(declared_name); /* ID used for ACL. */
+    cp->rediscmd->acl_categories = acl_categories; /* ACL categories flags for module command */
+    /* If commands have acl_categories, recompute the command bits for the existing 
+     *  users to have access to these commands */  
+    if (acl_categories) ACLRecomputeCommandBitsFromCommandRulesAllUsers(); 
     return REDISMODULE_OK;
 }
 
@@ -1287,7 +1318,8 @@ RedisModuleCommand *RM_GetCommand(RedisModuleCtx *ctx, const char *name) {
  * * `parent` already has a subcommand called `name`
  */
 int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
-    int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
+    int64_t acl_categories = 0;
+    int64_t flags = strflags ? commandFlagsFromString((char*)strflags, &acl_categories) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
@@ -1315,8 +1347,11 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     sds fullname = catSubCommandFullname(parent_cmd->fullname, name);
     RedisModuleCommand *cp = moduleCreateCommandProxy(parent->module, declared_name, fullname, cmdfunc, flags, firstkey, lastkey, keystep);
     cp->rediscmd->arity = -2;
-
+    cp->rediscmd->acl_categories = acl_categories; /* ACL categories flags for module sub-command */
     commandAddSubcommand(parent_cmd, cp->rediscmd, name);
+    /* If sub-commands have acl_categories, recompute the command bits for the existing 
+     * users to have access to these sub-commands */  
+    if (acl_categories) ACLRecomputeCommandBitsFromCommandRulesAllUsers(); 
     return REDISMODULE_OK;
 }
 
@@ -11674,6 +11709,8 @@ int moduleUnload(sds name) {
     module->name = NULL; /* The name was already freed by dictDelete(). */
     moduleFreeModuleStructure(module);
 
+    /* Recompute Commmand Bits for all users once the modules has been completely unloaded */
+    ACLRecomputeCommandBitsFromCommandRulesAllUsers();
     return C_OK;
 }
 
