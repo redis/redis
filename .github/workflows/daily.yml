@@ -22,7 +22,7 @@ jobs:
 
   test-ubuntu-jemalloc:
     runs-on: ubuntu-latest
-    if: github.repository == 'ctripcorp/redis'
+    if: github.repository == 'ctripcorp/xredis'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -53,7 +53,7 @@ jobs:
 
   test-ubuntu-libc-malloc:
     runs-on: ubuntu-latest
-    if: github.repository == 'ctripcorp/redis'
+    if: github.repository == 'ctripcorp/xredis'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -82,7 +82,7 @@ jobs:
 
   test-sanitizer-address:
     runs-on: ubuntu-latest
-    if: github.repository == 'ctripcorp/redis'
+    if: github.repository == 'ctripcorp/xredis'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -113,7 +113,7 @@ jobs:
 
   test-sanitizer-undefined:
     runs-on: ubuntu-latest
-    if: github.repository == 'ctripcorp/redis'
+    if: github.repository == 'ctripcorp/xredis'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -144,7 +144,7 @@ jobs:
 
   test-ubuntu-io-threads:
     runs-on: ubuntu-latest
-    if: github.repository == 'ctripcorp/redis'
+    if: github.repository == 'ctripcorp/xredis'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -173,7 +173,7 @@ jobs:
 
   test-valgrind:
     runs-on: ubuntu-latest
-    if: github.repository == 'ctripcorp/redis'
+    if: github.repository == 'ctripcorp/xredis'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
