@@ -125,9 +125,7 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
 #define ENTRY_PTR_NO_VALUE 2 /* 010 */
 
 /* Returns 1 if the entry pointer is a pointer to a key, rather than to an
- * allocated entry. Returns 0 otherwise. This function can also be used to check
- * if a key pointer can be stored directly in a dict hashtable bucket without a
- * dictEntry. */
+ * allocated entry. Returns 0 otherwise. */
 static inline int entryIsKey(const dictEntry *de) {
     return (uintptr_t)(void *)de & 1;
 }
@@ -333,7 +331,12 @@ int dictRehash(dict *d, int n) {
                 if (d->type->keys_are_odd && !d->ht_table[1][h]) {
                     /* Destination bucket is empty and we can store the key
                      * directly without an allocated entry. Free the old entry
-                     * if it's an allocated entry. */
+                     * if it's an allocated entry.
+                     *
+                     * TODO: Add a flag 'keys_are_even' and if set, we can use
+                     * this optimization for these dicts too. We can set the LSB
+                     * bit when stored as a dict entry and clear it again when
+                     * we need the key back. */
                     assert(entryIsKey(key));
                     if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
                     de = key;
@@ -470,9 +473,14 @@ dictEntry *dictInsertIntoBucket(dict *d, void *key, dictEntry **bucket) {
         assert(!metasize); /* Entry metadata + no value not supported. */
         if (d->type->keys_are_odd && !*bucket) {
             /* We can store the key directly in the destination bucket without the
-             * allocated entry. */
-            assert(entryIsKey(key));
+             * allocated entry.
+             *
+             * TODO: Add a flag 'keys_are_even' and if set, we can use this
+             * optimization for these dicts too. We can set the LSB bit when
+             * stored as a dict entry and clear it again when we need the key
+             * back. */
             entry = key;
+            assert(entryIsKey(entry));
         } else {
             /* Allocate an entry without value. */
             entry = createEntryNoValue(key, *bucket);
