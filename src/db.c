@@ -1016,7 +1016,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             if (o == NULL && !cursor) {
                 ht = dbGetNextUnvisitedSlot(c->db, &slot);
             }
-        } while ((cursor || slot > 0) &&
+        } while ((cursor || slot > 0) && /* Continue iteration if there are more slots to visit, or cursor hasn't reached the end of dict yet. */
                  maxiterations-- &&
                  listLength(keys) < (unsigned long) count);
         addSlotIdToCursor(slot, &cursor);
@@ -1124,14 +1124,14 @@ cleanup:
 }
 
 void addSlotIdToCursor(int slot, unsigned long long int *cursor) {
-    if (slot > 0) {
-        (*cursor) |= ((unsigned long long) slot) << SLOT_MASK_SHIFT;
+    if (slot >= 0) {
+        *cursor = (*cursor << SLOT_MASK_SHIFT) | slot;
     }
 }
 
 int getAndClearSlotIdFromCursor(unsigned long long int *cursor) {
-    int slot = (int) ((*cursor & SLOT_MASK) >> SLOT_MASK_SHIFT);
-    (*cursor) = (*cursor) & ~SLOT_MASK;
+    int slot = (int) (*cursor & SLOT_MASK);
+    *cursor = ((*cursor) & ~SLOT_MASK) >> SLOT_MASK_SHIFT;
     return slot;
 }
 
