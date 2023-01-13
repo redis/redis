@@ -271,7 +271,7 @@ HAVE_FADVISE := $(shell sh -c ' \
 	echo "$(NUMBER_SIGN_CHAR)include \"fmacros.h\"" > foo.c; \
 	echo "$(NUMBER_SIGN_CHAR)include <fcntl.h>" >> foo.c; \
 	echo "int main() {posix_fadvise(0, 0, 0, POSIX_FADV_DONTNEED);}" >> foo.c; \
-	$(CC) -c foo.c -o foo.o > /dev/null 2>&1; \
+	$(CC) -Werror=implicit-function-declaration -c foo.c -o foo.o > /dev/null 2>&1; \
 	if [ -f foo.o ]; then echo "yes"; rm foo.o; fi; rm foo.c;')
 ifeq ($(HAVE_FADVISE),yes)
 	FINAL_CFLAGS+= -DHAVE_FADVISE
