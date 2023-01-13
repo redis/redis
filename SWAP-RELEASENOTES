@@ -1,4 +1,16 @@
 ================================================================================
+ror-1.0.4 Released Fri Jan 13 16:35:48 CST 2023
+================================================================================
+* [fix] txid overflow int.
+* [fix] github ci fail cases.
+* [opt] log config update to help troubleshoot ror maxmemory update issue.
+* [opt] flush output buffer before disconnect slaves, so it will be more likely
+        to psync when failover.
+* [opt] refactor: rocks_scan, rocks_iterate, rocks_range.
+* [opt] refactor: remove SWAP_EXEC_OUT_META flag.
+* [opt] refactor: split encodeKeys into encodeKeys and encodeRange.
+
+================================================================================
 ror-1.0.3 Released Wen Dec 14 15:35:48 CST 2022
 ================================================================================
 * [fix] zset bylex changed to swap in_delete.
