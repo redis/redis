@@ -258,7 +258,7 @@ void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable) {
     if (usable) *usable = size;
     return newptr;
 #else
-    realptr = (char*)ptr-PREFIX_SIZE;
+    realptr = (char*)ptr - PREFIX_SIZE;
     oldsize = *((size_t*)realptr);
     newptr = realloc(realptr,size+PREFIX_SIZE);
     if (newptr == NULL) {
@@ -300,7 +300,7 @@ void *zrealloc_usable(void *ptr, size_t size, size_t *usable) {
  * information as the first bytes of every allocation. */
 #ifndef HAVE_MALLOC_SIZE
 size_t zmalloc_size(void *ptr) {
-    void *realptr = (char*)ptr-PREFIX_SIZE;
+    void *realptr = (char*)ptr - PREFIX_SIZE;
     size_t size = *((size_t*)realptr);
     return size+PREFIX_SIZE;
 }
@@ -320,7 +320,7 @@ void zfree(void *ptr) {
     update_zmalloc_stat_free(zmalloc_size(ptr));
     free(ptr);
 #else
-    realptr = (char*)ptr-PREFIX_SIZE;
+    realptr = (char*)ptr - PREFIX_SIZE;
     oldsize = *((size_t*)realptr);
     update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
     free(realptr);
@@ -339,7 +339,7 @@ void zfree_usable(void *ptr, size_t *usable) {
     update_zmalloc_stat_free(*usable = zmalloc_size(ptr));
     free(ptr);
 #else
-    realptr = (char*)ptr-PREFIX_SIZE;
+    realptr = (char*)ptr - PREFIX_SIZE;
     *usable = oldsize = *((size_t*)realptr);
     update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
     free(realptr);
