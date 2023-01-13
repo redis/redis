@@ -7412,17 +7412,18 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
  * These callbacks are attempted serially when the AUTH / HELLO command (containing an AUTH sub cmd)
  * is used. These callbacks will receive the RM_Context, username, password, and err as args and
  * Modules are expected to do one of the following:
- * (1) Return REDISMODULE_AUTH_SUCCEEDED after successfully using the RM_Authenticate* APIs. This
- * will immediately end the auth chain as successful and add the OK reply.
- * (2) Return REDISMODULE_AUTH_DENIED after optionally setting `err` with an error message. This
- * will immediately end the auth chain as unsuccessful and add the ERR reply.
- * (3) Return REDISMODULE_AUTH_NOT_HANDLED. This will allow the engine to attempt the next custom
- * auth callback.
- * (4) Return REDISMODULE_AUTH_BLOCKED after using the RM_BlockClientOnAuth API. Here, the client
- * will be blocked until the RM_UnblockClient API is used which will trigger the auth reply callback.
- * In this reply callback, the Module should return one of the 3 above codes after following the
- * steps mentioned.
- * If none of the callbacks authenticate or deny auth, then password based auth is attemmpted
+ * (1) Authenticate - Use the RM_Authenticate* API successfully and return REDISMODULE_AUTH_HANDLED.
+ * This will immediately end the auth chain as successful and add the OK reply.
+ * (2) Block a client on authentication - Use the RM_BlockClientOnAuth API and return
+ * REDISMODULE_AUTH_HANDLED. Here, the client will be blocked until the RM_UnblockClient API is used
+ * which will trigger the auth reply callback (provided through the RM_BlockClientOnAuth).
+ * In this reply callback, the Module should authenticate, deny or skip handling authentication.
+ * (3) Deny Authentication - Return REDISMODULE_AUTH_HANDLED without authenticating or blocking the
+ * client. Optionally, `err` can be set to a custom error message. This will immediately end the
+ * auth chain as unsuccessful and add the ERR reply.
+ * (4) Skip handling Authentication - Return REDISMODULE_AUTH_NOT_HANDLED without blocking the
+ * client. This will allow the engine to attempt the next custom auth callback.
+ * If none of the callbacks authenticate or deny auth, then password based auth is attempted
  * and will authenticate or add failure logs and reply to the clients accordingly. */
 void RM_RegisterCustomAuthCallback(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback cb) {
     RedisModuleCustomAuthCtx *auth_ctx = zmalloc(sizeof(RedisModuleCustomAuthCtx));
@@ -7466,22 +7467,6 @@ int isCustomAuthInProgress() {
     return 0;
 }
 
-/* Returns 0 when custom auth is in progress with a blocking implementation OR when it has been
- * concluded either with success or explicitly denied.
- * Returns 1 otherwise - when we should attempt the next custom auth callback if one exists. */
-int tryNextCustomAuthCB(client *c, int cb_result) {
-    if (c->btype == BLOCKED_MODULE) {
-        return 0;
-    }
-    if (cb_result == REDISMODULE_AUTH_SUCCEEDED && c->flags & CLIENT_CUSTOM_AUTH_RESULT && c->authenticated) {
-        return 0;
-    }
-    if (cb_result == REDISMODULE_AUTH_DENIED) {
-        return 0;
-    }
-    return 1;
-}
-
 /* Adds the OK reply in case of the AUTH cmd, and in case of the HELLO cmd adds server info as a
  * reply and sets the client name & protocol. */
 void addAuthSuccessReplyAndSetName(client *c, long long ver, robj *clientname, int is_auth_cmd) {
@@ -7499,22 +7484,20 @@ void addAuthSuccessReplyAndSetName(client *c, long long ver, robj *clientname, i
  * because the callback did not conclude auth as successful or denied.
  * Returns 1 if custom auth succeeded or was denied after replying to the client. */
 int handleCustomAuthIfComplete(client *c, long long ver, robj *clientname, int is_auth_cmd, int cb_result, const char *err) {
+    if (cb_result == REDISMODULE_AUTH_NOT_HANDLED) return 0;
     /* Handle the success case of AUTH by replying with OK. In case of HELLO, set the clientname
      * if provided and respond the HELLO cmd response. */
-    if (cb_result == REDISMODULE_AUTH_SUCCEEDED && c->flags & CLIENT_CUSTOM_AUTH_RESULT && c->authenticated) {
+    if (c->flags & CLIENT_CUSTOM_AUTH_RESULT && c->authenticated) {
         c->flags &= ~CLIENT_CUSTOM_AUTH;
         c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
         addAuthSuccessReplyAndSetName(c, ver, clientname, is_auth_cmd);
         return 1;
     }
-    /* In case of DenyAuth, we need to reply to the client with the ERR message. */
-    if (cb_result == REDISMODULE_AUTH_DENIED) {
-        c->flags &= ~CLIENT_CUSTOM_AUTH;
-        c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
-        addAuthErrReply(c, err);
-        return 1;
-    }
-    return 0;
+    /* In case of denying auth, we need to reply to the client with the ERR message. */
+    c->flags &= ~CLIENT_CUSTOM_AUTH;
+    c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
+    addAuthErrReply(c, err);
+    return 1;
 }
 
 /* Search for & attempt next custom auth callback after skipping the ones already attempted.
@@ -7539,14 +7522,14 @@ int attemptNextCustomAuthCb(client *c, RedisModuleCustomAuthCtx *prev_auth_ctx, 
             moduleFreeContext(&ctx);
             /* If the client is blocked, we are still in the auth chain. Set the auth_ctx. */
             if (c && c->btype == BLOCKED_MODULE) {
+                /* Modules are expected to return REDISMODULE_AUTH_HANDLED when blocking clients. */
+                serverAssert(result == REDISMODULE_AUTH_HANDLED);
                 RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
                 bc->auth_ctx = cur_auth_ctx;
             }
             /* If Auth has not succeeded or failed AND if a blocking auth is not in progress, we try
              * the next custom auth callback. */
-            if (!tryNextCustomAuthCB(c, result)) {
-                break;
-            }
+            if (result == REDISMODULE_AUTH_HANDLED) break;
         }
         if (cur_auth_ctx == prev_auth_ctx) {
             skipped_prev_callbacks = 1;
@@ -7561,12 +7544,6 @@ int attemptNextCustomAuthCb(client *c, RedisModuleCustomAuthCtx *prev_auth_ctx, 
  * based authentication. */
 void postBlockingCustomAuth(client *c, RedisModuleCustomAuthCtx *prev_auth_ctx) {
     if (!c || !(c->flags & CLIENT_CUSTOM_AUTH)) {
-        return;
-    }
-    /* Handle the case where the client is still blocked by returing early & setting the auth_ctx */
-    if (c->btype == BLOCKED_MODULE) {
-        RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
-        bc->auth_ctx = prev_auth_ctx;
         return;
     }
     robj *username = NULL;
@@ -7616,23 +7593,17 @@ customAuthComplete:
  * can be replied to later after the blocking operation & after handling the module client unblock.
  */
 int checkModuleAuthentication(client *c, robj *username, robj *password, const char **err) {
-    if (!listLength(moduleCustomAuthCallbacks)) {
-        return C_ERR;
-    }
+    if (!listLength(moduleCustomAuthCallbacks)) return C_ERR;
     c->flags |= CLIENT_CUSTOM_AUTH;
     int result = attemptNextCustomAuthCb(c, NULL, username, password, err);
-    if (c->btype == BLOCKED_MODULE) {
-        return C_OK;
-    }
+    if (c->btype == BLOCKED_MODULE) return C_OK;
     c->flags &= ~CLIENT_CUSTOM_AUTH;
-    if (result == REDISMODULE_AUTH_SUCCEEDED && c->flags & CLIENT_CUSTOM_AUTH_RESULT && c->authenticated) {
+    if (result == REDISMODULE_AUTH_NOT_HANDLED) return C_ERR;
+    if (c->flags & CLIENT_CUSTOM_AUTH_RESULT && c->authenticated) {
         c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
         return C_OK;
     }
-    if (result == REDISMODULE_AUTH_DENIED) {
-        c->flags |= CLIENT_CUSTOM_AUTH_RESULT;
-        return C_ERR;
-    }
+    c->flags |= CLIENT_CUSTOM_AUTH_RESULT;
     return C_ERR;
 }
 
@@ -7949,7 +7920,7 @@ void moduleHandleBlockedClients(void) {
         /* Call the custom auth reply cb if one exists if custom auth is in progress. */
         RedisModuleCustomAuthCtx *auth_ctx = bc->auth_ctx;
         if (c && c->flags & CLIENT_CUSTOM_AUTH && !bc->blocked_on_keys && bc->auth_reply_cb) {
-            /* Reset the client's CUSTOM_AUTH_COMPLETE flag before attempting the auth_reply_cb. */
+            /* Reset the client's CUSTOM_AUTH_RESULT flag before attempting the auth_reply_cb. */
             c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
             robj *username = NULL;
             robj *password = NULL;

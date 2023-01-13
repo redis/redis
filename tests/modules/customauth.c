@@ -15,7 +15,7 @@ int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString 
     const char* pwd = RedisModule_StringPtrLen(password, NULL);
     if (!strcmp(user,"foo") && !strcmp(pwd,"allow")) {
         RedisModule_AuthenticateClientWithACLUser(ctx, "foo", 3, NULL, NULL, NULL);
-        return REDISMODULE_AUTH_SUCCEEDED;
+        return REDISMODULE_AUTH_HANDLED;
     }
     else if (!strcmp(user,"foo") && !strcmp(pwd,"deny")) {
         RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(username);
@@ -24,7 +24,7 @@ int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString 
             RedisModule_FreeModuleUser(user);
         }
         *err = "Auth denied by Misc Module.";
-        return REDISMODULE_AUTH_DENIED;
+        return REDISMODULE_AUTH_HANDLED;
     }
     return REDISMODULE_AUTH_NOT_HANDLED;
 }
@@ -86,7 +86,7 @@ int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModul
     /* Handle the success case by authenticating. */
     if (result == 1) {
         RedisModule_AuthenticateClientWithACLUser(ctx, user, userlen, NULL, NULL, NULL);
-        return REDISMODULE_AUTH_SUCCEEDED;
+        return REDISMODULE_AUTH_HANDLED;
     }
     /* Handle the Error case by denying auth */
     else if (result == 0) {
@@ -96,7 +96,7 @@ int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModul
             RedisModule_FreeModuleUser(user);
         }
         *err = "Auth denied by Misc Module.";
-        return REDISMODULE_AUTH_DENIED;
+        return REDISMODULE_AUTH_HANDLED;
     }
     /* "Skip" Authentication */
     return REDISMODULE_AUTH_NOT_HANDLED;
@@ -124,7 +124,7 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
     if (ctx_flags & REDISMODULE_CTX_FLAGS_MULTI || ctx_flags & REDISMODULE_CTX_FLAGS_LUA) {
         /* Clean up by using RedisModule_UnblockClient since we attempted blocking the client. */
         RedisModule_UnblockClient(bc, NULL);
-        return REDISMODULE_AUTH_DENIED;
+        return REDISMODULE_AUTH_HANDLED;
     }
     RedisModule_BlockedClientMeasureTimeStart(bc);
     pthread_t tid;
@@ -137,7 +137,7 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
     if (pthread_create(&tid, NULL, AuthBlock_ThreadMain, targ) != 0) {
         RedisModule_AbortBlock(bc);
     }
-    return REDISMODULE_AUTH_BLOCKED;
+    return REDISMODULE_AUTH_HANDLED;
 }
 
 int test_rm_register_blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

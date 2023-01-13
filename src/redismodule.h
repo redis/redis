@@ -35,10 +35,8 @@ typedef long long ustime_t;
 #define REDISMODULE_ERR 1
 
 /* Custom Auth status return values. */
-#define REDISMODULE_AUTH_SUCCEEDED 0
-#define REDISMODULE_AUTH_DENIED 1
-#define REDISMODULE_AUTH_BLOCKED 2
-#define REDISMODULE_AUTH_NOT_HANDLED 3
+#define REDISMODULE_AUTH_HANDLED 0
+#define REDISMODULE_AUTH_NOT_HANDLED 1
 
 /* API versions. */
 #define REDISMODULE_APIVER_1 1

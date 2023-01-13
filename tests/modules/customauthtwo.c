@@ -14,7 +14,7 @@ int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString 
     const char* pwd = RedisModule_StringPtrLen(password, NULL);
     if (!strcmp(user,"foo") && !strcmp(pwd,"allow_two")) {
         RedisModule_AuthenticateClientWithACLUser(ctx, "foo", 3, NULL, NULL, NULL);
-        return REDISMODULE_AUTH_SUCCEEDED;
+        return REDISMODULE_AUTH_HANDLED;
     }
     else if (!strcmp(user,"foo") && !strcmp(pwd,"deny_two")) {
         RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(username);
@@ -23,7 +23,7 @@ int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString 
             RedisModule_FreeModuleUser(user);
         }
         *err = "Auth denied by Misc Module.";
-        return REDISMODULE_AUTH_DENIED;
+        return REDISMODULE_AUTH_HANDLED;
     }
     return REDISMODULE_AUTH_NOT_HANDLED;
 }
