@@ -645,12 +645,12 @@ void ACLRecomputeCommandBitsFromCommandRulesAllUsers() {
     raxIterator ri;
     raxStart(&ri,Users);
     raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)){
+    while(raxNext(&ri)) {
         user *u = ri.data;
         listIter li;
         listNode *ln;
         listRewind(u->selectors,&li);
-        while((ln = listNext(&li))){
+        while((ln = listNext(&li))) {
             aclSelector *selector = (aclSelector *) listNodeValue(ln);
             int argc = 0;
             sds *argv = sdssplitargs(selector->command_rules, &argc);

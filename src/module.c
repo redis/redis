@@ -1215,7 +1215,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     cp->rediscmd->id = ACLGetCommandID(declared_name); /* ID used for ACL. */
     cp->rediscmd->acl_categories = acl_categories; /* ACL categories flags for module command */
     /* If commands have acl_categories, recompute the command bits for the existing 
-     *  users to have access to these commands */  
+     * users to have access to these commands */  
     if (acl_categories) ACLRecomputeCommandBitsFromCommandRulesAllUsers(); 
     return REDISMODULE_OK;
 }
