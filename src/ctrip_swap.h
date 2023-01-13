@@ -1065,7 +1065,6 @@ void clientReleaseLocks(client *c, swapCtx *ctx);
 int tryEvictKey(redisDb *db, robj *key, int *evict_result);
 void tryEvictKeyAsapLater(redisDb *db, robj *key);
 void swapEvictCommand(client *c);
-int evictAsap();
 void swapDebugEvictKeys();
 void dbHoldKey(redisDb *db, robj *key, int64_t swap);
 void dbUnholdKey(redisDb *db, robj *key);

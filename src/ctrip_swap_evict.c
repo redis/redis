@@ -270,59 +270,6 @@ void tryEvictKeyAsapLater(redisDb *db, robj *key) {
     listAddNodeTail(db->evict_asap, key);
 }
 
-static int evictKeyAsap(redisDb *db) {
-    int evicted = 0;
-    listIter li;
-    listNode *ln;
-
-    listRewind(db->evict_asap, &li);
-    while ((ln = listNext(&li))) {
-        int evict_result;
-        robj *key = listNodeValue(ln);
-
-        tryEvictKey(db, key, &evict_result);
-
-        if (evict_result == EVICT_FAIL_HOLDED ||
-                evict_result == EVICT_FAIL_SWAPPING) {
-            /* Try evict again if key is holded or swapping */
-            listAddNodeHead(db->evict_asap, key);
-        } else {
-            decrRefCount(key);
-            evicted++;
-        }
-        listDelNode(db->evict_asap, ln);
-    }
-    return evicted;
-}
-
-int evictAsap() {
-    static mstime_t stat_mstime;
-    static long stat_evict, stat_scan, stat_loop;
-    int i, evicted = 0;
-
-    for (i = 0; i < server.dbnum; i++) {
-        redisDb *db = server.db+i;
-        if (listLength(db->evict_asap)) {
-            stat_scan += listLength(db->evict_asap);
-            evicted += evictKeyAsap(db);
-        }
-    }
-
-    stat_loop++;
-    stat_evict += evicted;
-
-    if (server.mstime - stat_mstime > 1000) {
-        if (stat_scan > 0) {
-            serverLog(LL_VERBOSE, "EvictAsap loop=%ld,scaned=%ld,swapped=%ld",
-                    stat_loop, stat_scan, stat_evict);
-        }
-        stat_mstime = server.mstime;
-        stat_loop = 0, stat_evict = 0, stat_scan = 0;
-    }
-
-    return evicted;
-}
-
 void swapDebugEvictKeys() {
     int i = 0, j, swap_debug_evict_keys = server.swap_debug_evict_keys;
     if (swap_debug_evict_keys < 0) swap_debug_evict_keys = INT_MAX;

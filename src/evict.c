@@ -514,6 +514,67 @@ static inline int reachedSwapEvictInprogressLimit(size_t mem_tofree) {
     return server.swap_evict_inprogress_count >= inprogress_limit;
 }
 
+#define EVICT_ASAP_KEYS_LIMIT 256
+
+#define EVICT_ASAP_OK 0
+#define EVICT_ASAP_AGAIN 1
+
+int evictAsap(size_t mem_tofree) {
+    static mstime_t stat_mstime;
+    static long stat_evict, stat_scan, stat_loop;
+
+    int evicted = 0, scanned = 0, result = EVICT_ASAP_OK;
+
+    for (int i = 0; i < server.dbnum; i++) {
+        listIter li;
+        listNode *ln;
+        redisDb *db = server.db+i;
+
+        if (listLength(db->evict_asap) == 0) continue;
+
+        listRewind(db->evict_asap, &li);
+        while ((ln = listNext(&li))) {
+            int evict_result;
+            robj *key = listNodeValue(ln);
+
+            if (reachedSwapEvictInprogressLimit(mem_tofree) ||
+                    scanned >= EVICT_ASAP_KEYS_LIMIT) {
+                result = EVICT_ASAP_AGAIN;
+                goto end;
+            }
+
+            tryEvictKey(db, key, &evict_result);
+
+            scanned++;
+            if (evict_result == EVICT_FAIL_HOLDED ||
+                    evict_result == EVICT_FAIL_SWAPPING) {
+                /* Try evict again if key is holded or swapping */
+                listAddNodeHead(db->evict_asap, key);
+            } else {
+                decrRefCount(key);
+                evicted++;
+            }
+            listDelNode(db->evict_asap, ln);
+        }
+    }
+
+end:
+    stat_loop++;
+    stat_evict += evicted;
+    stat_scan += scanned;
+
+    if (server.mstime - stat_mstime > 1000) {
+        if (stat_scan > 0) {
+            serverLog(LL_VERBOSE, "EvictAsap loop=%ld,scaned=%ld,swapped=%ld",
+                    stat_loop, stat_scan, stat_evict);
+        }
+        stat_mstime = server.mstime;
+        stat_loop = 0, stat_evict = 0, stat_scan = 0;
+    }
+
+    return result;
+}
+
 /* Check that memory usage is within the current "maxmemory" limit.  If over
  * "maxmemory", attempt to free memory by evicting data (if it's safe to do so).
  *
@@ -541,9 +602,6 @@ static inline int reachedSwapEvictInprogressLimit(size_t mem_tofree) {
 int performEvictions(void) {
     if (!isSafeToPerformEvictions()) return EVICT_OK;
 
-    /* Evict keys registered to be evicted ASAP. */
-    evictAsap();
-
     static long long evict_failed_inrow = 0;
     size_t mem_reported, mem_used, mem_tofree;
     long long mem_freed; /* May be negative */
@@ -554,16 +612,20 @@ int performEvictions(void) {
     static mstime_t prev;
     int keys_scanned = 0, swap_trigged = 0;
     int eviction_swap_pause = updateEvictionSwapRateLimitState();
+    int over_maxmemory = getMaxmemoryState(&mem_reported,&mem_used,&mem_tofree,NULL) == C_ERR;
 
-    if (getMaxmemoryState(&mem_reported,&mem_used,&mem_tofree,NULL) == C_OK)
-        return EVICT_OK;
+    /* Evict keys registered to be evicted ASAP even if not over maxmemory,
+     * because evict asap could reduce cow. */
+    int evict_asap_again = evictAsap(mem_tofree) == EVICT_ASAP_AGAIN;
+
+    if (!over_maxmemory) return EVICT_OK;
 
     if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
         return EVICT_FAIL;  /* We need to free memory, but policy forbids. */
 
     /* Pause eviction if there are too much swap in progress, Note:
      * - reject only when swapping inflight, otherwise server won't recover. */
-    if (eviction_swap_pause) {
+    if (eviction_swap_pause || evict_asap_again) {
         unsigned long long limit = server.swap_maxmemory_oom_percentage*server.maxmemory/100;
 
 		if (!isEvictionProcRunning) {
