@@ -391,7 +391,7 @@ void scanLaterZset(robj *ob, unsigned long *cursor) {
     *cursor = dictScanDefrag(d, *cursor, scanLaterZsetCallback, &defragfns, &data);
 }
 
-/* Used as scan callback when all the work is done in the defrag callbacks. */
+/* Used as scan callback when all the work is done in the dictDefragFunctions. */
 void scanCallbackCountScanned(void *privdata, const dictEntry *de) {
     UNUSED(privdata);
     UNUSED(de);

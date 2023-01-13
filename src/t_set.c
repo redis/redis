@@ -122,16 +122,16 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
         /* Avoid duping the string if it is an sds string. */
         sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
         dict *ht = set->ptr;
-        long index = dictKeyIndex(ht, sdsval, dictHashKey(ht, sdsval), NULL);
-        if (index >= 0) {
+        dictEntry **bucket = dictFindBucketForInsert(ht, sdsval, NULL);
+        if (bucket) {
             /* Key doesn't already exist in the set. Add it but dup the key. */
             if (sdsval == str) sdsval = sdsdup(sdsval);
-            dictInsertAtIndex(ht, sdsval, index);
+            dictInsertIntoBucket(ht, sdsval, bucket);
         } else if (sdsval != str) {
             /* String is already a member. Free our temporary sds copy. */
             sdsfree(sdsval);
         }
-        return (index >= 0);
+        return (bucket != NULL);
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
@@ -1123,7 +1123,6 @@ void srandmemberWithCountCommand(client *c) {
         while (size > count) {
             dictEntry *de;
             de = dictGetFairRandomKey(d);
-            /* dictDelete(d, dictGetKey(de)); */
             dictUnlink(d,dictGetKey(de));
             sdsfree(dictGetKey(de));
             dictFreeUnlinkedEntry(d,de);

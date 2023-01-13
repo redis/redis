@@ -444,37 +444,38 @@ int dictAdd(dict *d, void *key, void *val)
  */
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 {
-    long index;
-
-    /* Get the index of the new element, or -1 if
-     * the element already exists. */
-    if ((index = dictKeyIndex(d, key, dictHashKey(d,key), existing)) == -1)
-        return NULL;
+    /* Get the bucket of the new key or NULL if the key already exists. */
+    dictEntry **bucket = dictFindBucketForInsert(d, key, existing);
+    if (!bucket) return NULL;
 
     /* Dup the key if necessary. */
     if (d->type->keyDup) key = d->type->keyDup(d, key);
 
-    return dictInsertAtIndex(d, key, index);
+    return dictInsertIntoBucket(d, key, bucket);
 }
 
-/* Adds a key in the dict's hashtable at the index returned by a preceding call
- * to dictKeyIndex. This is a low level function which allows splitting
- * dictAddRaw in two parts. Normally, dictAddRaw or dictAdd should be used
- * instead. */
-dictEntry *dictInsertAtIndex(dict *d, void *key, long index) {
+/* Adds a key in the dict's hashtable in the bucket returned by a preceding call
+ * to dictFindBucketForInsert. This is a low level function which allows
+ * splitting dictAddRaw in two parts. Normally, dictAddRaw or dictAdd should be
+ * used instead. */
+dictEntry *dictInsertIntoBucket(dict *d, void *key, dictEntry **bucket) {
     dictEntry *entry;
+    /* If rehashing is ongoing, we insert in table 1, otherwise in table 0.
+     * Assert that the provided bucket is the right table. */
     int htidx = dictIsRehashing(d) ? 1 : 0;
+    assert(bucket >= &d->ht_table[htidx][0] &&
+           bucket <= &d->ht_table[htidx][DICTHT_SIZE_MASK(d->ht_size_exp[htidx])]);
     size_t metasize = dictEntryMetadataSize(d);
     if (d->type->no_value) {
         assert(!metasize); /* Entry metadata + no value not supported. */
-        if (d->type->keys_are_odd && !d->ht_table[htidx][index]) {
+        if (d->type->keys_are_odd && !*bucket) {
             /* We can store the key directly in the destination bucket without the
              * allocated entry. */
             assert(entryIsKey(key));
             entry = key;
         } else {
             /* Allocate an entry without value. */
-            entry = createEntryNoValue(key, d->ht_table[htidx][index]);
+            entry = createEntryNoValue(key, *bucket);
         }
     } else {
         /* Allocate the memory and store the new entry.
@@ -482,13 +483,14 @@ dictEntry *dictInsertAtIndex(dict *d, void *key, long index) {
          * system it is more likely that recently added entries are accessed
          * more frequently. */
         entry = zmalloc(sizeof(*entry) + metasize);
+        assert(entryIsNormal(entry)); /* Check alignment of allocation */
         if (metasize > 0) {
             memset(dictEntryMetadata(entry), 0, metasize);
         }
         entry->key = key;
-        entry->next = d->ht_table[htidx][index];
+        entry->next = *bucket;
     }
-    d->ht_table[htidx][index] = entry;
+    *bucket = entry;
     d->ht_used[htidx]++;
 
     return entry;
@@ -1414,22 +1416,20 @@ static signed char _dictNextExp(unsigned long size)
     }
 }
 
-/* Returns the index of a free slot that can be populated with
- * a hash entry for the given 'key'.
- * If the key already exists, -1 is returned
- * and the optional output parameter may be filled.
- *
- * Note that if we are in the process of rehashing the hash table, the
- * index is always returned in the context of the second (new) hash table. */
-long dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing) {
+/* Finds and returns a pointer to the bucket where the provided key should be
+ * inserted using dictInsertIntoBucket if the key does not already exist in the
+ * dict. If the key exists in the dict, NULL is returned and the optional
+ * 'existing' entry pointer is populated, if provided. */
+dictEntry **dictFindBucketForInsert(dict *d, const void *key, dictEntry **existing) {
     unsigned long idx, table;
     dictEntry *he;
+    uint64_t hash = dictHashKey(d, key);
     if (existing) *existing = NULL;
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
     /* Expand the hash table if needed */
     if (_dictExpandIfNeeded(d) == DICT_ERR)
-        return -1;
+        return NULL;
     for (table = 0; table <= 1; table++) {
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         /* Search if this slot does not already contain the given key */
@@ -1438,13 +1438,16 @@ long dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing)
             void *he_key = dictGetKey(he);
             if (key == he_key || dictCompareKeys(d, key, he_key)) {
                 if (existing) *existing = he;
-                return -1;
+                return NULL;
             }
             he = dictGetNext(he);
         }
         if (!dictIsRehashing(d)) break;
     }
-    return idx;
+
+    /* If we are in the process of rehashing the hash table, the bucket is
+     * always returned in the context of the second (new) hash table. */
+    return &d->ht_table[dictIsRehashing(d) ? 1 : 0][idx];
 }
 
 void dictEmpty(dict *d, void(callback)(dict*)) {
