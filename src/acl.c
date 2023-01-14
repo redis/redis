@@ -3066,7 +3066,7 @@ void authCommand(client *c) {
     const char *err = NULL;
     if (ACLAuthenticateUser(c, username, password, &err) == C_OK) {
         /* In case of a blocking custom auth, we will reply to the client later upon unblocking. */
-        if (c->btype == BLOCKED_MODULE) {
+        if (c->bstate.btype == BLOCKED_MODULE) {
             return;
         }
         addReply(c, shared.ok);

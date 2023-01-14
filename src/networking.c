@@ -201,6 +201,7 @@ client *createClient(connection *conn) {
     c->client_tracking_prefixes = NULL;
     c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
+    c->prev_custom_auth_ctx = NULL;
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
@@ -3517,7 +3518,7 @@ void helloCommand(client *c) {
     }
 
     /* In case of a blocking custom auth, we reply to the client / setname later upon unblocking. */
-    if (c->btype == BLOCKED_MODULE) {
+    if (c->bstate.btype == BLOCKED_MODULE) {
         return;
     }
 

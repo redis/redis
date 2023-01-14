@@ -1173,6 +1173,9 @@ typedef struct client {
     listNode *client_list_node; /* list node in client list */
     listNode *postponed_list_node; /* list node within the postponed list */
     listNode *pending_read_list_node; /* list node in clients pending read list */
+    void *prev_custom_auth_ctx; /* Previously attempted module based custom auth callback's ctx.
+                                 * This is only tracked within the context of the command attempting
+                                 * authentication. */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
                                                * changes. */
@@ -2834,7 +2837,6 @@ void ACLInit(void);
 int ACLCheckUserCredentials(robj *username, robj *password);
 int ACLAuthenticateUser(client *c, robj *username, robj *password, const char **err);
 int checkModuleAuthentication(client *c, robj *username, robj *password, const char **err);
-int passwordBasedAuth(client *c, robj *username, robj *password);
 void addAuthErrReply(client *c, const char *err);
 unsigned long ACLGetCommandID(sds cmdname);
 void ACLClearCommandID(void);

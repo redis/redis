@@ -7484,26 +7484,28 @@ void addAuthSuccessReplyAndSetName(client *c, long long ver, robj *clientname, i
  * because the callback did not conclude auth as successful or denied.
  * Returns 1 if custom auth succeeded or was denied after replying to the client. */
 int handleCustomAuthIfComplete(client *c, long long ver, robj *clientname, int is_auth_cmd, int cb_result, const char *err) {
-    if (cb_result == REDISMODULE_AUTH_NOT_HANDLED) return 0;
+    if (cb_result == REDISMODULE_AUTH_NOT_HANDLED) {
+        c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
+        return 0;
+    }
+    c->flags &= ~CLIENT_CUSTOM_AUTH;
+    c->prev_custom_auth_ctx = NULL;
     /* Handle the success case of AUTH by replying with OK. In case of HELLO, set the clientname
      * if provided and respond the HELLO cmd response. */
     if (c->flags & CLIENT_CUSTOM_AUTH_RESULT && c->authenticated) {
-        c->flags &= ~CLIENT_CUSTOM_AUTH;
         c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
         addAuthSuccessReplyAndSetName(c, ver, clientname, is_auth_cmd);
         return 1;
     }
     /* In case of denying auth, we need to reply to the client with the ERR message. */
-    c->flags &= ~CLIENT_CUSTOM_AUTH;
-    c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
     addAuthErrReply(c, err);
     return 1;
 }
 
 /* Search for & attempt next custom auth callback after skipping the ones already attempted.
  * Returns the result of the custom auth callback. */
-int attemptNextCustomAuthCb(client *c, RedisModuleCustomAuthCtx *prev_auth_ctx, robj *username, robj *password, const char **err) {
-    int skipped_prev_callbacks = prev_auth_ctx == NULL;
+int attemptNextCustomAuthCb(client *c, robj *username, robj *password, const char **err) {
+    int skipped_prev_callbacks = c->prev_custom_auth_ctx == NULL;
     RedisModuleCustomAuthCtx *cur_auth_ctx = NULL;
     listNode *ln;
     listIter li;
@@ -7519,68 +7521,36 @@ int attemptNextCustomAuthCb(client *c, RedisModuleCustomAuthCtx *prev_auth_ctx, 
             ctx.client = c;
             *err = NULL;
             result = cur_auth_ctx->auth_cb(&ctx, username, password, err);
+            c->prev_custom_auth_ctx = cur_auth_ctx;
             moduleFreeContext(&ctx);
             /* If the client is blocked, we are still in the auth chain. Set the auth_ctx. */
-            if (c && c->btype == BLOCKED_MODULE) {
+            if (c && c->bstate.btype == BLOCKED_MODULE) {
                 /* Modules are expected to return REDISMODULE_AUTH_HANDLED when blocking clients. */
                 serverAssert(result == REDISMODULE_AUTH_HANDLED);
-                RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+                RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
                 bc->auth_ctx = cur_auth_ctx;
             }
             /* If Auth has not succeeded or failed AND if a blocking auth is not in progress, we try
              * the next custom auth callback. */
             if (result == REDISMODULE_AUTH_HANDLED) break;
         }
-        if (cur_auth_ctx == prev_auth_ctx) {
+        if (cur_auth_ctx == c->prev_custom_auth_ctx) {
             skipped_prev_callbacks = 1;
         }
     }
     return result;
 }
 
-/* Helper function to handle the completed blocking custom auth callback, and begin attempting the
- * next custom auth callback (if auth was not already concluded with success / deny) and then handle
- * it accordingly. If we attempt all the callbacks and neither conclude auth, we attempt password
- * based authentication. */
+/* Helper function to handle a client that completed a blocking custom auth flow and still has
+ * not concluded authentication. Here, we reprocess the client to attempt the next callback if any
+ * exist or / and attempt password based auth. */
 void postBlockingCustomAuth(client *c, RedisModuleCustomAuthCtx *prev_auth_ctx) {
-    if (!c || !(c->flags & CLIENT_CUSTOM_AUTH)) {
-        return;
-    }
-    robj *username = NULL;
-    robj *password = NULL;
-    long long ver = 0;
-    robj *clientname = NULL;
-    int is_auth_cmd = getAuthOrHelloAuthCmdArgs(c, &username, &password, &ver, &clientname);
-    const char *err = NULL;
-    int result = attemptNextCustomAuthCb(c, prev_auth_ctx, username, password, &err);
-    /* Return early if blocked. */
-    if (c->btype == BLOCKED_MODULE) {
-        return;
-    }
-    long long prev_error_replies = server.stat_total_error_replies;
-    /* If it finished with either success or failure, we conclude custom auth. */
-    if (handleCustomAuthIfComplete(c, ver, clientname, is_auth_cmd, result, err)) {
-        goto customAuthComplete;
-    }
-    /* If we reach this line, it means none of the modules denied or allowed the client to
-     * authenticate and custom auth is not in progress. We should attempt password based auth. */
-    if (passwordBasedAuth(c, username, password) == C_OK) {
-        addAuthSuccessReplyAndSetName(c, ver, clientname, is_auth_cmd);
-    }
-    else {
-        /* We expect the Module to add to ACL logs using the relevant API. */
-        addAuthErrReply(c, err);
-    }
-    c->flags &= ~CLIENT_CUSTOM_AUTH;
-    c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
-customAuthComplete:
-    updateStatsOnUnblock(c, 0, 0, server.stat_total_error_replies != prev_error_replies);
-    freeClientOriginalArgv(c);
-    resetClient(c);
-    queueClientForReprocessing(c);
+    if (!c || !(c->flags & CLIENT_CUSTOM_AUTH)) return;
+    c->prev_custom_auth_ctx = prev_auth_ctx;
+    processCommandAndResetClient(c);
 }
 
-/* Helper function to begin attempting Module based authentication through custom auth callbacks.
+/* Helper function to attempt Module based authentication through custom auth callbacks.
  * Here, the Module is expected to authenticate the client using the RedisModule APIs and to add ACL
  * logs incase of errors.
  * Returns C_ERR if no callbacks have been registered OR if a callback denied authentication OR if
@@ -7595,9 +7565,10 @@ customAuthComplete:
 int checkModuleAuthentication(client *c, robj *username, robj *password, const char **err) {
     if (!listLength(moduleCustomAuthCallbacks)) return C_ERR;
     c->flags |= CLIENT_CUSTOM_AUTH;
-    int result = attemptNextCustomAuthCb(c, NULL, username, password, err);
-    if (c->btype == BLOCKED_MODULE) return C_OK;
+    int result = attemptNextCustomAuthCb(c, username, password, err);
+    if (c->bstate.btype == BLOCKED_MODULE) return C_OK;
     c->flags &= ~CLIENT_CUSTOM_AUTH;
+    c->prev_custom_auth_ctx = NULL;
     if (result == REDISMODULE_AUTH_NOT_HANDLED) return C_ERR;
     if (c->flags & CLIENT_CUSTOM_AUTH_RESULT && c->authenticated) {
         c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
@@ -7682,7 +7653,8 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
 
 /* Block the current client for custom authentication in the background. If custom auth is not in
  * progress, the API returns NULL. Otherwise, the client is blocked and the RM_BlockedClient is
- * returned similar to the RM_BlockClient API. */
+ * returned similar to the RM_BlockClient API.
+ * Note: Only use this API from the context of a custom auth callback. */
 RedisModuleBlockedClient *RM_BlockClientOnAuth(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback reply_callback, void (*free_privdata)(RedisModuleCtx*,void*)) {
     /* Assert that the client is in the middle of custom auth. */
     serverAssert(ctx->client->flags & CLIENT_CUSTOM_AUTH);
@@ -7844,13 +7816,6 @@ int RM_AbortBlock(RedisModuleBlockedClient *bc) {
     bc->reply_callback = NULL;
     bc->disconnect_callback = NULL;
     bc->auth_reply_cb = NULL;
-    client *c = bc->client;
-    if (c && (c->flags & CLIENT_CUSTOM_AUTH)) {
-        c->flags &= ~CLIENT_CUSTOM_AUTH;
-        c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
-        updateStatsOnUnblock(c, 0, 0, 1);
-        addAuthErrReply(c, NULL);
-    }
     return RM_UnblockClient(bc,NULL);
 }
 
@@ -8034,6 +7999,7 @@ void moduleBlockedClientTimedOut(client *c) {
     if (c && (c->flags & CLIENT_CUSTOM_AUTH)) {
         c->flags &= ~CLIENT_CUSTOM_AUTH;
         c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
+        c->prev_custom_auth_ctx = NULL;
         addAuthErrReply(c, NULL);
     }
 
