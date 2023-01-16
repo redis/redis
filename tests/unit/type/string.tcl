@@ -604,7 +604,7 @@ start_server {tags {"string"}} {
             catch {[r setrange K $value A]} res
             # expecting a different error on 32 and 64 bit systems
             if {![string match "*string exceeds maximum allowed size*" $res] && ![string match "*out of range*" $res]} {
-                assert_not_equal $res "expecting an error"
+                assert_equal $res "expecting an error"
            }
         }
     }
