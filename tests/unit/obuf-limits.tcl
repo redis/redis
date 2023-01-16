@@ -215,7 +215,7 @@ start_server {tags {"obuf-limits external:skip"}} {
     test "Obuf limit, HRANDFIELD with huge count stopped mid-run" {
         r config set client-output-buffer-limit {normal 1000000 0 0}
         r hset myhash a b
-        catch {r hrandfield myhash -999999999999} e
+        catch {r hrandfield myhash -999999999} e
         assert_match "*I/O error*" $e
         reconnect
     }
