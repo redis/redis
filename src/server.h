@@ -2355,7 +2355,7 @@ typedef struct {
     unsigned char *lpi; /* listpack iterator */
 } setTypeIterator;
 
-/* Struture for DB iterator that allows iterating across multiple slot specific dictionaries in cluster mode. */
+/* Structure for DB iterator that allows iterating across multiple slot specific dictionaries in cluster mode. */
 typedef struct dbIterator {
     redisDb *db;
     int index;
