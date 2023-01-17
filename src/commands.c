@@ -840,7 +840,10 @@ struct redisCommandArg CLIENT_KILL_Args[] = {
 commandHistory CLIENT_LIST_History[] = {
 {"2.8.12","Added unique client `id` field."},
 {"5.0.0","Added optional `TYPE` filter."},
-{"6.2.0","Added `laddr` field and the optional `ID` filter."},
+{"6.0.0","Added `user` field."},
+{"6.2.0","Added `argv-mem`, `tot-mem`, `laddr` and `redir` fields and the optional `ID` filter."},
+{"7.0.0","Added `resp`, `multi-mem`, `rbs` and `rbp` fields."},
+{"7.0.3","Added `ssub` field."},
 {0}
 };
 
