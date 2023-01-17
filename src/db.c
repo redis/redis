@@ -1125,13 +1125,13 @@ cleanup:
 
 void addSlotIdToCursor(int slot, unsigned long long int *cursor) {
     if (slot >= 0) {
-        *cursor = (*cursor << SLOT_MASK_SHIFT) | slot;
+        *cursor = (*cursor << CLUSTER_SLOT_MASK_BITS) | slot;
     }
 }
 
 int getAndClearSlotIdFromCursor(unsigned long long int *cursor) {
-    int slot = (int) (*cursor & SLOT_MASK);
-    *cursor = ((*cursor) & ~SLOT_MASK) >> SLOT_MASK_SHIFT;
+    int slot = (int) (*cursor & CLUSTER_SLOT_MASK);
+    *cursor = ((*cursor) & ~CLUSTER_SLOT_MASK) >> CLUSTER_SLOT_MASK_BITS;
     return slot;
 }
 
