@@ -679,12 +679,12 @@ void defragKey(redisDb *db, dictEntry *de) {
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
     if (newsds) {
-        dictSetKey(db->dict, de, newsds);
+        dictSetKey(getDict(db, newsds), de, newsds);
         if (dictSize(db->expires)) {
             /* We can't search in db->expires for that key after we've released
              * the pointer it holds, since it won't be able to do the string
              * compare, but we can find the entry using key hash and pointer. */
-            uint64_t hash = dictGetHash(db->dict, newsds);
+            uint64_t hash = dictGetHash(getDict(db, newsds), newsds);
             dictEntry *expire_de = dictFindEntryByPtrAndHash(db->expires, keysds, hash);
             if (expire_de) dictSetKey(db->expires, expire_de, newsds);
         }
@@ -693,7 +693,7 @@ void defragKey(redisDb *db, dictEntry *de) {
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
     if ((newob = activeDefragStringOb(ob))) {
-        dictSetVal(db->dict, de, newob);
+        dictSetVal(getDict(db, newsds), de, newob);
         ob = newob;
     }
 
@@ -851,7 +851,7 @@ int defragLaterStep(redisDb *db, long long endtime) {
         }
 
         /* each time we enter this function we need to fetch the key from the dict again (if it still exists) */
-        dictEntry *de = dictFind(db->dict, defrag_later_current_key);
+        dictEntry *de = dictFind(getDict(db, defrag_later_current_key), defrag_later_current_key);
         key_defragged = server.stat_active_defrag_hits;
         do {
             int quit = 0;
@@ -1007,7 +1007,8 @@ void activeDefragCycle(void) {
             db = &server.db[current_db];
             cursor = 0;
         }
-
+        int slot = 0;
+        dict *d = db->dict[slot];
         do {
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
             if (defragLaterStep(db, endtime)) {
@@ -1017,11 +1018,11 @@ void activeDefragCycle(void) {
 
             /* Scan the keyspace dict unless we're scanning the expire dict. */
             if (!expires_cursor)
-                cursor = dictScanDefrag(db->dict, cursor, defragScanCallback,
+                cursor = dictScanDefrag(d, cursor, defragScanCallback,
                                         &defragfns, db);
-
+            if (!cursor) d = dbGetNextUnvisitedSlot(db, &slot);
             /* When done scanning the keyspace dict, we scan the expire dict. */
-            if (!cursor)
+            if (!cursor && slot > -1)
                 expires_cursor = dictScanDefrag(db->expires, expires_cursor,
                                                 scanCallbackCountScanned,
                                                 &defragfns, NULL);
@@ -1044,7 +1045,7 @@ void activeDefragCycle(void) {
                 prev_defragged = server.stat_active_defrag_hits;
                 prev_scanned = server.stat_active_defrag_scanned;
             }
-        } while((cursor || expires_cursor) && !quit);
+        } while(((cursor || slot > 0) || expires_cursor) && !quit);
     } while(!quit);
 
     latencyEndMonitor(latency);
