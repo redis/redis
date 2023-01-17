@@ -90,7 +90,6 @@ int auxShardIdSetter(clusterNode *n, void *value, int length);
 sds auxShardIdGetter(clusterNode *n, sds s);
 int auxShardIdPresent(clusterNode *n);
 static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
-unsigned long long int dbSize(const redisDb *db);
 
 /* Links to the next and previous entries for keys in the same slot are stored
  * in the dict entry metadata. See Slot to Key API below. */

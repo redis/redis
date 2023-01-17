@@ -1148,7 +1148,7 @@ void dbsizeCommand(client *c) {
     addReplyLongLong(c, size);
 }
 
-unsigned long long int dbSize(const redisDb *db) {
+unsigned long long int dbSize(redisDb *db) {
     unsigned long long size = 0;
     dict *d;
     dbIterator *dbit = dbGetIterator(db);
@@ -1159,7 +1159,7 @@ unsigned long long int dbSize(const redisDb *db) {
     return size;
 }
 
-unsigned long dbSlots(const redisDb *db) {
+unsigned long dbSlots(redisDb *db) {
     unsigned long slots = 0;
     dict *d;
     dbIterator *dbit = dbGetIterator(db);
@@ -1840,7 +1840,7 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
 void expandDb(const redisDb *db, uint64_t db_size) {
     if (server.cluster_enabled) {
         dict *d;
-        dbIterator *dbit = dbGetIterator(db);
+        dbIterator *dbit = dbGetIterator((redisDb *) db);
         while ((d = dbNextDict(dbit))) {
             /* We don't exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */
             dictExpand(d, (db_size / server.cluster->myself->numslots));

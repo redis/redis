@@ -1294,7 +1294,7 @@ unsigned long dictScanDefrag(dict *d,
 
         /* Emit entries at cursor */
         if (defragfns) {
-            dictDefragBucket(d, &d->ht_table[htidx0][v & m0], defragfns);
+            dictDefragBucket(&d->ht_table[htidx0][v & m0], defragfns);
         }
         de = d->ht_table[htidx0][v & m0];
         while (de) {
@@ -1327,7 +1327,7 @@ unsigned long dictScanDefrag(dict *d,
 
         /* Emit entries at cursor */
         if (defragfns) {
-            dictDefragBucket(d, &d->ht_table[htidx0][v & m0], defragfns);
+            dictDefragBucket(&d->ht_table[htidx0][v & m0], defragfns);
         }
         de = d->ht_table[htidx0][v & m0];
         while (de) {
@@ -1341,7 +1341,7 @@ unsigned long dictScanDefrag(dict *d,
         do {
             /* Emit entries at cursor */
             if (defragfns) {
-                dictDefragBucket(d, &d->ht_table[htidx1][v & m1], defragfns);
+                dictDefragBucket(&d->ht_table[htidx1][v & m1], defragfns);
             }
             de = d->ht_table[htidx1][v & m1];
             while (de) {

@@ -3024,10 +3024,10 @@ void dismissMemoryInChild(void);
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
 int restartServer(int flags, mstime_t delay);
-unsigned long long int dbSize(const redisDb *db);
+unsigned long long int dbSize(redisDb *db);
 dict *getDict(redisDb *db, sds key);
 dict *getRandomDict(redisDb *db);
-unsigned long dbSlots(const redisDb *db);
+unsigned long dbSlots(redisDb *db);
 void expandDb(const redisDb *db, uint64_t db_size);
 
 /* Set data type */
