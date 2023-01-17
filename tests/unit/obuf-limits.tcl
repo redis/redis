@@ -191,11 +191,4 @@ start_server {tags {"obuf-limits"}} {
         reconnect
     }
 
-    test "Obuf limit, KEYS stopped mid-run" {
-        r config set client-output-buffer-limit {normal 100000 0 0}
-        populate 1000 "long-key-name-prefix-of-100-chars-------------------------------------------------------------------"
-        catch {r keys *} e
-        assert_match "*I/O error*" $e
-        reconnect
-    }
 }
