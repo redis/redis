@@ -1294,7 +1294,7 @@ werr:
 }
 
 ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
-    dictIterator *di;
+    dictIterator *di = NULL;
     dictEntry *de;
     ssize_t written = 0;
     ssize_t res;
@@ -1357,12 +1357,13 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
         }
 
         dictReleaseIterator(di);
+        di = NULL;
     }
     dbReleaseIterator(dbit);
     return written;
 
 werr:
-    dictReleaseIterator(di);
+    if (di) dictReleaseIterator(di);
     return -1;
 }
 
