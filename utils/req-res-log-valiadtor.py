@@ -28,7 +28,7 @@ class Request(object):
             if arg == "__argv_end__":
                 break
             self.argv.append(arg)
-
+        print(self.argv)
         if not self.argv:
             return
 
@@ -85,7 +85,7 @@ class Response(object):
             lineno += 1 + self.json.count("\r\n")
             #print(self.json)
         elif line[0] == '(':
-            self.json = long(line[1:])
+            self.json = line[1:]  # big-number is actually a string
         elif line[0] in ['*', '~']:  # unfortunately JSON doesn't tell the difference between a list and a set
             self.json = []
             count = int(line[1:])

@@ -1112,6 +1112,10 @@ typedef struct {
             size_t bytes;
         } last_node; /* Offset within the reply block list */
     } offset;
+
+    size_t sentlen;
+    int bufpos;
+
 } clientReqResInfo;
 
 typedef struct client {

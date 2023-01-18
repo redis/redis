@@ -74,7 +74,7 @@
 
 /* ----- Helpers ----- */
 
-static size_t reqresAppendBuffer(client *c, void *buf, size_t len) {
+static int reqresShouldLog(client *c) {
     if (!server.req_res_logfile)
         return 0;
 
@@ -82,6 +82,14 @@ static size_t reqresAppendBuffer(client *c, void *buf, size_t len) {
     if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE))
         return 0;
 
+    /* We only work on masters (didn't implement reqresAppendResponse to work on shared slave buffers) */
+    if (getClientType(c) == CLIENT_TYPE_MASTER)
+        return 0;
+
+    return 1;
+}
+
+static size_t reqresAppendBuffer(client *c, void *buf, size_t len) {
     if (!c->reqres.buf) {
         c->reqres.capacity = max(len, 1024);
         c->reqres.buf = zmalloc(c->reqres.capacity);
@@ -113,10 +121,25 @@ size_t reqresAppendRequest(client *c) {
     robj **argv = c->argv;
     int argc = c->argc;
 
-    if (argc == 0)
+    if (!reqresShouldLog(c))
         return 0;
 
-    if (!server.req_res_logfile)
+    serverLog(LL_WARNING, "GUYBE in request");
+    
+    /* At this point we also remember the current reply offset, so that
+     * we won't write the same bytes (in case we couldn't write all pending
+     * data to socket in the previous writeToClient) */
+    memset(&c->reqres.offset, 0, sizeof(c->reqres.offset));
+    if (c->bufpos > 0) {
+        /* Here, `sentlen` represents the offset in the static buffer. */
+        c->reqres.offset.reply_buf = c->sentlen;
+    } else if (listLength(c->reply)) {
+        /* Here, `sentlen` represents the offset in the last reply node. */
+        c->reqres.offset.last_node.index = listLength(c->reply) - 1;
+        c->reqres.offset.last_node.bytes = c->sentlen;
+    }
+
+    if (argc == 0)
         return 0;
 
     /* Ignore commands that have streaming non-standard response */
@@ -129,19 +152,6 @@ size_t reqresAppendRequest(client *c) {
         !strcasecmp(cmd,"psubscribe"))
     {
         return 0;
-    }
-
-    /* At this point we also remember the current reply offset, so that
-     * we won't write the same bytes (in case we couldn't write all pending
-     * data to socket in the previous writeToClient) */
-    memset(&c->reqres.offset, 0, sizeof(c->reqres.offset));
-    if (c->bufpos > 0) {
-        /* Here, `sentlen` represents the offset in the static buffer. */
-        c->reqres.offset.reply_buf = c->sentlen;
-    } else if (listLength(c->reply)) {
-        /* Here, `sentlen` represents the offset in the last reply node. */
-        c->reqres.offset.last_node.index = listLength(c->reply) - 1;
-        c->reqres.offset.last_node.bytes = c->sentlen;
     }
 
     size_t ret = 0;
@@ -162,15 +172,15 @@ size_t reqresAppendRequest(client *c) {
 size_t reqresAppendResponse(client *c) {
     size_t ret = 0;
 
-    if (!server.req_res_logfile)
+    if (!reqresShouldLog(c))
         return 0;
 
-    if (getClientType(c) == CLIENT_TYPE_SLAVE)
-        return 0;
+    serverLog(LL_WARNING, "GUYBE in response");
 
     /* First append the static reply buffer */
     if (c->bufpos > 0) {
-        ret += reqresAppendBuffer(c, c->buf + c->reqres.offset.reply_buf, c->bufpos - c->reqres.offset.reply_buf);
+        ret += reqresAppendBuffer(c, c->buf + c->reqres.sentlen, c->bufpos - c->reqres.sentlen);
+        c->reqres.sentlen += ret;
     }
 
     /* Now, append reply bytes from the reply list */
