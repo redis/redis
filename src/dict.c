@@ -77,7 +77,7 @@ struct dictEntry {
 typedef struct {
     void *key;
     dictEntry *next;
-} dictEntry_no_value;
+} dictEntryNoValue;
 
 /* -------------------------- private prototypes ---------------------------- */
 
@@ -144,7 +144,7 @@ static inline int entryIsNoValue(const dictEntry *de) {
 
 /* Creates an entry without a value field. */
 static inline dictEntry *createEntryNoValue(void *key, dictEntry *next) {
-    dictEntry_no_value *entry = zmalloc(sizeof(*entry));
+    dictEntryNoValue *entry = zmalloc(sizeof(*entry));
     entry->key = key;
     entry->next = next;
     return (dictEntry *)(void *)((uintptr_t)(void *)entry | ENTRY_PTR_NO_VALUE);
@@ -162,7 +162,7 @@ static inline void *decodeMaskedPtr(const dictEntry *de) {
 
 /* Decodes the pointer to an entry without value, when you know it is an entry
  * without value. Hint: Use entryIsNoValue to check. */
-static inline dictEntry_no_value *decodeEntryNoValue(const dictEntry *de) {
+static inline dictEntryNoValue *decodeEntryNoValue(const dictEntry *de) {
     return decodeMaskedPtr(de);
 }
 
@@ -841,7 +841,7 @@ static dictEntry **dictGetNextRef(dictEntry *de) {
 static void dictSetNext(dictEntry *de, dictEntry *next) {
     assert(!entryIsKey(de));
     if (entryIsNoValue(de)) {
-        dictEntry_no_value *entry = decodeEntryNoValue(de);
+        dictEntryNoValue *entry = decodeEntryNoValue(de);
         entry->next = next;
     } else {
         de->next = next;
@@ -1124,7 +1124,7 @@ static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragFunctions
             if (newkey) *bucketref = newkey;
             assert(entryIsKey(*bucketref));
         } else if (entryIsNoValue(de)) {
-            dictEntry_no_value *entry = decodeEntryNoValue(de), *newentry;
+            dictEntryNoValue *entry = decodeEntryNoValue(de), *newentry;
             if ((newentry = defragalloc(entry))) {
                 newde = encodeMaskedPtr(newentry, ENTRY_PTR_NO_VALUE);
                 entry = newentry;
