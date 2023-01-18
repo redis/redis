@@ -802,9 +802,9 @@ void bitcountCommand(client *c) {
     int isbit = 0;
     unsigned char first_byte_neg_mask = 0, last_byte_neg_mask = 0;
 
-    /* Lookup, check for type, and return 0 for non existing keys. */
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_STRING)) return;
+    /* Lookup, check for type. */
+    o = lookupKeyRead(c->db, c->argv[1]);
+    if (checkType(c, o, OBJ_STRING)) return;
     p = getObjectReadOnlyString(o,&strlen,llbuf);
 
     /* Parse start/end range if any. */
@@ -853,6 +853,12 @@ void bitcountCommand(client *c) {
         return;
     }
 
+    /* Return 0 for non existing keys. */
+    if (o == NULL) {
+        addReply(c, shared.czero);
+        return;
+    }
+
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * zero can be returned is: start > end. */
     if (start > end) {
@@ -892,13 +898,7 @@ void bitposCommand(client *c) {
         return;
     }
 
-    /* If the key does not exist, from our point of view it is an infinite
-     * array of 0 bits. If the user is looking for the first clear bit return 0,
-     * If the user is looking for the first set bit, return -1. */
-    if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
-        addReplyLongLong(c, bit ? -1 : 0);
-        return;
-    }
+    o = lookupKeyRead(c->db, c->argv[1]);
     if (checkType(c,o,OBJ_STRING)) return;
     p = getObjectReadOnlyString(o,&strlen,llbuf);
 
@@ -947,6 +947,14 @@ void bitposCommand(client *c) {
     } else {
         /* Syntax error. */
         addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+
+    /* If the key does not exist, from our point of view it is an infinite
+     * array of 0 bits. If the user is looking for the first clear bit return 0,
+     * If the user is looking for the first set bit, return -1. */
+    if (o == NULL) {
+        addReplyLongLong(c, bit ? -1 : 0);
         return;
     }
 

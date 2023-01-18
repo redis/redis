@@ -130,15 +130,20 @@ start_server {tags {"bitops"}} {
         assert_equal [r bitcount s 0 1000 bit] [count_bits $s]
     }
 
-    test {BITCOUNT syntax error #1} {
-        catch {r bitcount s 0} e
-        set e
-    } {ERR *syntax*}
+    test {BITCOUNT with illegal arguments} {
+        # Used to return 0 for non-existing key instead of errors
+        r del s
+        assert_error {ERR *syntax*} {r bitcount s 0}
+        assert_error {ERR *syntax*} {r bitcount s 0 1 hello}
+        assert_error {ERR *syntax*} {r bitcount s 0 1 hello hello2}
+        assert_error {ERR *not an integer*} {r bitcount s a b}
 
-    test {BITCOUNT syntax error #2} {
-        catch {r bitcount s 0 1 hello} e
-        set e
-    } {ERR *syntax*}
+        r set s 1
+        assert_error {ERR *syntax*} {r bitcount s 0}
+        assert_error {ERR *syntax*} {r bitcount s 0 1 hello}
+        assert_error {ERR *syntax*} {r bitcount s 0 1 hello hello2}
+        assert_error {ERR *not an integer*} {r bitcount s a b}
+    }
 
     test {BITCOUNT regression test for github issue #582} {
         r del foo
@@ -256,6 +261,19 @@ start_server {tags {"bitops"}} {
         r set a{t} "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
         r bitop or x{t} a{t} b{t}
     } {32}
+
+    test {BITPOS will illegal arguments} {
+        # Used to return 0 for non-existing key instead of errors
+        r del s
+        assert_error {ERR *syntax*} {r bitpos s 0 1 hello hello2}
+        assert_error {ERR *syntax*} {r bitpos s 0 0 1 hello}
+        assert_error {ERR *not an integer*} {r bitpos s 0 a}
+
+        r set s 1
+        assert_error {ERR *syntax*} {r bitpos s 0 1 hello hello2}
+        assert_error {ERR *syntax*} {r bitpos s 0 0 1 hello}
+        assert_error {ERR *not an integer*} {r bitpos s 0 a}
+    }
 
     test {BITPOS bit=0 with empty key returns 0} {
         r del str
