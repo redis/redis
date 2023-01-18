@@ -511,7 +511,7 @@ dictEntry *dictInsertIntoBucket(dict *d, void *key, dictEntry **bucket) {
  * operation. */
 int dictReplace(dict *d, void *key, void *val)
 {
-    dictEntry *entry, *existing, auxentry;
+    dictEntry *entry, *existing;
 
     /* Try to add the element. If the key
      * does not exists dictAdd will succeed. */
@@ -526,9 +526,10 @@ int dictReplace(dict *d, void *key, void *val)
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
-    auxentry = *existing;
+    void *oldval = dictGetVal(existing);
     dictSetVal(d, existing, val);
-    dictFreeVal(d, &auxentry);
+    if (d->type->valDestructor)
+        d->type->valDestructor(d, oldval);
     return 0;
 }
 
