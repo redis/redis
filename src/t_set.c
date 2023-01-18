@@ -122,16 +122,16 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
         /* Avoid duping the string if it is an sds string. */
         sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
         dict *ht = set->ptr;
-        dictEntry **bucket = dictFindBucketForInsert(ht, sdsval, NULL);
-        if (bucket) {
+        void *position = dictFindPositionForInsert(ht, sdsval, NULL);
+        if (position) {
             /* Key doesn't already exist in the set. Add it but dup the key. */
             if (sdsval == str) sdsval = sdsdup(sdsval);
-            dictInsertIntoBucket(ht, sdsval, bucket);
+            dictInsertAtPosition(ht, sdsval, position);
         } else if (sdsval != str) {
             /* String is already a member. Free our temporary sds copy. */
             sdsfree(sdsval);
         }
-        return (bucket != NULL);
+        return (position != NULL);
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);

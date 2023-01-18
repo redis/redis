@@ -447,21 +447,22 @@ int dictAdd(dict *d, void *key, void *val)
  */
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 {
-    /* Get the bucket of the new key or NULL if the key already exists. */
-    dictEntry **bucket = dictFindBucketForInsert(d, key, existing);
-    if (!bucket) return NULL;
+    /* Get the position for the new key or NULL if the key already exists. */
+    void *position = dictFindPositionForInsert(d, key, existing);
+    if (!position) return NULL;
 
     /* Dup the key if necessary. */
     if (d->type->keyDup) key = d->type->keyDup(d, key);
 
-    return dictInsertIntoBucket(d, key, bucket);
+    return dictInsertAtPosition(d, key, position);
 }
 
-/* Adds a key in the dict's hashtable in the bucket returned by a preceding call
- * to dictFindBucketForInsert. This is a low level function which allows
+/* Adds a key in the dict's hashtable at the position returned by a preceding
+ * call to dictFindPositionForInsert. This is a low level function which allows
  * splitting dictAddRaw in two parts. Normally, dictAddRaw or dictAdd should be
  * used instead. */
-dictEntry *dictInsertIntoBucket(dict *d, void *key, dictEntry **bucket) {
+dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
+    dictEntry **bucket = position; /* It's a bucket, but the API hides that. */
     dictEntry *entry;
     /* If rehashing is ongoing, we insert in table 1, otherwise in table 0.
      * Assert that the provided bucket is the right table. */
@@ -1425,11 +1426,11 @@ static signed char _dictNextExp(unsigned long size)
     }
 }
 
-/* Finds and returns a pointer to the bucket where the provided key should be
- * inserted using dictInsertIntoBucket if the key does not already exist in the
- * dict. If the key exists in the dict, NULL is returned and the optional
+/* Finds and returns the position within the dict where the provided key should
+ * be inserted using dictInsertAtPosition if the key does not already exist in
+ * the dict. If the key exists in the dict, NULL is returned and the optional
  * 'existing' entry pointer is populated, if provided. */
-dictEntry **dictFindBucketForInsert(dict *d, const void *key, dictEntry **existing) {
+void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) {
     unsigned long idx, table;
     dictEntry *he;
     uint64_t hash = dictHashKey(d, key);
@@ -1456,7 +1457,8 @@ dictEntry **dictFindBucketForInsert(dict *d, const void *key, dictEntry **existi
 
     /* If we are in the process of rehashing the hash table, the bucket is
      * always returned in the context of the second (new) hash table. */
-    return &d->ht_table[dictIsRehashing(d) ? 1 : 0][idx];
+    dictEntry **bucket = &d->ht_table[dictIsRehashing(d) ? 1 : 0][idx];
+    return bucket;
 }
 
 void dictEmpty(dict *d, void(callback)(dict*)) {
