@@ -293,6 +293,27 @@ start_server {tags {"modules"}} {
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
     }
 
+    test {Killing a client in the middle of blocking custom auth} {
+        r config resetstat
+        r acl setuser foo >pwd on ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd client id
+        set cid [$rd read]
+
+        # Attempt blocking custom auth command on client `cid` and kill the client while custom auth
+        # is in progress.
+        $rd AUTH foo pwd
+        wait_for_blocked_clients_count 1
+        r client kill id $cid
+
+        # Validate that the blocked client count goes to 0 and no AUTH command is tracked.
+        wait_for_blocked_clients_count 0 500 10
+        $rd flush
+        catch { $rd read } e
+        assert_match {I/O error reading reply} $e
+        assert_match {} [cmdstat auth]
+    }
+
     test {test RM_AbortBlock Module API during blocking custom auth} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all

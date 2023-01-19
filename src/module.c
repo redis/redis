@@ -7424,7 +7424,9 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
  * (4) Skip handling Authentication - Return REDISMODULE_AUTH_NOT_HANDLED without blocking the
  * client. This will allow the engine to attempt the next custom auth callback.
  * If none of the callbacks authenticate or deny auth, then password based auth is attempted
- * and will authenticate or add failure logs and reply to the clients accordingly. */
+ * and will authenticate or add failure logs and reply to the clients accordingly.
+ * Note: If a client is disconnected while it was in the middle of blocking custom auth, that
+ * occurrence of the AUTH or HELLO command will not be tracked in the INFO command stats. */
 void RM_RegisterCustomAuthCallback(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback cb) {
     RedisModuleCustomAuthCtx *auth_ctx = zmalloc(sizeof(RedisModuleCustomAuthCtx));
     auth_ctx->module = ctx->module;
