@@ -60,8 +60,7 @@ static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static unsigned int dict_force_resize_ratio = 5;
 
 /* -------------------------- types ----------------------------------------- */
-
-struct dictEntry {
+typedef struct dictEntry {
     void *key;
     union {
         void *val;
@@ -70,10 +69,7 @@ struct dictEntry {
         double d;
     } v;
     struct dictEntry *next;     /* Next entry in the same hash bucket. */
-    void *metadata[];           /* An arbitrary number of bytes (starting at a
-                                 * pointer-aligned address) of size as returned
-                                 * by dictType's dictEntryMetadataBytes(). */
-};
+} dictEntry;
 
 typedef struct {
     void *key;

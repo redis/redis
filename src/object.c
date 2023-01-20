@@ -1236,14 +1236,14 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        long long keyscount = dbSize(db);
+        unsigned long long keyscount = dbSize(db);
         if (keyscount==0) continue;
 
         mh->total_keys += keyscount;
         mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
         mh->db[mh->num_dbs].dbid = j;
 
-        mem = keyscount * sizeof(dictEntry) +
+        mem = keyscount * dictEntryMemUsage() +
               dbSlots(db) * sizeof(dictEntry*) +
               keyscount * sizeof(robj);
         mh->db[mh->num_dbs].overhead_ht_main = mem;
