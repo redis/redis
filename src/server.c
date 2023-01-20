@@ -448,7 +448,8 @@ dictType setDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     dictSdsDestructor,         /* key destructor */
-    NULL                       /* val destructor */
+    .no_value = 1,             /* no values in this dict */
+    .keys_are_odd = 1          /* an SDS string is always an odd pointer */
 };
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
@@ -471,9 +472,9 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
-    dbDictEntryMetadataSize,    /* size of entry metadata in bytes */
-    dbDictMetadataSize,         /* size of dict metadata in bytes */
-    dbDictAfterReplaceEntry     /* notify entry moved/reallocated */
+    .dictEntryMetadataBytes = dbDictEntryMetadataSize,
+    .dictMetadataBytes = dbDictMetadataSize,
+    .afterReplaceEntry = dbDictAfterReplaceEntry
 };
 
 /* Db->expires */
