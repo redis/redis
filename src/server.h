@@ -2361,12 +2361,10 @@ typedef struct dbIterator {
     int index;
 } dbIterator;
 
-/* dbIterator specific functions */
-dict *dbNextDict(dbIterator *iter);
-dbIterator *dbGetIterator(redisDb *db);
-dbIterator *dbGetIteratorAt(redisDb *db, int slot);
+/* DB iterator specific functions */
+void dbInitIterator(dbIterator *dbit, redisDb *db);
+dict *dbNextDict(dbIterator *dbit);
 dict *dbGetNextUnvisitedSlot(redisDb *db, int *slot);
-void dbReleaseIterator(dbIterator *iter);
 
 /* SCAN specific commands for easy cursor manipulation, shared between main code and modules. */
 int getAndClearSlotIdFromCursor(unsigned long long int *cursor);

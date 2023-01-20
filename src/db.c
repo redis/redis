@@ -48,6 +48,7 @@
 int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 
+/* Returns next dictionary from the iterator, or NULL if iteration is complete. */
 dict *dbNextDict(dbIterator *iter) {
     while (iter->index < iter->db->dict_count - 1) {
         iter->index++;
@@ -59,11 +60,7 @@ dict *dbNextDict(dbIterator *iter) {
     return NULL;
 }
 
-dbIterator *dbGetIterator(redisDb *db) {
-    return dbGetIteratorAt(db, 0);
-}
-
-dbIterator *dbGetIteratorAt(redisDb *db, int slot) {
+void dbInitIteratorAt(dbIterator *dbit, redisDb *db, int slot) {
     serverAssert(slot == 0 || server.cluster_enabled);
     dbIterator *iter = zmalloc(sizeof(*iter));
     iter->db = db;
@@ -71,6 +68,14 @@ dbIterator *dbGetIteratorAt(redisDb *db, int slot) {
     return iter;
 }
 
+/* Returns DB iterator that can be used to iterate through sub-dictionaries.
+ * Primary database contains only one dictionary when node runs without cluster mode,
+ * or 16k dictionaries (one per slot) when node runs with cluster mode enabled. */
+void dbInitIterator(dbIterator *dbit, redisDb *db) {
+    dbInitIteratorAt(dbit, db, 0);
+}
+
+/* Returns next dictionary strictly after provided slot and updates slot id in the supplied reference. */
 dict *dbGetNextUnvisitedSlot(redisDb *db, int *slot) {
     if (*slot < db->dict_count - 1) {
         dbIterator *dbit = dbGetIteratorAt(db, *slot + 1); /* Scan on the current slot has already returned 0, find next non-empty dict. */
@@ -1121,6 +1126,7 @@ cleanup:
 }
 
 void addSlotIdToCursor(int slot, unsigned long long int *cursor) {
+    /* Slot id can be -1 if there are no more slots to visit. */
     if (slot >= 0) {
         *cursor = (*cursor << CLUSTER_SLOT_MASK_BITS) | slot;
     }
