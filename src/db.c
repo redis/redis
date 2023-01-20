@@ -52,12 +52,9 @@ dict *dbNextDict(dbIterator *iter) {
     while (iter->index < iter->db->dict_count - 1) {
         iter->index++;
         dict *d = iter->db->dict[iter->index];
-        if (!server.cluster_enabled) return d; /* There is a single dictionary in non cluster mode. */
-        clusterNode *myself = server.cluster->myself;
-        /* We need a non-empty dictionary that's owned by this node. */
-        if (clusterNodeGetSlotBit(myself, iter->index) && dictSize(d) > 0) {
-            return d;
-        }
+        /* There is a single dictionary in non cluster mode,
+         * in cluster mode return first non-empty sub-dictionary. */
+        if (!server.cluster_enabled || dictSize(d) > 0) return d;
     }
     return NULL;
 }
