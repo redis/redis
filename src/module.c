@@ -287,6 +287,11 @@ static size_t moduleTempClientCount = 0;    /* Client count in pool */
 static size_t moduleTempClientMinCount = 0; /* Min client count in pool since
                                                the last cron. */
 
+/* Flag to determine if any module commands have ACL categories.
+ * Used to recompute the command bits for the existing users to have 
+ * access to module commands once the module is loaded. */
+int module_contains_aclcategories_flag = 0;
+
 /* We need a mutex that is unlocked / relocked in beforeSleep() in order to
  * allow thread safe contexts to execute commands at a safe moment. */
 static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
@@ -1042,7 +1047,6 @@ int matchAclCategoriesFlags(char *flag, int64_t *acl_categories){
         uint64_t this_flag = ACLGetCommandCategoryFlagByName(flag + 1);
         if (this_flag) {
             *acl_categories |= (int64_t) this_flag;
-            serverLog(LL_NOTICE,"Recognized acl category flag %s on module load", flag);
             return REDISMODULE_OK;
         }
     }
@@ -1055,6 +1059,7 @@ int matchAclCategoriesFlags(char *flag, int64_t *acl_categories){
  *
  * It returns the set of flags, or -1 if unknown flags are found. */
 int64_t commandFlagsFromString(char *s, int64_t *acl_categories) {
+    *acl_categories = 0;
     int count, j;
     int64_t flags = 0;
     sds *tokens = sdssplitlen(s,strlen(s)," ",1,&count);
@@ -1192,7 +1197,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * For non-trivial key arguments, you may pass 0,0,0 and use
  * RedisModule_SetCommandInfo to set key specs using a more advanced scheme. */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
-    int64_t acl_categories = 0;
+    int64_t acl_categories;
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags, &acl_categories) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
@@ -1214,9 +1219,10 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     serverAssert(dictAdd(server.orig_commands, sdsdup(declared_name), cp->rediscmd) == DICT_OK);
     cp->rediscmd->id = ACLGetCommandID(declared_name); /* ID used for ACL. */
     cp->rediscmd->acl_categories = acl_categories; /* ACL categories flags for module command */
-    /* If commands have acl_categories, recompute the command bits for the existing 
-     * users to have access to these commands */  
-    if (acl_categories) ACLRecomputeCommandBitsFromCommandRulesAllUsers(); 
+    /* If commands have acl_categories, and if 'module_contains_aclcategories_flag' is already not set to 1,
+     * then set it to 1, to recompute the command bits for the existing users to have access to these
+     * commands once the module is loaded. */ 
+    if (acl_categories && !module_contains_aclcategories_flag) module_contains_aclcategories_flag = 1; 
     return REDISMODULE_OK;
 }
 
@@ -1318,7 +1324,7 @@ RedisModuleCommand *RM_GetCommand(RedisModuleCtx *ctx, const char *name) {
  * * `parent` already has a subcommand called `name`
  */
 int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
-    int64_t acl_categories = 0;
+    int64_t acl_categories;
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags, &acl_categories) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
@@ -1349,9 +1355,10 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     cp->rediscmd->arity = -2;
     cp->rediscmd->acl_categories = acl_categories; /* ACL categories flags for module sub-command */
     commandAddSubcommand(parent_cmd, cp->rediscmd, name);
-    /* If sub-commands have acl_categories, recompute the command bits for the existing 
-     * users to have access to these sub-commands */  
-    if (acl_categories) ACLRecomputeCommandBitsFromCommandRulesAllUsers(); 
+    /* If commands have acl_categories, and if 'module_contains_aclcategories_flag' is already not set to 1,
+     * then set it to 1, to recompute the command bits for the existing users to have access to these
+     * commands once the module is loaded. */
+    if (acl_categories && !module_contains_aclcategories_flag) module_contains_aclcategories_flag = 1; 
     return REDISMODULE_OK;
 }
 
@@ -11608,6 +11615,13 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
         incrRefCount(ctx.module->loadmod->argv[i]);
     }
 
+    /* If module commands have ACL categories, recompute command bits 
+     * for all existing users once the modules has been registered. */
+    ACLRecomputeCommandBitsFromCommandRulesAllUsers();
+    if(module_contains_aclcategories_flag) {
+        ACLRecomputeCommandBitsFromCommandRulesAllUsers();
+        module_contains_aclcategories_flag = 0;
+    }
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
 
     if (listLength(ctx.module->module_configs) && !ctx.module->configs_initialized) {

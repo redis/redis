@@ -627,7 +627,6 @@ void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector,
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->flags & CMD_MODULE && !(cmd->acl_categories)) continue; /* Ignore modules commands unless they have acl category. */
         if (cmd->acl_categories & cflag) {
             ACLChangeSelectorPerm(selector,cmd,value);
         }
@@ -655,6 +654,7 @@ void ACLRecomputeCommandBitsFromCommandRulesAllUsers() {
             int argc = 0;
             sds *argv = sdssplitargs(selector->command_rules, &argc);
             serverAssert(argv != NULL);
+            /* Checking selector's permissions for all commands to start with a clean state. */
             if (ACLSelectorCanExecuteFutureCommands(selector)) {
                 int res = ACLSetSelector(selector,"+@all",-1);
                 serverAssert(res == C_OK);
