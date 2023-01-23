@@ -288,8 +288,9 @@ void computeDatasetDigest(unsigned char *final) {
         redisDb *db = server.db+j;
         int hasEntries = 0;
         dict *d;
-        dbIterator *dbit = dbGetIterator(db);
-        while ((d = dbNextDict(dbit))) {
+        dbIterator dbit;
+        dbInitIterator(&dbit, db);
+        while ((d = dbNextDict(&dbit))) {
             if (dictSize(d) == 0) continue;
             hasEntries = 1;
             di = dictGetSafeIterator(d);
@@ -314,7 +315,6 @@ void computeDatasetDigest(unsigned char *final) {
             }
             dictReleaseIterator(di);
         }
-        dbReleaseIterator(dbit);
         if (hasEntries) {
             /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
             aux = htonl(j);

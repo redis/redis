@@ -589,12 +589,12 @@ int htNeedsResize(dict *dict) {
  * we resize the hash table to save memory */
 void tryResizeHashTables(int dbid) {
     dict *d;
-    dbIterator *dbit = dbGetIterator(&server.db[dbid]);
-    while ((d = dbNextDict(dbit))) {
+    dbIterator dbit;
+    dbInitIterator(&dbit, &server.db[dbid]);
+    while ((d = dbNextDict(&dbit))) {
         if (htNeedsResize(d))
             dictResize(d);
     }
-    dbReleaseIterator(dbit);
     if (htNeedsResize(server.db[dbid].expires))
         dictResize(server.db[dbid].expires);
 }

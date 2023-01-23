@@ -49,10 +49,10 @@ int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 
 /* Returns next dictionary from the iterator, or NULL if iteration is complete. */
-dict *dbNextDict(dbIterator *iter) {
-    while (iter->index < iter->db->dict_count - 1) {
-        iter->index++;
-        dict *d = iter->db->dict[iter->index];
+dict *dbNextDict(dbIterator *dbit) {
+    while (dbit->index < dbit->db->dict_count - 1) {
+        dbit->index++;
+        dict *d = dbit->db->dict[dbit->index];
         /* There is a single dictionary in non cluster mode,
          * in cluster mode return first non-empty sub-dictionary. */
         if (!server.cluster_enabled || dictSize(d) > 0) return d;
@@ -62,10 +62,8 @@ dict *dbNextDict(dbIterator *iter) {
 
 void dbInitIteratorAt(dbIterator *dbit, redisDb *db, int slot) {
     serverAssert(slot == 0 || server.cluster_enabled);
-    dbIterator *iter = zmalloc(sizeof(*iter));
-    iter->db = db;
-    iter->index = slot - 1; /* Start one slot ahead, as dbNextDict increments index right away. */
-    return iter;
+    dbit->db = db;
+    dbit->index = slot - 1; /* Start one slot ahead, as dbNextDict increments index right away. */
 }
 
 /* Returns DB iterator that can be used to iterate through sub-dictionaries.
@@ -78,20 +76,16 @@ void dbInitIterator(dbIterator *dbit, redisDb *db) {
 /* Returns next dictionary strictly after provided slot and updates slot id in the supplied reference. */
 dict *dbGetNextUnvisitedSlot(redisDb *db, int *slot) {
     if (*slot < db->dict_count - 1) {
-        dbIterator *dbit = dbGetIteratorAt(db, *slot + 1); /* Scan on the current slot has already returned 0, find next non-empty dict. */
-        dict *dict = dbNextDict(dbit);
+        dbIterator dbit;
+        dbInitIteratorAt(&dbit, db, *slot + 1); /* Scan on the current slot has already returned 0, find next non-empty dict. */
+        dict *dict = dbNextDict(&dbit);
         if (dict != NULL) {
-            *slot = dbit->index;
+            *slot = dbit.index;
             return dict;
         }
-        dbReleaseIterator(dbit);
     }
     *slot = -1;
     return NULL;
-}
-
-void dbReleaseIterator(dbIterator *iter) {
-    zfree(iter);
 }
 
 /* Update LFU when an object is accessed.
@@ -832,8 +826,9 @@ void keysCommand(client *c) {
     long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
     dict *d;
-    dbIterator *dbit = dbGetIterator(c->db);
-    while ((d = dbNextDict(dbit))) {
+    dbIterator dbit;
+    dbInitIterator(&dbit, c->db);
+    while ((d = dbNextDict(&dbit))) {
         if (dictSize(d) == 0) continue;
         di = dictGetSafeIterator(d);
         allkeys = (pattern[0] == '*' && plen == 1);
@@ -853,7 +848,6 @@ void keysCommand(client *c) {
             break;}
         dictReleaseIterator(di);
     }
-    dbReleaseIterator(dbit);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
@@ -1154,22 +1148,22 @@ void dbsizeCommand(client *c) {
 unsigned long long int dbSize(redisDb *db) {
     unsigned long long size = 0;
     dict *d;
-    dbIterator *dbit = dbGetIterator(db);
-    while ((d = dbNextDict(dbit))) {
+    dbIterator dbit;
+    dbInitIterator(&dbit, db);
+    while ((d = dbNextDict(&dbit))) {
         size += dictSize(d);
     }
-    dbReleaseIterator(dbit);
     return size;
 }
 
 unsigned long dbSlots(redisDb *db) {
     unsigned long slots = 0;
     dict *d;
-    dbIterator *dbit = dbGetIterator(db);
-    while ((d = dbNextDict(dbit))) {
+    dbIterator dbit;
+    dbInitIterator(&dbit, db);
+    while ((d = dbNextDict(&dbit))) {
         slots += dictSlots(d);
     }
-    dbReleaseIterator(dbit);
     return slots;
 }
 
@@ -1843,12 +1837,12 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
 void expandDb(const redisDb *db, uint64_t db_size) {
     if (server.cluster_enabled) {
         dict *d;
-        dbIterator *dbit = dbGetIterator((redisDb *) db);
-        while ((d = dbNextDict(dbit))) {
+        dbIterator dbit;
+        dbInitIterator(&dbit, (redisDb *) db);
+        while ((d = dbNextDict(&dbit))) {
             /* We don't exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */
             dictExpand(d, (db_size / server.cluster->myself->numslots));
         }
-        dbReleaseIterator(dbit);
     } else {
         dictExpand(db->dict[0], db_size);
     }
@@ -2599,8 +2593,9 @@ void dbGetStats(char *buf, size_t bufsize, redisDb *db) {
     dictStats *mainHtStats = NULL;
     dictStats *rehashHtStats = NULL;
     dict *d;
-    dbIterator *dbit = dbGetIterator(db);
-    while ((d = dbNextDict(dbit))) {
+    dbIterator dbit;
+    dbInitIterator(&dbit, db);
+    while ((d = dbNextDict(&dbit))) {
         dictStats *stats = dictGetStatsHt(d, 0);
         if (!mainHtStats) mainHtStats = stats;
         else {
@@ -2616,7 +2611,6 @@ void dbGetStats(char *buf, size_t bufsize, redisDb *db) {
             }
         }
     }
-    dbReleaseIterator(dbit);
     l = dictGetStatsMsg(buf, bufsize, mainHtStats);
     dictFreeStats(mainHtStats);
     buf += l;
