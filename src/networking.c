@@ -139,6 +139,7 @@ client *createClient(connection *conn) {
     atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
 #ifdef LOG_REQ_RES
+    memset(&c->reqres, 0, sizeof(c->reqres));
     c->resp = server.client_default_resp;
 #else
     c->resp = 2;
@@ -167,7 +168,6 @@ client *createClient(connection *conn) {
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;
-    c->reqres.sentlen = 0;
     c->flags = 0;
     c->slot = -1;
     c->ctime = c->lastinteraction = server.unixtime;
@@ -1822,7 +1822,6 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
         if (remaining >= buf_len) {
             c->bufpos = 0;
             c->sentlen = 0;
-            c->reqres.sentlen = 0;
         }
         remaining -= buf_len;
     }
@@ -1838,7 +1837,6 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
         c->reply_bytes -= o->size;
         listDelNode(c->reply, next);
         c->sentlen = 0;
-        c->reqres.sentlen = 0;
     }
 
     return C_OK;
@@ -1896,7 +1894,6 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         if ((int)c->sentlen == c->bufpos) {
             c->bufpos = 0;
             c->sentlen = 0;
-            c->reqres.sentlen = 0;
         }
     } 
 
@@ -1962,7 +1959,6 @@ int writeToClient(client *c, int handler_installed) {
     }
     if (!clientHasPendingReplies(c)) {
         c->sentlen = 0;
-        c->reqres.sentlen = 0;
         /* Note that writeToClient() is called in a threaded way, but
          * aeDeleteFileEvent() is not thread safe: however writeToClient()
          * is always called with handler_installed set to 0 from threads

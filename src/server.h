@@ -170,7 +170,7 @@ typedef struct redisObject robj;
 
 /* Protocol and I/O related defines */
 #define PROTO_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
-#define PROTO_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
+#define PROTO_REPLY_CHUNK_BYTES (8) /* 16k output buffer */
 #define PROTO_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
@@ -1106,15 +1106,13 @@ typedef struct {
     size_t capacity;
     /* Vars for offsets within the client's reply */
     struct {
-        size_t reply_buf; /* Offset within the static reply buffer */
+        int bufpos; /* Offset within the static reply buffer */
         struct {
             int index;
-            size_t bytes;
+            size_t used;
         } last_node; /* Offset within the reply block list */
     } offset;
 
-    size_t sentlen;
-    int bufpos;
 
 } clientReqResInfo;
 

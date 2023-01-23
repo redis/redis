@@ -125,22 +125,18 @@ size_t reqresAppendRequest(client *c) {
         return 0;
 
     serverLog(LL_WARNING, "GUYBE in request");
-    
-    /* At this point we also remember the current reply offset, so that
-     * we won't write the same bytes (in case we couldn't write all pending
-     * data to socket in the previous writeToClient) */
-    memset(&c->reqres.offset, 0, sizeof(c->reqres.offset));
-    if (c->bufpos > 0) {
-        /* Here, `sentlen` represents the offset in the static buffer. */
-        c->reqres.offset.reply_buf = c->sentlen;
-    } else if (listLength(c->reply)) {
-        /* Here, `sentlen` represents the offset in the last reply node. */
-        c->reqres.offset.last_node.index = listLength(c->reply) - 1;
-        c->reqres.offset.last_node.bytes = c->sentlen;
-    }
 
     if (argc == 0)
         return 0;
+
+    c->reqres.offset.bufpos = c->bufpos;
+    if (listLength(c->reply)) {
+        c->reqres.offset.last_node.index = listLength(c->reply) - 1;
+        c->reqres.offset.last_node.used = ((clientReplyBlock *)listNodeValue(listLast(c->reply)))->used;
+    } else {
+        c->reqres.offset.last_node.index = 0;
+        c->reqres.offset.last_node.used = 0;
+    }
 
     /* Ignore commands that have streaming non-standard response */
     sds cmd = argv[0]->ptr;
@@ -178,33 +174,53 @@ size_t reqresAppendResponse(client *c) {
     serverLog(LL_WARNING, "GUYBE in response");
 
     /* First append the static reply buffer */
-    if (c->bufpos > 0) {
-        ret += reqresAppendBuffer(c, c->buf + c->reqres.sentlen, c->bufpos - c->reqres.sentlen);
-        c->reqres.sentlen += ret;
+    if (c->bufpos > c->reqres.offset.bufpos) {
+        serverLog(LL_WARNING, "GUYBE bufpos %d", c->bufpos);
+        size_t written = reqresAppendBuffer(c, c->buf + c->reqres.offset.bufpos, c->bufpos - c->reqres.offset.bufpos);
+        ret += written;
+    }
+
+    int curr_index = 0;
+    size_t curr_used = 0;
+    if (listLength(c->reply)) {
+        curr_index = listLength(c->reply) - 1;
+        curr_used = ((clientReplyBlock *)listNodeValue(listLast(c->reply)))->used;
     }
 
     /* Now, append reply bytes from the reply list */
-    int i = 0;
-    listIter iter;
-    listNode *curr;
-    clientReplyBlock *o;
-    listRewind(c->reply, &iter);
-    while ((curr = listNext(&iter)) != NULL) {
-        /* Skip nodes we had already processed */
-        if (i++ < c->reqres.offset.last_node.index)
-            continue;
-        o = listNodeValue(curr);
-        if (o->used == 0)
-            continue;
+    if (curr_index > c->reqres.offset.last_node.index ||
+        curr_used > c->reqres.offset.last_node.used)
+    {
+        int i = 0;
+        serverLog(LL_WARNING, "GUYBE in reply list");
+        listIter iter;
+        listNode *curr;
+        clientReplyBlock *o;
+        listRewind(c->reply, &iter);
+        while ((curr = listNext(&iter)) != NULL) {
+            size_t written;
 
-        if (i == c->reqres.offset.last_node.index) {
-            /* Write the potentially incomplete node from last writeToClient */
-            ret += reqresAppendBuffer(c,
-                                      o->buf + c->reqres.offset.last_node.bytes,
-                                      o->used - c->reqres.offset.last_node.bytes);
-        } else {
-            /* New node */
-            ret += reqresAppendBuffer(c, o->buf, o->used);
+            /* Skip nodes we had already processed */
+            if (i < c->reqres.offset.last_node.index) {
+                i++;
+                continue;
+            }
+            o = listNodeValue(curr);
+            if (o->used == 0) {
+                i++;
+                continue;
+            }
+            if (i == c->reqres.offset.last_node.index) {
+                /* Write the potentially incomplete node from last writeToClient */
+                written = reqresAppendBuffer(c,
+                                             o->buf + c->reqres.offset.last_node.used,
+                                             o->used - c->reqres.offset.last_node.used);
+            } else {
+                /* New node */
+                written = reqresAppendBuffer(c, o->buf, o->used);
+            }
+            ret += written;
+            i++;
         }
     }
 
