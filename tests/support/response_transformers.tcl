@@ -16,13 +16,23 @@ proc transfrom_map_to_tupple_array {argv response} {
 }
 
 # Transform an array of tuples to a flat array
-# e.g. HRANDFIELD returns an array of tuples in RESP3, but a flat array in RESP2
 proc transfrom_tuple_array_to_flat_array {argv response} {
     set flatarray {}
     foreach pair $response {
         lappend flatarray {*}$pair
     }
     return $flatarray
+}
+
+# With HRANDFIELD, we only need to transform the response if the request had WITHVALUES
+# (otherwise the returned response is a flat array in both RESPs)
+proc transfrom_hrandfield_command {argv response} {
+    foreach ele $argv {
+        if {[string compare -nocase $ele "WITHVALUES"] == 0} {
+            return [transfrom_tuple_array_to_flat_array $argv $response]
+        }
+    }
+    return $response
 }
 
 # With some zset commands, we only need to transform the response if the request had WITHSCORES
@@ -48,7 +58,7 @@ proc transfrom_zpopmin_zpopmax {argv response} {
 set ::trasformer_funcs {
     XREAD transfrom_map_to_tupple_array
     XREADGROUP transfrom_map_to_tupple_array
-    HRANDFIELD transfrom_tuple_array_to_flat_array
+    HRANDFIELD transfrom_hrandfield_command
     ZRANDMEMBER transfrom_zset_withscores_command
     ZRANGE transfrom_zset_withscores_command
     ZRANGEBYSCORE transfrom_zset_withscores_command

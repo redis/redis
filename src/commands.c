@@ -8546,7 +8546,7 @@ struct jsonObject XPENDING_ReplySchema_oneOf_1_items_3_items_items_0 = {XPENDING
 /* XPENDING_ReplySchema_oneOf_1_items_3_items_items_1 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_1_items_3_items_items_1_elements[] = {
 {"description",JSON_TYPE_STRING,.value.string="Number of pending messages"},
-{"type",JSON_TYPE_STRING,.value.string="number"},
+{"type",JSON_TYPE_STRING,.value.string="string"},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_1_items_3_items_items_1 = {XPENDING_ReplySchema_oneOf_1_items_3_items_items_1_elements,.length=2};

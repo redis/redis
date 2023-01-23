@@ -105,7 +105,7 @@
                                     },
                                     {
                                         "description": "Number of pending messages",
-                                        "type": "number"
+                                        "type": "string"
                                     }
                                 ]
                             }

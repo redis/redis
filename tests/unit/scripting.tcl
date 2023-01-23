@@ -680,6 +680,7 @@ start_server {tags {"scripting"}} {
         assert_equal $res $expected_list
     } {} {resp3}
 
+    if {!$::log_req_res} {
     test {Script return recursive object} {
         r readraw 1
         set res [run_script {local a = {}; local b = {a}; a[1] = b; return a} 0]
@@ -694,6 +695,7 @@ start_server {tags {"scripting"}} {
         r readraw 0
         # make sure the connection is still valid
         assert_equal [r ping] {PONG}
+    }
     }
 
     test {Script check unpack with massive arguments} {

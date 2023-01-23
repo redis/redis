@@ -28,7 +28,7 @@ class Request(object):
             if arg == "__argv_end__":
                 break
             self.argv.append(arg)
-        print(self.argv)
+
         if not self.argv:
             return
 
@@ -83,7 +83,6 @@ class Response(object):
             self.json = str(f.read(int(line[1:])))[4:]   # skip "txt:" or "mkd:"
             f.read(2)  # read \r\n
             lineno += 1 + self.json.count("\r\n")
-            #print(self.json)
         elif line[0] == '(':
             self.json = line[1:]  # big-number is actually a string
         elif line[0] in ['*', '~']:  # unfortunately JSON doesn't tell the difference between a list and a set
@@ -97,9 +96,15 @@ class Response(object):
             count = int(line[1:])
             for i in range(count):
                 field = Response(f)
-                assert isinstance(field.json, str)
+                # Redis allows fields to be non-strings but JSON doesn't.
+                # Luckily, for any kind of response we can validate, the fields are
+                # always string (exmaple: XINFO STREAM)
+                # The reason we can't always convert to string is because of DEBUG PROTOCOL MAP
+                # which anyway doesn't have a schema
+                if isinstance(field.json, str):
+                    field = field.json
                 value = Response(f)
-                self.json[str(field)[1:-1]] = value.json
+                self.json[field] = value.json
 
     def __str__(self):
         return json.dumps(self.json)
@@ -174,7 +179,7 @@ if __name__ == '__main__':
                     jsonschema.validate(instance=res.json, schema=req.schema)
                 except jsonschema.ValidationError as err:
                     print(f"JSON schema validation error on {filename}: {err}")
-                    print(f"Command: {req.command}")
+                    print(f"argv: {req.argv}")
                     try:
                         print(f"Response: {res}")
                     except UnicodeDecodeError as err:
