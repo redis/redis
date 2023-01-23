@@ -611,6 +611,12 @@ void loadServerConfigFromString(char *config) {
         goto loaderr;
     }
 
+    /* in case cluster mode is enabled dbnum must be 1 */
+    if (server.cluster_enabled && server.dbnum > 1) {
+        serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
+        server.dbnum = 1;
+    }
+
     /* To ensure backward compatibility and work while hz is out of range */
     if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
     if (server.config_hz > CONFIG_MAX_HZ) server.config_hz = CONFIG_MAX_HZ;
@@ -983,8 +989,8 @@ void configGetCommand(client *c) {
             /* Note that hidden configs require an exact match (not a pattern) */
             if (config->flags & HIDDEN_CONFIG) continue;
             if (dictFind(matches, config->name)) continue;
-            if (stringmatch(name, de->key, 1)) {
-                dictAdd(matches, de->key, config);
+            if (stringmatch(name, dictGetKey(de), 1)) {
+                dictAdd(matches, dictGetKey(de), config);
             }
         }
         dictReleaseIterator(di);
@@ -994,7 +1000,7 @@ void configGetCommand(client *c) {
     addReplyMapLen(c, dictSize(matches));
     while ((de = dictNext(di)) != NULL) {
         standardConfig *config = (standardConfig *) dictGetVal(de);
-        addReplyBulkCString(c, de->key);
+        addReplyBulkCString(c, dictGetKey(de));
         addReplyBulkSds(c, config->interface.get(config));
     }
     dictReleaseIterator(di);
@@ -1748,7 +1754,7 @@ int rewriteConfig(char *path, int force_write) {
         standardConfig *config = dictGetVal(de);
         /* Only rewrite the primary names */
         if (config->flags & ALIAS_CONFIG) continue;
-        if (config->interface.rewrite) config->interface.rewrite(config, de->key, state);
+        if (config->interface.rewrite) config->interface.rewrite(config, dictGetKey(de), state);
     }
     dictReleaseIterator(di);
 
@@ -2904,7 +2910,7 @@ static sds getConfigReplicaOfOption(standardConfig *config) {
 
 int allowProtectedAction(int config, client *c) {
     return (config == PROTECTED_ACTION_ALLOWED_YES) ||
-           (config == PROTECTED_ACTION_ALLOWED_LOCAL && islocalClient(c));
+           (config == PROTECTED_ACTION_ALLOWED_LOCAL && (connIsLocal(c->conn) == 1));
 }
 
 

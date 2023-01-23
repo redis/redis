@@ -1091,10 +1091,9 @@ unsigned long functionsMemory() {
 
 /* Return memory overhead of all the engines combine */
 unsigned long functionsMemoryOverhead() {
-    size_t memory_overhead = dictSize(engines) * sizeof(dictEntry) +
-            dictSlots(engines) * sizeof(dictEntry*);
-    memory_overhead += dictSize(curr_functions_lib_ctx->functions) * sizeof(dictEntry) +
-            dictSlots(curr_functions_lib_ctx->functions) * sizeof(dictEntry*) + sizeof(functionsLibCtx);
+    size_t memory_overhead = dictMemUsage(engines);
+    memory_overhead += dictMemUsage(curr_functions_lib_ctx->functions);
+    memory_overhead += sizeof(functionsLibCtx);
     memory_overhead += curr_functions_lib_ctx->cache_memory;
     memory_overhead += engine_cache_memory;
 

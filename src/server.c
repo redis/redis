@@ -399,11 +399,22 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
 /* Returns the size of the DB dict entry metadata in bytes. In cluster mode, the
  * metadata is used for constructing a doubly linked list of the dict entries
  * belonging to the same cluster slot. See the Slot to Key API in cluster.c. */
-size_t dictEntryMetadataSize(dict *d) {
+size_t dbDictEntryMetadataSize(dict *d) {
     UNUSED(d);
     /* NOTICE: this also affects overhead_ht_slot_to_keys in getMemoryOverheadData.
      * If we ever add non-cluster related data here, that code must be modified too. */
     return server.cluster_enabled ? sizeof(clusterDictEntryMetadata) : 0;
+}
+
+/* Returns the size of the DB dict metadata in bytes. In cluster mode, we store
+ * a pointer to the db in the main db dict, used for updating the slot-to-key
+ * mapping when a dictEntry is reallocated. */
+size_t dbDictMetadataSize(void) {
+    return server.cluster_enabled ? sizeof(clusterDictMetadata) : 0;
+}
+
+void dbDictAfterReplaceEntry(dict *d, dictEntry *de) {
+    if (server.cluster_enabled) slotToKeyReplaceEntry(d, de);
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -437,7 +448,8 @@ dictType setDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     dictSdsDestructor,         /* key destructor */
-    NULL                       /* val destructor */
+    .no_value = 1,             /* no values in this dict */
+    .keys_are_odd = 1          /* an SDS string is always an odd pointer */
 };
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
@@ -460,7 +472,9 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
-    dictEntryMetadataSize       /* size of entry metadata in bytes */
+    .dictEntryMetadataBytes = dbDictEntryMetadataSize,
+    .dictMetadataBytes = dbDictMetadataSize,
+    .afterReplaceEntry = dbDictAfterReplaceEntry
 };
 
 /* Db->expires */
@@ -622,13 +636,15 @@ int incrementallyRehash(int dbid) {
  * as we want to avoid resizing the hash tables when there is a child in order
  * to play well with copy-on-write (otherwise when a resize happens lots of
  * memory pages are copied). The goal of this function is to update the ability
- * for dict.c to resize the hash tables accordingly to the fact we have an
+ * for dict.c to resize or rehash the tables accordingly to the fact we have an
  * active fork child running. */
 void updateDictResizePolicy(void) {
-    if (!hasActiveChildProcess())
-        dictEnableResize();
+    if (server.in_fork_child != CHILD_TYPE_NONE)
+        dictSetResizeEnabled(DICT_RESIZE_FORBID);
+    else if (hasActiveChildProcess())
+        dictSetResizeEnabled(DICT_RESIZE_AVOID);
     else
-        dictDisableResize();
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
 }
 
 const char *strChildType(int type) {
@@ -6496,6 +6512,7 @@ int redisFork(int purpose) {
         server.in_fork_child = purpose;
         setupChildSignalHandlers();
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
+        updateDictResizePolicy();
         dismissMemoryInChild();
         closeChildUnusedResourceAfterFork();
         /* Close the reading part, so that if the parent crashes, the child will
@@ -7202,12 +7219,7 @@ int main(int argc, char **argv) {
         aofOpenIfNeededOnServerStart();
         aofDelHistoryFiles();
         if (server.cluster_enabled) {
-            if (verifyClusterConfigWithData() == C_ERR) {
-                serverLog(LL_WARNING,
-                    "You can't have keys in a DB different than DB 0 when in "
-                    "Cluster mode. Exiting.");
-                exit(1);
-            }
+            serverAssert(verifyClusterConfigWithData() == C_OK);
         }
 
         for (j = 0; j < CONN_TYPE_MAX; j++) {

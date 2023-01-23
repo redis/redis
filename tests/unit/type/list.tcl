@@ -1263,6 +1263,16 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             $rd close
         }
 
+        test "$pop: with 0.001 timeout should not block indefinitely" {
+            # Use a timeout of 0.001 and wait for the number of blocked clients to equal 0.
+            # Validate the empty read from the deferring client.
+            set rd [redis_deferring_client]
+            bpop_command $rd $pop blist1 0.001
+            wait_for_blocked_clients_count 0
+            assert_equal {} [$rd read]
+            $rd close
+        }
+
         test "$pop: second argument is not a list" {
             set rd [redis_deferring_client]
             r del blist1{t} blist2{t}

@@ -228,7 +228,6 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
     dictEntry *de = dictFind(db->dict,key->ptr);
 
     serverAssertWithInfo(NULL,key,de != NULL);
-    dictEntry auxentry = *de;
     robj *old = dictGetVal(de);
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
@@ -246,17 +245,15 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
         decrRefCount(old);
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetVal(de);
-        /* Entry in auxentry may be changed, so we need update auxentry */
-        auxentry = *de;
     }
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
         freeObjAsync(key,old,db->id);
-        dictSetVal(db->dict, &auxentry, NULL);
+    } else {
+        /* This is just decrRefCount(old); */
+        db->dict->type->valDestructor(db->dict, old);
     }
-
-    dictFreeVal(db->dict, &auxentry);
 }
 
 /* Replace an existing key with a new value, we just replace value and don't
@@ -786,6 +783,8 @@ void keysCommand(client *c) {
             }
             decrRefCount(keyobj);
         }
+        if (c->flags & CLIENT_CLOSE_ASAP)
+            break;
     }
     dictReleaseIterator(di);
     setDeferredArrayLen(c,replylen,numkeys);
@@ -942,7 +941,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         privdata[0] = keys;
         privdata[1] = o;
         do {
-            cursor = dictScan(ht, cursor, scanCallback, NULL, privdata);
+            cursor = dictScan(ht, cursor, scanCallback, privdata);
         } while (cursor &&
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
