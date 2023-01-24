@@ -5343,7 +5343,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     /* Add the additional endpoint information, this is all the known networking information
      * that is not the preferred endpoint. Note the logic is evaluated twice so we can
      * correctly report the number of additional network arguments without using a deferred
-     * map. */
+     * map, an assertion is made at the end to check we set the right length. */
     int length = 0;
     if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_IP) {
         length++;
@@ -5358,13 +5358,16 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_IP) {
         addReplyBulkCString(c, "ip");
         addReplyBulkCString(c, node->ip);
+        length--;
     }
     if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_HOSTNAME
         && sdslen(node->hostname) != 0)
     {
         addReplyBulkCString(c, "hostname");
         addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
+        length--;
     }
+    serverAssert(length == 0);
 }
 
 void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
@@ -5384,7 +5387,9 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
          * with modifications for per-slot node aggregation. */
         if (!isReplicaAvailable(node->slaves[i])) continue;
         addNodeToNodeReply(c, node->slaves[i]);
+        nested_elements--;
     }
+    serverAssert(nested_elements == 3); /* Original 3 elements */
 }
 
 /* Add detailed information of a node to the output buffer of the given client. */
