@@ -564,10 +564,6 @@ int performEvictions(void) {
     int slaves = listLength(server.slaves);
     int result = EVICT_FAIL;
     
-    //serverLog(LL_WARNING,"-------------------------------------------------");
-    //serverLog(LL_WARNING,"Current maxmemory reserved scale is: %d",server.maxmemory_reserved_scale);
-    //serverLog(LL_WARNING,"Current maxmemory reserved size is: %lld",server.maxmemory_reserved);
-    //serverLog(LL_WARNING,"Current maxmemory is: %lld",server.maxmemory);
     if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree,NULL) == C_OK) {
         result = EVICT_OK;
         goto update_metrics;

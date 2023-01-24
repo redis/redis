@@ -2463,7 +2463,7 @@ static int updateReplBacklogSize(const char **err) {
     return 1;
 }
 
-static int updateMaxmemoryReserved(const char **err){
+static int updateMaxmemoryReserved(const char **err) {
     UNUSED(err);
     if (server.maxmemory_reserved_scale) {
         if (server.maxmemory_reserved_scale < 10) {
