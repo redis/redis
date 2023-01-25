@@ -3214,6 +3214,18 @@ void clusterSendMessage(clusterLink *link, clusterMsgSendBlock *msgblock) {
         server.cluster->stats_bus_messages_sent[type]++;
 }
 
+
+/*
+ * Verify if a message can be sent to the provided node.
+ */
+static int isNodeAndLinkValidToSendMessage(clusterNode *node) {
+    if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
+        return 0;
+    if (!node->link)
+        return 0;
+    return 1;
+}
+
 /* Send a message to all the nodes that are part of the cluster having
  * a connected link.
  *
@@ -3227,11 +3239,9 @@ void clusterBroadcastMessage(clusterMsgSendBlock *msgblock) {
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
-
-        if (!node->link) continue;
-        if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
-            continue;
-        clusterSendMessage(node->link,msgblock);
+        if (isNodeAndLinkValidToSendMessage(node)) {
+            clusterSendMessage(node->link,msgblock);
+        }
     }
     dictReleaseIterator(di);
 }
@@ -3622,7 +3632,7 @@ void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
     msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
     while((ln = listNext(&li))) {
         clusterNode *node = listNodeValue(ln);
-        if (node != myself) {
+        if (isNodeAndLinkValidToSendMessage(node)) {
             clusterSendMessage(node->link,msgblock);
         }
     }
