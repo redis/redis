@@ -448,7 +448,7 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
      * that weren't pre-declared. */
     if (hashslot != -1) {
         if (run_ctx->flags & SCRIPT_ALLOW_CROSS_SLOT) {
-           original_c->db->command_slot = -1; /* Clear command slot for multislot scripts because script may access keys from differen slots. */
+           original_c->db->command_slot = -1; /* Clear command slot for multislot scripts because script may access keys from different slots. */
         } else {
             if (original_c->slot == -1) {
                 original_c->slot = hashslot;

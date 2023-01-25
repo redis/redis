@@ -2237,6 +2237,9 @@ int rewriteAppendOnlyFileRio(rio *aof) {
 
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
+        /* SELECT the new DB */
+        if (rioWrite(aof, selectcmd, sizeof(selectcmd) - 1) == 0) goto werr;
+        if (rioWriteBulkLongLong(aof, j) == 0) goto werr;
         redisDb *db = server.db + j;
         dict *d;
         dbIterator dbit;
@@ -2244,11 +2247,6 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         while ((d = dbNextDict(&dbit))) {
             if (dictSize(d) == 0) continue;
             di = dictGetSafeIterator(d);
-
-            /* SELECT the new DB */
-            if (rioWrite(aof, selectcmd, sizeof(selectcmd) - 1) == 0) goto werr;
-            if (rioWriteBulkLongLong(aof, j) == 0) goto werr;
-
             /* Iterate this DB writing every entry */
             while ((de = dictNext(di)) != NULL) {
                 sds keystr;
