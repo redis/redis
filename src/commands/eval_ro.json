@@ -51,13 +51,13 @@
                 "name": "key",
                 "type": "key",
                 "key_spec_index": 0,
-		"optional":true,
+                "optional":true,
                 "multiple": true
             },
             {
                 "name": "arg",
                 "type": "string",
-		"optional":true,
+                "optional":true,
                 "multiple": true
             }
         ]
