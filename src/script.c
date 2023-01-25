@@ -446,13 +446,17 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
     /* If the script declared keys in advanced, the cross slot error would have
      * already been thrown. This is only checking for cross slot keys being accessed
      * that weren't pre-declared. */
-    if (hashslot != -1 && !(run_ctx->flags & SCRIPT_ALLOW_CROSS_SLOT)) {
-        if (original_c->slot == -1) {
-            original_c->slot = hashslot;
-        } else if (original_c->slot != hashslot) {
-            *err = sdsnew("Script attempted to access keys that do not hash to "
-                    "the same slot");
-            return C_ERR;
+    if (hashslot != -1) {
+        if (run_ctx->flags & SCRIPT_ALLOW_CROSS_SLOT) {
+           original_c->db->command_slot = -1; /* Clear command slot for multislot scripts because script may access keys from differen slots. */
+        } else {
+            if (original_c->slot == -1) {
+                original_c->slot = hashslot;
+            } else if (original_c->slot != hashslot) {
+                *err = sdsnew("Script attempted to access keys that do not hash to "
+                              "the same slot");
+                return C_ERR;
+            }
         }
     }
     return C_OK;

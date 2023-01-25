@@ -959,7 +959,7 @@ typedef struct redisDb {
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
     list *rehashing;            /* List of dictionaries in this DB that are currently rehashing. */
     int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
-    dict *current_dict;         /* Slot specific dictionary used in the current command, in cluster mode. */
+    int command_slot;           /* Slot that is used by the current command that uses DB, -1 if cluster mode is disabled, or if command uses multiple slots. */
 } redisDb;
 
 /* forward declaration for functions ctx */
