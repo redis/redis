@@ -178,5 +178,6 @@ int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, s
 int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi);
 ssize_t rdbSaveFunctions(rio *rdb);
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi);
+sds rdbGenerateFilename(const char *pattern);
 
 #endif
