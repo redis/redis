@@ -303,6 +303,13 @@ int pthread_setname_np(const char *name);
 #endif
 #endif
 
+/* Define for redis_get_thread_title */
+#ifdef __linux__
+#define redis_get_thread_title(name, len) pthread_getname_np(pthread_self(), name, len)
+#else
+#define redis_get_thread_title(name, len) -1
+#endif
+
 /* Check if we can use setcpuaffinity(). */
 #if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
 #define USE_SETCPUAFFINITY
