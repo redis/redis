@@ -1483,6 +1483,34 @@ foreach type {listpack quicklist} {
         assert_equal "" [r lindex not-a-key 10]
     }
 
+    
+    test {LINSERT against non existing key} {
+        assert_equal 0 [r linsert not-a-key before 10 10]
+    }
+
+    test {LINSERT against non-list value error} {
+        assert_error WRONGTYPE* {r linsert mylist before 10 10}
+    }
+    
+    test {LINSERT against no match pivot} {
+        r rpush mylist2 "Hello"
+        r rpush mylist2 "World"
+        assert_equal -1 [r linsert mylist2 before 10 10]
+    }
+
+    test {LMOVE against non existing source key} {
+        assert_equal "" [r lmove not-a-source-key destination LEFT RIGHT]
+    }
+
+    test {LMOVE against non-list source key error} {
+        assert_error WRONGTYPE* {r lmove mylist destination LEFT RIGHT}
+    }
+
+    test {LMOVE against non-list destination key error} {
+        assert_error WRONGTYPE* {r lmove mylist2 mylist LEFT RIGHT}
+        r del mylist2
+    }
+
     test {LPUSH against non-list value error} {
         assert_error WRONGTYPE* {r lpush mylist 0}
     }
