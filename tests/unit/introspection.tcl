@@ -254,6 +254,27 @@ start_server {tags {"introspection"}} {
         }
     }
 
+    test {CLIENT SETLIB does not accept spaces} {
+        catch {r client setlib "redis py" "1.2.3"} e
+        set e
+    } {ERR*}
+
+    test {CLIENT SETLIB can set a library name to this connection} {
+        assert_equal [r client setlib redispy 1.2.3] {OK}
+        r client list
+    } {*lib-name=redispy*}
+
+    test {CLIENT SETLIB can clean library name to this connection} {
+        assert_equal [r client setlib redispy 1.2.3] {OK}
+        assert_equal [r client setlib "" "" ] {OK}
+        r client list
+    } {*lib-name=*}
+
+    test {HELLO SETLIB can set a library name to this connection} {
+        r HELLO 3 SETLIB redispy 1.2.3
+        r client list
+    } {*lib-name=redispy*}
+
     test {CONFIG save params special case handled properly} {
         # No "save" keyword - defaults should apply
         start_server {config "minimal.conf"} {

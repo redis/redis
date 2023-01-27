@@ -1,0 +1,30 @@
+{
+    "SETLIB": {
+        "summary": "Set library name and version of the current connection",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "7.2",
+        "arity": 4,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "arguments": [
+            {
+                "name": "lib-name",
+                "type": "string"
+            },
+            {
+                "name": "lib-version",
+                "type": "string"
+            }
+        ]
+    }
+}

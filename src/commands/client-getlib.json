@@ -1,0 +1,20 @@
+{
+    "GETLIB": {
+        "summary": "Get library name and version of the current connection",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "7.2",
+        "arity": 2,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ]
+    }
+}

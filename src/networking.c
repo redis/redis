@@ -142,6 +142,8 @@ client *createClient(connection *conn) {
     c->resp = 2;
     c->conn = conn;
     c->name = NULL;
+    c->lib_name = NULL;
+    c->lib_ver = NULL;
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
@@ -1513,6 +1515,16 @@ void clearClientConnectionState(client *c) {
         c->name = NULL;
     }
 
+    if (c->lib_name) {
+        decrRefCount(c->lib_name);
+        c->lib_name = NULL;
+    }
+
+    if (c->lib_ver) {
+        decrRefCount(c->lib_ver);
+        c->lib_ver = NULL;
+    }
+
     /* Selectively clear state flags not covered above */
     c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
                   CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT);
@@ -1658,6 +1670,8 @@ void freeClient(client *c) {
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
+    if (c->lib_name) decrRefCount(c->lib_name);
+    if (c->lib_ver) decrRefCount(c->lib_ver);
     freeClientMultiState(c);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
@@ -2757,7 +2771,7 @@ sds catClientInfoString(sds s, client *client) {
     }
 
     sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i lib-name=%s lib-ver=%s",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2785,7 +2799,10 @@ sds catClientInfoString(sds s, client *client) {
         client->lastcmd ? client->lastcmd->fullname : "NULL",
         client->user ? client->user->name : "(superuser)",
         (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
-        client->resp);
+        client->resp,
+        client->lib_name ? (char*)client->lib_name->ptr : "",
+        client->lib_ver ? (char*)client->lib_ver->ptr : ""
+        );
     return ret;
 }
 
@@ -2851,6 +2868,77 @@ int clientSetNameOrReply(client *c, robj *name) {
     return result;
 }
 
+/* Returns C_OK if the name has been set or C_ERR if the name is invalid. */
+int clientSetLib(client *c, robj *libname, robj *libver) {
+    int name_len = (libname != NULL) ? sdslen(libname->ptr) : 0;
+    int ver_len = (libver != NULL) ? sdslen(libver->ptr) : 0;
+
+    /* Setting the libname or libver to an empty string actually removes
+     * the current lib information. */
+    if (name_len == 0 || ver_len == 0) {
+        if (c->lib_name) decrRefCount(c->lib_name);
+        if (c->lib_ver) decrRefCount(c->lib_ver);
+        c->lib_name = NULL;
+        c->lib_ver = NULL;
+        return C_OK;
+    }
+
+    /* Otherwise check if the charset is ok. We need to do this otherwise
+     * CLIENT LIST format will break. You should always be able to
+     * split by space to get the different fields. */
+    char *name_ptr = libname->ptr;
+    char *ver_ptr = libname->ptr;
+    int max_len = max(name_len, ver_len);
+    for (int j = 0; j < max_len; j++) {
+        if (j < name_len && (name_ptr[j] < '!' || name_ptr[j] > '~')) { /* ASCII is assumed. */
+            return C_ERR;
+        }
+
+        if (j < ver_len && (ver_ptr[j] < '!' || ver_ptr[j] > '~')) { /* ASCII is assumed. */
+            return C_ERR;
+        }
+    }
+
+    if (c->lib_name) decrRefCount(c->lib_name);
+
+    c->lib_name = libname;
+    incrRefCount(libname);
+
+    if (c->lib_ver) decrRefCount(c->lib_ver);
+
+    c->lib_ver = libver;
+    incrRefCount(libver);
+
+    return C_OK;
+}
+
+/* This function implements CLIENT SETLIB, including replying to the
+ * user with an error if the charset is wrong (in that case C_ERR is
+ * returned). If the function succeeded C_OK is returned, and it's up
+ * to the caller to send a reply if needed.
+ *
+ * Setting an empty string as libname has the effect of unsetting the
+ * currently set library name and version.
+ *
+ * This function is also used to implement the HELLO SETLIB option. */
+int clientSetLibOrReply(client *c, robj **argv, int argc) {
+    if (argc != 2) {
+        addReplyError(c,
+                      "Library name and version should not be"
+                      " empty strings.");
+        return C_ERR;
+    }
+
+    int result = clientSetLib(c, argv[0], argv[1]);
+    if (result == C_ERR) {
+        addReplyError(c,
+                      "Library name and version cannot contain spaces, "
+                      "newlines or special characters.");
+    }
+    return result;
+}
+
+
 /* Reset the client state to resemble a newly connected client.
  */
 void resetCommand(client *c) {
@@ -2887,6 +2975,8 @@ void clientCommand(client *c) {
 "    Return the client ID we are redirecting to when tracking is enabled.",
 "GETNAME",
 "    Return the name of the current connection.",
+"GETLIB",
+"    Return the libname and libver of the current connection.",
 "ID",
 "    Return the ID of the current connection.",
 "INFO",
@@ -2917,6 +3007,8 @@ void clientCommand(client *c) {
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
 "    Assign the name <name> to the current connection.",
+"SETLIB <libname> <libver>",
+"    Assign the library name <libname> and version <libver> to the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR]",
 "    Unblock the specified blocked client.",
 "TRACKING (ON|OFF) [REDIRECT <id>] [BCAST] [PREFIX <prefix> [...]]",
@@ -3148,6 +3240,22 @@ NULL
         if (c->name)
             addReplyBulk(c,c->name);
         else
+            addReplyNull(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"setlib") && c->argc == 4) {
+        /* CLIENT SETLIB */
+        if (clientSetLibOrReply(c, c->argv + 2, 2) == C_OK)
+            addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"getlib") && c->argc == 2) {
+        /* CLIENT GETLIB */
+        if (c->lib_name) {
+            addReplyMapLen(c,2);
+
+            addReplyBulkCString(c,"libname");
+            addReplyBulk(c,c->lib_name);
+
+            addReplyBulkCString(c,"libver");
+            addReplyBulk(c,c->lib_ver);
+        } else
             addReplyNull(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
         /* CLIENT UNPAUSE */
@@ -3400,7 +3508,7 @@ NULL
     }
 }
 
-/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] ] */
+/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] [SETLIB <libname> <libver>] ] */
 void helloCommand(client *c) {
     long long ver = 0;
     int next_arg = 1;
@@ -3431,6 +3539,9 @@ void helloCommand(client *c) {
         } else if (!strcasecmp(opt,"SETNAME") && moreargs) {
             if (clientSetNameOrReply(c, c->argv[j+1]) == C_ERR) return;
             j++;
+        } else if (!strcasecmp(opt,"SETLIB") && moreargs >= 2) {
+            if (clientSetLibOrReply(c, c->argv+j+1, moreargs) == C_ERR) return;
+            j += 2;
         } else {
             addReplyErrorFormat(c,"Syntax error in HELLO option '%s'",opt);
             return;

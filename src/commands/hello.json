@@ -55,6 +55,22 @@
                         "name": "clientname",
                         "type": "string",
                         "optional": true
+                    },
+                    {
+                        "token": "SETLIB",
+                        "name": "lib",
+                        "type": "block",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "libname",
+                                "type": "string"
+                            },
+                            {
+                                "name": "libver",
+                                "type": "string"
+                            }
+                        ]
                     }
                 ]
             }
