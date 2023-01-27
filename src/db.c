@@ -394,7 +394,8 @@ dict *getRandomDict(redisDb *db) {
         target |= rand();
     }
     unsigned long long int key_count = dbSize(db);
-    target = key_count ? target % key_count : 0; /* Random key index in range [0..KEY_COUNT), or 0 if db is empty. */
+    if (!key_count) return db->dict[0];
+    target %= key_count; /* Random key index in range [0..KEY_COUNT). */
     /* In linearly enumerated key space, find a slot that contains target key. */
     dbIterator dbit;
     dbInitIterator(&dbit, db);
@@ -402,11 +403,11 @@ dict *getRandomDict(redisDb *db) {
     while ((d = dbNextDict(&dbit))) {
         unsigned long long int ds = dictSize(d);
         if (target < ds) { /* Found dict that contains target key. */
-            break;
+            return d;
         }
         target -= ds;
     }
-    return d;
+    serverPanic("Bug in random dict selection, iteration completed without finding a slot for the target element.");
 }
 
 /* Helper for sync and async delete. */
