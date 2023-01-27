@@ -387,17 +387,26 @@ robj *dbRandomKey(redisDb *db) {
 /* Return random non-empty dictionary from this DB. */
 dict *getRandomDict(redisDb *db) {
     if (db->dict_count == 1) return db->dict[0];
-
-    int i = 0, r = 0;
-    for (int j = 0; j < CLUSTER_SLOTS; j++) {
-        /* Skip empty dicts or if we want only rehashing dicts and the dict isn't rehashing. */
-        if (dictSize(db->dict[j]) == 0) continue;
-        if (i == 0 || (rand() % (i + 1)) == 0) {
-            r = j; /* Select K-th non-empty bucket with 1/K probability, this keeps balanced probabilities for all non-empty buckets. */
-        }
-        i++;
+    unsigned long long target = rand();
+    /* If number of keys is greater than max target value, then we should call target once more and get more entropy. */
+    if (db->key_count > RAND_MAX) {
+        target <<= 32;
+        target |= rand();
     }
-    return db->dict[r];
+    unsigned long long int key_count = dbSize(db);
+    target = key_count ? target % key_count : 0; /* Random key index in range [0..KEY_COUNT), or 0 if db is empty. */
+    /* In linearly enumerated key space, find a slot that contains target key. */
+    dbIterator dbit;
+    dbInitIterator(&dbit, db);
+    dict *d = NULL;
+    while ((d = dbNextDict(&dbit))) {
+        unsigned long long int ds = dictSize(d);
+        if (target < ds) { /* Found dict that contains target key. */
+            break;
+        }
+        target -= ds;
+    }
+    return d;
 }
 
 /* Helper for sync and async delete. */
@@ -427,6 +436,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         * the key, because it is shared with the main dictionary. */
         if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
         dictTwoPhaseUnlinkFree(d,de,plink,table);
+        db->key_count--;
         return 1;
     } else {
         return 0;
