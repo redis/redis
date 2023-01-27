@@ -96,7 +96,7 @@ start_cluster 1 2 {tags {external:skip cluster}} {
 
         # Disconnect the cluster between primary and replica1 and publish a message.
         $primary MULTI
-        $primary DEBUG CLUSTERLINK KILL ALL $replica1_node_id
+        $primary DEBUG CLUSTERLINK KILL TO $replica1_node_id
         $primary SPUBLISH $channelname hello
         set res [$primary EXEC]
 
@@ -119,7 +119,7 @@ start_cluster 1 2 {tags {external:skip cluster}} {
         # Verify replica2 has received both messages (hello/world)
         assert_equal "smessage ch3 hello" [$subscribeclient2 read]
         assert_equal "smessage ch3 world" [$subscribeclient2 read]
-    }
+    } {} {needs:debug}
 }
 
 start_cluster 3 0 {tags {external:skip cluster}} {
