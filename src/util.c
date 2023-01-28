@@ -1130,6 +1130,7 @@ int reclaimFilePageCache(int fd, size_t offset, size_t length) {
 
 #ifdef REDIS_TEST
 #include <assert.h>
+#include <sys/mman.h>
 
 static void test_string2ll(void) {
     char buf[32];
@@ -1334,7 +1335,42 @@ static void test_fixedpoint_d2string(void) {
     assert(sz == 0);
 }
 
-#define UNUSED(x) (void)(x)
+#if defined(__linux__) && defined(HAVE_FADVISE)
+/* mincore is only supported in specific platform, for simplicity we limit the
+ * test in Linux */
+static int cache_exist(int fd) {
+    unsigned char flag;
+    void *m = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fd, 0);
+    assert(m);
+    assert(mincore(m, 4096, &flag) == 0);
+    munmap(m, 4096);
+    return flag;
+}
+
+static void test_reclaimFilePageCache(void) {
+    char *tmpfile = "/tmp/redis-reclaim-cache-test";
+    int fd = open(tmpfile, O_RDWR|O_CREAT, 0644);
+    assert(fd >= 0);
+
+    /* test write file */
+    char buf[4] = "foo";
+    assert(write(fd, buf, sizeof(buf)) > 0);
+    assert(cache_exist(fd));
+    assert(redis_fsync(fd) == 0);
+    assert(reclaimFilePageCache(fd, 0, 0) == 0);
+    assert(!cache_exist(fd));
+
+    /* test read file */
+    assert(pread(fd, buf, sizeof(buf), 0) > 0);
+    assert(cache_exist(fd));
+    assert(reclaimFilePageCache(fd, 0, 0) == 0);
+    assert(!cache_exist(fd));
+
+    unlink(tmpfile);
+    printf("reclaimFilePageCach test is ok\n");
+}
+#endif
+
 int utilTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
@@ -1345,6 +1381,9 @@ int utilTest(int argc, char **argv, int flags) {
     test_ll2string();
     test_ld2string();
     test_fixedpoint_d2string();
+#if defined(__linux__) && defined(HAVE_FADVISE)
+    test_reclaimFilePageCache();
+#endif
     return 0;
 }
 #endif
