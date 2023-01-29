@@ -1335,16 +1335,18 @@ static void test_fixedpoint_d2string(void) {
     assert(sz == 0);
 }
 
-#if defined(__linux__) && defined(HAVE_FADVISE)
-/* mincore is only supported in specific platform, for simplicity we limit the
- * test in Linux */
+#if defined(__linux__)
+/* Since fadvise and mincore is only supported in specific platforms like
+ * Linux, we only verify the fadvise mechanism works in Linux */
 static int cache_exist(int fd) {
     unsigned char flag;
     void *m = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fd, 0);
     assert(m);
     assert(mincore(m, 4096, &flag) == 0);
     munmap(m, 4096);
-    return flag;
+    /* the least significant bit of the byte will be set if the corresponding
+     * page is currently resident in memory */
+    return flag&1;
 }
 
 static void test_reclaimFilePageCache(void) {
@@ -1381,7 +1383,7 @@ int utilTest(int argc, char **argv, int flags) {
     test_ll2string();
     test_ld2string();
     test_fixedpoint_d2string();
-#if defined(__linux__) && defined(HAVE_FADVISE)
+#if defined(__linux__)
     test_reclaimFilePageCache();
 #endif
     return 0;
