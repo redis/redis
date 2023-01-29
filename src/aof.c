@@ -49,7 +49,7 @@ int aofFileExist(char *filename);
 int rewriteAppendOnlyFile(char *filename);
 aofManifest *aofLoadManifestFromFile(sds am_filepath);
 void aofManifestFreeAndUpdate(aofManifest *am);
-void aof_background_fsync_and_close(int fd, long long offset);
+void aof_background_fsync_and_close(int fd);
 
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
@@ -831,7 +831,7 @@ int openNewIncrAofForAppend(void) {
      * the fsync as long as we grantee it happens, and in fsync always the file
      * is already synced at this point so fsync doesn't matter. */
     if (server.aof_fd != -1) {
-        aof_background_fsync_and_close(server.aof_fd, server.master_repl_offset);
+        aof_background_fsync_and_close(server.aof_fd);
         server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
     }
@@ -920,12 +920,12 @@ int aofFsyncInProgress(void) {
 /* Starts a background task that performs fsync() against the specified
  * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
-    bioCreateFsyncJob(fd, server.master_repl_offset);
+    bioCreateFsyncJob(fd, hasReplication() ? server.master_repl_offset : -1);
 }
 
 /* Close the fd on the basis of aof_background_fsync. */
-void aof_background_fsync_and_close(int fd, long long offset) {
-    bioCreateCloseAofJob(fd, offset);
+void aof_background_fsync_and_close(int fd) {
+    bioCreateCloseAofJob(fd, hasReplication() ? server.master_repl_offset : -1);
 }
 
 /* Kills an AOFRW child process if exists */
@@ -1243,7 +1243,11 @@ try_fsync:
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
         server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
-        atomicSet(server.pot_fsynced_reploff, server.master_repl_offset);
+        if (hasReplication()) {
+            atomicSet(server.pot_fsynced_reploff, server.master_repl_offset);
+        } else {
+            atomicIncr(server.pot_fsynced_reploff, 1);
+        }
     } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                 server.unixtime > server.aof_last_fsync)) {
         if (!sync_in_progress) {

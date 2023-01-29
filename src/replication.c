@@ -3852,6 +3852,11 @@ const char *getFailoverStateString() {
     }
 }
 
+/* Does this server have replication enabled (either as a master or a replica)? */
+int hasReplication() {
+    return server.repl_backlog != NULL;
+}
+
 /* Resets the internal failover configuration, this needs
  * to be called after a failover either succeeds or fails
  * as it includes the client unpause. */
