@@ -1708,7 +1708,7 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
      * When replicating commands from the master, keys are never considered
      * expired. */
     if (server.masterhost != NULL) {
-        if (server.current_client == server.master) return 0;
+        if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return 0;
         if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return 1;
     }
 
