@@ -4094,19 +4094,19 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
  * Stream pubsub commands
  * ----------------------------------------------------------------------- */
 
-void addReplyStreamSubscribed(client* c, robj* key, int dbid) {
+void addReplyStreamSubMessage(client* c, robj* key, int dbid, int sub) {
     if (c->resp == 2) {
         addReply(c, shared.mbulkhdr[4]);
     } else {
         addReplyPushLen(c, 4);
     }
-    addReply(c, shared.xsubscribebulk);
+    addReply(c, sub ? shared.xsubscribebulk : shared.xunsubscribebulk);
     addReplyBulk(c, key);
     addReplyLongLong(c, dbid);
     addReplyLongLong(c, c->subscribed_key_cnt);
 }
 
-void addReplyStreamGroupSubscribed(client* c, robj* key, int dbid, robj* group, robj* consumer) {
+void addReplyStreamGroupSubMessage(client* c, robj* key, int dbid, robj* group, robj* consumer) {
     if (c->resp == 2) {
         addReply(c, shared.mbulkhdr[6]);
     } else {
@@ -4117,18 +4117,6 @@ void addReplyStreamGroupSubscribed(client* c, robj* key, int dbid, robj* group, 
     addReplyLongLong(c, dbid);
     addReplyBulk(c, group);
     addReplyBulk(c, consumer);
-    addReplyLongLong(c, c->subscribed_key_cnt);
-}
-
-void addReplyStreamUnsubscribed(client* c, robj* key, int dbid) {
-    if (c->resp == 2) {
-        addReply(c, shared.mbulkhdr[4]);
-    } else {
-        addReplyPushLen(c, 4);
-    }
-    addReply(c, shared.xunsubscribebulk);
-    addReplyBulk(c, key);
-    addReplyLongLong(c, dbid);
     addReplyLongLong(c, c->subscribed_key_cnt);
 }
 
@@ -4291,7 +4279,7 @@ void xpubsubUnsubscribeAllKeys(client* c, int notify) {
             }
             c->subscribed_key_cnt--;
             if (notify) {
-                addReplyStreamUnsubscribed(c, key, db->id);
+                addReplyStreamSubMessage(c, key, db->id, 0);
             }
             unsubscribed_cnt++;
         }
@@ -4318,7 +4306,7 @@ void xpubsubUnsubscribeAllClients(redisDb* db, robj* key) {
     while ((ln = listNext(&li)) != NULL) {
         client* c = listNodeValue(ln);
         xpubsubRemoveKeyFromClient(c, db, key);
-        addReplyStreamUnsubscribed(c, key, db->id);
+        addReplyStreamSubMessage(c, key, db->id, 0);
     }
     dictDelete(db->subscribed_keys, key);
 }
@@ -4337,7 +4325,7 @@ void xpubsubUnsubscribeAllClientsInCG(redisDb* db, robj* key, stream* s, robj* g
         xpubsubRemoveKeyFromClient(sub.c, db, key);
         xpubsubRemoveClientFromKey(db, key, sub.c);
         xpubsubRemoveClientFromStream(s, sub.c);
-        addReplyStreamUnsubscribed(sub.c, key, db->id);
+        addReplyStreamSubMessage(sub.c, key, db->id, 0);
     }
     dictDelete(s->group_subscribers, group_name);
     if (cg) {
@@ -4425,10 +4413,10 @@ void xsubscribeCommand(client* c) {
         xpubsubAddClientToKey(c->db, key, c);
         if (xsubscribe_group) {
             xpubsubAddClientToStream(key, streams[i], groups[i], group_name, consumer_name, noack, c);
-            addReplyStreamGroupSubscribed(c, key, c->db->id, group_name, consumer_name);
+            addReplyStreamGroupSubMessage(c, key, c->db->id, group_name, consumer_name);
         } else {
             xpubsubAddClientToStream(key, streams[i], NULL, NULL, NULL, 0, c);
-            addReplyStreamSubscribed(c, key, c->db->id);
+            addReplyStreamSubMessage(c, key, c->db->id, 1);
         }
         subscribed_cnt++;
     }
@@ -4474,7 +4462,7 @@ void xunsubscribeCommand(client* c) {
         }
         xpubsubRemoveClientFromKey(c->db, keys[i], c);
         xpubsubRemoveClientFromStream(streams[i], c);
-        addReplyStreamUnsubscribed(c, keys[i], c->db->id);
+        addReplyStreamSubMessage(c, keys[i], c->db->id, 0);
         unsubscribed_cnt++;
     }
     if (unsubscribed_cnt == 0) {
@@ -4509,7 +4497,7 @@ void signalPublishStream(redisDb* db, robj* key, stream* s, streamID* id) {
 }
 
 /* Stream publish message. */
-void addReplyStreamPubsubMessage(robj* key, int dbid, stream* s, robj* group_name, streamSubscriber* sub) {
+void addReplyStreamPubMessage(robj* key, int dbid, stream* s, robj* group_name, streamSubscriber* sub) {
     if (group_name) {
         if (streamCompareID(&sub->group->last_id, &s->pub_end) >= 0) {
             return;
@@ -4554,7 +4542,7 @@ int streamPublish(redisDb* db, robj* key, stream* s) {
     listNode* ln = NULL;
     while ((ln = listNext(&li)) != NULL) {
         streamSubscriber* psub = listNodeValue(ln);
-        addReplyStreamPubsubMessage(key, db->id, s, NULL, psub);
+        addReplyStreamPubMessage(key, db->id, s, NULL, psub);
     }
     /* Publish to all clients subscribed with XSUBSCRIBEGROUP. Also handle those 
        group subscribers whose group or consumer was destroyed. */
@@ -4581,14 +4569,14 @@ int streamPublish(redisDb* db, robj* key, stream* s) {
             xpubsubRemoveKeyFromClient(sub.c, db, key);
             xpubsubRemoveClientFromKey(db, key, sub.c);
             xpubsubRemoveClientFromStream(s, sub.c);
-            addReplyStreamUnsubscribed(sub.c, key, db->id);
+            addReplyStreamSubMessage(sub.c, key, db->id, 0);
         }
         /* Publish to the current receiver. */
         if (!cg->receiver || s->pub_start.ms == 0) {
             continue;
         }
         streamSubscriber* psub = listNodeValue(cg->receiver);
-        addReplyStreamPubsubMessage(key, db->id, s, group_name, psub);
+        addReplyStreamPubMessage(key, db->id, s, group_name, psub);
         cg->receiver = listNextNode(cg->receiver);
         if (!cg->receiver) {
             cg->receiver = listFirst(subscribers);
