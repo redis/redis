@@ -4509,16 +4509,23 @@ void signalPublishStream(redisDb* db, robj* key, stream* s, streamID* id) {
 }
 
 /* Stream publish message. */
-void addReplyStreamPubsubMessage(client* c, robj* key, int dbid, streamSubscriber* sub,
-                                 stream* s, robj* group_name) {
-    if (c->resp == 2) {
-        addReply(c, shared.mbulkhdr[4]);
-    } else {
-        addReplyPushLen(c, 4);
+void addReplyStreamPubsubMessage(robj* key, int dbid, stream* s, robj* group_name, streamSubscriber* sub) {
+    if (group_name) {
+        if (streamCompareID(&sub->group->last_id, &s->pub_end) >= 0) {
+            return;
+        }
+        if (streamCompareID(&sub->group->last_id, &s->pub_start) >= 0) {
+            streamNextID(&sub->group->last_id, &s->pub_start);
+        }
     }
-    addReply(c, shared.xmessagebulk);
-    addReplyBulk(c, key);
-    addReplyLongLong(c, dbid);
+    if (sub->c->resp == 2) {
+        addReply(sub->c, shared.mbulkhdr[4]);
+    } else {
+        addReplyPushLen(sub->c, 4);
+    }
+    addReply(sub->c, shared.xmessagebulk);
+    addReplyBulk(sub->c, key);
+    addReplyLongLong(sub->c, dbid);
     int flag = sub->flags & STREAM_PUBSUB_NOACK ? STREAM_RWR_NOACK : 0;
     streamPropInfo* spi = NULL;
     if (group_name) {
@@ -4547,7 +4554,7 @@ int streamPublish(redisDb* db, robj* key, stream* s) {
     listNode* ln = NULL;
     while ((ln = listNext(&li)) != NULL) {
         streamSubscriber* psub = listNodeValue(ln);
-        addReplyStreamPubsubMessage(psub->c, key, db->id, psub, s, NULL);
+        addReplyStreamPubsubMessage(key, db->id, s, NULL, psub);
     }
     /* Publish to all clients subscribed with XSUBSCRIBEGROUP. Also handle those 
        group subscribers whose group or consumer was destroyed. */
@@ -4560,10 +4567,7 @@ int streamPublish(redisDb* db, robj* key, stream* s) {
             xpubsubUnsubscribeAllClientsInCG(db, key, s, group_name, NULL);
             continue;
         }
-        if (!cg->subscribers) {
-            continue;
-        }
-        list* subscribers = dictGetVal(cg->subscribers);
+        list* subscribers = dictGetVal(de);
         /* Scan the whole list to delete invalid subscribers. */
         listIter sub_li;
         listRewind(subscribers, &sub_li);
@@ -4584,7 +4588,7 @@ int streamPublish(redisDb* db, robj* key, stream* s) {
             continue;
         }
         streamSubscriber* psub = listNodeValue(cg->receiver);
-        addReplyStreamPubsubMessage(psub->c, key, db->id, psub, s, group_name);
+        addReplyStreamPubsubMessage(key, db->id, s, group_name, psub);
         cg->receiver = listNextNode(cg->receiver);
         if (!cg->receiver) {
             cg->receiver = listFirst(subscribers);
