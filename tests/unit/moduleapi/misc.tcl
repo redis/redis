@@ -116,6 +116,36 @@ start_server {tags {"modules"}} {
         r client tracking on
         set info [r test.clientinfo]
         assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
+        r CLIENT TRACKING off
+    }
+
+    test {tracking with rm_call sanity} {
+        set rd_trk [redis_client]
+        $rd_trk HELLO 3
+        $rd_trk CLIENT TRACKING on
+        r MSET key1{t} 1 key2{t} 1
+
+        # GET triggers tracking, SET does not
+        $rd_trk test.rm_call GET key1{t}
+        $rd_trk test.rm_call SET key2{t} 2
+        r MSET key1{t} 2 key2{t} 2
+        assert_equal {invalidate key1{t}} [$rd_trk read]
+        assert_equal "PONG" [$rd_trk ping]
+        $rd_trk close
+    }
+
+    test {tracking with rm_call with script} {
+        set rd_trk [redis_client]
+        $rd_trk HELLO 3
+        $rd_trk CLIENT TRACKING on
+        r MSET key1{t} 1 key2{t} 1
+
+        # GET triggers tracking, SET does not
+        $rd_trk test.rm_call EVAL "redis.call('get', 'key1{t}')" 2 key1{t} key2{t}
+        r MSET key1{t} 2 key2{t} 2
+        assert_equal {invalidate key1{t}} [$rd_trk read]
+        assert_equal "PONG" [$rd_trk ping]
+        $rd_trk close
     }
 
     test {test module get/set client name by id api} {

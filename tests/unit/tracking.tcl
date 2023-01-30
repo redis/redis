@@ -229,22 +229,25 @@ start_server {tags {"tracking network"}} {
         # If a script doesn't call any read command, don't track any keys
         r EVAL "redis.call('set', 'key3{t}', 'bar')" 2 key1{t} key2{t} 
         $rd_sg MSET key2{t} 2 key1{t} 2
+        assert_equal "PONG" [r ping]
 
-        # If a script calls a read command, track all declared keys
-        r EVAL "redis.call('get', 'key3{t}')" 2 key1{t} key2{t} 
-        $rd_sg MSET key2{t} 2 key1{t} 2
+        # If a script calls a read command, just the read keys
+        r EVAL "redis.call('get', 'key2{t}')" 2 key1{t} key2{t}
+        $rd_sg MSET key2{t} 2 key3{t} 2
         assert_equal {invalidate key2{t}} [r read]
-        assert_equal {invalidate key1{t}} [r read]
+        assert_equal "PONG" [r ping]
 
         # RO variants work like the normal variants
-        r EVAL_RO "redis.call('ping')" 2 key1{t} key2{t} 
+
+        # If a RO script doesn't call any read command, don't track any keys
+        r EVAL_RO "redis.call('ping')" 2 key1{t} key2{t}
         $rd_sg MSET key2{t} 2 key1{t} 2
+        assert_equal "PONG" [r ping]
 
-        r EVAL_RO "redis.call('get', 'key1{t}')" 2 key1{t} key2{t} 
-        $rd_sg MSET key2{t} 3 key1{t} 3
+        # If a RO script calls a read command, just the read keys
+        r EVAL_RO "redis.call('get', 'key2{t}')" 2 key1{t} key2{t}
+        $rd_sg MSET key2{t} 2 key3{t} 2
         assert_equal {invalidate key2{t}} [r read]
-        assert_equal {invalidate key1{t}} [r read]
-
         assert_equal "PONG" [r ping]
     }
 

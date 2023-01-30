@@ -185,7 +185,6 @@ void scriptingInit(int setup) {
 
     if (setup) {
         lctx.lua_client = NULL;
-        server.script_caller = NULL;
         server.script_disable_deny_script = 0;
         ldbInit();
     }
@@ -468,22 +467,6 @@ sds luaCreateFunction(client *c, robj *body) {
     lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
     incrRefCount(body);
     return sha;
-}
-
-void prepareLuaClient(void) {
-    /* Select the right DB in the context of the Lua client */
-    selectDb(lctx.lua_client,server.script_caller->db->id);
-    lctx.lua_client->resp = 2; /* Default is RESP2, scripts can change it. */
-
-    /* If we are in MULTI context, flag Lua client as CLIENT_MULTI. */
-    if (server.script_caller->flags & CLIENT_MULTI) {
-        lctx.lua_client->flags |= CLIENT_MULTI;
-    }
-}
-
-void resetLuaClient(void) {
-    /* After the script done, remove the MULTI state. */
-    lctx.lua_client->flags &= ~CLIENT_MULTI;
 }
 
 void evalGenericCommand(client *c, int evalsha) {
@@ -1680,6 +1663,5 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
             luaError(lua);
         }
         rctx->start_time = getMonotonicUs();
-        rctx->snapshot_time = mstime();
     }
 }

@@ -214,16 +214,16 @@ void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **pr
  * to the keys the user fetched, so that Redis will know what are the clients
  * that should receive an invalidation message with certain groups of keys
  * are modified. */
-void trackingRememberKeys(client *c) {
+void trackingRememberKeys(client *tracking, client *executing) {
     /* Return if we are in optin/out mode and the right CACHING command
      * was/wasn't given in order to modify the default behavior. */
-    uint64_t optin = c->flags & CLIENT_TRACKING_OPTIN;
-    uint64_t optout = c->flags & CLIENT_TRACKING_OPTOUT;
-    uint64_t caching_given = c->flags & CLIENT_TRACKING_CACHING;
+    uint64_t optin = tracking->flags & CLIENT_TRACKING_OPTIN;
+    uint64_t optout = tracking->flags & CLIENT_TRACKING_OPTOUT;
+    uint64_t caching_given = tracking->flags & CLIENT_TRACKING_CACHING;
     if ((optin && !caching_given) || (optout && caching_given)) return;
 
     getKeysResult result = GETKEYS_RESULT_INIT;
-    int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
+    int numkeys = getKeysFromCommand(executing->cmd,executing->argv,executing->argc,&result);
     if (!numkeys) {
         getKeysFreeResult(&result);
         return;
@@ -231,7 +231,7 @@ void trackingRememberKeys(client *c) {
     /* Shard channels are treated as special keys for client
      * library to rely on `COMMAND` command to discover the node
      * to connect to. These channels doesn't need to be tracked. */
-    if (c->cmd->flags & CMD_PUBSUB) {
+    if (executing->cmd->flags & CMD_PUBSUB) {
         return;
     }
 
@@ -239,7 +239,7 @@ void trackingRememberKeys(client *c) {
 
     for(int j = 0; j < numkeys; j++) {
         int idx = keys[j].pos;
-        sds sdskey = c->argv[idx]->ptr;
+        sds sdskey = executing->argv[idx]->ptr;
         rax *ids = raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey));
         if (ids == raxNotFound) {
             ids = raxNew();
@@ -247,7 +247,7 @@ void trackingRememberKeys(client *c) {
                                         sdslen(sdskey),ids, NULL);
             serverAssert(inserted == 1);
         }
-        if (raxTryInsert(ids,(unsigned char*)&c->id,sizeof(c->id),NULL,NULL))
+        if (raxTryInsert(ids,(unsigned char*)&tracking->id,sizeof(tracking->id),NULL,NULL))
             TrackingTableTotalItems++;
     }
     getKeysFreeResult(&result);
