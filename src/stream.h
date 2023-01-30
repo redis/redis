@@ -26,7 +26,8 @@ typedef struct stream {
     dict *client_to_subscriber; /* An index for subscribers list, including those in groups.
                                    We use client id as key, and value points to the listNode
                                    holding the corresponding streamSubscriber structure. */
-    list *pub_ids;          /* List of streamIDs that need to be published. */
+    streamID pub_start;     /* The first ID that need to be published. */
+    streamID pub_end;       /* The last ID that need to be published. */
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without

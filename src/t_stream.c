@@ -86,8 +86,10 @@ stream *streamNew(void) {
     listSetFreeMethod(s->subscribers, zfree);
     s->group_subscribers = dictCreate(&keylistDictType);
     s->client_to_subscriber = dictCreate(&objectKeyPointerValueDictType);
-    s->pub_ids = listCreate();
-    listSetFreeMethod(s->pub_ids, zfree);
+    s->pub_start.ms = 0;
+    s->pub_start.seq = 0;
+    s->pub_end.ms = 0;
+    s->pub_end.seq = 0;
     return s;
 }
 
@@ -99,7 +101,6 @@ void freeStream(stream *s) {
     listRelease(s->subscribers);
     dictRelease(s->group_subscribers);
     dictRelease(s->client_to_subscriber);
-    listRelease(s->pub_ids);
     zfree(s);
 }
 
@@ -688,7 +689,6 @@ typedef struct {
     int id_given; /* Was an ID different than "*" specified? for XADD only. */
     int seq_given; /* Was an ID different than "ms-*" specified? for XADD only. */
     int no_mkstream; /* if set to 1 do not create new stream */
-    int publish; /* Whether should be published */
     /* XADD + XTRIM common options */
     int trim_strategy; /* TRIM_STRATEGY_* */
     int trim_strategy_arg_idx; /* Index of the count in MAXLEN/MINID, for rewriting. */
@@ -996,8 +996,6 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             i++;
         } else if (xadd && !strcasecmp(opt,"nomkstream")) {
             args->no_mkstream = 1;
-        } else if (xadd && !strcasecmp(opt,"publish")) {
-            args->publish = 1;
         } else if (xadd) {
             /* If we are here is a syntax error or a valid ID. */
             if (streamParseStrictIDOrReply(c,c->argv[i],&args->id,0,&args->seq_given) != C_OK)
@@ -2098,9 +2096,7 @@ void xaddCommand(client *c) {
     signalKeyAsReady(c->db, c->argv[1], OBJ_STREAM);
 
     /* Signal subscribers. */
-    if (parsed_args.publish) {
-        signalPublishStream(c->db, c->argv[1], s, &id);
-    }
+    signalPublishStream(c->db, c->argv[1], s, &id);
 }
 
 /* XRANGE/XREVRANGE actual implementation.
@@ -4503,15 +4499,18 @@ void signalPublishStream(redisDb* db, robj* key, stream* s, streamID* id) {
         return;
     }
     if (dictSize(s->client_to_subscriber) > 0) {
-        streamID* pub_id = zmalloc(sizeof(streamID));
-        pub_id->ms = id->ms;
-        pub_id->seq = id->seq;
-        listAddNodeTail(s->pub_ids, pub_id);
+        if (s->pub_start.ms == 0) {
+            s->pub_start = *id;
+        }
+        if (streamCompareID(id, &s->pub_end) > 0) {
+            s->pub_end = *id;
+        }
     }
 }
 
-/* Stream publish message: this function adds a header to client reply. */
-void addReplyStreamPubsubMessageHdr(client* c, robj* key, int dbid, int len) {
+/* Stream publish message. */
+void addReplyStreamPubsubMessage(client* c, robj* key, int dbid, streamSubscriber* sub,
+                                 stream* s, robj* group_name) {
     if (c->resp == 2) {
         addReply(c, shared.mbulkhdr[4]);
     } else {
@@ -4520,15 +4519,7 @@ void addReplyStreamPubsubMessageHdr(client* c, robj* key, int dbid, int len) {
     addReply(c, shared.xmessagebulk);
     addReplyBulk(c, key);
     addReplyLongLong(c, dbid);
-    addReplyArrayLen(c, len);
-}
-
-/* Stream publish message: this function adds actual stream content to client reply. */
-void addReplyStreamPubsubMessageContent(streamSubscriber* sub, robj* key, stream* s, robj* group_name) {
-    int flag = STREAM_RWR_RAWENTRIES;
-    if (sub->flags & STREAM_PUBSUB_NOACK) {
-        flag |= STREAM_RWR_NOACK;
-    }
+    int flag = sub->flags & STREAM_PUBSUB_NOACK ? STREAM_RWR_NOACK : 0;
     streamPropInfo* spi = NULL;
     if (group_name) {
         spi = zmalloc(sizeof(streamPropInfo));
@@ -4537,18 +4528,12 @@ void addReplyStreamPubsubMessageContent(streamSubscriber* sub, robj* key, stream
         spi->groupname = group_name;
         incrRefCount(group_name);
     }
-    listIter id_li;
-    listRewind(s->pub_ids, &id_li);
-    listNode* id_ln = NULL;
-    while ((id_ln = listNext(&id_li)) != NULL) {
-        streamID* id = listNodeValue(id_ln);
-        streamReplyWithRange(sub->c, s, id, id, 0, 0, sub->group, sub->consumer, flag, spi);
-    }
+    streamReplyWithRange(sub->c, s, &s->pub_start, &s->pub_end, 0, 0, sub->group, sub->consumer, flag, spi);
     if (spi) {
         decrRefCount(group_name);
         decrRefCount(key);
         zfree(spi);
-    } 
+    }
 }
 
 int streamPublish(redisDb* db, robj* key, stream* s) {
@@ -4556,15 +4541,13 @@ int streamPublish(redisDb* db, robj* key, stream* s) {
         return 0;
     }
     int need_propagation = 0;
-    int len = listLength(s->pub_ids);
     /* Publish to all clients subscribed with XSUBSCRIBE. */
     listIter li;
     listRewind(s->subscribers, &li);
     listNode* ln = NULL;
     while ((ln = listNext(&li)) != NULL) {
-        streamSubscriber* sub = listNodeValue(ln);
-        addReplyStreamPubsubMessageHdr(sub->c, key, db->id, len);
-        addReplyStreamPubsubMessageContent(sub, key, s, NULL);
+        streamSubscriber* psub = listNodeValue(ln);
+        addReplyStreamPubsubMessage(psub->c, key, db->id, psub, s, NULL);
     }
     /* Publish to all clients subscribed with XSUBSCRIBEGROUP. Also handle those 
        group subscribers whose group or consumer was destroyed. */
@@ -4597,12 +4580,11 @@ int streamPublish(redisDb* db, robj* key, stream* s) {
             addReplyStreamUnsubscribed(sub.c, key, db->id);
         }
         /* Publish to the current receiver. */
-        if (!cg->receiver || listLength(s->pub_ids) == 0) {
+        if (!cg->receiver || s->pub_start.ms == 0) {
             continue;
         }
         streamSubscriber* psub = listNodeValue(cg->receiver);
-        addReplyStreamPubsubMessageHdr(psub->c, key, db->id, len);
-        addReplyStreamPubsubMessageContent(psub, key, s, group_name);
+        addReplyStreamPubsubMessage(psub->c, key, db->id, psub, s, group_name);
         cg->receiver = listNextNode(cg->receiver);
         if (!cg->receiver) {
             cg->receiver = listFirst(subscribers);
@@ -4610,8 +4592,11 @@ int streamPublish(redisDb* db, robj* key, stream* s) {
         need_propagation = 1;
     }
     dictReleaseIterator(di);
-    /* Clear list of streamIDs after publish. */
-    listEmpty(s->pub_ids);
+    /* Clear publish streamIDs after publish. */
+    s->pub_start.ms = 0;
+    s->pub_start.seq = 0;
+    s->pub_end.ms = 0;
+    s->pub_end.seq = 0;
     return need_propagation;
 }
 

@@ -61,12 +61,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 .flags = REDISMODULE_CMD_ARG_OPTIONAL
             },
             {
-                .name = "publish",
-                .token = "PUBLISH",
-                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                .flags = REDISMODULE_CMD_ARG_OPTIONAL
-            },
-            {
                 .name = "trim",
                 .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .flags = REDISMODULE_CMD_ARG_OPTIONAL,
