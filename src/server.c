@@ -739,7 +739,7 @@ int clientsCronResizeQueryBuffer(client *c) {
         /* There are two conditions to resize the query buffer: */
         if (idletime > 2) {
             /* 1) Query is idle for a long time. */
-            c->querybuf = sdsRemoveFreeSpace(c->querybuf);
+            c->querybuf = sdsRemoveFreeSpace(c->querybuf, 1);
         } else if (querybuf_size > PROTO_RESIZE_THRESHOLD && querybuf_size/2 > c->querybuf_peak) {
             /* 2) Query buffer is too big for latest peak and is larger than
              *    resize threshold. Trim excess space but only up to a limit,
@@ -749,7 +749,7 @@ int clientsCronResizeQueryBuffer(client *c) {
             size_t resize = sdslen(c->querybuf);
             if (resize < c->querybuf_peak) resize = c->querybuf_peak;
             if (c->bulklen != -1 && resize < (size_t)c->bulklen) resize = c->bulklen;
-            c->querybuf = sdsResize(c->querybuf, resize);
+            c->querybuf = sdsResize(c->querybuf, resize, 1);
         }
     }
 
