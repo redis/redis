@@ -5339,7 +5339,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     } else {
         serverPanic("Unrecognized preferred endpoint type");
     }
-    
+
     /* Report non-TLS ports to non-TLS client in TLS cluster if available. */
     int use_pport = (server.tls_cluster &&
                      c->conn && (c->conn->type != connectionTypeTls()));
@@ -5347,40 +5347,55 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
     /* Add the additional endpoint information, this is all the known networking information
-     * that is not the preferred endpoint. */
-    void *deflen = addReplyDeferredLen(c);
+     * that is not the preferred endpoint. Note the logic is evaluated twice so we can
+     * correctly report the number of additional network arguments without using a deferred
+     * map, an assertion is made at the end to check we set the right length. */
     int length = 0;
+    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_IP) {
+        length++;
+    }
+    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_HOSTNAME
+        && sdslen(node->hostname) != 0)
+    {
+        length++;
+    }
+    addReplyMapLen(c, length);
+
     if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_IP) {
         addReplyBulkCString(c, "ip");
         addReplyBulkCString(c, node->ip);
-        length++;
+        length--;
     }
     if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_HOSTNAME
         && sdslen(node->hostname) != 0)
     {
         addReplyBulkCString(c, "hostname");
         addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
-        length++;
+        length--;
     }
-    setDeferredMapLen(c, deflen, length);
+    serverAssert(length == 0);
 }
 
 void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
     int i, nested_elements = 3; /* slots (2) + master addr (1) */
-    void *nested_replylen = addReplyDeferredLen(c);
+    for (i = 0; i < node->numslaves; i++) {
+        if (!isReplicaAvailable(node->slaves[i])) continue;
+        nested_elements++;
+    }
+    addReplyArrayLen(c, nested_elements);
     addReplyLongLong(c, start_slot);
     addReplyLongLong(c, end_slot);
     addNodeToNodeReply(c, node);
-    
+
     /* Remaining nodes in reply are replicas for slot range */
     for (i = 0; i < node->numslaves; i++) {
         /* This loop is copy/pasted from clusterGenNodeDescription()
          * with modifications for per-slot node aggregation. */
         if (!isReplicaAvailable(node->slaves[i])) continue;
         addNodeToNodeReply(c, node->slaves[i]);
-        nested_elements++;
+        nested_elements--;
     }
-    setDeferredArrayLen(c, nested_replylen, nested_elements);
+    serverAssert(nested_elements == 3); /* Original 3 elements */
 }
 
 /* Add detailed information of a node to the output buffer of the given client. */
