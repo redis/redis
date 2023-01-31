@@ -265,7 +265,8 @@ sds sdstemplate(const char *template, sdstemplate_callback_t cb_func, void *cb_a
 /* Low level functions exposed to the user API */
 sds sdsMakeRoomFor(sds s, size_t addlen);
 void sdsIncrLen(sds s, ssize_t incr);
-sds sdsRemoveFreeSpace(sds s);
+sds sdsRemoveFreeSpace(sds s, int would_regrow);
+sds sdsResize(sds s, size_t size, int would_regrow);
 size_t sdsAllocSize(sds s);
 void *sdsAllocPtr(sds s);
 
