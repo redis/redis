@@ -59,9 +59,7 @@ TEST_MODULES = \
     moduleconfigs.so \
     moduleconfigstwo.so \
     publish.so \
-    subscribe_channel.so \
-    test_subscribe_channel.so
-
+    subscribe_channel.so
 .PHONY: all
 
 all: $(TEST_MODULES)

@@ -36,19 +36,19 @@
 
 RedisModuleString *event;
 
-int ChannelSubscriptionCallback(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
-    RedisModule_AutoMemory(ctx);
-
+void ChannelSubscriptionCallback(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
     RedisModuleString *msg = RedisModule_CreateString(ctx, "clear", 5);
     RedisModuleString *unsubscribe_msg = RedisModule_CreateString(ctx, "unsubscribe", 11);
-    if (!RedisModule_StringCompare(event,channel)) {
+    if (!RedisModule_StringCompare(event, channel)) {
         if (!RedisModule_StringCompare(msg, message)) {
-            RedisModule_Call(ctx, "FLUSHALL", "");
+            RedisModuleCallReply* rep = RedisModule_Call(ctx, "FLUSHALL", "");
+            RedisModule_FreeCallReply(rep);
         } else if (!RedisModule_StringCompare(unsubscribe_msg, message)) {
-            RedisModule_UnsubscribeFromChannel(ctx,channel);
+            RedisModule_UnsubscribeFromChannel(ctx, channel);
         }
     }
-    return REDISMODULE_OK;
+    RedisModule_FreeString(ctx, msg);
+    RedisModule_FreeString(ctx, unsubscribe_msg);
 }
 
 /* This function must be present on each Redis module. It is used in order to

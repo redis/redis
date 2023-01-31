@@ -16,11 +16,15 @@ tags "modules" {
         }
 
         test {Unsubscribe from channelMessage no longer received by module} {
-            # module is listening to "event" channel 
+            # module is listening to "event" channel
             r publish event unsubscribe
             assert_equal 1 [r dbsize]
             assert_equal {0} [r publish event clear]
             assert_equal 1 [r dbsize]
+        }
+
+        test "Unload the module - subscribech" {
+            assert_equal {OK} [r module unload subscribech]
         }
     }
 }
