@@ -459,6 +459,15 @@ start_server {tags {"string"}} {
             assert_equal [string range $bin $_start $_end] [r getrange bin $start $end]
         }
     }
+    
+    test {trim on SET with big value} {
+        # set a big value to trigger increasing the query buf
+        r set key [string repeat A 100000] 
+        # set a smaller value but > PROTO_MBULK_BIG_ARG (32*1024) Redis will try to save the query buf itself on the DB.
+        r set key [string repeat A 33000]
+        # asset the value was trimmed
+        assert {[r memory usage key] < 42000}; # 42K to count for Jemalloc's additional memory overhead. 
+    }
 
     test {Extended SET can detect syntax errors} {
         set e {}
