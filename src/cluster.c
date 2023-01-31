@@ -3952,7 +3952,7 @@ static void resizeClusterLinkBuffer(clusterLink *link) {
      /* If unused space is a lot bigger than the used portion of the buffer then free up unused space.
       * We use a factor of 4 because of the greediness of sdsMakeRoomFor (used by sdscatlen). */
     if (link != NULL && sdsavail(link->sndbuf) / 4 > sdslen(link->sndbuf)) {
-        link->sndbuf = sdsRemoveFreeSpace(link->sndbuf);
+        link->sndbuf = sdsRemoveFreeSpace(link->sndbuf, 1);
     }
 }
 

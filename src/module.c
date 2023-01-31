@@ -4018,7 +4018,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
             sdssubstr(key->value->ptr,0,newlen);
             /* If the string is too wasteful, reallocate it. */
             if (sdslen(key->value->ptr) < sdsavail(key->value->ptr))
-                key->value->ptr = sdsRemoveFreeSpace(key->value->ptr);
+                key->value->ptr = sdsRemoveFreeSpace(key->value->ptr, 0);
         }
     }
     return REDISMODULE_OK;
