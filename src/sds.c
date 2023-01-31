@@ -313,10 +313,12 @@ sds sdsRemoveFreeSpace(sds s, int would_regrow) {
 /* Resize the allocation, this can make the allocation bigger or smaller,
  * if the size is smaller than currently used len, the data will be truncated.
  *
- * SDS that is likely to be changed again, won't be used with SDS_TYPE_5.
+ * The when the would_regrow argument is set to 1, it prevents the use of
+ * SDS_TYPE_5, which is desired when the sds is likely to be changed again.
  *
- * To avoid repeated calls, the sds allocation size will be set to the requested size
- * regardless of the actual allocation size. */
+ * The sdsAlloc size will be set to the requested size regardless of the actual
+ * allocation size, this is done in order to avoid repeated calls to this
+ * function when the caller detects that it has excess space. */
 sds sdsResize(sds s, size_t size, int would_regrow) {
     void *sh, *newsh;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
@@ -344,21 +346,22 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
      * to do the copy only if really needed. Otherwise if the change is
      * huge, we manually reallocate the string to use the different header
      * type. */
-    int is_realloc_op = (oldtype==type || (type < oldtype && type > SDS_TYPE_8));
-    size_t newlen = is_realloc_op ? oldhdrlen+size+1 : hdrlen+size+1;
-    int noop = 0;
+    int use_realloc = (oldtype==type || (type < oldtype && type > SDS_TYPE_8));
+    size_t newlen = use_realloc ? oldhdrlen+size+1 : hdrlen+size+1;
+    int alloc_already_optimal = 0;
     #if defined(USE_JEMALLOC)
         /* je_nallocx returns the expected allocation size for the newlen.
-         * We aim to avoid calling realloc() when using Jemalloc if there is no change in the allocation size,
-         * as it incurs a cost even if the allocation size stays the same. */
-        noop = (je_nallocx(newlen, 0) == zmalloc_size(sh));
+         * We aim to avoid calling realloc() when using Jemalloc if there is no
+         * change in the allocation size, as it incurs a cost even if the
+         * allocation size stays the same. */
+        alloc_already_optimal = (je_nallocx(newlen, 0) == zmalloc_size(sh));
     #endif
 
-    if (is_realloc_op && !noop) {
+    if (use_realloc && !alloc_already_optimal) {
         newsh = s_realloc(sh, newlen);
         if (newsh == NULL) return NULL;
         s = (char*)newsh+oldhdrlen;
-    } else if (!noop) {
+    } else if (!alloc_already_optimal) {
         newsh = s_malloc(newlen);
         if (newsh == NULL) return NULL;
         memcpy((char*)newsh+hdrlen, s, len);
