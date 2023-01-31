@@ -31,8 +31,10 @@
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
 #include "endianconv.h"
+#include "fpconv_dtoa.h"
 #include "stream.h"
 #include "functions.h"
+#include "intset.h"  /* Compact integer set structure */
 
 #include <math.h>
 #include <fcntl.h>
@@ -51,7 +53,7 @@
 
 /* This macro tells if we are in the context of a RESTORE command, and not loading an RDB or AOF. */
 #define isRestoreContext() \
-    (server.current_client == NULL || server.current_client->id == CLIENT_ID_AOF) ? 0 : 1
+    ((server.current_client == NULL || server.current_client->id == CLIENT_ID_AOF) ? 0 : 1)
 
 char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
 extern int rdbCheckMode;
@@ -99,7 +101,7 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     exit(1);
 }
 
-static ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
+ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
     return len;
@@ -508,7 +510,6 @@ ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
  * On I/O error NULL is returned.
  */
 void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
-    int encode = flags & RDB_LOAD_ENC;
     int plain = flags & RDB_LOAD_PLAIN;
     int sds = flags & RDB_LOAD_SDS;
     int isencoded;
@@ -547,8 +548,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         }
         return buf;
     } else {
-        robj *o = encode ? tryCreateStringObject(SDS_NOINIT,len) :
-                           tryCreateRawStringObject(SDS_NOINIT,len);
+        robj *o = tryCreateStringObject(SDS_NOINIT,len);
         if (!o) {
             serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
             return NULL;
@@ -592,8 +592,10 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
         /* Integer printing function is much faster, check if we can safely use it. */
         if (double2ll(val, &lvalue))
             ll2string((char*)buf+1,sizeof(buf)-1,lvalue);
-        else
-            snprintf((char*)buf+1,sizeof(buf)-1,"%.17g",val);
+        else {
+            const int dlen = fpconv_dtoa(val, (char*)buf+1);
+            buf[dlen+1] = '\0';
+        }
         buf[0] = strlen((char*)buf+1);
         len = buf[0]+1;
     }
@@ -655,7 +657,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_STRING:
         return rdbSaveType(rdb,RDB_TYPE_STRING);
     case OBJ_LIST:
-        if (o->encoding == OBJ_ENCODING_QUICKLIST)
+        if (o->encoding == OBJ_ENCODING_QUICKLIST || o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb, RDB_TYPE_LIST_QUICKLIST_2);
         else
             serverPanic("Unknown list encoding");
@@ -664,6 +666,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,RDB_TYPE_SET_INTSET);
         else if (o->encoding == OBJ_ENCODING_HT)
             return rdbSaveType(rdb,RDB_TYPE_SET);
+        else if (o->encoding == OBJ_ENCODING_LISTPACK)
+            return rdbSaveType(rdb,RDB_TYPE_SET_LISTPACK);
         else
             serverPanic("Unknown set encoding");
     case OBJ_ZSET:
@@ -681,7 +685,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_2);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_3);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -771,8 +775,15 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
         }
         nwritten += n;
 
-        /* Last seen time. */
+        /* Seen time. */
         if ((n = rdbSaveMillisecondTime(rdb,consumer->seen_time)) == -1) {
+            raxStop(&ri);
+            return -1;
+        }
+        nwritten += n;
+
+        /* Active time. */
+        if ((n = rdbSaveMillisecondTime(rdb,consumer->active_time)) == -1) {
             raxStop(&ri);
             return -1;
         }
@@ -825,6 +836,16 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 }
                 node = node->next;
             }
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            unsigned char *lp = o->ptr;
+
+            /* Save list listpack as a fake quicklist that only has a single node. */
+            if ((n = rdbSaveLen(rdb,1)) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveLen(rdb,QUICKLIST_NODE_CONTAINER_PACKED)) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveRawString(rdb,lp,lpBytes(lp))) == -1) return -1;
+            nwritten += n;
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -856,6 +877,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             size_t l = intsetBlobLen((intset*)o->ptr);
 
             if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            nwritten += n;
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            size_t l = lpBytes((unsigned char *)o->ptr);
+            if ((n = rdbSaveRawString(rdb, o->ptr, l)) == -1) return -1;
             nwritten += n;
         } else {
             serverPanic("Unknown set encoding");
@@ -1185,30 +1210,49 @@ int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     /* Save a module-specific aux value. */
     RedisModuleIO io;
-    int retval = rdbSaveType(rdb, RDB_OPCODE_MODULE_AUX);
-    if (retval == -1) return -1;
+    int retval = 0;
     moduleInitIOContext(io,mt,rdb,NULL,-1);
-    io.bytes += retval;
+
+    /* We save the AUX field header in a temporary buffer so we can support aux_save2 API.
+     * If aux_save2 is used the buffer will be flushed at the first time the module will perform
+     * a write operation to the RDB and will be ignored is case there was no writes. */
+    rio aux_save_headers_rio;
+    rioInitWithBuffer(&aux_save_headers_rio, sdsempty());
+
+    if (rdbSaveType(&aux_save_headers_rio, RDB_OPCODE_MODULE_AUX) == -1) goto error;
 
     /* Write the "module" identifier as prefix, so that we'll be able
      * to call the right module during loading. */
-    retval = rdbSaveLen(rdb,mt->id);
-    if (retval == -1) return -1;
-    io.bytes += retval;
+    if (rdbSaveLen(&aux_save_headers_rio,mt->id) == -1) goto error;
 
     /* write the 'when' so that we can provide it on loading. add a UINT opcode
      * for backwards compatibility, everything after the MT needs to be prefixed
      * by an opcode. */
-    retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_UINT);
-    if (retval == -1) return -1;
-    io.bytes += retval;
-    retval = rdbSaveLen(rdb,when);
-    if (retval == -1) return -1;
-    io.bytes += retval;
+    if (rdbSaveLen(&aux_save_headers_rio,RDB_MODULE_OPCODE_UINT) == -1) goto error;
+    if (rdbSaveLen(&aux_save_headers_rio,when) == -1) goto error;
 
     /* Then write the module-specific representation + EOF marker. */
-    mt->aux_save(&io,when);
+    if (mt->aux_save2) {
+        io.pre_flush_buffer = aux_save_headers_rio.io.buffer.ptr;
+        mt->aux_save2(&io,when);
+        if (io.pre_flush_buffer) {
+            /* aux_save did not save any data to the RDB.
+             * We will avoid saving any data related to this aux type
+             * to allow loading this RDB if the module is not present. */
+            sdsfree(io.pre_flush_buffer);
+            io.pre_flush_buffer = NULL;
+            return 0;
+        }
+    } else {
+        /* Write headers now, aux_save does not do lazy saving of the headers. */
+        retval = rdbWriteRaw(rdb, aux_save_headers_rio.io.buffer.ptr, sdslen(aux_save_headers_rio.io.buffer.ptr));
+        if (retval == -1) goto error;
+        io.bytes += retval;
+        sdsfree(aux_save_headers_rio.io.buffer.ptr);
+        mt->aux_save(&io,when);
+    }
     retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
+    serverAssert(!io.pre_flush_buffer);
     if (retval == -1)
         io.error = 1;
     else
@@ -1221,6 +1265,9 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     if (io.error)
         return -1;
     return io.bytes;
+error:
+    sdsfree(aux_save_headers_rio.io.buffer.ptr);
+    return -1;
 }
 
 ssize_t rdbSaveFunctions(rio *rdb) {
@@ -1508,10 +1555,10 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     char pid[32];
 
     /* Generate temp rdb file name using async-signal safe functions. */
-    int pid_len = ll2string(pid, sizeof(pid), childpid);
-    strcpy(tmpfile, "temp-");
-    strncpy(tmpfile+5, pid, pid_len);
-    strcpy(tmpfile+5+pid_len, ".rdb");
+    ll2string(pid, sizeof(pid), childpid);
+    redis_strlcpy(tmpfile, "temp-", sizeof(tmpfile));
+    redis_strlcat(tmpfile, pid, sizeof(tmpfile));
+    redis_strlcat(tmpfile, ".rdb", sizeof(tmpfile));
 
     if (from_signal) {
         /* bg_unlink is not async-signal-safe, but in this case we don't really
@@ -1667,19 +1714,21 @@ static int _listZiplistEntryConvertAndValidate(unsigned char *p, unsigned int he
 }
 
 /* callback for to check the listpack doesn't have duplicate records */
-static int _lpPairsEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
+static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
     struct {
+        int pairs;
         long count;
         dict *fields;
     } *data = userdata;
 
     if (data->fields == NULL) {
         data->fields = dictCreate(&hashDictType);
-        dictExpand(data->fields, head_count/2);
+        dictExpand(data->fields, data->pairs ? head_count/2 : head_count);
     }
 
-    /* Even records are field names, add to dict and check that's not a dup */
-    if (((data->count) & 1) == 0) {
+    /* If we're checking pairs, then even records are field names. Otherwise
+     * we're checking all elements. Add to dict and check that's not a dup */
+    if (!data->pairs || ((data->count) & 1) == 0) {
         unsigned char *str;
         int64_t slen;
         unsigned char buf[LP_INTBUF_SIZE];
@@ -1699,21 +1748,24 @@ static int _lpPairsEntryValidation(unsigned char *p, unsigned int head_count, vo
 
 /* Validate the integrity of the listpack structure.
  * when `deep` is 0, only the integrity of the header is validated.
- * when `deep` is 1, we scan all the entries one by one. */
-int lpPairsValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep) {
+ * when `deep` is 1, we scan all the entries one by one.
+ * when `pairs` is 0, all elements need to be unique (it's a set)
+ * when `pairs` is 1, odd elements need to be unique (it's a key-value map) */
+int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int pairs) {
     if (!deep)
         return lpValidateIntegrity(lp, size, 0, NULL, NULL);
 
     /* Keep track of the field names to locate duplicate ones */
     struct {
+        int pairs;
         long count;
         dict *fields; /* Initialisation at the first callback. */
-    } data = {0, NULL};
+    } data = {pairs, 0, NULL};
 
-    int ret = lpValidateIntegrity(lp, size, 1, _lpPairsEntryValidation, &data);
+    int ret = lpValidateIntegrity(lp, size, 1, _lpEntryValidation, &data);
 
     /* make sure we have an even number of records. */
-    if (data.count & 1)
+    if (pairs && data.count & 1)
         ret = 0;
 
     if (data.fields) dictRelease(data.fields);
@@ -1768,6 +1820,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             decrRefCount(dec);
             decrRefCount(ele);
         }
+
+        listTypeTryConversion(o,LIST_CONV_AUTO,NULL,NULL);
     } else if (rdbtype == RDB_TYPE_SET) {
         /* Read Set value */
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
@@ -1790,6 +1844,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         }
 
         /* Load every single element of the set */
+        size_t maxelelen = 0, sumelelen = 0;
         for (i = 0; i < len; i++) {
             long long llval;
             sds sdsele;
@@ -1798,6 +1853,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 decrRefCount(o);
                 return NULL;
             }
+            size_t elelen = sdslen(sdsele);
+            sumelelen += elelen;
+            if (elelen > maxelelen) maxelelen = elelen;
 
             if (o->encoding == OBJ_ENCODING_INTSET) {
                 /* Fetch integer value from element. */
@@ -1810,14 +1868,43 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         sdsfree(sdsele);
                         return NULL;
                     }
-                } else {
-                    setTypeConvert(o,OBJ_ENCODING_HT);
-                    if (dictTryExpand(o->ptr,len) != DICT_OK) {
-                        rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
-                        sdsfree(sdsele);
+                } else if (setTypeSize(o) < server.set_max_listpack_entries &&
+                           maxelelen <= server.set_max_listpack_value &&
+                           lpSafeToAdd(NULL, sumelelen))
+                {
+                    /* We checked if it's safe to add one large element instead
+                     * of many small ones. It's OK since lpSafeToAdd doesn't
+                     * care about individual elements, only the total size. */
+                    setTypeConvert(o, OBJ_ENCODING_LISTPACK);
+                } else if (setTypeConvertAndExpand(o, OBJ_ENCODING_HT, len, 0) != C_OK) {
+                    rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
+                    sdsfree(sdsele);
+                    decrRefCount(o);
+                    return NULL;
+                }
+            }
+
+            /* This will also be called when the set was just converted
+             * to a listpack encoded set. */
+            if (o->encoding == OBJ_ENCODING_LISTPACK) {
+                if (setTypeSize(o) < server.set_max_listpack_entries &&
+                    elelen <= server.set_max_listpack_value &&
+                    lpSafeToAdd(o->ptr, elelen))
+                {
+                    unsigned char *p = lpFirst(o->ptr);
+                    if (p && lpFind(o->ptr, p, (unsigned char*)sdsele, elelen, 0)) {
+                        rdbReportCorruptRDB("Duplicate set members detected");
                         decrRefCount(o);
+                        sdsfree(sdsele);
                         return NULL;
                     }
+                    o->ptr = lpAppend(o->ptr, (unsigned char *)sdsele, elelen);
+                } else if (setTypeConvertAndExpand(o, OBJ_ENCODING_HT, len, 0) != C_OK) {
+                    rdbReportCorruptRDB("OOM in dictTryExpand %llu",
+                                        (unsigned long long)len);
+                    sdsfree(sdsele);
+                    decrRefCount(o);
+                    return NULL;
                 }
             }
 
@@ -2100,9 +2187,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             decrRefCount(o);
             goto emptykey;
         }
+
+        listTypeTryConversion(o,LIST_CONV_AUTO,NULL,NULL);
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == RDB_TYPE_SET_INTSET   ||
+               rdbtype == RDB_TYPE_SET_LISTPACK ||
                rdbtype == RDB_TYPE_ZSET_ZIPLIST ||
                rdbtype == RDB_TYPE_ZSET_LISTPACK ||
                rdbtype == RDB_TYPE_HASH_ZIPLIST ||
@@ -2220,6 +2310,27 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 if (intsetLen(o->ptr) > server.set_max_intset_entries)
                     setTypeConvert(o,OBJ_ENCODING_HT);
                 break;
+            case RDB_TYPE_SET_LISTPACK:
+                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+                if (!lpValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation, 0)) {
+                    rdbReportCorruptRDB("Set listpack integrity check failed.");
+                    zfree(encoded);
+                    o->ptr = NULL;
+                    decrRefCount(o);
+                    return NULL;
+                }
+                o->type = OBJ_SET;
+                o->encoding = OBJ_ENCODING_LISTPACK;
+
+                if (setTypeSize(o) == 0) {
+                    zfree(encoded);
+                    o->ptr = NULL;
+                    decrRefCount(o);
+                    goto emptykey;
+                }
+                if (setTypeSize(o) > server.set_max_listpack_entries)
+                    setTypeConvert(o, OBJ_ENCODING_HT);
+                break;
             case RDB_TYPE_ZSET_ZIPLIST:
                 {
                     unsigned char *lp = lpNew(encoded_len);
@@ -2249,7 +2360,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
             case RDB_TYPE_ZSET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!lpPairsValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation)) {
+                if (!lpValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation, 1)) {
                     rdbReportCorruptRDB("Zset listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
@@ -2295,7 +2406,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
             case RDB_TYPE_HASH_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!lpPairsValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation)) {
+                if (!lpValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation, 1)) {
                     rdbReportCorruptRDB("Hash listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
@@ -2317,7 +2428,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 rdbReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
-    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS || rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
+    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_3)
+    {
         o = createStreamObject();
         stream *s = o->ptr;
         uint64_t listpacks = rdbLoadLen(rdb,NULL);
@@ -2394,7 +2508,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
         
-        if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
+        if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_2) {
             /* Load the first entry ID. */
             s->first_id.ms = rdbLoadLen(rdb,NULL);
             s->first_id.seq = rdbLoadLen(rdb,NULL);
@@ -2461,7 +2575,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             
             /* Load group offset. */
             uint64_t cg_offset;
-            if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
+            if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_2) {
                 cg_offset = rdbLoadLen(rdb,NULL);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream cgroup offset loading failed.");
@@ -2543,11 +2657,24 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     decrRefCount(o);
                     return NULL;
                 }
+
                 consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream short read reading seen time.");
                     decrRefCount(o);
                     return NULL;
+                }
+
+                if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_3) {
+                    consumer->active_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
+                    if (rioGetReadError(rdb)) {
+                        rdbReportReadError("Stream short read reading active time.");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                } else {
+                    /* That's the best estimate we got */
+                    consumer->active_time = consumer->seen_time;
                 }
 
                 /* Load the PEL about entries owned by this specific
@@ -2607,7 +2734,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 raxStop(&ri_cg_pel);
             }
         }
-    } else if (rdbtype == RDB_TYPE_MODULE || rdbtype == RDB_TYPE_MODULE_2) {
+    } else if (rdbtype == RDB_TYPE_MODULE_PRE_GA) {
+            rdbReportCorruptRDB("Pre-release module format not supported");
+            return NULL;
+    } else if (rdbtype == RDB_TYPE_MODULE_2) {
         uint64_t moduleid = rdbLoadLen(rdb,NULL);
         if (rioGetReadError(rdb)) {
             rdbReportReadError("Short read module id");
@@ -2615,7 +2745,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         }
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
 
-        if (rdbCheckMode && rdbtype == RDB_TYPE_MODULE_2) {
+        if (rdbCheckMode) {
             char name[10];
             moduleTypeNameByID(name,moduleid);
             return rdbLoadCheckModuleValue(rdb,name);
@@ -2631,7 +2761,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         robj keyobj;
         initStaticStringObject(keyobj,key);
         moduleInitIOContext(io,mt,rdb,&keyobj,dbid);
-        io.ver = (rdbtype == RDB_TYPE_MODULE) ? 1 : 2;
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
         void *ptr = mt->rdb_load(&io,moduleid&1023);
@@ -2641,24 +2770,22 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         }
 
         /* Module v2 serialization has an EOF mark at the end. */
-        if (io.ver == 2) {
-            uint64_t eof = rdbLoadLen(rdb,NULL);
-            if (eof == RDB_LENERR) {
-                if (ptr) {
-                    o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
-                    decrRefCount(o);
-                }
-                return NULL;
+        uint64_t eof = rdbLoadLen(rdb,NULL);
+        if (eof == RDB_LENERR) {
+            if (ptr) {
+                o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
+                decrRefCount(o);
             }
-            if (eof != RDB_MODULE_OPCODE_EOF) {
-                rdbReportCorruptRDB("The RDB file contains module data for the module '%s' that is not terminated by "
-                                    "the proper module value EOF marker", moduleTypeModuleName(mt));
-                if (ptr) {
-                    o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
-                    decrRefCount(o);
-                }
-                return NULL;
+            return NULL;
+        }
+        if (eof != RDB_MODULE_OPCODE_EOF) {
+            rdbReportCorruptRDB("The RDB file contains module data for the module '%s' that is not terminated by "
+                                "the proper module value EOF marker", moduleTypeModuleName(mt));
+            if (ptr) {
+                o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
+                decrRefCount(o);
             }
+            return NULL;
         }
 
         if (ptr == NULL) {
@@ -2796,62 +2923,14 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
  *
  * The lib_ctx argument is also optional. If NULL is given, only verify rdb
  * structure with out performing the actual functions loading. */
-int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int type, int rdbflags, sds *err) {
+int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, sds *err) {
     UNUSED(ver);
     sds error = NULL;
     sds final_payload = NULL;
     int res = C_ERR;
-    if (type == RDB_OPCODE_FUNCTION) {
-        /* RDB that was generated on versions 7.0 rc1 and 7.0 rc2 has another
-         * an old format that contains the library name, engine and description.
-         * To support this format we must read those values. */
-        sds name = NULL;
-        sds engine_name = NULL;
-        sds desc = NULL;
-        sds blob = NULL;
-        uint64_t has_desc;
-
-        if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-            error = sdsnew("Failed loading library name");
-            goto cleanup;
-        }
-
-        if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-            error = sdsnew("Failed loading engine name");
-            goto cleanup;
-        }
-
-        if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
-            error = sdsnew("Failed loading library description indicator");
-            goto cleanup;
-        }
-
-        if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-            error = sdsnew("Failed loading library description");
-            goto cleanup;
-        }
-
-        if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-            error = sdsnew("Failed loading library blob");
-            goto cleanup;
-        }
-        /* Translate old format (versions 7.0 rc1 and 7.0 rc2) to new format.
-         * The new format has the library name and engine inside the script payload.
-         * Add those parameters to the original script payload (ignore the description if exists). */
-        final_payload = sdscatfmt(sdsempty(), "#!%s name=%s\n%s", engine_name, name, blob);
-cleanup:
-        if (name) sdsfree(name);
-        if (engine_name) sdsfree(engine_name);
-        if (desc) sdsfree(desc);
-        if (blob) sdsfree(blob);
-        if (error) goto done;
-    } else if (type == RDB_OPCODE_FUNCTION2) {
-        if (!(final_payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-            error = sdsnew("Failed loading library payload");
-            goto done;
-        }
-    } else {
-        serverPanic("Bad function type was given to rdbFunctionLoad");
+    if (!(final_payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        error = sdsnew("Failed loading library payload");
+        goto done;
     }
 
     if (lib_ctx) {
@@ -2891,7 +2970,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 
 
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
- * otherwise C_ERR is returned and 'errno' is set accordingly. 
+ * otherwise C_ERR is returned.
  * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
  * currently it only allow to set db object and functionLibCtx to which the data
  * will be loaded (in the future it might contains more such objects). */
@@ -2909,13 +2988,11 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
         serverLog(LL_WARNING,"Wrong signature trying to load DB from file");
-        errno = EINVAL;
         return C_ERR;
     }
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > RDB_VERSION) {
         serverLog(LL_WARNING,"Can't handle RDB format version %d",rdbver);
-        errno = EINVAL;
         return C_ERR;
     }
 
@@ -3074,7 +3151,6 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
 
                 RedisModuleIO io;
                 moduleInitIOContext(io,mt,rdb,NULL,-1);
-                io.ver = 2;
                 /* Call the rdb_load method of the module providing the 10 bit
                  * encoding version in the lower 10 bits of the module ID. */
                 int rc = mt->aux_load(&io,moduleid&1023, when);
@@ -3099,9 +3175,12 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 decrRefCount(aux);
                 continue; /* Read next opcode. */
             }
-        } else if (type == RDB_OPCODE_FUNCTION || type == RDB_OPCODE_FUNCTION2) {
+        } else if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
+            rdbReportCorruptRDB("Pre-release function format not supported.");
+            exit(1);
+        } else if (type == RDB_OPCODE_FUNCTION2) {
             sds err = NULL;
-            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_lib_ctx, type, rdbflags, &err) != C_OK) {
+            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_lib_ctx, rdbflags, &err) != C_OK) {
                 serverLog(LL_WARNING,"Failed loading library, %s", err);
                 sdsfree(err);
                 goto eoferr;
@@ -3254,7 +3333,13 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     int retval;
     struct stat sb;
 
-    if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        if (errno == ENOENT) return RDB_NOT_EXIST;
+
+        serverLog(LL_WARNING,"Fatal error: can't open the RDB file %s for reading: %s", filename, strerror(errno));
+        return RDB_FAILED;
+    }
 
     if (fstat(fileno(fp), &sb) == -1)
         sb.st_size = 0;
@@ -3266,7 +3351,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
     fclose(fp);
     stopLoading(retval==C_OK);
-    return retval;
+    return (retval==C_OK) ? RDB_OK : RDB_FAILED;
 }
 
 /* A background saving child (BGSAVE) terminated its work. Handle this.
@@ -3417,6 +3502,10 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         rio rdb;
 
         rioInitWithFd(&rdb,rdb_pipe_write);
+
+        /* Close the reading part, so that if the parent crashes, the child will
+         * get a write error and exit. */
+        close(server.rdb_pipe_read);
 
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);

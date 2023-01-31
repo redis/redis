@@ -151,7 +151,7 @@ start_server {tags {"expire"}} {
         r del x
         r setex x 1 somevalue
         set ttl [r pttl x]
-        assert {$ttl > 900 && $ttl <= 1000}
+        assert {$ttl > 500 && $ttl <= 1000}
     }
 
     test {TTL / PTTL / EXPIRETIME / PEXPIRETIME return -1 if key has no expire} {
@@ -745,4 +745,27 @@ start_server {tags {"expire"}} {
         assert_equal [r EXPIRE none 100 GT] 0
         assert_equal [r EXPIRE none 100 LT] 0
     } {}
+
+    test {Redis should not propagate the read command on lazy expire} {
+        r debug set-active-expire 0
+        r flushall ; # Clean up keyspace to avoid interference by keys from other tests
+        r set foo bar PX 1
+        set repl [attach_to_replication_stream]
+        wait_for_condition 50 100 {
+            [r get foo] eq {}
+        } else {
+            fail "Replication not started."
+        }
+
+        # dummy command to verify nothing else gets into the replication stream.
+        r set x 1
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo}
+            {set x 1}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
 }

@@ -46,6 +46,7 @@
 
 
 #include "fmacros.h"
+#include "fpconv_dtoa.h"
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -493,7 +494,7 @@ size_t rioWriteBulkLongLong(rio *r, long long l) {
 size_t rioWriteBulkDouble(rio *r, double d) {
     char dbuf[128];
     unsigned int dlen;
-
-    dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
+    dlen = fpconv_dtoa(d, dbuf);
+    dbuf[dlen] = '\0';
     return rioWriteBulkString(r,dbuf,dlen);
 }

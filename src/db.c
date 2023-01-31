@@ -41,7 +41,11 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired);
+/* Flags for expireIfNeeded */
+#define EXPIRE_FORCE_DELETE_EXPIRED 1
+#define EXPIRE_AVOID_DELETE_EXPIRED 2
+
+int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 
 /* Update LFU when an object is accessed.
@@ -72,6 +76,8 @@ void updateLFU(robj *val) {
  *  LOOKUP_NOSTATS: Don't increment key hits/misses counters.
  *  LOOKUP_WRITE: Prepare the key for writing (delete expired keys even on
  *                replicas, use separate keyspace stats and events (TODO)).
+ *  LOOKUP_NOEXPIRE: Perform expiration check, but avoid deleting the key,
+ *                   so that we don't have to propagate the deletion.
  *
  * Note: this function also returns NULL if the key is logically expired but
  * still existing, in case this is a replica and the LOOKUP_WRITE is not set.
@@ -92,8 +98,12 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
          * command, since the command may trigger events that cause modules to
          * perform additional writes. */
         int is_ro_replica = server.masterhost && server.repl_slave_ro;
-        int force_delete_expired = flags & LOOKUP_WRITE && !is_ro_replica;
-        if (expireIfNeeded(db, key, force_delete_expired)) {
+        int expire_flags = 0;
+        if (flags & LOOKUP_WRITE && !is_ro_replica)
+            expire_flags |= EXPIRE_FORCE_DELETE_EXPIRED;
+        if (flags & LOOKUP_NOEXPIRE)
+            expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
+        if (expireIfNeeded(db, key, expire_flags)) {
             /* The key is no longer valid. */
             val = NULL;
         }
@@ -208,31 +218,48 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  * count of the new value is up to the caller.
  * This function does not modify the expire time of the existing key.
  *
+ * The 'overwrite' flag is an indication whether this is done as part of a
+ * complete replacement of their key, which can be thought as a deletion and
+ * replacement (in which case we need to emit deletion signals), or just an
+ * update of a value of an existing key (when false).
+ *
  * The program is aborted if the key was not already present. */
-void dbOverwrite(redisDb *db, robj *key, robj *val) {
+static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
     dictEntry *de = dictFind(db->dict,key->ptr);
 
     serverAssertWithInfo(NULL,key,de != NULL);
-    dictEntry auxentry = *de;
     robj *old = dictGetVal(de);
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
-    /* Although the key is not really deleted from the database, we regard 
-     * overwrite as two steps of unlink+add, so we still need to call the unlink
-     * callback of the module. */
-    moduleNotifyKeyUnlink(key,old,db->id);
-    /* We want to try to unblock any client using a blocking XREADGROUP */
-    if (old->type == OBJ_STREAM)
-        signalKeyAsReady(db,key,old->type);
+    if (overwrite) {
+        /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
+         * need to incr to retain old */
+        incrRefCount(old);
+        /* Although the key is not really deleted from the database, we regard
+         * overwrite as two steps of unlink+add, so we still need to call the unlink
+         * callback of the module. */
+        moduleNotifyKeyUnlink(key,old,db->id,DB_FLAG_KEY_OVERWRITE);
+        /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
+        signalDeletedKeyAsReady(db,key,old->type);
+        decrRefCount(old);
+        /* Because of RM_StringDMA, old may be changed, so we need get old again */
+        old = dictGetVal(de);
+    }
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
         freeObjAsync(key,old,db->id);
-        dictSetVal(db->dict, &auxentry, NULL);
+    } else {
+        /* This is just decrRefCount(old); */
+        db->dict->type->valDestructor(db->dict, old);
     }
+}
 
-    dictFreeVal(db->dict, &auxentry);
+/* Replace an existing key with a new value, we just replace value and don't
+ * emit any events */
+void dbReplaceValue(redisDb *db, robj *key, robj *val) {
+    dbSetValue(db, key, val, 0);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -259,7 +286,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
     if (!keyfound) {
         dbAdd(db,key,val);
     } else {
-        dbOverwrite(db,key,val);
+        dbSetValue(db,key,val,1);
     }
     incrRefCount(val);
     if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
@@ -306,24 +333,33 @@ robj *dbRandomKey(redisDb *db) {
 }
 
 /* Helper for sync and async delete. */
-static int dbGenericDelete(redisDb *db, robj *key, int async) {
-    /* Deleting an entry from the expires dict will not free the sds of
-     * the key, because it is shared with the main dictionary. */
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    dictEntry *de = dictUnlink(db->dict,key->ptr);
+int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
+    dictEntry **plink;
+    int table;
+    dictEntry *de = dictTwoPhaseUnlinkFind(db->dict,key->ptr,&plink,&table);
     if (de) {
         robj *val = dictGetVal(de);
+        /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
+         * need to incr to retain val */
+        incrRefCount(val);
         /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,val,db->id);
-        /* We want to try to unblock any client using a blocking XREADGROUP */
-        if (val->type == OBJ_STREAM)
-            signalKeyAsReady(db,key,val->type);
+        moduleNotifyKeyUnlink(key,val,db->id,flags);
+        /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
+        signalDeletedKeyAsReady(db,key,val->type);
+        /* We should call decr before freeObjAsync. If not, the refcount may be
+         * greater than 1, so freeObjAsync doesn't work */
+        decrRefCount(val);
         if (async) {
-            freeObjAsync(key, val, db->id);
+            /* Because of dbUnshareStringValue, the val in de may change. */
+            freeObjAsync(key, dictGetVal(de), db->id);
             dictSetVal(db->dict, de, NULL);
         }
         if (server.cluster_enabled) slotToKeyDelEntry(de, db);
-        dictFreeUnlinkedEntry(db->dict,de);
+
+        /* Deleting an entry from the expires dict will not free the sds of
+        * the key, because it is shared with the main dictionary. */
+        if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+        dictTwoPhaseUnlinkFree(db->dict,de,plink,table);
         return 1;
     } else {
         return 0;
@@ -332,19 +368,19 @@ static int dbGenericDelete(redisDb *db, robj *key, int async) {
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbSyncDelete(redisDb *db, robj *key) {
-    return dbGenericDelete(db, key, 0);
+    return dbGenericDelete(db, key, 0, DB_FLAG_KEY_DELETED);
 }
 
 /* Delete a key, value, and associated expiration entry if any, from the DB. If
  * the value consists of many allocations, it may be freed asynchronously. */
 int dbAsyncDelete(redisDb *db, robj *key) {
-    return dbGenericDelete(db, key, 1);
+    return dbGenericDelete(db, key, 1, DB_FLAG_KEY_DELETED);
 }
 
 /* This is a wrapper whose behavior depends on the Redis lazy free
  * configuration. Deletes the key synchronously or asynchronously. */
 int dbDelete(redisDb *db, robj *key) {
-    return dbGenericDelete(db, key, server.lazyfree_lazy_server_del);
+    return dbGenericDelete(db, key, server.lazyfree_lazy_server_del, DB_FLAG_KEY_DELETED);
 }
 
 /* Prepare the string object stored at 'key' to be modified destructively
@@ -380,7 +416,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
         robj *decoded = getDecodedObject(o);
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
         decrRefCount(decoded);
-        dbOverwrite(db,key,o);
+        dbReplaceValue(db,key,o);
     }
     return o;
 }
@@ -558,7 +594,7 @@ void signalFlushedDb(int dbid, int async) {
     }
 
     for (int j = startdb; j <= enddb; j++) {
-        scanDatabaseForDeletedStreams(&server.db[j], NULL);
+        scanDatabaseForDeletedKeys(&server.db[j], NULL);
         touchAllWatchedKeysInDb(&server.db[j], NULL);
     }
 
@@ -657,7 +693,7 @@ void flushallCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* This command implements DEL and LAZYDEL. */
+/* This command implements DEL and UNLINK. */
 void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
@@ -747,6 +783,8 @@ void keysCommand(client *c) {
             }
             decrRefCount(keyobj);
         }
+        if (c->flags & CLIENT_CLOSE_ASAP)
+            break;
     }
     dictReleaseIterator(di);
     setDeferredArrayLen(c,replylen,numkeys);
@@ -903,18 +941,27 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         privdata[0] = keys;
         privdata[1] = o;
         do {
-            cursor = dictScan(ht, cursor, scanCallback, NULL, privdata);
+            cursor = dictScan(ht, cursor, scanCallback, privdata);
         } while (cursor &&
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
     } else if (o->type == OBJ_SET) {
-        int pos = 0;
-        int64_t ll;
-
-        while(intsetGet(o->ptr,pos++,&ll))
-            listAddNodeTail(keys,createStringObjectFromLongLong(ll));
+        char *str;
+        size_t len;
+        int64_t llele;
+        setTypeIterator *si = setTypeInitIterator(o);
+        while (setTypeNext(si, &str, &len, &llele) != -1) {
+            if (str == NULL) {
+                listAddNodeTail(keys, createStringObjectFromLongLong(llele));
+            } else {
+                listAddNodeTail(keys, createStringObject(str, len));
+            }
+        }
+        setTypeReleaseIterator(si);
         cursor = 0;
-    } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
+    } else if ((o->type == OBJ_HASH || o->type == OBJ_ZSET) &&
+               o->encoding == OBJ_ENCODING_LISTPACK)
+    {
         unsigned char *p = lpFirst(o->ptr);
         unsigned char *vstr;
         int64_t vlen;
@@ -1099,7 +1146,7 @@ void shutdownCommand(client *c) {
         return;
     }
 
-    blockClient(c, BLOCKED_SHUTDOWN);
+    blockClientShutdown(c);
     if (prepareForShutdown(flags) == C_OK) exit(0);
     /* If we're here, then shutdown is ongoing (the client is still blocked) or
      * failed (the client has received an error). */
@@ -1340,32 +1387,32 @@ void scanDatabaseForReadyKeys(redisDb *db) {
 /* Since we are unblocking XREADGROUP clients in the event the
  * key was deleted/overwritten we must do the same in case the
  * database was flushed/swapped. */
-void scanDatabaseForDeletedStreams(redisDb *emptied, redisDb *replaced_with) {
-    /* Optimization: If no clients are in type BLOCKED_STREAM,
-     * we can skip this loop. */
-    if (!server.blocked_clients_by_type[BLOCKED_STREAM]) return;
-
+void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(emptied->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        int was_stream = 0, is_stream = 0;
+        int existed = 0, exists = 0;
+        int original_type = -1, curr_type = -1;
 
         dictEntry *kde = dictFind(emptied->dict, key->ptr);
         if (kde) {
             robj *value = dictGetVal(kde);
-            was_stream = value->type == OBJ_STREAM;
+            original_type = value->type;
+            existed = 1;
         }
+
         if (replaced_with) {
             dictEntry *kde = dictFind(replaced_with->dict, key->ptr);
             if (kde) {
                 robj *value = dictGetVal(kde);
-                is_stream = value->type == OBJ_STREAM;
+                curr_type = value->type;
+                exists = 1;
             }
         }
         /* We want to try to unblock any client using a blocking XREADGROUP */
-        if (was_stream && !is_stream)
-            signalKeyAsReady(emptied, key, OBJ_STREAM);
+        if ((existed && !exists) || original_type != curr_type)
+            signalDeletedKeyAsReady(emptied, key, original_type);
     }
     dictReleaseIterator(di);
 }
@@ -1391,8 +1438,8 @@ int dbSwapDatabases(int id1, int id2) {
     touchAllWatchedKeysInDb(db2, db1);
 
     /* Try to unblock any XREADGROUP clients if the key no longer exists. */
-    scanDatabaseForDeletedStreams(db1, db2);
-    scanDatabaseForDeletedStreams(db2, db1);
+    scanDatabaseForDeletedKeys(db1, db2);
+    scanDatabaseForDeletedKeys(db2, db1);
 
     /* Swap hash tables. Note that we don't swap blocking_keys,
      * ready_keys and watched_keys, since we want clients to
@@ -1441,7 +1488,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         touchAllWatchedKeysInDb(activedb, newdb);
 
         /* Try to unblock any XREADGROUP clients if the key no longer exists. */
-        scanDatabaseForDeletedStreams(activedb, newdb);
+        scanDatabaseForDeletedKeys(activedb, newdb);
 
         /* Swap hash tables. Note that we don't swap blocking_keys,
          * ready_keys and watched_keys, since clients 
@@ -1551,10 +1598,7 @@ long long getExpire(redisDb *db, robj *key) {
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
     mstime_t expire_latency;
     latencyStartMonitor(expire_latency);
-    if (server.lazyfree_lazy_expire)
-        dbAsyncDelete(db,keyobj);
-    else
-        dbSyncDelete(db,keyobj);
+    dbGenericDelete(db,keyobj,server.lazyfree_lazy_expire,DB_FLAG_KEY_EXPIRED);
     latencyEndMonitor(expire_latency);
     latencyAddSampleIfNeeded("expire-del",expire_latency);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,"expired",keyobj,db->id);
@@ -1602,36 +1646,15 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
 
 /* Check if the key is expired. */
 int keyIsExpired(redisDb *db, robj *key) {
+    /* Don't expire anything while loading. It will be done later. */
+    if (server.loading) return 0;
+
     mstime_t when = getExpire(db,key);
     mstime_t now;
 
     if (when < 0) return 0; /* No expire for this key */
 
-    /* Don't expire anything while loading. It will be done later. */
-    if (server.loading) return 0;
-
-    /* If we are in the context of a Lua script, we pretend that time is
-     * blocked to when the Lua script started. This way a key can expire
-     * only the first time it is accessed and not in the middle of the
-     * script execution, making propagation to slaves / AOF consistent.
-     * See issue #1525 on Github for more information. */
-    if (server.script_caller) {
-        now = scriptTimeSnapshot();
-    }
-    /* If we are in the middle of a command execution, we still want to use
-     * a reference time that does not change: in that case we just use the
-     * cached time, that we update before each call in the call() function.
-     * This way we avoid that commands such as RPOPLPUSH or similar, that
-     * may re-open the same key multiple times, can invalidate an already
-     * open object in a next call, if the next call will see the key expired,
-     * while the first did not. */
-    else if (server.fixed_time_expire > 0) {
-        now = server.mstime;
-    }
-    /* For the other cases, we want to use the most fresh time we have. */
-    else {
-        now = mstime();
-    }
+    now = commandTimeSnapshot();
 
     /* The key expired if the current (virtual or real) time is greater
      * than the expire time of the key. */
@@ -1657,13 +1680,18 @@ int keyIsExpired(redisDb *db, robj *key) {
  *
  * On replicas, this function does not delete expired keys by default, but
  * it still returns 1 if the key is logically expired. To force deletion
- * of logically expired keys even on replicas, set force_delete_expired to
- * a non-zero value. Note though that if the current client is executing
+ * of logically expired keys even on replicas, use the EXPIRE_FORCE_DELETE_EXPIRED
+ * flag. Note though that if the current client is executing
  * replicated commands from the master, keys are never considered expired.
+ *
+ * On the other hand, if you just want expiration check, but need to avoid
+ * the actual key deletion and propagation of the deletion, use the
+ * EXPIRE_AVOID_DELETE_EXPIRED flag.
  *
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
-int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
+int expireIfNeeded(redisDb *db, robj *key, int flags) {
+    if (server.lazy_expire_disabled) return 0;
     if (!keyIsExpired(db,key)) return 0;
 
     /* If we are running in the context of a replica, instead of
@@ -1680,15 +1708,19 @@ int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
      * When replicating commands from the master, keys are never considered
      * expired. */
     if (server.masterhost != NULL) {
-        if (server.current_client == server.master) return 0;
-        if (!force_delete_expired) return 1;
+        if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return 0;
+        if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return 1;
     }
 
-    /* If clients are paused, we keep the current dataset constant,
-     * but return to the client what we believe is the right state. Typically,
-     * at the end of the pause we will properly expire the key OR we will
-     * have failed over and the new primary will send us the expire. */
-    if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
+    /* In some cases we're explicitly instructed to return an indication of a
+     * missing key without actually deleting it, even on masters. */
+    if (flags & EXPIRE_AVOID_DELETE_EXPIRED)
+        return 1;
+
+    /* If 'expire' action is paused, for whatever reason, then don't expire any key.
+     * Typically, at the end of the pause we will properly expire the key OR we
+     * will have failed over and the new primary will send us the expire. */
+    if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return 1;
 
     /* Delete the key */
     deleteExpiredKeyAndPropagate(db,key);
@@ -1880,14 +1912,6 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
     /* The command has at least one key-spec marked as VARIABLE_FLAGS */
     int has_varflags = (getAllKeySpecsFlags(cmd, 0) & CMD_KEY_VARIABLE_FLAGS);
 
-    /* Flags indicating that we have a getkeys callback */
-    int has_module_getkeys = cmd->flags & CMD_MODULE_GETKEYS;
-
-    /* The key-spec that's auto generated by RM_CreateCommand sets VARIABLE_FLAGS since no flags are given.
-     * If the module provides getkeys callback, we'll prefer it, but if it didn't, we'll use key-spec anyway. */
-    if ((cmd->flags & CMD_MODULE) && has_varflags && !has_module_getkeys)
-        has_varflags = 0;
-
     /* We prefer key-specs if there are any, and their flags are reliable. */
     if (has_keyspec && !has_varflags) {
         int ret = getKeysUsingKeySpecs(cmd,argv,argc,search_flags,result);
@@ -1898,7 +1922,7 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
     }
 
     /* Resort to getkeys callback methods. */
-    if (has_module_getkeys)
+    if (cmd->flags & CMD_MODULE_GETKEYS)
         return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
 
     /* We use native getkeys as a last resort, since not all these native getkeys provide
@@ -2237,7 +2261,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
 
 /* This command declares incomplete keys, so the flags are correctly set for this function */
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int i, num, first;
+    int i, j, num, first;
     keyReference *keys;
     UNUSED(cmd);
 
@@ -2246,14 +2270,34 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     num = 1;
 
     /* But check for the extended one with the KEYS option. */
+    struct {
+        char* name;
+        int skip;
+    } skip_keywords[] = {       
+        {"copy", 0},
+        {"replace", 0},
+        {"auth", 1},
+        {"auth2", 2},
+        {NULL, 0}
+    };
     if (argc > 6) {
         for (i = 6; i < argc; i++) {
-            if (!strcasecmp(argv[i]->ptr,"keys") &&
-                sdslen(argv[3]->ptr) == 0)
-            {
-                first = i+1;
-                num = argc-first;
+            if (!strcasecmp(argv[i]->ptr, "keys")) {
+                if (sdslen(argv[3]->ptr) > 0) {
+                    /* This is a syntax error. So ignore the keys and leave
+                     * the syntax error to be handled by migrateCommand. */
+                    num = 0; 
+                } else {
+                    first = i + 1;
+                    num = argc - first;
+                }
                 break;
+            }
+            for (j = 0; skip_keywords[j].name != NULL; j++) {
+                if (!strcasecmp(argv[i]->ptr, skip_keywords[j].name)) {
+                    i += skip_keywords[j].skip;
+                    break;
+                }
             }
         }
     }
@@ -2389,6 +2433,7 @@ int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *r
  * read-only if the BITFIELD GET subcommand is used. */
 int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     keyReference *keys;
+    int readonly = 1;
     UNUSED(cmd);
 
     keys = getKeysPrepareResult(result, 1);
@@ -2399,11 +2444,23 @@ int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResu
         int remargs = argc - i - 1; /* Remaining args other than current. */
         char *arg = argv[i]->ptr;
         if (!strcasecmp(arg, "get") && remargs >= 2) {
-            keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
-            return 1;
+            i += 2;
+        } else if ((!strcasecmp(arg, "set") || !strcasecmp(arg, "incrby")) && remargs >= 3) {
+            readonly = 0;
+            i += 3;
+            break;
+        } else if (!strcasecmp(arg, "overflow") && remargs >= 1) {
+            i += 1;
+        } else {
+            readonly = 0; /* Syntax error. safer to assume non-RO. */
+            break;
         }
     }
 
-    keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
+    if (readonly) {
+        keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
+    } else {
+        keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
+    }
     return 1;
 }

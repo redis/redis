@@ -359,6 +359,14 @@ int test_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     return REDISMODULE_OK;
 }
 
+/* wrapper for RM_Call which also replicates the module command */
+int test_rm_call_replicate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    test_rm_call(ctx, argv, argc);
+    RedisModule_ReplicateVerbatim(ctx);
+
+    return REDISMODULE_OK;
+}
+
 /* wrapper for RM_Call with flags */
 int test_rm_call_flags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     if(argc < 3){
@@ -496,6 +504,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "test.rm_call", test_rm_call,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "test.rm_call_flags", test_rm_call_flags,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.rm_call_replicate", test_rm_call_replicate,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

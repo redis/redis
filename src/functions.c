@@ -245,7 +245,7 @@ functionsLibCtx* functionsLibCtxCreate() {
  */
 int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err) {
     if (functionsVerifyName(name) != C_OK) {
-        *err = sdsnew("Function names can only contain letters and numbers and must be at least one character long");
+        *err = sdsnew("Library names can only contain letters, numbers, or underscores(_) and must be at least one character long");
         return C_ERR;
     }
 
@@ -608,20 +608,27 @@ void functionKillCommand(client *c) {
  * Note that it does not guarantee the command arguments are right. */
 uint64_t fcallGetCommandFlags(client *c, uint64_t cmd_flags) {
     robj *function_name = c->argv[1];
-    functionInfo *fi = dictFetchValue(curr_functions_lib_ctx->functions, function_name->ptr);
-    if (!fi)
+    c->cur_script = dictFind(curr_functions_lib_ctx->functions, function_name->ptr);
+    if (!c->cur_script)
         return cmd_flags;
+    functionInfo *fi = dictGetVal(c->cur_script);
     uint64_t script_flags = fi->f_flags;
     return scriptFlagsToCmdFlags(cmd_flags, script_flags);
 }
 
 static void fcallCommandGeneric(client *c, int ro) {
+    /* Functions need to be fed to monitors before the commands they execute. */
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+
     robj *function_name = c->argv[1];
-    functionInfo *fi = dictFetchValue(curr_functions_lib_ctx->functions, function_name->ptr);
-    if (!fi) {
+    dictEntry *de = c->cur_script;
+    if (!de)
+        de = dictFind(curr_functions_lib_ctx->functions, function_name->ptr);
+    if (!de) {
         addReplyError(c, "Function not found");
         return;
     }
+    functionInfo *fi = dictGetVal(de);
     engine *engine = fi->li->ei->engine;
 
     long long numkeys;
@@ -754,11 +761,15 @@ void functionRestoreCommand(client *c) {
             err = sdsnew("can not read data type");
             goto load_error;
         }
-        if (type != RDB_OPCODE_FUNCTION && type != RDB_OPCODE_FUNCTION2) {
+        if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
+            err = sdsnew("Pre-GA function format not supported");
+            goto load_error;
+        }
+        if (type != RDB_OPCODE_FUNCTION2) {
             err = sdsnew("given type is not a function");
             goto load_error;
         }
-        if (rdbFunctionLoad(&payload, rdbver, functions_lib_ctx, type, RDBFLAGS_NONE, &err) != C_OK) {
+        if (rdbFunctionLoad(&payload, rdbver, functions_lib_ctx, RDBFLAGS_NONE, &err) != C_OK) {
             if (!err) {
                 err = sdsnew("failed loading the given functions payload");
             }
@@ -819,7 +830,7 @@ void functionFlushCommand(client *c) {
 /* FUNCTION HELP */
 void functionHelpCommand(client *c) {
     const char *help[] = {
-"LOAD <ENGINE NAME> <LIBRARY NAME> [REPLACE] [DESCRIPTION <LIBRARY DESCRIPTION>] <LIBRARY CODE>",
+"LOAD [REPLACE] <FUNCTION CODE>",
 "    Create a new library with the given library name and code.",
 "DELETE <LIBRARY NAME>",
 "    Delete the given library.",
@@ -847,7 +858,7 @@ void functionHelpCommand(client *c) {
 "    * ASYNC: Asynchronously flush the libraries.",
 "    * SYNC: Synchronously flush the libraries.",
 "DUMP",
-"    Returns a serialized payload representing the current libraries, can be restored using FUNCTION RESTORE command",
+"    Return a serialized payload representing the current libraries, can be restored using FUNCTION RESTORE command",
 "RESTORE <PAYLOAD> [FLUSH|APPEND|REPLACE]",
 "    Restore the libraries represented by the given payload, it is possible to give a restore policy to",
 "    control how to handle existing libraries (default APPEND):",
@@ -961,7 +972,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
     }
 
     if (functionsVerifyName(md.name)) {
-        *err = sdsnew("Library names can only contain letters and numbers and must be at least one character long");
+        *err = sdsnew("Library names can only contain letters, numbers, or underscores(_) and must be at least one character long");
         goto error;
     }
 
@@ -1080,10 +1091,9 @@ unsigned long functionsMemory() {
 
 /* Return memory overhead of all the engines combine */
 unsigned long functionsMemoryOverhead() {
-    size_t memory_overhead = dictSize(engines) * sizeof(dictEntry) +
-            dictSlots(engines) * sizeof(dictEntry*);
-    memory_overhead += dictSize(curr_functions_lib_ctx->functions) * sizeof(dictEntry) +
-            dictSlots(curr_functions_lib_ctx->functions) * sizeof(dictEntry*) + sizeof(functionsLibCtx);
+    size_t memory_overhead = dictMemUsage(engines);
+    memory_overhead += dictMemUsage(curr_functions_lib_ctx->functions);
+    memory_overhead += sizeof(functionsLibCtx);
     memory_overhead += curr_functions_lib_ctx->cache_memory;
     memory_overhead += engine_cache_memory;
 

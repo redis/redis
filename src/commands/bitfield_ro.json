@@ -41,8 +41,9 @@
             },
             {
                 "token": "GET",
-                "name": "encoding_offset",
+                "name": "get-block",
                 "type": "block",
+                "optional": true,
                 "multiple": true,
                 "multiple_token": true,
                 "arguments": [

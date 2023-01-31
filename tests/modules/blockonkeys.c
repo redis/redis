@@ -5,6 +5,8 @@
 #include <assert.h>
 #include <unistd.h>
 
+#define UNUSED(V) ((void) V)
+
 #define LIST_SIZE 1024
 
 typedef struct {
@@ -174,7 +176,7 @@ int bpopgt_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
     fsl_t *fsl;
     if (!get_fsl(ctx, keyname, REDISMODULE_READ, 0, &fsl, 0) || !fsl)
-        return REDISMODULE_ERR;
+        return RedisModule_ReplyWithError(ctx,"UNBLOCKED key no longer exists");
 
     if (fsl->list[fsl->length-1] <= *pgt)
         return REDISMODULE_ERR;
@@ -212,12 +214,17 @@ int fsl_bpopgt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &fsl, 1))
         return REDISMODULE_OK;
 
-    if (!fsl || fsl->list[fsl->length-1] <= gt) {
+    if (!fsl)
+        return RedisModule_ReplyWithError(ctx,"ERR key must exist");
+
+    if (fsl->list[fsl->length-1] <= gt) {
         /* We use malloc so the tests in blockedonkeys.tcl can check for memory leaks */
         long long *pgt = RedisModule_Alloc(sizeof(long long));
         *pgt = gt;
-        RedisModule_BlockClientOnKeys(ctx, bpopgt_reply_callback, bpopgt_timeout_callback,
-                                      bpopgt_free_privdata, timeout, &argv[1], 1, pgt);
+        RedisModule_BlockClientOnKeysWithFlags(
+            ctx, bpopgt_reply_callback, bpopgt_timeout_callback,
+            bpopgt_free_privdata, timeout, &argv[1], 1, pgt,
+            REDISMODULE_BLOCK_UNBLOCK_DELETED);
     } else {
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
     }
@@ -469,7 +476,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .aof_rewrite = fsl_aofrw,
         .mem_usage = NULL,
         .free = fsl_free,
-        .digest = NULL
+        .digest = NULL,
     };
 
     fsltype = RedisModule_CreateDataType(ctx, "fsltype_t", 0, &tm);

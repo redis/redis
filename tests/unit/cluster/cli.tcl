@@ -10,7 +10,7 @@ set ::singledb 1
 tags {tls:skip external:skip cluster} {
 
 # start three servers
-set base_conf [list cluster-enabled yes cluster-node-timeout 1]
+set base_conf [list cluster-enabled yes cluster-node-timeout 1000]
 start_multiple_servers 3 [list overrides $base_conf] {
 
     set node1 [srv 0 client]
@@ -64,10 +64,16 @@ start_multiple_servers 3 [list overrides $base_conf] {
     }
 
     test "Wait for cluster to be stable" {
-       wait_for_condition 1000 50 {
-            [catch {exec src/redis-cli --cluster \
-            check 127.0.0.1:[srv 0 port] \
-            }] == 0
+        # Cluster check just verifies the the config state is self-consistent,
+        # waiting for cluster_state to be okay is an independent check that all the
+        # nodes actually believe each other are healthy, prevent cluster down error.
+        wait_for_condition 1000 50 {
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv 0 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -1 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -2 port]}] == 0 &&
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -166,6 +172,8 @@ start_multiple_servers 5 [list overrides $base_conf] {
                        127.0.0.1:[srv -3 port] \
                        127.0.0.1:[srv 0 port]
 
+        wait_for_cluster_size 4
+
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&
             [CI 1 cluster_state] eq {ok} &&
@@ -223,7 +231,10 @@ test {Migrate the last slot away from a node using redis-cli} {
         exec src/redis-cli --cluster-yes --cluster add-node \
                      127.0.0.1:[srv -3 port] \
                      127.0.0.1:[srv 0 port]
-
+        
+        # First we wait for new node to be recognized by entire cluster
+        wait_for_cluster_size 4
+        
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&
             [CI 1 cluster_state] eq {ok} &&
@@ -341,6 +352,8 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
                            127.0.0.1:[srv -3 port] \
                            127.0.0.1:[srv 0 port]
 
+        wait_for_cluster_size 4
+
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&
             [CI 1 cluster_state] eq {ok} &&
@@ -354,6 +367,8 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
         exec src/redis-cli --cluster-yes --cluster add-node \
                            127.0.0.1:[srv -4 port] \
                            127.0.0.1:[srv 0 port]
+
+        wait_for_cluster_size 5
 
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&

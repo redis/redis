@@ -227,31 +227,27 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
         if (hashTypeLength(o) > server.hash_max_listpack_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
     } else if (o->encoding == OBJ_ENCODING_HT) {
-        dictEntry *de = dictFind(o->ptr,field);
-        if (de) {
-            sdsfree(dictGetVal(de));
-            if (flags & HASH_SET_TAKE_VALUE) {
-                dictGetVal(de) = value;
-                value = NULL;
-            } else {
-                dictGetVal(de) = sdsdup(value);
-            }
-            update = 1;
+        dict *ht = o->ptr;
+        dictEntry *de, *existing;
+        sds v;
+        if (flags & HASH_SET_TAKE_VALUE) {
+            v = value;
+            value = NULL;
         } else {
-            sds f,v;
+            v = sdsdup(value);
+        }
+        de = dictAddRaw(ht, field, &existing);
+        if (de) {
+            dictSetVal(ht, de, v);
             if (flags & HASH_SET_TAKE_FIELD) {
-                f = field;
                 field = NULL;
             } else {
-                f = sdsdup(field);
+                dictSetKey(ht, de, sdsdup(field));
             }
-            if (flags & HASH_SET_TAKE_VALUE) {
-                v = value;
-                value = NULL;
-            } else {
-                v = sdsdup(value);
-            }
-            dictAdd(o->ptr,f,v);
+        } else {
+            sdsfree(dictGetVal(existing));
+            dictSetVal(ht, existing, v);
+            update = 1;
         }
     } else {
         serverPanic("Unknown hash encoding");
@@ -670,6 +666,10 @@ void hincrbyfloatCommand(client *c) {
     unsigned int vlen;
 
     if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
+    if (isnan(incr) || isinf(incr)) {
+        addReplyError(c,"value is NaN or Infinity");
+        return;
+    }
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     if (hashTypeGetValue(o,c->argv[2]->ptr,&vstr,&vlen,&ll) == C_OK) {
         if (vstr) {
@@ -956,6 +956,8 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withvalues)
                     addReplyBulkCBuffer(c, value, sdslen(value));
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
         } else if (hash->encoding == OBJ_ENCODING_LISTPACK) {
             listpackEntry *keys, *vals = NULL;
@@ -970,6 +972,8 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 count -= sample_count;
                 lpRandomPairs(hash->ptr, sample_count, keys, vals);
                 hrandfieldReplyWithListpack(c, sample_count, keys, vals);
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
             zfree(keys);
             zfree(vals);
@@ -1120,8 +1124,13 @@ void hrandfieldCommand(client *c) {
         if (c->argc > 4 || (c->argc == 4 && strcasecmp(c->argv[3]->ptr,"withvalues"))) {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
-        } else if (c->argc == 4)
+        } else if (c->argc == 4) {
             withvalues = 1;
+            if (l < LONG_MIN/2 || l > LONG_MAX/2) {
+                addReplyError(c,"value is out of range");
+                return;
+            }
+        }
         hrandfieldWithCountCommand(c, l, withvalues);
         return;
     }

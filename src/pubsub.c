@@ -470,7 +470,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
         while ((ln = listNext(&li)) != NULL) {
             client *c = ln->value;
             addReplyPubsubMessage(c,channel,message,*type.messageBulk);
-            updateClientMemUsage(c);
+            updateClientMemUsageAndBucket(c);
             receivers++;
         }
     }
@@ -496,7 +496,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
             while ((ln = listNext(&li)) != NULL) {
                 client *c = listNodeValue(ln);
                 addReplyPubsubPatMessage(c,pattern,channel,message);
-                updateClientMemUsage(c);
+                updateClientMemUsageAndBucket(c);
                 receivers++;
             }
         }
@@ -732,10 +732,8 @@ size_t pubsubMemOverhead(client *c) {
     /* PubSub patterns */
     size_t mem = listLength(c->pubsub_patterns) * sizeof(listNode);
     /* Global PubSub channels */
-    mem += dictSize(c->pubsub_channels) * sizeof(dictEntry) +
-           dictSlots(c->pubsub_channels) * sizeof(dictEntry*);
+    mem += dictMemUsage(c->pubsub_channels);
     /* Sharded PubSub channels */
-    mem += dictSize(c->pubsubshard_channels) * sizeof(dictEntry) +
-           dictSlots(c->pubsubshard_channels) * sizeof(dictEntry*);
+    mem += dictMemUsage(c->pubsubshard_channels);
     return mem;
 }
