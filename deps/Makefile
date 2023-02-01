@@ -97,28 +97,13 @@ lua: .make-prerequisites
 
 .PHONY: lua
 
-# Build jemalloc with -std=gnu99, but only if it raises the standards
-# version of the compiler.  Otherwise use the flags that jemalloc
-# applies.  Some system compilers (e.g., on CentOS 7) do not support
-# all the C99 constructs which jemalloc uses without -std=gnu99 (and
-# jemalloc does not pass it automatically), but passing the flag
-# unconditionally interferes with jemalloc's flag selection for later
-# compiler versions.
-JEMALLOC_C99_STDC_SED = sed -n '/^[0-9]*L/ { s/L$$//; p; }'
-JEMALLOC_C99_STDC_WITHOUT_GNU99 := $(shell echo __STDC_VERSION__ | $(CC) -E - | | $(JEMALLOC_C99_STDC_SED))
-JEMALLOC_C99_STDC_WITH_GNU99 := $(shell echo __STDC_VERSION__ | $(CC) -std=gnu99 -E - | $(JEMALLOC_C99_STDC_SED))
-JEMALLOC_C99_FLAGS := $(shell if test "$(JEMALLOC_C99_STDC_WITHOUT_GNU99)0" -lt "$(JEMALLOC_C99_STDC_WITH_GNU99)0"; then echo -std=gnu99; fi)
-
-JEMALLOC_CFLAGS= -Wall -pipe -g3 -O3 -funroll-loops $(JEMALLOC_C99_FLAGS) $(CFLAGS)
-JEMALLOC_LDFLAGS= $(LDFLAGS)
-
 ifneq ($(DEB_HOST_GNU_TYPE),)
 JEMALLOC_CONFIGURE_OPTS += --host=$(DEB_HOST_GNU_TYPE)
 endif
 
 jemalloc: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd jemalloc && ./configure --with-version=5.2.1-0-g0 --with-lg-quantum=3 --with-jemalloc-prefix=je_ CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" $(JEMALLOC_CONFIGURE_OPTS)
-	cd jemalloc && $(MAKE) CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" lib/libjemalloc.a
+	cd jemalloc && ./configure --disable-cxx --with-version=5.2.1-0-g0 --with-lg-quantum=3 --with-jemalloc-prefix=je_ CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" $(JEMALLOC_CONFIGURE_OPTS)
+	cd jemalloc && $(MAKE) lib/libjemalloc.a
 
 .PHONY: jemalloc
