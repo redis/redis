@@ -55,7 +55,7 @@ typedef long long ustime_t;
 /* Avoid deleting lazy expired keys. */
 #define REDISMODULE_OPEN_KEY_NOEXPIRE (1<<19)
 /* Avoid any effects from fetching the key */
-#define REDISMODULE_OPEN_KEY_NOEFFECTS (REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NOEXPIRE)
+#define REDISMODULE_OPEN_KEY_NOEFFECTS (1<<20)
 
 /* List push and pop */
 #define REDISMODULE_LIST_HEAD 0
