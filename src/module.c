@@ -3561,9 +3561,7 @@ static dict *moduleChannelSubscribers;
 void cleanupModuleChannelSubscriber(RedisModule *module, RedisModuleChannelSubscriber *moduleChannelSubscriber) {
     listRelease(moduleChannelSubscriber->subscriptions);
     zfree(moduleChannelSubscriber);
-    sds modulename = sdsnew(module->name);
-    dictDelete(moduleChannelSubscribers,modulename);
-    sdsfree(modulename);
+    dictDelete(moduleChannelSubscribers,module);
 }
 
 int listMatchSds(void *a, void *b) {
@@ -3572,7 +3570,7 @@ int listMatchSds(void *a, void *b) {
 
 void removeModuleFromChannelSubscription(RedisModule *module, sds channelname) {
 
-    // Clean up module from channelModuleSubscribers dict.
+    /* Clean up module from channelModuleSubscribers dict. */
     dictEntry *de = dictFind(channelModuleSubscribers,channelname);
     if (de == NULL) {
         return;
@@ -3596,22 +3594,20 @@ void removeModuleFromChannelSubscription(RedisModule *module, sds channelname) {
 
 /* Subscribe the module to a channel with a callback.  */
 int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleSubscribeFunc callback) {
-    sds modulename = sdsnew(ctx->module->name);
-    dictEntry *de = dictFind(moduleChannelSubscribers,modulename);
+    dictEntry *de = dictFind(moduleChannelSubscribers,ctx->module);
     RedisModuleChannelSubscriber *moduleChannelSubscriber;
     if (de == NULL) {
         moduleChannelSubscriber = zmalloc(sizeof(*moduleChannelSubscriber));
         moduleChannelSubscriber->subscribe_callback = callback;
         moduleChannelSubscriber->subscriptions = listCreate();
         listSetMatchMethod(moduleChannelSubscriber->subscriptions, listMatchSds);
-        dictAdd(moduleChannelSubscribers, sdsnew(ctx->module->name), moduleChannelSubscriber);
+        dictAdd(moduleChannelSubscribers, ctx->module, moduleChannelSubscriber);
     } else {
         moduleChannelSubscriber = dictGetVal(de);
     }
 
     sds channelname = sdsnew(channel->ptr);
     if (listSearchKey(moduleChannelSubscriber->subscriptions,channelname)) {
-        sdsfree(modulename);
         sdsfree(channelname);
         return REDISMODULE_OK;
     }
@@ -3631,9 +3627,8 @@ int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, Redis
     }
     listAddNodeTail(subscribers, sdsnew(ctx->module->name));
 
-    serverLog(LL_DEBUG,"Module %s subscribed to channel %s.", modulename, channelname);
+    serverLog(LL_DEBUG,"Module %s subscribed to channel %s.", ctx->module->name, channelname);
 
-    sdsfree(modulename);
     sdsfree(channelname);
     return REDISMODULE_OK;
 }
@@ -3642,9 +3637,7 @@ int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, Redis
 int RM_UnsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString *channel) {
     int retval = C_OK;
 
-    sds modulename = sdsnew(ctx->module->name);
-    dictEntry *de = dictFind(moduleChannelSubscribers,modulename);
-    sdsfree(modulename);
+    dictEntry *de = dictFind(moduleChannelSubscribers,ctx->module);
     if (de == NULL) return REDISMODULE_OK;
     RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
 
@@ -3675,9 +3668,7 @@ int moduleUnsubscribeAllChannels(RedisModule *module) {
     listIter li;
     int count = 0;
     if (dictSize(moduleChannelSubscribers) == 0) return 0;
-    sds modulename = sdsnew(module->name);
-    dictEntry *de = dictFind(moduleChannelSubscribers, modulename);
-    sdsfree(modulename);
+    dictEntry *de = dictFind(moduleChannelSubscribers, module);
     if (de == NULL) return 0;
     RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
 
@@ -3715,19 +3706,20 @@ void moduleSendMessageSubscriber(robj *channel, robj *message) {
 
     listRewind(subscribed_modules,&li);
     while ((ln = listNext(&li)) != NULL) {
-        sds modulename = listNodeValue(ln);
-        de = dictFind(moduleChannelSubscribers,modulename);
-        if (de == NULL) return;
 
+        /* Retrieve the module. */
+        sds modulename = listNodeValue(ln);
+        de = dictFind(modules, modulename);
+        serverAssert(de != NULL);
+        RedisModule* module = (RedisModule*)dictGetVal(de);
+
+        /* Retrieve the moduleChannelSubscriber. */
+        de = dictFind(moduleChannelSubscribers, module);
         RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
         RedisModuleCtx ctx;
 
-        dictEntry *de = dictFind(modules,modulename);
-        if (de == NULL) {
-            continue;
-        }
-
-        moduleCreateContext(&ctx, (RedisModule*)dictGetVal(de), REDISMODULE_CTX_TEMP_CLIENT);
+        /* Invoke the callback registered for this module. */
+        moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
         moduleChannelSubscriber->subscribe_callback(&ctx, channel, message);
         moduleFreeContext(&ctx);
     }
@@ -11450,6 +11442,30 @@ dictType sdsKeyValueHashDictType = {
     NULL                        /* allow to expand */
 };
 
+uint64_t dictModuleObjHash(const void *key) {
+    const RedisModule *o = key;
+    return dictGenHashFunction(o->name, sdslen((sds)o->name));
+}
+
+int dictModuleObjectCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    const RedisModule *o1 = (RedisModule*) key1, *o2 = (RedisModule*) key2;
+    return sdscmp((sds) o1->name, (sds) o2->name);
+}
+
+/* Generic hash table type where keys are Redis Module Objects, Values
+ * are list of channel name (sds). */
+dictType moduleObjectKeyDictType = {
+        dictModuleObjHash,            /* hash function */
+        NULL,                      /* key dup */
+        NULL,                      /* val dup */
+        dictModuleObjectCompare,      /* key compare */
+        NULL,      /* key destructor */
+        NULL,                      /* val destructor */
+        NULL                       /* allow to expand */
+};
+
+
 void moduleInitModulesSystem(void) {
     moduleUnblockedClients = listCreate();
     server.loadmodule_queue = listCreate();
@@ -11461,7 +11477,7 @@ void moduleInitModulesSystem(void) {
 
     modulePostExecUnitJobs = listCreate();
     channelModuleSubscribers = dictCreate(&modulesDictType);
-    moduleChannelSubscribers = dictCreate(&modulesDictType);
+    moduleChannelSubscribers = dictCreate(&moduleObjectKeyDictType);
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();
