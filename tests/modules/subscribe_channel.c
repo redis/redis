@@ -51,6 +51,30 @@ void ChannelSubscriptionCallback(RedisModuleCtx *ctx, RedisModuleString *channel
     RedisModule_FreeString(ctx, unsubscribe_msg);
 }
 
+static int subscribeToChannel(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if(argc != 2){
+        return RedisModule_WrongArity(ctx);
+    }
+    if(RedisModule_SubscribeToChannel(ctx, argv[1], ChannelSubscriptionCallback) != REDISMODULE_OK){
+        RedisModule_ReplyWithError(ctx, "Channel subscription failed");
+        return REDISMODULE_ERR;
+    }
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+static int unsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if(argc != 2){
+        return RedisModule_WrongArity(ctx);
+    }
+    if(RedisModule_UnsubscribeFromChannel(ctx, argv[1]) != REDISMODULE_OK){
+        RedisModule_ReplyWithError(ctx, "Channel unsubscription failed");
+        return REDISMODULE_ERR;
+    }
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -64,6 +88,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if(RedisModule_SubscribeToChannel(ctx, event, ChannelSubscriptionCallback) != REDISMODULE_OK){
         return REDISMODULE_ERR;
     }
+
+    if (RedisModule_CreateCommand(ctx,"subscribech.subscribe_to_channel", subscribeToChannel, "", 1, 1, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx,"subscribech.unsubscribe_from_channel", unsubscribeFromChannel, "", 1, 1, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
     return REDISMODULE_OK;
 }
 

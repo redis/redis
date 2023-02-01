@@ -9,18 +9,23 @@ tags "modules" {
             assert_equal 0 [r dbsize]
         }
 
-        test {Test message not received by module from a random channel} {
+        test {Test message not handled by module from a random channel} {
             r set foo bar
             assert_equal {0} [r publish event1 clear]
             assert_equal 1 [r dbsize]
         }
 
-        test {Unsubscribe from channelMessage no longer received by module} {
-            # module is listening to "event" channel
-            r publish event unsubscribe
+        test {Unsubscribe from channel event, message should no longer be received by module} {
+            # module is listening to "event" channel on load
+            r subscribech.unsubscribe_from_channel event
             assert_equal 1 [r dbsize]
             assert_equal {0} [r publish event clear]
             assert_equal 1 [r dbsize]
+
+            # module is listening to "event" channel again
+            r subscribech.subscribe_to_channel event
+            assert_equal {0} [r publish event clear]
+            assert_equal 0 [r dbsize]
         }
 
         test "Unload the module - subscribech" {
