@@ -1023,7 +1023,7 @@ NULL
             freeClusterLink(n->link);
             freeClusterLink(n->inbound_link);
         } else {
-            addReplyErrorFormat(c, "Unknown direction %s", (char*) c->argv[4]->ptr);
+            addReplyErrorFormat(c, "Unknown direction %s", (char*) c->argv[3]->ptr);
         }
         addReply(c,shared.ok);
     } else {
