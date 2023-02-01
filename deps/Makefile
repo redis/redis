@@ -97,6 +97,9 @@ lua: .make-prerequisites
 
 .PHONY: lua
 
+JEMALLOC_CFLAGS=$(CFLAGS)
+JEMALLOC_LDFLAGS=$(LDFLAGS)
+
 ifneq ($(DEB_HOST_GNU_TYPE),)
 JEMALLOC_CONFIGURE_OPTS += --host=$(DEB_HOST_GNU_TYPE)
 endif
