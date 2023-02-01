@@ -7342,56 +7342,87 @@ struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_0_elements[] = {
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_0 = {XAUTOCLAIM_ReplySchema_items_0_elements,.length=3};
 
-/* XAUTOCLAIM_ReplySchema_items_1_items_items_0 reply schema */
-struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_items_items_0_elements[] = {
+/* XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_0 reply schema */
+struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_0_elements[] = {
 {"description",JSON_TYPE_STRING,.value.string="Entry ID"},
 {"type",JSON_TYPE_STRING,.value.string="string"},
 {"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
-struct jsonObject XAUTOCLAIM_ReplySchema_items_1_items_items_0 = {XAUTOCLAIM_ReplySchema_items_1_items_items_0_elements,.length=3};
+struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_0 = {XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_0_elements,.length=3};
 
-/* XAUTOCLAIM_ReplySchema_items_1_items_items_1_items reply schema */
-struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_items_items_1_items_elements[] = {
+/* XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_items reply schema */
+struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_items_elements[] = {
 {"type",JSON_TYPE_STRING,.value.string="string"},
 };
 
-struct jsonObject XAUTOCLAIM_ReplySchema_items_1_items_items_1_items = {XAUTOCLAIM_ReplySchema_items_1_items_items_1_items_elements,.length=1};
+struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_items = {XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_items_elements,.length=1};
 
-/* XAUTOCLAIM_ReplySchema_items_1_items_items_1 reply schema */
-struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_items_items_1_elements[] = {
+/* XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1 reply schema */
+struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_elements[] = {
 {"description",JSON_TYPE_STRING,.value.string="Data"},
 {"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XAUTOCLAIM_ReplySchema_items_1_items_items_1_items},
+{"items",JSON_TYPE_OBJECT,.value.object=&XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_items},
 };
 
-struct jsonObject XAUTOCLAIM_ReplySchema_items_1_items_items_1 = {XAUTOCLAIM_ReplySchema_items_1_items_items_1_elements,.length=3};
+struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1 = {XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_elements,.length=3};
 
-/* XAUTOCLAIM_ReplySchema_items_1_items_items array reply schema */
-struct jsonObject *XAUTOCLAIM_ReplySchema_items_1_items_items[] = {
-&XAUTOCLAIM_ReplySchema_items_1_items_items_0,
-&XAUTOCLAIM_ReplySchema_items_1_items_items_1,
+/* XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items array reply schema */
+struct jsonObject *XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items[] = {
+&XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_0,
+&XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1,
 };
 
-/* XAUTOCLAIM_ReplySchema_items_1_items reply schema */
-struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_items_elements[] = {
+/* XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items reply schema */
+struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_elements[] = {
 {"type",JSON_TYPE_STRING,.value.string="array"},
 {"minItems",JSON_TYPE_INTEGER,.value.integer=2},
 {"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XAUTOCLAIM_ReplySchema_items_1_items_items,.length=2}},
+{"items",JSON_TYPE_ARRAY,.value.array={.objects=XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items,.length=2}},
 };
 
-struct jsonObject XAUTOCLAIM_ReplySchema_items_1_items = {XAUTOCLAIM_ReplySchema_items_1_items_elements,.length=4};
+struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items = {XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_elements,.length=4};
+
+/* XAUTOCLAIM_ReplySchema_items_1_anyOf_0 reply schema */
+struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_0_elements[] = {
+{"description",JSON_TYPE_STRING,.value.string="Claimed stream entries (with data, if `JUSTID` was not given)."},
+{"type",JSON_TYPE_STRING,.value.string="array"},
+{"uniqueItems",JSON_TYPE_BOOLEAN,.value.boolean=1},
+{"items",JSON_TYPE_OBJECT,.value.object=&XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items},
+};
+
+struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_0 = {XAUTOCLAIM_ReplySchema_items_1_anyOf_0_elements,.length=4};
+
+/* XAUTOCLAIM_ReplySchema_items_1_anyOf_1_items reply schema */
+struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_1_items_elements[] = {
+{"type",JSON_TYPE_STRING,.value.string="string"},
+{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_1_items = {XAUTOCLAIM_ReplySchema_items_1_anyOf_1_items_elements,.length=2};
+
+/* XAUTOCLAIM_ReplySchema_items_1_anyOf_1 reply schema */
+struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_1_elements[] = {
+{"description",JSON_TYPE_STRING,.value.string="Claimed stream entries (without data, if `JUSTID` was given)."},
+{"type",JSON_TYPE_STRING,.value.string="array"},
+{"uniqueItems",JSON_TYPE_BOOLEAN,.value.boolean=1},
+{"items",JSON_TYPE_OBJECT,.value.object=&XAUTOCLAIM_ReplySchema_items_1_anyOf_1_items},
+};
+
+struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_1 = {XAUTOCLAIM_ReplySchema_items_1_anyOf_1_elements,.length=4};
+
+/* XAUTOCLAIM_ReplySchema_items_1_anyOf array reply schema */
+struct jsonObject *XAUTOCLAIM_ReplySchema_items_1_anyOf[] = {
+&XAUTOCLAIM_ReplySchema_items_1_anyOf_0,
+&XAUTOCLAIM_ReplySchema_items_1_anyOf_1,
+};
 
 /* XAUTOCLAIM_ReplySchema_items_1 reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Claimed stream entries with data."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"uniqueItems",JSON_TYPE_BOOLEAN,.value.boolean=1},
-{"items",JSON_TYPE_OBJECT,.value.object=&XAUTOCLAIM_ReplySchema_items_1_items},
+{"anyOf",JSON_TYPE_ARRAY,.value.array={.objects=XAUTOCLAIM_ReplySchema_items_1_anyOf,.length=2}},
 };
 
-struct jsonObject XAUTOCLAIM_ReplySchema_items_1 = {XAUTOCLAIM_ReplySchema_items_1_elements,.length=4};
+struct jsonObject XAUTOCLAIM_ReplySchema_items_1 = {XAUTOCLAIM_ReplySchema_items_1_elements,.length=1};
 
 /* XAUTOCLAIM_ReplySchema_items_2_items reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_2_items_elements[] = {

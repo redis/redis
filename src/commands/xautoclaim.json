@@ -53,28 +53,41 @@
                     "pattern": "[0-9]+-[0-9]+"
                 },
                 {
-                    "description": "Claimed stream entries with data.",
-                    "type": "array",
-                    "uniqueItems": true,
-                    "items": {
-                        "type": "array",
-                        "minItems": 2,
-                        "maxItems": 2,
-                        "items": [
-                            {
-                                "description": "Entry ID",
+                    "anyOf":[
+                        {
+                            "description": "Claimed stream entries (with data, if `JUSTID` was not given).",
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "items": [
+                                    {
+                                        "description": "Entry ID",
+                                        "type": "string",
+                                        "pattern": "[0-9]+-[0-9]+"
+                                    },
+                                    {
+                                        "description": "Data",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "description": "Claimed stream entries (without data, if `JUSTID` was given).",
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {
                                 "type": "string",
                                 "pattern": "[0-9]+-[0-9]+"
-                            },
-                            {
-                                "description": "Data",
-                                "type": "array",
-                                "items": {
-                                    "type": "string"
-                                }
                             }
-                        ]
-                    }
+                        }
+                    ]
                 },
                 {
                     "description": "Entry IDs which no longer exist in the stream, and were deleted from the PEL in which they were found.",
