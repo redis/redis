@@ -3571,22 +3571,19 @@ int listMatchSds(void *a, void *b) {
 void removeModuleFromChannelSubscription(RedisModule *module, sds channelname) {
 
     /* Clean up module from channelModuleSubscribers dict. */
-    dictEntry *de = dictFind(channelModuleSubscribers,channelname);
+    dictEntry *de = dictFind(channelModuleSubscribers, channelname);
     if (de == NULL) {
         return;
     }
-    list *modules = dictGetVal(de);
-    sds modulename = sdsnew(module->name);
-    listNode *ln = listSearchKey(modules,modulename);
-    sdsfree(modulename);
+    list *subscribers = dictGetVal(de);
+    listNode *ln = listSearchKey(subscribers, module);
     if(ln == NULL) {
         return;
     }
-    sdsfree(ln->value);
-    listDelNode(modules,ln);
-    if (listLength(modules) == 0) {
-        listRelease(modules);
-        dictDelete(channelModuleSubscribers,channelname);
+    listDelNode(subscribers, ln);
+    if (listLength(subscribers) == 0) {
+        listRelease(subscribers);
+        dictDelete(channelModuleSubscribers, channelname);
     }
     serverLog(LL_DEBUG,"Module %s unsubscribed from channel %s.",
         module->name, channelname);
@@ -3620,12 +3617,11 @@ int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, Redis
     de = dictFind(channelModuleSubscribers,channelname);
     if (de == NULL) {
         subscribers = listCreate();
-        listSetMatchMethod(subscribers, listMatchSds);
-        dictAdd(channelModuleSubscribers,sdsnew(channel->ptr),subscribers);
+        dictAdd(channelModuleSubscribers, sdsnew(channel->ptr), subscribers);
     } else {
         subscribers = dictGetVal(de);
     }
-    listAddNodeTail(subscribers, sdsnew(ctx->module->name));
+    listAddNodeTail(subscribers, ctx->module);
 
     serverLog(LL_DEBUG,"Module %s subscribed to channel %s.", ctx->module->name, channelname);
 
@@ -3696,7 +3692,7 @@ void moduleSendMessageSubscriber(robj *channel, robj *message) {
 
     dictEntry *de;
     sds channelname = sdsnew(channel->ptr);
-    de = dictFind(channelModuleSubscribers,channelname);
+    de = dictFind(channelModuleSubscribers, channelname);
     sdsfree(channelname);
     if (de == NULL) return;
 
@@ -3708,10 +3704,7 @@ void moduleSendMessageSubscriber(robj *channel, robj *message) {
     while ((ln = listNext(&li)) != NULL) {
 
         /* Retrieve the module. */
-        sds modulename = listNodeValue(ln);
-        de = dictFind(modules, modulename);
-        serverAssert(de != NULL);
-        RedisModule* module = (RedisModule*)dictGetVal(de);
+        RedisModule *module = listNodeValue(ln);
 
         /* Retrieve the moduleChannelSubscriber. */
         de = dictFind(moduleChannelSubscribers, module);
@@ -11447,19 +11440,13 @@ uint64_t dictModuleObjHash(const void *key) {
     return dictGenHashFunction(o->name, sdslen((sds)o->name));
 }
 
-int dictModuleObjectCompare(dict *d, const void *key1, const void *key2) {
-    UNUSED(d);
-    const RedisModule *o1 = (RedisModule*) key1, *o2 = (RedisModule*) key2;
-    return sdscmp((sds) o1->name, (sds) o2->name);
-}
-
-/* Generic hash table type where keys are Redis Module Objects, Values
+/* Generic hash table type where keys are Redis Module Objects, values
  * are list of channel name (sds). */
 dictType moduleObjectKeyDictType = {
         dictModuleObjHash,            /* hash function */
         NULL,                      /* key dup */
         NULL,                      /* val dup */
-        dictModuleObjectCompare,      /* key compare */
+        NULL,      /* key compare */
         NULL,      /* key destructor */
         NULL,                      /* val destructor */
         NULL                       /* allow to expand */
