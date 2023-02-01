@@ -34,13 +34,15 @@ class Request(object):
 
         self.command = self.argv[0].lower()
 
-        doc = docs[self.argv[0].lower()]
+        doc = docs.get(self.command, {})
         if "subcommands" in doc and len(self.argv) > 1:
             fullname = "{}|{}".format(self.argv[0].lower(), self.argv[1].lower())
             for k, v in doc["subcommands"].items():
                 if fullname == k:
                     self.command = fullname
                     doc = v
+        if not doc:
+            print(f"Warning, missing COMMAND DOCS for '{self.command}'")
         self.schema = doc.get("reply_schema")
 
     def __str__(self):
