@@ -48,6 +48,16 @@ typedef long long ustime_t;
 /* RedisModule_OpenKey extra flags for the 'mode' argument.
  * Avoid touching the LRU/LFU of the key when opened. */
 #define REDISMODULE_OPEN_KEY_NOTOUCH (1<<16)
+/* Don't trigger keyspace event on key misses. */
+#define REDISMODULE_OPEN_KEY_NONOTIFY (1<<17)
+/* Don't update keyspace hits/misses counters. */
+#define REDISMODULE_OPEN_KEY_NOSTATS (1<<18)
+/* Delete expired keys even in replicas. */
+#define REDISMODULE_OPEN_KEY_WRITE (1<<19)
+/* Avoid deleting lazy expired keys. */
+#define REDISMODULE_OPEN_KEY_NOEXPIRE (1<<20)
+/* Avoid any effects from fetching the key */
+#define REDISMODULE_OPEN_KEY_NOEFFECTS (REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NOEXPIRE)
 
 /* List push and pop */
 #define REDISMODULE_LIST_HEAD 0
