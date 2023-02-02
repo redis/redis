@@ -3801,13 +3801,11 @@ RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     RedisModuleKey *kp;
     robj *value;
     int flags = 0;
-    if (mode & REDISMODULE_OPEN_KEY_NOEFFECTS) {
-        mode |= REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOEXPIRE;
-    }
     flags |= (mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0);
     flags |= (mode & REDISMODULE_OPEN_KEY_NONOTIFY? LOOKUP_NONOTIFY: 0);
     flags |= (mode & REDISMODULE_OPEN_KEY_NOSTATS? LOOKUP_NOSTATS: 0);
     flags |= (mode & REDISMODULE_OPEN_KEY_NOEXPIRE? LOOKUP_NOEXPIRE: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOEFFECTS? LOOKUP_NOEFFECTS: 0);
 
     if (mode & REDISMODULE_WRITE) {
         value = lookupKeyWriteWithFlags(ctx->client->db,keyname, flags);
