@@ -8,6 +8,7 @@ import redis
 import time
 import argparse
 
+
 lineno = 1
 
 class Request(object):
@@ -171,11 +172,11 @@ if __name__ == '__main__':
                 if res.error or res.queued:
                     continue
 
+                command_counter[req.command] = command_counter.get(req.command, 0) + 1
+
                 if not req.schema:
                     missing_schema.add(req.command)
-                    continue
-
-                command_counter[req.command] = command_counter.get(req.command, 0) + 1
+                    continue                
 
                 try:
                     jsonschema.validate(instance=res.json, schema=req.schema)
