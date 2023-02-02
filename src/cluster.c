@@ -3198,6 +3198,9 @@ void clusterReadHandler(connection *conn) {
  * the link to be invalidated, so it is safe to call this function
  * from event handlers that will do stuff with the same link later. */
 void clusterSendMessage(clusterLink *link, clusterMsgSendBlock *msgblock) {
+    if (!link) {
+        return;
+    }
     if (listLength(link->send_msg_queue) == 0 && msgblock->msg.totlen != 0)
         connSetWriteHandlerWithBarrier(link->conn, clusterWriteHandler, 1);
 
@@ -3228,7 +3231,6 @@ void clusterBroadcastMessage(clusterMsgSendBlock *msgblock) {
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
-        if (!node->link) continue;
         if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
             continue;
         clusterSendMessage(node->link,msgblock);
@@ -3622,9 +3624,9 @@ void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
     msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
     while((ln = listNext(&li))) {
         clusterNode *node = listNodeValue(ln);
-        if (node != myself) {
-            clusterSendMessage(node->link,msgblock);
-        }
+        if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
+            continue;
+        clusterSendMessage(node->link,msgblock);
     }
     clusterMsgSendBlockDecrRefCount(msgblock);
 }

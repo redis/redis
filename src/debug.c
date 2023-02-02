@@ -492,6 +492,8 @@ void debugCommand(client *c) {
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the reply buffer resize cron job",
+"CLUSTERLINK KILL <to|from|all> <node-id>",
+"    Kills the link based on the direction to/from (both) with the provided node." ,
 NULL
         };
         addReplyHelp(c, help);
@@ -997,6 +999,33 @@ NULL
             return;
         }
         addReply(c, shared.ok);
+    } else if(!strcasecmp(c->argv[1]->ptr,"CLUSTERLINK") &&
+        !strcasecmp(c->argv[2]->ptr,"KILL") &&
+        c->argc == 5) {
+        if (!server.cluster_enabled) {
+            addReplyError(c, "Debug option only available for cluster mode enabled setup!");
+            return;
+        }
+
+        /* Find the node. */
+        clusterNode *n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+        if (!n) {
+            addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[4]->ptr);
+            return;
+        }
+
+        /* Terminate the link based on the direction or all. */
+        if (!strcasecmp(c->argv[3]->ptr,"from")) {
+            freeClusterLink(n->inbound_link);
+        } else if (!strcasecmp(c->argv[3]->ptr,"to")) {
+            freeClusterLink(n->link);
+        } else if (!strcasecmp(c->argv[3]->ptr,"all")) {
+            freeClusterLink(n->link);
+            freeClusterLink(n->inbound_link);
+        } else {
+            addReplyErrorFormat(c, "Unknown direction %s", (char*) c->argv[3]->ptr);
+        }
+        addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
