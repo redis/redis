@@ -4106,7 +4106,10 @@ struct redisCommandArg ACL_GETUSER_Args[] = {
 /********** ACL LOG ********************/
 
 /* ACL LOG history */
-#define ACL_LOG_History NULL
+commandHistory ACL_LOG_History[] = {
+{"7.2.0","Added entry ID, timestamp created, and timestamp last updated."},
+{0}
+};
 
 /* ACL LOG tips */
 #define ACL_LOG_tips NULL
