@@ -2030,6 +2030,12 @@ int main(int argc, char **argv) {
             sdsfree(key_placeholder);
         }
 
+        if (test_is_selected("xadd")) {
+            len = redisFormatCommand(&cmd,"XADD mystream%s * myfield %s", tag, data);
+            benchmark("XADD",cmd,len);
+            free(cmd); 
+        }        
+
         if (!config.csv) printf("\n");
     } while(config.loop);
 
