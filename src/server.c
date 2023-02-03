@@ -1181,6 +1181,22 @@ void checkChildrenDone(void) {
             }
         }
 
+        /* Start any pending bgsave immediately. */
+        if (!hasActiveChildProcess() && server.rdb_bgsave_pending)
+        {
+            rdbSaveInfo rsi, *rsiptr;
+            rsiptr = rdbPopulateSaveInfo(&rsi);
+            rdbSaveBackground(SLAVE_REQ_NONE, server.rdb_filename, rsiptr);
+            server.rdb_bgsave_pending = 0;
+        }
+
+        /* Start any pending aof rewrite immediately. */
+        if (!hasActiveChildProcess() && server.aof_rewrite_pending)
+        {
+            rewriteAppendOnlyFileBackground();
+            server.aof_rewrite_pending = 0;
+        }
+
         /* start any pending forks immediately. */
         replicationStartPendingFork();
     }
@@ -1367,7 +1383,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     {
         run_with_period(1000) receiveChildInfo();
         checkChildrenDone();
-    } else {
+    }
+
+    if (!hasActiveChildProcess() ||
+        (hasActiveChildProcess() && !server.rdb_bgsave_pending))
+    {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
         for (j = 0; j < server.saveparamslen; j++) {
@@ -1383,18 +1403,28 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                  CONFIG_BGSAVE_RETRY_DELAY ||
                  server.lastbgsave_status == C_OK))
             {
-                serverLog(LL_NOTICE,"%d changes in %d seconds. Saving...",
-                    sp->changes, (int)sp->seconds);
-                rdbSaveInfo rsi, *rsiptr;
-                rsiptr = rdbPopulateSaveInfo(&rsi);
-                rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
+                if (!hasActiveChildProcess()) {
+                    serverLog(LL_NOTICE,"%d changes in %d seconds. Saving...",
+                        sp->changes, (int)sp->seconds);
+                    rdbSaveInfo rsi, *rsiptr;
+                    rsiptr = rdbPopulateSaveInfo(&rsi);
+                    rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
+                } else {
+                    serverLog(LL_NOTICE,"%d changes in %d seconds. "
+                                        "But there is a active child running, pending the save.",
+                                        sp->changes, (int)sp->seconds);
+                    server.rdb_bgsave_pending = 1;
+                }
                 break;
             }
         }
+    }
 
+    if (!hasActiveChildProcess() ||
+        (hasActiveChildProcess() && !server.aof_rewrite_pending))
+    {
         /* Trigger an AOF rewrite if needed. */
         if (server.aof_state == AOF_ON &&
-            !hasActiveChildProcess() &&
             server.aof_rewrite_perc &&
             server.aof_current_size > server.aof_rewrite_min_size)
         {
@@ -1402,15 +1432,20 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 server.aof_rewrite_base_size : 1;
             long long growth = (server.aof_current_size*100/base) - 100;
             if (growth >= server.aof_rewrite_perc && !aofRewriteLimited()) {
-                serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
-                rewriteAppendOnlyFileBackground();
+                if (!hasActiveChildProcess()) {
+                    serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
+                    rewriteAppendOnlyFileBackground();
+                } else {
+                    serverLog(LL_NOTICE,"There is a active child, pending the automatic rewriting of AOF on %lld%% growth",growth);
+                    server.aof_rewrite_pending = 1;
+                }
             }
         }
     }
+
     /* Just for the sake of defensive programming, to avoid forgetting to
      * call this function when needed. */
     updateDictResizePolicy();
-
 
     /* AOF postponed flush: Try at every cron cycle if the slow fsync
      * completed. */
@@ -1482,8 +1517,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     {
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK)
-            server.rdb_bgsave_scheduled = 0;
+        rdbSaveBackground(SLAVE_REQ_NONE, server.rdb_filename, rsiptr);
     }
 
     run_with_period(100) {
@@ -1970,6 +2004,7 @@ void initServerConfig(void) {
     server.aof_state = AOF_OFF;
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
+    server.aof_rewrite_pending = 0;
     server.aof_flush_sleep = 0;
     server.aof_last_fsync = time(NULL);
     server.aof_cur_timestamp = 0;
@@ -2590,6 +2625,7 @@ void initServer(void) {
     server.rdb_pipe_buff = NULL;
     server.rdb_pipe_bufflen = 0;
     server.rdb_bgsave_scheduled = 0;
+    server.rdb_bgsave_pending = 0;
     server.child_info_pipe[0] = -1;
     server.child_info_pipe[1] = -1;
     server.child_info_nread = 0;

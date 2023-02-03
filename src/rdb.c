@@ -1539,6 +1539,10 @@ int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi) {
             return C_ERR;
         }
         serverLog(LL_NOTICE,"Background saving started by pid %ld",(long) childpid);
+        if (req == SLAVE_REQ_NONE) {
+            server.rdb_bgsave_scheduled = 0;
+            server.rdb_bgsave_pending = 0;
+        }
         server.rdb_save_time_start = time(NULL);
         server.rdb_child_type = RDB_CHILD_TYPE_DISK;
         return C_OK;

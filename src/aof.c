@@ -961,6 +961,7 @@ void stopAppendOnly(void) {
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
     server.aof_rewrite_scheduled = 0;
+    server.aof_rewrite_pending = 0;
     server.aof_last_incr_size = 0;
     killAppendOnlyChild();
     sdsfree(server.aof_buf);
@@ -2448,6 +2449,7 @@ int rewriteAppendOnlyFileBackground(void) {
         serverLog(LL_NOTICE,
             "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
+        server.aof_rewrite_pending = 0;
         server.aof_rewrite_time_start = time(NULL);
         return C_OK;
     }
