@@ -2918,9 +2918,7 @@ static void zrangeResultEmitCBufferToClient(zrange_result_handler *handler,
     addReplyBulkCBuffer(handler->client, value, value_length_in_bytes);
 
     if (handler->withscores) {
-        char scorebuf[MAX_D2STRING_CHARS];
-        int scorelen = d2string(scorebuf,sizeof(scorebuf),score);
-        addReplyBulkCBuffer(handler->client, scorebuf, scorelen);
+        addReplyDouble(handler->client, score);
     }
 }
 
