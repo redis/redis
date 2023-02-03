@@ -456,8 +456,8 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
 
     /* If any modules are interested in the published message,
      * pass it to the module system. The module engine will call
-     * subscribers if they are interested in. */
-    moduleSendMessageSubscriber(channel,message);
+     * subscribers if they are subscribed. */
+    moduleSendMessageSubscriber(channel, message);
 
     /* Send to clients listening for that channel */
     de = dictFind(*type.serverPubSubChannels, channel);

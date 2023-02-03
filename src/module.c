@@ -3561,17 +3561,13 @@ static dict *moduleChannelSubscribers;
 void cleanupModuleChannelSubscriber(RedisModule *module, RedisModuleChannelSubscriber *moduleChannelSubscriber) {
     listRelease(moduleChannelSubscriber->subscriptions);
     zfree(moduleChannelSubscriber);
-    dictDelete(moduleChannelSubscribers,module);
+    dictDelete(moduleChannelSubscribers, module);
 }
 
-int listMatchSds(void *a, void *b) {
-    return sdscmp(a,b) == 0;
-}
-
-void removeModuleFromChannelSubscription(RedisModule *module, sds channelname) {
+void removeModuleFromChannelSubscription(RedisModule *module, robj *channel) {
 
     /* Clean up module from channelModuleSubscribers dict. */
-    dictEntry *de = dictFind(channelModuleSubscribers, channelname);
+    dictEntry *de = dictFind(channelModuleSubscribers, channel);
     if (de == NULL) {
         return;
     }
@@ -3583,49 +3579,49 @@ void removeModuleFromChannelSubscription(RedisModule *module, sds channelname) {
     listDelNode(subscribers, ln);
     if (listLength(subscribers) == 0) {
         listRelease(subscribers);
-        dictDelete(channelModuleSubscribers, channelname);
+        dictDelete(channelModuleSubscribers, channel);
     }
     serverLog(LL_DEBUG,"Module %s unsubscribed from channel %s.",
-        module->name, channelname);
+        module->name, (char *)channel->ptr);
 }
 
 /* Subscribe the module to a channel with a callback.  */
 int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleSubscribeFunc callback) {
-    dictEntry *de = dictFind(moduleChannelSubscribers,ctx->module);
+    dictEntry *de = dictFind(moduleChannelSubscribers, ctx->module);
     RedisModuleChannelSubscriber *moduleChannelSubscriber;
     if (de == NULL) {
         moduleChannelSubscriber = zmalloc(sizeof(*moduleChannelSubscriber));
         moduleChannelSubscriber->subscribe_callback = callback;
         moduleChannelSubscriber->subscriptions = listCreate();
-        listSetMatchMethod(moduleChannelSubscriber->subscriptions, listMatchSds);
+        listSetMatchMethod(moduleChannelSubscriber->subscriptions, listMatchStringObjects);
+        listSetFreeMethod(moduleChannelSubscriber->subscriptions, decrRefCountVoid);
         dictAdd(moduleChannelSubscribers, ctx->module, moduleChannelSubscriber);
     } else {
         moduleChannelSubscriber = dictGetVal(de);
     }
 
-    sds channelname = sdsnew(channel->ptr);
-    if (listSearchKey(moduleChannelSubscriber->subscriptions,channelname)) {
-        sdsfree(channelname);
+    if (listSearchKey(moduleChannelSubscriber->subscriptions, channel)) {
         return REDISMODULE_OK;
     }
 
     /* Add the channel to the list of subscriptions. */
-    listAddNodeTail(moduleChannelSubscriber->subscriptions,sdsnew(channel->ptr));
+    listAddNodeTail(moduleChannelSubscriber->subscriptions, channel);
+    incrRefCount(channel);
 
     /* Add the module to the (channel -> list of module subscribers hash table). */
     list *subscribers = NULL;
-    de = dictFind(channelModuleSubscribers,channelname);
+    de = dictFind(channelModuleSubscribers, channel);
     if (de == NULL) {
         subscribers = listCreate();
-        dictAdd(channelModuleSubscribers, sdsnew(channel->ptr), subscribers);
+        dictAdd(channelModuleSubscribers, channel, subscribers);
+        incrRefCount(channel);
     } else {
         subscribers = dictGetVal(de);
     }
     listAddNodeTail(subscribers, ctx->module);
 
-    serverLog(LL_DEBUG,"Module %s subscribed to channel %s.", ctx->module->name, channelname);
+    serverLog(LL_DEBUG,"Module %s subscribed to channel %s.", ctx->module->name, (char *)channel->ptr);
 
-    sdsfree(channelname);
     return REDISMODULE_OK;
 }
 
@@ -3633,27 +3629,24 @@ int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, Redis
 int RM_UnsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString *channel) {
     int retval = C_OK;
 
-    dictEntry *de = dictFind(moduleChannelSubscribers,ctx->module);
+    dictEntry *de = dictFind(moduleChannelSubscribers, ctx->module);
     if (de == NULL) return REDISMODULE_OK;
     RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
 
     // No subscription found for module.
     if (listLength(moduleChannelSubscriber->subscriptions) == 0) return REDISMODULE_OK;
 
-    sds channelname = sdsnew(channel->ptr);
-    listNode *ln = listSearchKey(moduleChannelSubscriber->subscriptions, channelname);
-    sdsfree(channelname);
+    listNode *ln = listSearchKey(moduleChannelSubscriber->subscriptions, channel);
 
     if (ln == NULL) return REDISMODULE_OK;
 
     /* Find and remove the module subscriber to the channel. */
     removeModuleFromChannelSubscription(ctx->module, ln->value);
-    sdsfree(ln->value);
     listDelNode(moduleChannelSubscriber->subscriptions, ln);
     if (listLength(moduleChannelSubscriber->subscriptions) == 0) {
         cleanupModuleChannelSubscriber(ctx->module, moduleChannelSubscriber);
     }
-    serverLog(LL_DEBUG,"Module %s unsubscribed from channel %s.",ctx->module->name, (char *)channel->ptr);
+    serverLog(LL_DEBUG,"Module %s unsubscribed from channel %s.", ctx->module->name, (char *)channel->ptr);
 
     return retval == C_OK ? REDISMODULE_OK : REDISMODULE_ERR;
 }
@@ -3677,8 +3670,7 @@ RedisModuleString **RM_ListGlobalChannelSubscription(RedisModuleCtx *ctx, size_t
 
     listNode *ln;
     while ((ln = listNext(&li)) != NULL) {
-        channels[(*numchannels)++] = createObject(OBJ_STRING, listNodeValue(ln));
-        autoMemoryAdd(ctx, REDISMODULE_AM_STRING, channels[*numchannels - 1]);
+        channels[(*numchannels)++] = listNodeValue(ln);
     }
     return channels;
 }
@@ -3700,7 +3692,6 @@ int moduleUnsubscribeAllChannels(RedisModule *module) {
     listRewind(moduleChannelSubscriber->subscriptions,&li);
     while ((ln = listNext(&li))) {
         removeModuleFromChannelSubscription(module, ln->value);
-        sdsfree(ln->value);
         listDelNode(moduleChannelSubscriber->subscriptions, ln);
         count++;
     }
@@ -3717,9 +3708,7 @@ void moduleSendMessageSubscriber(robj *channel, robj *message) {
     if (dictSize(channelModuleSubscribers) == 0) return;
 
     dictEntry *de;
-    sds channelname = sdsnew(channel->ptr);
-    de = dictFind(channelModuleSubscribers, channelname);
-    sdsfree(channelname);
+    de = dictFind(channelModuleSubscribers, channel);
     if (de == NULL) return;
 
     list *subscribed_modules = dictGetVal(de);
@@ -3735,9 +3724,9 @@ void moduleSendMessageSubscriber(robj *channel, robj *message) {
         /* Retrieve the moduleChannelSubscriber. */
         de = dictFind(moduleChannelSubscribers, module);
         RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
-        RedisModuleCtx ctx;
 
         /* Invoke the callback registered for this module. */
+        RedisModuleCtx ctx;
         moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
         moduleChannelSubscriber->subscribe_callback(&ctx, channel, message);
         moduleFreeContext(&ctx);
@@ -11469,11 +11458,11 @@ uint64_t dictModuleObjHash(const void *key) {
 /* Generic hash table type where keys are Redis Module Objects, values
  * are list of channel name (sds). */
 dictType moduleObjectKeyDictType = {
-        dictModuleObjHash,            /* hash function */
+        dictModuleObjHash,         /* hash function */
         NULL,                      /* key dup */
         NULL,                      /* val dup */
-        NULL,      /* key compare */
-        NULL,      /* key destructor */
+        NULL,                      /* key compare */
+        NULL,                      /* key destructor */
         NULL,                      /* val destructor */
         NULL                       /* allow to expand */
 };
@@ -11489,7 +11478,7 @@ void moduleInitModulesSystem(void) {
     moduleKeyspaceSubscribers = listCreate();
 
     modulePostExecUnitJobs = listCreate();
-    channelModuleSubscribers = dictCreate(&modulesDictType);
+    channelModuleSubscribers = dictCreate(&keylistDictType);
     moduleChannelSubscribers = dictCreate(&moduleObjectKeyDictType);
 
     /* Set up filter list */

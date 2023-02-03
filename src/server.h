@@ -2636,6 +2636,7 @@ typedef enum {
 typedef void (*beforeConvertCB)(void *data);
 void listTypeTryConversion(robj *o, list_conv_type lct, beforeConvertCB fn, void *data);
 void listTypeTryConversionAppend(robj *o, robj **argv, int start, int end, beforeConvertCB fn, void *data);
+int listMatchStringObjects(void *a, void *b);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
