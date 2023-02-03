@@ -3578,7 +3578,6 @@ void removeModuleFromChannelSubscription(RedisModule *module, robj *channel) {
     }
     listDelNode(subscribers, ln);
     if (listLength(subscribers) == 0) {
-        listRelease(subscribers);
         dictDelete(channelModuleSubscribers, channel);
     }
     serverLog(LL_DEBUG,"Module %s unsubscribed from channel %s.",
@@ -3715,7 +3714,7 @@ void moduleSendMessageSubscriber(robj *channel, robj *message) {
     listNode *ln;
     listIter li;
 
-    listRewind(subscribed_modules,&li);
+    listRewind(subscribed_modules, &li);
     while ((ln = listNext(&li)) != NULL) {
 
         /* Retrieve the module. */
