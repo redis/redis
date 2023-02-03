@@ -20,6 +20,9 @@ start_server {tags {"repl network external:skip singledb:skip"}} {
         }
 
         test {Test replication with parallel clients writing in different DBs} {
+            # Gives the random workloads a chance to add some complex commands.
+            after 5000
+
             # Make sure all parallel clients have written data.
             wait_for_condition 1000 50 {
                 [$master select 9] == {OK} && [$master dbsize] > 0 &&
