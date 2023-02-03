@@ -623,6 +623,7 @@ start_server {tags {"acl external:skip"}} {
          set entry_id_initial_error [dict get [lindex [r ACL LOG] 0] entry-id]
          set timestamp_created_original [dict get [lindex [r ACL LOG] 0] timestamp-created]
          set timestamp_last_update_original [dict get [lindex [r ACL LOG] 0] timestamp-last-updated]
+         after 1
          for {set j 0} {$j < 10} {incr j} {
              assert_error "*WRONGPASS*" {r AUTH user1 doo}
          }
