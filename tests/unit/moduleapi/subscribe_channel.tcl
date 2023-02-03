@@ -16,16 +16,22 @@ tags "modules" {
         }
 
         test {Unsubscribe from channel event, message should no longer be received by module} {
+            assert_equal [r subscribech.list] [list "event"]
+
             # module is listening to "event" channel on load
             r subscribech.unsubscribe_from_channel event
             assert_equal 1 [r dbsize]
             assert_equal {0} [r publish event clear]
             assert_equal 1 [r dbsize]
+            assert_equal [r subscribech.list] []
 
             # module is listening to "event" channel again
             r subscribech.subscribe_to_channel event
+            r subscribech.subscribe_to_channel event1
             assert_equal {0} [r publish event clear]
             assert_equal 0 [r dbsize]
+
+            assert_equal [r subscribech.list] [list "event" "event1"]
         }
 
         test "Unload the module - subscribech" {
