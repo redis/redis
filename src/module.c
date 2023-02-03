@@ -3678,7 +3678,7 @@ RedisModuleString **RM_ListGlobalChannelSubscription(RedisModuleCtx *ctx, size_t
     listNode *ln;
     while ((ln = listNext(&li)) != NULL) {
         channels[(*numchannels)++] = createObject(OBJ_STRING, listNodeValue(ln));
-        autoMemoryAdd(ctx, REDISMODULE_AM_STRING, channels[*numchannels]);
+        autoMemoryAdd(ctx, REDISMODULE_AM_STRING, channels[*numchannels - 1]);
     }
     return channels;
 }
