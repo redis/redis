@@ -3597,12 +3597,11 @@ void call(client *c, int flags) {
         /* We use the tracking flag of the original external client that
          * triggered the command, but we take the keys from the actual command
          * being executed. */
-        /* if we have a real client from the network, use it (could be missing on module timers) */
-        client *realclient = server.current_client? server.current_client : c;
-        if (realclient->flags & CLIENT_TRACKING &&
-            !(realclient->flags & CLIENT_TRACKING_BCAST))
+        if (server.current_client &&
+            (server.current_client->flags & CLIENT_TRACKING) &&
+            !(server.current_client->flags & CLIENT_TRACKING_BCAST))
         {
-            trackingRememberKeys(realclient, c);
+            trackingRememberKeys(server.current_client, c);
         }
     }
 

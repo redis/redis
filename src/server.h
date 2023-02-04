@@ -1535,8 +1535,8 @@ struct redisServer {
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
-    client *current_client;     /* External client that triggered the command execution. */
-    client *executing_client;   /* Current (possibly script or module) client executing the command. */
+    client *current_client;     /* The client that triggered the command execution (External or AOF). */
+    client *executing_client;   /* The client executing the current command (possibly script or module). */
 
     /* Stuff for client mem eviction */
     clientMemUsageBucket* client_mem_usage_buckets;
