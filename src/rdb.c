@@ -35,6 +35,7 @@
 #include "stream.h"
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "bio.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -3356,6 +3357,12 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
     fclose(fp);
     stopLoading(retval==C_OK);
+    /* Reclaim the cache backed by rdb */
+    if (!(rdbflags & RDBFLAGS_KEEP_CACHE)) {
+        /* TODO: maybe we coule combine the above fopen and open in the future */
+        int rdb_fd = open(server.rdb_filename, O_RDONLY);
+        if (rdb_fd > 0) bioCreateCloseJob(rdb_fd, 0, 1);
+    }
     return (retval==C_OK) ? RDB_OK : RDB_FAILED;
 }
 

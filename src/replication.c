@@ -2225,9 +2225,6 @@ void readSyncBulkPayload(connection *conn) {
             bg_unlink(server.rdb_filename);
         }
 
-        /* Reclaim the cache backed by rdb */
-        bioCreateCloseJob(server.repl_transfer_fd, 0, 1);
-
         zfree(server.repl_transfer_tmpfile);
         server.repl_transfer_fd = -1;
         server.repl_transfer_tmpfile = NULL;
