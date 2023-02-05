@@ -440,7 +440,13 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
-    if (server.repl_backlog == NULL && listLength(slaves) == 0) return;
+    if (server.repl_backlog == NULL && listLength(slaves) == 0) {
+        /* We increment the repl_offset anyway, since we use that for tracking AOF fsyncs
+         * even when there's no replication active. This code will not be reached if AOF
+         * is also disabled. */
+        server.master_repl_offset += 1;
+        return;
+    }
 
     /* We can't have slaves attached and no backlog. */
     serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
@@ -3850,11 +3856,6 @@ const char *getFailoverStateString() {
         case FAILOVER_WAIT_FOR_SYNC: return "waiting-for-sync";
         default: return "unknown";
     }
-}
-
-/* Does this server have replication enabled (either as a master or a replica)? */
-int hasReplication() {
-    return server.repl_backlog != NULL;
 }
 
 /* Resets the internal failover configuration, this needs

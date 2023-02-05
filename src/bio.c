@@ -257,13 +257,7 @@ void *bioProcessBackgroundJobs(void *arg) {
                     }
                 } else {
                     atomicSet(server.aof_bio_fsync_status,C_OK);
-                    // A negative offset indicates no replication is configured and we are tracking a basic
-                    // "fsync epoch" counter instead.
-                    if (job->fd_args.offset < 0) {
-                        atomicIncr(server.pot_fsynced_reploff, 1);
-                    } else {
-                        atomicSet(server.pot_fsynced_reploff, job->fd_args.offset);
-                    }
+                    atomicSet(server.pot_fsynced_reploff, job->fd_args.offset);
                 }
 
                 if (job->header.type == BIO_CLOSE_AOF)
