@@ -177,7 +177,7 @@ void unblockClient(client *c) {
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM) {
         unblockClientWaitingData(c);
-    } else if (c->bstate.btype == BLOCKED_WAIT) {
+    } else if (c->bstate.btype == BLOCKED_WAIT || c->bstate.btype == BLOCKED_WAITAOF) {
         unblockClientWaitingReplicas(c);
     } else if (c->bstate.btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
@@ -220,6 +220,10 @@ void replyToBlockedClientTimedOut(client *c) {
         updateStatsOnUnblock(c, 0, 0, 0);
     } else if (c->bstate.btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bstate.reploffset));
+    } else if (c->bstate.btype == BLOCKED_WAITAOF) {
+        addReplyArrayLen(c,2);
+        addReplyLongLong(c,server.fsynced_reploff >= c->bstate.reploffset);
+        addReplyLongLong(c,replicationCountAOFAcksByOffset(c->bstate.reploffset));
     } else if (c->bstate.btype == BLOCKED_MODULE) {
         moduleBlockedClientTimedOut(c);
     } else {
@@ -572,6 +576,16 @@ void blockForReplication(client *c, mstime_t timeout, long long offset, long num
     c->bstate.numreplicas = numreplicas;
     listAddNodeHead(server.clients_waiting_acks,c);
     blockClient(c,BLOCKED_WAIT);
+}
+
+/* block a client due to wait command */
+void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numlocal, long numreplicas) {
+    c->bstate.timeout = timeout;
+    c->bstate.reploffset = offset;
+    c->bstate.numreplicas = numreplicas;
+    c->bstate.numlocal = numlocal;
+    listAddNodeHead(server.clients_waiting_acks,c);
+    blockClient(c,BLOCKED_WAITAOF);
 }
 
 /* Postpone client from executing a command. For example the server might be busy

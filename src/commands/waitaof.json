@@ -1,0 +1,34 @@
+{
+    "WAITAOF": {
+        "summary": "Wait for of all the write commands sent in the context of the current connection on either local host or replicas to get synced to AOF file on the disk",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "7.2.0",
+        "arity": 4,
+        "function": "waitaofCommand",
+        "command_flags": [
+            "NOSCRIPT"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:AGG_MIN"
+        ],
+        "arguments": [
+            {
+                "name": "numlocal",
+                "type": "integer"
+            },
+            {
+                "name": "numreplicas",
+                "type": "integer"
+            },
+            {
+                "name": "timeout",
+                "type": "integer"
+            }
+        ]
+    }
+}

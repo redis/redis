@@ -1133,7 +1133,7 @@ void syncCommand(client *c) {
  * eof: supports EOF-style RDB transfer for diskless replication.
  * psync2: supports PSYNC v2, so understands +CONTINUE <new repl ID>.
  *
- * - ack <offset>
+ * - ack <offset> [<aofofs>]
  * Replica informs the master the amount of replication stream that it
  * processed so far.
  *
@@ -1151,7 +1151,11 @@ void syncCommand(client *c) {
 void replconfCommand(client *c) {
     int j;
 
-    if ((c->argc % 2) == 0) {
+    /* ACK is a special case, it accapts any number of arguments, doesn't allow
+     * more replconf ops after it, and dones't reply. */
+    int replconf_ack = c->argc > 2 && !strcasecmp(c->argv[1]->ptr,"ack");
+
+    if ((c->argc % 2) == 0 && !replconf_ack) {
         /* Number of arguments must be odd to make sure that every
          * option has a corresponding value. */
         addReplyErrorObject(c,shared.syntaxerr);
@@ -1183,7 +1187,7 @@ void replconfCommand(client *c) {
                 c->slave_capa |= SLAVE_CAPA_EOF;
             else if (!strcasecmp(c->argv[j+1]->ptr,"psync2"))
                 c->slave_capa |= SLAVE_CAPA_PSYNC2;
-        } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
+        } else if (replconf_ack) {
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
              * internal only command that normal clients should never use. */
@@ -1194,6 +1198,12 @@ void replconfCommand(client *c) {
                 return;
             if (offset > c->repl_ack_off)
                 c->repl_ack_off = offset;
+            if (c->argc > j+2) {
+                if ((getLongLongFromObject(c->argv[j+2], &offset) != C_OK))
+                    return;
+                if (offset > c->repl_aof_off)
+                    c->repl_aof_off = offset;
+            }
             c->repl_ack_time = server.unixtime;
             /* If this was a diskless replication, we need to really put
              * the slave online when the first ACK is received (which
@@ -3221,12 +3231,12 @@ void replicationSendAck(void) {
 
     if (c != NULL) {
         c->flags |= CLIENT_MASTER_FORCE_REPLY;
-        addReplyArrayLen(c,5);
+        addReplyArrayLen(c,server.fsynced_reploff != -1? 4: 3);
         addReplyBulkCString(c,"REPLCONF");
         addReplyBulkCString(c,"ACK");
         addReplyBulkLongLong(c,c->reploff);
-        addReplyBulkCString(c,"FACK");
-        addReplyBulkLongLong(c,server.fsynced_reploff);
+        if (server.fsynced_reploff != -1)
+            addReplyBulkLongLong(c,server.fsynced_reploff);
         c->flags &= ~CLIENT_MASTER_FORCE_REPLY;
     }
 }
@@ -3461,6 +3471,23 @@ int replicationCountAcksByOffset(long long offset) {
     return count;
 }
 
+/* Return the number of replicas that already acknowledged the specified
+ * replication offset being AOF fsynced. */
+int replicationCountAOFAcksByOffset(long long offset) {
+    listIter li;
+    listNode *ln;
+    int count = 0;
+
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+
+        if (slave->replstate != SLAVE_STATE_ONLINE) continue;
+        if (slave->repl_aof_off >= offset) count++;
+    }
+    return count;
+}
+
 /* WAIT for N replicas to acknowledge the processing of our latest
  * write command (and all the previous commands). */
 void waitCommand(client *c) {
@@ -3495,6 +3522,45 @@ void waitCommand(client *c) {
     replicationRequestAckFromSlaves();
 }
 
+/* WAIT for N replicas and / or local master to acknowledge our latest
+ * write command got synced to the disk. */
+void waitaofCommand(client *c) {
+    mstime_t timeout;
+    long numreplicas, numlocal, ackreplicas, acklocal;
+    long long offset = c->woff;
+
+    if (server.masterhost) {
+        addReplyError(c,"WAITAOF cannot be used with replica instances. Please also note that since Redis 4.0 if a replica is configured to be writable (which is not the default) writes to replicas are just local and are not propagated.");
+        return;
+    }
+
+    /* Argument parsing. */
+    if (getRangeLongFromObjectOrReply(c,c->argv[1],0,1,&numlocal,NULL) != C_OK)
+        return;
+    if (getLongFromObjectOrReply(c,c->argv[2],&numreplicas,NULL) != C_OK)
+        return;
+    if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_MILLISECONDS)
+        != C_OK) return;
+
+    /* First try without blocking at all. */
+    ackreplicas = replicationCountAOFAcksByOffset(c->woff);
+    acklocal = server.fsynced_reploff >= c->woff;
+    if ((ackreplicas >= numreplicas && numlocal > acklocal) || c->flags & CLIENT_MULTI ) {
+        addReplyArrayLen(c,2);
+        addReplyLongLong(c,numlocal);
+        addReplyLongLong(c,ackreplicas);
+        return;
+    }
+
+    /* Otherwise block the client and put it into our list of clients
+     * waiting for ack from slaves. */
+    blockForAofFsync(c,timeout,offset,numlocal,numreplicas);
+
+    /* Make sure that the server will send an ACK request to all the slaves
+     * before returning to the event loop. */
+    replicationRequestAckFromSlaves();
+}
+
 /* This is called by unblockClient() to perform the blocking op type
  * specific cleanup. We just remove the client from the list of clients
  * waiting for replica acks. Never call it directly, call unblockClient()
@@ -3505,8 +3571,8 @@ void unblockClientWaitingReplicas(client *c) {
     listDelNode(server.clients_waiting_acks,ln);
 }
 
-/* Check if there are clients blocked in WAIT that can be unblocked since
- * we received enough ACKs from slaves. */
+/* Check if there are clients blocked in WAIT or WAITAOF that can be unblocked
+ * since we received enough ACKs from slaves. */
 void processClientsWaitingReplicas(void) {
     long long last_offset = 0;
     int last_numreplicas = 0;
@@ -3528,7 +3594,9 @@ void processClientsWaitingReplicas(void) {
             unblockClient(c);
             addReplyLongLong(c,last_numreplicas);
         } else {
-            int numreplicas = replicationCountAcksByOffset(c->bstate.reploffset);
+            int numreplicas = c->bstate.btype == BLOCKED_WAITAOF ?
+                replicationCountAcksByOffset(c->bstate.reploffset) :
+                replicationCountAOFAcksByOffset(c->bstate.reploffset);
 
             if (numreplicas >= c->bstate.numreplicas) {
                 last_offset = c->bstate.reploffset;
