@@ -234,40 +234,34 @@ void *bioProcessBackgroundJobs(void *arg) {
         pthread_mutex_unlock(&bio_mutex[worker]);
 
         /* Process the job accordingly to its type. */
-        switch (job->header.type)
-        {
-            case BIO_CLOSE_FILE:
-                close(job->fd_args.fd);
-                break;
-            case BIO_AOF_FSYNC:
-            case BIO_CLOSE_AOF:
-                /* The fd may be closed by main thread and reused for another
-                 * socket, pipe, or file. We just ignore these errno because
-                 * aof fsync did not really fail. */
-                if (redis_fsync(job->fd_args.fd) == -1 &&
-                    errno != EBADF && errno != EINVAL)
-                {
-                    int last_status;
-                    atomicGet(server.aof_bio_fsync_status,last_status);
-                    atomicSet(server.aof_bio_fsync_status,C_ERR);
-                    atomicSet(server.aof_bio_fsync_errno,errno);
-                    if (last_status == C_OK) {
-                        serverLog(LL_WARNING,
-                                  "Fail to fsync the AOF file: %s",strerror(errno));
-                    }
-                } else {
-                    atomicSet(server.aof_bio_fsync_status,C_OK);
-                    atomicSet(server.pot_fsynced_reploff, job->fd_args.offset);
+        if (job->header.type == BIO_CLOSE_FILE) {
+            close(job->fd_args.fd);
+        } else if (job->header.type == BIO_AOF_FSYNC || job->header.type == BIO_CLOSE_AOF) {
+            /* The fd may be closed by main thread and reused for another
+             * socket, pipe, or file. We just ignore these errno because
+             * aof fsync did not really fail. */
+            if (redis_fsync(job->fd_args.fd) == -1 &&
+                errno != EBADF && errno != EINVAL)
+            {
+                int last_status;
+                atomicGet(server.aof_bio_fsync_status,last_status);
+                atomicSet(server.aof_bio_fsync_status,C_ERR);
+                atomicSet(server.aof_bio_fsync_errno,errno);
+                if (last_status == C_OK) {
+                    serverLog(LL_WARNING,
+                        "Fail to fsync the AOF file: %s",strerror(errno));
                 }
+            } else {
+                atomicSet(server.aof_bio_fsync_status,C_OK);
+                atomicSet(server.pot_fsynced_reploff, job->fd_args.offset);
+            }
 
-                if (job->header.type == BIO_CLOSE_AOF)
-                    close(job->fd_args.fd);
-                break;
-            case BIO_LAZY_FREE:
-                job->free_args.free_fn(job->free_args.free_args);
-                break;
-            default:
-                serverPanic("Wrong job type in bioProcessBackgroundJobs().");
+            if (job->header.type == BIO_CLOSE_AOF)
+                close(job->fd_args.fd);
+        } else if (job->header.type == BIO_LAZY_FREE) {
+            job->free_args.free_fn(job->free_args.free_args);
+        } else {
+            serverPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
         zfree(job);
 
