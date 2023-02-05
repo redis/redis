@@ -71,7 +71,7 @@ static char* bio_worker_title[] = {
 
 #define BIO_WORKER_NUM (sizeof(bio_worker_title) / sizeof(*bio_worker_title))
 
-static int bio_job_to_worker[] = {
+static unsigned int bio_job_to_worker[] = {
     [BIO_CLOSE_FILE] = 0,
     [BIO_AOF_FSYNC] = 1,
     [BIO_CLOSE_AOF] = 1,
@@ -82,6 +82,7 @@ static pthread_t bio_threads[BIO_WORKER_NUM];
 static pthread_mutex_t bio_mutex[BIO_WORKER_NUM];
 static pthread_cond_t bio_newjob_cond[BIO_WORKER_NUM];
 static list *bio_jobs[BIO_WORKER_NUM];
+static unsigned long bio_jobs_counter[BIO_NUM_OPS] = {0};
 
 /* This structure represents a background Job. It is only used locally to this
  * file as the API does not expose the internals at all. */
@@ -149,6 +150,7 @@ void bioSubmitJob(int type, bio_job *job) {
     unsigned long worker = bio_job_to_worker[type];
     pthread_mutex_lock(&bio_mutex[worker]);
     listAddNodeTail(bio_jobs[worker],job);
+    bio_jobs_counter[type]++;
     pthread_cond_signal(&bio_newjob_cond[worker]);
     pthread_mutex_unlock(&bio_mutex[worker]);
 }
@@ -234,9 +236,11 @@ void *bioProcessBackgroundJobs(void *arg) {
         pthread_mutex_unlock(&bio_mutex[worker]);
 
         /* Process the job accordingly to its type. */
-        if (job->header.type == BIO_CLOSE_FILE) {
+        int job_type = job->header.type;
+
+        if (job_type == BIO_CLOSE_FILE) {
             close(job->fd_args.fd);
-        } else if (job->header.type == BIO_AOF_FSYNC || job->header.type == BIO_CLOSE_AOF) {
+        } else if (job_type == BIO_AOF_FSYNC || job_type == BIO_CLOSE_AOF) {
             /* The fd may be closed by main thread and reused for another
              * socket, pipe, or file. We just ignore these errno because
              * aof fsync did not really fail. */
@@ -256,9 +260,9 @@ void *bioProcessBackgroundJobs(void *arg) {
                 atomicSet(server.pot_fsynced_reploff, job->fd_args.offset);
             }
 
-            if (job->header.type == BIO_CLOSE_AOF)
+            if (job_type == BIO_CLOSE_AOF)
                 close(job->fd_args.fd);
-        } else if (job->header.type == BIO_LAZY_FREE) {
+        } else if (job_type == BIO_LAZY_FREE) {
             job->free_args.free_fn(job->free_args.free_args);
         } else {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");
@@ -269,26 +273,17 @@ void *bioProcessBackgroundJobs(void *arg) {
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[worker]);
         listDelNode(bio_jobs[worker], ln);
+        bio_jobs_counter[job_type]--;
         pthread_cond_signal(&bio_newjob_cond[worker]);
     }
 }
 
 /* Return the number of pending jobs of the specified type. */
 unsigned long bioPendingJobsOfType(int type) {
-    unsigned long long val = 0;
-    unsigned long worker = bio_job_to_worker[type];
-    listIter li;
-    listNode *ln;
+    unsigned int worker = bio_job_to_worker[type];
 
-    /* A worker can execute jobs of different types, so we must examine its jobs
-     * list and only count those we're interested in. */
     pthread_mutex_lock(&bio_mutex[worker]);
-    listRewind(bio_jobs[worker],&li);
-    while((ln = listNext(&li))) {
-        bio_job *job = (bio_job *) listNodeValue(ln);
-        if (job->header.type == type)
-            val++;
-    }
+    unsigned long val = bio_jobs_counter[type];
     pthread_mutex_unlock(&bio_mutex[worker]);
 
     return val;
