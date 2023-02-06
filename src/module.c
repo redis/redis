@@ -3651,7 +3651,7 @@ int RM_UnsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString *channel) {
 }
 
 /* List all global channels a module is subscribed to. */
-RedisModuleString **RM_ListGlobalChannelSubscription(RedisModuleCtx *ctx, size_t *numchannels) {
+RedisModuleString **RM_GlobalChannelSubscriptionList(RedisModuleCtx *ctx, size_t *numchannels) {
     UNUSED(ctx);
 
     *numchannels = 0;
@@ -3669,11 +3669,19 @@ RedisModuleString **RM_ListGlobalChannelSubscription(RedisModuleCtx *ctx, size_t
 
     listNode *ln;
     while ((ln = listNext(&li)) != NULL) {
-        channels[(*numchannels)++] = listNodeValue(ln);
+        robj* channel = listNodeValue(ln);
+        incrRefCount(channel);
+        channels[(*numchannels)++] = channel;
+        autoMemoryAdd(ctx, REDISMODULE_AM_STRING, channel);
     }
     return channels;
 }
 
+
+void RM_FreeGlobalChannelSubscriptionList(RedisModuleString **channels) {
+    if (channels == NULL) return;
+    zfree(channels);
+}
 
 /* Unsubscribe any channel this module had subscribed upon unloading. */
 int moduleUnsubscribeAllChannels(RedisModule *module) {
@@ -13272,7 +13280,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(PublishMessageShard);
     REGISTER_API(SubscribeToChannel);
     REGISTER_API(UnsubscribeFromChannel);
-    REGISTER_API(ListGlobalChannelSubscription);
+    REGISTER_API(GlobalChannelSubscriptionList);
+    REGISTER_API(FreeGlobalChannelSubscriptionList);
     REGISTER_API(SubscribeToServerEvent);
     REGISTER_API(SetLRU);
     REGISTER_API(GetLRU);

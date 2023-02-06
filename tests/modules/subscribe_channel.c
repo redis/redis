@@ -54,7 +54,7 @@ int listChannels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argc);
 
     size_t numchannels;
-    RedisModuleString **channels = RedisModule_ListGlobalChannelSubscription(ctx, &numchannels);
+    RedisModuleString **channels = RedisModule_GlobalChannelSubscriptionList(ctx, &numchannels);
     if (numchannels == 0) {
         RedisModule_ReplyWithNull(ctx);
         return REDISMODULE_OK;
@@ -63,6 +63,7 @@ int listChannels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     for (size_t i = 0; i < numchannels; i++) {
         RedisModule_ReplyWithString(ctx, channels[i]);
     }
+    RedisModule_FreeGlobalChannelSubscriptionList(channels);
     return REDISMODULE_OK;
 }
 
