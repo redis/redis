@@ -835,57 +835,36 @@ void setDeferredPushLen(client *c, void *node, long length) {
 
 /* Add a double as a bulk reply */
 void addReplyDouble(client *c, double d) {
-    if (isinf(d)) {
-        /* Libc in odd systems (Hi Solaris!) will format infinite in a
-         * different way, so better to handle it in an explicit way. */
-        if (c->resp == 2) {
-            addReplyBulkCString(c, d > 0 ? "inf" : "-inf");
-        } else {
-            addReplyProto(c, d > 0 ? ",inf\r\n" : ",-inf\r\n",
-                              d > 0 ? 6 : 7);
-        }
-    } else if (isnan(d)) {
-        /* Libc in some systems will format nan in a different way,
-         * like nan, -nan, NAN, nan(char-sequence).
-         * So we normalize it and create a single nan form in an explicit way. */
-        if (c->resp == 2) {
-            addReplyBulkCString(c, "nan");
-        } else {
-            addReplyProto(c, ",nan\r\n", 6);
-        }
+    if (c->resp == 3) {
+        char dbuf[MAX_D2STRING_CHARS+3];
+        dbuf[0] = ',';
+        const int dlen = d2string(dbuf+1,sizeof(dbuf)-1,d);
+        dbuf[dlen+1] = '\r';
+        dbuf[dlen+2] = '\n';
+        dbuf[dlen+3] = '\0';
+        addReplyProto(c,dbuf,dlen+3);
     } else {
         char dbuf[MAX_LONG_DOUBLE_CHARS+32];
-        int dlen = 0;
-        if (c->resp == 2) {
-            /* In order to prepend the string length before the formatted number,
-             * but still avoid an extra memcpy of the whole number, we reserve space
-             * for maximum header `$0000\r\n`, print double, add the resp header in
-             * front of it, and then send the buffer with the right `start` offset. */
-            dlen = fpconv_dtoa(d, dbuf+7);
-            int digits = digits10(dlen);
-            int start = 4 - digits;
-            dbuf[start] = '$';
+        /* In order to prepend the string length before the formatted number,
+         * but still avoid an extra memcpy of the whole number, we reserve space
+         * for maximum header `$0000\r\n`, print double, add the resp header in
+         * front of it, and then send the buffer with the right `start` offset. */
+        const int dlen = d2string(dbuf+7,sizeof(dbuf)-7,d);
+        int digits = digits10(dlen);
+        int start = 4 - digits;
+        dbuf[start] = '$';
 
-            /* Convert `dlen` to string, putting it's digits after '$' and before the
-             * formatted double string. */
-            for(int i = digits, val = dlen; val && i > 0 ; --i, val /= 10) {
-                dbuf[start + i] = "0123456789"[val % 10];
-            }
-
-            dbuf[5] = '\r';
-            dbuf[6] = '\n';
-            dbuf[dlen+7] = '\r';
-            dbuf[dlen+8] = '\n';
-            dbuf[dlen+9] = '\0';
-            addReplyProto(c,dbuf+start,dlen+9-start);
-        } else {
-            dbuf[0] = ',';
-            dlen = fpconv_dtoa(d, dbuf+1);
-            dbuf[dlen+1] = '\r';
-            dbuf[dlen+2] = '\n';
-            dbuf[dlen+3] = '\0';
-            addReplyProto(c,dbuf,dlen+3);
+        /* Convert `dlen` to string, putting it's digits after '$' and before the
+            * formatted double string. */
+        for(int i = digits, val = dlen; val && i > 0 ; --i, val /= 10) {
+            dbuf[start + i] = "0123456789"[val % 10];
         }
+        dbuf[5] = '\r';
+        dbuf[6] = '\n';
+        dbuf[dlen+7] = '\r';
+        dbuf[dlen+8] = '\n';
+        dbuf[dlen+9] = '\0';
+        addReplyProto(c,dbuf+start,dlen+9-start);
     }
 }
 
