@@ -233,7 +233,7 @@ tags {"wait aof network external:skip"} {
                             $replica2 config set appendfsync $fsync
                             if {$fsync eq "no"} {
                                 after 2000 ;# wait for any previous fsync to finish
-                                # can't affort "no" on the masters
+                                # can't afford "no" on the masters
                                 $master config set appendfsync always
                                 $master2 config set appendfsync always
                             } elseif {$fsync eq "everysec"} {
