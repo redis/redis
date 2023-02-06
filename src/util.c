@@ -607,7 +607,7 @@ int d2string(char *buf, size_t len, double value) {
         len = snprintf(buf,len,"nan");
     } else if (isinf(value)) {
         /* Libc in odd systems (Hi Solaris!) will format infinite in a
-        * different way, so better to handle it in an explicit way. */
+         * different way, so better to handle it in an explicit way. */
         if (value < 0)
             len = snprintf(buf,len,"-inf");
         else
