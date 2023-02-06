@@ -836,7 +836,7 @@ void setDeferredPushLen(client *c, void *node, long length) {
 /* Add a double as a bulk reply */
 void addReplyDouble(client *c, double d) {
     if (c->resp == 3) {
-        char dbuf[MAX_D2STRING_CHARS];
+        char dbuf[MAX_D2STRING_CHARS+3];
         dbuf[0] = ',';
         const int dlen = d2string(dbuf+1,sizeof(dbuf)-1,d);
         dbuf[dlen+1] = '\r';
