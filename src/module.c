@@ -3604,22 +3604,22 @@ int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, Redis
     }
 
     /* Add the channel to the list of subscriptions. */
-    listAddNodeTail(moduleChannelSubscriber->subscriptions, channel);
-    incrRefCount(channel);
+    robj *channelToAdd = dupStringObject(channel);
+    listAddNodeTail(moduleChannelSubscriber->subscriptions, channelToAdd);
 
     /* Add the module to the (channel -> list of module subscribers hash table). */
     list *subscribers = NULL;
-    de = dictFind(channelModuleSubscribers, channel);
+    de = dictFind(channelModuleSubscribers, channelToAdd);
     if (de == NULL) {
         subscribers = listCreate();
-        dictAdd(channelModuleSubscribers, channel, subscribers);
-        incrRefCount(channel);
+        dictAdd(channelModuleSubscribers, channelToAdd, subscribers);
+        incrRefCount(channelToAdd);
     } else {
         subscribers = dictGetVal(de);
     }
     listAddNodeTail(subscribers, ctx->module);
 
-    serverLog(LL_DEBUG,"Module %s subscribed to channel %s.", ctx->module->name, (char *)channel->ptr);
+    serverLog(LL_DEBUG,"Module %s subscribed to channel %s.", ctx->module->name, (char *)channelToAdd->ptr);
 
     return REDISMODULE_OK;
 }
@@ -3665,21 +3665,24 @@ RedisModuleString **RM_GlobalChannelSubscriptionList(RedisModuleCtx *ctx, size_t
     listRewind(moduleChannelSubscriber->subscriptions, &li);
 
     int channelCount = listLength(moduleChannelSubscriber->subscriptions);
-    robj **channels = zmalloc((channelCount) * sizeof(robj*));
+    robj **channels = zmalloc((channelCount + 1) * sizeof(robj*));
 
     listNode *ln;
     while ((ln = listNext(&li)) != NULL) {
         robj* channel = listNodeValue(ln);
         incrRefCount(channel);
         channels[(*numchannels)++] = channel;
-        autoMemoryAdd(ctx, REDISMODULE_AM_STRING, channel);
     }
+    channels[*numchannels] = NULL;
     return channels;
 }
 
 
 void RM_FreeGlobalChannelSubscriptionList(RedisModuleString **channels) {
     if (channels == NULL) return;
+    for (int i = 0; channels[i]; i++) {
+        decrRefCount(channels[i]);
+    }
     zfree(channels);
 }
 
