@@ -578,7 +578,7 @@ void blockForReplication(client *c, mstime_t timeout, long long offset, long num
     blockClient(c,BLOCKED_WAIT);
 }
 
-/* block a client due to wait command */
+/* block a client due to waitaof command */
 void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numlocal, long numreplicas) {
     c->bstate.timeout = timeout;
     c->bstate.reploffset = offset;

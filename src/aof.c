@@ -963,7 +963,7 @@ void stopAppendOnly(void) {
     server.aof_rewrite_scheduled = 0;
     server.aof_last_incr_size = 0;
     server.fsynced_reploff = -1;
-    atomicSet(server.pot_fsynced_reploff, 0);
+    atomicSet(server.fsynced_reploff_pending, 0);
     killAppendOnlyChild();
     sdsfree(server.aof_buf);
     server.aof_buf = sdsempty();
@@ -974,9 +974,19 @@ void stopAppendOnly(void) {
 int startAppendOnly(void) {
     serverAssert(server.aof_state == AOF_OFF);
 
-    server.aof_state = AOF_WAIT_REWRITE;
+    /* Wait for all bio jobs related to AOF to drain. This prevents a race
+     * between updates to `fsynced_reploff_pending` of the worker thread, belonging
+     * to the previous AOF, and the new one. This concern is specific for a full
+     * sync scenario where we don't wanna risk the ACKed replication offset
+     * jumping backwards or forward when switching to a different master. */
+    bioDrainWorker(BIO_AOF_FSYNC);
+
+    /* Set the initial repl_offset, which will be applied to fsynced_reploff
+     * when AOFRW finishes (after possibly being updated by a bio thread) */
+    atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
     server.fsynced_reploff = 0;
-    atomicSet(server.pot_fsynced_reploff, 0);
+
+    server.aof_state = AOF_WAIT_REWRITE;
     if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
         server.aof_rewrite_scheduled = 1;
         serverLog(LL_WARNING,"AOF was enabled but there is already another background operation. An AOF background was scheduled to start when possible.");
@@ -1245,7 +1255,7 @@ try_fsync:
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
         server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
-        atomicSet(server.pot_fsynced_reploff, server.master_repl_offset);
+        atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
     } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                 server.unixtime > server.aof_last_fsync)) {
         if (!sync_in_progress) {
@@ -2665,8 +2675,16 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         serverLog(LL_NOTICE, "Background AOF rewrite finished successfully");
         /* Change state from WAIT_REWRITE to ON if needed */
-        if (server.aof_state == AOF_WAIT_REWRITE)
+        if (server.aof_state == AOF_WAIT_REWRITE) {
             server.aof_state = AOF_ON;
+
+            /* Update the fsynced replication offset that just now become valid.
+             * This could either be the one we took in startAppendOnly, or a
+             * newer one set by the bio thread. */
+            long long fsynced_reploff_pending;
+            atomicGet(server.fsynced_reploff_pending, fsynced_reploff_pending);
+            server.fsynced_reploff = fsynced_reploff_pending;
+        }
 
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);

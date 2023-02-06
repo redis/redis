@@ -1644,7 +1644,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
     /* Unblock all the clients blocked for synchronous replication
-     * in WAIT. */
+     * in WAIT or WAITAOF. */
     if (listLength(server.clients_waiting_acks))
         processClientsWaitingReplicas();
 
@@ -1708,9 +1708,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * If an initial rewrite is in progress then not all data is guaranteed to have actually been
      * persisted to disk yet, so we cannot update the field. We will wait for the rewrite to complete. */
     if (server.aof_state == AOF_ON && server.fsynced_reploff != -1) {
-        long long pot_fsynced_reploff;
-        atomicGet(server.pot_fsynced_reploff, pot_fsynced_reploff);
-        server.fsynced_reploff = pot_fsynced_reploff;
+        long long fsynced_reploff_pending;
+        atomicGet(server.fsynced_reploff_pending, fsynced_reploff_pending);
+        server.fsynced_reploff = fsynced_reploff_pending;
     }
 
     /* Handle writes with pending output buffers. */
@@ -2032,7 +2032,7 @@ void initServerConfig(void) {
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
-    server.pot_fsynced_reploff = 0;
+    server.fsynced_reploff_pending = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;

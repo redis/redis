@@ -2563,7 +2563,7 @@ int updateAppendFsync(const char **err) {
     UNUSED(err);
     if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
         /* Wait for all bio jobs related to AOF to drain before proceeding. This prevents a race
-         * between updates to `pot_fsynced_reploff` done in the main thread and those done on the
+         * between updates to `fsynced_reploff_pending` done in the main thread and those done on the
          * worker thread. */
         bioDrainWorker(BIO_AOF_FSYNC);
     }
