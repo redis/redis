@@ -571,3 +571,20 @@ start_server {tags {"maxmemory" "external:skip"}} {
         r config set maxmemory-policy noeviction
     }
 }
+
+start_server {tags {"maxmemory" "external:skip"}} {
+    test {lru/lfu value of the key just added} {
+        r config set maxmemory-policy allkeys-lru
+        r set foo a
+        assert {[r object idletime foo] <= 2}
+        r del foo
+        r set foo 1
+        r get foo
+        assert {[r object idletime foo] <= 2}
+
+        r config set maxmemory-policy allkeys-lfu
+        r del foo 
+        r set foo a
+        assert {[r object freq foo] == 5}
+    }
+}
