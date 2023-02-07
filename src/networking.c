@@ -395,6 +395,8 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
         return;
     }
 
+    reqresAppendRequest(c);
+
     size_t reply_len = _addReplyToBuffer(c,s,len);
     if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
 }
@@ -718,6 +720,8 @@ void *addReplyDeferredLen(client *c) {
                                         cmdname ? cmdname : "<unknown>");
         return NULL;
     }
+
+    reqresAppendRequest(c);
 
     trimReplyUnusedTailSpace(c);
     listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */

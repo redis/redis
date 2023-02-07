@@ -128,10 +128,15 @@ size_t reqresAppendRequest(client *c) {
     if (argc == 0)
         return 0;
 
-     serverLog(LL_WARNING, "GUYBE in request (id=%d, argv[0]=%s, bufpos=%d)", c->id, argv[0]->ptr, c->bufpos);
+    if (c->reqres.argv_logged)
+        return 0;
+
+    c->reqres.argv_logged = 1;
+
+    serverLog(LL_WARNING, "GUYBE in request (id=%d, argv[0]=%s, bufpos=%d)", c->id, argv[0]->ptr, c->bufpos);
 
     c->reqres.offset.bufpos = c->bufpos;
-    if (listLength(c->reply)) {
+    if (listLength(c->reply) && listNodeValue(listLast(c->reply))) {
         c->reqres.offset.last_node.index = listLength(c->reply) - 1;
         c->reqres.offset.last_node.used = ((clientReplyBlock *)listNodeValue(listLast(c->reply)))->used;
     } else {
@@ -171,6 +176,8 @@ size_t reqresAppendResponse(client *c) {
 
     if (!reqresShouldLog(c))
         return 0;
+
+    c->reqres.argv_logged = 0;
 
     serverLog(LL_WARNING, "GUYBE in response (id=%d, cmd=%s, bufpos=%d,  prev bufpos=%d)", c->id, c->lastcmd ? c->lastcmd->fullname : "NULL", c->bufpos, c->reqres.offset.bufpos);
 

@@ -1100,6 +1100,7 @@ typedef struct {
 } clientMemUsageBucket;
 
 typedef struct {
+    int argv_logged;
     /* Vars for log buffer */
     unsigned char *buf; /* Buffer holding the data (request and response) */
     size_t used;
@@ -1112,8 +1113,6 @@ typedef struct {
             size_t used;
         } last_node; /* Offset within the reply block list */
     } offset;
-
-
 } clientReqResInfo;
 
 typedef struct client {
