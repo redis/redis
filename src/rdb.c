@@ -3338,6 +3338,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     rio rdb;
     int retval;
     struct stat sb;
+    int rdb_fd;
 
     fp = fopen(filename, "r");
     if (fp == NULL) {
@@ -3358,9 +3359,9 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     fclose(fp);
     stopLoading(retval==C_OK);
     /* Reclaim the cache backed by rdb */
-    if (!(rdbflags & RDBFLAGS_KEEP_CACHE)) {
+    if (retval == C_OK && !(rdbflags & RDBFLAGS_KEEP_CACHE)) {
         /* TODO: maybe we could combine the fopen and open into one in the future */
-        int rdb_fd = open(server.rdb_filename, O_RDONLY);
+        rdb_fd = open(server.rdb_filename, O_RDONLY);
         if (rdb_fd > 0) bioCreateCloseJob(rdb_fd, 0, 1);
     }
     return (retval==C_OK) ? RDB_OK : RDB_FAILED;
