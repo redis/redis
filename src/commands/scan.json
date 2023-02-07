@@ -13,7 +13,8 @@
             ]
         ],
         "command_flags": [
-            "READONLY"
+            "READONLY",
+            "MODIFY_RANDOM_KEYS"
         ],
         "acl_categories": [
             "KEYSPACE"
