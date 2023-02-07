@@ -217,7 +217,6 @@ unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *pri
 unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
 uint64_t dictGetHash(dict *d, const void *key);
 dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
-unsigned long rev(unsigned long v);
 
 size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats);
 dictStats* dictGetStatsHt(dict *d, int htidx);

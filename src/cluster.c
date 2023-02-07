@@ -7317,12 +7317,12 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
 
 /* Remove all the keys in the specified hash slot.
  * The number of removed items is returned. */
-unsigned int delKeysInSlot(unsigned int slot) {
+unsigned int delKeysInSlot(unsigned int hashslot) {
     unsigned int j = 0;
 
     dictIterator *iter = NULL;
     dictEntry *de = NULL;
-    iter = dictGetSafeIterator(server.db->dict[slot]);
+    iter = dictGetSafeIterator(server.db->dict[hashslot]);
     while((de = dictNext(iter)) != NULL) {
         sds sdskey = dictGetKey(de);
         robj *key = createStringObject(sdskey, sdslen(sdskey));
