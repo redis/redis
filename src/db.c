@@ -240,8 +240,8 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 
 /* Return slot-specific dictionary for key based on key's hash slot in CME, or 0 in CMD.*/
 dict *getDict(redisDb *db, sds key) {
-    if (db->command_slot >= 0) { /* This is performance optimization, that uses pre-set slot id, in order to avoid calculating key hash. */
-        return db->dict[db->command_slot];
+    if (server.current_client && server.current_client->slot >= 0) { /* This is performance optimization, that uses pre-set slot id, in order to avoid calculating key hash. */
+        return db->dict[server.current_client->slot];
     }
     return db->dict[(server.cluster_enabled ? keyHashSlot(key, (int) sdslen(key)) : 0)];
 }
