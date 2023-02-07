@@ -44,10 +44,10 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...);
 
 /* Background job opcodes */
 enum {
-    BIO_CLOSE_FILE = 0,
-    BIO_AOF_FSYNC,
-    BIO_LAZY_FREE,
-    BIO_CLOSE_AOF,
+    BIO_CLOSE_FILE = 0, /* Deferred close(2) syscall. */
+    BIO_AOF_FSYNC,      /* Deferred AOF fsync. */
+    BIO_LAZY_FREE,      /* Deferred objects freeing. */
+    BIO_CLOSE_AOF,      /* Deferred close for AOF files. */
     BIO_NUM_OPS
 };
 

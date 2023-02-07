@@ -228,7 +228,7 @@ void *bioProcessBackgroundJobs(void *arg) {
             pthread_cond_wait(&bio_newjob_cond[worker], &bio_mutex[worker]);
             continue;
         }
-        /* Pop the job from the queue. */
+        /* Get the job from the queue. */
         ln = listFirst(bio_jobs[worker]);
         job = ln->value;
         /* It is now possible to unlock the background system as we know have
