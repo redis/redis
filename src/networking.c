@@ -32,14 +32,10 @@
 #include "cluster.h"
 #include "script.h"
 #include "fpconv_dtoa.h"
-#include <net/if.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
 #include <ctype.h>
-#include <ifaddrs.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 
 static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
