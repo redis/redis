@@ -2409,27 +2409,19 @@ void xreadCommand(client *c) {
             addReplyNullArray(c);
             goto cleanup;
         }
-        blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count,
-                     -1, timeout, NULL, NULL, ids, xreadgroup);
-        /* If no COUNT is given and we block, set a relatively small count:
-         * in case the ID provided is too low, we do not want the server to
-         * block just to serve this client a huge stream of messages. */
-        c->bpop.xread_count = count ? count : XREAD_BLOCKED_DEFAULT_COUNT;
-
-        /* If this is a XREADGROUP + GROUP we need to remember for which
-         * group and consumer name we are blocking, so later when one of the
-         * keys receive more data, we can call streamReplyWithRange() passing
-         * the right arguments. */
-        if (groupname) {
-            incrRefCount(groupname);
-            incrRefCount(consumername);
-            c->bpop.xread_group = groupname;
-            c->bpop.xread_consumer = consumername;
-            c->bpop.xread_group_noack = noack;
-        } else {
-            c->bpop.xread_group = NULL;
-            c->bpop.xread_consumer = NULL;
+        /* We change the '$' to the current last ID for this stream. this is
+         * Since later on when we unblock on arriving data - we would like to
+         * re-process the command and in case '$' stays we will spin-block forever.
+         */
+        for (int id_idx = 0; id_idx < streams_count; id_idx++) {
+            int arg_idx = id_idx + streams_arg + streams_count;
+            if (strcmp(c->argv[arg_idx]->ptr,"$") == 0) {
+                robj *argv_streamid = createObjectFromStreamID(&ids[id_idx]);
+                rewriteClientCommandArgument(c, arg_idx, argv_streamid);
+                decrRefCount(argv_streamid);
+            }
         }
+        blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count, timeout, xreadgroup);
         goto cleanup;
     }
 

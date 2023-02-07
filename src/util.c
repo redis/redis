@@ -601,8 +601,13 @@ int double2ll(double d, long long *out) {
  * into a listpack representing a sorted set. */
 int d2string(char *buf, size_t len, double value) {
     if (isnan(value)) {
+        /* Libc in some systems will format nan in a different way,
+         * like nan, -nan, NAN, nan(char-sequence).
+         * So we normalize it and create a single nan form in an explicit way. */
         len = snprintf(buf,len,"nan");
     } else if (isinf(value)) {
+        /* Libc in odd systems (Hi Solaris!) will format infinite in a
+         * different way, so better to handle it in an explicit way. */
         if (value < 0)
             len = snprintf(buf,len,"-inf");
         else

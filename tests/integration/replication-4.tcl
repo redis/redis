@@ -1,4 +1,4 @@
-start_server {tags {"repl network external:skip"}} {
+start_server {tags {"repl network external:skip singledb:skip"}} {
     start_server {} {
 
         set master [srv -1 client]
@@ -12,12 +12,26 @@ start_server {tags {"repl network external:skip"}} {
 
         test {First server should have role slave after SLAVEOF} {
             $slave slaveof $master_host $master_port
-            after 1000
-            s 0 role
-        } {slave}
+            wait_for_condition 50 100 {
+                [s 0 role] eq {slave}
+            } else {
+                fail "Replication not started."
+            }
+        }
 
         test {Test replication with parallel clients writing in different DBs} {
+            # Gives the random workloads a chance to add some complex commands.
             after 5000
+
+            # Make sure all parallel clients have written data.
+            wait_for_condition 1000 50 {
+                [$master select 9] == {OK} && [$master dbsize] > 0 &&
+                [$master select 11] == {OK} && [$master dbsize] > 0 &&
+                [$master select 12] == {OK} && [$master dbsize] > 0
+            } else {
+                fail "Parallel clients are not writing in different DBs."
+            }
+
             stop_bg_complex_data $load_handle0
             stop_bg_complex_data $load_handle1
             stop_bg_complex_data $load_handle2
@@ -34,7 +48,6 @@ start_server {tags {"repl network external:skip"}} {
                 close $fd
                 fail "Master - Replica inconsistency, Run diff -u against /tmp/repldump*.txt for more info"
             }
-            assert {[$master dbsize] > 0}
         }
     }
 }

@@ -54,13 +54,15 @@
                 "name": "entries-added",
                 "token": "ENTRIESADDED",
                 "type": "integer",
-                "optional": true
+                "optional": true,
+                "since": "7.0.0"
             },
             {
                 "name": "max-deleted-id",
                 "token": "MAXDELETEDID",
                 "type": "string",
-                "optional": true
+                "optional": true,
+                "since": "7.0.0"
             }
         ]
     }

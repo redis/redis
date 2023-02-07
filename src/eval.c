@@ -677,8 +677,8 @@ dict* evalScriptsDict() {
 
 unsigned long evalScriptsMemory() {
     return lctx.lua_scripts_mem +
-            dictSize(lctx.lua_scripts) * (sizeof(dictEntry) + sizeof(luaScript)) +
-            dictSlots(lctx.lua_scripts) * sizeof(dictEntry*);
+            dictMemUsage(lctx.lua_scripts) +
+            dictSize(lctx.lua_scripts) * sizeof(luaScript);
 }
 
 /* ---------------------------------------------------------------------------

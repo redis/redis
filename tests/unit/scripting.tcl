@@ -585,6 +585,30 @@ start_server {tags {"scripting"}} {
         close_replication_stream $repl
     } {} {needs:repl}
 
+    test {INCRBYFLOAT: We can call scripts expanding client->argv from Lua} {
+        # coverage for scripts calling commands that expand the argv array
+        # an attempt to add coverage for a possible bug in luaArgsToRedisArgv
+        # this test needs a fresh server so that lua_argv_size is 0.
+        # glibc realloc can return the same pointer even when the size changes
+        # still this test isn't able to trigger the issue, but we keep it anyway.
+        start_server {tags {"scripting"}} {
+            set repl [attach_to_replication_stream]
+            # a command with 5 argsument
+            r eval {redis.call('hmget', KEYS[1], 1, 2, 3)} 1 key
+            # then a command with 3 that is replicated as one with 4
+            r eval {redis.call('incrbyfloat', KEYS[1], 1)} 1 key
+            # then a command with 4 args
+            r eval {redis.call('set', KEYS[1], '1', 'KEEPTTL')} 1 key
+
+            assert_replication_stream $repl {
+                {select *}
+                {set key 1 KEEPTTL}
+                {set key 1 KEEPTTL}
+            }
+            close_replication_stream $repl
+        }
+    } {} {needs:repl}
+
     } ;# is_eval
 
     test {Call Redis command with many args from Lua (issue #1764)} {

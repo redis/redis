@@ -20,11 +20,6 @@ start_server {tags {"repl network external:skip"}} {
         $master config set repl-diskless-sync yes
         $master config set repl-diskless-sync-delay 1000
 
-        # Use a short replication timeout on the slave, so that if there
-        # are no bugs the timeout is triggered in a reasonable amount
-        # of time.
-        $slave config set repl-timeout 5
-
         # Start the replication process...
         $slave slaveof $master_host $master_port
 
@@ -35,6 +30,19 @@ start_server {tags {"repl network external:skip"}} {
                 fail "Replica does not enter handshake state"
             }
         }
+
+        test {Slave enters wait_bgsave} {
+            wait_for_condition 50 1000 {
+                [string match *state=wait_bgsave* [$master info replication]]
+            } else {
+                fail "Replica does not enter wait_bgsave state"
+            }
+        }
+
+        # Use a short replication timeout on the slave, so that if there
+        # are no bugs the timeout is triggered in a reasonable amount
+        # of time.
+        $slave config set repl-timeout 5
 
         # But make the master unable to send
         # the periodic newlines to refresh the connection. The slave
@@ -182,7 +190,8 @@ start_server {tags {"repl external:skip"}} {
                 [$B lrange foo 0 -1] eq {a b c}
             } else {
                 fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-            }
+            }          
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdrstat blpop $B]
         }
     }
 }
