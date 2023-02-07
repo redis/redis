@@ -3541,10 +3541,11 @@ int RM_PublishMessageShard(RedisModuleCtx *ctx, RedisModuleString *channel, Redi
 }
 
 /* Function pointer type for subscription from modules. */
-typedef void (*RedisModuleSubscribeFunc) (RedisModuleCtx *ctx, RedisModuleString *channel,  RedisModuleString *message);
+typedef void (*RedisModuleSubscribeFunc) (RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message);
 
-/* Channel subscriber information.
- * See for more information. */
+/**
+ * Channel subscriber information.
+ */
 typedef struct RedisModuleChannelSubscriber {
     /* Notification callback in the module. */
     RedisModuleSubscribeFunc subscribe_callback;
@@ -3584,8 +3585,14 @@ void removeModuleFromChannelSubscription(RedisModule *module, robj *channel) {
         module->name, (char *)channel->ptr);
 }
 
-/* Subscribe the module to a channel with a callback.  */
-int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleSubscribeFunc callback) {
+/**
+ * Subscribe the module to a channel with a callback. The API is idempotent based on the channel name, a
+ * module has subscribed to. Hence, if the callback needs to be updated then the client needs to unsubscribe
+ * from the channel and subscribe.
+ * 
+ * The callback registered would be invoked on each message published to a given channel.
+ */
+void RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleSubscribeFunc callback) {
     dictEntry *de = dictFind(moduleChannelSubscribers, ctx->module);
     RedisModuleChannelSubscriber *moduleChannelSubscriber;
     if (de == NULL) {
@@ -3600,7 +3607,7 @@ int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, Redis
     }
 
     if (listSearchKey(moduleChannelSubscriber->subscriptions, channel)) {
-        return REDISMODULE_OK;
+        return;
     }
 
     /* Add the channel to the list of subscriptions. */
@@ -3621,23 +3628,31 @@ int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, Redis
 
     serverLog(LL_DEBUG,"Module %s subscribed to channel %s.", ctx->module->name, (char *)channelToAdd->ptr);
 
-    return REDISMODULE_OK;
+    return;
 }
 
-/* Unsubscribe the module from the channel.  */
-int RM_UnsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString *channel) {
-    int retval = C_OK;
-
+/**
+ * This API unsubscribe(s) the module from the given channel.
+ * 
+ */
+void RM_UnsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString *channel) {
     dictEntry *de = dictFind(moduleChannelSubscribers, ctx->module);
-    if (de == NULL) return REDISMODULE_OK;
+    if (de == NULL) {
+        return;
+    }
+
     RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
 
-    // No subscription found for module.
-    if (listLength(moduleChannelSubscriber->subscriptions) == 0) return REDISMODULE_OK;
+    /* No subscription found for module. */
+    if (listLength(moduleChannelSubscriber->subscriptions) == 0) {
+        return;
+    }
 
     listNode *ln = listSearchKey(moduleChannelSubscriber->subscriptions, channel);
 
-    if (ln == NULL) return REDISMODULE_OK;
+    if (ln == NULL) {
+        return;
+    }
 
     /* Find and remove the module subscriber to the channel. */
     removeModuleFromChannelSubscription(ctx->module, ln->value);
@@ -3646,14 +3661,15 @@ int RM_UnsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString *channel) {
         cleanupModuleChannelSubscriber(ctx->module, moduleChannelSubscriber);
     }
     serverLog(LL_DEBUG,"Module %s unsubscribed from channel %s.", ctx->module->name, (char *)channel->ptr);
-
-    return retval == C_OK ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
-/* List all global channels a module is subscribed to. */
+/**
+ * List all global channels a module is subscribed to.
+ * 
+ * Returns an array of RedisModuleString pointer in which the last entry is NULL. 
+ * The array must be freed by the caller via `RM_FreeGlobalChannelSubscriptionList`.
+ */
 RedisModuleString **RM_GlobalChannelSubscriptionList(RedisModuleCtx *ctx, size_t *numchannels) {
-    UNUSED(ctx);
-
     *numchannels = 0;
     dictEntry *de = dictFind(moduleChannelSubscribers, ctx->module);
     if (de == NULL) {
@@ -3678,6 +3694,10 @@ RedisModuleString **RM_GlobalChannelSubscriptionList(RedisModuleCtx *ctx, size_t
 }
 
 
+/**
+ * Cleanup up the global channels list response which was provided to the client via `GlobalChannelSubscriptionList`.
+ *
+ */
 void RM_FreeGlobalChannelSubscriptionList(RedisModuleString **channels) {
     if (channels == NULL) return;
     for (int i = 0; channels[i]; i++) {
@@ -3686,33 +3706,44 @@ void RM_FreeGlobalChannelSubscriptionList(RedisModuleString **channels) {
     zfree(channels);
 }
 
-/* Unsubscribe any channel this module had subscribed upon unloading. */
-int moduleUnsubscribeAllChannels(RedisModule *module) {
+/**
+ * Unsubscribe all the channel(s) this module had subscribed to.
+ * 
+ * @param module 
+ */
+void moduleUnsubscribeAllChannels(RedisModule *module) {
     listNode *ln;
     listIter li;
-    int count = 0;
-    if (dictSize(moduleChannelSubscribers) == 0) return 0;
+    if (dictSize(moduleChannelSubscribers) == 0) {
+        return;
+    }
     dictEntry *de = dictFind(moduleChannelSubscribers, module);
-    if (de == NULL) return 0;
+    if (de == NULL) {
+        return;
+    }
     RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
 
-    // No subscription found for module.
-    if (listLength(moduleChannelSubscriber->subscriptions) == 0) return C_OK;
+    if (listLength(moduleChannelSubscriber->subscriptions) == 0) {
+        return;
+    }
 
     listRewind(moduleChannelSubscriber->subscriptions,&li);
     while ((ln = listNext(&li))) {
         removeModuleFromChannelSubscription(module, ln->value);
         listDelNode(moduleChannelSubscriber->subscriptions, ln);
-        count++;
     }
 
     if (listLength(moduleChannelSubscriber->subscriptions) == 0) {
         cleanupModuleChannelSubscriber(module, moduleChannelSubscriber);
     }
-
-    return count;
 }
 
+/**
+ * Invoke the callback of each module subscribed to the channel and provide the message.
+ * 
+ * @param channel 
+ * @param message 
+ */
 void moduleSendMessageSubscriber(robj *channel, robj *message) {
     /* Return if there are no subscribers. */
     if (dictSize(channelModuleSubscribers) == 0) return;

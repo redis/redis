@@ -1073,8 +1073,8 @@ REDISMODULE_API RedisModuleString * (*RedisModule_GetClientNameById)(RedisModule
 REDISMODULE_API int (*RedisModule_SetClientNameById)(uint64_t id, RedisModuleString *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_PublishMessage)(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_PublishMessageShard)(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SubscribeToChannel)(RedisModuleCtx *ctx, RedisModuleString *channel,  RedisModuleSubscribeFunc callback) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_UnsubscribeFromChannel)(RedisModuleCtx *ctx, RedisModuleString *channel) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_SubscribeToChannel)(RedisModuleCtx *ctx, RedisModuleString *channel,  RedisModuleSubscribeFunc callback) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_UnsubscribeFromChannel)(RedisModuleCtx *ctx, RedisModuleString *channel) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString ** (*RedisModule_GlobalChannelSubscriptionList)(RedisModuleCtx *ctx, size_t *numchannels) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeGlobalChannelSubscriptionList)(RedisModuleString **channels) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetContextFlags)(RedisModuleCtx *ctx) REDISMODULE_ATTR;

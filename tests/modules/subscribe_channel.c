@@ -29,10 +29,7 @@ static int subscribeToChannel(RedisModuleCtx *ctx, RedisModuleString **argv, int
     if(argc != 2){
         return RedisModule_WrongArity(ctx);
     }
-    if(RedisModule_SubscribeToChannel(ctx, argv[1], ChannelSubscriptionCallback) != REDISMODULE_OK){
-        RedisModule_ReplyWithError(ctx, "Channel subscription failed");
-        return REDISMODULE_ERR;
-    }
+    RedisModule_SubscribeToChannel(ctx, argv[1], ChannelSubscriptionCallback);
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
@@ -41,10 +38,7 @@ static int unsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString **argv,
     if(argc != 2){
         return RedisModule_WrongArity(ctx);
     }
-    if(RedisModule_UnsubscribeFromChannel(ctx, argv[1]) != REDISMODULE_OK){
-        RedisModule_ReplyWithError(ctx, "Channel unsubscription failed");
-        return REDISMODULE_ERR;
-    }
+    RedisModule_UnsubscribeFromChannel(ctx, argv[1]);
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
@@ -77,9 +71,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     RedisModuleString *event = RedisModule_CreateString(ctx, "event", 5);
-    if(RedisModule_SubscribeToChannel(ctx, event, ChannelSubscriptionCallback) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
-    }
+    RedisModule_SubscribeToChannel(ctx, event, ChannelSubscriptionCallback);
     RedisModule_FreeString(ctx, event);
 
     if (RedisModule_CreateCommand(ctx, "subscribech.subscribe_to_channel", subscribeToChannel, "", 1, 1, 0) == REDISMODULE_ERR) {
