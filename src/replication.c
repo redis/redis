@@ -334,87 +334,92 @@ void feedReplicationBuffer(char *s, size_t len) {
     if (server.repl_backlog == NULL) return;
     server.master_repl_offset += len;
     server.repl_backlog->histlen += len;
+    
+    while(len>0) {
+        size_t start_pos = 0; /* The position of referenced block to start sending. */
+        listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
+        int add_new_block = 0; /* Create new block if current block is total used. */
+        listNode *ln = listLast(server.repl_buffer_blocks);
+        replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
 
-    size_t start_pos = 0; /* The position of referenced block to start sending. */
-    listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
-    int add_new_block = 0; /* Create new block if current block is total used. */
-    listNode *ln = listLast(server.repl_buffer_blocks);
-    replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
-
-    /* Append to tail string when possible. */
-    if (tail && tail->size > tail->used) {
-        start_node = listLast(server.repl_buffer_blocks);
-        start_pos = tail->used;
-        /* Copy the part we can fit into the tail, and leave the rest for a
-         * new node */
-        size_t avail = tail->size - tail->used;
-        size_t copy = (avail >= len) ? len : avail;
-        memcpy(tail->buf + tail->used, s, copy);
-        tail->used += copy;
-        s += copy;
-        len -= copy;
-    }
-    if (len) {
-        /* Create a new node, make sure it is allocated to at
-         * least PROTO_REPLY_CHUNK_BYTES */
-        size_t usable_size;
-        size_t size = (len < PROTO_REPLY_CHUNK_BYTES) ? PROTO_REPLY_CHUNK_BYTES : len;
-        tail = zmalloc_usable(size + sizeof(replBufBlock), &usable_size);
-        /* Take over the allocation's internal fragmentation */
-        tail->size = usable_size - sizeof(replBufBlock);
-        tail->used = len;
-        tail->refcount = 0;
-        tail->repl_offset = server.master_repl_offset - tail->used + 1;
-        tail->id = repl_block_id++;
-        memcpy(tail->buf, s, len);
-        listAddNodeTail(server.repl_buffer_blocks, tail);
-        /* We also count the list node memory into replication buffer memory. */
-        server.repl_buffer_mem += (usable_size + sizeof(listNode));
-        add_new_block = 1;
-        if (start_node == NULL) {
+        /* Append to tail string when possible. */
+        if (tail && tail->size > tail->used) {
             start_node = listLast(server.repl_buffer_blocks);
-            start_pos = 0;
+            start_pos = tail->used;
+            /* Copy the part we can fit into the tail, and leave the rest for a
+             * new node */
+            size_t avail = tail->size - tail->used;
+            size_t copy = (avail >= len) ? len : avail;
+            memcpy(tail->buf + tail->used, s, copy);
+            tail->used += copy;
+            s += copy;
+            len -= copy;
         }
-    }
+        if (len) {
+            /* Create a new node, make sure it is allocated to at
+             * least PROTO_REPLY_CHUNK_BYTES */
+            size_t usable_size;
+            size_t size = (len < PROTO_REPLY_CHUNK_BYTES) ? PROTO_REPLY_CHUNK_BYTES : server.repl_backlog_size / 16;
+            tail = zmalloc_usable(size + sizeof(replBufBlock), &usable_size);
+            /* Take over the allocation's internal fragmentation */
+            tail->size = usable_size - sizeof(replBufBlock);
+            size_t copy = (tail->size >= len) ? len : tail->size;
+            tail->used = copy;
+            tail->refcount = 0;
+            tail->repl_offset = server.master_repl_offset - tail->used + 1;
+            tail->id = repl_block_id++;
+            memcpy(tail->buf, s, copy);
+            listAddNodeTail(server.repl_buffer_blocks, tail);
+            /* We also count the list node memory into replication buffer memory. */
+            server.repl_buffer_mem += (usable_size + sizeof(listNode));
+            add_new_block = 1;
+            if (start_node == NULL) {
+                start_node = listLast(server.repl_buffer_blocks);
+                start_pos = 0;
+            }
+            s += copy;
+            len -= copy;
+        }
 
-    /* For output buffer of replicas. */
-    listIter li;
-    listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
-        if (!canFeedReplicaReplBuffer(slave)) continue;
+        /* For output buffer of replicas. */
+        listIter li;
+        listRewind(server.slaves, &li);
+        while ((ln = listNext(&li))) {
+            client *slave = ln->value;
+            if (!canFeedReplicaReplBuffer(slave)) continue;
 
-        /* Update shared replication buffer start position. */
-        if (slave->ref_repl_buf_node == NULL) {
-            slave->ref_repl_buf_node = start_node;
-            slave->ref_block_pos = start_pos;
+            /* Update shared replication buffer start position. */
+            if (slave->ref_repl_buf_node == NULL) {
+                slave->ref_repl_buf_node = start_node;
+                slave->ref_block_pos = start_pos;
+                /* Only increase the start block reference count. */
+                ((replBufBlock *) listNodeValue(start_node))->refcount++;
+            }
+
+            /* Check output buffer limit only when add new block. */
+            if (add_new_block) closeClientOnOutputBufferLimitReached(slave, 1);
+        }
+
+        /* For replication backlog */
+        if (server.repl_backlog->ref_repl_buf_node == NULL) {
+            server.repl_backlog->ref_repl_buf_node = start_node;
             /* Only increase the start block reference count. */
-            ((replBufBlock *)listNodeValue(start_node))->refcount++;
+            ((replBufBlock *) listNodeValue(start_node))->refcount++;
+
+            /* Replication buffer must be empty before adding replication stream
+             * into replication backlog. */
+            serverAssert(add_new_block == 1 && start_pos == 0);
         }
-
-        /* Check output buffer limit only when add new block. */
-        if (add_new_block) closeClientOnOutputBufferLimitReached(slave, 1);
+        if (add_new_block) {
+            createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
+        }
+        /* Try to trim replication backlog since replication backlog may exceed
+         * our setting when we add replication stream. Note that it is important to
+         * try to trim at least one node since in the common case this is where one
+         * new backlog node is added and one should be removed. See also comments
+         * in freeMemoryGetNotCountedMemory for details. */
+        incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
     }
-
-    /* For replication backlog */
-    if (server.repl_backlog->ref_repl_buf_node == NULL) {
-        server.repl_backlog->ref_repl_buf_node = start_node;
-        /* Only increase the start block reference count. */
-        ((replBufBlock *)listNodeValue(start_node))->refcount++;
-
-        /* Replication buffer must be empty before adding replication stream
-         * into replication backlog. */
-        serverAssert(add_new_block == 1 && start_pos == 0);
-    }
-    if (add_new_block) {
-        createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
-    }
-    /* Try to trim replication backlog since replication backlog may exceed
-     * our setting when we add replication stream. Note that it is important to
-     * try to trim at least one node since in the common case this is where one
-     * new backlog node is added and one should be removed. See also comments
-     * in freeMemoryGetNotCountedMemory for details. */
-    incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
 }
 
 /* Propagate write commands to replication stream.
