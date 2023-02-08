@@ -2,10 +2,6 @@
 
 source "../tests/includes/init-tests.tcl"
 
-proc cmdstat {instance cmd} {
-    return [cmdrstat $cmd $instance]
-}
-
 test "Create a primary with a replica" {
     create_cluster 1 1
 }
@@ -80,54 +76,4 @@ test "reply MOVED when eval from replica for update" {
         } 1 a
     ]} err
     assert {[string range $err 0 4] eq {MOVED}}
-}
-
-test "RANDOMKEY and SCAN do not lazy-expire when called in MULTI" {
-    $primary debug set-active-expire 0
-
-    $primary del foo
-    wait_for_ofs_sync $primary $replica
-    $replica config resetstat
-    $primary set foo bar PX 1
-    after 2
-    $primary multi
-    $primary randomkey
-    $primary exec
-    assert_match {} [cmdstat $replica del]
-
-    $primary del foo
-    wait_for_ofs_sync $primary $replica
-    $replica config resetstat
-    $primary set foo bar PX 1
-    after 2
-    $primary multi
-    $primary scan 0
-    $primary exec
-    assert_match {} [cmdstat $replica del]
-
-    $primary debug set-active-expire 1
-}
-
-test "RANDOMKEY and SCAN do not lazy-expire when called in a script" {
-    $primary debug set-active-expire 0
-
-    $primary del foo
-    wait_for_ofs_sync $primary $replica
-    $replica config resetstat
-    $primary set foo bar PX 1
-    after 2
-    $primary eval {#!lua
-        return redis.call('randomkey')} 0
-    assert_match {} [cmdstat $replica del]
-
-    $primary del foo
-    wait_for_ofs_sync $primary $replica
-    $replica config resetstat
-    $primary set foo bar PX 1
-    after 2
-    $primary eval {#!lua
-        return redis.call('scan', '0')} 0
-    assert_match {} [cmdstat $replica del]
-
-    $primary debug set-active-expire 1
 }

@@ -1714,22 +1714,7 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
 
     /* In some cases we're explicitly instructed to return an indication of a
      * missing key without actually deleting it, even on masters. */
-    int avoid_del = flags & EXPIRE_AVOID_DELETE_EXPIRED;
-
-    /* If we are running a command that may modify random keys, from within a
-     * parent execution unit (i.e. it must be wrapped in MULTI/EXEC) we must
-     * avoid lazy-expire when in cluster mode (otherwise the replica may
-     * return a CROSSSLOT error for the transaction) */
-    if (server.cluster_enabled &&
-        server.execution_nesting > 1 &&
-        server.current_client &&
-        server.current_client->cmd &&
-        server.current_client->cmd->flags & CMD_MODIFY_RANDOM_KEYS)
-    {
-        avoid_del = 1;
-    }
-
-    if (avoid_del)
+    if (flags & EXPIRE_AVOID_DELETE_EXPIRED)
         return 1;
 
     /* If 'expire' action is paused, for whatever reason, then don't expire any key.
