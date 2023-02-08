@@ -133,7 +133,7 @@ size_t reqresAppendRequest(client *c) {
 
     c->reqres.argv_logged = 1;
 
-    serverLog(LL_WARNING, "GUYBE in request (id=%d, argv[0]=%s, bufpos=%d)", c->id, argv[0]->ptr, c->bufpos);
+    serverLog(LL_WARNING, "GUYBE in request (id=%ld, argv[0]=%s, bufpos=%d)", c->id, (char*)argv[0]->ptr, c->bufpos);
 
     c->reqres.offset.bufpos = c->bufpos;
     if (listLength(c->reply) && listNodeValue(listLast(c->reply))) {
@@ -179,7 +179,7 @@ size_t reqresAppendResponse(client *c) {
 
     c->reqres.argv_logged = 0;
 
-    serverLog(LL_WARNING, "GUYBE in response (id=%d, cmd=%s, bufpos=%d,  prev bufpos=%d)", c->id, c->lastcmd ? c->lastcmd->fullname : "NULL", c->bufpos, c->reqres.offset.bufpos);
+    serverLog(LL_WARNING, "GUYBE in response (id=%ld, cmd=%s, bufpos=%d,  prev bufpos=%d)", c->id, c->lastcmd ? c->lastcmd->fullname : "NULL", c->bufpos, c->reqres.offset.bufpos);
 
     /* First append the static reply buffer */
     if (c->bufpos > c->reqres.offset.bufpos) {
