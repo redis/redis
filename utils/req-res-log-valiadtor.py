@@ -8,6 +8,7 @@ import redis
 import time
 import argparse
 
+from jsonschema import Draft201909Validator
 
 lineno = 1
 
@@ -176,10 +177,11 @@ if __name__ == '__main__':
 
                 if not req.schema:
                     missing_schema.add(req.command)
-                    continue                
+                    continue
 
                 try:
-                    jsonschema.validate(instance=res.json, schema=req.schema)
+                    jsonschema.validate(instance=res.json, schema=req.schema,
+                                        cls=Draft201909Validator)
                 except jsonschema.ValidationError as err:
                     print(f"JSON schema validation error on {filename}: {err}")
                     print(f"argv: {req.argv}")
