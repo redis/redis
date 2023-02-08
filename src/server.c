@@ -209,19 +209,20 @@ mstime_t mstime(void) {
  * reflect the same time.
  * More details can be found in the comments below. */
 mstime_t commandTimeSnapshot(void) {
-    /* If we are in the context of a Lua script, we pretend that time is
-     * blocked to when the Lua script started. This way a key can expire
-     * only the first time it is accessed and not in the middle of the
-     * script execution, making propagation to slaves / AOF consistent.
-     * See issue #1525 on Github for more information. */
-    /* If we are in the middle of a command execution, we still want to use
-     * a reference time that does not change: in that case we just use the
+    /* When we are in the middle of a command execution, we want to use a
+     * reference time that does not change: in that case we just use the
      * cached time, that we update before each call in the call() function.
      * This way we avoid that commands such as RPOPLPUSH or similar, that
      * may re-open the same key multiple times, can invalidate an already
      * open object in a next call, if the next call will see the key expired,
-     * while the first did not. */
-    return server.mstime;
+     * while the first did not.
+     * This is specificlally important in the context of scripts, where we
+     * pretend that time freezes. This way a key can expire only the first time
+     * it is accessed and not in the middle of the script execution, making
+     * propagation to slaves / AOF consistent. See issue #1525 for more info.
+     * Note that we cannot use the cached server.mstime because it can chagne
+     * in processEventsWhileBlocked etc. */
+    return server.cmd_time_snapshot;
 }
 
 /* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
@@ -1730,6 +1731,10 @@ void afterSleep(struct aeEventLoop *eventLoop) {
     /* Update the time cache. */
     updateCachedTime(1);
 
+    /* Update command time snapshot in case it'll be required without a command
+     * e.g. somehow used by module timers. */
+    server.cmd_time_snapshot = server.mstime;
+
     /* Do NOT add anything above moduleAcquireGIL !!! */
 
     /* Acquire the modules GIL so that their threads won't touch anything. */
@@ -1940,6 +1945,7 @@ void initServerConfig(void) {
 
     initConfigValues();
     updateCachedTime(1);
+    server.cmd_time_snapshot = server.mstime;
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
@@ -3458,6 +3464,7 @@ void call(client *c, int flags) {
      * in case we have nested calls we want to update only on the first call */
     if (server.execution_nesting++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
+        server.cmd_time_snapshot = server.mstime;
         c->flags |= CLIENT_EXECUTING_COMMAND;
     }
 
