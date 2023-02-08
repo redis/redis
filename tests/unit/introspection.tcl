@@ -167,6 +167,9 @@ start_server {tags {"introspection"}} {
             rocksdb.disable_auto_compactions
             rocksdb.data.disable_auto_compactions
             rocksdb.meta.disable_auto_compactions
+            rocksdb.compaction_dynamic_level_bytes
+            rocksdb.data.compaction_dynamic_level_bytes
+            rocksdb.meta.compaction_dynamic_level_bytes
             rocksdb.compression
             rocksdb.data.compression
             rocksdb.meta.compression
@@ -183,6 +186,12 @@ start_server {tags {"introspection"}} {
             rocksdb.level0_slowdown_writes_trigger
             rocksdb.data.level0_slowdown_writes_trigger
             rocksdb.meta.level0_slowdown_writes_trigger
+            rocksdb.max_bytes_for_level_multiplier
+            rocksdb.data.max_bytes_for_level_multiplier
+            rocksdb.meta.max_bytes_for_level_multiplier
+            rocksdb.suggest_compact_deletion_percentage
+            rocksdb.data.suggest_compact_deletion_percentage
+            rocksdb.meta.suggest_compact_deletion_percentage
             rocksdb.block_cache_size
             rocksdb.data.block_cache_size
             rocksdb.meta.block_cache_size

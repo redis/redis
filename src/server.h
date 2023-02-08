@@ -1787,8 +1787,16 @@ struct redisServer {
     unsigned long long rocksdb_meta_target_file_size_base;
     unsigned long long rocksdb_ratelimiter_rate_per_sec;
     unsigned long long rocksdb_bytes_per_sync;
+    unsigned long long rocksdb_data_period_compaction_seconds;
+    unsigned long long rocksdb_meta_period_compaction_seconds;
     unsigned long long rocksdb_data_max_bytes_for_level_base;
     unsigned long long rocksdb_meta_max_bytes_for_level_base;
+    int rocksdb_data_max_bytes_for_level_multiplier;
+    int rocksdb_meta_max_bytes_for_level_multiplier;
+    int rocksdb_data_compaction_dynamic_level_bytes;
+    int rocksdb_meta_compaction_dynamic_level_bytes;
+    int rocksdb_data_suggest_compact_deletion_percentage;
+    int rocksdb_meta_suggest_compact_deletion_percentage;
     int rocksdb_data_max_write_buffer_number;
     int rocksdb_meta_max_write_buffer_number;
     int rocksdb_max_background_compactions;

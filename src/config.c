@@ -2285,6 +2285,42 @@ static int updateMaxmemory(long long val, long long prev, const char **err) {
     return 1;
 }
 
+static int updateRocksdbOption(int cf,char *key, char *val, const char**err) {
+    rocks* rocks = server.rocks;
+    if (rocks == NULL) {
+        *err = "Fail to set option, check rocksdb state.";
+        return 0;
+    }
+
+    char* inner_err = NULL;
+    const char* const option_keys[] = {key};
+    const char* const option_vals[] = {val};
+    rocksdb_set_options_cf(rocks->db, rocks->cf_handles[cf],
+                           1, option_keys, option_vals, &inner_err);
+    if (inner_err != NULL) {
+        serverLog(LL_WARNING, "[ROCKS] rocksdb set options %s:%s failed: %s", key, val, inner_err);
+        zlibc_free(inner_err);
+        *err = "Fail to set option, rocksdb fail.";
+        return 0;
+    }
+
+    return 1;
+}
+
+static int updateRocksdbDataCompactPeriod(long long val, long long prev, const char **err) {
+    UNUSED(prev);
+    char val_str[20] = {0};
+    sprintf(val_str, "%lld", val);
+    return updateRocksdbOption(DATA_CF, "periodic_compaction_seconds", val_str, err);
+}
+
+static int updateRocksdbMetaCompactPeriod(long long val, long long prev, const char **err) {
+    UNUSED(prev);
+    char val_str[20] = {0};
+    sprintf(val_str, "%lld", val);
+    return updateRocksdbOption(META_CF, "periodic_compaction_seconds", val_str, err);
+}
+
 static int updateGoodSlaves(long long val, long long prev, const char **err) {
     UNUSED(val);
     UNUSED(prev);
@@ -2484,6 +2520,8 @@ standardConfig configs[] = {
     createBoolConfig("rocksdb.enable_pipelined_write", NULL, IMMUTABLE_CONFIG, server.rocksdb_enable_pipelined_write, 0, NULL, NULL),
     createBoolConfig("rocksdb.data.disable_auto_compactions", "rocksdb.disable_auto_compactions", IMMUTABLE_CONFIG, server.rocksdb_data_disable_auto_compactions, 0, NULL, NULL),
     createBoolConfig("rocksdb.meta.disable_auto_compactions", NULL, IMMUTABLE_CONFIG, server.rocksdb_meta_disable_auto_compactions, 0, NULL, NULL),
+    createBoolConfig("rocksdb.data.compaction_dynamic_level_bytes", "rocksdb.compaction_dynamic_level_bytes", IMMUTABLE_CONFIG, server.rocksdb_data_compaction_dynamic_level_bytes, 0, NULL, NULL),
+    createBoolConfig("rocksdb.meta.compaction_dynamic_level_bytes", NULL, IMMUTABLE_CONFIG, server.rocksdb_meta_compaction_dynamic_level_bytes, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -2519,11 +2557,6 @@ standardConfig configs[] = {
     createEnumConfig("swap-mode", NULL, IMMUTABLE_CONFIG, swap_mode_enum, server.swap_mode, SWAP_MODE_MEMORY, isValidSwapMode, NULL),
     createEnumConfig("rocksdb.data.compression","rocksdb.compression", IMMUTABLE_CONFIG, rocksdb_compression_enum, server.rocksdb_data_compression, rocksdb_snappy_compression, NULL, NULL),
     createEnumConfig("rocksdb.meta.compression", NULL, IMMUTABLE_CONFIG, rocksdb_compression_enum, server.rocksdb_meta_compression, rocksdb_snappy_compression, NULL, NULL),
-
-    /* Integer configs */
-    createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.port, 6379, INTEGER_CONFIG, NULL, updatePort), /* TCP port. */
-    createIntConfig("io-threads", NULL, IMMUTABLE_CONFIG, 1, 128, server.io_threads_num, 1, INTEGER_CONFIG, NULL, NULL), /* Single threaded by default */
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
@@ -2582,6 +2615,10 @@ standardConfig configs[] = {
     createIntConfig("rocksdb.meta.block_size", NULL, IMMUTABLE_CONFIG, 512, INT_MAX, server.rocksdb_meta_block_size, 8192, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.data.level0_slowdown_writes_trigger", "rocksdb.level0_slowdown_writes_trigger", IMMUTABLE_CONFIG, 1, INT_MAX, server.rocksdb_data_level0_slowdown_writes_trigger, 20, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.meta.level0_slowdown_writes_trigger", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.rocksdb_meta_level0_slowdown_writes_trigger, 20, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.data.max_bytes_for_level_multiplier", "rocksdb.max_bytes_for_level_multiplier", IMMUTABLE_CONFIG, 1, INT_MAX, server.rocksdb_data_max_bytes_for_level_multiplier, 10, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.meta.max_bytes_for_level_multiplier", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.rocksdb_meta_max_bytes_for_level_multiplier, 10, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.data.suggest_compact_deletion_percentage", "rocksdb.suggest_compact_deletion_percentage", IMMUTABLE_CONFIG, 0, 100, server.rocksdb_data_suggest_compact_deletion_percentage, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.meta.suggest_compact_deletion_percentage", NULL, IMMUTABLE_CONFIG, 0, 100, server.rocksdb_meta_suggest_compact_deletion_percentage, 0, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -2617,6 +2654,8 @@ standardConfig configs[] = {
     createULongLongConfig("rocksdb.bytes_per_sync", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_bytes_per_sync, 1*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("rocksdb.data.max_bytes_for_level_base", "rocksdb.max_bytes_for_level_base", IMMUTABLE_CONFIG, 1*1024*1024, ULLONG_MAX, server.rocksdb_data_max_bytes_for_level_base, 256*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("rocksdb.meta.max_bytes_for_level_base", NULL, IMMUTABLE_CONFIG, 1*1024*1024, ULLONG_MAX, server.rocksdb_meta_max_bytes_for_level_base, 256*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createULongLongConfig("rocksdb.data.period_compaction_seconds", "rocksdb.period_compaction_seconds", MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_data_period_compaction_seconds, 86400, MEMORY_CONFIG, NULL, updateRocksdbDataCompactPeriod),
+    createULongLongConfig("rocksdb.meta.period_compaction_seconds", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_meta_period_compaction_seconds, 30*86400, MEMORY_CONFIG, NULL, updateRocksdbMetaCompactPeriod),
 
     /* Size_t configs */
     createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, 512, INTEGER_CONFIG, NULL, NULL),

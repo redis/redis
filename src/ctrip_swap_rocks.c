@@ -65,7 +65,7 @@ int rocksInit() {
     if (server.swap_debug_init_rocksdb_delay_micro)
         usleep(server.swap_debug_init_rocksdb_delay_micro);
     rocks *rocks = zcalloc(sizeof(struct rocks));
-    char *errs[3] = {NULL}, dir[ROCKS_DIR_MAX_LEN];
+    char *errs[3] = {NULL}, dir[ROCKS_DIR_MAX_LEN], *err = NULL, longlong_str[20];
 
     rocks->snapshot = NULL;
     rocks->checkpoint = NULL;
@@ -127,6 +127,12 @@ int rocksInit() {
     rocksdb_options_set_target_file_size_base(rocks->cf_opts[DATA_CF], server.rocksdb_data_target_file_size_base);
     rocksdb_options_set_write_buffer_size(rocks->cf_opts[DATA_CF],server.rocksdb_data_write_buffer_size);
     rocksdb_options_set_max_bytes_for_level_base(rocks->cf_opts[DATA_CF],server.rocksdb_data_max_bytes_for_level_base);
+    rocksdb_options_set_max_bytes_for_level_multiplier(rocks->cf_opts[DATA_CF], server.rocksdb_data_max_bytes_for_level_multiplier);
+    rocksdb_options_set_level_compaction_dynamic_level_bytes(rocks->cf_opts[DATA_CF], server.rocksdb_data_compaction_dynamic_level_bytes);
+    if (server.rocksdb_data_suggest_compact_deletion_percentage) {
+        double deletion_ration = (double)server.rocksdb_data_suggest_compact_deletion_percentage / 100;
+        rocksdb_options_add_compact_on_deletion_collector_factory(rocks->cf_opts[DATA_CF],0, 0, deletion_ration);
+    }
 
     rocks->block_opts[DATA_CF] = rocksdb_block_based_options_create();
     rocks->cf_compaction_filters[DATA_CF] = createDataCfCompactionFilter();
@@ -173,6 +179,12 @@ int rocksInit() {
     rocksdb_options_set_target_file_size_base(rocks->cf_opts[META_CF], server.rocksdb_meta_target_file_size_base);
     rocksdb_options_set_write_buffer_size(rocks->cf_opts[META_CF],server.rocksdb_meta_write_buffer_size);
     rocksdb_options_set_max_bytes_for_level_base(rocks->cf_opts[META_CF],server.rocksdb_meta_max_bytes_for_level_base);
+    rocksdb_options_set_max_bytes_for_level_multiplier(rocks->cf_opts[META_CF], server.rocksdb_meta_max_bytes_for_level_multiplier);
+    rocksdb_options_set_level_compaction_dynamic_level_bytes(rocks->cf_opts[META_CF], server.rocksdb_meta_compaction_dynamic_level_bytes);
+    if (server.rocksdb_meta_suggest_compact_deletion_percentage) {
+        double deletion_ration = (double)server.rocksdb_meta_suggest_compact_deletion_percentage / 100;
+        rocksdb_options_add_compact_on_deletion_collector_factory(rocks->cf_opts[META_CF],0, 0, deletion_ration);
+    }
 
     rocks->block_opts[META_CF] = rocksdb_block_based_options_create();
     rocks->cf_compaction_filters[META_CF] = createMetaCfCompactionFilter();
@@ -196,6 +208,33 @@ int rocksInit() {
         return -1;
     }
     serverLog(LL_NOTICE, "[ROCKS] opened rocks data in (%s).", dir);
+
+    /* init advanced options */
+    const char* opt_comp_sec = "periodic_compaction_seconds";
+    /* data cf */
+    sprintf(longlong_str, "%lld", server.rocksdb_data_period_compaction_seconds);
+    const char* const data_option_keys[] = {opt_comp_sec};
+    const char* const data_option_vals[] = {longlong_str};
+    rocksdb_set_options_cf(rocks->db, rocks->cf_handles[DATA_CF],
+                           1, data_option_keys, data_option_vals, &err);
+    if (err != NULL) {
+        serverLog(LL_WARNING, "[ROCKS] rocksdb data cf set options failed: %s", err);
+        zlibc_free(err);
+        err = NULL;
+    }
+
+    /* meta cf */
+    sprintf(longlong_str, "%lld", server.rocksdb_meta_period_compaction_seconds);
+    const char* const meta_option_keys[] = {opt_comp_sec};
+    const char* const meta_option_vals[] = {longlong_str};
+    rocksdb_set_options_cf(rocks->db, rocks->cf_handles[META_CF],
+                           1, meta_option_keys, meta_option_vals, &err);
+    if (err != NULL) {
+        serverLog(LL_WARNING, "[ROCKS] rocksdb meta cf set options failed: %s", err);
+        zlibc_free(err);
+        err = NULL;
+    }
+
     rocks->rocksdb_stats_cache = NULL;
     server.rocks = rocks;
     return 0;
