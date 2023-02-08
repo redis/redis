@@ -234,6 +234,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     dictEntry *de = dictAddRaw(d, copy, NULL);
     serverAssertWithInfo(NULL, key, de != NULL);
     dictSetVal(d, de, val);
+    db->key_count++;
     signalKeyAsReady(db, key, val->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
 }
@@ -262,6 +263,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     dictEntry *de = dictAddRaw(d, key, NULL);
     if (de == NULL) return 0;
     dictSetVal(d, de, val);
+    db->key_count++;
     return 1;
 }
 
@@ -387,12 +389,7 @@ robj *dbRandomKey(redisDb *db) {
 /* Return random non-empty dictionary from this DB. */
 dict *getRandomDict(redisDb *db) {
     if (db->dict_count == 1) return db->dict[0];
-    unsigned long long target = rand();
-    /* If number of keys is greater than max target value, then we should call target once more and get more entropy. */
-    if (db->key_count > RAND_MAX) {
-        target <<= 32;
-        target |= rand();
-    }
+    unsigned long target = randomULong();
     unsigned long long int key_count = dbSize(db);
     if (!key_count) return db->dict[0];
     target %= key_count; /* Random key index in range [0..KEY_COUNT). */
@@ -531,6 +528,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
         dbarray[j].expires_cursor = 0;
+        dbarray[j].key_count = 0;
     }
 
     return removed;
@@ -1157,14 +1155,7 @@ void dbsizeCommand(client *c) {
 }
 
 unsigned long long int dbSize(redisDb *db) {
-    unsigned long long size = 0;
-    dict *d;
-    dbIterator dbit;
-    dbInitIterator(&dbit, db);
-    while ((d = dbNextDict(&dbit))) {
-        size += dictSize(d);
-    }
-    return size;
+    return db->key_count;
 }
 
 unsigned long dbSlots(redisDb *db) {
@@ -1568,12 +1559,14 @@ int dbSwapDatabases(int id1, int id2) {
     db1->avg_ttl = db2->avg_ttl;
     db1->expires_cursor = db2->expires_cursor;
     db1->dict_count = db2->dict_count;
+    db1->key_count = db2->key_count;
 
     db2->dict = aux.dict;
     db2->expires = aux.expires;
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
     db2->dict_count = aux.dict_count;
+    db2->key_count = aux.key_count;
 
     /* Now we need to handle clients blocked on lists: as an effect
      * of swapping the two DBs, a client that was waiting for list
@@ -1612,12 +1605,14 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
         activedb->dict_count = newdb->dict_count;
+        activedb->key_count = newdb->key_count;
 
         newdb->dict = aux.dict;
         newdb->expires = aux.expires;
         newdb->avg_ttl = aux.avg_ttl;
         newdb->expires_cursor = aux.expires_cursor;
         newdb->dict_count = aux.dict_count;
+        newdb->key_count = aux.key_count;
 
         /* Now we need to handle clients blocked on lists: as an effect
          * of swapping the two DBs, a client that was waiting for list

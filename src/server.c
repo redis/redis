@@ -2593,6 +2593,7 @@ void initServer(void) {
         server.db[j].defrag_later = listCreate();
         server.db[j].rehashing = listCreate();
         server.db[j].dict_count = slotCount;
+        server.db[j].key_count = 0;
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
