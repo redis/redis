@@ -572,22 +572,21 @@ start_server {tags {"expire"}} {
             }
         }
         test {expired keys which is created in writeable replicas should be delete} {
-            #see https://github.com/redis/redis/issues/11778
             $primary flushall
             $replica config set replica-read-only no
             $replica config set appendonly yes
             $replica set foo bar PX 1
             wait_for_condition 20 100 {
                 [$replica get foo] eq {}
-            } fail {
-                "can't delete expired the keys which is create in writeable replicas."
+            } else {
+                fail "can't delete expired the keys which is create in writeable replicas."
             }
             $replica config set appendonly no
             $replica set foo bar PX 1
             wait_for_condition 20 100 {
                 [$replica get foo] eq {}
-            } fail {
-                "can't delete expired the keys which is create in writeable replicas."
+            } else  {
+                fail "can't delete expired the keys which is create in writeable replicas."
             }
         }
     }
