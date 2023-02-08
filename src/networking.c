@@ -395,6 +395,8 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
         return;
     }
 
+    reqresAppendRequest(c);
+
     size_t reply_len = _addReplyToBuffer(c,s,len);
     if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
 }
@@ -718,6 +720,8 @@ void *addReplyDeferredLen(client *c) {
                                         cmdname ? cmdname : "<unknown>");
         return NULL;
     }
+
+    reqresAppendRequest(c);
 
     trimReplyUnusedTailSpace(c);
     listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
@@ -1820,6 +1824,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
         /* If the buffer was sent, set bufpos to zero to continue with
          * the remainder of the reply. */
         if (remaining >= buf_len) {
+            serverLog(LL_WARNING, "GUYBE zero bufpos 1");
             c->bufpos = 0;
             c->sentlen = 0;
         }
@@ -1892,6 +1897,8 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         /* If the buffer was sent, set bufpos to zero to continue with
          * the remainder of the reply. */
         if ((int)c->sentlen == c->bufpos) {
+            serverLog(LL_WARNING, "GUYBE zero bufpos id=%d", c->id);
+            //serverAssert(c->reqres.offset.bufpos == -1);
             c->bufpos = 0;
             c->sentlen = 0;
         }
