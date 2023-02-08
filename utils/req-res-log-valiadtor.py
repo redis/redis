@@ -102,7 +102,7 @@ class Response(object):
                 field = Response(f)
                 # Redis allows fields to be non-strings but JSON doesn't.
                 # Luckily, for any kind of response we can validate, the fields are
-                # always string (exmaple: XINFO STREAM)
+                # always string (example: XINFO STREAM)
                 # The reason we can't always convert to string is because of DEBUG PROTOCOL MAP
                 # which anyway doesn't have a schema
                 if isinstance(field.json, str):
