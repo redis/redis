@@ -14,7 +14,7 @@
         ],
         "command_flags": [
             "READONLY",
-            "MODIFY_RANDOM_KEYS"
+            "TOUCHES_ARBITRARY_KEYS"
         ],
         "acl_categories": [
             "KEYSPACE"

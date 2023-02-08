@@ -3315,7 +3315,7 @@ static void propagatePendingCommands() {
      * to avoid using a transaction (much like active-expire) */
     if (server.current_client &&
         server.current_client->cmd &&
-        server.current_client->cmd->flags & CMD_MODIFY_RANDOM_KEYS)
+        server.current_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS)
     {
         transaction = 0;
     }
@@ -4520,6 +4520,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_NO_MULTI,          "no_multi"},
         {CMD_MOVABLE_KEYS,      "movablekeys"},
         {CMD_ALLOW_BUSY,        "allow_busy"},
+        /* {CMD_TOUCHES_ARBITRARY_KEYS,  "TOUCHES_ARBITRARY_KEYS"}, Hidden on purpose */
         {0,NULL}
     };
     addReplyCommandFlags(c, cmd->flags, flagNames);

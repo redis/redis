@@ -1062,6 +1062,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
         else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY;
+        else if (!strcasecmp(t,"access-arbitrary-keys")) flags |= CMD_TOUCHES_ARBITRARY_KEYS;
         else break;
     }
     sdsfreesplitres(tokens,count);
