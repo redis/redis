@@ -3463,6 +3463,7 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
+    long long old_master_repl_offset = server.master_repl_offset;
     incrCommandStatsOnError(NULL, 0);
 
     const long long call_timer = ustime();
@@ -3638,6 +3639,11 @@ void call(client *c, int flags) {
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
+
+    /* Remember the replication offset of the client, right after it's last
+     * command that resulted in propagation. */
+    if (old_master_repl_offset != server.master_repl_offset)
+        c->woff = server.master_repl_offset;
 
     /* Client pause takes effect after a transaction has finished. This needs
      * to be located after everything is propagated. */
@@ -4097,7 +4103,6 @@ int processCommand(client *c) {
         addReply(c,shared.queued);
     } else {
         call(c,CMD_CALL_FULL);
-        c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }

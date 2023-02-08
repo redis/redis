@@ -209,6 +209,33 @@ tags {"wait aof network external:skip"} {
                 assert_equal [$master waitaof 1 1 0] {1 1}
             }
 
+            test {WAITAOF master sends PING after last write} {
+                $master config set repl-ping-replica-period 1
+                $master incr foo
+                after 1200 ;# wait for PING
+                $master get foo
+                assert_equal [$master waitaof 1 1 0] {1 1}
+                $master config set repl-ping-replica-period 10
+            }
+
+            test {WAITAOF master client didn't send any write command} {
+                $master config set repl-ping-replica-period 1
+                set client [redis_client -1]
+                after 1200 ;# wait for PING
+                assert_equal [$master waitaof 1 1 0] {1 1}
+                $client close
+                $master config set repl-ping-replica-period 10
+            }
+
+            test {WAITAOF master client didn't send any command} {
+                $master config set repl-ping-replica-period 1
+                set client [redis [srv -1 "host"] [srv -1 "port"] 0 $::tls]
+                after 1200 ;# wait for PING
+                assert_equal [$master waitaof 1 1 0] {1 1}
+                $client close
+                $master config set repl-ping-replica-period 10
+            }
+
             foreach fsync {no everysec always} {
                 test "WAITAOF when replica switches between masters, fsync: $fsync" {
                     # test a case where a replica is moved from one master to the other
