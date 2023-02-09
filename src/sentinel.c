@@ -2178,9 +2178,8 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             /* try to replace any known-slave option first if found */
             if(rewriteConfigRewriteLine(state,"sentinel known-slave",line,0) ==0){
                 rewriteConfigRewriteLine(state, "sentinel known-replica", line, 1);
-            } else{
-                sdsfree(line);
             }
+            sdsfree(line);
             /* rewriteConfigMarkAsProcessed is handled after the loop */
         }
         dictReleaseIterator(di2);
