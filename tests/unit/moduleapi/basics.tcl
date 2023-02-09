@@ -30,6 +30,7 @@ start_server {tags {"modules"}} {
             r hello $resp
             set reply [r test.getresp]
             assert_equal $reply $resp
+            r hello 2
         }
     }
 

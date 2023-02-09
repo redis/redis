@@ -1410,6 +1410,7 @@ start_server {tags {"zset"}} {
         }
 
         $rd close
+        r hello 2
     }
 
     test {ZINTERSTORE regression with two sets, intset+hashtable} {

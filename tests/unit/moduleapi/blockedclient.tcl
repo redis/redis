@@ -105,6 +105,7 @@ start_server {tags {"modules"}} {
                 assert_equal $ret "#t"
             }
             r readraw 0
+            r hello 2
         }
     }
 

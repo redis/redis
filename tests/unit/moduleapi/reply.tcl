@@ -125,6 +125,8 @@ start_server {tags {"modules"}} {
             catch {r rw.error} e
             assert_match "An error" $e
         }
+
+        r hello 2
     }
 
     test "Unload the module - replywith" {

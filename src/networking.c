@@ -1824,7 +1824,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
         /* If the buffer was sent, set bufpos to zero to continue with
          * the remainder of the reply. */
         if (remaining >= buf_len) {
-            serverLog(LL_WARNING, "GUYBE zero bufpos 1");
+            //serverLog(LL_WARNING, "GUYBE zero bufpos 1");
             c->bufpos = 0;
             c->sentlen = 0;
         }
@@ -1897,7 +1897,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         /* If the buffer was sent, set bufpos to zero to continue with
          * the remainder of the reply. */
         if ((int)c->sentlen == c->bufpos) {
-            serverLog(LL_WARNING, "GUYBE zero bufpos id=%llu", (unsigned long long)c->id);
+            //serverLog(LL_WARNING, "GUYBE zero bufpos id=%llu", (unsigned long long)c->id);
             //serverAssert(c->reqres.offset.bufpos == -1);
             c->bufpos = 0;
             c->sentlen = 0;

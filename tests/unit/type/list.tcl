@@ -590,6 +590,7 @@ foreach {type large} [array get largevalue] {
         }
 
         r readraw 0
+        r hello 2
     }
 
     test {Variadic RPUSH/LPUSH} {
