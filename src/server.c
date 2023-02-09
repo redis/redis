@@ -220,7 +220,7 @@ mstime_t commandTimeSnapshot(void) {
      * pretend that time freezes. This way a key can expire only the first time
      * it is accessed and not in the middle of the script execution, making
      * propagation to slaves / AOF consistent. See issue #1525 for more info.
-     * Note that we cannot use the cached server.mstime because it can chagne
+     * Note that we cannot use the cached server.mstime because it can change
      * in processEventsWhileBlocked etc. */
     return server.cmd_time_snapshot;
 }

@@ -3944,7 +3944,7 @@ void processEventsWhileBlocked(void) {
 
     /* For the few commands that are allowed during busy scripts, we rather
      * provide a fresher time than the one from when the script started (they
-     * still won't get the from call due to execution_nesting. For commands
+     * still won't get it from the call due to execution_nesting. For commands
      * during loading this doesn't matter. */
     mstime_t prev_cmd_time_snapshot = server.cmd_time_snapshot;
     server.cmd_time_snapshot = server.mstime;
