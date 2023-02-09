@@ -857,9 +857,24 @@ proc read_from_replication_stream {s} {
 }
 
 proc assert_replication_stream {s patterns} {
+    set errors 0
+    set values {}
     for {set j 0} {$j < [llength $patterns]} {incr j} {
-        assert_match [lindex $patterns $j] [read_from_replication_stream $s]
+        set pattern [lindex $patterns $j]
+        set value [read_from_replication_stream $s]
+        lappend values $value
+        if {![string match $pattern $value]} { incr errors }
     }
+
+    if {$errors == 0} { return }
+
+    puts "replication stream start:"
+    foreach value $values { puts "$value" }
+    puts "replication stream end."
+
+    close_replication_stream $s ;# for fast exit
+    set context "(context: [info frame -1])"
+    assert_equal $errors 0 $context
 }
 
 proc close_replication_stream {s} {
