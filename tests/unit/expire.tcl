@@ -603,9 +603,9 @@ start_server {tags {"expire"}} {
     } {-1}
 
     test {GETEX use of PERSIST option should remove TTL after loadaof} {
+       r config set appendonly yes
        r set foo bar EX 100
        r getex foo PERSIST
-       after 2000
        r debug loadaof
        r ttl foo
     } {-1} {needs:debug}

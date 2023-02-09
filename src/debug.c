@@ -585,9 +585,11 @@ NULL
         aofLoadManifestFromDisk();
         aofDelHistoryFiles();
         int ret = loadAppendOnlyFiles(server.aof_manifest);
-        if (ret != AOF_OK && ret != AOF_EMPTY)
-            exit(1);
         unprotectClient(c);
+        if (ret != AOF_OK && ret != AOF_EMPTY) {
+            addReplyError(c, "Error trying to load the AOF files, check server logs.");
+            return;
+        }
         server.dirty = 0; /* Prevent AOF / replication */
         serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
