@@ -3783,17 +3783,29 @@ static void moduleInitKeyTypeSpecific(RedisModuleKey *key) {
  * The return value is the handle representing the key, that must be
  * closed with RM_CloseKey().
  *
- * If the key does not exist and WRITE mode is requested, the handle
+ * If the key does not exist and REDISMODULE_WRITE mode is requested, the handle
  * is still returned, since it is possible to perform operations on
  * a yet not existing key (that will be created, for example, after
- * a list push operation). If the mode is just READ instead, and the
+ * a list push operation). If the mode is just REDISMODULE_READ instead, and the
  * key does not exist, NULL is returned. However it is still safe to
  * call RedisModule_CloseKey() and RedisModule_KeyType() on a NULL
- * value. */
+ * value.
+ *
+ * Extra flags that can be pass to the API under the mode argument:
+ * * REDISMODULE_OPEN_KEY_NOTOUCH - Avoid touching the LRU/LFU of the key when opened.
+ * * REDISMODULE_OPEN_KEY_NONOTIFY - Don't trigger keyspace event on key misses.
+ * * REDISMODULE_OPEN_KEY_NOSTATS - Don't update keyspace hits/misses counters.
+ * * REDISMODULE_OPEN_KEY_NOEXPIRE - Avoid deleting lazy expired keys.
+ * * REDISMODULE_OPEN_KEY_NOEFFECTS - Avoid any effects from fetching the key. */
 RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     RedisModuleKey *kp;
     robj *value;
-    int flags = mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0;
+    int flags = 0;
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NONOTIFY? LOOKUP_NONOTIFY: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOSTATS? LOOKUP_NOSTATS: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOEXPIRE? LOOKUP_NOEXPIRE: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOEFFECTS? LOOKUP_NOEFFECTS: 0);
 
     if (mode & REDISMODULE_WRITE) {
         value = lookupKeyWriteWithFlags(ctx->client->db,keyname, flags);
@@ -3809,6 +3821,23 @@ RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     moduleInitKey(kp, ctx, keyname, value, mode);
     autoMemoryAdd(ctx,REDISMODULE_AM_KEY,kp);
     return kp;
+}
+
+/**
+ * Returns the full OpenKey modes mask, using the return value
+ * the module can check if a certain set of OpenKey modes are supported
+ * by the redis server version in use.
+ * Example:
+ *
+ *        int supportedMode = RM_GetOpenKeyModesAll();
+ *        if (supportedMode & REDISMODULE_OPEN_KEY_NOTOUCH) {
+ *              // REDISMODULE_OPEN_KEY_NOTOUCH is supported
+ *        } else{
+ *              // REDISMODULE_OPEN_KEY_NOTOUCH is not supported
+ *        }
+ */
+int RM_GetOpenKeyModesAll() {
+    return _REDISMODULE_OPEN_KEY_ALL;
 }
 
 /* Destroy a RedisModuleKey struct (freeing is the responsibility of the caller). */
@@ -12809,6 +12838,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SelectDb);
     REGISTER_API(KeyExists);
     REGISTER_API(OpenKey);
+    REGISTER_API(GetOpenKeyModesAll);
     REGISTER_API(CloseKey);
     REGISTER_API(KeyType);
     REGISTER_API(ValueLength);
