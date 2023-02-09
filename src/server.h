@@ -1816,8 +1816,14 @@ struct redisServer {
 
     /* gtid executed */
     int gtid_enabled;  /* Is gtid enabled? */
+    unsigned long long gtid_uuid_gap_max_memory;
     gtidSet *gtid_executed;
     uuidSet* current_uuid;
+    size_t gtid_purged_gap_count;
+    gno_t gtid_purged_gno_count;
+    time_t gtid_last_purge_time;
+    size_t gtid_ignored_cmd_count;
+    size_t gtid_executed_cmd_count;
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -2930,9 +2936,9 @@ int isGtidEnabled();
 void gtidCommand(client *c);
 void gtidLwmCommand(client *c);
 void gtidAutoCommand(client *c);
+void gtidxCommand(client *c);
 void rejectCommandFormat(client *c, const char *fmt, ...);
-int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, int argc,
-               int flags);
+int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
 int isGtidInMerge(client* c);
 int isGtidExecCommand(client *c);
 void propagateGtidExpire(redisDb *db, robj *key, int lazy);
@@ -2944,6 +2950,9 @@ int LoadGtidInfoAuxFields(robj* key, robj* val);
 int verifyDumpPayload(unsigned char *p, size_t len);
 void createDumpPayload(rio *payload, robj *o, robj *key);
 void gtidGetRobjCommand(client* c);
+sds genGtidGapString(sds info);
+sds genGtidStatString(sds info);
+
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
 void free(void *ptr) __attribute__ ((deprecated));
