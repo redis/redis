@@ -571,22 +571,16 @@ start_server {tags {"expire"}} {
                 assert_equal [$primary pexpiretime $key] [$replica pexpiretime $key]
             }
         }
-        test {expired keys which is created in writeable replicas should be delete} {
+
+        test {expired key which is created in writeable replicas should be deleted by active expiry} {
             $primary flushall
             $replica config set replica-read-only no
-            $replica config set appendonly yes
-            $replica set foo bar PX 1
-            wait_for_condition 20 100 {
-                [$replica get foo] eq {}
-            } else {
-                fail "can't delete expired the keys which is create in writeable replicas."
-            }
-            $replica config set appendonly no
-            $replica set foo bar PX 1
-            wait_for_condition 20 100 {
-                [$replica get foo] eq {}
-            } else  {
-                fail "can't delete expired the keys which is create in writeable replicas."
+            foreach {yes_or_no} {yes no} {
+                $replica config set appendonly $yes_or_no
+                $replica set foo bar PX 1
+                #wait bigger than 100ms to make sure that key has been deleted by active expiry
+                after 150
+                assert_equal {} [$replica get foo]
             }
         }
     }
