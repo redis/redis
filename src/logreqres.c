@@ -90,6 +90,9 @@ static int reqresShouldLog(client *c) {
 }
 
 static size_t reqresAppendBuffer(client *c, void *buf, size_t len) {
+    if (!reqresShouldLog(c))
+        return 0;
+
     if (!c->reqres.buf) {
         c->reqres.capacity = max(len, 1024);
         c->reqres.buf = zmalloc(c->reqres.capacity);
@@ -122,18 +125,11 @@ size_t reqresAppendRequest(client *c) {
     robj **argv = c->argv;
     int argc = c->argc;
 
-    if (!reqresShouldLog(c))
-        return 0;
-
     if (argc == 0)
         return 0;
 
     if (c->reqres.argv_logged)
         return 0;
-
-    c->reqres.argv_logged = 1;
-
-    serverLog(LL_WARNING, "GUYBE in request (id=%ld, argv[0]=%s, bufpos=%d)", c->id, (char*)argv[0]->ptr, c->bufpos);
 
     c->reqres.offset.bufpos = c->bufpos;
     if (listLength(c->reply) && listNodeValue(listLast(c->reply))) {
@@ -143,6 +139,8 @@ size_t reqresAppendRequest(client *c) {
         c->reqres.offset.last_node.index = 0;
         c->reqres.offset.last_node.used = 0;
     }
+
+    serverLog(LL_WARNING, "GUYBE in request (id=%ld, argv[0]=%s, bufpos=%d)", c->id, (char*)argv[0]->ptr, c->bufpos);
 
     /* Ignore commands that have streaming non-standard response */
     sds cmd = argv[0]->ptr;
@@ -155,6 +153,8 @@ size_t reqresAppendRequest(client *c) {
     {
         return 0;
     }
+
+    c->reqres.argv_logged = 1;
 
     size_t ret = 0;
     for (int i = 0; i < argc; i++) {
@@ -173,10 +173,6 @@ size_t reqresAppendRequest(client *c) {
 
 size_t reqresAppendResponse(client *c) {
     size_t ret = 0;
-
-    if (!reqresShouldLog(c))
-        return 0;
-
     c->reqres.argv_logged = 0;
 
     serverLog(LL_WARNING, "GUYBE in response (id=%ld, cmd=%s, bufpos=%d,  prev bufpos=%d)", c->id, c->lastcmd ? c->lastcmd->fullname : "NULL", c->bufpos, c->reqres.offset.bufpos);

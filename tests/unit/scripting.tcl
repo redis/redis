@@ -1238,9 +1238,8 @@ start_server {tags {"scripting needs:debug"}} {
                 if {$client_proto == 3} {continue}
             } elseif {$::force_resp3} {
                 if {$client_proto == 2} {continue}
-            } else {
-                r hello $client_proto
             }
+            r hello $client_proto
             set extra "RESP$i/$client_proto"
             r readraw 1
 

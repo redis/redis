@@ -92,26 +92,31 @@ class Response(object):
             lineno += 1 + self.json.count("\r\n")
         elif line[0] == '(':
             self.json = line[1:]  # big-number is actually a string
-        elif line[0] in ['*', '~']:  # unfortunately JSON doesn't tell the difference between a list and a set
+        elif line[0] in ['*', '~', '>']:  # unfortunately JSON doesn't tell the difference between a list and a set
             self.json = []
             count = int(line[1:])
             for i in range(count):
                 ele = Response(f)
                 self.json.append(ele.json)
-        elif line[0] == '%':
+        elif line[0] in ['%', '|']:
             self.json = {}
             count = int(line[1:])
             for i in range(count):
                 field = Response(f)
                 # Redis allows fields to be non-strings but JSON doesn't.
                 # Luckily, for any kind of response we can validate, the fields are
-                # always string (example: XINFO STREAM)
+                # always strings (example: XINFO STREAM)
                 # The reason we can't always convert to string is because of DEBUG PROTOCOL MAP
                 # which anyway doesn't have a schema
                 if isinstance(field.json, str):
                     field = field.json
                 value = Response(f)
                 self.json[field] = value.json
+            if line[0] == '|':
+                # We don't care abou the attributes, read the real response
+                real_res = Response(f)
+                self.__dict__.update(real_res.__dict__)
+
 
     def __str__(self):
         return json.dumps(self.json)
@@ -144,6 +149,7 @@ if __name__ == '__main__':
         except Exception as e:
             time.sleep(0.1)
             pass
+    print('Connected')
 
     cli_proc = subprocess.Popen([args.cli, '-p', str(args.port), '--json', 'command', 'docs'], stdout=subprocess.PIPE)
     stdout, stderr = cli_proc.communicate()

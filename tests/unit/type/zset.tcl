@@ -1253,11 +1253,10 @@ start_server {tags {"zset"}} {
             if {$resp == 3} {continue}
         } elseif {$::force_resp3} {
             if {$resp == 2} {continue}
-        } else {
-            r hello $resp
-            $rd hello $resp
-            $rd read
         }
+        r hello $resp
+        $rd hello $resp
+        $rd read
 
         test "ZPOPMIN/ZPOPMAX readraw in RESP$resp" {
             r del zset{t}
