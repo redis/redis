@@ -584,6 +584,7 @@ start_server {tags {"expire"}} {
                 } else {
                     fail "key not expired"
                 }
+                assert_equal {} [$replica get foo]
             }
         }
     }
