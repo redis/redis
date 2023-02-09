@@ -3228,7 +3228,7 @@ void replicationSendAck(void) {
 
     if (c != NULL) {
         c->flags |= CLIENT_MASTER_FORCE_REPLY;
-        addReplyArrayLen(c,server.fsynced_reploff != -1? 5: 3);
+        addReplyArrayLen(c,server.fsynced_reploff != -1 ? 5 : 3);
         addReplyBulkCString(c,"REPLCONF");
         addReplyBulkCString(c,"ACK");
         addReplyBulkLongLong(c,c->reploff);
@@ -3530,7 +3530,7 @@ void waitaofCommand(client *c) {
     /* Argument parsing. */
     if (getRangeLongFromObjectOrReply(c,c->argv[1],0,1,&numlocal,NULL) != C_OK)
         return;
-    if (getLongFromObjectOrReply(c,c->argv[2],&numreplicas,NULL) != C_OK)
+    if (getPositiveLongFromObjectOrReply(c,c->argv[2],&numreplicas,NULL) != C_OK)
         return;
     if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_MILLISECONDS) != C_OK)
         return;
@@ -3547,7 +3547,7 @@ void waitaofCommand(client *c) {
     /* First try without blocking at all. */
     ackreplicas = replicationCountAOFAcksByOffset(c->woff);
     acklocal = server.fsynced_reploff >= c->woff;
-    if ((ackreplicas >= numreplicas && acklocal >= numlocal) || c->flags & CLIENT_DENY_BLOCKING ) {
+    if ((ackreplicas >= numreplicas && acklocal >= numlocal) || c->flags & CLIENT_DENY_BLOCKING) {
         addReplyArrayLen(c,2);
         addReplyLongLong(c,acklocal);
         addReplyLongLong(c,ackreplicas);
