@@ -214,6 +214,26 @@ start_server {tags {"gtid"} overrides {gtid-enabled yes gtid-uuid-gap-max-memory
     }
 }
 
+start_server {tags {"gtid"} overrides {gtid-enabled yes}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    start_server {tags {"repl"} overrides {gtid-enabled no}} {
+        set slave [srv 0 client]
+
+        test {slave keep gtid-enabled in sync with master} {
+            assert_equal [$slave config get gtid-enabled] {gtid-enabled no}
+            $slave slaveof $master_host $master_port
+            wait_for_sync $slave
+            assert_equal [$slave config get gtid-enabled] {gtid-enabled yes}
+            $master config set gtid-enabled no
+            after 200
+            wait_for_sync $slave
+            assert_equal [$slave config get gtid-enabled] {gtid-enabled no}
+        }
+    }
+}
+
 if {$::swap_mode != "disk" } {
     #swap disk can't select 1
     start_server {tags {"repl"} overrides} {
