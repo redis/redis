@@ -3823,6 +3823,29 @@ RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     return kp;
 }
 
+/**
+ * Returns the full OpenKey modes mask, using the return value
+ * the module can check if a certain set of OpenKey modes are supported
+ * by the redis server version in use.
+ * Example:
+ *
+ *        int supportedMode = RM_GetOpenKeyModesAll();
+ *        if (supportedMode & REDISMODULE_OPEN_KEY_NOTOUCH) {
+ *              // REDISMODULE_OPEN_KEY_NOTOUCH is supported
+ *        } else{
+ *              // REDISMODULE_OPEN_KEY_NOTOUCH is not supported
+ *        }
+ */
+int RM_GetOpenKeyModesAll() {
+    return REDISMODULE_READ               |
+           REDISMODULE_WRITE              |
+           REDISMODULE_OPEN_KEY_NOTOUCH   |
+           REDISMODULE_OPEN_KEY_NONOTIFY  |
+           REDISMODULE_OPEN_KEY_NOSTATS   |
+           REDISMODULE_OPEN_KEY_NOEXPIRE  |
+           REDISMODULE_OPEN_KEY_NOEFFECTS;
+}
+
 /* Destroy a RedisModuleKey struct (freeing is the responsibility of the caller). */
 static void moduleCloseKey(RedisModuleKey *key) {
     int signal = SHOULD_SIGNAL_MODIFIED_KEYS(key->ctx);
@@ -12821,6 +12844,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SelectDb);
     REGISTER_API(KeyExists);
     REGISTER_API(OpenKey);
+    REGISTER_API(GetOpenKeyModesAll);
     REGISTER_API(CloseKey);
     REGISTER_API(KeyType);
     REGISTER_API(ValueLength);

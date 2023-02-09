@@ -40,6 +40,12 @@ int test_open_key_no_effects(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         return REDISMODULE_OK;
     }
 
+    int supportedMode = RedisModule_GetOpenKeyModesAll();
+    if (!(supportedMode & REDISMODULE_READ) || !(supportedMode & REDISMODULE_OPEN_KEY_NOEFFECTS)) {
+        RedisModule_ReplyWithError(ctx, "OpenKey modes are not supported");
+        return REDISMODULE_OK;
+    }
+
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
     if (!key) {
         RedisModule_ReplyWithError(ctx, "key not found");
