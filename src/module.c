@@ -3837,13 +3837,7 @@ RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
  *        }
  */
 int RM_GetOpenKeyModesAll() {
-    return REDISMODULE_READ               |
-           REDISMODULE_WRITE              |
-           REDISMODULE_OPEN_KEY_NOTOUCH   |
-           REDISMODULE_OPEN_KEY_NONOTIFY  |
-           REDISMODULE_OPEN_KEY_NOSTATS   |
-           REDISMODULE_OPEN_KEY_NOEXPIRE  |
-           REDISMODULE_OPEN_KEY_NOEFFECTS;
+    return _REDISMODULE_OPEN_KEY_ALL;
 }
 
 /* Destroy a RedisModuleKey struct (freeing is the responsibility of the caller). */
