@@ -3573,13 +3573,17 @@ void saveCommand(client *c) {
 
     server.stat_rdb_saves++;
 
+    sds generated_rdb = rdbGenerateFilename(server.rdb_filename_save_pattern);
+    char *rdb_filename = generated_rdb ? generated_rdb : server.rdb_filename;
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
-    if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
+    if (rdbSave(SLAVE_REQ_NONE,rdb_filename,rsiptr) == C_OK) {
         addReply(c,shared.ok);
     } else {
         addReplyErrorObject(c,shared.err);
     }
+
+    sdsfree(generated_rdb);
 }
 
 /* BGSAVE [SCHEDULE] */
@@ -3597,6 +3601,8 @@ void bgsaveCommand(client *c) {
         }
     }
 
+    sds generated_rdb = rdbGenerateFilename(server.rdb_filename_save_pattern);
+    char *rdb_filename = generated_rdb ? generated_rdb : server.rdb_filename;
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
 
@@ -3612,11 +3618,13 @@ void bgsaveCommand(client *c) {
             "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
             "possible.");
         }
-    } else if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
+    } else if (rdbSaveBackground(SLAVE_REQ_NONE,rdb_filename,rsiptr) == C_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReplyErrorObject(c,shared.err);
     }
+
+    sdsfree(generated_rdb);
 }
 
 /* Populate the rdbSaveInfo structure used to persist the replication
@@ -3665,5 +3673,66 @@ rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
         rsi->repl_stream_db = server.cached_master->db->id;
         return rsi;
     }
+    return NULL;
+}
+
+/* Generate DB filename by the specified pattern.
+ * The rule of pattern see redis.conf:dbfilename-save-pattern.
+ * return NULL on failure. */
+sds rdbGenerateFilename(const char *pattern)
+{
+    const char *p = pattern;
+    sds output;
+    time_t now;
+    char buf[26]; /* buf length should be max(ctime buf, thread title buf) */
+    char c;
+
+    if (!pattern)
+        return NULL;
+
+    output = sdsempty();
+    while ((c = *p++)) {
+        if (c != '%') {
+            output = sdscatprintf(output, "%c", c);
+            continue;
+        }
+
+        switch (*(p++)) {
+        case 'e':
+            memset(buf, 0, sizeof(buf));
+            if (redis_get_thread_title(buf, 16))
+                goto err;
+            output = sdscatprintf(output, "%s", buf);
+            break;
+        case 'f':
+            output = sdscatprintf(output, "%s", server.rdb_filename);
+            break;
+        case 'p':
+            output = sdscatprintf(output, "%d", getpid());
+            break;
+        case 't':
+            output = sdscatprintf(output, "%ld", time(NULL));
+            break;
+        case 'T':
+            now = time(NULL);
+            ctime_r(&now, buf);
+            buf[24] = '\0'; /* Remove newline. */
+            output = sdscatprintf(output, "%s", buf);
+            break;
+        case 'u':
+            output = sdscatprintf(output, "%d", getuid());
+            break;
+        default:
+            goto err;
+        }
+    };
+
+    if (!sdslen(output))
+        goto err;
+
+    return output;
+
+err:
+    sdsfree(output);
     return NULL;
 }

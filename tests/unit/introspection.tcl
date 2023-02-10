@@ -322,6 +322,7 @@ start_server {tags {"introspection"}} {
             enable-debug-command
             enable-module-command
             dbfilename
+            dbfilename-save-pattern
             logfile
             dir
             socket-mark-id

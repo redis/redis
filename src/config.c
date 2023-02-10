@@ -2341,6 +2341,16 @@ static int isValidDBfilename(char *val, const char **err) {
     return 1;
 }
 
+static int isValidDBfilenameSavePattern(char *val, const char **err) {
+    sds name = rdbGenerateFilename(val);
+    if (!name) {
+        *err = "invalid dbfilename-save-pattern";
+        return 0;
+    }
+    sdsfree(name);
+    return 1;
+}
+
 static int isValidAOFfilename(char *val, const char **err) {
     if (!strcmp(val, "")) {
         *err = "appendfilename can't be empty";
@@ -3073,6 +3083,7 @@ standardConfig static_configs[] = {
     createStringConfig("cluster-announce-hostname", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_hostname, NULL, isValidAnnouncedHostname, updateClusterHostname),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
+    createStringConfig("dbfilename-save-pattern", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, EMPTY_STRING_IS_NULL, server.rdb_filename_save_pattern, NULL, isValidDBfilenameSavePattern, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),
     createStringConfig("appenddirname", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_dirname, "appendonlydir", isValidAOFdirname, NULL),
     createStringConfig("server_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.server_cpulist, NULL, NULL, NULL),
