@@ -58,6 +58,7 @@ class Response(object):
     def __init__(self, f):
         self.error = False
         self.queued = False
+        self.json = None
 
         line = f.readline()[:-2]
         global lineno
@@ -191,7 +192,7 @@ if __name__ == '__main__':
                 try:
                     jsonschema.validate(instance=res.json, schema=req.schema,
                                         cls=schema_validator)
-                except jsonschema.ValidationError as err:
+                except (jsonschema.ValidationError, jsonschema.exceptions.SchemaError) as err:
                     print(f"JSON schema validation error on {filename}: {err}")
                     print(f"argv: {req.argv}")
                     try:

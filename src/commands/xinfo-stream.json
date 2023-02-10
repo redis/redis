@@ -48,7 +48,7 @@
                 {
                     "description": "Summary form, in case `FULL` was not given.",
                     "type": "object",
-                    "additionalProperties":false,
+                    "additionalProperties": false,
                     "properties": {
                         "length": {
                             "type": "integer"
@@ -134,7 +134,7 @@
                 {
                     "description": "Extended form, in case `FULL` was given.",
                     "type": "object",
-                    "additionalProperties":false,
+                    "additionalProperties": false,
                     "properties": {
                         "length": {
                             "type": "integer"
