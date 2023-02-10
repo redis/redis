@@ -980,26 +980,6 @@ void clusterInitListeners(void) {
     if (createSocketAcceptHandler(&server.clistener, clusterAcceptHandler) != C_OK) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
-
-    /* Initialize data for the Slot to key API. */
-    slotToKeyInit(server.db);
-
-    /* The slots -> channels map is a radix tree. Initialize it here. */
-    server.cluster->slots_to_channels = raxNew();
-
-    /* Set myself->port/cport/pport to my listening ports, we'll just need to
-     * discover the IP address via MEET messages. */
-    deriveAnnouncedPorts(&myself->port, &myself->pport, &myself->cport);
-
-    server.cluster->mf_end = 0;
-    server.cluster->mf_slave = NULL;
-    resetManualFailover();
-    clusterUpdateMyselfFlags();
-    clusterUpdateMyselfIp();
-    clusterUpdateMyselfHostname();
-    /* nodename feature
-    clusterUpdateMyselfNodename();
-    */
 }
 
 /* Reset a node performing a soft or hard reset:
