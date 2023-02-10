@@ -7,29 +7,32 @@ import subprocess
 import redis
 import time
 import argparse
+import threading
+import multiprocessing
+import collections
 
 try:
     from jsonschema import Draft201909Validator as schema_validator
 except ImportError:
     from jsonschema import Draft7Validator as schema_validator
 
-lineno = 1
 
 class Request(object):
     def __init__(self, f, docs):
         self.command = None
         self.schema = None
         self.argv = []
+        self.lines_read = 0
+
         while True:
             line = f.readline()
-            global lineno
-            lineno += 1
+            self.lines_read += 1
             if not line:
                 break
             length = int(line)
             arg = str(f.read(length))
             f.read(2)  # read \r\n
-            lineno += 1
+            self.lines_read += 1
             if arg == "__argv_end__":
                 break
             self.argv.append(arg)
@@ -59,10 +62,10 @@ class Response(object):
         self.error = False
         self.queued = False
         self.json = None
+        self.lines_read = 0
 
         line = f.readline()[:-2]
-        global lineno
-        lineno += 1
+        self.lines_read += 1
         if line[0] == '+':
             self.json = line[1:]
             if self.json == "QUEUED":
@@ -73,7 +76,7 @@ class Response(object):
         elif line[0] == '$':
             self.json = str(f.read(int(line[1:])))
             f.read(2)  # read \r\n
-            lineno += 1
+            self.lines_read += 1
         elif line[0] == ':':
             self.json = int(line[1:])
         elif line[0] == ',':
@@ -85,12 +88,12 @@ class Response(object):
         elif line[0] == '!':
             self.json = str(f.read(int(line[1:])))
             f.read(2)  # read \r\n
-            lineno += 1
+            self.lines_read += 1
             self.error = True
         elif line[0] == '=':
             self.json = str(f.read(int(line[1:])))[4:]   # skip "txt:" or "mkd:"
             f.read(2)  # read \r\n
-            lineno += 1 + self.json.count("\r\n")
+            self.lines_read += 1 + self.json.count("\r\n")
         elif line[0] == '(':
             self.json = line[1:]  # big-number is actually a string
         elif line[0] in ['*', '~', '>']:  # unfortunately JSON doesn't tell the difference between a list and a set
@@ -121,6 +124,63 @@ class Response(object):
 
     def __str__(self):
         return json.dumps(self.json)
+
+
+class Worker(threading.Thread):
+    def __init__(self, iden):
+        super(Worker, self).__init__()
+        self.iden = iden
+        self.terminate = False
+        self.working_on = ""
+        self.missing_schema = set()
+        self.command_counter = dict()
+
+    def run(self):
+        while not self.terminate:
+            if not self.working_on:
+                time.sleep(0.01)
+                continue
+                
+            lines_read = 0
+            with open(self.working_on, "r", newline="\r\n", encoding="latin-1") as f:
+                while True:
+                    try:
+                        req = Request(f, docs)
+                        lines_read += req.lines_read
+                        if not req.command:
+                            break
+                        res = Response(f)
+                        lines_read += req.lines_read
+                    except json.decoder.JSONDecodeError as err:
+                       print("JSON decoder error while processing %s:%d: %s" % (filename, i, err))
+                       os._exit(1)
+                    except Exception as err:
+                       print("General error while processing %s:%d: %s" % (filename, lines_read, err))
+                       os._exit(1)
+
+                    if res.error or res.queued:
+                        continue
+
+                    self.command_counter[req.command] = self.command_counter.get(req.command, 0) + 1
+
+                    if not req.schema:
+                        self.missing_schema.add(req.command)
+                        continue
+
+                    try:
+                        jsonschema.validate(instance=res.json, schema=req.schema,
+                                            cls=schema_validator)
+                    except (jsonschema.ValidationError, jsonschema.exceptions.SchemaError) as err:
+                        print(f"JSON schema validation error on {filename}: {err}")
+                        print(f"argv: {req.argv}")
+                        try:
+                            print(f"Response: {res}")
+                        except UnicodeDecodeError as err:
+                           print("Response: (unprintable)")
+                        print(f"Schema: {json.dumps(req.schema, indent=2)}")
+                        os._exit(1)
+
+            self.working_on = ""
 
         
 # Figure out where the sources are
@@ -159,49 +219,35 @@ if __name__ == '__main__':
     redis_proc.terminate()
     redis_proc.wait()
 
-    # Create all command objects
-    missing_schema = set()
-    command_counter = dict()
+    workers = []
+    for i in range(multiprocessing.cpu_count()):
+        worker = Worker(i)
+        worker.start()
+        workers.append(worker)
+
     print("Processing files...")
     for filename in glob.glob('%s/tmp/*/*.reqres' % testdir):
-        lineno = 0
-        with open(filename, "r", newline="\r\n", encoding="latin-1") as f:
-            print("Processing %s ..." % filename)
-            while True:
-                try:
-                    req = Request(f, docs)
-                    if not req.command:
-                        break
-                    res = Response(f)
-                except json.decoder.JSONDecodeError as err:
-                   print("JSON decoder error while processing %s:%d: %s" % (filename, i, err))
-                   exit(1)
-                except Exception as err:
-                   print("General error while processing %s:%d: %s" % (filename, lineno, err))
-                   exit(1)
+        found = False
+        while not found:
+            for worker in workers:
+                if not worker.working_on:
+                    print(f"[T{worker.iden}] Processing %s ..." % filename)
+                    worker.working_on = filename
+                    found = True
+                    break
+ 
+    for worker in workers:
+        worker.terminate = True
 
-                if res.error or res.queued:
-                    continue
+    missing_schema = set()
+    counter = collections.Counter()
+    for worker in workers:
+        worker.join()
+        # sum the values with same keys
+        counter.update(worker.command_counter)
+        missing_schema |= worker.missing_schema
+    command_counter = dict(counter)
 
-                command_counter[req.command] = command_counter.get(req.command, 0) + 1
-
-                if not req.schema:
-                    missing_schema.add(req.command)
-                    continue
-
-                try:
-                    jsonschema.validate(instance=res.json, schema=req.schema,
-                                        cls=schema_validator)
-                except (jsonschema.ValidationError, jsonschema.exceptions.SchemaError) as err:
-                    print(f"JSON schema validation error on {filename}: {err}")
-                    print(f"argv: {req.argv}")
-                    try:
-                        print(f"Response: {res}")
-                    except UnicodeDecodeError as err:
-                       print("Response: (unprintable)")
-                    print(f"Schema: {json.dumps(req.schema, indent=2)}")
-                    exit(1)
-        
     print("Done.")
     print("Hits per command:")
     for k, v in sorted(command_counter.items()):

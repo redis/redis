@@ -118,6 +118,25 @@ static size_t reqresAppendArg(client *c, char *arg, size_t arg_len) {
 
 /* ----- API ----- */
 
+void reqresSaveClientReplyOffset(client *c) {
+    if (!reqresShouldLog(c))
+        return;
+
+    if (c->reqres.offset.saved)
+        return;
+
+    c->reqres.offset.saved = 1;
+
+    c->reqres.offset.bufpos = c->bufpos;
+    if (listLength(c->reply) && listNodeValue(listLast(c->reply))) {
+        c->reqres.offset.last_node.index = listLength(c->reply) - 1;
+        c->reqres.offset.last_node.used = ((clientReplyBlock *)listNodeValue(listLast(c->reply)))->used;
+    } else {
+        c->reqres.offset.last_node.index = 0;
+        c->reqres.offset.last_node.used = 0;
+    }
+}
+
 size_t reqresAppendRequest(client *c) {
     robj **argv = c->argv;
     int argc = c->argc;
@@ -143,21 +162,9 @@ size_t reqresAppendRequest(client *c) {
         return 0;
     }
 
-    if (c->reqres.argv_logged)
-        return 0;
-
     c->reqres.argv_logged = 1;
 
     //serverLog(LL_WARNING, "GUYBE in request (id=%ld, argv[0]=%s, bufpos=%d)", c->id, (char*)argv[0]->ptr, c->bufpos);
-
-    c->reqres.offset.bufpos = c->bufpos;
-    if (listLength(c->reply) && listNodeValue(listLast(c->reply))) {
-        c->reqres.offset.last_node.index = listLength(c->reply) - 1;
-        c->reqres.offset.last_node.used = ((clientReplyBlock *)listNodeValue(listLast(c->reply)))->used;
-    } else {
-        c->reqres.offset.last_node.index = 0;
-        c->reqres.offset.last_node.used = 0;
-    }
 
     size_t ret = 0;
     for (int i = 0; i < argc; i++) {
@@ -183,7 +190,7 @@ size_t reqresAppendResponse(client *c) {
     if (!c->reqres.argv_logged)
         return 0;
 
-    c->reqres.argv_logged = 0;
+    //serverAssert(c->reqres.offset.saved);
 
     //serverLog(LL_WARNING, "GUYBE in response (id=%ld, cmd=%s, bufpos=%d,  prev bufpos=%d)", c->id, c->lastcmd ? c->lastcmd->fullname : "NULL", c->bufpos, c->reqres.offset.bufpos);
 

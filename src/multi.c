@@ -89,7 +89,6 @@ void queueMultiCommand(client *c, uint64_t cmd_flags) {
 
     /* Reset the client's args since we copied them into the mstate and shouldn't
      * reference them from c anymore. */
-    reqresAppendRequest(c);
     c->argv = NULL;
     c->argc = 0;
     c->argv_len_sum = 0;

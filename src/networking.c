@@ -150,7 +150,6 @@ client *createClient(connection *conn) {
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
     c->buf_peak_last_reset_time = server.unixtime;
-    memset(&c->reqres, 0, sizeof(c->reqres));
     c->ref_repl_buf_node = NULL;
     c->ref_block_pos = 0;
     c->qb_pos = 0;
@@ -395,7 +394,7 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
         return;
     }
 
-    reqresAppendRequest(c);
+    reqresSaveClientReplyOffset(c);
 
     size_t reply_len = _addReplyToBuffer(c,s,len);
     if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
@@ -721,7 +720,7 @@ void *addReplyDeferredLen(client *c) {
         return NULL;
     }
 
-    reqresAppendRequest(c);
+    reqresSaveClientReplyOffset(c);
 
     trimReplyUnusedTailSpace(c);
     listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
@@ -2041,6 +2040,9 @@ void resetClient(client *c) {
     c->slot = -1;
     c->duration = 0;
     c->flags &= ~CLIENT_EXECUTING_COMMAND;
+#ifdef LOG_REQ_RES
+    memset(&c->reqres, 0, sizeof(c->reqres));
+#endif
 
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);

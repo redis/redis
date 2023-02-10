@@ -1112,6 +1112,7 @@ typedef struct {
             int index;
             size_t used;
         } last_node; /* Offset within the reply block list */
+        int saved; /* 1 if we already saved the offset (first time we call addReply*) */
     } offset;
 } clientReqResInfo;
 
@@ -2607,6 +2608,7 @@ void initThreadedIO(void);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
+void reqresSaveClientReplyOffset(client *c);
 size_t reqresAppendRequest(client *c);
 size_t reqresAppendResponse(client *c);
 
