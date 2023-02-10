@@ -42,6 +42,32 @@ set ::all_tests {
     unit/acl
     unit/acl-v2
     unit/latency-monitor
+    integration/block-repl
+    integration/replication
+    integration/replication-2
+    integration/replication-3
+    integration/replication-4
+    integration/replication-psync
+    integration/replication-buffer
+    integration/shutdown
+    integration/aof
+    integration/aof-race
+    integration/aof-multi-part
+    integration/rdb
+    integration/corrupt-dump
+    integration/corrupt-dump-fuzzer
+    integration/convert-zipmap-hash-on-load
+    integration/convert-ziplist-hash-on-load
+    integration/convert-ziplist-zset-on-load
+    integration/logging
+    integration/psync2
+    integration/psync2-reg
+    integration/psync2-pingoff
+    integration/psync2-master-restart
+    integration/failover
+    integration/redis-cli
+    integration/redis-benchmark
+    integration/dismiss-mem
     unit/pubsub
     unit/pubsubshard
     unit/slowlog
@@ -51,6 +77,7 @@ set ::all_tests {
     unit/introspection
     unit/introspection-2
     unit/limits
+    unit/obuf-limits
     unit/bitops
     unit/bitfield
     unit/geo
@@ -61,9 +88,11 @@ set ::all_tests {
     unit/pause
     unit/querybuf
     unit/tls
+    unit/tracking
     unit/oom-score-adj
     unit/shutdown
     unit/networking
+    unit/client-eviction
     unit/violations
     unit/replybufsize
     unit/cluster/misc

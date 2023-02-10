@@ -17,10 +17,6 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "const": "OK",
-                    "description": "In case `RESET` was given, OK indicates ACL log was cleared."
-                },
-                {
                     "type": "array",
                     "description": "In case `RESET` was not given, a list of recent ACL security events.",
                     "items": {
@@ -50,6 +46,10 @@
                             }
                         }
                     }
+                },
+                {
+                    "const": "OK",
+                    "description": "In case `RESET` was given, OK indicates ACL log was cleared."
                 }
             ]
         },

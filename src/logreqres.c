@@ -79,7 +79,7 @@ static int reqresShouldLog(client *c) {
         return 0;
 
     /* Ignore client with streaming non-standard response */
-    if (c->flags & (CLIENT_MONITOR|CLIENT_SLAVE))
+    if (c->flags & (CLIENT_PUBSUB|CLIENT_MONITOR|CLIENT_SLAVE))
         return 0;
 
     /* We only work on masters (didn't implement reqresAppendResponse to work on shared slave buffers) */
@@ -265,6 +265,11 @@ size_t reqresAppendResponse(client *c) {
 #else /* #ifdef LOG_REQ_RES */
 
 /* Just mimic the API without doing anything */
+
+
+inline void reqresSaveClientReplyOffset(client *c) {
+    UNUSED(c);
+}
 
 inline size_t reqresAppendRequest(client *c) {
     UNUSED(c);
