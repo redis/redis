@@ -2378,6 +2378,31 @@ static int isValidShutdownOnSigFlags(int val, const char **err) {
     return 1;
 }
 
+static int isValidAnnouncedHumanNodename(char *val, const char **err) {
+    if (strlen(val) >= NET_HOST_STR_LEN) {
+        *err = "Readable nodename must be less than "
+            STRINGIFY(NET_HOST_STR_LEN) " characters";
+        return 0;
+    }
+
+    int i = 0;
+    char c;
+    while ((c = val[i])) {
+        /* We just validate the character set to make sure that everything
+         * is parsed and handled correctly. */
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+            || (c >= '0' && c <= '9') || (c == '-') || (c == '.') || (c == '_')))
+        {
+            *err = "Readable nodename may only contain alphanumeric characters, "
+                "hyphens, dots or underscore";
+            return 0;
+        }
+        c = val[i++];
+    }
+    return 1;
+}
+
+
 static int isValidAnnouncedHostname(char *val, const char **err) {
     if (strlen(val) >= NET_HOST_STR_LEN) {
         *err = "Hostnames must be less than "
@@ -2629,13 +2654,11 @@ int updateClusterHostname(const char **err) {
     return 1;
 }
 
-/* nodename feature
-int updateClusterNodename(const char **err) {
+int updateClusterHumanNodename(const char **err) {
     UNUSED(err);
-    clusterUpdateMyselfNodename();
+    clusterUpdateMyselfHumanNodename();
     return 1;
 }
-*/
 
 static int applyTlsCfg(const char **err) {
     UNUSED(err);
@@ -3093,7 +3116,7 @@ standardConfig static_configs[] = {
     createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, updateClusterIp),
     createStringConfig("cluster-config-file", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.cluster_configfile, "nodes.conf", NULL, NULL),
     createStringConfig("cluster-announce-hostname", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_hostname, NULL, isValidAnnouncedHostname, updateClusterHostname),
-    // nodename feature createStringConfig("cluster-announce-nodename", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_nodename, NULL, isValidAnnouncedHostname, updateClusterNodename),
+    createStringConfig("cluster-announce-human-nodename", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_human_nodename, NULL, isValidAnnouncedHumanNodename, updateClusterHumanNodename),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),

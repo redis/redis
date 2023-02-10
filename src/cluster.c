@@ -824,6 +824,22 @@ static void updateAnnouncedHostname(clusterNode *node, char *new) {
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
 }
 
+static void updateAnnouncedHumanNodename(clusterNode *node, char *new) {
+    if (new && !strcmp(new, node->human_nodename)) {
+        return;
+    } else if (!new && (sdslen(node->human_nodename) == 0)) {
+        return;
+    }
+    
+    if (new) {
+        node->human_nodename = sdscpy(node->human_nodename, new);
+    } else if (sdslen(node->human_nodename) != 0) {
+        sdsclear(node->human_nodename);
+    }
+    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+}
+
+
 static void updateShardId(clusterNode *node, const char *shard_id) {
     if (memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
         clusterRemoveNodeFromShard(node);
@@ -843,33 +859,18 @@ static void updateShardId(clusterNode *node, const char *shard_id) {
     }
 }
 
-/* Update the nodename for the specified node with the provided C string. */
-/* nodename feature
-static void updateAnnouncedNodename(clusterNode *node, char *new) {
-    if (new && !strcmp(new, node->nodename)) {
-        return;
-    }
-
-    if (new) {
-        node->nodename = sdscpy(node->nodename, new);
-    } else if (sdslen(node->nodename) != 0) {
-        sdsclear(node->nodename);
-    }
-}
-*/
-
 /* Update my hostname based on server configuration values */
 void clusterUpdateMyselfHostname(void) {
     if (!myself) return;
     updateAnnouncedHostname(myself, server.cluster_announce_hostname);
 }
 
-/* nodename feature
-void clusterUpdateMyselfNodename(void) {
+
+void clusterUpdateMyselfHumanNodename(void) {
     if (!myself) return;
-    updateAnnouncedNodename(myself, server.cluster_announce_nodename);
+    updateAnnouncedHumanNodename(myself, server.cluster_announce_human_nodename);
 }
-*/
+
 
 void clusterInit(void) {
     int saveconf = 0;
@@ -939,11 +940,13 @@ void clusterInit(void) {
     }
 
     /* Initialize data for the Slot to key API. */
-    /* nodename feature
     slotToKeyInit(server.db);
 
+    /* The slots -> channels map is a radix tree. Initialize it here. */
     server.cluster->slots_to_channels = raxNew();
 
+    /* Set myself->port/cport/pport to my listening ports, we'll just need to
+     * discover the IP address via MEET messages. */
     deriveAnnouncedPorts(&myself->port, &myself->pport, &myself->cport);
 
     server.cluster->mf_end = 0;
@@ -952,8 +955,7 @@ void clusterInit(void) {
     clusterUpdateMyselfFlags();
     clusterUpdateMyselfIp();
     clusterUpdateMyselfHostname();
-    clusterUpdateMyselfNodename();
-    */
+    clusterUpdateMyselfHumanNodename();
 }
 
 void clusterInitListeners(void) {
@@ -1311,7 +1313,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->inbound_link = NULL;
     memset(node->ip,0,sizeof(node->ip));
     node->hostname = sdsempty();
-    //nodename feature node->nodename = sdsempty();
+    node->human_nodename = sdsempty();
     node->port = 0;
     node->cport = 0;
     node->pport = 0;

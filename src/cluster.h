@@ -141,7 +141,7 @@ typedef struct clusterNode {
     long long repl_offset;      /* Last known repl offset for this node. */
     char ip[NET_IP_STR_LEN];    /* Latest known IP address of this node */
     sds hostname;               /* The known hostname for this node */
-    // nodename feature sds nodename;               /* The known human readable nodename for this node */
+    sds human_nodename;         /* The known human readable nodename for this node */
     int port;                   /* Latest known clients port (TLS or plain). */
     int pport;                  /* Latest known clients plaintext port. Only used
                                    if the main clients port is for TLS. */
@@ -434,7 +434,6 @@ void clusterUpdateMyselfAnnouncedPorts(void);
 sds clusterGenNodesDescription(client *c, int filter, int use_pport);
 sds genClusterInfoString(void);
 void freeClusterLink(clusterLink *link);
-void clusterUpdateMyselfNodename(void);
-//nodename feature void clusterUpdateMyselfNodename(void);
+void clusterUpdateMyselfHumanNodename(void);
 
 #endif /* __CLUSTER_H */
