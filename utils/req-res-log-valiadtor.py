@@ -7,7 +7,6 @@ import subprocess
 import redis
 import time
 import argparse
-import threading
 import multiprocessing
 import collections
 
@@ -50,7 +49,7 @@ class Request(object):
                     self.command = fullname
                     doc = v
         if not doc:
-            print(f"Warning, missing COMMAND DOCS for '{self.command}'")
+            print(f"Notice: Missing COMMAND DOCS for '{self.command}'")
         self.schema = doc.get("reply_schema")
 
     def __str__(self):
@@ -126,23 +125,22 @@ class Response(object):
         return json.dumps(self.json)
 
 
-class Worker(threading.Thread):
-    def __init__(self, iden):
+class Worker(multiprocessing.Process):
+    def __init__(self, iden, port, missing_schema, command_counter):
         super(Worker, self).__init__()
         self.iden = iden
-        self.terminate = False
-        self.working_on = ""
-        self.missing_schema = set()
-        self.command_counter = dict()
+        self.missing_schema = missing_schema
+        self.command_counter = command_counter
+        self.conn = redis.Redis(port=port)
 
     def run(self):
-        while not self.terminate:
-            if not self.working_on:
-                time.sleep(0.01)
-                continue
-                
+        while True:
+            path = self.conn.blpop("jobs", 0)[1]
+
+            print(f"[T{self.iden}] Processing {path} ...")
+
             lines_read = 0
-            with open(self.working_on, "r", newline="\r\n", encoding="latin-1") as f:
+            with open(path, "r", newline="\r\n", encoding="latin-1") as f:
                 while True:
                     try:
                         req = Request(f, docs)
@@ -164,7 +162,13 @@ class Worker(threading.Thread):
                     self.command_counter[req.command] = self.command_counter.get(req.command, 0) + 1
 
                     if not req.schema:
-                        self.missing_schema.add(req.command)
+                        found = False
+                        for cmd in self.missing_schema:
+                            if cmd == req.command:
+                                found = True
+                                break
+                        if not found:
+                            self.missing_schema.append(req.command)
                         continue
 
                     try:
@@ -179,8 +183,6 @@ class Worker(threading.Thread):
                            print("Response: (unprintable)")
                         print(f"Schema: {json.dumps(req.schema, indent=2)}")
                         os._exit(1)
-
-            self.working_on = ""
 
         
 # Figure out where the sources are
@@ -206,6 +208,7 @@ if __name__ == '__main__':
             print('Connecting to Redis...')
             r = redis.Redis(port=args.port)
             r.ping()
+            r.delete("jobs")
             break
         except Exception as e:
             time.sleep(0.1)
@@ -216,46 +219,45 @@ if __name__ == '__main__':
     stdout, stderr = cli_proc.communicate()
     docs = json.loads(stdout)
 
+    start = time.time()
+
+    with multiprocessing.Manager() as manager:
+        missing_schema = manager.list()
+        command_counter = manager.dict()
+        workers = []
+        for i in range(multiprocessing.cpu_count()):
+            p = Worker(i, args.port, missing_schema, command_counter)
+            workers.append(p)
+            p.start()
+
+        print("Processing files...")
+        for filename in glob.glob('%s/tmp/*/*.reqres' % testdir):
+            r.lpush("jobs", filename)
+
+        while r.llen("jobs"):
+            time.sleep(0.1)
+     
+        for worker in workers:
+            worker.terminate()
+
+        for worker in workers:
+            worker.join()
+
+        print(f"Done. ({time.time() - start} seconds)")
+        print("Hits per command:")
+        for k, v in sorted(command_counter.items()):
+            print(f"  {k}: {v}")
+        if missing_schema:
+            print("WARNING! The following commands are missing a reply_schema:")
+            for k in sorted(missing_schema):
+                print(f"  {k}")
+        not_hit = set(docs.keys()) - set(command_counter.keys())
+        if not_hit:
+            print("WARNING! The following commands were not hit at all:")
+            for k in sorted(not_hit):
+                print(f"  {k}")
+
     redis_proc.terminate()
     redis_proc.wait()
-
-    workers = []
-    for i in range(multiprocessing.cpu_count()):
-        worker = Worker(i)
-        worker.start()
-        workers.append(worker)
-
-    print("Processing files...")
-    for filename in glob.glob('%s/tmp/*/*.reqres' % testdir):
-        found = False
-        while not found:
-            for worker in workers:
-                if not worker.working_on:
-                    print(f"[T{worker.iden}] Processing %s ..." % filename)
-                    worker.working_on = filename
-                    found = True
-                    break
- 
-    for worker in workers:
-        worker.terminate = True
-
-    missing_schema = set()
-    counter = collections.Counter()
-    for worker in workers:
-        worker.join()
-        # sum the values with same keys
-        counter.update(worker.command_counter)
-        missing_schema |= worker.missing_schema
-    command_counter = dict(counter)
-
-    print("Done.")
-    print("Hits per command:")
-    for k, v in sorted(command_counter.items()):
-        print(f"  {k}: {v}")
-    if missing_schema:
-        print("WARNING! The following commands are missing a reply_schema:")
-        for k in sorted(missing_schema):
-            print(f"  {k}")
-
 
 
