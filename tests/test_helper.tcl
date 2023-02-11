@@ -15,6 +15,33 @@ source tests/support/util.tcl
 source tests/support/response_transformers.tcl
 
 set ::all_tests {
+    unit/printver
+    unit/dump
+    unit/auth
+    unit/protocol
+    unit/keyspace
+    unit/scan
+    unit/info
+    unit/info-command
+    unit/type/string
+    unit/type/incr
+    unit/type/list
+    unit/type/list-2
+    unit/type/list-3
+    unit/type/set
+    unit/type/zset
+    unit/type/hash
+    unit/type/stream
+    unit/type/stream-cgroups
+    unit/sort
+    unit/expire
+    unit/other
+    unit/multi
+    unit/quit
+    unit/aofrw
+    unit/acl
+    unit/acl-v2
+    unit/latency-monitor
     integration/block-repl
     integration/replication
     integration/replication-2
@@ -41,6 +68,39 @@ set ::all_tests {
     integration/redis-cli
     integration/redis-benchmark
     integration/dismiss-mem
+    unit/pubsub
+    unit/pubsubshard
+    unit/slowlog
+    unit/scripting
+    unit/functions
+    unit/maxmemory
+    unit/introspection
+    unit/introspection-2
+    unit/limits
+    unit/obuf-limits
+    unit/bitops
+    unit/bitfield
+    unit/geo
+    unit/memefficiency
+    unit/hyperloglog
+    unit/lazyfree
+    unit/wait
+    unit/pause
+    unit/querybuf
+    unit/tls
+    unit/tracking
+    unit/oom-score-adj
+    unit/shutdown
+    unit/networking
+    unit/client-eviction
+    unit/violations
+    unit/replybufsize
+    unit/cluster/misc
+    unit/cluster/cli
+    unit/cluster/scripting
+    unit/cluster/hostnames
+    unit/cluster/multi-slot-operations
+    unit/cluster/slot-ownership
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
