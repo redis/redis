@@ -389,8 +389,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                       memory eviction. */
 #define CLIENT_ALLOW_OOM (1ULL<<44) /* Client used by RM_Call is allowed to fully execute
                                        scripts even when in OOM */
-#define CLIENT_CUSTOM_AUTH (1ULL<<45) /* Indicates the client has module based auth in progress */
-#define CLIENT_CUSTOM_AUTH_RESULT (1ULL<<46) /* Indicates a Module has concluded custom auth with an
+#define CLIENT_CUSTOM_AUTH_RESULT (1ULL<<45) /* Indicates a Module has concluded custom auth with an
                                                 explicit result (Success / Error) */
 
 /* Client block type (btype field in client structure)
@@ -856,6 +855,9 @@ struct RedisModuleDigest {
     memset(mdvar.x,0,sizeof(mdvar.x)); \
 } while(0)
 
+/* Macro to check if the client is in the middle of module based authentication. */
+#define isClientModuleAuthInProgress(c) ((c)->custom_auth_ctx != NULL)
+
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
@@ -1173,9 +1175,9 @@ typedef struct client {
     listNode *client_list_node; /* list node in client list */
     listNode *postponed_list_node; /* list node within the postponed list */
     listNode *pending_read_list_node; /* list node in clients pending read list */
-    void *prev_custom_auth_ctx; /* Previously attempted module based custom auth callback's ctx.
-                                 * This is only tracked within the context of the command attempting
-                                 * authentication. */
+    void *custom_auth_ctx; /* Ongoing / attempted module based custom auth callback's ctx.
+                            * This is only tracked within the context of the command attempting
+                            * authentication. If not NULL, it means custom auth is in progress. */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
                                                * changes. */

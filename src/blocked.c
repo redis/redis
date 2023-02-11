@@ -193,7 +193,7 @@ void unblockClient(client *c) {
 
     /* Reset the client for a new query, unless the client has pending command to process
      * or in case a shutdown operation was canceled and we are still in the processCommand sequence  */
-    if (!(c->flags & CLIENT_PENDING_COMMAND) && c->bstate.btype != BLOCKED_SHUTDOWN && !(c->flags & CLIENT_CUSTOM_AUTH)) {
+    if (!(c->flags & CLIENT_PENDING_COMMAND) && c->bstate.btype != BLOCKED_SHUTDOWN && !isClientModuleAuthInProgress(c)) {
         freeClientOriginalArgv(c);
         resetClient(c);
     }
@@ -206,7 +206,7 @@ void unblockClient(client *c) {
     c->bstate.btype = BLOCKED_NONE;
     c->bstate.unblock_on_nokey = 0;
     removeClientFromTimeoutTable(c);
-    if (!(c->flags & CLIENT_CUSTOM_AUTH)) {
+    if (!isClientModuleAuthInProgress(c)) {
         queueClientForReprocessing(c);
     }
 }
