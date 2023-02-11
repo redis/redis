@@ -118,6 +118,25 @@ static size_t reqresAppendArg(client *c, char *arg, size_t arg_len) {
 
 /* ----- API ----- */
 
+void reqresSaveClientReplyOffset(client *c) {
+    if (!reqresShouldLog(c))
+        return;
+
+    if (c->reqres.offset.saved)
+        return;
+
+    c->reqres.offset.saved = 1;
+
+    c->reqres.offset.bufpos = c->bufpos;
+    if (listLength(c->reply) && listNodeValue(listLast(c->reply))) {
+        c->reqres.offset.last_node.index = listLength(c->reply) - 1;
+        c->reqres.offset.last_node.used = ((clientReplyBlock *)listNodeValue(listLast(c->reply)))->used;
+    } else {
+        c->reqres.offset.last_node.index = 0;
+        c->reqres.offset.last_node.used = 0;
+    }
+}
+
 size_t reqresAppendRequest(client *c) {
     robj **argv = c->argv;
     int argc = c->argc;
@@ -128,33 +147,24 @@ size_t reqresAppendRequest(client *c) {
     if (argc == 0)
         return 0;
 
-    if (c->reqres.argv_logged)
-        return 0;
-
-    c->reqres.argv_logged = 1;
-
-    serverLog(LL_WARNING, "GUYBE in request (id=%d, argv[0]=%s, bufpos=%d)", c->id, argv[0]->ptr, c->bufpos);
-
-    c->reqres.offset.bufpos = c->bufpos;
-    if (listLength(c->reply) && listNodeValue(listLast(c->reply))) {
-        c->reqres.offset.last_node.index = listLength(c->reply) - 1;
-        c->reqres.offset.last_node.used = ((clientReplyBlock *)listNodeValue(listLast(c->reply)))->used;
-    } else {
-        c->reqres.offset.last_node.index = 0;
-        c->reqres.offset.last_node.used = 0;
-    }
-
     /* Ignore commands that have streaming non-standard response */
     sds cmd = argv[0]->ptr;
     if (!strcasecmp(cmd,"sync") ||
         !strcasecmp(cmd,"psync") ||
         !strcasecmp(cmd,"monitor") ||
         !strcasecmp(cmd,"subscribe") ||
+        !strcasecmp(cmd,"unsubscribe") ||
         !strcasecmp(cmd,"ssubscribe") ||
-        !strcasecmp(cmd,"psubscribe"))
+        !strcasecmp(cmd,"sunsubscribe") ||
+        !strcasecmp(cmd,"psubscribe") ||
+        !strcasecmp(cmd,"punsubscribe"))
     {
         return 0;
     }
+
+    c->reqres.argv_logged = 1;
+
+    //serverLog(LL_WARNING, "GUYBE in request (id=%ld, argv[0]=%s, bufpos=%d)", c->id, (char*)argv[0]->ptr, c->bufpos);
 
     size_t ret = 0;
     for (int i = 0; i < argc; i++) {
@@ -177,16 +187,18 @@ size_t reqresAppendResponse(client *c) {
     if (!reqresShouldLog(c))
         return 0;
 
-    c->reqres.argv_logged = 0;
+    if (!c->reqres.argv_logged)
+        return 0;
 
-    serverLog(LL_WARNING, "GUYBE in response (id=%d, cmd=%s, bufpos=%d,  prev bufpos=%d)", c->id, c->lastcmd ? c->lastcmd->fullname : "NULL", c->bufpos, c->reqres.offset.bufpos);
+    //serverAssert(c->reqres.offset.saved);
+
+    //serverLog(LL_WARNING, "GUYBE in response (id=%ld, cmd=%s, bufpos=%d,  prev bufpos=%d)", c->id, c->lastcmd ? c->lastcmd->fullname : "NULL", c->bufpos, c->reqres.offset.bufpos);
 
     /* First append the static reply buffer */
     if (c->bufpos > c->reqres.offset.bufpos) {
         size_t written = reqresAppendBuffer(c, c->buf + c->reqres.offset.bufpos, c->bufpos - c->reqres.offset.bufpos);
         ret += written;
     }
-    c->reqres.offset.bufpos = -1;
 
     int curr_index = 0;
     size_t curr_used = 0;
@@ -200,7 +212,7 @@ size_t reqresAppendResponse(client *c) {
         curr_used > c->reqres.offset.last_node.used)
     {
         int i = 0;
-        serverLog(LL_WARNING, "GUYBE in reply list");
+        //serverLog(LL_WARNING, "GUYBE in reply list");
         listIter iter;
         listNode *curr;
         clientReplyBlock *o;
@@ -253,6 +265,11 @@ size_t reqresAppendResponse(client *c) {
 #else /* #ifdef LOG_REQ_RES */
 
 /* Just mimic the API without doing anything */
+
+
+inline void reqresSaveClientReplyOffset(client *c) {
+    UNUSED(c);
+}
 
 inline size_t reqresAppendRequest(client *c) {
     UNUSED(c);

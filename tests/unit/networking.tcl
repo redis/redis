@@ -121,7 +121,11 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
 
         # Make sure bind parameter is as expected and server handles binding
         # accordingly.
-        assert_equal {bind {}} [rediscli_exec 0 config get bind]
+        if {$::force_resp3} {
+            assert_equal {{bind }} [rediscli_exec 0 config get bind]
+        } else {
+            assert_equal {bind {}} [rediscli_exec 0 config get bind]
+        }
         catch {reconnect 0} err
         assert_match {*connection refused*} $err
 

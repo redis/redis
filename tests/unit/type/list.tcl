@@ -560,9 +560,8 @@ foreach {type large} [array get largevalue] {
             if {$resp == 3} {continue}
         } elseif {$::force_resp3} {
             if {$resp == 2} {continue}
-        } else {
-            r hello $resp
         }
+        r hello $resp
 
         # Make sure we can distinguish between an empty array and a null response
         r readraw 1
@@ -591,6 +590,7 @@ foreach {type large} [array get largevalue] {
         }
 
         r readraw 0
+        r hello 2
     }
 
     test {Variadic RPUSH/LPUSH} {

@@ -4556,12 +4556,76 @@ struct redisCommandArg ACL_LOG_Args[] = {
 {0}
 };
 
-/* ACL_LOG_ReplySchema_oneOf_0_items reply schema */
-struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_elements[] = {
+/* ACL_LOG_ReplySchema_oneOf_0_items_properties_count reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_count_elements[] = {
+{"type",JSON_TYPE_STRING,.value.string="integer"},
+};
+
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_count = {ACL_LOG_ReplySchema_oneOf_0_items_properties_count_elements,.length=1};
+
+/* ACL_LOG_ReplySchema_oneOf_0_items_properties_reason reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_reason_elements[] = {
 {"type",JSON_TYPE_STRING,.value.string="string"},
 };
 
-struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items = {ACL_LOG_ReplySchema_oneOf_0_items_elements,.length=1};
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_reason = {ACL_LOG_ReplySchema_oneOf_0_items_properties_reason_elements,.length=1};
+
+/* ACL_LOG_ReplySchema_oneOf_0_items_properties_context reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_context_elements[] = {
+{"type",JSON_TYPE_STRING,.value.string="string"},
+};
+
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_context = {ACL_LOG_ReplySchema_oneOf_0_items_properties_context_elements,.length=1};
+
+/* ACL_LOG_ReplySchema_oneOf_0_items_properties_object reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_object_elements[] = {
+{"type",JSON_TYPE_STRING,.value.string="string"},
+};
+
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_object = {ACL_LOG_ReplySchema_oneOf_0_items_properties_object_elements,.length=1};
+
+/* ACL_LOG_ReplySchema_oneOf_0_items_properties_username reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_username_elements[] = {
+{"type",JSON_TYPE_STRING,.value.string="string"},
+};
+
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_username = {ACL_LOG_ReplySchema_oneOf_0_items_properties_username_elements,.length=1};
+
+/* ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds_elements[] = {
+{"type",JSON_TYPE_STRING,.value.string="number"},
+};
+
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds = {ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds_elements,.length=1};
+
+/* ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info_elements[] = {
+{"type",JSON_TYPE_STRING,.value.string="string"},
+};
+
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info = {ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info_elements,.length=1};
+
+/* ACL_LOG_ReplySchema_oneOf_0_items_properties reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_elements[] = {
+{"count",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_count},
+{"reason",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_reason},
+{"context",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_context},
+{"object",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_object},
+{"username",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_username},
+{"age-seconds",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds},
+{"client-info",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info},
+};
+
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties = {ACL_LOG_ReplySchema_oneOf_0_items_properties_elements,.length=7};
+
+/* ACL_LOG_ReplySchema_oneOf_0_items reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_elements[] = {
+{"type",JSON_TYPE_STRING,.value.string="object"},
+{"additionalProperties",JSON_TYPE_BOOLEAN,.value.boolean=0},
+{"properties",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties},
+};
+
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items = {ACL_LOG_ReplySchema_oneOf_0_items_elements,.length=3};
 
 /* ACL_LOG_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_elements[] = {
@@ -7762,10 +7826,11 @@ struct jsonObject XINFO_GROUPS_ReplySchema_items_properties = {XINFO_GROUPS_Repl
 /* XINFO_GROUPS_ReplySchema_items reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_elements[] = {
 {"type",JSON_TYPE_STRING,.value.string="object"},
+{"additionalProperties",JSON_TYPE_BOOLEAN,.value.boolean=0},
 {"properties",JSON_TYPE_OBJECT,.value.object=&XINFO_GROUPS_ReplySchema_items_properties},
 };
 
-struct jsonObject XINFO_GROUPS_ReplySchema_items = {XINFO_GROUPS_ReplySchema_items_elements,.length=2};
+struct jsonObject XINFO_GROUPS_ReplySchema_items = {XINFO_GROUPS_ReplySchema_items_elements,.length=3};
 
 /* XINFO_GROUPS_ReplySchema reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_elements[] = {
