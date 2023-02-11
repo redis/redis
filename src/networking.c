@@ -3518,7 +3518,7 @@ void helloCommand(client *c) {
     }
 
     /* In case of a blocking custom auth, we reply to the client / setname later upon unblocking. */
-    if (c->bstate.btype == BLOCKED_MODULE) {
+    if (c->flags & CLIENT_BLOCKED) {
         return;
     }
 

@@ -7526,7 +7526,7 @@ int attemptNextCustomAuthCb(client *c, robj *username, robj *password, const cha
             c->prev_custom_auth_ctx = cur_auth_ctx;
             moduleFreeContext(&ctx);
             /* If the client is blocked, we are still in the auth chain. Set the auth_ctx. */
-            if (c && c->bstate.btype == BLOCKED_MODULE) {
+            if (c->flags & CLIENT_BLOCKED) {
                 /* Modules are expected to return REDISMODULE_AUTH_HANDLED when blocking clients. */
                 serverAssert(result == REDISMODULE_AUTH_HANDLED);
                 RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
@@ -7568,7 +7568,7 @@ int checkModuleAuthentication(client *c, robj *username, robj *password, const c
     if (!listLength(moduleCustomAuthCallbacks)) return C_ERR;
     c->flags |= CLIENT_CUSTOM_AUTH;
     int result = attemptNextCustomAuthCb(c, username, password, err);
-    if (c->bstate.btype == BLOCKED_MODULE) return C_OK;
+    if (c->flags & CLIENT_BLOCKED) return C_OK;
     c->flags &= ~CLIENT_CUSTOM_AUTH;
     c->prev_custom_auth_ctx = NULL;
     if (result == REDISMODULE_AUTH_NOT_HANDLED) return C_ERR;
