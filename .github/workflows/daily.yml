@@ -11,7 +11,7 @@ on:
     inputs:
       skipjobs:
         description: 'jobs to skip (delete the ones you wanna keep, do not leave empty)'
-        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc'
+        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific'
       skiptests:
         description: 'tests to skip (delete the ones you wanna keep, do not leave empty)'
         default: 'redis,modules,sentinel,cluster,unittest'
@@ -281,6 +281,76 @@ jobs:
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes ${{github.event.inputs.cluster_test_args}}
+
+  test-ubuntu-reclaim-cache:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'specific')
+    timeout-minutes: 14400
+    steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+    - uses: actions/checkout@v3
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: |
+        make REDIS_CFLAGS='-Werror'
+    - name: testprep
+      run: |
+        sudo apt-get install vmtouch
+        mkdir /tmp/master 
+        mkdir /tmp/slave
+    - name: warm up
+      run: |
+        ./src/redis-server --daemonize yes --logfile /dev/null
+        ./src/redis-benchmark -n 1 > /dev/null
+        ./src/redis-cli save | grep OK > /dev/null
+        vmtouch -v ./dump.rdb > /dev/null
+    - name: test
+      run: |
+        echo "test SAVE doesn't increase cache"
+        CACHE0=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
+        ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/master --port 8080 --repl-diskless-sync no --pidfile /tmp/master/redis.pid
+        ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/slave --port 8081 --repl-diskless-load disabled
+        ./src/redis-benchmark -p 8080 -d 102400 -t set -r 100000 -n 10000 > /dev/null
+        ./src/redis-cli -p 8080 save > /dev/null
+        VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
+        echo $VMOUT
+        grep -q "0%" <<< $VMOUT 
+        CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then echo "$CACHE0 $CACHE"; exit 1; fi
+
+        echo "test replication doesn't increase cache"
+        ./src/redis-cli -p 8081 REPLICAOF 127.0.0.1 8080 > /dev/null
+        while [ $(./src/redis-cli -p 8081 info replication | grep "master_link_status:down") ]; do sleep 1; done;
+        sleep 1 # wait for the completion of cache reclaim bio
+        VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
+        echo $VMOUT
+        grep -q "0%" <<< $VMOUT 
+        VMOUT=$(vmtouch -v /tmp/slave/dump.rdb)
+        echo $VMOUT
+        grep -q "0%" <<< $VMOUT 
+        CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then echo "$CACHE0 $CACHE"; exit 1; fi
+        
+        echo "test reboot doesn't increase cache"
+        PID=$(cat /tmp/master/redis.pid)
+        kill -15 $PID
+        while [ -x /proc/${PID} ]; do sleep 1; done
+        ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/master --port 8080
+        while [ $(./src/redis-cli -p 8080 info persistence | grep "loading:1") ]; do sleep 1; done;
+        sleep 1 # wait for the completion of cache reclaim bio
+        VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
+        echo $VMOUT
+        grep -q "0%" <<< $VMOUT
+        CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then echo "$CACHE0 $CACHE"; exit 1; fi
 
   test-valgrind-test:
     runs-on: ubuntu-latest
