@@ -3227,12 +3227,13 @@ void replicationSendAck(void) {
     client *c = server.master;
 
     if (c != NULL) {
+        int send_fack = server.fsynced_reploff != -1;
         c->flags |= CLIENT_MASTER_FORCE_REPLY;
-        addReplyArrayLen(c,server.fsynced_reploff != -1 ? 5 : 3);
+        addReplyArrayLen(c,send_fack ? 5 : 3);
         addReplyBulkCString(c,"REPLCONF");
         addReplyBulkCString(c,"ACK");
         addReplyBulkLongLong(c,c->reploff);
-        if (server.fsynced_reploff != -1) {
+        if (send_fack) {
             addReplyBulkCString(c,"FACK");
             addReplyBulkLongLong(c,server.fsynced_reploff);
         }
@@ -3585,8 +3586,9 @@ void processClientsWaitingReplicas(void) {
     listRewind(server.clients_waiting_acks,&li);
     while((ln = listNext(&li))) {
         client *c = ln->value;
+        int is_wait_aof = c->bstate.btype == BLOCKED_WAITAOF;
 
-        if (c->bstate.btype == BLOCKED_WAITAOF && c->bstate.numlocal && !server.aof_enabled) {
+        if (is_wait_aof && c->bstate.numlocal && !server.aof_enabled) {
             unblockClient(c);
             addReplyError(c,"WAITAOF cannot be used when appendonly is disabled");
             return;
@@ -3602,7 +3604,7 @@ void processClientsWaitingReplicas(void) {
             unblockClient(c);
             addReplyLongLong(c,last_numreplicas);
         } else {
-            int numreplicas = c->bstate.btype == BLOCKED_WAITAOF ?
+            int numreplicas = is_wait_aof ?
                 replicationCountAOFAcksByOffset(c->bstate.reploffset) :
                 replicationCountAcksByOffset(c->bstate.reploffset);
 
@@ -3611,16 +3613,15 @@ void processClientsWaitingReplicas(void) {
                 last_numreplicas = numreplicas;
 
                 /* Check if the local constraint of WAITAOF is served */
-                int wait_aof = c->bstate.btype == BLOCKED_WAITAOF;
-                int localok = server.fsynced_reploff >= c->bstate.reploffset;
-                if (wait_aof && localok < c->bstate.numlocal)
+                int numlocal = server.fsynced_reploff >= c->bstate.reploffset;
+                if (is_wait_aof && numlocal < c->bstate.numlocal)
                     continue;
 
                 unblockClient(c);
-                if (wait_aof) {
+                if (is_wait_aof) {
                     /* WAITAOF has an array reply*/
                     addReplyArrayLen(c,2);
-                    addReplyLongLong(c,localok);
+                    addReplyLongLong(c,numlocal);
                     addReplyLongLong(c,numreplicas);
                 } else {
                     addReplyLongLong(c,numreplicas);

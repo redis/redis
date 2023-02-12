@@ -3640,7 +3640,7 @@ void call(client *c, int flags) {
     /* Do some maintenance job and cleanup */
     afterCommand(c);
 
-    /* Remember the replication offset of the client, right after it's last
+    /* Remember the replication offset of the client, right after its last
      * command that resulted in propagation. */
     if (old_master_repl_offset != server.master_repl_offset)
         c->woff = server.master_repl_offset;

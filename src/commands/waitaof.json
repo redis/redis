@@ -1,6 +1,6 @@
 {
     "WAITAOF": {
-        "summary": "Wait for of all the write commands sent in the context of the current connection on either local host or replicas to get synced to AOF file on the disk",
+        "summary": "Wait for all write commands sent in the context of the current connection to be synced to AOF of local host and/or replicas",
         "complexity": "O(1)",
         "group": "generic",
         "since": "7.2.0",

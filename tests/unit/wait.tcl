@@ -240,7 +240,7 @@ tags {"wait aof network external:skip"} {
                 test "WAITAOF when replica switches between masters, fsync: $fsync" {
                     # test a case where a replica is moved from one master to the other
                     # between two replication streams with different offsets that should
-                    # not be mixed. done to smoke test face conditions with bio thread.
+                    # not be mixed. done to smoke-test race conditions with bio thread.
                     start_server {overrides {appendonly {yes} auto-aof-rewrite-percentage {0}}} {
                         start_server {overrides {appendonly {yes} auto-aof-rewrite-percentage {0}}} {
                             set master2 [srv -1 client]
