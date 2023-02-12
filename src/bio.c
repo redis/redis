@@ -247,6 +247,12 @@ void *bioProcessBackgroundJobs(void *arg) {
         int job_type = job->header.type;
 
         if (job_type == BIO_CLOSE_FILE) {
+            if (job->fd_args.need_fsync &&
+                redis_fsync(job->fd_args.fd) == -1 &&
+                errno != EBADF && errno != EINVAL)
+            {
+                serverLog(LL_WARNING, "Fail to fsync the AOF file: %s",strerror(errno));
+            }
             if (job->fd_args.need_reclaim_cache) {
                 if (reclaimFilePageCache(job->fd_args.fd, 0, 0) == -1) {
                     serverLog(LL_NOTICE,"Unable to reclaim page cache: %s", strerror(errno));
