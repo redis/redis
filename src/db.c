@@ -991,12 +991,25 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             addReplyErrorFormat(c,"Swap scan metas null");
             goto cleanup;
         }
+        swapScanSession *session = swapScanSessionsFind(
+                server.swap_scan_sessions, outer_cursor);
+        if (session == NULL) {
+            addReplyErrorFormat(c,"Swap scan session not found for cursor %ld",
+                    outer_cursor);
+            goto cleanup;
+        }
+        if (swapScanSessionFinished(session)) {
+            swapScanSessionUnassign(server.swap_scan_sessions, session);
+            cursor = 0;
+        } else {
+            cursor = swapScanSessionGetNextCursor(session);
+        }
+
         for (i = 0; i < metas->num; i++) {
             scanMeta *meta = metas->metas+i;
             robj *key = createStringObject(meta->key, sdslen(meta->key));
             listAddNodeTail(keys,key);
         }
-        cursor = c->swap_scan_nextcursor;
     } else if (o->type == OBJ_SET) {
         int pos = 0;
         int64_t ll;
@@ -1099,8 +1112,15 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         if (cursor == 0) {
             /* continue with cold data in disk swap mode */
             if (cursorIsHot(outer_cursor) && server.swap_mode != SWAP_MODE_MEMORY) {
-                outer_cursor = 1;
-                rewindClientSwapScanCursor(c);
+                swapScanSession *session;
+                session = swapScanSessionsAssign(server.swap_scan_sessions);
+                if (session == NULL) {
+                    addReplyErrorFormat(c,"Swap scan session assigned failed.");
+                    goto cleanup;
+                } else {
+                    outer_cursor = 1;
+                    cursor = swapScanSessionGetNextCursor(session);
+                }
             } else {
                 outer_cursor = 0;
             }

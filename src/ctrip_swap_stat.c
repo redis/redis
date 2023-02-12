@@ -168,6 +168,7 @@ sds genSwapInfoString(sds info) {
     info = genSwapLockInfoString(info);
     info = genSwapReplInfoString(info);
     info = genSwapThreadInfoString(info);
+    info = genSwapScanSessionStatString(info);
     return info;
 }
 

@@ -1008,8 +1008,6 @@ typedef struct client {
     struct client *repl_client; /* Master or peer client if this is a repl worker */
     long long swap_rl_until; /* client should not read or swap untill swap_rl_untill */
     list *swap_locks; /* swap locks */
-    unsigned long swap_scan_nextcursor; /* internal cursor, start from 0 */
-    sds swap_scan_nextseek;
     struct metaScanResult *swap_metas;
     int swap_errcode;
     struct argRewrites *swap_arg_rewrites;
@@ -1777,6 +1775,10 @@ struct redisServer {
     int swap_evict_inprogress_limit;
     int swap_evict_inprogress_growth_rate;
     int swap_evict_inprogress_count;
+    /* scan session */
+    struct swapScanSessions *swap_scan_sessions;
+    int swap_scan_session_bits;
+    int swap_scan_session_max_idle_seconds;
 
     /* rocksdb configs */
     unsigned long long rocksdb_meta_block_cache_size;

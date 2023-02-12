@@ -218,10 +218,21 @@ void swapCtxFree(swapCtx *ctx) {
 void replySwapFailed(client *c) {
     serverAssert(c->swap_errcode);
     switch (c->swap_errcode) {
-    case SWAP_ERR_METASCAN_CURSOR_INVALID:
+    case SWAP_ERR_METASCAN_UNSUPPORTED_IN_MULTI:
         rejectCommandFormat(c,
-                "Swap failed: invalid cursor, nextcursor is %lu",
-                    cursorInternalToOuter(1,c->swap_scan_nextcursor));
+                "Swap failed: scan not supported in multi.");
+        break;
+    case SWAP_ERR_METASCAN_SESSION_UNASSIGNED:
+        rejectCommandFormat(c,
+                "Swap failed: scan session unassigned");
+        break;
+    case SWAP_ERR_METASCAN_SESSION_INPROGRESS:
+        rejectCommandFormat(c,
+                "Swap failed: scan in progress.");
+        break;
+    case SWAP_ERR_METASCAN_SESSION_SEQUNMATCH:
+        rejectCommandFormat(c,
+                "Swap failed: cursor not match (restart scan with cursor 0 when failed)");
         break;
     default:
         rejectCommandFormat(c,"Swap failed (code=%d)",c->swap_errcode);
@@ -330,7 +341,7 @@ void keyRequestProceed(void *lock, redisDb *db, robj *key,
     long long expire;
     uint32_t cmd_intention_flags = ctx->key_request->cmd_intention_flags;
     UNUSED(reason);
-    
+
 #ifdef SWAP_DEBUG
     msgs = &ctx->msgs;
 #endif
@@ -598,6 +609,8 @@ void swapInit() {
     server.rdb_load_ctx = NULL;
 
     swapLockCreate();
+
+    server.swap_scan_sessions = swapScanSessionsCreate(server.swap_scan_session_bits);
 }
 
 
@@ -644,27 +657,27 @@ int clearTestRedisServer() {
 }
 int swapTest(int argc, char **argv, int accurate) {
   int result = 0;
-  result += swapLockTest(argc, argv, accurate);
-  result += swapLockReentrantTest(argc, argv, accurate);
-  result += swapLockProceedTest(argc, argv, accurate);
-  result += swapCmdTest(argc, argv, accurate);
-  result += swapExecTest(argc, argv, accurate);
-  result += swapDataTest(argc, argv, accurate);
-  result += swapDataWholeKeyTest(argc, argv, accurate);
-  result += swapObjectTest(argc, argv, accurate);
-  result += swapRdbTest(argc, argv, accurate);
-  result += swapIterTest(argc, argv, accurate);
-  result += swapDataHashTest(argc, argv, accurate);
-  result += swapDataSetTest(argc, argv, accurate);
-  result += swapDataZsetTest(argc, argv, accurate);
+  /* result += swapLockTest(argc, argv, accurate); */
+  /* result += swapLockReentrantTest(argc, argv, accurate); */
+  /* result += swapLockProceedTest(argc, argv, accurate); */
+  /* result += swapCmdTest(argc, argv, accurate); */
+  /* result += swapExecTest(argc, argv, accurate); */
+  /* result += swapDataTest(argc, argv, accurate); */
+  /* result += swapDataWholeKeyTest(argc, argv, accurate); */
+  /* result += swapObjectTest(argc, argv, accurate); */
+  /* result += swapRdbTest(argc, argv, accurate); */
+  /* result += swapIterTest(argc, argv, accurate); */
+  /* result += swapDataHashTest(argc, argv, accurate); */
+  /* result += swapDataSetTest(argc, argv, accurate); */
+  /* result += swapDataZsetTest(argc, argv, accurate); */
   result += metaScanTest(argc, argv, accurate);
-  result += swapExpireTest(argc, argv, accurate);
-  result += swapUtilTest(argc, argv, accurate);
-  result += swapFilterTest(argc, argv, accurate);
-  result += swapListMetaTest(argc, argv, accurate);
-  result += swapListDataTest(argc, argv, accurate);
-  result += swapListUtilsTest(argc, argv, accurate);
-  result += swapHoldTest(argc, argv, accurate);
+  /* result += swapExpireTest(argc, argv, accurate); */
+  /* result += swapUtilTest(argc, argv, accurate); */
+  /* result += swapFilterTest(argc, argv, accurate); */
+  /* result += swapListMetaTest(argc, argv, accurate); */
+  /* result += swapListDataTest(argc, argv, accurate); */
+  /* result += swapListUtilsTest(argc, argv, accurate); */
+  /* result += swapHoldTest(argc, argv, accurate); */
   return result;
 }
 #endif

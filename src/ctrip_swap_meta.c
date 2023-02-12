@@ -118,9 +118,7 @@ void metaScanDataCtxSwapIn(metaScanDataCtx *datactx, metaScanResult *result) {
 
 /* metaScanDataCtx - Scan */
 typedef struct metaScanDataCtxScan {
-    client *c;
-    unsigned long outer_cursor;
-    unsigned long cursor;
+    swapScanSession *session;
 } metaScanDataCtxScan;
 
 static inline int parseScanCursor(robj *o, unsigned long *cursor) {
@@ -130,12 +128,6 @@ static inline int parseScanCursor(robj *o, unsigned long *cursor) {
     if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' || errno == ERANGE)
         return -1;
     return 0;
-}
-
-void rewindClientSwapScanCursor(client *c) {
-    if (c->swap_scan_nextseek) sdsfree(c->swap_scan_nextseek);
-    c->swap_scan_nextcursor = 0;
-    c->swap_scan_nextseek = NULL;
 }
 
 void metaScanDataCtxScanSwapAna(metaScanDataCtx *datactx,
@@ -151,20 +143,9 @@ void metaScanDataCtxScanSwapAna(metaScanDataCtx *datactx,
 }
 
 void metaScanDataCtxScanSwapIn(struct metaScanDataCtx *datactx, metaScanResult *result) {
-    client *c = datactx->c;
     metaScanDataCtxScan *scanctx = datactx->extend;
-
-    c->swap_scan_nextcursor = 0;
-    if (c->swap_scan_nextseek) {
-        sdsfree(c->swap_scan_nextseek);
-        c->swap_scan_nextseek = NULL;
-    }
-
-    if (result->nextseek) {
-        c->swap_scan_nextcursor = scanctx->cursor+1;
-        c->swap_scan_nextseek = result->nextseek;
-        result->nextseek = NULL;
-    }
+    swapScanSessionUnbind(scanctx->session, result->nextseek);
+    result->nextseek = NULL; /* moved */
 }
 
 metaScanDataCtxType scanMetaScanDataCtxType = {
@@ -175,8 +156,9 @@ metaScanDataCtxType scanMetaScanDataCtxType = {
 
 /* SCAN cursor [MATCH pattern] [COUNT count] [TYPE type] */
 int setupMetaScanDataCtx4Scan(metaScanDataCtx *datactx, client *c) {
-    int i, j;
-    unsigned long outer_cursor, cursor;
+    int i, j, reason = 0;
+    unsigned long outer_cursor;
+    swapScanSession *session;
 
     datactx->type = &scanMetaScanDataCtxType;
 
@@ -192,10 +174,9 @@ int setupMetaScanDataCtx4Scan(metaScanDataCtx *datactx, client *c) {
         return 0;
     }
 
-    cursor = cursorOuterToInternal(outer_cursor);
-    if (cursor != c->swap_scan_nextcursor) {
-        return SWAP_ERR_METASCAN_CURSOR_INVALID;
-    }
+    session = swapScanSessionsBind(server.swap_scan_sessions,
+            outer_cursor, &reason);
+    if (session == NULL) return reason;
 
     datactx->limit = 10;
     for (i = 2; i < c->argc; i+=2) {
@@ -209,12 +190,9 @@ int setupMetaScanDataCtx4Scan(metaScanDataCtx *datactx, client *c) {
         }
     }
 
-    if (c->swap_scan_nextseek) datactx->seek = sdsdup(c->swap_scan_nextseek);
-
     metaScanDataCtxScan *scanctx = zmalloc(sizeof(metaScanDataCtxScan));
-    scanctx->outer_cursor = outer_cursor;
-    scanctx->cursor = cursor;
-
+    scanctx->session = session;
+    if (session->nextseek) datactx->seek = sdsdup(session->nextseek);
     datactx->extend = scanctx;
 
     return 0;
@@ -510,6 +488,224 @@ int swapDataSetupMetaScan(swapData *data, uint32_t intention_flags,
     return retval;
 }
 
+/* make session ready to assign again (session_id not changed). */
+void swapScanSessionReset(swapScanSession *session) {
+    session->last_active = 0;
+    if (session->nextseek) {
+        sdsfree(session->nextseek);
+        session->nextseek = NULL;
+    }
+    session->binded = 0;
+    swapScanSessionZeroNextCursor(session);
+}
+
+swapScanSessions *swapScanSessionsCreate(int bits) {
+    serverAssert(bits > 0);
+    size_t capacity = 1 << bits;
+    swapScanSessions *sessions = zcalloc(sizeof(struct swapScanSessions));
+    sessions->free = listCreate();
+    sessions->assigned = raxNew();
+    swapScanSession *session_array = zcalloc(capacity*sizeof(swapScanSession));
+    for (size_t i = 0; i < capacity; i++) {
+        swapScanSession *session = session_array + i;
+        session->session_id = i;
+        listAddNodeTail(sessions->free, session);
+    }
+    sessions->array = session_array;
+    return sessions;
+}
+
+void swapScanSessionsRelease(swapScanSessions *sessions) {
+    if (sessions == NULL) return;
+    listRelease(sessions->free);
+    raxFreeWithCallback(sessions->assigned, NULL);
+    zfree(sessions->array);
+}
+
+static inline int swapScanSessionExpired(swapScanSession *session) {
+    return server.mstime - session->last_active >
+        server.swap_scan_session_max_idle_seconds * 1000;
+}
+
+static inline uint64_t sessionId2RaxKey(unsigned long session_id) {
+    return htonu64(session_id);
+}
+
+swapScanSession *swapScanSessionsAssign(swapScanSessions *sessions) {
+    uint64_t id;
+    swapScanSession *session = NULL;
+
+    if (listLength(sessions->free)) {
+        /* Assign free session if exists. */
+        listNode *ln = listFirst(sessions->free);
+        session = listNodeValue(ln);
+        listDelNode(sessions->free, ln);
+        id = sessionId2RaxKey(session->session_id);
+        raxInsert(sessions->assigned,(unsigned char*)&id,sizeof(id),session,NULL);
+        // TODO remove serverLog(LL_WARNING, "[xxx] insert %lu => %ld", id, session->session_id);
+    } else {
+        /* Try assign the least active, assign fails if session is not
+         * idled long enough. */
+        raxIterator ri;
+        raxStart(&ri,sessions->assigned);
+        raxSeek(&ri,"^",NULL,0);
+        while(raxNext(&ri)) {
+            swapScanSession *s = ri.data;
+
+            if (s->binded) continue;
+
+            if (session == NULL) {
+                session = s;
+                continue;
+            }
+
+            if (s->last_active < session->last_active) {
+                session = s;
+            }
+        }
+        raxStop(&ri);
+
+        if (!swapScanSessionExpired(session)) session = NULL;
+    }
+
+    if (session) {
+        swapScanSessionReset(session);
+        session->last_active = server.mstime;
+        sessions->stat.assigned_succeded++;
+    } else {
+        sessions->stat.assigned_failed++;
+    }
+
+    return session;
+}
+
+void swapScanSessionUnassign(swapScanSessions *sessions, swapScanSession *session) {
+    void *session_;
+    uint64_t id = sessionId2RaxKey(session->session_id);
+
+    // TODO remove serverLog(LL_WARNING, "[xxx] remove %lu => %ld", id, session->session_id);
+
+    if (raxRemove(sessions->assigned, (unsigned char *)&id, sizeof(id),
+                &session_)) {
+        serverAssert(session == session_);
+        listAddNodeTail(sessions->free, session);
+    }
+}
+
+swapScanSession *swapScanSessionsFind(swapScanSessions *sessions,
+        unsigned long outer_cursor) {
+    uint64_t id = sessionId2RaxKey(cursorGetSessionId(outer_cursor));
+
+    swapScanSession *session = raxFind(sessions->assigned,
+            (unsigned char*)&id, sizeof(id));
+    if (session == raxNotFound) session = NULL;
+
+    // TODO remove serverLog(LL_WARNING, "[xxx] find %lu => %lu", id, (session ? session->session_id : 999));
+
+    return session;
+}
+
+swapScanSession *swapScanSessionsBind(swapScanSessions *sessions,
+        unsigned long outer_cursor, int *reason) {
+    swapScanSession *session;
+
+    /* session not found: invalid cursor, can't scan cold keys from
+     * arbitary cursor. */
+    session = swapScanSessionsFind(server.swap_scan_sessions, outer_cursor);
+    if (session == NULL) {
+        if (reason) *reason = SWAP_ERR_METASCAN_SESSION_UNASSIGNED;
+        goto fail;
+    }
+
+    serverAssert(cursorGetSessionId(outer_cursor) == session->session_id);
+
+    /* session inprogress: can't scan concurrently */
+    if (session->binded) {
+        if (reason) *reason = SWAP_ERR_METASCAN_SESSION_INPROGRESS;
+        goto fail;
+    }
+
+    /* cursor not continuos: must use cursor return previously. */
+    if (session->nextcursor != cursorOuterToInternal(outer_cursor)) {
+        if (reason) *reason = SWAP_ERR_METASCAN_SESSION_SEQUNMATCH;
+        goto fail;
+    }
+
+    session->last_active = server.mstime;
+    session->binded = 1;
+    sessions->stat.bind_succeded++;
+
+    return session;
+
+fail:
+    sessions->stat.bind_failed++;
+    return NULL;
+}
+
+void swapScanSessionUnbind(swapScanSession *session, MOVE sds nextseek) {
+    if (session->nextseek) {
+        sdsfree(session->nextseek);
+        session->nextseek = NULL;
+    }
+    session->nextseek = nextseek;
+
+    if (nextseek) {
+        swapScanSessionIncrNextCursor(session);
+    } else {
+        swapScanSessionZeroNextCursor(session);
+    }
+
+    session->binded = 0;
+    session->last_active = server.mstime;
+}
+
+sds genSwapScanSessionStatString(sds info) {
+    size_t assigned = raxSize(server.swap_scan_sessions->assigned);
+    size_t free = listLength(server.swap_scan_sessions->free);
+    info = sdscatprintf(info,
+            "swap_scan_session_assigned:%lu\r\n"
+            "swap_scan_session_free:%lu\r\n",
+            assigned, free);
+    return info;
+}
+
+sds catSwapScanSessionInfoString(sds o, swapScanSession *session) {
+    char *nextseek = session->nextseek ? session->nextseek : "nil";
+    unsigned long long next_outcursor = cursorInternalToOuter(1, session->nextcursor);
+    return sdscatfmt(o,
+            "session_id=%U nextseek=%s nextcursor=%U next_outcursor=%U binded=%i last_active=%U",
+            (unsigned long long)session->session_id,
+            nextseek,
+            (unsigned long long)session->nextcursor,
+            (unsigned long long)next_outcursor,
+            session->binded,
+            (unsigned long long)session->last_active);
+}
+
+sds getAllSwapScanSessionsInfoString(long long outer_cursor) {
+    swapScanSessions *sessions = server.swap_scan_sessions;
+    unsigned long session_id = cursorGetSessionId(outer_cursor);
+
+    sds o = sdsnewlen(SDS_NOINIT,100*raxSize(sessions->assigned));
+    sdsclear(o);
+
+    if (cursorIsHot(outer_cursor)) return o;
+
+    raxIterator ri;
+    raxStart(&ri,sessions->assigned);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        swapScanSession *s = ri.data;
+        if (outer_cursor == -1 || session_id == s->session_id) {
+            o = catSwapScanSessionInfoString(o, s);
+            o = sdscatlen(o,"\n",1);
+        }
+    }
+    raxStop(&ri);
+
+    return o;
+}
+
 #ifdef REDIS_TEST
 
 void initServerConfig(void);
@@ -532,6 +728,10 @@ int metaScanTest(int argc, char *argv[], int accurate) {
         c = createClient(NULL);
         selectDb(c,0);
         db = server.db+0;
+
+        server.swap_scan_session_bits = 7;
+        server.swap_scan_session_max_idle_seconds = 60;
+        server.swap_scan_sessions = swapScanSessionsCreate(server.swap_scan_session_bits);
     }
 
     TEST("metascan - scanmeta & result") {
@@ -546,33 +746,30 @@ int metaScanTest(int argc, char *argv[], int accurate) {
     }
 
     TEST("metascan - scan") {
-        int action, numkeys, *cfs, retval, i, cf, flags;
+        int action, numkeys, retval, i, cf;
+        uint32_t flags;
         int onumkeys, *ocfs;
-        sds *rawkeys, *orawkeys, *orawvals;
+        sds *orawkeys, *orawvals;
         sds start, end;
         metaScanDataCtx *datactx;
-        metaScanDataCtxScan *scanctx;
         void *decoded;
         swapData *data;
         metaScanResult *result;
+        swapScanSession *session;
 
         data = createSwapData(db,NULL,NULL);
-        c->swap_scan_nextcursor = 0;
-        c->swap_scan_nextseek = sdsnew("nextseek");
+        session = swapScanSessionsAssign(server.swap_scan_sessions);
+        test_assert(session->session_id == 0);
         rewriteResetClientCommandCString(c,6,"SCAN","1","COUNT","3","MATCH","*");
         retval = swapDataSetupMetaScan(data,SWAP_METASCAN_SCAN,c,(void**)&datactx);
-        scanctx = datactx->extend;
         test_assert(retval == 0);
         test_assert(datactx->limit == 3);
-        test_assert(scanctx->cursor == 0);
         swapDataSwapAnaAction(data,SWAP_IN,datactx,&action);
         swapDataEncodeRange(data,SWAP_IN,datactx,&numkeys, &flags, &cf, &start, &end);
         test_assert(action == ROCKS_ITERATE);
         test_assert(numkeys == 3);
         test_assert(cf == META_CF);
         sdsfree(start);
-        zfree(cfs);
-        zfree(rawkeys);
 
         onumkeys = numkeys;
         sds lastkey = sdsfromlonglong(onumkeys);
@@ -607,15 +804,102 @@ int metaScanTest(int argc, char *argv[], int accurate) {
 
         swapDataCreateOrMergeObject(data,decoded,datactx);
 
-        retval = swapDataSwapIn(data,(robj*)result,datactx);
+        retval = swapDataSwapIn(data,result,datactx);
         test_assert(retval == 0);
-        test_assert(c->swap_scan_nextcursor == 1);
-        test_assert(!sdscmp(c->swap_scan_nextseek,lastkey));
+
+        test_assert(session->nextcursor == 0x80);
+        test_assert(!sdscmp(session->nextseek,lastkey));
         test_assert((void*)c->swap_metas == (void*)decoded);
+
+        /* finish session */
+        result = metaScanResultCreate();
+        swapDataSwapIn(data,result,datactx);
+        test_assert(session->nextcursor == 0);
+        test_assert(session->nextseek == NULL);
+        swapScanSessionUnassign(server.swap_scan_sessions, session);
 
         swapDataFree(data,datactx);
         freeClient(c);
         sdsfree(lastkey);
+    }
+
+    TEST("metascan - scan session cursor manipulate") {
+        swapScanSession session_, *session = &session_;
+
+        test_assert(cursorGetSessionId(0x10) == 0x8);
+        test_assert(cursorGetSessionId(0xF010) == 0x8);
+        test_assert(cursorGetSessionSeq(0x10) == 0);
+        test_assert(cursorGetSessionSeq(0xF010) == 0xF0);
+
+        memset(session, 0, sizeof(swapScanSession));
+        session->session_id = 0x04;
+        session->nextcursor = 0xF04;
+        test_assert(swapScanSessionGetNextCursor(session) == 0xF04);
+        swapScanSessionIncrNextCursor(session);
+        test_assert(swapScanSessionGetNextCursor(session) == 0xF84);
+        swapScanSessionZeroNextCursor(session);
+        test_assert(swapScanSessionGetNextCursor(session) == 0x04);
+
+        sds foo = sdsnew("foo"), bar = sdsnew("bar");
+        swapScanSessionUnbind(session, foo);
+        test_assert(sdscmp(session->nextseek, foo) == 0);
+        test_assert(swapScanSessionGetNextCursor(session) == 0x84);
+        swapScanSessionUnbind(session, bar);
+        test_assert(swapScanSessionGetNextCursor(session) == 0x104);
+        test_assert(sdscmp(session->nextseek, bar) == 0);
+        swapScanSessionUnbind(session, NULL);
+        test_assert(swapScanSessionGetNextCursor(session) == 0x04);
+        test_assert(session->nextseek == NULL);
+
+        swapScanSession *s0, *s0a;
+        int SESSIONS_COUNT = 128, reason;
+        swapScanSession *sessions[SESSIONS_COUNT];
+
+        s0 = swapScanSessionsBind(server.swap_scan_sessions, 1, &reason);
+        test_assert(s0 == NULL && reason == SWAP_ERR_METASCAN_SESSION_UNASSIGNED);
+
+        for (int i = 0; i < SESSIONS_COUNT; i++) {
+            sessions[i] = swapScanSessionsAssign(server.swap_scan_sessions);
+            test_assert(sessions[i] != NULL);
+            test_assert(sessions[i]->nextseek == NULL);
+            test_assert(sessions[i]->nextcursor == sessions[i]->session_id);
+        }
+
+        test_assert(swapScanSessionsAssign(server.swap_scan_sessions) == NULL);
+
+        s0 = swapScanSessionsBind(server.swap_scan_sessions, 1, &reason);
+        test_assert(s0 != NULL);
+        test_assert(s0->binded == 1);
+        test_assert(s0->nextcursor == 0);
+
+        s0a = swapScanSessionsBind(server.swap_scan_sessions, 1, &reason);
+        test_assert(s0a == NULL && reason == SWAP_ERR_METASCAN_SESSION_INPROGRESS);
+
+        swapScanSessionUnbind(s0, sdsnew("hello"));
+        test_assert(!s0->binded && s0->nextcursor == 0x80 && !strcmp(s0->nextseek, "hello"));
+
+        s0a = swapScanSessionsBind(server.swap_scan_sessions, 1, &reason);
+        test_assert(s0a == NULL && reason == SWAP_ERR_METASCAN_SESSION_SEQUNMATCH);
+
+        s0a = swapScanSessionsBind(server.swap_scan_sessions, 0x101, &reason);
+        test_assert(s0a != NULL && s0 == s0a);
+        swapScanSessionUnbind(s0a, sdsnew("world"));
+        test_assert(!s0a->binded && s0a->nextcursor == 0x100 && !strcmp(s0a->nextseek, "world"));
+
+        for (int i = 1; i < SESSIONS_COUNT; i++) {
+            server.swap_scan_sessions->array[i].last_active = server.mstime+1000;
+        }
+
+        server.mstime += 61*1000; /* session can assign again if idled too long. */
+        s0 = swapScanSessionsAssign(server.swap_scan_sessions);
+        test_assert(s0 != NULL && s0->session_id == 0);
+        test_assert(s0->nextseek == NULL);
+        test_assert(s0->nextcursor == 0);
+
+        swapScanSessionUnassign(server.swap_scan_sessions, s0);
+
+        test_assert(listLength(server.swap_scan_sessions->free) == 1);
+        test_assert(raxSize(server.swap_scan_sessions->assigned) == 127);
     }
 
     return error;

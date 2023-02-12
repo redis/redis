@@ -121,6 +121,8 @@ void swapCommand(client *c) {
 "    Get rocksdb property value (int type)",
 "ROCKSDB-PROPERTY-VALUE <rocksdb-prop-name> [<cfname,cfname...>]",
 "    Get rocksdb property value (string type)",
+"SCAN-SESSION [<cursor>]",
+"    List assigned scan sesions",
 NULL
         };
         addReplyHelp(c, help);
@@ -272,6 +274,24 @@ NULL
         sds property_value = rocksdbPropertyValue(cfnames,c->argv[2]->ptr);
         addReplyBulkCString(c, property_value);
         if (property_value) sdsfree(property_value);
+    } else if (!strcasecmp(c->argv[1]->ptr,"scan-session") &&
+            (c->argc == 2 || c->argc == 3)) {
+        long long outer_cursor;
+        if (c->argc == 2) {
+            outer_cursor = -1;
+        } else {
+            if (getLongLongFromObjectOrReply(c,c->argv[2],&outer_cursor,
+                        "Invalid cursor")) {
+                return;
+            }
+            if (outer_cursor < 0) {
+                addReplyError(c,"Invalid cursor");
+                return;
+            }
+        }
+        sds o = getAllSwapScanSessionsInfoString(outer_cursor);
+        addReplyVerbatim(c,o,sdslen(o),"txt");
+        sdsfree(o);
     } else {
         addReplySubcommandSyntaxError(c);
         return;

@@ -523,8 +523,10 @@ void swapDebugMsgsDump(swapDebugMsgs *msgs);
 #define SWAP_ERR_EXEC_RIO_FAIL -301
 #define SWAP_ERR_EXEC_UNEXPECTED_ACTION -302
 #define SWAP_ERR_EXEC_UNEXPECTED_UTIL -303
-#define SWAP_ERR_METASCAN_CURSOR_INVALID -401
-#define SWAP_ERR_METASCAN_UNSUPPORTED_IN_MULTI -402
+#define SWAP_ERR_METASCAN_UNSUPPORTED_IN_MULTI -401
+#define SWAP_ERR_METASCAN_SESSION_UNASSIGNED -402
+#define SWAP_ERR_METASCAN_SESSION_INPROGRESS -403
+#define SWAP_ERR_METASCAN_SESSION_SEQUNMATCH -404
 
 struct swapCtx;
 
@@ -709,7 +711,6 @@ typedef struct metaScanDataCtx {
 
 int swapDataSetupMetaScan(swapData *d, uint32_t intention_flags, client *c, OUT void **datactx);
 
-void rewindClientSwapScanCursor(client *c);
 robj *metaScanResultRandomKey(redisDb *db, metaScanResult *result);
 
 #define EXPIRESCAN_DEFAULT_LIMIT 32
@@ -747,6 +748,69 @@ int scanExpireDbCycle(redisDb *db, int type, long long timelimit);
 sds genSwapScanExpireInfoString(sds info);
 
 void expireSlaveKeysSwapMode(void);
+
+/* swap scan sessions */
+
+#define cursorIsHot(outer_cursor) ((outer_cursor & 0x1UL) == 0)
+#define cursorOuterToInternal(outer_cursor) (outer_cursor >> 1)
+#define cursorInternalToOuter(outer_cursor, cursor) (cursor << 1 | (outer_cursor & 0x1UL))
+
+static inline unsigned long cursorGetSessionId(unsigned long outer_cursor) {
+    return cursorOuterToInternal(outer_cursor) & ((1<<server.swap_scan_session_bits)-1);
+}
+
+static inline unsigned long cursorGetSessionSeq(unsigned long outer_cursor) {
+    return cursorOuterToInternal(outer_cursor) >> server.swap_scan_session_bits;
+}
+
+typedef struct swapScanSession {
+    time_t last_active;
+    unsigned long session_id; /* inner */
+    sds nextseek;
+    unsigned long nextcursor; /* inner cursor */
+    int binded;
+} swapScanSession;
+
+typedef struct swapScanSessionsStat {
+    uint64_t assigned_failed;
+    uint64_t assigned_succeded;
+    uint64_t bind_failed;
+    uint64_t bind_succeded;
+} swapScanSessionsStat;
+
+typedef struct swapScanSessions {
+    rax *assigned;
+    list *free;
+    swapScanSession *array;
+    swapScanSessionsStat stat;
+} swapScanSessions;
+
+static inline unsigned long swapScanSessionGetNextCursor(swapScanSession *session) {
+    return session->nextcursor;
+}
+
+static inline void swapScanSessionIncrNextCursor(swapScanSession *session) {
+    session->nextcursor += 1 << server.swap_scan_session_bits;
+}
+
+static inline void swapScanSessionZeroNextCursor(swapScanSession *session) {
+    session->nextcursor = session->session_id;
+}
+
+static inline int swapScanSessionFinished(swapScanSession *session) {
+    return session->nextseek == NULL;
+}
+
+swapScanSessions *swapScanSessionsCreate(int bits);
+void swapScanSessionRelease(swapScanSessions *sessions);
+swapScanSession *swapScanSessionsAssign(swapScanSessions *sessions);
+swapScanSession *swapScanSessionsBind(swapScanSessions *sessions, unsigned long cursor, int *reason);
+void swapScanSessionUnbind(swapScanSession *session, sds nextseek);
+swapScanSession *swapScanSessionsFind(swapScanSessions *sessions, unsigned long outer_cursor);
+void swapScanSessionUnassign(swapScanSessions *sessions, swapScanSession *session);
+
+sds genSwapScanSessionStatString(sds info);
+sds getAllSwapScanSessionsInfoString(long long outer_cursor);
 
 /* Exec */
 struct swapRequest;
@@ -1501,10 +1565,6 @@ void swapExpiredCommand(client *c);
 const char *strObjectType(int type);
 int timestampIsExpired(mstime_t expire);
 size_t ctripDbSize(redisDb *db);
-
-#define cursorIsHot(outer_cursor) ((outer_cursor & 0x1UL) == 0)
-#define cursorOuterToInternal(cursor) (cursor >> 1)
-#define cursorInternalToOuter(outer_cursor, cursor) (cursor << 1 | (outer_cursor & 0x1UL))
 
 static inline void clientSwapError(client *c, int swap_errcode) {
   if (c && swap_errcode) {

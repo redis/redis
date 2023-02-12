@@ -208,8 +208,6 @@ client *createClient(connection *conn) {
     c->CLIENT_REPL_CMD_DISCARDED = 0;
     c->swap_rl_until = 0;
     c->swap_locks = listCreate();
-    c->swap_scan_nextcursor = 0;
-    c->swap_scan_nextseek = NULL;
     c->swap_metas = NULL;
     c->swap_errcode = 0;
     c->swap_arg_rewrites = argRewritesCreate();
@@ -1508,10 +1506,6 @@ void freeClient(client *c) {
     sdsfree(c->sockname);
     sdsfree(c->slave_addr);
     listRelease(c->swap_locks);
-    if (c->swap_scan_nextseek) {
-        sdsfree(c->swap_scan_nextseek);
-        c->swap_scan_nextseek = NULL;
-    }
     if (c->swap_metas) {
         freeScanMetaResult(c->swap_metas);
         c->swap_metas = NULL;

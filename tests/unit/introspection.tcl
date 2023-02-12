@@ -206,6 +206,7 @@ start_server {tags {"introspection"}} {
             rocksdb.max_bytes_for_level_base
             rocksdb.data.max_bytes_for_level_base
             rocksdb.meta.max_bytes_for_level_base
+            swap-scan-session-bits
         }
 
         if {!$::tls} {

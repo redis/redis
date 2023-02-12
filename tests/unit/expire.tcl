@@ -232,6 +232,7 @@ start_server {tags {"expire"}} {
         if {$::swap_debug_evict_keys} {
             wait_keyspace_cold r
         }
+        r scan 0
         lsort [lindex [r scan 1] 1]
     } {a e foo s t}
 
