@@ -269,6 +269,7 @@ size_t reqresAppendResponse(client *c) {
 
 void reqresReset(client *c, int free_buf) {
     UNUSED(c);
+    UNUSED(free_buf);
 }
 
 inline void reqresSaveClientReplyOffset(client *c) {
