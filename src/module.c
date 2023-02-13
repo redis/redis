@@ -7490,6 +7490,7 @@ int handleCustomAuthIfComplete(client *c, long long ver, robj *clientname, int i
         c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
         return 0;
     }
+    c->flags &= ~CLIENT_PENDING_COMMAND;
     c->custom_auth_ctx = NULL;
     /* Handle the success case of AUTH by replying with OK. In case of HELLO, set the clientname
      * if provided and respond the HELLO cmd response. */
@@ -7542,14 +7543,6 @@ int attemptNextCustomAuthCb(client *c, robj *username, robj *password, const cha
     return result;
 }
 
-/* Helper function to handle a client that completed a blocking custom auth flow and still has
- * not concluded authentication. Here, we reprocess the client to attempt the next callback if any
- * exist or / and attempt password based auth. */
-void postBlockingCustomAuth(client *c) {
-    if (!c || !isClientModuleAuthInProgress(c)) return;
-    processCommandAndResetClient(c);
-}
-
 /* Helper function to attempt Module based authentication through custom auth callbacks.
  * Here, the Module is expected to authenticate the client using the RedisModule APIs and to add ACL
  * logs incase of errors.
@@ -7566,6 +7559,8 @@ int checkModuleAuthentication(client *c, robj *username, robj *password, const c
     if (!listLength(moduleCustomAuthCallbacks)) return C_ERR;
     int result = attemptNextCustomAuthCb(c, username, password, err);
     if (c->flags & CLIENT_BLOCKED) return C_OK;
+    if (c->flags & CLIENT_PENDING_COMMAND)
+        c->flags &= ~CLIENT_PENDING_COMMAND;
     c->custom_auth_ctx = NULL;
     if (result == REDISMODULE_AUTH_NOT_HANDLED) return C_ERR;
     if (c->flags & CLIENT_CUSTOM_AUTH_RESULT && c->authenticated) {
@@ -7656,6 +7651,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
 RedisModuleBlockedClient *RM_BlockClientOnAuth(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback reply_callback, void (*free_privdata)(RedisModuleCtx*,void*)) {
     /* Assert that the client is in the middle of custom auth. */
     serverAssert(isClientModuleAuthInProgress(ctx->client));
+    ctx->client->flags |= CLIENT_PENDING_COMMAND;
     RedisModuleBlockedClient *bc = moduleBlockClient(ctx,NULL,NULL,free_privdata,0, NULL,0,NULL,0);
     bc->auth_reply_cb = reply_callback;
     return bc;
@@ -7906,8 +7902,7 @@ void moduleHandleBlockedClients(void) {
              * into the `c->lastcmd->microseconds`. This will later be added into cmd stats when
              * custom auth is completed. */
             if (isClientModuleAuthInProgress(c)) {
-                const ustime_t total_cmd_duration = bc->background_duration + reply_us;
-                c->lastcmd->microseconds += total_cmd_duration;
+                c->lastcmd->microseconds += bc->background_duration + reply_us;
             }
         }
 
@@ -7963,8 +7958,6 @@ void moduleHandleBlockedClients(void) {
 
         /* Lock again before to iterate the loop. */
         pthread_mutex_lock(&moduleUnblockedClientsMutex);
-
-        postBlockingCustomAuth(c);
     }
     pthread_mutex_unlock(&moduleUnblockedClientsMutex);
 }
@@ -7994,6 +7987,7 @@ void moduleBlockedClientTimedOut(client *c) {
 
     /* If custom auth is in progress, reply to the client with an ERR incase it is timed out. */
     if (c && isClientModuleAuthInProgress(c)) {
+        c->flags &= ~CLIENT_PENDING_COMMAND;
         c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
         c->custom_auth_ctx = NULL;
         addAuthErrReply(c, NULL);
