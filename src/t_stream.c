@@ -4549,12 +4549,7 @@ int streamPublish(redisDb* db, robj* key, stream* s) {
     dictIterator* di = dictGetSafeIterator(s->group_subscribers);
     dictEntry* de = NULL;
     while ((de = dictNext(di)) != NULL) {
-        robj* group_name = dictGetKey(de);
-        streamCG* cg = streamLookupCG(s, group_name->ptr);
-        if (!cg) {
-            xpubsubUnsubscribeAllClientsInCG(db, key, s, group_name, NULL);
-            continue;
-        }
+        streamCG* cg = NULL;
         list* subscribers = dictGetVal(de);
         /* Scan the whole list to delete invalid subscribers. */
         listIter sub_li;
@@ -4563,6 +4558,10 @@ int streamPublish(redisDb* db, robj* key, stream* s) {
         while ((sub_ln = listNext(&sub_li)) != NULL) {
             /* Copy the streamSubscriber to avoid it being freed. */
             streamSubscriber sub = *(streamSubscriber*)listNodeValue(sub_ln);
+            if (!sub.group) {
+                break;
+            }
+            cg = sub.group;
             if (!(sub.flags & STREAM_PUBSUB_INVALID)) {
                 continue;
             }
@@ -4570,6 +4569,11 @@ int streamPublish(redisDb* db, robj* key, stream* s) {
             xpubsubRemoveClientFromKey(db, key, sub.c);
             xpubsubRemoveClientFromStream(s, sub.c);
             addReplyStreamSubMessage(sub.c, key, db->id, 0);
+        }
+        robj* group_name = dictGetKey(de);
+        if (!cg) {
+            xpubsubUnsubscribeAllClientsInCG(db, key, s, group_name, NULL);
+            continue;
         }
         /* Publish to the current receiver. */
         if (!cg->receiver || s->pub_start.ms == 0) {
