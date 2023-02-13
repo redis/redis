@@ -829,7 +829,7 @@ static int areInSameShard(clusterNode *node1, clusterNode *node2) {
 }
 
 static uint64_t nodeEpoch(clusterNode *n) {
-    return (nodeIsSlave(n) && n->slaveof) ? n->slaveof->configEpoch : n->configEpoch;
+    return n->slaveof ? n->slaveof->configEpoch : n->configEpoch;
 }
 
 /* Update my hostname based on server configuration values */
@@ -1415,7 +1415,7 @@ void freeClusterNode(clusterNode *n) {
      * all the slaves->slaveof fields to NULL (unknown). */
     for (j = 0; j < n->numslaves; j++)
         n->slaves[j]->slaveof = NULL;
-    
+
     /* Remove this node from the list of slaves of its master. */
     if (nodeIsSlave(n) && n->slaveof) clusterNodeRemoveSlave(n->slaveof,n);
 
@@ -1695,8 +1695,8 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
     server.cluster->currentEpoch++;
     myself->configEpoch = server.cluster->currentEpoch;
     clusterSaveConfigOrDie(1);
-    serverLog(LL_WARNING,
-        "WARNING: configEpoch collision with node %.40s."
+    serverLog(LL_NOTICE,
+        "configEpoch collision with node %.40s."
         " configEpoch set to %llu",
         sender->name,
         (unsigned long long) myself->configEpoch);
@@ -2337,10 +2337,10 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                              CLUSTER_TODO_FSYNC_CONFIG);
       } else if ((sender_slots == migrated_our_slots) &&
         !areInSameShard(sender, myself)) {
-        // When all our slots are lost to the sender and the sender belongs to
-        // a different shard, this is likely due to a client triggered slot
-        // migration. Don't reconfigure this node to migrate to the new shard
-        // in this case.
+        /* When all our slots are lost to the sender and the sender belongs to
+         * a different shard, this is likely due to a client triggered slot
+         * migration. Don't reconfigure this node to migrate to the new shard
+         * in this case. */
         serverLog(LL_NOTICE,
              "I lost all my slots to the sender who belongs to a "
              "different shard than mine. I will continue to remain in "
@@ -2366,7 +2366,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
  * The ping/pong/meet messages support arbitrary extensions to add additional
  * metadata to the messages that are sent between the various nodes in the
  * cluster. The extensions take the form:
- * [ Header length + type (8 bytes) ]
+ * [ Header length + type (8 bytes) ] 
  * [ Extension information (Arbitrary length, but must be 8 byte padded) ]
  */
 
@@ -2381,7 +2381,7 @@ static uint32_t getPingExtLength(clusterMsgPingExt *ext) {
 static clusterMsgPingExt *getInitialPingExt(clusterMsg *hdr, int count) {
     clusterMsgPingExt *initial = (clusterMsgPingExt*) &(hdr->data.ping.gossip[count]);
     return initial;
-}
+} 
 
 /* Given a current ping extension, returns the start of the next extension. May return
  * an invalid address if there are no further ping extensions. */
@@ -4529,7 +4529,7 @@ void clusterCron(void) {
          */
         if(clusterNodeCronHandleReconnect(node, handshake_timeout, now)) continue;
     }
-    dictReleaseIterator(di);
+    dictReleaseIterator(di); 
 
     /* Ping some random node 1 time every 10 iterations, so that we usually ping
      * one random node every second. */
@@ -5038,7 +5038,7 @@ int verifyClusterConfigWithData(void) {
             clusterAddSlot(myself,j);
         } else if (server.cluster->importing_slots_from[j] != server.cluster->slots[j]) {
             serverLog(LL_WARNING, "I have keys for slot %d, but the slot is "
-                                    "assigned to another node. ", j);
+                                    "assigned to another node.", j);
         }
     }
     if (update_config) clusterSaveConfigOrDie(1);
@@ -5249,11 +5249,9 @@ void clusterGenNodesSlotsInfo(int filter) {
 }
 
 void clusterFreeNodesSlotsInfo(clusterNode *n) {
-  if (n->slot_info_pairs != NULL) {
-        zfree(n->slot_info_pairs);
-        n->slot_info_pairs = NULL;
-        n->slot_info_pairs_count = 0;
-    }
+    zfree(n->slot_info_pairs);
+    n->slot_info_pairs = NULL;
+    n->slot_info_pairs_count = 0;
 }
 
 /* Generate a csv-alike representation of the nodes we are aware of,
@@ -5443,7 +5441,7 @@ void clusterUpdateSlots(client *c, unsigned char *slots, int del) {
     for (j = 0; j < CLUSTER_SLOTS; j++) {
         if (slots[j]) {
             int retval;
-
+                
             /* If this slot was set as importing we can clear this
              * state as now we are the real owner of the slot. */
             if (server.cluster->importing_slots_from[j])
@@ -5684,7 +5682,6 @@ sds genClusterInfoString() {
     sds info = sdsempty();
     char *statestr[] = {"ok","fail"};
     int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;
-    uint64_t myepoch;
     int j;
 
     for (j = 0; j < CLUSTER_SLOTS; j++) {
@@ -5700,9 +5697,6 @@ sds genClusterInfoString() {
             slots_ok++;
         }
     }
-
-    myepoch = (nodeIsSlave(myself) && myself->slaveof) ?
-                myself->slaveof->configEpoch : myself->configEpoch;
 
     info = sdscatprintf(info,
         "cluster_state:%s\r\n"
@@ -5722,7 +5716,7 @@ sds genClusterInfoString() {
         dictSize(server.cluster->nodes),
         server.cluster->size,
         (unsigned long long) server.cluster->currentEpoch,
-        (unsigned long long) myepoch
+        (unsigned long long) nodeEpoch(myself)
     );
 
     /* Show stats about messages sent and received. */
@@ -5907,7 +5901,7 @@ NULL
                 return;
             }
         }
-        clusterUpdateSlots(c, slots, del);
+        clusterUpdateSlots(c, slots, del);    
         zfree(slots);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
