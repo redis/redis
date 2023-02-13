@@ -195,6 +195,10 @@ void unblockClient(client *c) {
      * or in case a shutdown operation was canceled and we are still in the processCommand sequence  */
     if (!(c->flags & CLIENT_PENDING_COMMAND) && c->bstate.btype != BLOCKED_SHUTDOWN) {
         freeClientOriginalArgv(c);
+        /* Clients that are not blocked on keys are not reprocessed so we must
+         * call reqresAppendResponse here (for clients blocked on key,
+         * unblockClientOnKey is called, which eventually calls processCommand,
+         * which calls reqresAppendResponse) */
         reqresAppendResponse(c);
         resetClient(c);
     }
@@ -609,6 +613,8 @@ static void unblockClientOnKey(client *c, robj *key) {
                 c->bstate.btype == BLOCKED_LIST   ||
                 c->bstate.btype == BLOCKED_ZSET);
 
+    /* We need to unblock the client before calling processCommandAndResetClient
+     * because it checks the CLIENT_BLOCKED flag */
     unblockClient(c);
     /* In case this client was blocked on keys during command
      * we need to re process the command again */

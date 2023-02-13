@@ -3517,16 +3517,16 @@ void processClientsWaitingReplicas(void) {
         if (last_offset && last_offset >= c->bstate.reploffset &&
                            last_numreplicas >= c->bstate.numreplicas)
         {
-            unblockClient(c);
             addReplyLongLong(c,last_numreplicas);
+            unblockClient(c);
         } else {
             int numreplicas = replicationCountAcksByOffset(c->bstate.reploffset);
 
             if (numreplicas >= c->bstate.numreplicas) {
                 last_offset = c->bstate.reploffset;
                 last_numreplicas = numreplicas;
-                unblockClient(c);
                 addReplyLongLong(c,numreplicas);
+                unblockClient(c);
             }
         }
     }
