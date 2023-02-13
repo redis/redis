@@ -124,6 +124,7 @@ start_server {tags {"latency-monitor needs:latency"}} {
             fail "key wasn't expired"
         }
         assert_match {*expire-cycle*} [r latency latest]
+        r config set latency-monitor-threshold 200
     }
 
     test {LATENCY HISTORY / RESET with wrong event name is fine} {

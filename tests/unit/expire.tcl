@@ -151,7 +151,7 @@ start_server {tags {"expire"}} {
         r del x
         r setex x 1 somevalue
         set ttl [r pttl x]
-        assert {$ttl > 900 && $ttl <= 1000}
+        assert {$ttl > 500 && $ttl <= 1000}
     }
 
     test {TTL / PTTL / EXPIRETIME / PEXPIRETIME return -1 if key has no expire} {
@@ -603,9 +603,9 @@ start_server {tags {"expire"}} {
     } {-1}
 
     test {GETEX use of PERSIST option should remove TTL after loadaof} {
+       r config set appendonly yes
        r set foo bar EX 100
        r getex foo PERSIST
-       after 2000
        r debug loadaof
        r ttl foo
     } {-1} {needs:debug}

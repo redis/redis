@@ -328,8 +328,10 @@ void sortCommandGeneric(client *c, int readonly) {
     default: vectorlen = 0; serverPanic("Bad SORT type"); /* Avoid GCC warning */
     }
 
-    /* Perform LIMIT start,count sanity checking. */
-    start = (limit_start < 0) ? 0 : limit_start;
+    /* Perform LIMIT start,count sanity checking.
+     * And avoid integer overflow by limiting inputs to object sizes. */
+    start = min(max(limit_start, 0), vectorlen);
+    limit_count = min(max(limit_count, -1), vectorlen);
     end = (limit_count < 0) ? vectorlen-1 : start+limit_count-1;
     if (start >= vectorlen) {
         start = vectorlen-1;

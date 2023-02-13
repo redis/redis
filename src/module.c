@@ -181,6 +181,8 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_NEW_CLIENT (1<<7)  /* Free client object when the
                                               context is destroyed */
 #define REDISMODULE_CTX_CHANNELS_POS_REQUEST (1<<8)
+#define REDISMODULE_CTX_COMMAND (1<<9) /* Context created to serve a command from call() or AOF (which calls cmd->proc directly) */
+
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -216,7 +218,6 @@ struct RedisModuleKey {
         } stream;
     } u;
 };
-typedef struct RedisModuleKey RedisModuleKey;
 
 /* RedisModuleKey 'ztype' values. */
 #define REDISMODULE_ZSET_RANGE_NONE 0       /* This must always be 0. */
@@ -338,6 +339,7 @@ typedef struct RedisModuleDictIter {
 
 typedef struct RedisModuleCommandFilterCtx {
     RedisModuleString **argv;
+    int argv_len;
     int argc;
 } RedisModuleCommandFilterCtx;
 
@@ -738,23 +740,25 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
     return REDISMODULE_OK;
 }
 
+void modulePostExecutionUnitOperations() {
+    if (server.execution_nesting)
+        return;
+
+    if (server.busy_module_yield_flags) {
+        blockingOperationEnds();
+        server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+        if (server.current_client)
+            unprotectClient(server.current_client);
+        unblockPostponedClients();
+    }
+}
+
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
-    if (!(ctx->flags & REDISMODULE_CTX_THREAD_SAFE)) {
-        /* Modules take care of their own propagation, when we are
-         * outside of call() context (timers, events, etc.). */
-        if (--server.module_ctx_nesting == 0) {
-            if (!server.core_propagates) {
-                postExecutionUnitOperations();
-            }
-            if (server.busy_module_yield_flags) {
-                blockingOperationEnds();
-                server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
-                if (server.current_client)
-                    unprotectClient(server.current_client);
-                unblockPostponedClients();
-            }
-        }
+    /* See comment in moduleCreateContext */
+    if (!(ctx->flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
+        server.execution_nesting--;
+        postExecutionUnitOperations();
     }
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
@@ -806,8 +810,15 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     else
         out_ctx->next_yield_time = getMonotonicUs() + server.busy_reply_threshold * 1000;
 
-    if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
-        server.module_ctx_nesting++;
+    /* Increment the execution_nesting counter (module is about to execute some code),
+     * except in the following cases:
+     * 1. We came here from cmd->proc (either call() or AOF load).
+     *    In the former, the counter has been already incremented from within
+     *    call() and in the latter we don't care about execution_nesting
+     * 2. If we are running in a thread (execution_nesting will be dealt with
+     *    when locking/unlocking the GIL) */
+    if (!(ctx_flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
+        server.execution_nesting++;
     }
 }
 
@@ -816,7 +827,7 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
 void RedisModuleCommandDispatcher(client *c) {
     RedisModuleCommand *cp = c->cmd->module_cmd;
     RedisModuleCtx ctx;
-    moduleCreateContext(&ctx, cp->module, REDISMODULE_CTX_NONE);
+    moduleCreateContext(&ctx, cp->module, REDISMODULE_CTX_COMMAND);
 
     ctx.client = c;
     cp->func(&ctx,(void**)c->argv,c->argc);
@@ -3772,17 +3783,29 @@ static void moduleInitKeyTypeSpecific(RedisModuleKey *key) {
  * The return value is the handle representing the key, that must be
  * closed with RM_CloseKey().
  *
- * If the key does not exist and WRITE mode is requested, the handle
+ * If the key does not exist and REDISMODULE_WRITE mode is requested, the handle
  * is still returned, since it is possible to perform operations on
  * a yet not existing key (that will be created, for example, after
- * a list push operation). If the mode is just READ instead, and the
+ * a list push operation). If the mode is just REDISMODULE_READ instead, and the
  * key does not exist, NULL is returned. However it is still safe to
  * call RedisModule_CloseKey() and RedisModule_KeyType() on a NULL
- * value. */
+ * value.
+ *
+ * Extra flags that can be pass to the API under the mode argument:
+ * * REDISMODULE_OPEN_KEY_NOTOUCH - Avoid touching the LRU/LFU of the key when opened.
+ * * REDISMODULE_OPEN_KEY_NONOTIFY - Don't trigger keyspace event on key misses.
+ * * REDISMODULE_OPEN_KEY_NOSTATS - Don't update keyspace hits/misses counters.
+ * * REDISMODULE_OPEN_KEY_NOEXPIRE - Avoid deleting lazy expired keys.
+ * * REDISMODULE_OPEN_KEY_NOEFFECTS - Avoid any effects from fetching the key. */
 RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     RedisModuleKey *kp;
     robj *value;
-    int flags = mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0;
+    int flags = 0;
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NONOTIFY? LOOKUP_NONOTIFY: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOSTATS? LOOKUP_NOSTATS: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOEXPIRE? LOOKUP_NOEXPIRE: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOEFFECTS? LOOKUP_NOEFFECTS: 0);
 
     if (mode & REDISMODULE_WRITE) {
         value = lookupKeyWriteWithFlags(ctx->client->db,keyname, flags);
@@ -3798,6 +3821,23 @@ RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     moduleInitKey(kp, ctx, keyname, value, mode);
     autoMemoryAdd(ctx,REDISMODULE_AM_KEY,kp);
     return kp;
+}
+
+/**
+ * Returns the full OpenKey modes mask, using the return value
+ * the module can check if a certain set of OpenKey modes are supported
+ * by the redis server version in use.
+ * Example:
+ *
+ *        int supportedMode = RM_GetOpenKeyModesAll();
+ *        if (supportedMode & REDISMODULE_OPEN_KEY_NOTOUCH) {
+ *              // REDISMODULE_OPEN_KEY_NOTOUCH is supported
+ *        } else{
+ *              // REDISMODULE_OPEN_KEY_NOTOUCH is not supported
+ *        }
+ */
+int RM_GetOpenKeyModesAll() {
+    return _REDISMODULE_OPEN_KEY_ALL;
 }
 
 /* Destroy a RedisModuleKey struct (freeing is the responsibility of the caller). */
@@ -4102,7 +4142,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
             sdssubstr(key->value->ptr,0,newlen);
             /* If the string is too wasteful, reallocate it. */
             if (sdslen(key->value->ptr) < sdsavail(key->value->ptr))
-                key->value->ptr = sdsRemoveFreeSpace(key->value->ptr);
+                key->value->ptr = sdsRemoveFreeSpace(key->value->ptr, 0);
         }
     }
     return REDISMODULE_OK;
@@ -6148,7 +6188,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     server.replication_allowed = replicate && server.replication_allowed;
 
     /* Run the command */
-    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_FROM_MODULE;
+    int call_flags = CMD_CALL_FROM_MODULE;
     if (replicate) {
         if (!(flags & REDISMODULE_ARGV_NO_AOF))
             call_flags |= CMD_CALL_PROPAGATE_AOF;
@@ -7272,7 +7312,7 @@ void RM_LatencyAddSample(const char *event, mstime_t latency) {
  * The structure RedisModuleBlockedClient will be always deallocated when
  * running the list of clients blocked by a module that need to be unblocked. */
 void unblockClientFromModule(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Call the disconnection callback if any. Note that
      * bc->disconnect_callback is set to NULL if the client gets disconnected
@@ -7336,8 +7376,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     int islua = scriptIsRunning();
     int ismulti = server.in_exec;
 
-    c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    c->bstate.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     ctx->module->blocked_clients++;
 
     /* We need to handle the invalid operation of calling modules blocking
@@ -7361,16 +7401,16 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->unblocked = 0;
     bc->background_timer = 0;
     bc->background_duration = 0;
-    c->bpop.timeout = timeout;
+    c->bstate.timeout = timeout;
 
     if (islua || ismulti) {
-        c->bpop.module_blocked_handle = NULL;
+        c->bstate.module_blocked_handle = NULL;
         addReplyError(c, islua ?
             "Blocking module command called from Lua script" :
             "Blocking module command called from transaction");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,-1,timeout,NULL,NULL,NULL,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
@@ -7387,7 +7427,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
  * This function returns 1 if client was served (and should be unblocked) */
 int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
     int served = 0;
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Protect against re-processing: don't serve clients that are already
      * in the unblocking list for any reason (including RM_UnblockClient()
@@ -7556,14 +7596,14 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
 /* This API is used by the Redis core to unblock a client that was blocked
  * by a module. */
 void moduleUnblockClient(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     moduleUnblockClientByHandle(bc,NULL);
 }
 
 /* Return true if the client 'c' was blocked by a module using
  * RM_BlockClientOnKeys(). */
 int moduleClientIsBlockedOnKeys(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     return bc->blocked_on_keys;
 }
 
@@ -7730,10 +7770,10 @@ void moduleHandleBlockedClients(void) {
  * moduleBlockedClientTimedOut().
  */
 int moduleBlockedClientMayTimeout(client *c) {
-    if (c->btype != BLOCKED_MODULE)
+    if (c->bstate.btype != BLOCKED_MODULE)
         return 1;
 
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     return (bc && bc->timeout_callback != NULL);
 }
 
@@ -7742,7 +7782,7 @@ int moduleBlockedClientMayTimeout(client *c) {
  * does not need to do any cleanup. Eventually the module will call the
  * API to unblock the client and the memory will be released. */
 void moduleBlockedClientTimedOut(client *c) {
-    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Protect against re-processing: don't serve clients that are already
      * in the unblocking list for any reason (including RM_UnblockClient()
@@ -7757,9 +7797,8 @@ void moduleBlockedClientTimedOut(client *c) {
     long long prev_error_replies = server.stat_total_error_replies;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
-    if (!bc->blocked_on_keys) {
-        updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
-    }
+    updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
+
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in
      * this case, and the user can still hook using the timeout callback. */
@@ -7884,10 +7923,10 @@ void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
 void moduleGILAfterLock() {
     /* We should never get here if we already inside a module
      * code block which already opened a context. */
-    serverAssert(server.module_ctx_nesting == 0);
+    serverAssert(server.execution_nesting == 0);
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
-    server.module_ctx_nesting++;
+    server.execution_nesting++;
     updateCachedTime(0);
 }
 
@@ -7922,20 +7961,12 @@ void moduleGILBeforeUnlock() {
     /* We should never get here if we already inside a module
      * code block which already opened a context, except
      * the bump-up from moduleGILAcquired. */
-    serverAssert(server.module_ctx_nesting == 1);
-    /* Restore ctx_nesting and propagate pending commands
-     * (because it's u clear when thread safe contexts are
+    serverAssert(server.execution_nesting == 1);
+    /* Restore nesting level and propagate pending commands
+     * (because it's unclear when thread safe contexts are
      * released we have to propagate here). */
-    server.module_ctx_nesting--;
+    server.execution_nesting--;
     postExecutionUnitOperations();
-
-    if (server.busy_module_yield_flags) {
-        blockingOperationEnds();
-        server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
-        if (server.current_client)
-            unprotectClient(server.current_client);
-        unblockPostponedClients();
-    }
 }
 
 /* Release the server lock after a thread safe API call was executed. */
@@ -8042,8 +8073,10 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
 }
 
 void firePostExecutionUnitJobs() {
-    /* Avoid propagation of commands. */
-    server.in_nested_call++;
+    /* Avoid propagation of commands.
+     * In that way, postExecutionUnitOperations will prevent
+     * recursive calls to firePostExecutionUnitJobs. */
+    server.execution_nesting++;
     while (listLength(modulePostExecUnitJobs) > 0) {
         listNode *ln = listFirst(modulePostExecUnitJobs);
         RedisModulePostExecUnitJob *job = listNodeValue(ln);
@@ -8059,7 +8092,7 @@ void firePostExecutionUnitJobs() {
         moduleFreeContext(&ctx);
         zfree(job);
     }
-    server.in_nested_call--;
+    server.execution_nesting--;
 }
 
 /* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
@@ -8109,6 +8142,22 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
     /* Don't do anything if there aren't any subscribers */
     if (listLength(moduleKeyspaceSubscribers) == 0) return;
 
+    /* Ugly hack to handle modules which use write commands from within
+     * notify_callback, which they should NOT do!
+     * Modules should use RedisModules_AddPostNotificationJob instead.
+     *
+     * Anyway, we want any propagated commands from within notify_callback
+     * to be propagated inside a MULTI/EXEC together with the original
+     * command that caused the KSN.
+     * Note that it's only relevant for KSNs which are not generated from within
+     * call(), for example active-expiry and eviction (because anyway
+     * execution_nesting is incremented from within call())
+     *
+     * In order to do that we increment the execution_nesting counter, thus
+     * preventing postExecutionUnitOperations (from within moduleFreeContext)
+     * from propagating commands from CB. */
+    server.execution_nesting++;
+
     listIter li;
     listNode *ln;
     listRewind(moduleKeyspaceSubscribers,&li);
@@ -8130,11 +8179,15 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
              * If the subscriber performs an action triggering itself,
              * it will not be notified about it. */
             sub->active = 1;
+            server.lazy_expire_disabled++;
             sub->notify_callback(&ctx, type, event, key);
+            server.lazy_expire_disabled--;
             sub->active = 0;
             moduleFreeContext(&ctx);
         }
     }
+
+    server.execution_nesting--;
 }
 
 /* Unsubscribe any notification subscribers this module has upon unloading */
@@ -9876,7 +9929,7 @@ int RM_ExportSharedAPI(RedisModuleCtx *ctx, const char *apiname, void *func) {
  *         static int api_loaded = 0;
  *         if (api_loaded != 0) return 1; // APIs already resolved.
  *
- *         myFunctionPointer = RedisModule_GetOtherModuleAPI("...");
+ *         myFunctionPointer = RedisModule_GetSharedAPI("...");
  *         if (myFunctionPointer == NULL) return 0;
  *
  *         return 1;
@@ -10055,6 +10108,7 @@ void moduleCallCommandFilters(client *c) {
 
     RedisModuleCommandFilterCtx filter = {
         .argv = c->argv,
+        .argv_len = c->argv_len,
         .argc = c->argc
     };
 
@@ -10071,6 +10125,7 @@ void moduleCallCommandFilters(client *c) {
     }
 
     c->argv = filter.argv;
+    c->argv_len = filter.argv_len;
     c->argc = filter.argc;
 }
 
@@ -10102,7 +10157,10 @@ int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *fctx, int pos, RedisM
 
     if (pos < 0 || pos > fctx->argc) return REDISMODULE_ERR;
 
-    fctx->argv = zrealloc(fctx->argv, (fctx->argc+1)*sizeof(RedisModuleString *));
+    if (fctx->argv_len < fctx->argc+1) {
+        fctx->argv_len = fctx->argc+1;
+        fctx->argv = zrealloc(fctx->argv, fctx->argv_len*sizeof(RedisModuleString *));
+    }
     for (i = fctx->argc; i > pos; i--) {
         fctx->argv[i] = fctx->argv[i-1];
     }
@@ -10307,7 +10365,7 @@ int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanC
     }
     int ret = 1;
     ScanCBData data = { ctx, privdata, fn };
-    cursor->cursor = dictScan(ctx->client->db->dict, cursor->cursor, moduleScanCallback, NULL, &data);
+    cursor->cursor = dictScan(ctx->client->db->dict, cursor->cursor, moduleScanCallback, &data);
     if (cursor->cursor == 0) {
         cursor->done = 1;
         ret = 0;
@@ -10419,23 +10477,24 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
     int ret = 1;
     if (ht) {
         ScanKeyCBData data = { key, privdata, fn };
-        cursor->cursor = dictScan(ht, cursor->cursor, moduleScanKeyCallback, NULL, &data);
+        cursor->cursor = dictScan(ht, cursor->cursor, moduleScanKeyCallback, &data);
         if (cursor->cursor == 0) {
             cursor->done = 1;
             ret = 0;
         }
-    } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_INTSET) {
-        int pos = 0;
-        int64_t ll;
-        while(intsetGet(o->ptr,pos++,&ll)) {
-            robj *field = createObject(OBJ_STRING,sdsfromlonglong(ll));
+    } else if (o->type == OBJ_SET) {
+        setTypeIterator *si = setTypeInitIterator(o);
+        sds sdsele;
+        while ((sdsele = setTypeNextObject(si)) != NULL) {
+            robj *field = createObject(OBJ_STRING, sdsele);
             fn(key, field, NULL, privdata);
             decrRefCount(field);
         }
+        setTypeReleaseIterator(si);
         cursor->cursor = 1;
         cursor->done = 1;
         ret = 0;
-    } else if (o->type == OBJ_ZSET) {
+    } else if (o->type == OBJ_ZSET || o->type == OBJ_HASH) {
         unsigned char *p = lpSeek(o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;
@@ -10450,25 +10509,6 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             robj *value = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
                 createObject(OBJ_STRING,sdsfromlonglong(vll));
-            fn(key, field, value, privdata);
-            p = lpNext(o->ptr,p);
-            decrRefCount(field);
-            decrRefCount(value);
-        }
-        cursor->cursor = 1;
-        cursor->done = 1;
-        ret = 0;
-    } else if (o->type == OBJ_HASH) {
-        unsigned char *p = lpFirst(o->ptr);
-        unsigned char *vstr;
-        int64_t vlen;
-        unsigned char intbuf[LP_INTBUF_SIZE];
-        while(p) {
-            vstr = lpGet(p,&vlen,intbuf);
-            robj *field = createStringObject((char*)vstr,vlen);
-            p = lpNext(o->ptr,p);
-            vstr = lpGet(p,&vlen,intbuf);
-            robj *value = createStringObject((char*)vstr,vlen);
             fn(key, field, value, privdata);
             p = lpNext(o->ptr,p);
             decrRefCount(field);
@@ -10603,6 +10643,7 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_REPL_ASYNC_LOAD */
     -1, /* REDISMODULE_EVENT_EVENTLOOP */
     -1, /* REDISMODULE_EVENT_CONFIG */
+    REDISMODULE_KEYINFO_VERSION, /* REDISMODULE_EVENT_KEY */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -10877,6 +10918,22 @@ static uint64_t moduleEventVersions[] = {
  *                                    // name of each modified configuration item 
  *         uint32_t num_changes;      // The number of elements in the config_names array
  *
+ * * RedisModule_Event_Key
+ *
+ *     Called when a key is removed from the keyspace. We can't modify any key in
+ *     the event.
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_KEY_DELETED`
+ *     * `REDISMODULE_SUBEVENT_KEY_EXPIRED`
+ *     * `REDISMODULE_SUBEVENT_KEY_EVICTED`
+ *     * `REDISMODULE_SUBEVENT_KEY_OVERWRITTEN`
+ *
+ *     The data pointer can be casted to a RedisModuleKeyInfo
+ *     structure with the following fields:
+ *
+ *         RedisModuleKey *key;    // Key name
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
  * is given then REDISMODULE_ERR is returned. */
@@ -10956,11 +11013,20 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT;
     case REDISMODULE_EVENT_CONFIG:
         return subevent < _REDISMODULE_SUBEVENT_CONFIG_NEXT; 
+    case REDISMODULE_EVENT_KEY:
+        return subevent < _REDISMODULE_SUBEVENT_KEY_NEXT;
     default:
         break;
     }
     return 0;
 }
+
+typedef struct KeyInfo {
+    int32_t dbnum;
+    RedisModuleString *key;
+    robj *value;
+    int mode;
+} KeyInfo;
 
 /* This is called by the Redis internals every time we want to fire an
  * event that can be intercepted by some module. The pointer 'data' is useful
@@ -10998,6 +11064,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             RedisModuleClientInfoV1 civ1;
             RedisModuleReplicationInfoV1 riv1;
             RedisModuleModuleChangeV1 mcv1;
+            RedisModuleKey key;
+            RedisModuleKeyInfoV1 ki = {REDISMODULE_KEYINFO_VERSION, &key};
 
             /* Event specific context and data pointer setup. */
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
@@ -11029,11 +11097,20 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_CONFIG) {
                 moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_KEY) {
+                KeyInfo *info = data;
+                selectDb(ctx.client, info->dbnum);
+                moduleInitKey(&key, &ctx, info->key, info->value, info->mode);
+                moduledata = &ki;
             }
 
             el->module->in_hook++;
             el->callback(&ctx,el->event,subid,moduledata);
             el->module->in_hook--;
+
+            if (eid == REDISMODULE_EVENT_KEY) {
+                moduleCloseKey(&key);
+            }
 
             moduleFreeContext(&ctx);
         }
@@ -11078,9 +11155,21 @@ void processModuleLoadingProgressEvent(int is_aof) {
     }
 }
 
-/* When a module key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it 
+/* When a key is deleted (in dbAsyncDelete/dbSyncDelete/setKey), it
 *  will be called to tell the module which key is about to be released. */
-void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
+void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
+    server.lazy_expire_disabled++;
+    int subevent = REDISMODULE_SUBEVENT_KEY_DELETED;
+    if (flags & DB_FLAG_KEY_EXPIRED) {
+        subevent = REDISMODULE_SUBEVENT_KEY_EXPIRED;
+    } else if (flags & DB_FLAG_KEY_EVICTED) {
+        subevent = REDISMODULE_SUBEVENT_KEY_EVICTED;
+    } else if (flags & DB_FLAG_KEY_OVERWRITE) {
+        subevent = REDISMODULE_SUBEVENT_KEY_OVERWRITTEN;
+    }
+    KeyInfo info = {dbid, key, val, REDISMODULE_WRITE};
+    moduleFireServerEvent(REDISMODULE_EVENT_KEY, subevent, &info);
+
     if (val->type == OBJ_MODULE) {
         moduleValue *mv = val->ptr;
         moduleType *mt = mv->type;
@@ -11090,8 +11179,9 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
             mt->unlink2(&ctx,mv->value);
         } else if (mt->unlink != NULL) {
             mt->unlink(key,mv->value);
-        } 
+        }
     }
+    server.lazy_expire_disabled--;
 }
 
 /* Return the free_effort of the module, it will automatically choose to call 
@@ -12501,7 +12591,6 @@ const char *RM_GetCurrentCommandName(RedisModuleCtx *ctx) {
  * defrag callback.
  */
 struct RedisModuleDefragCtx {
-    long defragged;
     long long int endtime;
     unsigned long *cursor;
     struct redisObject *key; /* Optional name of key processed, NULL when unknown. */
@@ -12590,11 +12679,8 @@ int RM_DefragCursorGet(RedisModuleDefragCtx *ctx, unsigned long *cursor) {
  * be used again.
  */
 void *RM_DefragAlloc(RedisModuleDefragCtx *ctx, void *ptr) {
-    void *newptr = activeDefragAlloc(ptr);
-    if (newptr)
-        ctx->defragged++;
-
-    return newptr;
+    UNUSED(ctx);
+    return activeDefragAlloc(ptr);
 }
 
 /* Defrag a RedisModuleString previously allocated by RM_Alloc, RM_Calloc, etc.
@@ -12608,7 +12694,8 @@ void *RM_DefragAlloc(RedisModuleDefragCtx *ctx, void *ptr) {
  * on the Redis side is dropped as soon as the command callback returns).
  */
 RedisModuleString *RM_DefragRedisModuleString(RedisModuleDefragCtx *ctx, RedisModuleString *str) {
-    return activeDefragStringOb(str, &ctx->defragged);
+    UNUSED(ctx);
+    return activeDefragStringOb(str);
 }
 
 
@@ -12617,11 +12704,11 @@ RedisModuleString *RM_DefragRedisModuleString(RedisModuleDefragCtx *ctx, RedisMo
  * Returns a zero value (and initializes the cursor) if no more needs to be done,
  * or a non-zero value otherwise.
  */
-int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged, int dbid) {
+int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, int dbid) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
 
-    RedisModuleDefragCtx defrag_ctx = { 0, endtime, cursor, key, dbid};
+    RedisModuleDefragCtx defrag_ctx = { endtime, cursor, key, dbid};
 
     /* Invoke callback. Note that the callback may be missing if the key has been
      * replaced with a different type since our last visit.
@@ -12630,7 +12717,6 @@ int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long en
     if (mt->defrag)
         ret = mt->defrag(&defrag_ctx, key, &mv->value);
 
-    *defragged += defrag_ctx.defragged;
     if (!ret) {
         *cursor = 0;    /* No more work to do */
         return 0;
@@ -12645,7 +12731,7 @@ int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long en
  * Returns 1 if the operation has been completed or 0 if it needs to
  * be scheduled for late defrag.
  */
-int moduleDefragValue(robj *key, robj *value, long *defragged, int dbid) {
+int moduleDefragValue(robj *key, robj *value, int dbid) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
 
@@ -12654,7 +12740,6 @@ int moduleDefragValue(robj *key, robj *value, long *defragged, int dbid) {
      */
     moduleValue *newmv = activeDefragAlloc(mv);
     if (newmv) {
-        (*defragged)++;
         value->ptr = mv = newmv;
     }
 
@@ -12672,29 +12757,24 @@ int moduleDefragValue(robj *key, robj *value, long *defragged, int dbid) {
         return 0;  /* Defrag later */
     }
 
-    RedisModuleDefragCtx defrag_ctx = { 0, 0, NULL, key, dbid};
+    RedisModuleDefragCtx defrag_ctx = { 0, NULL, key, dbid };
     mt->defrag(&defrag_ctx, key, &mv->value);
-    (*defragged) += defrag_ctx.defragged;
     return 1;
 }
 
 /* Call registered module API defrag functions */
-long moduleDefragGlobals(void) {
+void moduleDefragGlobals(void) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
-    long defragged = 0;
 
     while ((de = dictNext(di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
         if (!module->defrag_cb)
             continue;
-        RedisModuleDefragCtx defrag_ctx = { 0, 0, NULL, NULL, -1};
+        RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
         module->defrag_cb(&defrag_ctx);
-        defragged += defrag_ctx.defragged;
     }
     dictReleaseIterator(di);
-
-    return defragged;
 }
 
 /* Returns the name of the key currently being processed.
@@ -12758,6 +12838,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SelectDb);
     REGISTER_API(KeyExists);
     REGISTER_API(OpenKey);
+    REGISTER_API(GetOpenKeyModesAll);
     REGISTER_API(CloseKey);
     REGISTER_API(KeyType);
     REGISTER_API(ValueLength);

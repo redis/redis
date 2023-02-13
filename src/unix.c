@@ -43,6 +43,12 @@ static int connUnixAddr(connection *conn, char *ip, size_t ip_len, int *port, in
     return connectionTypeTcp()->addr(conn, ip, ip_len, port, remote);
 }
 
+static int connUnixIsLocal(connection *conn) {
+    UNUSED(conn);
+
+    return 1; /* Unix socket is always local connection */
+}
+
 static int connUnixListen(connListener *listener) {
     int fd;
     mode_t *perm = (mode_t *)listener->priv;
@@ -164,6 +170,7 @@ static ConnectionType CT_Unix = {
     .ae_handler = connUnixEventHandler,
     .accept_handler = connUnixAcceptHandler,
     .addr = connUnixAddr,
+    .is_local = connUnixIsLocal,
     .listen = connUnixListen,
 
     /* create/shutdown/close connection */

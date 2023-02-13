@@ -173,6 +173,49 @@ start_server {tags {"introspection"}} {
 
         $rd close
     }
+    
+    test {MONITOR log blocked command only once} {
+        
+        # need to reconnect in order to reset the clients state
+        reconnect
+        
+        set rd [redis_deferring_client]
+        set bc [redis_deferring_client]
+        r del mylist
+        
+        $rd monitor
+        $rd read ; # Discard the OK
+        
+        $bc blpop mylist 0
+        wait_for_blocked_clients_count 1
+        r lpush mylist 1
+        wait_for_blocked_clients_count 0
+        r lpush mylist 2
+        
+        # we expect to see the blpop on the monitor first
+        assert_match {*"blpop"*"mylist"*"0"*} [$rd read]
+        
+        # we scan out all the info commands on the monitor
+        set monitor_output [$rd read]
+        while { [string match {*"info"*} $monitor_output] } {
+            set monitor_output [$rd read]
+        }
+        
+        # we expect to locate the lpush right when the client was unblocked
+        assert_match {*"lpush"*"mylist"*"1"*} $monitor_output
+        
+        # we scan out all the info commands
+        set monitor_output [$rd read]
+        while { [string match {*"info"*} $monitor_output] } {
+            set monitor_output [$rd read]
+        }
+        
+        # we expect to see the next lpush and not duplicate blpop command
+        assert_match {*"lpush"*"mylist"*"2"*} $monitor_output
+        
+        $rd close
+        $bc close
+    }
 
     test {CLIENT GETNAME should return NIL if name is not assigned} {
         r client getname

@@ -56,7 +56,6 @@ void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
-sds clusterGenNodesDescription(int filter, int use_pport);
 list *clusterGetNodesInMyShard(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
@@ -94,9 +93,9 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
 /* Links to the next and previous entries for keys in the same slot are stored
  * in the dict entry metadata. See Slot to Key API below. */
 #define dictEntryNextInSlot(de) \
-    (((clusterDictEntryMetadata *)dictMetadata(de))->next)
+    (((clusterDictEntryMetadata *)dictEntryMetadata(de))->next)
 #define dictEntryPrevInSlot(de) \
-    (((clusterDictEntryMetadata *)dictMetadata(de))->prev)
+    (((clusterDictEntryMetadata *)dictEntryMetadata(de))->prev)
 
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
@@ -3340,6 +3339,9 @@ void clusterReadHandler(connection *conn) {
  * the link to be invalidated, so it is safe to call this function
  * from event handlers that will do stuff with the same link later. */
 void clusterSendMessage(clusterLink *link, clusterMsgSendBlock *msgblock) {
+    if (!link) {
+        return;
+    }
     if (listLength(link->send_msg_queue) == 0 && msgblock->msg.totlen != 0)
         connSetWriteHandlerWithBarrier(link->conn, clusterWriteHandler, 1);
 
@@ -3370,7 +3372,6 @@ void clusterBroadcastMessage(clusterMsgSendBlock *msgblock) {
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
-        if (!node->link) continue;
         if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
             continue;
         clusterSendMessage(node->link,msgblock);
@@ -3764,9 +3765,9 @@ void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
     msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
     while((ln = listNext(&li))) {
         clusterNode *node = listNodeValue(ln);
-        if (node != myself) {
-            clusterSendMessage(node->link,msgblock);
-        }
+        if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
+            continue;
+        clusterSendMessage(node->link,msgblock);
     }
     clusterMsgSendBlockDecrRefCount(msgblock);
 }
@@ -4010,7 +4011,14 @@ void clusterLogCantFailover(int reason) {
         break;
     }
     lastlog_time = time(NULL);
-    serverLog(LL_WARNING,"Currently unable to failover: %s", msg);
+    serverLog(LL_NOTICE,"Currently unable to failover: %s", msg);
+    
+    int cur_vote = server.cluster->failover_auth_count;
+    int cur_quorum = (server.cluster->size / 2) + 1;
+    /* Emits a log when an election is in progress and waiting for votes or when the failover attempt expired. */
+    if (reason == CLUSTER_CANT_FAILOVER_WAITING_VOTES || reason == CLUSTER_CANT_FAILOVER_EXPIRED) {
+        serverLog(LL_NOTICE, "Needed quorum: %d. Number of votes received so far: %d", cur_quorum, cur_vote);
+    } 
 }
 
 /* This function implements the final part of automatic and manual failovers,
@@ -5471,27 +5479,42 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
     /* Add the additional endpoint information, this is all the known networking information
-     * that is not the preferred endpoint. */
-    void *deflen = addReplyDeferredLen(c);
+     * that is not the preferred endpoint. Note the logic is evaluated twice so we can
+     * correctly report the number of additional network arguments without using a deferred
+     * map, an assertion is made at the end to check we set the right length. */
     int length = 0;
+    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_IP) {
+        length++;
+    }
+    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_HOSTNAME
+        && sdslen(node->hostname) != 0)
+    {
+        length++;
+    }
+    addReplyMapLen(c, length);
+
     if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_IP) {
         addReplyBulkCString(c, "ip");
         addReplyBulkCString(c, node->ip);
-        length++;
+        length--;
     }
     if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_HOSTNAME
         && sdslen(node->hostname) != 0)
     {
         addReplyBulkCString(c, "hostname");
         addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
-        length++;
+        length--;
     }
-    setDeferredMapLen(c, deflen, length);
+    serverAssert(length == 0);
 }
 
 void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
     int i, nested_elements = 3; /* slots (2) + master addr (1) */
-    void *nested_replylen = addReplyDeferredLen(c);
+    for (i = 0; i < node->numslaves; i++) {
+        if (!isReplicaAvailable(node->slaves[i])) continue;
+        nested_elements++;
+    }
+    addReplyArrayLen(c, nested_elements);
     addReplyLongLong(c, start_slot);
     addReplyLongLong(c, end_slot);
     addNodeToNodeReply(c, node);
@@ -5502,9 +5525,9 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
          * with modifications for per-slot node aggregation. */
         if (!isReplicaAvailable(node->slaves[i])) continue;
         addNodeToNodeReply(c, node->slaves[i]);
-        nested_elements++;
+        nested_elements--;
     }
-    setDeferredArrayLen(c, nested_replylen, nested_elements);
+    serverAssert(nested_elements == 3); /* Original 3 elements */
 }
 
 /* Add detailed information of a node to the output buffer of the given client. */
@@ -5655,6 +5678,84 @@ void clusterReplyMultiBulkSlots(client * c) {
         }
     }
     setDeferredArrayLen(c, slot_replylen, num_masters);
+}
+
+sds genClusterInfoString() {
+    sds info = sdsempty();
+    char *statestr[] = {"ok","fail"};
+    int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;
+    uint64_t myepoch;
+    int j;
+
+    for (j = 0; j < CLUSTER_SLOTS; j++) {
+        clusterNode *n = server.cluster->slots[j];
+
+        if (n == NULL) continue;
+        slots_assigned++;
+        if (nodeFailed(n)) {
+            slots_fail++;
+        } else if (nodeTimedOut(n)) {
+            slots_pfail++;
+        } else {
+            slots_ok++;
+        }
+    }
+
+    myepoch = (nodeIsSlave(myself) && myself->slaveof) ?
+                myself->slaveof->configEpoch : myself->configEpoch;
+
+    info = sdscatprintf(info,
+        "cluster_state:%s\r\n"
+        "cluster_slots_assigned:%d\r\n"
+        "cluster_slots_ok:%d\r\n"
+        "cluster_slots_pfail:%d\r\n"
+        "cluster_slots_fail:%d\r\n"
+        "cluster_known_nodes:%lu\r\n"
+        "cluster_size:%d\r\n"
+        "cluster_current_epoch:%llu\r\n"
+        "cluster_my_epoch:%llu\r\n"
+        , statestr[server.cluster->state],
+        slots_assigned,
+        slots_ok,
+        slots_pfail,
+        slots_fail,
+        dictSize(server.cluster->nodes),
+        server.cluster->size,
+        (unsigned long long) server.cluster->currentEpoch,
+        (unsigned long long) myepoch
+    );
+
+    /* Show stats about messages sent and received. */
+    long long tot_msg_sent = 0;
+    long long tot_msg_received = 0;
+
+    for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
+        if (server.cluster->stats_bus_messages_sent[i] == 0) continue;
+        tot_msg_sent += server.cluster->stats_bus_messages_sent[i];
+        info = sdscatprintf(info,
+            "cluster_stats_messages_%s_sent:%lld\r\n",
+            clusterGetMessageTypeString(i),
+            server.cluster->stats_bus_messages_sent[i]);
+    }
+    info = sdscatprintf(info,
+        "cluster_stats_messages_sent:%lld\r\n", tot_msg_sent);
+
+    for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
+        if (server.cluster->stats_bus_messages_received[i] == 0) continue;
+        tot_msg_received += server.cluster->stats_bus_messages_received[i];
+        info = sdscatprintf(info,
+            "cluster_stats_messages_%s_received:%lld\r\n",
+            clusterGetMessageTypeString(i),
+            server.cluster->stats_bus_messages_received[i]);
+    }
+    info = sdscatprintf(info,
+        "cluster_stats_messages_received:%lld\r\n", tot_msg_received);
+
+    info = sdscatprintf(info,
+        "total_cluster_links_buffer_limit_exceeded:%llu\r\n",
+        server.cluster->stat_cluster_links_buffer_limit_exceeded);
+
+    return info;
 }
 
 void clusterCommand(client *c) {
@@ -6052,75 +6153,8 @@ NULL
                 (unsigned long long) myself->configEpoch);
         addReplySds(c,reply);
     } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
-        /* CLUSTER INFO */
-        char *statestr[] = {"ok","fail"};
-        int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;
-        int j;
-
-        for (j = 0; j < CLUSTER_SLOTS; j++) {
-            clusterNode *n = server.cluster->slots[j];
-
-            if (n == NULL) continue;
-            slots_assigned++;
-            if (nodeFailed(n)) {
-                slots_fail++;
-            } else if (nodeTimedOut(n)) {
-                slots_pfail++;
-            } else {
-                slots_ok++;
-            }
-        }
-
-        sds info = sdscatprintf(sdsempty(),
-            "cluster_state:%s\r\n"
-            "cluster_slots_assigned:%d\r\n"
-            "cluster_slots_ok:%d\r\n"
-            "cluster_slots_pfail:%d\r\n"
-            "cluster_slots_fail:%d\r\n"
-            "cluster_known_nodes:%lu\r\n"
-            "cluster_size:%d\r\n"
-            "cluster_current_epoch:%llu\r\n"
-            "cluster_my_epoch:%llu\r\n"
-            , statestr[server.cluster->state],
-            slots_assigned,
-            slots_ok,
-            slots_pfail,
-            slots_fail,
-            dictSize(server.cluster->nodes),
-            server.cluster->size,
-            (unsigned long long) server.cluster->currentEpoch,
-            (unsigned long long) nodeEpoch(myself)
-        );
-
-        /* Show stats about messages sent and received. */
-        long long tot_msg_sent = 0;
-        long long tot_msg_received = 0;
-
-        for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
-            if (server.cluster->stats_bus_messages_sent[i] == 0) continue;
-            tot_msg_sent += server.cluster->stats_bus_messages_sent[i];
-            info = sdscatprintf(info,
-                "cluster_stats_messages_%s_sent:%lld\r\n",
-                clusterGetMessageTypeString(i),
-                server.cluster->stats_bus_messages_sent[i]);
-        }
-        info = sdscatprintf(info,
-            "cluster_stats_messages_sent:%lld\r\n", tot_msg_sent);
-
-        for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
-            if (server.cluster->stats_bus_messages_received[i] == 0) continue;
-            tot_msg_received += server.cluster->stats_bus_messages_received[i];
-            info = sdscatprintf(info,
-                "cluster_stats_messages_%s_received:%lld\r\n",
-                clusterGetMessageTypeString(i),
-                server.cluster->stats_bus_messages_received[i]);
-        }
-        info = sdscatprintf(info,
-            "cluster_stats_messages_received:%lld\r\n", tot_msg_received);
-
-        info = sdscatprintf(info,
-            "total_cluster_links_buffer_limit_exceeded:%llu\r\n",
-            server.cluster->stat_cluster_links_buffer_limit_exceeded);
+        /* CLUSTER INFO */       
+        sds info = genClusterInfoString();
 
         /* Produce the reply protocol. */
         addReplyVerbatim(c,info,sdslen(info),"txt");
@@ -7405,10 +7439,10 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
  * returns 1. Otherwise 0 is returned and no operation is performed. */
 int clusterRedirectBlockedClientIfNeeded(client *c) {
     if (c->flags & CLIENT_BLOCKED &&
-        (c->btype == BLOCKED_LIST ||
-         c->btype == BLOCKED_ZSET ||
-         c->btype == BLOCKED_STREAM ||
-         c->btype == BLOCKED_MODULE))
+        (c->bstate.btype == BLOCKED_LIST ||
+         c->bstate.btype == BLOCKED_ZSET ||
+         c->bstate.btype == BLOCKED_STREAM ||
+         c->bstate.btype == BLOCKED_MODULE))
     {
         dictEntry *de;
         dictIterator *di;
@@ -7424,11 +7458,11 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
 
         /* If the client is blocked on module, but not on a specific key,
          * don't unblock it (except for the CLUSTER_FAIL case above). */
-        if (c->btype == BLOCKED_MODULE && !moduleClientIsBlockedOnKeys(c))
+        if (c->bstate.btype == BLOCKED_MODULE && !moduleClientIsBlockedOnKeys(c))
             return 0;
 
         /* All keys must belong to the same slot, so check first key only. */
-        di = dictGetIterator(c->bpop.keys);
+        di = dictGetIterator(c->bstate.keys);
         if ((de = dictNext(di)) != NULL) {
             robj *key = dictGetKey(de);
             int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));
@@ -7471,7 +7505,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
  * understand if we have keys for a given hash slot. */
 
 void slotToKeyAddEntry(dictEntry *entry, redisDb *db) {
-    sds key = entry->key;
+    sds key = dictGetKey(entry);
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
     slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
     slot_to_keys->count++;
@@ -7488,7 +7522,7 @@ void slotToKeyAddEntry(dictEntry *entry, redisDb *db) {
 }
 
 void slotToKeyDelEntry(dictEntry *entry, redisDb *db) {
-    sds key = entry->key;
+    sds key = dictGetKey(entry);
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
     slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
     slot_to_keys->count--;
@@ -7510,7 +7544,7 @@ void slotToKeyDelEntry(dictEntry *entry, redisDb *db) {
 
 /* Updates neighbour entries when an entry has been replaced (e.g. reallocated
  * during active defrag). */
-void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
+void slotToKeyReplaceEntry(dict *d, dictEntry *entry) {
     dictEntry *next = dictEntryNextInSlot(entry);
     dictEntry *prev = dictEntryPrevInSlot(entry);
     if (next != NULL) {
@@ -7520,8 +7554,10 @@ void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
         dictEntryNextInSlot(prev) = entry;
     } else {
         /* The replaced entry was the first in the list. */
-        sds key = entry->key;
+        sds key = dictGetKey(entry);
         unsigned int hashslot = keyHashSlot(key, sdslen(key));
+        clusterDictMetadata *dictmeta = dictMetadata(d);
+        redisDb *db = dictmeta->db;
         slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
         slot_to_keys->head = entry;
     }
@@ -7530,6 +7566,8 @@ void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
 /* Initialize slots-keys map of given db. */
 void slotToKeyInit(redisDb *db) {
     db->slots_to_keys = zcalloc(sizeof(clusterSlotToKeyMapping));
+    clusterDictMetadata *dictmeta = dictMetadata(db->dict);
+    dictmeta->db = db;
 }
 
 /* Empty slots-keys map of given db. */
@@ -7549,9 +7587,6 @@ void slotToKeyDestroy(redisDb *db) {
 unsigned int delKeysInSlot(unsigned int hashslot) {
     unsigned int j = 0;
 
-    server.core_propagates = 1;
-    server.in_nested_call++;
-
     dictEntry *de = (*server.db->slots_to_keys).by_slot[hashslot].head;
     while (de != NULL) {
         sds sdskey = dictGetKey(de);
@@ -7563,14 +7598,10 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
         postExecutionUnitOperations();
         decrRefCount(key);
-        postExecutionUnitOperations();
         j++;
         server.dirty++;
     }
-    serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
-    server.core_propagates = 0;
-    server.in_nested_call--;
     return j;
 }
 

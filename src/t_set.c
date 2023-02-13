@@ -28,12 +28,7 @@
  */
 
 #include "server.h"
-
-/* Internal prototypes */
-
-int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
-int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
-int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
+#include "intset.h"  /* Compact integer set structure */
 
 /*-----------------------------------------------------------------------------
  * Set Commands
@@ -127,17 +122,16 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
         /* Avoid duping the string if it is an sds string. */
         sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
         dict *ht = set->ptr;
-        dictEntry *de = dictAddRaw(ht,sdsval,NULL);
-        if (de && sdsval == str) {
-            /* String was added but we don't own this sds string. Dup it and
-             * replace it in the dict entry. */
-            dictSetKey(ht,de,sdsdup((sds)str));
-            dictSetVal(ht,de,NULL);
-        } else if (!de && sdsval != str) {
-            /* String was already a member. Free our temporary sds copy. */
+        void *position = dictFindPositionForInsert(ht, sdsval, NULL);
+        if (position) {
+            /* Key doesn't already exist in the set. Add it but dup the key. */
+            if (sdsval == str) sdsval = sdsdup(sdsval);
+            dictInsertAtPosition(ht, sdsval, position);
+        } else if (sdsval != str) {
+            /* String is already a member. Free our temporary sds copy. */
             sdsfree(sdsval);
         }
-        return (de != NULL);
+        return (position != NULL);
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
@@ -159,7 +153,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 set->ptr = lp;
             } else {
                 /* Size limit is reached. Convert to hashtable and add. */
-                setTypeConvert(set, OBJ_ENCODING_HT);
+                setTypeConvertAndExpand(set, OBJ_ENCODING_HT, lpLength(lp) + 1, 1);
                 serverAssert(dictAdd(set->ptr,sdsnewlen(str,len),NULL) == DICT_OK);
             }
             return 1;
@@ -174,23 +168,34 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 return 1;
             }
         } else {
-            size_t maxelelen = intsetLen(set->ptr) == 0 ?
-                0 : max(sdigits10(intsetMax(set->ptr)),
-                        sdigits10(intsetMin(set->ptr)));
+            /* Check if listpack encoding is safe not to cross any threshold. */
+            size_t maxelelen = 0, totsize = 0;
+            unsigned long n = intsetLen(set->ptr);
+            if (n != 0) {
+                size_t elelen1 = sdigits10(intsetMax(set->ptr));
+                size_t elelen2 = sdigits10(intsetMin(set->ptr));
+                maxelelen = max(elelen1, elelen2);
+                size_t s1 = lpEstimateBytesRepeatedInteger(intsetMax(set->ptr), n);
+                size_t s2 = lpEstimateBytesRepeatedInteger(intsetMin(set->ptr), n);
+                totsize = max(s1, s2);
+            }
             if (intsetLen((const intset*)set->ptr) < server.set_max_listpack_entries &&
                 len <= server.set_max_listpack_value &&
                 maxelelen <= server.set_max_listpack_value &&
-                lpSafeToAdd(NULL, maxelelen * intsetLen(set->ptr) + len))
+                lpSafeToAdd(NULL, totsize + len))
             {
                 /* In the "safe to add" check above we assumed all elements in
                  * the intset are of size maxelelen. This is an upper bound. */
-                setTypeConvert(set, OBJ_ENCODING_LISTPACK);
+                setTypeConvertAndExpand(set, OBJ_ENCODING_LISTPACK,
+                                        intsetLen(set->ptr) + 1, 1);
                 unsigned char *lp = set->ptr;
                 lp = lpAppend(lp, (unsigned char *)str, len);
+                lp = lpShrinkToFit(lp);
                 set->ptr = lp;
                 return 1;
             } else {
-                setTypeConvert(set, OBJ_ENCODING_HT);
+                setTypeConvertAndExpand(set, OBJ_ENCODING_HT,
+                                        intsetLen(set->ptr) + 1, 1);
                 /* The set *was* an intset and this value is not integer
                  * encodable, so dictAdd should always work. */
                 serverAssert(dictAdd(set->ptr,sdsnewlen(str,len),NULL) == DICT_OK);
@@ -468,6 +473,14 @@ unsigned long setTypeSize(const robj *subject) {
  * to a hash table) is presized to hold the number of elements in the original
  * set. */
 void setTypeConvert(robj *setobj, int enc) {
+    setTypeConvertAndExpand(setobj, enc, setTypeSize(setobj), 1);
+}
+
+/* Converts a set to the specified encoding, pre-sizing it for 'cap' elements.
+ * The 'panic' argument controls whether to panic on OOM (panic=1) or return
+ * C_ERR on OOM (panic=0). If panic=1 is given, this function always returns
+ * C_OK. */
+int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic) {
     setTypeIterator *si;
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
                              setobj->encoding != enc);
@@ -477,7 +490,12 @@ void setTypeConvert(robj *setobj, int enc) {
         sds element;
 
         /* Presize the dict to avoid rehashing */
-        dictExpand(d, setTypeSize(setobj));
+        if (panic) {
+            dictExpand(d, cap);
+        } else if (dictTryExpand(d, cap) != DICT_OK) {
+            dictRelease(d);
+            return C_ERR;
+        }
 
         /* To add the elements we extract integers and create redis objects */
         si = setTypeInitIterator(setobj);
@@ -490,8 +508,14 @@ void setTypeConvert(robj *setobj, int enc) {
         setobj->encoding = OBJ_ENCODING_HT;
         setobj->ptr = d;
     } else if (enc == OBJ_ENCODING_LISTPACK) {
-        /* Preallocate the minimum one byte per element */
-        size_t estcap = setTypeSize(setobj);
+        /* Preallocate the minimum two bytes per element (enc/value + backlen) */
+        size_t estcap = cap * 2;
+        if (setobj->encoding == OBJ_ENCODING_INTSET && setTypeSize(setobj) > 0) {
+            /* If we're converting from intset, we have a better estimate. */
+            size_t s1 = lpEstimateBytesRepeatedInteger(intsetMin(setobj->ptr), cap);
+            size_t s2 = lpEstimateBytesRepeatedInteger(intsetMax(setobj->ptr), cap);
+            estcap = max(s1, s2);
+        }
         unsigned char *lp = lpNew(estcap);
         char *str;
         size_t len;
@@ -511,6 +535,7 @@ void setTypeConvert(robj *setobj, int enc) {
     } else {
         serverPanic("Unsupported set conversion");
     }
+    return C_OK;
 }
 
 /* This is a helper function for the COPY command.
@@ -885,7 +910,7 @@ void spopWithCountCommand(client *c) {
         setTypeReleaseIterator(si);
 
         /* Assign the new set as the key value. */
-        dbOverwrite(c->db,c->argv[1],newset);
+        dbReplaceValue(c->db,c->argv[1],newset);
     }
 
     /* Don't propagate the command itself even if we incremented the
@@ -943,6 +968,11 @@ void spopCommand(client *c) {
  * implementation for more info. */
 #define SRANDMEMBER_SUB_STRATEGY_MUL 3
 
+/* If client is trying to ask for a very large number of random elements,
+ * queuing may consume an unlimited amount of memory, so we want to limit
+ * the number of randoms per time. */
+#define SRANDFIELD_RANDOM_SAMPLE_LIMIT 1000
+
 void srandmemberWithCountCommand(client *c) {
     long l;
     unsigned long count, size;
@@ -984,13 +1014,21 @@ void srandmemberWithCountCommand(client *c) {
 
         if (set->encoding == OBJ_ENCODING_LISTPACK && count > 1) {
             /* Specialized case for listpack, traversing it only once. */
-            listpackEntry *entries = zmalloc(count * sizeof(listpackEntry));
-            lpRandomEntries(set->ptr, count, entries);
-            for (unsigned long i = 0; i < count; i++) {
-                if (entries[i].sval)
-                    addReplyBulkCBuffer(c, entries[i].sval, entries[i].slen);
-                else
-                    addReplyBulkLongLong(c, entries[i].lval);
+            unsigned long limit, sample_count;
+            limit = count > SRANDFIELD_RANDOM_SAMPLE_LIMIT ? SRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
+            listpackEntry *entries = zmalloc(limit * sizeof(listpackEntry));
+            while (count) {
+                sample_count = count > limit ? limit : count;
+                count -= sample_count;
+                lpRandomEntries(set->ptr, sample_count, entries);
+                for (unsigned long i = 0; i < sample_count; i++) {
+                    if (entries[i].sval)
+                        addReplyBulkCBuffer(c, entries[i].sval, entries[i].slen);
+                    else
+                        addReplyBulkLongLong(c, entries[i].lval);
+                }
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
             zfree(entries);
             return;
@@ -1003,6 +1041,8 @@ void srandmemberWithCountCommand(client *c) {
             } else {
                 addReplyBulkCBuffer(c, str, len);
             }
+            if (c->flags & CLIENT_CLOSE_ASAP)
+                break;
         }
         return;
     }
