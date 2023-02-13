@@ -234,7 +234,7 @@ struct redisCommandArg SETBIT_Args[] = {
 
 /* ASKING_ReplySchema reply schema */
 struct jsonObjectElement ASKING_ReplySchema_elements[] = {
-{"const",JSON_TYPE_STRING,.value.string="OK"},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject ASKING_ReplySchema = {ASKING_ReplySchema_elements,.length=1};
@@ -723,7 +723,7 @@ struct redisCommandArg AUTH_Args[] = {
 
 /* AUTH_ReplySchema reply schema */
 struct jsonObjectElement AUTH_ReplySchema_elements[] = {
-{"const",JSON_TYPE_STRING,.value.string="OK"},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject AUTH_ReplySchema = {AUTH_ReplySchema_elements,.length=1};
@@ -1122,16 +1122,16 @@ struct redisCommandArg PING_Args[] = {
 
 /* PING_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement PING_ReplySchema_anyOf_0_elements[] = {
-{"const",JSON_TYPE_STRING,.value.string="PONG"},
-{"description",JSON_TYPE_STRING,.value.string="Default reply."},
+{JSON_TYPE_STRING,"const",.value.string="PONG"},
+{JSON_TYPE_STRING,"description",.value.string="Default reply."},
 };
 
 struct jsonObject PING_ReplySchema_anyOf_0 = {PING_ReplySchema_anyOf_0_elements,.length=2};
 
 /* PING_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement PING_ReplySchema_anyOf_1_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"description",JSON_TYPE_STRING,.value.string="Relay of given `message`."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Relay of given `message`."},
 };
 
 struct jsonObject PING_ReplySchema_anyOf_1 = {PING_ReplySchema_anyOf_1_elements,.length=2};
@@ -1144,7 +1144,7 @@ struct jsonObject *PING_ReplySchema_anyOf[] = {
 
 /* PING_ReplySchema reply schema */
 struct jsonObjectElement PING_ReplySchema_elements[] = {
-{"anyOf",JSON_TYPE_ARRAY,.value.array={.objects=PING_ReplySchema_anyOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=PING_ReplySchema_anyOf,.length=2}},
 };
 
 struct jsonObject PING_ReplySchema = {PING_ReplySchema_elements,.length=1};
@@ -1181,7 +1181,7 @@ struct redisCommandArg SELECT_Args[] = {
 
 /* SELECT_ReplySchema reply schema */
 struct jsonObjectElement SELECT_ReplySchema_elements[] = {
-{"const",JSON_TYPE_STRING,.value.string="OK"},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SELECT_ReplySchema = {SELECT_ReplySchema_elements,.length=1};
@@ -1223,7 +1223,7 @@ struct redisCommandArg DEL_Args[] = {
 
 /* DEL_ReplySchema reply schema */
 struct jsonObjectElement DEL_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject DEL_ReplySchema = {DEL_ReplySchema_elements,.length=1};
@@ -1268,8 +1268,8 @@ struct redisCommandArg EXISTS_Args[] = {
 
 /* EXISTS_ReplySchema reply schema */
 struct jsonObjectElement EXISTS_ReplySchema_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Number of keys that exist from those specified as arguments."},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Number of keys that exist from those specified as arguments."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject EXISTS_ReplySchema = {EXISTS_ReplySchema_elements,.length=2};
@@ -1448,7 +1448,7 @@ struct redisCommandArg OBJECT_ENCODING_Args[] = {
 
 /* OBJECT_ENCODING_ReplySchema reply schema */
 struct jsonObjectElement OBJECT_ENCODING_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject OBJECT_ENCODING_ReplySchema = {OBJECT_ENCODING_ReplySchema_elements,.length=1};
@@ -1849,16 +1849,16 @@ struct redisCommandArg TYPE_Args[] = {
 
 /* TYPE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement TYPE_ReplySchema_oneOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Key doesn't exist"},
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Key doesn't exist"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject TYPE_ReplySchema_oneOf_0 = {TYPE_ReplySchema_oneOf_0_elements,.length=2};
 
 /* TYPE_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement TYPE_ReplySchema_oneOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Type of the key"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Type of the key"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject TYPE_ReplySchema_oneOf_1 = {TYPE_ReplySchema_oneOf_1_elements,.length=2};
@@ -1871,7 +1871,7 @@ struct jsonObject *TYPE_ReplySchema_oneOf[] = {
 
 /* TYPE_ReplySchema reply schema */
 struct jsonObjectElement TYPE_ReplySchema_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=TYPE_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=TYPE_ReplySchema_oneOf,.length=2}},
 };
 
 struct jsonObject TYPE_ReplySchema = {TYPE_ReplySchema_elements,.length=1};
@@ -2450,17 +2450,17 @@ struct redisCommandArg HGETALL_Args[] = {
 
 /* HGETALL_ReplySchema_additionalProperties reply schema */
 struct jsonObjectElement HGETALL_ReplySchema_additionalProperties_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject HGETALL_ReplySchema_additionalProperties = {HGETALL_ReplySchema_additionalProperties_elements,.length=1};
 
 /* HGETALL_ReplySchema reply schema */
 struct jsonObjectElement HGETALL_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="object"},
-{"description",JSON_TYPE_STRING,.value.string="Map of fields and their values stored in the hash, or an empty list when key does not exist."},
-{"notes",JSON_TYPE_STRING,.value.string="In RESP2 this is returned as a flat array"},
-{"additionalProperties",JSON_TYPE_OBJECT,.value.object=&HGETALL_ReplySchema_additionalProperties},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_STRING,"description",.value.string="Map of fields and their values stored in the hash, or an empty list when key does not exist."},
+{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&HGETALL_ReplySchema_additionalProperties},
 };
 
 struct jsonObject HGETALL_ReplySchema = {HGETALL_ReplySchema_elements,.length=4};
@@ -2592,48 +2592,48 @@ struct redisCommandArg HRANDFIELD_Args[] = {
 
 /* HRANDFIELD_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement HRANDFIELD_ReplySchema_anyOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Key doesn't exist"},
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Key doesn't exist"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject HRANDFIELD_ReplySchema_anyOf_0 = {HRANDFIELD_ReplySchema_anyOf_0_elements,.length=2};
 
 /* HRANDFIELD_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement HRANDFIELD_ReplySchema_anyOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="A single random field. Returned in case `COUNT` was not used."},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="A single random field. Returned in case `COUNT` was not used."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject HRANDFIELD_ReplySchema_anyOf_1 = {HRANDFIELD_ReplySchema_anyOf_1_elements,.length=2};
 
 /* HRANDFIELD_ReplySchema_anyOf_2_items reply schema */
 struct jsonObjectElement HRANDFIELD_ReplySchema_anyOf_2_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject HRANDFIELD_ReplySchema_anyOf_2_items = {HRANDFIELD_ReplySchema_anyOf_2_items_elements,.length=1};
 
 /* HRANDFIELD_ReplySchema_anyOf_2 reply schema */
 struct jsonObjectElement HRANDFIELD_ReplySchema_anyOf_2_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="A list of fields. Returned in case `COUNT` was used."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&HRANDFIELD_ReplySchema_anyOf_2_items},
+{JSON_TYPE_STRING,"description",.value.string="A list of fields. Returned in case `COUNT` was used."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&HRANDFIELD_ReplySchema_anyOf_2_items},
 };
 
 struct jsonObject HRANDFIELD_ReplySchema_anyOf_2 = {HRANDFIELD_ReplySchema_anyOf_2_elements,.length=3};
 
 /* HRANDFIELD_ReplySchema_anyOf_3_items_items_0 reply schema */
 struct jsonObjectElement HRANDFIELD_ReplySchema_anyOf_3_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Field"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Field"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject HRANDFIELD_ReplySchema_anyOf_3_items_items_0 = {HRANDFIELD_ReplySchema_anyOf_3_items_items_0_elements,.length=2};
 
 /* HRANDFIELD_ReplySchema_anyOf_3_items_items_1 reply schema */
 struct jsonObjectElement HRANDFIELD_ReplySchema_anyOf_3_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Value"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Value"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject HRANDFIELD_ReplySchema_anyOf_3_items_items_1 = {HRANDFIELD_ReplySchema_anyOf_3_items_items_1_elements,.length=2};
@@ -2646,20 +2646,20 @@ struct jsonObject *HRANDFIELD_ReplySchema_anyOf_3_items_items[] = {
 
 /* HRANDFIELD_ReplySchema_anyOf_3_items reply schema */
 struct jsonObjectElement HRANDFIELD_ReplySchema_anyOf_3_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=HRANDFIELD_ReplySchema_anyOf_3_items_items,.length=2}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=HRANDFIELD_ReplySchema_anyOf_3_items_items,.length=2}},
 };
 
 struct jsonObject HRANDFIELD_ReplySchema_anyOf_3_items = {HRANDFIELD_ReplySchema_anyOf_3_items_elements,.length=4};
 
 /* HRANDFIELD_ReplySchema_anyOf_3 reply schema */
 struct jsonObjectElement HRANDFIELD_ReplySchema_anyOf_3_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Fields and their values. Returned in case `COUNT` and `WITHVALUES` were used."},
-{"notes",JSON_TYPE_STRING,.value.string="In RESP2 this is returned as a flat array"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&HRANDFIELD_ReplySchema_anyOf_3_items},
+{JSON_TYPE_STRING,"description",.value.string="Fields and their values. Returned in case `COUNT` and `WITHVALUES` were used."},
+{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&HRANDFIELD_ReplySchema_anyOf_3_items},
 };
 
 struct jsonObject HRANDFIELD_ReplySchema_anyOf_3 = {HRANDFIELD_ReplySchema_anyOf_3_elements,.length=4};
@@ -2674,7 +2674,7 @@ struct jsonObject *HRANDFIELD_ReplySchema_anyOf[] = {
 
 /* HRANDFIELD_ReplySchema reply schema */
 struct jsonObjectElement HRANDFIELD_ReplySchema_elements[] = {
-{"anyOf",JSON_TYPE_ARRAY,.value.array={.objects=HRANDFIELD_ReplySchema_anyOf,.length=4}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=HRANDFIELD_ReplySchema_anyOf,.length=4}},
 };
 
 struct jsonObject HRANDFIELD_ReplySchema = {HRANDFIELD_ReplySchema_elements,.length=1};
@@ -2726,7 +2726,7 @@ struct redisCommandArg HSET_Args[] = {
 
 /* HSET_ReplySchema reply schema */
 struct jsonObjectElement HSET_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject HSET_ReplySchema = {HSET_ReplySchema_elements,.length=1};
@@ -2880,16 +2880,16 @@ struct redisCommandArg BLMOVE_Args[] = {
 
 /* BLMOVE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BLMOVE_ReplySchema_oneOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The popped element."},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The popped element."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject BLMOVE_ReplySchema_oneOf_0 = {BLMOVE_ReplySchema_oneOf_0_elements,.length=2};
 
 /* BLMOVE_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement BLMOVE_ReplySchema_oneOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Operation timed-out"},
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Operation timed-out"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject BLMOVE_ReplySchema_oneOf_1 = {BLMOVE_ReplySchema_oneOf_1_elements,.length=2};
@@ -2902,7 +2902,7 @@ struct jsonObject *BLMOVE_ReplySchema_oneOf[] = {
 
 /* BLMOVE_ReplySchema reply schema */
 struct jsonObjectElement BLMOVE_ReplySchema_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=BLMOVE_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=BLMOVE_ReplySchema_oneOf,.length=2}},
 };
 
 struct jsonObject BLMOVE_ReplySchema = {BLMOVE_ReplySchema_elements,.length=1};
@@ -2934,33 +2934,33 @@ struct redisCommandArg BLMPOP_Args[] = {
 
 /* BLMPOP_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BLMPOP_ReplySchema_oneOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Operation timed-out"},
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Operation timed-out"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject BLMPOP_ReplySchema_oneOf_0 = {BLMPOP_ReplySchema_oneOf_0_elements,.length=2};
 
 /* BLMPOP_ReplySchema_oneOf_1_items_0 reply schema */
 struct jsonObjectElement BLMPOP_ReplySchema_oneOf_1_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="List key from which elements were popped."},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="List key from which elements were popped."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject BLMPOP_ReplySchema_oneOf_1_items_0 = {BLMPOP_ReplySchema_oneOf_1_items_0_elements,.length=2};
 
 /* BLMPOP_ReplySchema_oneOf_1_items_1_items reply schema */
 struct jsonObjectElement BLMPOP_ReplySchema_oneOf_1_items_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject BLMPOP_ReplySchema_oneOf_1_items_1_items = {BLMPOP_ReplySchema_oneOf_1_items_1_items_elements,.length=1};
 
 /* BLMPOP_ReplySchema_oneOf_1_items_1 reply schema */
 struct jsonObjectElement BLMPOP_ReplySchema_oneOf_1_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Array of popped elements."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=1},
-{"items",JSON_TYPE_OBJECT,.value.object=&BLMPOP_ReplySchema_oneOf_1_items_1_items},
+{JSON_TYPE_STRING,"description",.value.string="Array of popped elements."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&BLMPOP_ReplySchema_oneOf_1_items_1_items},
 };
 
 struct jsonObject BLMPOP_ReplySchema_oneOf_1_items_1 = {BLMPOP_ReplySchema_oneOf_1_items_1_elements,.length=4};
@@ -2973,11 +2973,11 @@ struct jsonObject *BLMPOP_ReplySchema_oneOf_1_items[] = {
 
 /* BLMPOP_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement BLMPOP_ReplySchema_oneOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The key from which elements were popped and the popped elements"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=BLMPOP_ReplySchema_oneOf_1_items,.length=2}},
+{JSON_TYPE_STRING,"description",.value.string="The key from which elements were popped and the popped elements"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=BLMPOP_ReplySchema_oneOf_1_items,.length=2}},
 };
 
 struct jsonObject BLMPOP_ReplySchema_oneOf_1 = {BLMPOP_ReplySchema_oneOf_1_elements,.length=5};
@@ -2990,7 +2990,7 @@ struct jsonObject *BLMPOP_ReplySchema_oneOf[] = {
 
 /* BLMPOP_ReplySchema reply schema */
 struct jsonObjectElement BLMPOP_ReplySchema_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=BLMPOP_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=BLMPOP_ReplySchema_oneOf,.length=2}},
 };
 
 struct jsonObject BLMPOP_ReplySchema = {BLMPOP_ReplySchema_elements,.length=1};
@@ -4322,32 +4322,32 @@ struct redisCommandArg ACL_CAT_Args[] = {
 
 /* ACL_CAT_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement ACL_CAT_ReplySchema_anyOf_0_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ACL_CAT_ReplySchema_anyOf_0_items = {ACL_CAT_ReplySchema_anyOf_0_items_elements,.length=1};
 
 /* ACL_CAT_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement ACL_CAT_ReplySchema_anyOf_0_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"description",JSON_TYPE_STRING,.value.string="In case `categoryname` was not given, a list of existing ACL categories"},
-{"items",JSON_TYPE_OBJECT,.value.object=&ACL_CAT_ReplySchema_anyOf_0_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="In case `categoryname` was not given, a list of existing ACL categories"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ACL_CAT_ReplySchema_anyOf_0_items},
 };
 
 struct jsonObject ACL_CAT_ReplySchema_anyOf_0 = {ACL_CAT_ReplySchema_anyOf_0_elements,.length=3};
 
 /* ACL_CAT_ReplySchema_anyOf_1_items reply schema */
 struct jsonObjectElement ACL_CAT_ReplySchema_anyOf_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ACL_CAT_ReplySchema_anyOf_1_items = {ACL_CAT_ReplySchema_anyOf_1_items_elements,.length=1};
 
 /* ACL_CAT_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement ACL_CAT_ReplySchema_anyOf_1_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"description",JSON_TYPE_STRING,.value.string="In case `categoryname` was given, list of commands that fall under the provided ACL category"},
-{"items",JSON_TYPE_OBJECT,.value.object=&ACL_CAT_ReplySchema_anyOf_1_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="In case `categoryname` was given, list of commands that fall under the provided ACL category"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ACL_CAT_ReplySchema_anyOf_1_items},
 };
 
 struct jsonObject ACL_CAT_ReplySchema_anyOf_1 = {ACL_CAT_ReplySchema_anyOf_1_elements,.length=3};
@@ -4360,7 +4360,7 @@ struct jsonObject *ACL_CAT_ReplySchema_anyOf[] = {
 
 /* ACL_CAT_ReplySchema reply schema */
 struct jsonObjectElement ACL_CAT_ReplySchema_elements[] = {
-{"anyOf",JSON_TYPE_ARRAY,.value.array={.objects=ACL_CAT_ReplySchema_anyOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=ACL_CAT_ReplySchema_anyOf,.length=2}},
 };
 
 struct jsonObject ACL_CAT_ReplySchema = {ACL_CAT_ReplySchema_elements,.length=1};
@@ -4381,8 +4381,8 @@ struct redisCommandArg ACL_DELUSER_Args[] = {
 
 /* ACL_DELUSER_ReplySchema reply schema */
 struct jsonObjectElement ACL_DELUSER_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
-{"description",JSON_TYPE_STRING,.value.string="The number of users that were deleted"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The number of users that were deleted"},
 };
 
 struct jsonObject ACL_DELUSER_ReplySchema = {ACL_DELUSER_ReplySchema_elements,.length=2};
@@ -4405,16 +4405,16 @@ struct redisCommandArg ACL_DRYRUN_Args[] = {
 
 /* ACL_DRYRUN_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement ACL_DRYRUN_ReplySchema_anyOf_0_elements[] = {
-{"const",JSON_TYPE_STRING,.value.string="OK"},
-{"description",JSON_TYPE_STRING,.value.string="The given user may successfully execute the given command."},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+{JSON_TYPE_STRING,"description",.value.string="The given user may successfully execute the given command."},
 };
 
 struct jsonObject ACL_DRYRUN_ReplySchema_anyOf_0 = {ACL_DRYRUN_ReplySchema_anyOf_0_elements,.length=2};
 
 /* ACL_DRYRUN_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement ACL_DRYRUN_ReplySchema_anyOf_1_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"description",JSON_TYPE_STRING,.value.string="The description of the problem, in case the user is not allowed to run the given command."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The description of the problem, in case the user is not allowed to run the given command."},
 };
 
 struct jsonObject ACL_DRYRUN_ReplySchema_anyOf_1 = {ACL_DRYRUN_ReplySchema_anyOf_1_elements,.length=2};
@@ -4427,7 +4427,7 @@ struct jsonObject *ACL_DRYRUN_ReplySchema_anyOf[] = {
 
 /* ACL_DRYRUN_ReplySchema reply schema */
 struct jsonObjectElement ACL_DRYRUN_ReplySchema_elements[] = {
-{"anyOf",JSON_TYPE_ARRAY,.value.array={.objects=ACL_DRYRUN_ReplySchema_anyOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=ACL_DRYRUN_ReplySchema_anyOf,.length=2}},
 };
 
 struct jsonObject ACL_DRYRUN_ReplySchema = {ACL_DRYRUN_ReplySchema_elements,.length=1};
@@ -4448,8 +4448,8 @@ struct redisCommandArg ACL_GENPASS_Args[] = {
 
 /* ACL_GENPASS_ReplySchema reply schema */
 struct jsonObjectElement ACL_GENPASS_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"description",JSON_TYPE_STRING,.value.string="Pseudorandom data. By default it contains 64 bytes, representing 256 bits of data. If `bits` was given, the output string length is the number of specified bits (rounded to the next multiple of 4) divided by 4."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Pseudorandom data. By default it contains 64 bytes, representing 256 bits of data. If `bits` was given, the output string length is the number of specified bits (rounded to the next multiple of 4) divided by 4."},
 };
 
 struct jsonObject ACL_GENPASS_ReplySchema = {ACL_GENPASS_ReplySchema_elements,.length=2};
@@ -4482,16 +4482,16 @@ struct redisCommandArg ACL_GETUSER_Args[] = {
 
 /* ACL_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement ACL_HELP_ReplySchema_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ACL_HELP_ReplySchema_items = {ACL_HELP_ReplySchema_items_elements,.length=1};
 
 /* ACL_HELP_ReplySchema reply schema */
 struct jsonObjectElement ACL_HELP_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"description",JSON_TYPE_STRING,.value.string="A list of subcommands and their description"},
-{"items",JSON_TYPE_OBJECT,.value.object=&ACL_HELP_ReplySchema_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="A list of subcommands and their description"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ACL_HELP_ReplySchema_items},
 };
 
 struct jsonObject ACL_HELP_ReplySchema = {ACL_HELP_ReplySchema_elements,.length=3};
@@ -4506,16 +4506,16 @@ struct jsonObject ACL_HELP_ReplySchema = {ACL_HELP_ReplySchema_elements,.length=
 
 /* ACL_LIST_ReplySchema_items reply schema */
 struct jsonObjectElement ACL_LIST_ReplySchema_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ACL_LIST_ReplySchema_items = {ACL_LIST_ReplySchema_items_elements,.length=1};
 
 /* ACL_LIST_ReplySchema reply schema */
 struct jsonObjectElement ACL_LIST_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"description",JSON_TYPE_STRING,.value.string="A list of currently active ACL rules"},
-{"items",JSON_TYPE_OBJECT,.value.object=&ACL_LIST_ReplySchema_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="A list of currently active ACL rules"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ACL_LIST_ReplySchema_items},
 };
 
 struct jsonObject ACL_LIST_ReplySchema = {ACL_LIST_ReplySchema_elements,.length=3};
@@ -4530,7 +4530,7 @@ struct jsonObject ACL_LIST_ReplySchema = {ACL_LIST_ReplySchema_elements,.length=
 
 /* ACL_LOAD_ReplySchema reply schema */
 struct jsonObjectElement ACL_LOAD_ReplySchema_elements[] = {
-{"const",JSON_TYPE_STRING,.value.string="OK"},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject ACL_LOAD_ReplySchema = {ACL_LOAD_ReplySchema_elements,.length=1};
@@ -4558,88 +4558,88 @@ struct redisCommandArg ACL_LOG_Args[] = {
 
 /* ACL_LOG_ReplySchema_oneOf_0_items_properties_count reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_count_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_count = {ACL_LOG_ReplySchema_oneOf_0_items_properties_count_elements,.length=1};
 
 /* ACL_LOG_ReplySchema_oneOf_0_items_properties_reason reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_reason_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_reason = {ACL_LOG_ReplySchema_oneOf_0_items_properties_reason_elements,.length=1};
 
 /* ACL_LOG_ReplySchema_oneOf_0_items_properties_context reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_context_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_context = {ACL_LOG_ReplySchema_oneOf_0_items_properties_context_elements,.length=1};
 
 /* ACL_LOG_ReplySchema_oneOf_0_items_properties_object reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_object_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_object = {ACL_LOG_ReplySchema_oneOf_0_items_properties_object_elements,.length=1};
 
 /* ACL_LOG_ReplySchema_oneOf_0_items_properties_username reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_username_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_username = {ACL_LOG_ReplySchema_oneOf_0_items_properties_username_elements,.length=1};
 
 /* ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="number"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
 };
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds = {ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds_elements,.length=1};
 
 /* ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info = {ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info_elements,.length=1};
 
 /* ACL_LOG_ReplySchema_oneOf_0_items_properties reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_elements[] = {
-{"count",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_count},
-{"reason",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_reason},
-{"context",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_context},
-{"object",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_object},
-{"username",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_username},
-{"age-seconds",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds},
-{"client-info",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info},
+{JSON_TYPE_OBJECT,"count",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_count},
+{JSON_TYPE_OBJECT,"reason",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_reason},
+{JSON_TYPE_OBJECT,"context",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_context},
+{JSON_TYPE_OBJECT,"object",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_object},
+{JSON_TYPE_OBJECT,"username",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_username},
+{JSON_TYPE_OBJECT,"age-seconds",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds},
+{JSON_TYPE_OBJECT,"client-info",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info},
 };
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties = {ACL_LOG_ReplySchema_oneOf_0_items_properties_elements,.length=7};
 
 /* ACL_LOG_ReplySchema_oneOf_0_items reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="object"},
-{"additionalProperties",JSON_TYPE_BOOLEAN,.value.boolean=0},
-{"properties",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties},
 };
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items = {ACL_LOG_ReplySchema_oneOf_0_items_elements,.length=3};
 
 /* ACL_LOG_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"description",JSON_TYPE_STRING,.value.string="In case `RESET` was not given, a list of recent ACL security events."},
-{"items",JSON_TYPE_OBJECT,.value.object=&ACL_LOG_ReplySchema_oneOf_0_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="In case `RESET` was not given, a list of recent ACL security events."},
+{JSON_TYPE_OBJECT,"items",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items},
 };
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_0 = {ACL_LOG_ReplySchema_oneOf_0_elements,.length=3};
 
 /* ACL_LOG_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_1_elements[] = {
-{"const",JSON_TYPE_STRING,.value.string="OK"},
-{"description",JSON_TYPE_STRING,.value.string="In case `RESET` was given, OK indicates ACL log was cleared."},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+{JSON_TYPE_STRING,"description",.value.string="In case `RESET` was given, OK indicates ACL log was cleared."},
 };
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_1 = {ACL_LOG_ReplySchema_oneOf_1_elements,.length=2};
@@ -4652,7 +4652,7 @@ struct jsonObject *ACL_LOG_ReplySchema_oneOf[] = {
 
 /* ACL_LOG_ReplySchema reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=ACL_LOG_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=ACL_LOG_ReplySchema_oneOf,.length=2}},
 };
 
 struct jsonObject ACL_LOG_ReplySchema = {ACL_LOG_ReplySchema_elements,.length=1};
@@ -4667,7 +4667,7 @@ struct jsonObject ACL_LOG_ReplySchema = {ACL_LOG_ReplySchema_elements,.length=1}
 
 /* ACL_SAVE_ReplySchema reply schema */
 struct jsonObjectElement ACL_SAVE_ReplySchema_elements[] = {
-{"const",JSON_TYPE_STRING,.value.string="OK"},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject ACL_SAVE_ReplySchema = {ACL_SAVE_ReplySchema_elements,.length=1};
@@ -4693,7 +4693,7 @@ struct redisCommandArg ACL_SETUSER_Args[] = {
 
 /* ACL_SETUSER_ReplySchema reply schema */
 struct jsonObjectElement ACL_SETUSER_ReplySchema_elements[] = {
-{"const",JSON_TYPE_STRING,.value.string="OK"},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject ACL_SETUSER_ReplySchema = {ACL_SETUSER_ReplySchema_elements,.length=1};
@@ -4708,16 +4708,16 @@ struct jsonObject ACL_SETUSER_ReplySchema = {ACL_SETUSER_ReplySchema_elements,.l
 
 /* ACL_USERS_ReplySchema_items reply schema */
 struct jsonObjectElement ACL_USERS_ReplySchema_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ACL_USERS_ReplySchema_items = {ACL_USERS_ReplySchema_items_elements,.length=1};
 
 /* ACL_USERS_ReplySchema reply schema */
 struct jsonObjectElement ACL_USERS_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"description",JSON_TYPE_STRING,.value.string="List of existing ACL users"},
-{"items",JSON_TYPE_OBJECT,.value.object=&ACL_USERS_ReplySchema_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of existing ACL users"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ACL_USERS_ReplySchema_items},
 };
 
 struct jsonObject ACL_USERS_ReplySchema = {ACL_USERS_ReplySchema_elements,.length=3};
@@ -4732,8 +4732,8 @@ struct jsonObject ACL_USERS_ReplySchema = {ACL_USERS_ReplySchema_elements,.lengt
 
 /* ACL_WHOAMI_ReplySchema reply schema */
 struct jsonObjectElement ACL_WHOAMI_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"description",JSON_TYPE_STRING,.value.string="The username of the current connection."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The username of the current connection."},
 };
 
 struct jsonObject ACL_WHOAMI_ReplySchema = {ACL_WHOAMI_ReplySchema_elements,.length=2};
@@ -4939,15 +4939,15 @@ struct redisCommandArg CONFIG_GET_Args[] = {
 
 /* CONFIG_GET_ReplySchema_additionalProperties reply schema */
 struct jsonObjectElement CONFIG_GET_ReplySchema_additionalProperties_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject CONFIG_GET_ReplySchema_additionalProperties = {CONFIG_GET_ReplySchema_additionalProperties_elements,.length=1};
 
 /* CONFIG_GET_ReplySchema reply schema */
 struct jsonObjectElement CONFIG_GET_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="object"},
-{"additionalProperties",JSON_TYPE_OBJECT,.value.object=&CONFIG_GET_ReplySchema_additionalProperties},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&CONFIG_GET_ReplySchema_additionalProperties},
 };
 
 struct jsonObject CONFIG_GET_ReplySchema = {CONFIG_GET_ReplySchema_elements,.length=2};
@@ -5006,7 +5006,7 @@ struct redisCommandArg CONFIG_SET_Args[] = {
 
 /* CONFIG_SET_ReplySchema reply schema */
 struct jsonObjectElement CONFIG_SET_ReplySchema_elements[] = {
-{"const",JSON_TYPE_STRING,.value.string="OK"},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CONFIG_SET_ReplySchema = {CONFIG_SET_ReplySchema_elements,.length=1};
@@ -5043,8 +5043,8 @@ NULL
 
 /* DBSIZE_ReplySchema reply schema */
 struct jsonObjectElement DBSIZE_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
-{"description",JSON_TYPE_STRING,.value.string="The number of keys in the currently-selected database."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The number of keys in the currently-selected database."},
 };
 
 struct jsonObject DBSIZE_ReplySchema = {DBSIZE_ReplySchema_elements,.length=2};
@@ -5112,7 +5112,7 @@ struct redisCommandArg FLUSHALL_Args[] = {
 
 /* FLUSHALL_ReplySchema reply schema */
 struct jsonObjectElement FLUSHALL_ReplySchema_elements[] = {
-{"const",JSON_TYPE_STRING,.value.string="OK"},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject FLUSHALL_ReplySchema = {FLUSHALL_ReplySchema_elements,.length=1};
@@ -5170,7 +5170,7 @@ struct redisCommandArg INFO_Args[] = {
 
 /* INFO_ReplySchema reply schema */
 struct jsonObjectElement INFO_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject INFO_ReplySchema = {INFO_ReplySchema_elements,.length=1};
@@ -5765,8 +5765,8 @@ struct redisCommandArg SADD_Args[] = {
 
 /* SADD_ReplySchema reply schema */
 struct jsonObjectElement SADD_ReplySchema_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Number of elements that were added to the set, not including all the elements already present in the set."},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Number of elements that were added to the set, not including all the elements already present in the set."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject SADD_ReplySchema = {SADD_ReplySchema_elements,.length=2};
@@ -6067,32 +6067,32 @@ struct redisCommandArg BZMPOP_Args[] = {
 
 /* BZMPOP_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BZMPOP_ReplySchema_oneOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Timeout reached and no elements were popped."},
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Timeout reached and no elements were popped."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject BZMPOP_ReplySchema_oneOf_0 = {BZMPOP_ReplySchema_oneOf_0_elements,.length=2};
 
 /* BZMPOP_ReplySchema_oneOf_1_items_0 reply schema */
 struct jsonObjectElement BZMPOP_ReplySchema_oneOf_1_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Keyname"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Keyname"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject BZMPOP_ReplySchema_oneOf_1_items_0 = {BZMPOP_ReplySchema_oneOf_1_items_0_elements,.length=2};
 
 /* BZMPOP_ReplySchema_oneOf_1_items_1_items_items_0 reply schema */
 struct jsonObjectElement BZMPOP_ReplySchema_oneOf_1_items_1_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Member"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Member"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject BZMPOP_ReplySchema_oneOf_1_items_1_items_items_0 = {BZMPOP_ReplySchema_oneOf_1_items_1_items_items_0_elements,.length=2};
 
 /* BZMPOP_ReplySchema_oneOf_1_items_1_items_items_1 reply schema */
 struct jsonObjectElement BZMPOP_ReplySchema_oneOf_1_items_1_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Score"},
-{"type",JSON_TYPE_STRING,.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
 };
 
 struct jsonObject BZMPOP_ReplySchema_oneOf_1_items_1_items_items_1 = {BZMPOP_ReplySchema_oneOf_1_items_1_items_items_1_elements,.length=2};
@@ -6105,20 +6105,20 @@ struct jsonObject *BZMPOP_ReplySchema_oneOf_1_items_1_items_items[] = {
 
 /* BZMPOP_ReplySchema_oneOf_1_items_1_items reply schema */
 struct jsonObjectElement BZMPOP_ReplySchema_oneOf_1_items_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=BZMPOP_ReplySchema_oneOf_1_items_1_items_items,.length=2}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=BZMPOP_ReplySchema_oneOf_1_items_1_items_items,.length=2}},
 };
 
 struct jsonObject BZMPOP_ReplySchema_oneOf_1_items_1_items = {BZMPOP_ReplySchema_oneOf_1_items_1_items_elements,.length=4};
 
 /* BZMPOP_ReplySchema_oneOf_1_items_1 reply schema */
 struct jsonObjectElement BZMPOP_ReplySchema_oneOf_1_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Popped members and their scores."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"uniqueItems",JSON_TYPE_BOOLEAN,.value.boolean=1},
-{"items",JSON_TYPE_OBJECT,.value.object=&BZMPOP_ReplySchema_oneOf_1_items_1_items},
+{JSON_TYPE_STRING,"description",.value.string="Popped members and their scores."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&BZMPOP_ReplySchema_oneOf_1_items_1_items},
 };
 
 struct jsonObject BZMPOP_ReplySchema_oneOf_1_items_1 = {BZMPOP_ReplySchema_oneOf_1_items_1_elements,.length=4};
@@ -6131,11 +6131,11 @@ struct jsonObject *BZMPOP_ReplySchema_oneOf_1_items[] = {
 
 /* BZMPOP_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement BZMPOP_ReplySchema_oneOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The keyname and the popped members."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=BZMPOP_ReplySchema_oneOf_1_items,.length=2}},
+{JSON_TYPE_STRING,"description",.value.string="The keyname and the popped members."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=BZMPOP_ReplySchema_oneOf_1_items,.length=2}},
 };
 
 struct jsonObject BZMPOP_ReplySchema_oneOf_1 = {BZMPOP_ReplySchema_oneOf_1_elements,.length=5};
@@ -6148,7 +6148,7 @@ struct jsonObject *BZMPOP_ReplySchema_oneOf[] = {
 
 /* BZMPOP_ReplySchema reply schema */
 struct jsonObjectElement BZMPOP_ReplySchema_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=BZMPOP_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=BZMPOP_ReplySchema_oneOf,.length=2}},
 };
 
 struct jsonObject BZMPOP_ReplySchema = {BZMPOP_ReplySchema_elements,.length=1};
@@ -6173,32 +6173,32 @@ struct redisCommandArg BZPOPMAX_Args[] = {
 
 /* BZPOPMAX_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BZPOPMAX_ReplySchema_oneOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Timeout reached and no elements were popped."},
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Timeout reached and no elements were popped."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject BZPOPMAX_ReplySchema_oneOf_0 = {BZPOPMAX_ReplySchema_oneOf_0_elements,.length=2};
 
 /* BZPOPMAX_ReplySchema_oneOf_1_items_0 reply schema */
 struct jsonObjectElement BZPOPMAX_ReplySchema_oneOf_1_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Keyname"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Keyname"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject BZPOPMAX_ReplySchema_oneOf_1_items_0 = {BZPOPMAX_ReplySchema_oneOf_1_items_0_elements,.length=2};
 
 /* BZPOPMAX_ReplySchema_oneOf_1_items_1 reply schema */
 struct jsonObjectElement BZPOPMAX_ReplySchema_oneOf_1_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Member"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Member"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject BZPOPMAX_ReplySchema_oneOf_1_items_1 = {BZPOPMAX_ReplySchema_oneOf_1_items_1_elements,.length=2};
 
 /* BZPOPMAX_ReplySchema_oneOf_1_items_2 reply schema */
 struct jsonObjectElement BZPOPMAX_ReplySchema_oneOf_1_items_2_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Score"},
-{"type",JSON_TYPE_STRING,.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
 };
 
 struct jsonObject BZPOPMAX_ReplySchema_oneOf_1_items_2 = {BZPOPMAX_ReplySchema_oneOf_1_items_2_elements,.length=2};
@@ -6212,11 +6212,11 @@ struct jsonObject *BZPOPMAX_ReplySchema_oneOf_1_items[] = {
 
 /* BZPOPMAX_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement BZPOPMAX_ReplySchema_oneOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The keyname, popped member, and its score."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=3},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=3},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=BZPOPMAX_ReplySchema_oneOf_1_items,.length=3}},
+{JSON_TYPE_STRING,"description",.value.string="The keyname, popped member, and its score."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=3},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=3},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=BZPOPMAX_ReplySchema_oneOf_1_items,.length=3}},
 };
 
 struct jsonObject BZPOPMAX_ReplySchema_oneOf_1 = {BZPOPMAX_ReplySchema_oneOf_1_elements,.length=5};
@@ -6229,7 +6229,7 @@ struct jsonObject *BZPOPMAX_ReplySchema_oneOf[] = {
 
 /* BZPOPMAX_ReplySchema reply schema */
 struct jsonObjectElement BZPOPMAX_ReplySchema_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=BZPOPMAX_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=BZPOPMAX_ReplySchema_oneOf,.length=2}},
 };
 
 struct jsonObject BZPOPMAX_ReplySchema = {BZPOPMAX_ReplySchema_elements,.length=1};
@@ -6254,32 +6254,32 @@ struct redisCommandArg BZPOPMIN_Args[] = {
 
 /* BZPOPMIN_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BZPOPMIN_ReplySchema_oneOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Timeout reached and no elements were popped."},
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Timeout reached and no elements were popped."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject BZPOPMIN_ReplySchema_oneOf_0 = {BZPOPMIN_ReplySchema_oneOf_0_elements,.length=2};
 
 /* BZPOPMIN_ReplySchema_oneOf_1_items_0 reply schema */
 struct jsonObjectElement BZPOPMIN_ReplySchema_oneOf_1_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Keyname"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Keyname"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject BZPOPMIN_ReplySchema_oneOf_1_items_0 = {BZPOPMIN_ReplySchema_oneOf_1_items_0_elements,.length=2};
 
 /* BZPOPMIN_ReplySchema_oneOf_1_items_1 reply schema */
 struct jsonObjectElement BZPOPMIN_ReplySchema_oneOf_1_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Member"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Member"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject BZPOPMIN_ReplySchema_oneOf_1_items_1 = {BZPOPMIN_ReplySchema_oneOf_1_items_1_elements,.length=2};
 
 /* BZPOPMIN_ReplySchema_oneOf_1_items_2 reply schema */
 struct jsonObjectElement BZPOPMIN_ReplySchema_oneOf_1_items_2_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Score"},
-{"type",JSON_TYPE_STRING,.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
 };
 
 struct jsonObject BZPOPMIN_ReplySchema_oneOf_1_items_2 = {BZPOPMIN_ReplySchema_oneOf_1_items_2_elements,.length=2};
@@ -6293,11 +6293,11 @@ struct jsonObject *BZPOPMIN_ReplySchema_oneOf_1_items[] = {
 
 /* BZPOPMIN_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement BZPOPMIN_ReplySchema_oneOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The keyname, popped member, and its score."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=3},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=3},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=BZPOPMIN_ReplySchema_oneOf_1_items,.length=3}},
+{JSON_TYPE_STRING,"description",.value.string="The keyname, popped member, and its score."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=3},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=3},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=BZPOPMIN_ReplySchema_oneOf_1_items,.length=3}},
 };
 
 struct jsonObject BZPOPMIN_ReplySchema_oneOf_1 = {BZPOPMIN_ReplySchema_oneOf_1_elements,.length=5};
@@ -6310,7 +6310,7 @@ struct jsonObject *BZPOPMIN_ReplySchema_oneOf[] = {
 
 /* BZPOPMIN_ReplySchema reply schema */
 struct jsonObjectElement BZPOPMIN_ReplySchema_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=BZPOPMIN_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=BZPOPMIN_ReplySchema_oneOf,.length=2}},
 };
 
 struct jsonObject BZPOPMIN_ReplySchema = {BZPOPMIN_ReplySchema_elements,.length=1};
@@ -6362,32 +6362,32 @@ struct redisCommandArg ZADD_Args[] = {
 
 /* ZADD_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement ZADD_ReplySchema_anyOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Operation was aborted (conflict with one of the `XX`/`NX`/`LT`/`GT` options)."},
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Operation was aborted (conflict with one of the `XX`/`NX`/`LT`/`GT` options)."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject ZADD_ReplySchema_anyOf_0 = {ZADD_ReplySchema_anyOf_0_elements,.length=2};
 
 /* ZADD_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement ZADD_ReplySchema_anyOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The number of new members (when the `CH` option is not used)"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The number of new members (when the `CH` option is not used)"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject ZADD_ReplySchema_anyOf_1 = {ZADD_ReplySchema_anyOf_1_elements,.length=2};
 
 /* ZADD_ReplySchema_anyOf_2 reply schema */
 struct jsonObjectElement ZADD_ReplySchema_anyOf_2_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The number of new or updated members (when the `CH` option is used)"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The number of new or updated members (when the `CH` option is used)"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject ZADD_ReplySchema_anyOf_2 = {ZADD_ReplySchema_anyOf_2_elements,.length=2};
 
 /* ZADD_ReplySchema_anyOf_3 reply schema */
 struct jsonObjectElement ZADD_ReplySchema_anyOf_3_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The updated score of the member (when the `INCR` option is used)"},
-{"type",JSON_TYPE_STRING,.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="The updated score of the member (when the `INCR` option is used)"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
 };
 
 struct jsonObject ZADD_ReplySchema_anyOf_3 = {ZADD_ReplySchema_anyOf_3_elements,.length=2};
@@ -6402,7 +6402,7 @@ struct jsonObject *ZADD_ReplySchema_anyOf[] = {
 
 /* ZADD_ReplySchema reply schema */
 struct jsonObjectElement ZADD_ReplySchema_elements[] = {
-{"anyOf",JSON_TYPE_ARRAY,.value.array={.objects=ZADD_ReplySchema_anyOf,.length=4}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=ZADD_ReplySchema_anyOf,.length=4}},
 };
 
 struct jsonObject ZADD_ReplySchema = {ZADD_ReplySchema_elements,.length=1};
@@ -6423,8 +6423,8 @@ struct redisCommandArg ZCARD_Args[] = {
 
 /* ZCARD_ReplySchema reply schema */
 struct jsonObjectElement ZCARD_ReplySchema_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The cardinality (number of elements) of the sorted set, or 0 if key does not exist"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The cardinality (number of elements) of the sorted set, or 0 if key does not exist"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject ZCARD_ReplySchema = {ZCARD_ReplySchema_elements,.length=2};
@@ -6447,8 +6447,8 @@ struct redisCommandArg ZCOUNT_Args[] = {
 
 /* ZCOUNT_ReplySchema reply schema */
 struct jsonObjectElement ZCOUNT_ReplySchema_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The number of elements in the specified score range"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The number of elements in the specified score range"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject ZCOUNT_ReplySchema = {ZCOUNT_ReplySchema_elements,.length=2};
@@ -6471,32 +6471,32 @@ struct redisCommandArg ZDIFF_Args[] = {
 
 /* ZDIFF_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement ZDIFF_ReplySchema_anyOf_0_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ZDIFF_ReplySchema_anyOf_0_items = {ZDIFF_ReplySchema_anyOf_0_items_elements,.length=1};
 
 /* ZDIFF_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement ZDIFF_ReplySchema_anyOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="A list of members. Returned in case `WITHSCORES` was not used."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&ZDIFF_ReplySchema_anyOf_0_items},
+{JSON_TYPE_STRING,"description",.value.string="A list of members. Returned in case `WITHSCORES` was not used."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZDIFF_ReplySchema_anyOf_0_items},
 };
 
 struct jsonObject ZDIFF_ReplySchema_anyOf_0 = {ZDIFF_ReplySchema_anyOf_0_elements,.length=3};
 
 /* ZDIFF_ReplySchema_anyOf_1_items_items_0 reply schema */
 struct jsonObjectElement ZDIFF_ReplySchema_anyOf_1_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Member"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Member"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ZDIFF_ReplySchema_anyOf_1_items_items_0 = {ZDIFF_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
 
 /* ZDIFF_ReplySchema_anyOf_1_items_items_1 reply schema */
 struct jsonObjectElement ZDIFF_ReplySchema_anyOf_1_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Score"},
-{"type",JSON_TYPE_STRING,.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
 };
 
 struct jsonObject ZDIFF_ReplySchema_anyOf_1_items_items_1 = {ZDIFF_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
@@ -6509,20 +6509,20 @@ struct jsonObject *ZDIFF_ReplySchema_anyOf_1_items_items[] = {
 
 /* ZDIFF_ReplySchema_anyOf_1_items reply schema */
 struct jsonObjectElement ZDIFF_ReplySchema_anyOf_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=ZDIFF_ReplySchema_anyOf_1_items_items,.length=2}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZDIFF_ReplySchema_anyOf_1_items_items,.length=2}},
 };
 
 struct jsonObject ZDIFF_ReplySchema_anyOf_1_items = {ZDIFF_ReplySchema_anyOf_1_items_elements,.length=4};
 
 /* ZDIFF_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement ZDIFF_ReplySchema_anyOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Members and their scores. Returned in case `WITHSCORES` was used."},
-{"notes",JSON_TYPE_STRING,.value.string="In RESP2 this is returned as a flat array"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&ZDIFF_ReplySchema_anyOf_1_items},
+{JSON_TYPE_STRING,"description",.value.string="Members and their scores. Returned in case `WITHSCORES` was used."},
+{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZDIFF_ReplySchema_anyOf_1_items},
 };
 
 struct jsonObject ZDIFF_ReplySchema_anyOf_1 = {ZDIFF_ReplySchema_anyOf_1_elements,.length=4};
@@ -6535,7 +6535,7 @@ struct jsonObject *ZDIFF_ReplySchema_anyOf[] = {
 
 /* ZDIFF_ReplySchema reply schema */
 struct jsonObjectElement ZDIFF_ReplySchema_elements[] = {
-{"anyOf",JSON_TYPE_ARRAY,.value.array={.objects=ZDIFF_ReplySchema_anyOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=ZDIFF_ReplySchema_anyOf,.length=2}},
 };
 
 struct jsonObject ZDIFF_ReplySchema = {ZDIFF_ReplySchema_elements,.length=1};
@@ -6558,8 +6558,8 @@ struct redisCommandArg ZDIFFSTORE_Args[] = {
 
 /* ZDIFFSTORE_ReplySchema reply schema */
 struct jsonObjectElement ZDIFFSTORE_ReplySchema_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Number of elements in the resulting sorted set at `destination`"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Number of elements in the resulting sorted set at `destination`"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject ZDIFFSTORE_ReplySchema = {ZDIFFSTORE_ReplySchema_elements,.length=2};
@@ -6582,8 +6582,8 @@ struct redisCommandArg ZINCRBY_Args[] = {
 
 /* ZINCRBY_ReplySchema reply schema */
 struct jsonObjectElement ZINCRBY_ReplySchema_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The new score of `member`"},
-{"type",JSON_TYPE_STRING,.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="The new score of `member`"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
 };
 
 struct jsonObject ZINCRBY_ReplySchema = {ZINCRBY_ReplySchema_elements,.length=2};
@@ -6616,32 +6616,32 @@ struct redisCommandArg ZINTER_Args[] = {
 
 /* ZINTER_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement ZINTER_ReplySchema_anyOf_0_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ZINTER_ReplySchema_anyOf_0_items = {ZINTER_ReplySchema_anyOf_0_items_elements,.length=1};
 
 /* ZINTER_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement ZINTER_ReplySchema_anyOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Result of intersection, containing only the member names. Returned in case `WITHSCORES` was not used."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&ZINTER_ReplySchema_anyOf_0_items},
+{JSON_TYPE_STRING,"description",.value.string="Result of intersection, containing only the member names. Returned in case `WITHSCORES` was not used."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZINTER_ReplySchema_anyOf_0_items},
 };
 
 struct jsonObject ZINTER_ReplySchema_anyOf_0 = {ZINTER_ReplySchema_anyOf_0_elements,.length=3};
 
 /* ZINTER_ReplySchema_anyOf_1_items_items_0 reply schema */
 struct jsonObjectElement ZINTER_ReplySchema_anyOf_1_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Member"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Member"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ZINTER_ReplySchema_anyOf_1_items_items_0 = {ZINTER_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
 
 /* ZINTER_ReplySchema_anyOf_1_items_items_1 reply schema */
 struct jsonObjectElement ZINTER_ReplySchema_anyOf_1_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Score"},
-{"type",JSON_TYPE_STRING,.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
 };
 
 struct jsonObject ZINTER_ReplySchema_anyOf_1_items_items_1 = {ZINTER_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
@@ -6654,20 +6654,20 @@ struct jsonObject *ZINTER_ReplySchema_anyOf_1_items_items[] = {
 
 /* ZINTER_ReplySchema_anyOf_1_items reply schema */
 struct jsonObjectElement ZINTER_ReplySchema_anyOf_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=ZINTER_ReplySchema_anyOf_1_items_items,.length=2}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZINTER_ReplySchema_anyOf_1_items_items,.length=2}},
 };
 
 struct jsonObject ZINTER_ReplySchema_anyOf_1_items = {ZINTER_ReplySchema_anyOf_1_items_elements,.length=4};
 
 /* ZINTER_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement ZINTER_ReplySchema_anyOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Result of intersection, containing members and their scores. Returned in case `WITHSCORES` was used."},
-{"notes",JSON_TYPE_STRING,.value.string="In RESP2 this is returned as a flat array"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&ZINTER_ReplySchema_anyOf_1_items},
+{JSON_TYPE_STRING,"description",.value.string="Result of intersection, containing members and their scores. Returned in case `WITHSCORES` was used."},
+{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZINTER_ReplySchema_anyOf_1_items},
 };
 
 struct jsonObject ZINTER_ReplySchema_anyOf_1 = {ZINTER_ReplySchema_anyOf_1_elements,.length=4};
@@ -6680,7 +6680,7 @@ struct jsonObject *ZINTER_ReplySchema_anyOf[] = {
 
 /* ZINTER_ReplySchema reply schema */
 struct jsonObjectElement ZINTER_ReplySchema_elements[] = {
-{"anyOf",JSON_TYPE_ARRAY,.value.array={.objects=ZINTER_ReplySchema_anyOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=ZINTER_ReplySchema_anyOf,.length=2}},
 };
 
 struct jsonObject ZINTER_ReplySchema = {ZINTER_ReplySchema_elements,.length=1};
@@ -6876,33 +6876,33 @@ struct redisCommandArg ZRANGE_Args[] = {
 
 /* ZRANGE_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement ZRANGE_ReplySchema_anyOf_0_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ZRANGE_ReplySchema_anyOf_0_items = {ZRANGE_ReplySchema_anyOf_0_items_elements,.length=1};
 
 /* ZRANGE_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement ZRANGE_ReplySchema_anyOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="A list of member elements"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"uniqueItems",JSON_TYPE_BOOLEAN,.value.boolean=1},
-{"items",JSON_TYPE_OBJECT,.value.object=&ZRANGE_ReplySchema_anyOf_0_items},
+{JSON_TYPE_STRING,"description",.value.string="A list of member elements"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZRANGE_ReplySchema_anyOf_0_items},
 };
 
 struct jsonObject ZRANGE_ReplySchema_anyOf_0 = {ZRANGE_ReplySchema_anyOf_0_elements,.length=4};
 
 /* ZRANGE_ReplySchema_anyOf_1_items_items_0 reply schema */
 struct jsonObjectElement ZRANGE_ReplySchema_anyOf_1_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Member"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Member"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject ZRANGE_ReplySchema_anyOf_1_items_items_0 = {ZRANGE_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
 
 /* ZRANGE_ReplySchema_anyOf_1_items_items_1 reply schema */
 struct jsonObjectElement ZRANGE_ReplySchema_anyOf_1_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Score"},
-{"type",JSON_TYPE_STRING,.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
 };
 
 struct jsonObject ZRANGE_ReplySchema_anyOf_1_items_items_1 = {ZRANGE_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
@@ -6915,21 +6915,21 @@ struct jsonObject *ZRANGE_ReplySchema_anyOf_1_items_items[] = {
 
 /* ZRANGE_ReplySchema_anyOf_1_items reply schema */
 struct jsonObjectElement ZRANGE_ReplySchema_anyOf_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=ZRANGE_ReplySchema_anyOf_1_items_items,.length=2}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZRANGE_ReplySchema_anyOf_1_items_items,.length=2}},
 };
 
 struct jsonObject ZRANGE_ReplySchema_anyOf_1_items = {ZRANGE_ReplySchema_anyOf_1_items_elements,.length=4};
 
 /* ZRANGE_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement ZRANGE_ReplySchema_anyOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Members and their scores. Returned in case `WITHSCORES` was used."},
-{"notes",JSON_TYPE_STRING,.value.string="In RESP2 this is returned as a flat array"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"uniqueItems",JSON_TYPE_BOOLEAN,.value.boolean=1},
-{"items",JSON_TYPE_OBJECT,.value.object=&ZRANGE_ReplySchema_anyOf_1_items},
+{JSON_TYPE_STRING,"description",.value.string="Members and their scores. Returned in case `WITHSCORES` was used."},
+{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZRANGE_ReplySchema_anyOf_1_items},
 };
 
 struct jsonObject ZRANGE_ReplySchema_anyOf_1 = {ZRANGE_ReplySchema_anyOf_1_elements,.length=5};
@@ -6942,7 +6942,7 @@ struct jsonObject *ZRANGE_ReplySchema_anyOf[] = {
 
 /* ZRANGE_ReplySchema reply schema */
 struct jsonObjectElement ZRANGE_ReplySchema_elements[] = {
-{"anyOf",JSON_TYPE_ARRAY,.value.array={.objects=ZRANGE_ReplySchema_anyOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=ZRANGE_ReplySchema_anyOf,.length=2}},
 };
 
 struct jsonObject ZRANGE_ReplySchema = {ZRANGE_ReplySchema_elements,.length=1};
@@ -7399,34 +7399,34 @@ struct redisCommandArg XAUTOCLAIM_Args[] = {
 
 /* XAUTOCLAIM_ReplySchema_items_0 reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Cursor for next call."},
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"description",.value.string="Cursor for next call."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_0 = {XAUTOCLAIM_ReplySchema_items_0_elements,.length=3};
 
 /* XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_0 reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Entry ID"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"description",.value.string="Entry ID"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_0 = {XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_0_elements,.length=3};
 
 /* XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_items reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_items = {XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_items_elements,.length=1};
 
 /* XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1 reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Data"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_items},
+{JSON_TYPE_STRING,"description",.value.string="Data"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_items},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1 = {XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items_1_elements,.length=3};
@@ -7439,38 +7439,38 @@ struct jsonObject *XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items[] = {
 
 /* XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items,.length=2}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_items,.length=2}},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items = {XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items_elements,.length=4};
 
 /* XAUTOCLAIM_ReplySchema_items_1_anyOf_0 reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Claimed stream entries (with data, if `JUSTID` was not given)."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"uniqueItems",JSON_TYPE_BOOLEAN,.value.boolean=1},
-{"items",JSON_TYPE_OBJECT,.value.object=&XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items},
+{JSON_TYPE_STRING,"description",.value.string="Claimed stream entries (with data, if `JUSTID` was not given)."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&XAUTOCLAIM_ReplySchema_items_1_anyOf_0_items},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_0 = {XAUTOCLAIM_ReplySchema_items_1_anyOf_0_elements,.length=4};
 
 /* XAUTOCLAIM_ReplySchema_items_1_anyOf_1_items reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_1_items = {XAUTOCLAIM_ReplySchema_items_1_anyOf_1_items_elements,.length=2};
 
 /* XAUTOCLAIM_ReplySchema_items_1_anyOf_1 reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_anyOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Claimed stream entries (without data, if `JUSTID` was given)."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"uniqueItems",JSON_TYPE_BOOLEAN,.value.boolean=1},
-{"items",JSON_TYPE_OBJECT,.value.object=&XAUTOCLAIM_ReplySchema_items_1_anyOf_1_items},
+{JSON_TYPE_STRING,"description",.value.string="Claimed stream entries (without data, if `JUSTID` was given)."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&XAUTOCLAIM_ReplySchema_items_1_anyOf_1_items},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_1_anyOf_1 = {XAUTOCLAIM_ReplySchema_items_1_anyOf_1_elements,.length=4};
@@ -7483,24 +7483,24 @@ struct jsonObject *XAUTOCLAIM_ReplySchema_items_1_anyOf[] = {
 
 /* XAUTOCLAIM_ReplySchema_items_1 reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_1_elements[] = {
-{"anyOf",JSON_TYPE_ARRAY,.value.array={.objects=XAUTOCLAIM_ReplySchema_items_1_anyOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=XAUTOCLAIM_ReplySchema_items_1_anyOf,.length=2}},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_1 = {XAUTOCLAIM_ReplySchema_items_1_elements,.length=1};
 
 /* XAUTOCLAIM_ReplySchema_items_2_items reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_2_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_2_items = {XAUTOCLAIM_ReplySchema_items_2_items_elements,.length=2};
 
 /* XAUTOCLAIM_ReplySchema_items_2 reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_2_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Entry IDs which no longer exist in the stream, and were deleted from the PEL in which they were found."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XAUTOCLAIM_ReplySchema_items_2_items},
+{JSON_TYPE_STRING,"description",.value.string="Entry IDs which no longer exist in the stream, and were deleted from the PEL in which they were found."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XAUTOCLAIM_ReplySchema_items_2_items},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema_items_2 = {XAUTOCLAIM_ReplySchema_items_2_elements,.length=3};
@@ -7514,10 +7514,10 @@ struct jsonObject *XAUTOCLAIM_ReplySchema_items[] = {
 
 /* XAUTOCLAIM_ReplySchema reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=3},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=3},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XAUTOCLAIM_ReplySchema_items,.length=3}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=3},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=3},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XAUTOCLAIM_ReplySchema_items,.length=3}},
 };
 
 struct jsonObject XAUTOCLAIM_ReplySchema = {XAUTOCLAIM_ReplySchema_elements,.length=4};
@@ -7730,43 +7730,43 @@ struct redisCommandArg XINFO_GROUPS_Args[] = {
 
 /* XINFO_GROUPS_ReplySchema_items_properties_name reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_name_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items_properties_name = {XINFO_GROUPS_ReplySchema_items_properties_name_elements,.length=1};
 
 /* XINFO_GROUPS_ReplySchema_items_properties_consumers reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_consumers_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items_properties_consumers = {XINFO_GROUPS_ReplySchema_items_properties_consumers_elements,.length=1};
 
 /* XINFO_GROUPS_ReplySchema_items_properties_pending reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_pending_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items_properties_pending = {XINFO_GROUPS_ReplySchema_items_properties_pending_elements,.length=1};
 
 /* XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id = {XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id_elements,.length=2};
 
 /* XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_0 reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_0_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_0 = {XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_0_elements,.length=1};
 
 /* XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_1 reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_1_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_1 = {XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_1_elements,.length=1};
@@ -7779,21 +7779,21 @@ struct jsonObject *XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf[
 
 /* XINFO_GROUPS_ReplySchema_items_properties_entries_read reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_entries_read_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf,.length=2}},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items_properties_entries_read = {XINFO_GROUPS_ReplySchema_items_properties_entries_read_elements,.length=1};
 
 /* XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_0 reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_0_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_0 = {XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_0_elements,.length=1};
 
 /* XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_1 reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_1_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_1 = {XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_1_elements,.length=1};
@@ -7806,36 +7806,36 @@ struct jsonObject *XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf[] = {
 
 /* XINFO_GROUPS_ReplySchema_items_properties_lag reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_lag_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf,.length=2}},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items_properties_lag = {XINFO_GROUPS_ReplySchema_items_properties_lag_elements,.length=1};
 
 /* XINFO_GROUPS_ReplySchema_items_properties reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_elements[] = {
-{"name",JSON_TYPE_OBJECT,.value.object=&XINFO_GROUPS_ReplySchema_items_properties_name},
-{"consumers",JSON_TYPE_OBJECT,.value.object=&XINFO_GROUPS_ReplySchema_items_properties_consumers},
-{"pending",JSON_TYPE_OBJECT,.value.object=&XINFO_GROUPS_ReplySchema_items_properties_pending},
-{"last-delivered-id",JSON_TYPE_OBJECT,.value.object=&XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id},
-{"entries-read",JSON_TYPE_OBJECT,.value.object=&XINFO_GROUPS_ReplySchema_items_properties_entries_read},
-{"lag",JSON_TYPE_OBJECT,.value.object=&XINFO_GROUPS_ReplySchema_items_properties_lag},
+{JSON_TYPE_OBJECT,"name",.value.object=&XINFO_GROUPS_ReplySchema_items_properties_name},
+{JSON_TYPE_OBJECT,"consumers",.value.object=&XINFO_GROUPS_ReplySchema_items_properties_consumers},
+{JSON_TYPE_OBJECT,"pending",.value.object=&XINFO_GROUPS_ReplySchema_items_properties_pending},
+{JSON_TYPE_OBJECT,"last-delivered-id",.value.object=&XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id},
+{JSON_TYPE_OBJECT,"entries-read",.value.object=&XINFO_GROUPS_ReplySchema_items_properties_entries_read},
+{JSON_TYPE_OBJECT,"lag",.value.object=&XINFO_GROUPS_ReplySchema_items_properties_lag},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items_properties = {XINFO_GROUPS_ReplySchema_items_properties_elements,.length=6};
 
 /* XINFO_GROUPS_ReplySchema_items reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="object"},
-{"additionalProperties",JSON_TYPE_BOOLEAN,.value.boolean=0},
-{"properties",JSON_TYPE_OBJECT,.value.object=&XINFO_GROUPS_ReplySchema_items_properties},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&XINFO_GROUPS_ReplySchema_items_properties},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema_items = {XINFO_GROUPS_ReplySchema_items_elements,.length=3};
 
 /* XINFO_GROUPS_ReplySchema reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XINFO_GROUPS_ReplySchema_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XINFO_GROUPS_ReplySchema_items},
 };
 
 struct jsonObject XINFO_GROUPS_ReplySchema = {XINFO_GROUPS_ReplySchema_elements,.length=2};
@@ -7876,91 +7876,91 @@ struct redisCommandArg XINFO_STREAM_Args[] = {
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_length reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_length_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_length = {XINFO_STREAM_ReplySchema_oneOf_0_properties_length_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_groups reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_groups_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_groups = {XINFO_STREAM_ReplySchema_oneOf_0_properties_groups_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_0_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_0_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Entry ID"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"description",.value.string="Entry ID"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_0 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_0_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Data"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items},
+{JSON_TYPE_STRING,"description",.value.string="Data"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_elements,.length=3};
@@ -7973,10 +7973,10 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items,.length=2}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items,.length=2}},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_elements,.length=4};
@@ -7989,39 +7989,39 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf,.length=2}},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Entry ID"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"description",.value.string="Entry ID"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_0 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_0_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Data"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items},
+{JSON_TYPE_STRING,"description",.value.string="Data"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_elements,.length=3};
@@ -8034,10 +8034,10 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items,.length=2}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items,.length=2}},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_elements,.length=4};
@@ -8050,110 +8050,110 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf[
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf,.length=2}},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_elements[] = {
-{"length",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_length},
-{"radix-tree-keys",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys},
-{"radix-tree-nodes",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes},
-{"last-generated-id",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id},
-{"max-deleted-entry-id",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id},
-{"recorded-first-entry-id",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id},
-{"entries-added",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added},
-{"groups",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_groups},
-{"first-entry",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry},
-{"last-entry",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry},
+{JSON_TYPE_OBJECT,"length",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_length},
+{JSON_TYPE_OBJECT,"radix-tree-keys",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys},
+{JSON_TYPE_OBJECT,"radix-tree-nodes",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes},
+{JSON_TYPE_OBJECT,"last-generated-id",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id},
+{JSON_TYPE_OBJECT,"max-deleted-entry-id",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id},
+{JSON_TYPE_OBJECT,"recorded-first-entry-id",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id},
+{JSON_TYPE_OBJECT,"entries-added",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added},
+{JSON_TYPE_OBJECT,"groups",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_groups},
+{JSON_TYPE_OBJECT,"first-entry",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry},
+{JSON_TYPE_OBJECT,"last-entry",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties = {XINFO_STREAM_ReplySchema_oneOf_0_properties_elements,.length=10};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Summary form, in case `FULL` was not given."},
-{"type",JSON_TYPE_STRING,.value.string="object"},
-{"additionalProperties",JSON_TYPE_BOOLEAN,.value.boolean=0},
-{"properties",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties},
+{JSON_TYPE_STRING,"description",.value.string="Summary form, in case `FULL` was not given."},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_0_elements,.length=4};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_length reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_length_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_length = {XINFO_STREAM_ReplySchema_oneOf_1_properties_length_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Entry ID"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"description",.value.string="Entry ID"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_0_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Data"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items},
+{JSON_TYPE_STRING,"description",.value.string="Data"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_elements,.length=3};
@@ -8166,48 +8166,48 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_ite
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items,.length=2}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items,.length=2}},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_elements,.length=4};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"uniqueItems",JSON_TYPE_BOOLEAN,.value.boolean=1},
-{"items",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_0_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_0_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_1_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_1_elements,.length=1};
@@ -8220,21 +8220,21 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_prop
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf,.length=2}},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_0_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_0_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_1_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_1_elements,.length=1};
@@ -8247,47 +8247,47 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_prop
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf,.length=2}},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Entry ID"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"description",.value.string="Entry ID"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_0_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Consumer name"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Consumer name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_1_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_2 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_2_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Delivery timestamp"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Delivery timestamp"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_2 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_2_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_3 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_3_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Delivery count"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Delivery count"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_3 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_3_elements,.length=2};
@@ -8302,64 +8302,64 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_prop
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=4},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=4},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items,.length=4}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=4},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items,.length=4}},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_elements,.length=4};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count_elements,.length=1};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Entry ID"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"description",.value.string="Entry ID"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_0_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Delivery timestamp"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Delivery timestamp"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_1_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_2 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_2_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Delivery count"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Delivery count"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_2 = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_2_elements,.length=2};
@@ -8373,98 +8373,98 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_prop
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=3},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=3},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items,.length=3}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=3},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=3},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items,.length=3}},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_elements,.length=4};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_elements[] = {
-{"name",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name},
-{"seen-time",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time},
-{"pel-count",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count},
-{"pending",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending},
+{JSON_TYPE_OBJECT,"name",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name},
+{JSON_TYPE_OBJECT,"seen-time",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time},
+{JSON_TYPE_OBJECT,"pel-count",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count},
+{JSON_TYPE_OBJECT,"pending",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_elements,.length=4};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="object"},
-{"properties",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_elements[] = {
-{"name",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name},
-{"last-delivered-id",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id},
-{"entries-read",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read},
-{"lag",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag},
-{"pel-count",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count},
-{"pending",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending},
-{"consumers",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers},
+{JSON_TYPE_OBJECT,"name",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name},
+{JSON_TYPE_OBJECT,"last-delivered-id",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id},
+{JSON_TYPE_OBJECT,"entries-read",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read},
+{JSON_TYPE_OBJECT,"lag",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag},
+{JSON_TYPE_OBJECT,"pel-count",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count},
+{JSON_TYPE_OBJECT,"pending",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending},
+{JSON_TYPE_OBJECT,"consumers",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_elements,.length=7};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="object"},
-{"properties",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_elements[] = {
-{"length",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_length},
-{"radix-tree-keys",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys},
-{"radix-tree-nodes",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes},
-{"last-generated-id",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id},
-{"max-deleted-entry-id",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id},
-{"recorded-first-entry-id",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id},
-{"entries-added",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added},
-{"entries",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries},
-{"groups",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups},
+{JSON_TYPE_OBJECT,"length",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_length},
+{JSON_TYPE_OBJECT,"radix-tree-keys",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys},
+{JSON_TYPE_OBJECT,"radix-tree-nodes",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes},
+{JSON_TYPE_OBJECT,"last-generated-id",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id},
+{JSON_TYPE_OBJECT,"max-deleted-entry-id",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id},
+{JSON_TYPE_OBJECT,"recorded-first-entry-id",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id},
+{JSON_TYPE_OBJECT,"entries-added",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added},
+{JSON_TYPE_OBJECT,"entries",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries},
+{JSON_TYPE_OBJECT,"groups",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties = {XINFO_STREAM_ReplySchema_oneOf_1_properties_elements,.length=9};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Extended form, in case `FULL` was given."},
-{"type",JSON_TYPE_STRING,.value.string="object"},
-{"additionalProperties",JSON_TYPE_BOOLEAN,.value.boolean=0},
-{"properties",JSON_TYPE_OBJECT,.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties},
+{JSON_TYPE_STRING,"description",.value.string="Extended form, in case `FULL` was given."},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_elements,.length=4};
@@ -8477,7 +8477,7 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf[] = {
 
 /* XINFO_STREAM_ReplySchema reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf,.length=2}},
 };
 
 struct jsonObject XINFO_STREAM_ReplySchema = {XINFO_STREAM_ReplySchema_elements,.length=1};
@@ -8547,33 +8547,33 @@ struct redisCommandArg XPENDING_Args[] = {
 
 /* XPENDING_ReplySchema_oneOf_0_items_items_0 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_0_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Entry ID"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"description",.value.string="Entry ID"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_0_items_items_0 = {XPENDING_ReplySchema_oneOf_0_items_items_0_elements,.length=3};
 
 /* XPENDING_ReplySchema_oneOf_0_items_items_1 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_0_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Consumer name"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Consumer name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_0_items_items_1 = {XPENDING_ReplySchema_oneOf_0_items_items_1_elements,.length=2};
 
 /* XPENDING_ReplySchema_oneOf_0_items_items_2 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_0_items_items_2_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Idle time"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Idle time"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_0_items_items_2 = {XPENDING_ReplySchema_oneOf_0_items_items_2_elements,.length=2};
 
 /* XPENDING_ReplySchema_oneOf_0_items_items_3 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_0_items_items_3_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Delivery count"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Delivery count"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_0_items_items_3 = {XPENDING_ReplySchema_oneOf_0_items_items_3_elements,.length=2};
@@ -8588,61 +8588,61 @@ struct jsonObject *XPENDING_ReplySchema_oneOf_0_items_items[] = {
 
 /* XPENDING_ReplySchema_oneOf_0_items reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_0_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=4},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=4},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XPENDING_ReplySchema_oneOf_0_items_items,.length=4}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=4},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XPENDING_ReplySchema_oneOf_0_items_items,.length=4}},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_0_items = {XPENDING_ReplySchema_oneOf_0_items_elements,.length=4};
 
 /* XPENDING_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Extended form, in case `start` was given."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XPENDING_ReplySchema_oneOf_0_items},
+{JSON_TYPE_STRING,"description",.value.string="Extended form, in case `start` was given."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XPENDING_ReplySchema_oneOf_0_items},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_0 = {XPENDING_ReplySchema_oneOf_0_elements,.length=3};
 
 /* XPENDING_ReplySchema_oneOf_1_items_0 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_1_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Total number of pending messages"},
-{"type",JSON_TYPE_STRING,.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Total number of pending messages"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_1_items_0 = {XPENDING_ReplySchema_oneOf_1_items_0_elements,.length=2};
 
 /* XPENDING_ReplySchema_oneOf_1_items_1 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_1_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Minimal pending entry ID"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"description",.value.string="Minimal pending entry ID"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_1_items_1 = {XPENDING_ReplySchema_oneOf_1_items_1_elements,.length=3};
 
 /* XPENDING_ReplySchema_oneOf_1_items_2 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_1_items_2_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Maximal pending entry ID"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"description",.value.string="Maximal pending entry ID"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_1_items_2 = {XPENDING_ReplySchema_oneOf_1_items_2_elements,.length=3};
 
 /* XPENDING_ReplySchema_oneOf_1_items_3_items_items_0 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_1_items_3_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Consumer name"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Consumer name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_1_items_3_items_items_0 = {XPENDING_ReplySchema_oneOf_1_items_3_items_items_0_elements,.length=2};
 
 /* XPENDING_ReplySchema_oneOf_1_items_3_items_items_1 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_1_items_3_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Number of pending messages"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Number of pending messages"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_1_items_3_items_items_1 = {XPENDING_ReplySchema_oneOf_1_items_3_items_items_1_elements,.length=2};
@@ -8655,19 +8655,19 @@ struct jsonObject *XPENDING_ReplySchema_oneOf_1_items_3_items_items[] = {
 
 /* XPENDING_ReplySchema_oneOf_1_items_3_items reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_1_items_3_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XPENDING_ReplySchema_oneOf_1_items_3_items_items,.length=2}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XPENDING_ReplySchema_oneOf_1_items_3_items_items,.length=2}},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_1_items_3_items = {XPENDING_ReplySchema_oneOf_1_items_3_items_elements,.length=4};
 
 /* XPENDING_ReplySchema_oneOf_1_items_3 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_1_items_3_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Consumers with pending messages"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XPENDING_ReplySchema_oneOf_1_items_3_items},
+{JSON_TYPE_STRING,"description",.value.string="Consumers with pending messages"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XPENDING_ReplySchema_oneOf_1_items_3_items},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_1_items_3 = {XPENDING_ReplySchema_oneOf_1_items_3_elements,.length=3};
@@ -8682,11 +8682,11 @@ struct jsonObject *XPENDING_ReplySchema_oneOf_1_items[] = {
 
 /* XPENDING_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Summary form, in case `start` was not given."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=4},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=4},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XPENDING_ReplySchema_oneOf_1_items,.length=4}},
+{JSON_TYPE_STRING,"description",.value.string="Summary form, in case `start` was not given."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=4},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XPENDING_ReplySchema_oneOf_1_items,.length=4}},
 };
 
 struct jsonObject XPENDING_ReplySchema_oneOf_1 = {XPENDING_ReplySchema_oneOf_1_elements,.length=5};
@@ -8699,7 +8699,7 @@ struct jsonObject *XPENDING_ReplySchema_oneOf[] = {
 
 /* XPENDING_ReplySchema reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=XPENDING_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XPENDING_ReplySchema_oneOf,.length=2}},
 };
 
 struct jsonObject XPENDING_ReplySchema = {XPENDING_ReplySchema_elements,.length=1};
@@ -8726,25 +8726,25 @@ struct redisCommandArg XRANGE_Args[] = {
 
 /* XRANGE_ReplySchema_items_items_0 reply schema */
 struct jsonObjectElement XRANGE_ReplySchema_items_items_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Entry ID"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
-{"pattern",JSON_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+{JSON_TYPE_STRING,"description",.value.string="Entry ID"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
 struct jsonObject XRANGE_ReplySchema_items_items_0 = {XRANGE_ReplySchema_items_items_0_elements,.length=3};
 
 /* XRANGE_ReplySchema_items_items_1_items reply schema */
 struct jsonObjectElement XRANGE_ReplySchema_items_items_1_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject XRANGE_ReplySchema_items_items_1_items = {XRANGE_ReplySchema_items_items_1_items_elements,.length=1};
 
 /* XRANGE_ReplySchema_items_items_1 reply schema */
 struct jsonObjectElement XRANGE_ReplySchema_items_items_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Data"},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"items",JSON_TYPE_OBJECT,.value.object=&XRANGE_ReplySchema_items_items_1_items},
+{JSON_TYPE_STRING,"description",.value.string="Data"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&XRANGE_ReplySchema_items_items_1_items},
 };
 
 struct jsonObject XRANGE_ReplySchema_items_items_1 = {XRANGE_ReplySchema_items_items_1_elements,.length=3};
@@ -8757,20 +8757,20 @@ struct jsonObject *XRANGE_ReplySchema_items_items[] = {
 
 /* XRANGE_ReplySchema_items reply schema */
 struct jsonObjectElement XRANGE_ReplySchema_items_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"minItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"maxItems",JSON_TYPE_INTEGER,.value.integer=2},
-{"items",JSON_TYPE_ARRAY,.value.array={.objects=XRANGE_ReplySchema_items_items,.length=2}},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XRANGE_ReplySchema_items_items,.length=2}},
 };
 
 struct jsonObject XRANGE_ReplySchema_items = {XRANGE_ReplySchema_items_elements,.length=4};
 
 /* XRANGE_ReplySchema reply schema */
 struct jsonObjectElement XRANGE_ReplySchema_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Stream entries with IDs matching the specified range."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
-{"uniqueItems",JSON_TYPE_BOOLEAN,.value.boolean=1},
-{"items",JSON_TYPE_OBJECT,.value.object=&XRANGE_ReplySchema_items},
+{JSON_TYPE_STRING,"description",.value.string="Stream entries with IDs matching the specified range."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&XRANGE_ReplySchema_items},
 };
 
 struct jsonObject XRANGE_ReplySchema = {XRANGE_ReplySchema_elements,.length=4};
@@ -8931,8 +8931,8 @@ struct redisCommandArg APPEND_Args[] = {
 
 /* APPEND_ReplySchema reply schema */
 struct jsonObjectElement APPEND_ReplySchema_elements[] = {
-{"type",JSON_TYPE_STRING,.value.string="integer"},
-{"description",JSON_TYPE_STRING,.value.string="The the length of the string after the append operation."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The the length of the string after the append operation."},
 };
 
 struct jsonObject APPEND_ReplySchema = {APPEND_ReplySchema_elements,.length=2};
@@ -9239,32 +9239,32 @@ struct redisCommandArg SET_Args[] = {
 
 /* SET_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement SET_ReplySchema_anyOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="`GET` not given: Operation was aborted (conflict with one of the `XX`/`NX` options)."},
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="`GET` not given: Operation was aborted (conflict with one of the `XX`/`NX` options)."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject SET_ReplySchema_anyOf_0 = {SET_ReplySchema_anyOf_0_elements,.length=2};
 
 /* SET_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement SET_ReplySchema_anyOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="`GET` not given: The key was set."},
-{"const",JSON_TYPE_STRING,.value.string="OK"},
+{JSON_TYPE_STRING,"description",.value.string="`GET` not given: The key was set."},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SET_ReplySchema_anyOf_1 = {SET_ReplySchema_anyOf_1_elements,.length=2};
 
 /* SET_ReplySchema_anyOf_2 reply schema */
 struct jsonObjectElement SET_ReplySchema_anyOf_2_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="`GET` given: The key didn't exist before the `SET`"},
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="`GET` given: The key didn't exist before the `SET`"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject SET_ReplySchema_anyOf_2 = {SET_ReplySchema_anyOf_2_elements,.length=2};
 
 /* SET_ReplySchema_anyOf_3 reply schema */
 struct jsonObjectElement SET_ReplySchema_anyOf_3_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="`GET` given: The previous value of the key"},
-{"type",JSON_TYPE_STRING,.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="`GET` given: The previous value of the key"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject SET_ReplySchema_anyOf_3 = {SET_ReplySchema_anyOf_3_elements,.length=2};
@@ -9279,7 +9279,7 @@ struct jsonObject *SET_ReplySchema_anyOf[] = {
 
 /* SET_ReplySchema reply schema */
 struct jsonObjectElement SET_ReplySchema_elements[] = {
-{"anyOf",JSON_TYPE_ARRAY,.value.array={.objects=SET_ReplySchema_anyOf,.length=4}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=SET_ReplySchema_anyOf,.length=4}},
 };
 
 struct jsonObject SET_ReplySchema = {SET_ReplySchema_elements,.length=1};
@@ -9379,16 +9379,16 @@ struct redisCommandArg SUBSTR_Args[] = {
 
 /* EXEC_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement EXEC_ReplySchema_oneOf_0_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="Each element being the reply to each of the commands in the atomic transaction."},
-{"type",JSON_TYPE_STRING,.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Each element being the reply to each of the commands in the atomic transaction."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
 };
 
 struct jsonObject EXEC_ReplySchema_oneOf_0 = {EXEC_ReplySchema_oneOf_0_elements,.length=2};
 
 /* EXEC_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement EXEC_ReplySchema_oneOf_1_elements[] = {
-{"description",JSON_TYPE_STRING,.value.string="The transaction was aborted because a `WATCH`ed key was touched"},
-{"type",JSON_TYPE_STRING,.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="The transaction was aborted because a `WATCH`ed key was touched"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
 struct jsonObject EXEC_ReplySchema_oneOf_1 = {EXEC_ReplySchema_oneOf_1_elements,.length=2};
@@ -9401,7 +9401,7 @@ struct jsonObject *EXEC_ReplySchema_oneOf[] = {
 
 /* EXEC_ReplySchema reply schema */
 struct jsonObjectElement EXEC_ReplySchema_elements[] = {
-{"oneOf",JSON_TYPE_ARRAY,.value.array={.objects=EXEC_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=EXEC_ReplySchema_oneOf,.length=2}},
 };
 
 struct jsonObject EXEC_ReplySchema = {EXEC_ReplySchema_elements,.length=1};
