@@ -2311,7 +2311,7 @@ char *sendCommand(connection *conn, ...) {
     return NULL;
 }
 
-/* Compose a multi-bulk command and send it to the connection.
+/* Compose a multi-bulk command and send it to the connection. 
  * Used to send AUTH and REPLCONF commands to the master before starting the
  * replication.
  *
@@ -3910,11 +3910,11 @@ void abortFailover(const char *err) {
  * if accepted will cause the replica to become the new master and start a sync.
  * 
  * FAILOVER ABORT is the only way to abort a failover command, as replicaof
- * will be disabled. This may be needed if the failover is unable to progress.
- *
+ * will be disabled. This may be needed if the failover is unable to progress. 
+ * 
  * The optional arguments [TO <HOST> <IP>] allows designating a specific replica
  * to be failed over to.
- *
+ * 
  * FORCE flag indicates that even if the target replica is not caught up,
  * failover to it anyway. This must be specified with a timeout and a target
  * HOST and IP.
