@@ -13,11 +13,11 @@ import io
 import signal
 import traceback
 from datetime import timedelta
+from functools import partial
 try:
     from jsonschema import Draft201909Validator as schema_validator
 except ImportError:
     from jsonschema import Draft7Validator as schema_validator
-
 
 """
 The purpose of this file is to validate the reply_schema values of COMMAND DOCS.
@@ -139,7 +139,7 @@ class Response(object):
         return json.dumps(self.json)
 
 
-def process_file(path):
+def process_file(docs, path):
     line_counter = [0]  # A list with one integer: to force python to pass it by reference
     command_counter = dict()
     missing_schema = set()
@@ -247,7 +247,8 @@ if __name__ == '__main__':
     counter = collections.Counter()
     missing_schema = set()
     with multiprocessing.Pool(multiprocessing.cpu_count()) as pool:
-        for result in pool.map(process_file, paths):
+        func = partial(process_file, docs)
+        for result in pool.map(func, paths):
             counter.update(result[0])
             missing_schema.update(result[1])
     command_counter = dict(counter)
