@@ -101,11 +101,11 @@ rocksdb: .make-prerequisites
 .PHONY: rocksdb
 
 
-XREDIS_GTID_CFLAGS= -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops $(CFLAGS)
+XREDIS_GTID_CFLAGS= -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops $(CFLAGS) -I../../src -DGTID_MALLOC_INCLUDE=\<gtid_zmalloc.h\>
 XREDIS_GTID_LDFLAGS= $(LDFLAGS)
 
 xredis-gtid: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd xredis-gtid && $(MAKE) CFLAGS="$(XREDIS_GTID_CFLAGS)" LDFLAGS="$(XREDIS_GTID_LDFLAGS)" 
+	cd xredis-gtid && $(MAKE) CFLAGS="$(XREDIS_GTID_CFLAGS)" LDFLAGS="$(XREDIS_GTID_LDFLAGS)"
 
 .PHONY: xredis-gtid
