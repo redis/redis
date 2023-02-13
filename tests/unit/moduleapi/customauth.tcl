@@ -1,4 +1,4 @@
-set testmodule [file normalize tests/modules/customauth.so]
+set testmodule [file normalize tests/modules/auth.so]
 set testmoduletwo [file normalize tests/modules/customauthtwo.so]
 set miscmodule [file normalize tests/modules/misc.so]
 
@@ -366,7 +366,7 @@ start_server {tags {"modules"}} {
 
         # moduleone and moduletwo have custom auth cbs registered. Because blocking custom auth is
         # ongoing, they cannot be unloaded.
-        catch {r module unload customauth} e
+        catch {r module unload testacl} e
         assert_match {*the module has blocked clients*} $e
         catch {r module unload customauthtwo} e
         assert_match {*A client is blocked on module based custom auth*} $e
@@ -382,7 +382,7 @@ start_server {tags {"modules"}} {
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat auth]
 
         # Validate that modules can be unloaded since blocking custom auth is done.
-        r module unload customauth
+        r module unload testacl
         # Validate that unloading the first module does not unregister custom auth cbs of the second
         # module - custom auth should succeed.
         assert_equal {OK} [r AUTH foo allow_two]

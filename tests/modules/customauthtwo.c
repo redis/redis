@@ -1,9 +1,6 @@
 #include "redismodule.h"
 
 #include <string.h>
-#include <unistd.h>
-#include <errno.h>
-#include <limits.h>
 
 /* This is a second sample module to validate that custom authentication callbacks can be registered
  * from multiple modules. */

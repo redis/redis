@@ -61,7 +61,6 @@ TEST_MODULES = \
     publish.so \
     usercall.so \
     postnotifications.so \
-    customauth.so \
     customauthtwo.so
 
 .PHONY: all
