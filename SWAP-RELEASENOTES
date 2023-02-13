@@ -1,4 +1,14 @@
 ================================================================================
+ror-1.0.5 Released Mon Feb 13 13:40:48 CST 2023
+================================================================================
+* [opt] use skiplist to store gtid set, so complexity to test gtid set contains
+        gno is now Olog(n).
+* [new] limit gtid gap maxmemory, so that gtid gap consumed memory is bounded.
+* [opt] scan command now supports scan with connection pool.
+* [opt] add periodic compact/suggest compact/dynamic level bytes to optimize disk
+        usage.
+
+================================================================================
 ror-1.0.4 Released Fri Jan 13 16:35:48 CST 2023
 ================================================================================
 * [fix] txid overflow int.
