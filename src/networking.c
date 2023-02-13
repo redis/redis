@@ -201,6 +201,7 @@ client *createClient(connection *conn) {
     c->client_tracking_prefixes = NULL;
     c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
+    c->module_blocked_client = NULL;
     c->custom_auth_ctx = NULL;
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
@@ -1538,6 +1539,11 @@ void freeClient(client *c) {
 
     /* Notify module system that this client auth status changed. */
     moduleNotifyUserChanged(c);
+
+    /* Free the RedisModuleBlockedClient held onto for reprocessing if not already freed. */
+    if (c->module_blocked_client) {
+        zfree(c->module_blocked_client);
+    }
 
     /* If this client was scheduled for async freeing we need to remove it
      * from the queue. Note that we need to do this here, because later
@@ -3411,104 +3417,48 @@ NULL
     }
 }
 
-/* Adds the HELLO Command response as a reply to the client. */
-void addReplyHelloResponse(client *c) {
-    addReplyMapLen(c,6 + !server.sentinel_mode);
-
-    addReplyBulkCString(c,"server");
-    addReplyBulkCString(c,"redis");
-
-    addReplyBulkCString(c,"version");
-    addReplyBulkCString(c,REDIS_VERSION);
-
-    addReplyBulkCString(c,"proto");
-    addReplyLongLong(c,c->resp);
-
-    addReplyBulkCString(c,"id");
-    addReplyLongLong(c,c->id);
-
-    addReplyBulkCString(c,"mode");
-    if (server.sentinel_mode) addReplyBulkCString(c,"sentinel");
-    else if (server.cluster_enabled) addReplyBulkCString(c,"cluster");
-    else addReplyBulkCString(c,"standalone");
-
-    if (!server.sentinel_mode) {
-        addReplyBulkCString(c,"role");
-        addReplyBulkCString(c,server.masterhost ? "replica" : "master");
-    }
-
-    addReplyBulkCString(c,"modules");
-    addReplyLoadedModules(c);
-}
-
-/* Parses the HELLO command args and sets the pointers. Returns C_OK on success. Returns C_ERR on
- * failure after adding an error reply to the client. */
-int parseHelloCmdArgsOrReply(client *c, long long *proto, robj **username, robj **password, robj **clientname) {
+/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] ] */
+void helloCommand(client *c) {
     long long ver = 0;
     int next_arg = 1;
 
     if (c->argc >= 2) {
         if (getLongLongFromObjectOrReply(c, c->argv[next_arg++], &ver,
             "Protocol version is not an integer or out of range") != C_OK) {
-            return C_ERR;
+            return;
         }
 
         if (ver < 2 || ver > 3) {
             addReplyError(c,"-NOPROTO unsupported protocol version");
-            return C_ERR;
+            return;
         }
     }
-    *proto = ver;
+
+    robj *username = NULL;
+    robj *password = NULL;
+    robj *clientname = NULL;
     for (int j = next_arg; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j;
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
             redactClientCommandArgument(c, j+1);
             redactClientCommandArgument(c, j+2);
-            *username = c->argv[j+1];
-            *password = c->argv[j+2];
+            username = c->argv[j+1];
+            password = c->argv[j+2];
             j += 2;
         } else if (!strcasecmp(opt,"SETNAME") && moreargs) {
-            *clientname = c->argv[j+1];
-            if (validateClientName(*clientname) == C_ERR) {
+            clientname = c->argv[j+1];
+            if (validateClientName(clientname) == C_ERR) {
                 addReplyError(c,
                     "Client names cannot contain spaces, "
                     "newlines or special characters.");
-                return C_ERR;
+                return;
             }
             j++;
         } else {
             addReplyErrorFormat(c,"Syntax error in HELLO option '%s'",opt);
-            return C_ERR;
+            return;
         }
-    }
-    return C_OK;
-}
-
-/* Note: Use this function only when the command used is either AUTH or HELLO.
- * Returns 1 in case of the AUTH command and sets username / password.
- * Returns 0 in case of the HELLO command after setting the fields. */
-int getAuthOrHelloAuthCmdArgs(client *c, robj **username, robj **password, long long *ver, robj **clientname) {
-    struct redisCommand *auth_cmd = lookupCommandByCString("auth");
-    if (!auth_cmd) auth_cmd = lookupCommandByCStringLogic(server.orig_commands, "auth");
-    int is_auth_cmd = (c->realcmd == auth_cmd);
-    if (is_auth_cmd) {
-        *username = c->argv[1];
-        *password = c->argv[2];
-    } else {
-        parseHelloCmdArgsOrReply(c, ver, username, password, clientname);
-    }
-    return is_auth_cmd;
-}
-
-/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] ] */
-void helloCommand(client *c) {
-    long long ver = 0;
-    robj *username = NULL;
-    robj *password = NULL;
-    robj *clientname = NULL;
-    if (parseHelloCmdArgsOrReply(c, &ver, &username, &password, &clientname) == C_ERR) {
-        return;
     }
 
     const char *err = NULL;
@@ -3536,7 +3486,32 @@ void helloCommand(client *c) {
 
     /* Let's switch to the specified RESP mode. */
     if (ver) c->resp = ver;
-    addReplyHelloResponse(c);
+    addReplyMapLen(c,6 + !server.sentinel_mode);
+
+    addReplyBulkCString(c,"server");
+    addReplyBulkCString(c,"redis");
+
+    addReplyBulkCString(c,"version");
+    addReplyBulkCString(c,REDIS_VERSION);
+
+    addReplyBulkCString(c,"proto");
+    addReplyLongLong(c,c->resp);
+
+    addReplyBulkCString(c,"id");
+    addReplyLongLong(c,c->id);
+
+    addReplyBulkCString(c,"mode");
+    if (server.sentinel_mode) addReplyBulkCString(c,"sentinel");
+    else if (server.cluster_enabled) addReplyBulkCString(c,"cluster");
+    else addReplyBulkCString(c,"standalone");
+
+    if (!server.sentinel_mode) {
+        addReplyBulkCString(c,"role");
+        addReplyBulkCString(c,server.masterhost ? "replica" : "master");
+    }
+
+    addReplyBulkCString(c,"modules");
+    addReplyLoadedModules(c);
 }
 
 /* This callback is bound to POST and "Host:" command names. Those are not

@@ -856,7 +856,7 @@ struct RedisModuleDigest {
 } while(0)
 
 /* Macro to check if the client is in the middle of module based authentication. */
-#define isClientModuleAuthInProgress(c) ((c)->custom_auth_ctx != NULL)
+#define clientHasModuleAuthInProgress(c) ((c)->custom_auth_ctx != NULL)
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
@@ -1175,6 +1175,9 @@ typedef struct client {
     listNode *client_list_node; /* list node in client list */
     listNode *postponed_list_node; /* list node within the postponed list */
     listNode *pending_read_list_node; /* list node in clients pending read list */
+    void *module_blocked_client; /* Pointer to the RedisModuleBlockedClient associated with this
+                                  * client. This is set in case of module authentication before the
+                                  * unblocked client is reprocessed to handle reply callbacks. */
     void *custom_auth_ctx; /* Ongoing / attempted module based custom auth callback's ctx.
                             * This is only tracked within the context of the command attempting
                             * authentication. If not NULL, it means custom auth is in progress. */
@@ -2533,8 +2536,6 @@ void addReplyPushLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
 void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
-void addReplyHelloResponse(client *c);
-int getAuthOrHelloAuthCmdArgs(client *c, robj **username, robj **password, long long *ver, robj **clientname);
 void copyReplicaOutputBuffer(client *dst, client *src);
 void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
 void deferredAfterErrorReply(client *c, list *errors);

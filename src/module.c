@@ -7356,6 +7356,7 @@ void unblockClientFromModule(client *c) {
  *
  */
 RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
+                                            RedisModuleCustomAuthCallback auth_reply_callback,
                                             RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                             long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata,
                                             int flags) {
@@ -7375,7 +7376,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->client = (islua || ismulti) ? NULL : c;
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
-    bc->auth_reply_cb = NULL;
+    bc->auth_reply_cb = auth_reply_callback;
     bc->timeout_callback = timeout_callback;
     bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
@@ -7396,6 +7397,14 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
         addReplyError(c, islua ?
             "Blocking module command called from Lua script" :
             "Blocking module command called from transaction");
+    }
+    else if (ctx->flags & REDISMODULE_CTX_BLOCKED_REPLY) {
+        c->bstate.module_blocked_handle = NULL;
+        addReplyError(c, "Blocking module command called from a Reply callback context");
+    }
+    else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
+        c->bstate.module_blocked_handle = NULL;
+        addReplyError(c, "Clients undergoing module based authentication can only be blocked on auth");
     } else {
         if (keys) {
             blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
@@ -7434,6 +7443,19 @@ void RM_RegisterCustomAuthCallback(RedisModuleCtx *ctx, RedisModuleCustomAuthCal
     listAddNodeTail(moduleCustomAuthCallbacks, auth_ctx);
 }
 
+/* Helper function to invoke the free private data callback of a Module blocked client. */
+void moduleInvokeFreePrivDataCallback(client *c, RedisModuleBlockedClient *bc) {
+    if (bc->privdata && bc->free_privdata) {
+        RedisModuleCtx ctx;
+        int ctx_flags = c == NULL ? REDISMODULE_CTX_BLOCKED_DISCONNECTED : REDISMODULE_CTX_NONE;
+        moduleCreateContext(&ctx, bc->module, ctx_flags);
+        ctx.blocked_privdata = bc->privdata;
+        ctx.client = bc->client;
+        bc->free_privdata(&ctx,bc->privdata);
+        moduleFreeContext(&ctx);
+    }
+}
+
 /* Returns 1 if the module has any custom auth callbacks registered. If `should_unregister` is
  * non-zero, all the module's custom auth cbs are unregistered.
  * Returns 0 otherwise - if the Module has no custom auth cb registered. */
@@ -7462,46 +7484,11 @@ int isCustomAuthInProgress() {
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        if (isClientModuleAuthInProgress(c)) {
+        if (clientHasModuleAuthInProgress(c)) {
             return 1;
         }
     }
     return 0;
-}
-
-/* Adds the OK reply in case of the AUTH cmd, and in case of the HELLO cmd adds server info as a
- * reply and sets the client name & protocol. */
-void addAuthSuccessReplyAndSetName(client *c, long long ver, robj *clientname, int is_auth_cmd) {
-    if (is_auth_cmd) {
-        addReply(c, shared.ok);
-    }
-    else {
-        if (clientname) clientSetName(c, clientname);
-        if (ver) c->resp = ver;
-        addReplyHelloResponse(c);
-    }
-}
-
-/* Returns 0 if custom auth is not complete - either because the client is still blocked on auth or
- * because the callback did not conclude auth as successful or denied.
- * Returns 1 if custom auth succeeded or was denied after replying to the client. */
-int handleCustomAuthIfComplete(client *c, long long ver, robj *clientname, int is_auth_cmd, int cb_result, const char *err) {
-    if (cb_result == REDISMODULE_AUTH_NOT_HANDLED) {
-        c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
-        return 0;
-    }
-    c->flags &= ~CLIENT_PENDING_COMMAND;
-    c->custom_auth_ctx = NULL;
-    /* Handle the success case of AUTH by replying with OK. In case of HELLO, set the clientname
-     * if provided and respond the HELLO cmd response. */
-    if (c->flags & CLIENT_CUSTOM_AUTH_RESULT && c->authenticated) {
-        c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
-        addAuthSuccessReplyAndSetName(c, ver, clientname, is_auth_cmd);
-        return 1;
-    }
-    /* In case of denying auth, we need to reply to the client with the ERR message. */
-    addAuthErrReply(c, err);
-    return 1;
 }
 
 /* Search for & attempt next custom auth callback after skipping the ones already attempted.
@@ -7527,8 +7514,6 @@ int attemptNextCustomAuthCb(client *c, robj *username, robj *password, const cha
             moduleFreeContext(&ctx);
             /* If the client is blocked, we are still in the auth chain. Set the auth_ctx. */
             if (c->flags & CLIENT_BLOCKED) {
-                /* Modules are expected to return REDISMODULE_AUTH_HANDLED when blocking clients. */
-                serverAssert(result == REDISMODULE_AUTH_HANDLED);
                 RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
                 bc->auth_ctx = cur_auth_ctx;
             }
@@ -7540,6 +7525,33 @@ int attemptNextCustomAuthCb(client *c, robj *username, robj *password, const cha
             skipped_prev_callbacks = 1;
         }
     }
+    return result;
+}
+
+/* Helper function to handle a reprocessed unblocked client that had custom auth ongoing.
+ * Returns REDISMODULE_AUTH_NOT_HANDLED if the client was not reprocessed after a blocking custom
+ * auth operation.
+ * Otherwise, we attempt the auth reply callback & the free priv data callback, update fields and
+ * return the result of the reply callback. */
+int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, const char **err) {
+    int result = REDISMODULE_AUTH_NOT_HANDLED;
+    if (!c->module_blocked_client) return result;
+    RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *) c->module_blocked_client;
+    bc->client = c;
+    if (bc->auth_reply_cb) {
+        RedisModuleCtx ctx;
+        moduleCreateContext(&ctx, bc->module, REDISMODULE_CTX_BLOCKED_REPLY);
+        ctx.blocked_privdata = bc->privdata;
+        ctx.blocked_ready_key = NULL;
+        ctx.client = bc->client;
+        ctx.blocked_client = bc;
+        result = bc->auth_reply_cb(&ctx, username, password, err);
+    }
+    moduleInvokeFreePrivDataCallback(c, bc);
+    c->module_blocked_client = NULL;
+    c->lastcmd->microseconds += bc->background_duration;
+    bc->module->blocked_clients--;
+    zfree(bc);
     return result;
 }
 
@@ -7557,10 +7569,20 @@ int attemptNextCustomAuthCb(client *c, robj *username, robj *password, const cha
  */
 int checkModuleAuthentication(client *c, robj *username, robj *password, const char **err) {
     if (!listLength(moduleCustomAuthCallbacks)) return C_ERR;
-    int result = attemptNextCustomAuthCb(c, username, password, err);
-    if (c->flags & CLIENT_BLOCKED) return C_OK;
-    if (c->flags & CLIENT_PENDING_COMMAND)
+    int result = attemptBlockedAuthReplyCallback(c, username, password, err);
+    if (result == REDISMODULE_AUTH_HANDLED) {
+        goto handle_result;
+    }
+    result = attemptNextCustomAuthCb(c, username, password, err);
+handle_result:
+    if (c->flags & CLIENT_BLOCKED) {
+        /* Modules are expected to return REDISMODULE_AUTH_HANDLED when blocking clients. */
+        serverAssert(result == REDISMODULE_AUTH_HANDLED);
+        return C_OK;
+    }
+    if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
+    }
     c->custom_auth_ctx = NULL;
     if (result == REDISMODULE_AUTH_NOT_HANDLED) return C_ERR;
     if (c->flags & CLIENT_CUSTOM_AUTH_RESULT && c->authenticated) {
@@ -7641,19 +7663,21 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
                                          RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                          long long timeout_ms) {
-    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL,0);
+    return moduleBlockClient(ctx,reply_callback,NULL,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL,0);
 }
 
 /* Block the current client for custom authentication in the background. If custom auth is not in
  * progress, the API returns NULL. Otherwise, the client is blocked and the RM_BlockedClient is
  * returned similar to the RM_BlockClient API.
  * Note: Only use this API from the context of a custom auth callback. */
-RedisModuleBlockedClient *RM_BlockClientOnAuth(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback reply_callback, void (*free_privdata)(RedisModuleCtx*,void*)) {
-    /* Assert that the client is in the middle of custom auth. */
-    serverAssert(isClientModuleAuthInProgress(ctx->client));
+RedisModuleBlockedClient *RM_BlockClientOnAuth(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback reply_callback,
+                                                void (*free_privdata)(RedisModuleCtx*,void*)) {
+    if (!clientHasModuleAuthInProgress(ctx->client)) {
+        addReplyError(ctx->client, "Module blocking client on auth when not currently undergoing module authentication");
+        return NULL;
+    }
     ctx->client->flags |= CLIENT_PENDING_COMMAND;
-    RedisModuleBlockedClient *bc = moduleBlockClient(ctx,NULL,NULL,free_privdata,0, NULL,0,NULL,0);
-    bc->auth_reply_cb = reply_callback;
+    RedisModuleBlockedClient *bc = moduleBlockClient(ctx,NULL,reply_callback,NULL,free_privdata,0, NULL,0,NULL,0);
     return bc;
 }
 
@@ -7718,7 +7742,7 @@ RedisModuleBlockedClient *RM_BlockClientOnAuth(RedisModuleCtx *ctx, RedisModuleC
 RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
                                                RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                                long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
-    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,0);
+    return moduleBlockClient(ctx,reply_callback,NULL,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,0);
 }
 
 /* Same as RedisModule_BlockClientOnKeys, but can take REDISMODULE_BLOCK_* flags
@@ -7734,7 +7758,7 @@ RedisModuleBlockedClient *RM_BlockClientOnKeysWithFlags(RedisModuleCtx *ctx, Red
                                                         RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                                         long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata,
                                                         int flags) {
-    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,flags);
+    return moduleBlockClient(ctx,reply_callback,NULL,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,flags);
 }
 
 /* This function is used in order to potentially unblock a client blocked
@@ -7876,45 +7900,14 @@ void moduleHandleBlockedClients(void) {
             reply_us = elapsedUs(replyTimer);
             moduleFreeContext(&ctx);
         }
-        /* Call the custom auth reply cb if one exists if custom auth is in progress. */
-        if (c && isClientModuleAuthInProgress(c) && !bc->blocked_on_keys && bc->auth_reply_cb) {
-            /* Reset the client's CUSTOM_AUTH_RESULT flag before attempting the auth_reply_cb. */
-            c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
-            robj *username = NULL;
-            robj *password = NULL;
-            long long ver = 0;
-            robj *clientname = NULL;
-            int is_auth_cmd = getAuthOrHelloAuthCmdArgs(c, &username, &password, &ver, &clientname);
-            RedisModuleCtx ctx;
-            moduleCreateContext(&ctx, bc->module, REDISMODULE_CTX_BLOCKED_REPLY);
-            ctx.blocked_privdata = bc->privdata;
-            ctx.blocked_ready_key = NULL;
-            ctx.client = bc->client;
-            ctx.blocked_client = bc;
-            const char *err = NULL;
-            monotime replyTimer;
-            elapsedStart(&replyTimer);
-            int custom_auth_result = bc->auth_reply_cb(&ctx, username, password, &err);
-            reply_us += elapsedUs(replyTimer);
-            moduleFreeContext(&ctx);
-            handleCustomAuthIfComplete(c, ver, clientname, is_auth_cmd, custom_auth_result, err);
-            /* If custom auth is still in progress, add the total duration of this blocked client
-             * into the `c->lastcmd->microseconds`. This will later be added into cmd stats when
-             * custom auth is completed. */
-            if (isClientModuleAuthInProgress(c)) {
-                c->lastcmd->microseconds += bc->background_duration + reply_us;
-            }
+        /* Hold onto the blocked client if custom auth is in progress. The reply callback is invoked
+         * when the client is reprocessed. */
+        if (c && clientHasModuleAuthInProgress(c)) {
+            c->module_blocked_client = bc;
         }
-
         /* Free privdata if any. */
-        if (bc->privdata && bc->free_privdata) {
-            RedisModuleCtx ctx;
-            int ctx_flags = c == NULL ? REDISMODULE_CTX_BLOCKED_DISCONNECTED : REDISMODULE_CTX_NONE;
-            moduleCreateContext(&ctx, bc->module, ctx_flags);
-            ctx.blocked_privdata = bc->privdata;
-            ctx.client = bc->client;
-            bc->free_privdata(&ctx,bc->privdata);
-            moduleFreeContext(&ctx);
+        else {
+            moduleInvokeFreePrivDataCallback(c, bc);
         }
 
         /* It is possible that this blocked client object accumulated
@@ -7929,7 +7922,7 @@ void moduleHandleBlockedClients(void) {
          * This needs to be out of the reply callback above given that a
          * module might not define any callback and still do blocking ops.
          */
-        if (c && !isClientModuleAuthInProgress(c) && !bc->blocked_on_keys) {
+        if (c && !clientHasModuleAuthInProgress(c) && !bc->blocked_on_keys) {
             updateStatsOnUnblock(c, bc->background_duration, reply_us, server.stat_total_error_replies != prev_error_replies);
         }
 
@@ -7942,7 +7935,7 @@ void moduleHandleBlockedClients(void) {
             /* Put the client in the list of clients that need to write
              * if there are pending replies here. This is needed since
              * during a non blocking command the client may receive output. */
-            if (!isClientModuleAuthInProgress(c) && clientHasPendingReplies(c) &&
+            if (!clientHasModuleAuthInProgress(c) && clientHasPendingReplies(c) &&
                 !(c->flags & CLIENT_PENDING_WRITE))
             {
                 c->flags |= CLIENT_PENDING_WRITE;
@@ -7953,8 +7946,10 @@ void moduleHandleBlockedClients(void) {
         /* Free 'bc' only after unblocking the client, since it is
          * referenced in the client blocking context, and must be valid
          * when calling unblockClient(). */
-        bc->module->blocked_clients--;
-        zfree(bc);
+        if (!(c && clientHasModuleAuthInProgress(c))) {
+            bc->module->blocked_clients--;
+            zfree(bc);
+        }
 
         /* Lock again before to iterate the loop. */
         pthread_mutex_lock(&moduleUnblockedClientsMutex);
@@ -7984,14 +7979,6 @@ void moduleBlockedClientTimedOut(client *c) {
      * in the unblocking list for any reason (including RM_UnblockClient()
      * explicit call). See #6798. */
     if (bc->unblocked) return;
-
-    /* If custom auth is in progress, reply to the client with an ERR incase it is timed out. */
-    if (c && isClientModuleAuthInProgress(c)) {
-        c->flags &= ~CLIENT_PENDING_COMMAND;
-        c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
-        c->custom_auth_ctx = NULL;
-        addAuthErrReply(c, NULL);
-    }
 
     RedisModuleCtx ctx;
     moduleCreateContext(&ctx, bc->module, REDISMODULE_CTX_BLOCKED_TIMEOUT);
@@ -9393,7 +9380,7 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
     ctx->client->user = user;
     ctx->client->authenticated = 1;
 
-    if (isClientModuleAuthInProgress(ctx->client)) {
+    if (clientHasModuleAuthInProgress(ctx->client)) {
         ctx->client->flags |= CLIENT_CUSTOM_AUTH_RESULT;
     }
 
