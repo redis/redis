@@ -521,8 +521,7 @@ start_server {tags {"scripting"}} {
         # Use a non blocking client to speedup the loop.
         set rd [redis_deferring_client]
         for {set j 0} {$j < 10000} {incr j} {
-            #run_script_on_connection $rd {return redis.call("incr",KEYS[1])} 1 x
-            $rd INCR x
+            run_script_on_connection $rd {return redis.call("incr",KEYS[1])} 1 x
         }
         for {set j 0} {$j < 10000} {incr j} {
             $rd read
@@ -680,7 +679,7 @@ start_server {tags {"scripting"}} {
         assert_equal $res $expected_list
     } {} {resp3}
 
-    if {!$::log_req_res} {
+    if {!$::log_req_res} { # this test creates a huge nested array which python can't handle (RecursionError: maximum recursion depth exceeded in comparison)
     test {Script return recursive object} {
         r readraw 1
         set res [run_script {local a = {}; local b = {a}; a[1] = b; return a} 0]

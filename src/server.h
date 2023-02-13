@@ -170,7 +170,7 @@ typedef struct redisObject robj;
 
 /* Protocol and I/O related defines */
 #define PROTO_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
-#define PROTO_REPLY_CHUNK_BYTES (1024*16) /* 16k output buffer */
+#define PROTO_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
 #define PROTO_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
@@ -1100,19 +1100,23 @@ typedef struct {
 } clientMemUsageBucket;
 
 typedef struct {
-    int argv_logged;
+    /* General */
+    int argv_logged; /* 1 if the command was logged */
     /* Vars for log buffer */
     unsigned char *buf; /* Buffer holding the data (request and response) */
     size_t used;
     size_t capacity;
     /* Vars for offsets within the client's reply */
     struct {
-        int bufpos; /* Offset within the static reply buffer */
+        /* General */
+        int saved; /* 1 if we already saved the offset (first time we call addReply*) */
+        /* Offset within the static reply buffer */
+        int bufpos;
+        /* Offset within the reply block list */
         struct {
             int index;
             size_t used;
-        } last_node; /* Offset within the reply block list */
-        int saved; /* 1 if we already saved the offset (first time we call addReply*) */
+        } last_node;
     } offset;
 } clientReqResInfo;
 
@@ -2137,8 +2141,8 @@ typedef enum {
 } jsonType;
 
 typedef struct jsonObjectElement {
-    const char *key;
     jsonType type;
+    const char *key;
     union {
         const char *string;
         long long integer;
@@ -2608,6 +2612,9 @@ void initThreadedIO(void);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
+
+/* logreqres.c - logging of requests and responses */
+void reqresReset(client *c, int free_buf);
 void reqresSaveClientReplyOffset(client *c);
 size_t reqresAppendRequest(client *c);
 size_t reqresAppendResponse(client *c);

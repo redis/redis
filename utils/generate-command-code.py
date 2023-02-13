@@ -272,7 +272,7 @@ class ReplySchema(object):
                 t = "JSON_TYPE_INTEGER"
                 vstr = ".value.integer=%d" % v
             
-            return "\"%s\",%s,%s" % (k, t, vstr)
+            return "%s,\"%s\",%s" % (t, k, vstr)
 
         for k, v in self.schema.items():
             if isinstance(v, ReplySchema):
