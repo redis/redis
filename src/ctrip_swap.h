@@ -877,9 +877,8 @@ sds genSwapThreadInfoString(sds info);
 #define ROCKS_DEL              	3
 #define ROCKS_WRITE             4
 #define ROCKS_MULTIGET          5
-#define ROCKS_MULTI_DELETERANGE       6
-#define ROCKS_ITERATE          7
-#define ROCKS_TYPES             8
+#define ROCKS_ITERATE           6
+#define ROCKS_TYPES             7
 
 #define SWAP_DEBUG_LOCK_WAIT            0
 #define SWAP_DEBUG_SWAP_QUEUE_WAIT      1
@@ -890,7 +889,7 @@ sds genSwapThreadInfoString(sds info);
 
 static inline const char *rocksActionName(int action) {
   const char *name = "?";
-  const char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "SCAN", "DELETERANGE", "ITERATE", "RANGE"};
+  const char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "ITERATE"};
   if (action >= 0 && (size_t)action < sizeof(actions)/sizeof(char*))
     name = actions[action];
   return name;
@@ -1239,7 +1238,7 @@ int lockGlobalAndExec(clientKeyRequestFinished locked_op, uint64_t exclude_mark)
 #define SWAP_DEBUG_STATS_METRIC_COUNT (SWAP_DEBUG_SIZE*SWAP_DEBUG_INFO_TYPE)
 #define SWAP_LOCK_STATS_METRIC_COUNT (SWAP_LOCK_METRIC_SIZE*REQUEST_LEVEL_TYPES)
 
-/* stats metrics are ordered mem>swap>rio */ 
+/* stats metrics are ordered mem>swap>rio */
 #define SWAP_SWAP_STATS_METRIC_OFFSET STATS_METRIC_COUNT_MEM
 #define SWAP_RIO_STATS_METRIC_OFFSET (SWAP_SWAP_STATS_METRIC_OFFSET+SWAP_SWAP_STATS_METRIC_COUNT)
 #define SWAP_COMPACTION_FILTER_STATS_METRIC_OFFSET (SWAP_RIO_STATS_METRIC_OFFSET+SWAP_RIO_STATS_METRIC_COUNT)

@@ -75,15 +75,6 @@ void RIOInitMultiGet(RIO *rio, int numkeys, int *cfs, sds *rawkeys) {
     rio->err = NULL;
 }
 
-void RIOInitMultiDeleteRange(RIO* rio, int num, int* cf , sds* rawkeys) {
-    rio->action = ROCKS_MULTI_DELETERANGE;
-    rio->multidel_range.num = num;
-    rio->multidel_range.cf = cf;
-    rio->multidel_range.rawkeys = rawkeys;
-    rio->err = NULL;
-
-}
-
 void RIOInititerate(RIO *rio, int cf, uint32_t flags, sds start, sds end, size_t limit) {
     rio->action = ROCKS_ITERATE;
     rio->iterate.cf = cf;
@@ -137,16 +128,6 @@ void RIODeinit(RIO *rio) {
     case  ROCKS_WRITE:
         rocksdb_writebatch_destroy(rio->write.wb);
         rio->write.wb = NULL;
-        break;
-    case  ROCKS_MULTI_DELETERANGE:
-        for(int i = 0; i < rio->multidel_range.num;i++) {
-            sdsfree(rio->multidel_range.rawkeys[i]);
-        }
-        zfree(rio->multidel_range.rawkeys);
-        zfree(rio->multidel_range.cf);
-        
-        rio->multidel_range.rawkeys = NULL;
-        rio->multidel_range.cf = NULL;
         break;
     case ROCKS_ITERATE:
         if (rio->iterate.start) {
@@ -303,23 +284,6 @@ end:
     return ret;
 }
 
-static int doRIOMultiDeleteRange(RIO *rio) {
-    char *err = NULL;
-    for(int i = 0; i < (rio->multidel_range.num/2);i++) {
-        rocksdb_delete_range_cf(server.rocks->db, server.rocks->wopts,
-            rioGetCF(rio->multidel_range.cf[i*2]),
-            rio->multidel_range.rawkeys[i*2], sdslen(rio->multidel_range.rawkeys[i*2]),
-            rio->multidel_range.rawkeys[i*2+1], sdslen(rio->multidel_range.rawkeys[i*2+1]), &err);
-        if (err != NULL) {
-            rio->err = sdsnew(err);
-            serverLog(LL_WARNING,"[rocks] do rocksdb delete range failed: %s", err);
-            zlibc_free(err);
-            return -1;
-        }
-    }
-    return 0;
-}
-
 static int doRIOIterate(RIO *rio) {
     int ret = 0;
     size_t numkeys = 0;
@@ -464,14 +428,6 @@ void dumpRIO(RIO *rio) {
             repr = sdscat(repr,")\n");
         }
         break;
-    case ROCKS_MULTI_DELETERANGE:
-        for(int i = 0; i < rio->multidel_range.num/2; i++) {
-            repr = sdscat(repr, "DELETERANGE start_key=%s");
-            repr = sdscatrepr(repr, rio->multidel_range.rawkeys[i * 2], sdslen(rio->multidel_range.rawkeys[i * 2]));
-            repr = sdscat(repr, ", end_key=");
-            repr = sdscatrepr(repr, rio->multidel_range.rawkeys[i * 2 + 1], sdslen(rio->multidel_range.rawkeys[i * 2 + 1]));
-        }
-        break;
     case ROCKS_ITERATE:
         repr = sdscatprintf(repr, "ITERATE [%s]: (flags=%d,limit=%lu",rioGetCFName(rio->iterate.cf),
                             rio->iterate.flags, rio->iterate.limit);
@@ -533,9 +489,6 @@ int doRIO(RIO *rio) {
         break;
     case ROCKS_MULTIGET:
         ret = doRIOMultiGet(rio);
-        break;
-    case ROCKS_MULTI_DELETERANGE:
-        ret = doRIOMultiDeleteRange(rio);
         break;
     case ROCKS_ITERATE:
         ret = doRIOIterate(rio);
