@@ -2300,7 +2300,8 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         sender_slots == 0 &&
         myself->numslots == 0 &&
         nodeEpoch(myself) < senderConfigEpoch &&
-        areInSameShard(sender, myself)) {
+        areInSameShard(sender, myself))
+    {
         newmaster = sender;
     }
 
@@ -2308,7 +2309,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
      * its slots, this node should become a replica of the sender if
      * one of the following conditions is true:
      *
-     * 1. cluster-allow-replication-migration is enabled
+     * 1. cluster-allow-replication-migration is enabled and myself is a replica
      * 2. all the lost slots go to the sender and the sender belongs to this
      *    node's shard
      *
@@ -2323,29 +2324,30 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
      * our primary just had its last slot migrated to the sender. In this case
      * we don't reconfigure ourselves as a replica of the sender. */
     if (newmaster && curmaster->numslots == 0) {
-      if (server.cluster_allow_replica_migration ||
-        ((sender_slots == migrated_our_slots) &&
-        areInSameShard(sender, myself))) {
-        serverLog(LL_WARNING,
-            "Configuration change detected. Reconfiguring myself "
-            "as a replica of %.40s", sender->name);
-        /* Don't clear the migrating/importing states if this is a replica that
-         * just gets promoted to the new primary in the shard. */
-        clusterSetMaster(sender, !areInSameShard(sender, myself));
-        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                             CLUSTER_TODO_UPDATE_STATE|
-                             CLUSTER_TODO_FSYNC_CONFIG);
-      } else if ((sender_slots == migrated_our_slots) &&
-        !areInSameShard(sender, myself)) {
-        /* When all our slots are lost to the sender and the sender belongs to
-         * a different shard, this is likely due to a client triggered slot
-         * migration. Don't reconfigure this node to migrate to the new shard
-         * in this case. */
-        serverLog(LL_NOTICE,
-             "I lost all my slots to the sender who belongs to a "
-             "different shard than mine. I will continue to remain in "
-             "my current shard.");
-      }
+        if ((nodeIsSlave(myself) && server.cluster_allow_replica_migration) ||
+            areInSameShard(sender, myself)) 
+        {
+            serverLog(LL_WARNING,
+                      "Configuration change detected. Reconfiguring myself "
+                      "as a replica of %.40s", sender->name);
+            /* Don't clear the migrating/importing states if this is a replica that
+             * just gets promoted to the new primary in the shard. */
+            clusterSetMaster(sender, !areInSameShard(sender, myself));
+            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                 CLUSTER_TODO_UPDATE_STATE|
+                                 CLUSTER_TODO_FSYNC_CONFIG);
+        } else if ((sender_slots >= migrated_our_slots) &&
+                   !areInSameShard(sender, myself)) 
+        {
+            /* When all our slots are lost to the sender and the sender belongs to
+            * a different shard, this is likely due to a client triggered slot
+            * migration. Don't reconfigure this node to migrate to the new shard
+            * in this case. */
+            serverLog(LL_NOTICE,
+                      "I lost all my slots to the sender who belongs to a "
+                      "different shard than mine. I will continue to remain in "
+                      "my current shard.");
+        }
     } else if (dirty_slots_count) {
         /* If we are here, we received an update message which removed
          * ownership for certain slots we still have keys about, but still
