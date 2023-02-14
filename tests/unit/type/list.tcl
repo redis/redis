@@ -1270,6 +1270,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             r del blist1{t} blist2{t}
             r set blist2{t} nolist{t}
             bpop_command_two_key $rd $pop blist1{t} blist2{t} 1
+            $rd $pop blist1{t} blist2{t} 1
             assert_error "WRONGTYPE*" {$rd read}
             $rd close
         }
@@ -2176,7 +2177,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
     } {12 0 9223372036854775808 2147483647 32767 127}
-
+    
     test "Unblock fairness is kept while pipelining" {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]

@@ -98,7 +98,6 @@ static size_t reqresAppendBuffer(client *c, void *buf, size_t len) {
         c->reqres.buf = zrealloc(c->reqres.buf, c->reqres.capacity);
     }
 
-    //serverLog(LL_WARNING, "GUYBE append %.*s", (int)len, (char *)buf);
     memcpy(c->reqres.buf + c->reqres.used, buf, len);
     c->reqres.used += len;
     return len;
@@ -172,8 +171,6 @@ size_t reqresAppendRequest(client *c) {
 
     c->reqres.argv_logged = 1;
 
-    //serverLog(LL_WARNING, "GUYBE in request (id=%ld, argv[0]=%s, bufpos=%d)", c->id, (char*)argv[0]->ptr, c->bufpos);
-
     size_t ret = 0;
     for (int i = 0; i < argc; i++) {
         if (sdsEncodedObject(argv[i])) {
@@ -199,8 +196,6 @@ size_t reqresAppendResponse(client *c) {
         return 0;
 
     serverAssert(c->reqres.offset.saved);
-
-    //serverLog(LL_WARNING, "GUYBE in response (id=%ld, cmd=%s, bufpos=%d,  prev bufpos=%d)", c->id, c->lastcmd ? c->lastcmd->fullname : "NULL", c->bufpos, c->reqres.offset.bufpos);
 
     /* First append the static reply buffer */
     if (c->bufpos > c->reqres.offset.bufpos) {
