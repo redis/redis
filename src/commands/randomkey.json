@@ -7,7 +7,8 @@
         "arity": 1,
         "function": "randomkeyCommand",
         "command_flags": [
-            "READONLY"
+            "READONLY",
+            "TOUCHES_ARBITRARY_KEYS"
         ],
         "acl_categories": [
             "KEYSPACE"
