@@ -227,6 +227,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                      * Populated by populateCommandLegacyRangeSpec. */
 #define CMD_ALLOW_BUSY ((1ULL<<26))
 #define CMD_MODULE_GETCHANNELS (1ULL<<27)  /* Use the modules getchannels interface. */
+#define CMD_TOUCHES_ARBITRARY_KEYS (1ULL<<28)
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -2224,6 +2225,12 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  * CMD_NO_MANDATORY_KEYS: This key arguments for this command are optional.
  *
  * CMD_NO_MULTI: The command is not allowed inside a transaction
+ *
+ * CMD_ALLOW_BUSY: The command can run while another command is running for
+ *                 a long time (timedout script, module command that yields)
+ *
+ * CMD_TOUCHES_ARBITRARY_KEYS: The command may touch (and cause lazy-expire)
+ *                             arbitrary key (i.e not provided in argv)
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.

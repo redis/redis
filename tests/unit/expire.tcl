@@ -768,4 +768,46 @@ start_server {tags {"expire"}} {
         close_replication_stream $repl
         assert_equal [r debug set-active-expire 1] {OK}
     } {} {needs:debug}
+
+    test {SCAN: Lazy-expire should not be wrapped in MULTI/EXEC} {
+        r debug set-active-expire 0
+        r flushall
+
+        r set foo1 bar PX 1
+        r set foo2 bar PX 1
+        after 2
+
+        set repl [attach_to_replication_stream]
+
+        r scan 0
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo*}
+            {del foo*}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
+
+    test {RANDOMKEY: Lazy-expire should not be wrapped in MULTI/EXEC} {
+        r debug set-active-expire 0
+        r flushall
+
+        r set foo1 bar PX 1
+        r set foo2 bar PX 1
+        after 2
+
+        set repl [attach_to_replication_stream]
+
+        r randomkey
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo*}
+            {del foo*}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
 }
