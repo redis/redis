@@ -9,6 +9,11 @@
 
 #define LIST_SIZE 1024
 
+/* The FSL (Fixed-Size List) data type is a low-budget imitation of the
+ * native Redis list, in order to test list-like commands implemented
+ * by a module.
+ * Examples: FSL.PUSH, FSL.BPOP, etc. */
+
 typedef struct {
     long long list[LIST_SIZE];
     long long length;
@@ -59,21 +64,24 @@ void fsl_free(void *value) {
 
 /* ========================== helper methods ======================= */
 
+/* Wrapper to the boilerplate code of opening a key, checking its type, etc.
+ * Returns 0 if `keyname` exists in the dataset, but it's of the wrong type (i.e. not FSL) */
 int get_fsl(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode, int create, fsl_t **fsl, int reply_on_failure) {
     *fsl = NULL;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, mode);
 
-    int type = RedisModule_KeyType(key);
-    if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != fsltype) {
-        RedisModule_CloseKey(key);
-        if (reply_on_failure)
-            RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
-        RedisModuleCallReply *reply = RedisModule_Call(ctx, "INCR", "c", "fsl_wrong_type");
-        RedisModule_FreeCallReply(reply);
-        return 0;
-    }
+    if (RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_EMPTY) {
+        /* Key exists */
+        if (RedisModule_ModuleTypeGetType(key) != fsltype) {
+            /* Key is not FSL */
+            RedisModule_CloseKey(key);
+            if (reply_on_failure)
+                RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+            RedisModuleCallReply *reply = RedisModule_Call(ctx, "INCR", "c", "fsl_wrong_type");
+            RedisModule_FreeCallReply(reply);
+            return 0;
+        }
 
-    if (type != REDISMODULE_KEYTYPE_EMPTY) {
         *fsl = RedisModule_ModuleTypeGetValue(key);
         if (*fsl && !(*fsl)->length && mode & REDISMODULE_WRITE) {
             /* Key exists, but it's logically empty */
@@ -83,7 +91,7 @@ int get_fsl(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode, int creat
                 RedisModule_DeleteKey(key);
             }
         } else {
-            /* Key exists, and has elements in it */
+            /* Key exists, and has elements in it - no need to create anything */
             create = 0;
         }
     }
