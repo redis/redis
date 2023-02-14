@@ -2385,8 +2385,9 @@ void syncWithMaster(connection *conn) {
         err = receiveSynchronousResponse(conn);
         if (err[0] != '*') {
             serverLog(LL_WARNING, "Unable to get gtid-enabled config from MASTER: %s", err);
-            sdsfree(err);
-            goto error;
+            sdsfree(err), err = NULL;
+            server.repl_state = REPL_STATE_RECEIVE_PORT_REPLY;
+            return;
         }
 
         if (err[1] == '0') { /* not supported */
