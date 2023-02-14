@@ -3236,7 +3236,6 @@ void propagatePendingCommands() {
 
     int j;
     redisOp *rop;
-    int multi_emitted = 0;
 
     /* Wrap the commands in server.also_propagate array,
      * but don't wrap it if we are already in MULTI context,
@@ -3244,12 +3243,23 @@ void propagatePendingCommands() {
      *
      * And if the array contains only one command, no need to
      * wrap it, since the single command is atomic. */
-    if (server.also_propagate.numops > 1 && !server.propagate_no_multi) {
+    int transaction = server.also_propagate.numops > 1 && !server.propagate_no_multi;
+
+    /* In case a command that may modify random keys was run *directly*
+     * (i.e. not from within a script, MULTI/EXEC, RM_Call, etc.) we want
+     * to avoid using a transaction (much like active-expire) */
+    if (server.current_client &&
+        server.current_client->cmd &&
+        server.current_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS)
+    {
+        transaction = 0;
+    }
+
+    if (transaction) {
         /* We use the first command-to-propagate to set the dbid for MULTI,
          * so that the SELECT will be propagated beforehand */
         int multi_dbid = server.also_propagate.ops[0].dbid;
         propagateNow(multi_dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
-        multi_emitted = 1;
     }
 
     for (j = 0; j < server.also_propagate.numops; j++) {
@@ -3258,7 +3268,7 @@ void propagatePendingCommands() {
         propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
     }
 
-    if (multi_emitted) {
+    if (transaction) {
         /* We take the dbid from last command so that propagateNow() won't inject another SELECT */
         int exec_dbid = server.also_propagate.ops[server.also_propagate.numops-1].dbid;
         propagateNow(exec_dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
@@ -4432,6 +4442,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_NO_MULTI,          "no_multi"},
         {CMD_MOVABLE_KEYS,      "movablekeys"},
         {CMD_ALLOW_BUSY,        "allow_busy"},
+        /* {CMD_TOUCHES_ARBITRARY_KEYS,  "TOUCHES_ARBITRARY_KEYS"}, Hidden on purpose */
         {0,NULL}
     };
     addReplyCommandFlags(c, cmd->flags, flagNames);
