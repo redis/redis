@@ -317,6 +317,7 @@ typedef enum {
     REPL_STATE_RECEIVE_PING_REPLY,  /* Wait for PING reply */
     REPL_STATE_SEND_HANDSHAKE,      /* Send handshake sequance to master */
     REPL_STATE_RECEIVE_AUTH_REPLY,  /* Wait for AUTH reply */
+    REPL_STATE_RECEIVE_CONFIG_GET_GTID_ENABLED_REPLY,  /* Wait for config get gtid-enabled reply */
     REPL_STATE_RECEIVE_PORT_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_IP_REPLY,    /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_CAPA_REPLY,  /* Wait for REPLCONF reply */
@@ -1641,8 +1642,15 @@ struct redisServer {
 
     /* gtid executed */
     int gtid_enabled;  /* Is gtid enabled? */
+    int gtid_enabled_config_sync_with_master;  /* Keep slave gtid-enabled config in sync with master? */
+    unsigned long long gtid_uuid_gap_max_memory;
     gtidSet *gtid_executed;
     uuidSet* current_uuid;
+    size_t gtid_purged_gap_count;
+    gno_t gtid_purged_gno_count;
+    time_t gtid_last_purge_time;
+    size_t gtid_ignored_cmd_count;
+    size_t gtid_executed_cmd_count;
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -2732,6 +2740,7 @@ int isGtidEnabled();
 void gtidCommand(client *c);
 void gtidLwmCommand(client *c);
 void gtidAutoCommand(client *c);
+void gtidxCommand(client *c);
 void rejectCommandFormat(client *c, const char *fmt, ...);
 int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags);
@@ -2746,6 +2755,9 @@ int LoadGtidInfoAuxFields(robj* key, robj* val);
 int verifyDumpPayload(unsigned char *p, size_t len);
 void createDumpPayload(rio *payload, robj *o, robj *key);
 void gtidGetRobjCommand(client* c);
+sds genGtidGapString(sds info);
+sds genGtidStatString(sds info);
+
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
 void free(void *ptr) __attribute__ ((deprecated));

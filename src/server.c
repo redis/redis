@@ -1144,8 +1144,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"ctrip.get_robj", gtidGetRobjCommand, 2, 
      "read-only fast no-script", 
-     0, NULL,1,1,1,0,0,0}
+     0, NULL,1,1,1,0,0,0},
 
+    {"gtidx", gtidxCommand, -2,
+     "admin no-script random ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -3224,9 +3227,14 @@ void initServer(void) {
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
 
+    server.gtid_last_purge_time = 0;
+    server.gtid_executed_cmd_count = 0;
+    server.gtid_ignored_cmd_count = 0;
+    server.gtid_purged_gap_count = 0;
+    server.gtid_purged_gno_count = 0;
     server.gtid_executed = gtidSetNew();
     gtidSetAdd(server.gtid_executed, server.runid, strlen(server.runid), 0);
-    server.current_uuid = gtidSetFindUuidSet(server.gtid_executed, server.runid, strlen(server.runid));
+    server.current_uuid = gtidSetFind(server.gtid_executed, server.runid, strlen(server.runid));
     
     serverAssert(server.current_uuid != NULL);
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
@@ -5398,18 +5406,21 @@ sds genRedisInfoString(const char *section) {
                                   0, /* not a crash report */
                                   sections);
     }
-    /**  gtid */
+
+    /**  info gtid (all gtid gap) */
     if (!strcasecmp(section,"gtid")) {
         if (sections++) info = sdscat(info,"\r\n");
-        char all_str[gtidSetEstimatedEncodeBufferSize(server.gtid_executed)];
-        size_t size = gtidSetEncode(server.gtid_executed, all_str);
-        sds all = sdsnewlen(all_str, size);
-        info = sdscatprintf(info,
-        "# Gtid\r\n"
-        "all:%s\r\n",
-        all);
-        sdsfree(all);
+        info = sdscatprintf(info, "# Gtid\r\n");
+        info = genGtidGapString(info);
     }
+
+    /** info gtid (gtid gap summary) */
+    if (allsections || defsections || !strcasecmp(section,"gtid.stat")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscat(info,"# Gtid.stat\r\n");
+        info = genGtidStatString(info);
+    }
+
     return info;
 }
 

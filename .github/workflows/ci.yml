@@ -5,7 +5,7 @@ on: [push, pull_request]
 jobs:
 
   test-ubuntu-latest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v2
       with:
@@ -32,7 +32,7 @@ jobs:
       run: make REDIS_CFLAGS='-Werror'
 
   build-32bit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v2
       with:
@@ -43,7 +43,7 @@ jobs:
         make REDIS_CFLAGS='-Werror' 32bit
 
   build-libc-malloc:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v2
       with:
@@ -52,7 +52,7 @@ jobs:
       run: make REDIS_CFLAGS='-Werror' MALLOC=libc
 
   build-centos7-jemalloc:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     container: centos:7
     steps:
     - name: install git

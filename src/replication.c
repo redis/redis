@@ -2231,6 +2231,8 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     return PSYNC_NOT_SUPPORTED;
 }
 
+int yesnotoi(char *s);
+
 /* This handler fires when the non blocking connect was able to
  * establish a connection with the master. */
 void syncWithMaster(connection *conn) {
@@ -2312,6 +2314,12 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         }
 
+        /* keep gtid-enabled config sync with master */
+        if (server.gtid_enabled_config_sync_with_master) {
+            err = sendCommand(conn, "CONFIG", "GET", "gtid-enabled", NULL);
+            if (err) goto write_error;
+        }
+
         /* Set the slave port, so that Master's INFO command can list the
          * slave listening port correctly. */
         {
@@ -2353,7 +2361,7 @@ void syncWithMaster(connection *conn) {
     }
 
     if (server.repl_state == REPL_STATE_RECEIVE_AUTH_REPLY && !server.masterauth)
-        server.repl_state = REPL_STATE_RECEIVE_PORT_REPLY;
+        server.repl_state = REPL_STATE_RECEIVE_CONFIG_GET_GTID_ENABLED_REPLY;
 
     /* Receive AUTH reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_AUTH_REPLY) {
@@ -2365,8 +2373,46 @@ void syncWithMaster(connection *conn) {
         }
         sdsfree(err);
         err = NULL;
-        server.repl_state = REPL_STATE_RECEIVE_PORT_REPLY;
+        server.repl_state = REPL_STATE_RECEIVE_CONFIG_GET_GTID_ENABLED_REPLY;
         return;
+    }
+
+    if (server.repl_state == REPL_STATE_RECEIVE_CONFIG_GET_GTID_ENABLED_REPLY &&
+            !server.gtid_enabled_config_sync_with_master)
+        server.repl_state = REPL_STATE_RECEIVE_PORT_REPLY;
+
+    if (server.repl_state == REPL_STATE_RECEIVE_CONFIG_GET_GTID_ENABLED_REPLY) {
+        err = receiveSynchronousResponse(conn);
+        if (err[0] != '*') {
+            serverLog(LL_WARNING, "Unable to get gtid-enabled config from MASTER: %s", err);
+            sdsfree(err), err = NULL;
+            server.repl_state = REPL_STATE_RECEIVE_PORT_REPLY;
+            return;
+        }
+
+        if (err[1] == '0') { /* not supported */
+            serverLog(LL_WARNING, "Master does not supported gtid-enabled, config sync skipped.");
+            sdsfree(err), err = NULL;
+            server.repl_state = REPL_STATE_RECEIVE_PORT_REPLY;
+            return;
+        }
+
+        sdsfree(err), err = NULL;
+
+        sds bulk_len, gtid_enabled, yesno;
+        bulk_len = receiveSynchronousResponse(conn), sdsfree(bulk_len);
+        gtid_enabled = receiveSynchronousResponse(conn), sdsfree(gtid_enabled);
+        bulk_len = receiveSynchronousResponse(conn), sdsfree(bulk_len);
+        yesno = receiveSynchronousResponse(conn);
+        int enabled = yesnotoi(yesno);
+        if (enabled < 0) {
+            serverLog(LL_WARNING, "Uexpected config get gtid-enabled reply: %s", gtid_enabled);
+            sdsfree(yesno), yesno = NULL;
+            goto error;
+        }
+        server.gtid_enabled = enabled;
+        sdsfree(yesno), yesno = NULL;
+        server.repl_state = REPL_STATE_RECEIVE_PORT_REPLY;
     }
 
     /* Receive REPLCONF listening-port reply. */

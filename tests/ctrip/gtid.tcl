@@ -189,3 +189,66 @@ start_server {tags {"repl"} overrides} {
 
     }
 }
+
+start_server {tags {"gtid"} overrides {gtid-enabled yes}} {
+    test "gtidx" {
+        assert_equal [r gtidx remove A] 0
+        catch {[r gtidx list A]} {e}
+        assert_match {*uuid not found*} $e
+        catch {[r gtidx stat A]} {e}
+        assert_match {*uuid not found*} $e
+
+        r gtid A:1 0 set k v
+        assert_equal [r gtidx list A] {A:1}
+        assert_match {A:uuid_count:1,used_memory:*,gap_count:1,gno_count:1} [r gtidx stat A]
+
+        assert_equal [r gtidx remove A] 1
+        catch {[r gtidx list A]} {e}
+        assert_match {*uuid not found*} $e
+        catch {[r gtidx stat A]} {e}
+        assert_match {*uuid not found*} $e
+    }
+}
+
+start_server {tags {"gtid"} overrides {gtid-enabled yes gtid-uuid-gap-max-memory 1024}} {
+    test "gtid purge" {
+        for {set i 1} {$i <= 64} {incr i 2} {
+            r gtid A:$i 0 set k v
+        }
+        assert_equal [status r gtid_purged_gap_count] 0
+        assert_equal [status r gtid_purged_gno_count] 0
+
+        for {set i 65} {$i <= 96} {incr i 2} {
+            r gtid A:$i 0 set k v
+        }
+        assert_equal [status r gtid_purged_gap_count] 16
+        assert_equal [status r gtid_purged_gno_count] 16
+
+        for {set i 97} {$i <= 128} {incr i 2} {
+            r gtid A:$i 0 set k v
+        }
+        assert_equal [status r gtid_purged_gap_count] 32
+        assert_equal [status r gtid_purged_gno_count] 32
+    }
+}
+
+start_server {tags {"gtid"} overrides {gtid-enabled yes}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    start_server {tags {"repl"} overrides {gtid-enabled no}} {
+        set slave [srv 0 client]
+
+        test {slave keep gtid-enabled in sync with master} {
+            assert_equal [$slave config get gtid-enabled] {gtid-enabled no}
+            $slave slaveof $master_host $master_port
+            wait_for_sync $slave
+            assert_equal [$slave config get gtid-enabled] {gtid-enabled yes}
+            $master config set gtid-enabled no
+            after 200
+            wait_for_sync $slave
+            assert_equal [$slave config get gtid-enabled] {gtid-enabled no}
+        }
+    }
+}
+
