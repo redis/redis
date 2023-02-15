@@ -75,3 +75,21 @@ jobs:
       run: |
         yum -y install gcc make
         make REDIS_CFLAGS='-Werror'
+
+  schema-validator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: make
+        # Fail build if there are warnings
+        run: make REDIS_CFLAGS='-Werror -DLOG_REQ_RES'
+      - name: test
+        run: |
+          sudo apt-get install tcl8.6 tclx
+          ./runtest --verbose --tags -slow --dump-logs --log-req-res --dont-clean --force-resp3
+      - name: Install Python dependencies
+        uses: py-actions/py-dependency-install@v4
+        with:
+          path: "./utils/req-res-validator/requirements.txt"
+      - name: validator
+        run: ./utils/req-res-log-valiadtor.py
