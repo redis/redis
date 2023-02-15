@@ -3649,8 +3649,6 @@ void rejectCommand(client *c, robj *reply) {
         /* using addReplyError* rather than addReply so that the error can be logged. */
         addReplyErrorObject(c, reply);
     }
-    /* Rejected command can't be rerun */
-    c->flags &= ~CLIENT_RERUN_COMMAND;
 }
 
 void rejectCommandSds(client *c, sds s) {
@@ -3663,8 +3661,6 @@ void rejectCommandSds(client *c, sds s) {
         /* The following frees 's'. */
         addReplyErrorSds(c, s);
     }
-    /* rejected command can't be rerun */
-    c->flags &= ~CLIENT_RERUN_COMMAND;
 }
 
 void rejectCommandFormat(client *c, const char *fmt, ...) {
@@ -3866,11 +3862,9 @@ int validateCommand(client *c, int *valid) {
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
 
-    if (!(c->flags & CLIENT_RERUN_COMMAND)) {
-        int status, valid;
-        status = validateCommand(c, &valid);
-        if (!valid) return status;
-    }
+    int status, valid;
+    status = validateCommand(c, &valid);
+    if (!valid) return status;
 
     uint64_t cmd_flags = getCommandFlags(c);
 
@@ -3909,8 +3903,6 @@ int processCommand(client *c) {
                 flagTransaction(c);
             }
             clusterRedirectClient(c,n,c->slot,error_code);
-            /* rejected command can't be rerun */
-            c->flags &= ~CLIENT_RERUN_COMMAND;
             c->cmd->rejected_calls++;
             return C_OK;
         }

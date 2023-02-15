@@ -389,8 +389,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                       memory eviction. */
 #define CLIENT_ALLOW_OOM (1ULL<<44) /* Client used by RM_Call is allowed to fully execute
                                        scripts even when in OOM */
-#define CLIENT_RERUN_COMMAND (1ULL<<45) /* Instruct the event loop to skip processing the input buffer
-                                           but instead rerun the last parsed command */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -403,8 +401,8 @@ typedef enum blocking_type {
     BLOCKED_ZSET,    /* BZPOP et al. */
     BLOCKED_POSTPONE, /* Blocked by processCommand, re-try processing later. */
     BLOCKED_SHUTDOWN, /* SHUTDOWN. */
+    BLOCKED_WAIT_AFTER_REPL, /* Blocked until replication is complete. */
     BLOCKED_NUM,      /* Number of blocked states. */
-    BLOCKED_WAIT_RERUN, /* WAIT for synchronous replication and rerun last command. */
     BLOCKED_END       /* End of enumeration */
 } blocking_type;
 
@@ -1118,6 +1116,11 @@ typedef struct client {
     int original_argc;      /* Num of arguments of original command if arguments were rewritten. */
     robj **original_argv;   /* Arguments of original command if arguments were rewritten. */
     size_t argv_len_sum;    /* Sum of lengths of objects in argv list. */
+    uint64_t cmd_flags;     /* Command flags - used by command procs to track runtime
+                               execution states for a particular instance of the command.
+                               The definitions are completely up to the command proc and
+                               can vary from one command prc to another. Its value is undefined
+                               once the execution is completed. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
     struct redisCommand *realcmd; /* The original command that was executed by the client,
                                      Used to update error stats in case the c->cmd was modified
@@ -2752,7 +2755,7 @@ void clearFailoverState(void);
 void updateFailoverStatus(void);
 void abortFailover(const char *err);
 const char *getFailoverStateString();
-void waitForReplication(client *c, mstime_t timeout, long numreplicas, long long offset, int btype);
+void waitForReplication(client *c, mstime_t timeout, long numreplicas, long long offset);
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);
@@ -3291,7 +3294,7 @@ void signalKeyAsReady(redisDb *db, robj *key, int type);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, int unblock_on_nokey);
 void blockClientShutdown(client *c);
 void blockPostponeClient(client *c);
-void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas);
+void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas, int btype);
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
 void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with);

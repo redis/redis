@@ -3456,14 +3456,8 @@ int replicationCountAcksByOffset(long long offset) {
     return count;
 }
 
-void waitForReplication(client *c, mstime_t timeout, long numreplicas, long long offset, int btype) {
-    /* Otherwise block the client and put it into our list of clients
-     * waiting for ack from slaves. */
-    c->bstate.timeout = timeout;
-    c->bstate.reploffset = offset;
-    c->bstate.numreplicas = numreplicas;
-    listAddNodeHead(server.clients_waiting_acks,c);
-    blockClient(c,btype);
+void waitForReplication(client *c, mstime_t timeout, long numreplicas, long long offset) {
+    blockForReplication(c,timeout,offset,numreplicas,BLOCKED_WAIT_AFTER_REPL);
 
     /* Make sure that the server will send an ACK request to all the slaves
      * before returning to the event loop. */
@@ -3497,7 +3491,7 @@ void waitCommand(client *c) {
 
     /* Otherwise block the client and put it into our list of clients
      * waiting for ack from slaves. */
-    blockForReplication(c,timeout,offset,numreplicas);
+    blockForReplication(c,timeout,offset,numreplicas,BLOCKED_WAIT);
 
     /* Make sure that the server will send an ACK request to all the slaves
      * before returning to the event loop. */
@@ -3535,7 +3529,8 @@ void processClientsWaitingReplicas(void) {
                            last_numreplicas >= c->bstate.numreplicas)
         {
             unblockClient(c);
-            if (!(c->flags & CLIENT_RERUN_COMMAND)) addReplyLongLong(c,last_numreplicas);
+            /* Don't reply yet if there is pending command */
+            if (!(c->flags & CLIENT_PENDING_COMMAND)) addReplyLongLong(c,last_numreplicas);
         } else {
             int numreplicas = replicationCountAcksByOffset(c->bstate.reploffset);
 
@@ -3543,7 +3538,8 @@ void processClientsWaitingReplicas(void) {
                 last_offset = c->bstate.reploffset;
                 last_numreplicas = numreplicas;
                 unblockClient(c);
-                if (!(c->flags & CLIENT_RERUN_COMMAND)) addReplyLongLong(c,numreplicas);
+                /* Don't reply yet if there is pending command */
+                if (!(c->flags & CLIENT_PENDING_COMMAND)) addReplyLongLong(c,last_numreplicas);
             }
         }
     }

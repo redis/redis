@@ -2357,8 +2357,7 @@ void commandProcessed(client *c) {
      *    since we have not applied the command. */
     if (c->flags & CLIENT_BLOCKED) return;
 
-    /* Don't reset the client if the command needs to be rerun */
-    if (!(c->flags & CLIENT_RERUN_COMMAND)) resetClient(c);
+    resetClient(c);
 
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
@@ -2420,7 +2419,7 @@ int processCommandAndResetClient(client *c) {
  * the client. Returns C_ERR if the client is no longer valid after executing
  * the command, and C_OK for all other cases. */
 int processPendingCommandAndInputBuffer(client *c) {
-    if (c->flags & (CLIENT_PENDING_COMMAND | CLIENT_RERUN_COMMAND)) {
+    if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
         if (processCommandAndResetClient(c) == C_ERR) {
             return C_ERR;
@@ -2466,26 +2465,21 @@ int processInputBuffer(client *c) {
          * The same applies for clients we want to terminate ASAP. */
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
-        if (!(c->flags & CLIENT_RERUN_COMMAND)) {
-            /* Determine request type when unknown. */
-            if (!c->reqtype) {
-                if (c->querybuf[c->qb_pos] == '*') {
-                    c->reqtype = PROTO_REQ_MULTIBULK;
-                } else {
-                    c->reqtype = PROTO_REQ_INLINE;
-                }
-            }
-
-            if (c->reqtype == PROTO_REQ_INLINE) {
-                if (processInlineBuffer(c) != C_OK) break;
-            } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
-                if (processMultibulkBuffer(c) != C_OK) break;
+        /* Determine request type when unknown. */
+        if (!c->reqtype) {
+            if (c->querybuf[c->qb_pos] == '*') {
+                c->reqtype = PROTO_REQ_MULTIBULK;
             } else {
-                serverPanic("Unknown request type");
+                c->reqtype = PROTO_REQ_INLINE;
             }
+        }
+
+        if (c->reqtype == PROTO_REQ_INLINE) {
+            if (processInlineBuffer(c) != C_OK) break;
+        } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
+            if (processMultibulkBuffer(c) != C_OK) break;
         } else {
-            serverAssert(c->argc != 0);
-            serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+            serverPanic("Unknown request type");
         }
 
         /* Multibulk processing could see a <= 0 length. */

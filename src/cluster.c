@@ -721,7 +721,7 @@ void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
     *announced_port = port;
     *announced_pport = server.tls_cluster ? server.port : 0;
     *announced_cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
-
+    
     /* Config overriding announced ports. */
     if (server.tls_cluster && server.cluster_announce_tls_port) {
         *announced_port = server.cluster_announce_tls_port;
@@ -6003,6 +6003,8 @@ NULL
             server.cluster->importing_slots_from[slot] = NULL;
             server.cluster->migrating_slots_to[slot] = NULL;
         } else if (!strcasecmp(c->argv[3]->ptr,"node") && c->argc == 5) {
+            #define CMD_F_WAITING_FOR_REPLICATION 1
+
             /* CLUSTER SETSLOT <SLOT> NODE <NODE ID> */
             n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
 
@@ -6025,11 +6027,11 @@ NULL
              *    including A, A', etc
              *
              * Where A is the source primary and B is the destination primary. */
-            int replDone = (c->flags & CLIENT_RERUN_COMMAND) != 0;
+            int replDone = (c->cmd_flags & CMD_F_WAITING_FOR_REPLICATION) != 0;
             int syncReplRequired = (server.cluster->importing_slots_from[slot] != NULL) &&
                                    (nodeIsMaster(myself) != 0) &&
                                    (myself->numslaves != 0);
-            c->flags &= ~CLIENT_RERUN_COMMAND;
+            c->cmd_flags &= ~CMD_F_WAITING_FOR_REPLICATION;
 
             if (!n) {
                 addReplyErrorFormat(c,"Unknown node %s",
@@ -6125,7 +6127,9 @@ NULL
                  * 2. The repl offset target is set to the master's current repl offset + 1.
                  *    There is no concern of partial replication because replicas always
                  *    ack the repl offset at the command boundary. */
-                waitForReplication(c, mstime()+1000, myself->numslaves, server.master_repl_offset+1, BLOCKED_WAIT_RERUN);
+                waitForReplication(c, mstime()+1000, myself->numslaves, server.master_repl_offset+1);
+                c->flags |= CLIENT_PENDING_COMMAND;
+                c->cmd_flags |= CMD_F_WAITING_FOR_REPLICATION;
 
                 /* Don't reply to the client yet */
                 reply = 0;

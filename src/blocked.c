@@ -91,7 +91,6 @@ void blockClient(client *c, int btype) {
                    btype != BLOCKED_POSTPONE));
 
     c->flags |= CLIENT_BLOCKED;
-    if (btype == BLOCKED_WAIT_RERUN) c->flags |= CLIENT_RERUN_COMMAND ;
     c->bstate.btype = btype;
     server.blocked_clients++;
     server.blocked_clients_by_type[btype]++;
@@ -178,8 +177,9 @@ void unblockClient(client *c) {
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM) {
         unblockClientWaitingData(c);
-    } else if (c->bstate.btype == BLOCKED_WAIT ||
-               c->bstate.btype == BLOCKED_WAIT_RERUN) {
+    } else if (c->bstate.btype == BLOCKED_WAIT) {
+        unblockClientWaitingReplicas(c);
+    } else if (c->bstate.btype == BLOCKED_WAIT_AFTER_REPL) {
         unblockClientWaitingReplicas(c);
     } else if (c->bstate.btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
@@ -197,8 +197,8 @@ void unblockClient(client *c) {
      * or in case a shutdown operation was canceled and we are still in the processCommand sequence  */
     if (!(c->flags & CLIENT_PENDING_COMMAND) && 
         c->bstate.btype != BLOCKED_SHUTDOWN &&
-        c->bstate.btype != BLOCKED_POSTPONE &&
-        c->bstate.btype != BLOCKED_WAIT_RERUN) {
+        c->bstate.btype != BLOCKED_POSTPONE)
+    {
         freeClientOriginalArgv(c);
         resetClient(c);
     }
@@ -225,7 +225,7 @@ void replyToBlockedClientTimedOut(client *c) {
         updateStatsOnUnblock(c, 0, 0, 0);
     } else if (c->bstate.btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bstate.reploffset));
-    } else if (c->bstate.btype == BLOCKED_WAIT_RERUN) {
+    } else if (c->bstate.btype == BLOCKED_WAIT_AFTER_REPL) {
         addReplyErrorObject(c, shared.noreplicaserr);
     } else if (c->bstate.btype == BLOCKED_MODULE) {
         moduleBlockedClientTimedOut(c);
@@ -573,12 +573,12 @@ static void handleClientsBlockedOnKey(readyList *rl) {
 }
 
 /* block a client due to wait command */
-void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas) {
+void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas, int btype) {
     c->bstate.timeout = timeout;
     c->bstate.reploffset = offset;
     c->bstate.numreplicas = numreplicas;
     listAddNodeHead(server.clients_waiting_acks,c);
-    blockClient(c,BLOCKED_WAIT);
+    blockClient(c,btype);
 }
 
 /* Postpone client from executing a command. For example the server might be busy

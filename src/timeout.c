@@ -41,8 +41,6 @@ int checkBlockedClientTimeout(client *c, mstime_t now) {
         c->bstate.timeout != 0
         && c->bstate.timeout < now)
     {
-        /* Don't rerun command on timeout */
-        c->flags &= ~CLIENT_RERUN_COMMAND;
         /* Handle blocking operation specific timeout. */
         unblockClientOnTimeout(c);
         return 1;
