@@ -1,3 +1,9 @@
+start_server {tags {"gtid"} overrides} {
+    test "gtid uses jemalloc allocator" {
+        assert_equal [s gtid_allocator] [s mem_allocator]
+    }
+}
+
 # [functional testing]
 # open or close gtid-enabled efficient
 start_server {tags {"master"} overrides} {

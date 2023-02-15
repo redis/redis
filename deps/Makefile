@@ -95,10 +95,10 @@ jemalloc: .make-prerequisites
 .PHONY: jemalloc
 
 
-XREDIS_GTID_CFLAGS= -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops $(CFLAGS) -I../../src -DGTID_MALLOC_INCLUDE=\<gtid_zmalloc.h\>
+XREDIS_GTID_CFLAGS= -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops $(CFLAGS) -I../../src -DUSE_JEMALLOC -I../jemalloc/include -DGTID_MALLOC_INCLUDE=\<gtid_zmalloc.h\> 
 XREDIS_GTID_LDFLAGS= $(LDFLAGS)
 
-xredis-gtid: .make-prerequisites
+xredis-gtid: jemalloc .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
 	cd xredis-gtid && $(MAKE) CFLAGS="$(XREDIS_GTID_CFLAGS)" LDFLAGS="$(XREDIS_GTID_LDFLAGS)" 
 

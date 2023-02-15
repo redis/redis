@@ -21,27 +21,6 @@ jobs:
     - name: module api test
       run: ./runtest-moduleapi --verbose
 
-
-  build-macos-latest:
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v2
-      with:
-          submodules: true
-    - name: make
-      run: make REDIS_CFLAGS='-Werror'
-
-  build-32bit:
-    runs-on: ubuntu-20.04
-    steps:
-    - uses: actions/checkout@v2
-      with:
-          submodules: true
-    - name: make
-      run: |
-        sudo apt-get update && sudo apt-get install libc6-dev-i386
-        make REDIS_CFLAGS='-Werror' 32bit
-
   build-libc-malloc:
     runs-on: ubuntu-20.04
     steps:

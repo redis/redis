@@ -4880,6 +4880,7 @@ sds genRedisInfoString(const char *section) {
             "mem_clients_normal:%zu\r\n"
             "mem_aof_buffer:%zu\r\n"
             "mem_allocator:%s\r\n"
+            "gtid_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n"
             "lazyfreed_objects:%zu\r\n",
@@ -4924,6 +4925,7 @@ sds genRedisInfoString(const char *section) {
             mh->clients_normal,
             mh->aof_buffer,
             ZMALLOC_LIB,
+            gtidAllocatorName(),
             server.active_defrag_running,
             lazyfreeGetPendingObjectsCount(),
             lazyfreeGetFreedObjectsCount()
