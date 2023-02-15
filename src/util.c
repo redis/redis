@@ -1388,6 +1388,10 @@ static void test_reclaimFilePageCache(void) {
 }
 #endif
 
+#if defined(__linux__)
+#include <valgrind/valgrind.h>
+#endif
+
 int utilTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
@@ -1399,8 +1403,11 @@ int utilTest(int argc, char **argv, int flags) {
     test_ld2string();
     test_fixedpoint_d2string();
 #if defined(__linux__)
-    test_reclaimFilePageCache();
+    if (!RUNNING_ON_VALGRIND) {
+        test_reclaimFilePageCache();
+    }
 #endif
+    printf("Done testing util\n");
     return 0;
 }
 #endif
