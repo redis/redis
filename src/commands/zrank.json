@@ -4,8 +4,14 @@
         "complexity": "O(log(N))",
         "group": "sorted_set",
         "since": "2.0.0",
-        "arity": 3,
+        "arity": -3,
         "function": "zrankCommand",
+        "history": [
+            [
+                "7.2.0",
+                "Added the optional `WITHSCORE` argument."
+            ]
+        ],
         "command_flags": [
             "READONLY",
             "FAST"
@@ -42,6 +48,12 @@
             {
                 "name": "member",
                 "type": "string"
+            },
+            {
+                "name": "withscore",
+                "token": "WITHSCORE",
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }

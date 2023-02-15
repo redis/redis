@@ -60,8 +60,9 @@ void zlibc_free(void *ptr) {
 #ifdef HAVE_MALLOC_SIZE
 #define PREFIX_SIZE (0)
 #else
-#if defined(__sun) || defined(__sparc) || defined(__sparc__)
-#define PREFIX_SIZE (sizeof(long long))
+/* Use at least 8 bits alignment on all systems. */
+#if SIZE_MAX < 0xffffffffffffffffull
+#define PREFIX_SIZE 8
 #else
 #define PREFIX_SIZE (sizeof(size_t))
 #endif

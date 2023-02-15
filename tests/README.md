@@ -40,12 +40,12 @@ The following compatibility and capability tags are currently used:
 | `large-memory`            | Test that requires more than 100mb |
 | `tls:skip`                | Not compatible with `--tls`. |
 | `needs:repl`              | Uses replication and needs to be able to `SYNC` from server. |
-| `needs:debug`             | Uses the `DEBUG` command or other debugging focused commands (like `OBJECT`). |
+| `needs:debug`             | Uses the `DEBUG` command or other debugging focused commands (like `OBJECT REFCOUNT`). |
 | `needs:pfdebug`           | Uses the `PFDEBUG` command. |
 | `needs:config-maxmemory`  | Uses `CONFIG SET` to manipulate memory limit, eviction policies, etc. |
 | `needs:config-resetstat`  | Uses `CONFIG RESETSTAT` to reset statistics. |
 | `needs:reset`             | Uses `RESET` to reset client connections. |
-| `needs:save`              | Uses `SAVE` to create an RDB file. |
+| `needs:save`              | Uses `SAVE` or `BGSAVE` to create an RDB file. |
 
 When using an external server (`--host` and `--port`), filtering using the
 `external:skip` tags is done automatically.

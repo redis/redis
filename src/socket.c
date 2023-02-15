@@ -125,6 +125,12 @@ static int connSocketConnect(connection *conn, const char *addr, int port, const
  * move here as we implement additional connection types.
  */
 
+static void connSocketShutdown(connection *conn) {
+    if (conn->fd == -1) return;
+
+    shutdown(conn->fd, SHUT_RDWR);
+}
+
 /* Close the connection and free resources. */
 static void connSocketClose(connection *conn) {
     if (conn->fd != -1) {
@@ -329,6 +335,15 @@ static int connSocketAddr(connection *conn, char *ip, size_t ip_len, int *port, 
     return C_ERR;
 }
 
+static int connSocketIsLocal(connection *conn) {
+    char cip[NET_IP_STR_LEN + 1] = { 0 };
+
+    if (connSocketAddr(conn, cip, sizeof(cip) - 1, NULL, 1) == C_ERR)
+        return -1;
+
+    return !strcmp(cip,"127.0.0.1") || !strcmp(cip,"::1");
+}
+
 static int connSocketListen(connListener *listener) {
     return listenToPort(listener);
 }
@@ -386,11 +401,13 @@ static ConnectionType CT_Socket = {
     .ae_handler = connSocketEventHandler,
     .accept_handler = connSocketAcceptHandler,
     .addr = connSocketAddr,
+    .is_local = connSocketIsLocal,
     .listen = connSocketListen,
 
-    /* create/close connection */
+    /* create/shutdown/close connection */
     .conn_create = connCreateSocket,
     .conn_create_accepted = connCreateAcceptedSocket,
+    .shutdown = connSocketShutdown,
     .close = connSocketClose,
 
     /* connect & accept */

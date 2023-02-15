@@ -103,11 +103,15 @@ ConnectionType *connectionTypeTcp() {
 /* Cache TLS connection type, query it by string once */
 ConnectionType *connectionTypeTls() {
     static ConnectionType *ct_tls = NULL;
+    static int cached = 0;
 
-    if (ct_tls != NULL)
-        return ct_tls;
+    /* Unlike the TCP and Unix connections, the TLS one can be missing
+     * So we need the cached pointer to handle NULL correctly too. */
+    if (!cached) {
+        cached = 1;
+        ct_tls = connectionByType(CONN_TYPE_TLS);
+    }
 
-    ct_tls = connectionByType(CONN_TYPE_TLS);
     return ct_tls;
 }
 

@@ -8,7 +8,7 @@ set tcl_precision 17
 source tests/support/redis.tcl
 source tests/support/aofmanifest.tcl
 source tests/support/server.tcl
-source tests/support/cluster_helper.tcl
+source tests/support/cluster_util.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
@@ -86,7 +86,6 @@ set ::all_tests {
     unit/wait
     unit/pause
     unit/querybuf
-    unit/pendingquerybuf
     unit/tls
     unit/tracking
     unit/oom-score-adj
@@ -204,11 +203,16 @@ proc r {args} {
     [srv $level "client"] {*}$args
 }
 
+# Returns a Redis instance by index.
+proc Rn {n} {
+    set level [expr -1*$n]
+    return [srv $level "client"]
+}
+
 # Provide easy access to a client for an inner server. Requires a positive
 # index, unlike r which uses an optional negative index.
 proc R {n args} {
-    set level [expr -1*$n]
-    [srv $level "client"] {*}$args
+    [Rn $n] {*}$args
 }
 
 proc reconnect {args} {
@@ -797,12 +801,12 @@ if {[llength $filtered_tests] < [llength $::all_tests]} {
     set ::all_tests $filtered_tests
 }
 
-proc attach_to_replication_stream {} {
+proc attach_to_replication_stream_on_connection {conn} {
     r config set repl-ping-replica-period 3600
     if {$::tls} {
-        set s [::tls::socket [srv 0 "host"] [srv 0 "port"]]
+        set s [::tls::socket [srv $conn "host"] [srv $conn "port"]]
     } else {
-        set s [socket [srv 0 "host"] [srv 0 "port"]]
+        set s [socket [srv $conn "host"] [srv $conn "port"]]
     }
     fconfigure $s -translation binary
     puts -nonewline $s "SYNC\r\n"
@@ -825,6 +829,10 @@ proc attach_to_replication_stream {} {
         set count [expr {$count-[string length $buf]}]
     }
     return $s
+}
+
+proc attach_to_replication_stream {} {
+    return [attach_to_replication_stream_on_connection 0]
 }
 
 proc read_from_replication_stream {s} {
