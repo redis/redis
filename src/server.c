@@ -5049,6 +5049,7 @@ sds genRedisInfoString(const char *section) {
             "swap_rectified_frag_ratio:%.2f\r\n"
             "swap_rectified_frag_bytes:%zu\r\n"
             "mem_allocator:%s\r\n"
+            "gtid_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n"
             "lazyfreed_objects:%zu\r\n",
@@ -5096,6 +5097,7 @@ sds genRedisInfoString(const char *section) {
             mh->rectified_frag,
             mh->rectified_frag_bytes,
             ZMALLOC_LIB,
+            gtidAllocatorName(),
             server.active_defrag_running,
             lazyfreeGetPendingObjectsCount(),
             lazyfreeGetFreedObjectsCount()
