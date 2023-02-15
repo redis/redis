@@ -2628,8 +2628,8 @@ standardConfig configs[] = {
     createIntConfig("rocksdb.meta.level0_slowdown_writes_trigger", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.rocksdb_meta_level0_slowdown_writes_trigger, 20, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.data.max_bytes_for_level_multiplier", "rocksdb.max_bytes_for_level_multiplier", IMMUTABLE_CONFIG, 1, INT_MAX, server.rocksdb_data_max_bytes_for_level_multiplier, 10, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rocksdb.meta.max_bytes_for_level_multiplier", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.rocksdb_meta_max_bytes_for_level_multiplier, 10, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("rocksdb.data.suggest_compact_deletion_percentage", "rocksdb.suggest_compact_deletion_percentage", IMMUTABLE_CONFIG, 0, 100, server.rocksdb_data_suggest_compact_deletion_percentage, 0, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("rocksdb.meta.suggest_compact_deletion_percentage", NULL, IMMUTABLE_CONFIG, 0, 100, server.rocksdb_meta_suggest_compact_deletion_percentage, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.data.suggest_compact_deletion_percentage", "rocksdb.suggest_compact_deletion_percentage", IMMUTABLE_CONFIG, 0, 100, server.rocksdb_data_suggest_compact_deletion_percentage, 50, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rocksdb.meta.suggest_compact_deletion_percentage", NULL, IMMUTABLE_CONFIG, 0, 100, server.rocksdb_meta_suggest_compact_deletion_percentage, 50, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -2663,7 +2663,7 @@ standardConfig configs[] = {
     createULongLongConfig("rocksdb.meta.target_file_size_base", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_meta_target_file_size_base, 32*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("rocksdb.ratelimiter.rate_per_sec", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_ratelimiter_rate_per_sec, 512*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("rocksdb.bytes_per_sync", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_bytes_per_sync, 1*1024*1024, MEMORY_CONFIG, NULL, NULL),
-    createULongLongConfig("rocksdb.data.max_bytes_for_level_base", "rocksdb.max_bytes_for_level_base", IMMUTABLE_CONFIG, 1*1024*1024, ULLONG_MAX, server.rocksdb_data_max_bytes_for_level_base, 256*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createULongLongConfig("rocksdb.data.max_bytes_for_level_base", "rocksdb.max_bytes_for_level_base", IMMUTABLE_CONFIG, 1*1024*1024, ULLONG_MAX, server.rocksdb_data_max_bytes_for_level_base, 512*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("rocksdb.meta.max_bytes_for_level_base", NULL, IMMUTABLE_CONFIG, 1*1024*1024, ULLONG_MAX, server.rocksdb_meta_max_bytes_for_level_base, 256*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("rocksdb.data.period_compaction_seconds", "rocksdb.period_compaction_seconds", MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_data_period_compaction_seconds, 86400, MEMORY_CONFIG, NULL, updateRocksdbDataCompactPeriod),
     createULongLongConfig("rocksdb.meta.period_compaction_seconds", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_meta_period_compaction_seconds, 30*86400, MEMORY_CONFIG, NULL, updateRocksdbMetaCompactPeriod),
