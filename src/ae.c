@@ -484,14 +484,24 @@ int aeWait(int fd, int mask, long long milliseconds) {
     if (mask & AE_READABLE) pfd.events |= POLLIN;
     if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
 
-    if ((retval = poll(&pfd, 1, milliseconds))== 1) {
-        if (pfd.revents & POLLIN) retmask |= AE_READABLE;
-        if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
-        if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
-        if (pfd.revents & POLLHUP) retmask |= AE_WRITABLE;
-        return retmask;
-    } else {
-        return retval;
+    monotime begin = getMonotonicUs();
+    monotime now = begin;
+    while (1) {
+        long long left = milliseconds - (long long)(now - begin) / 1000;
+        if ((retval = poll(&pfd, 1, left))== 1) {
+            if (pfd.revents & POLLIN) retmask |= AE_READABLE;
+            if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
+            if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
+            if (pfd.revents & POLLHUP) retmask |= AE_WRITABLE;
+            return retmask;
+        } else if (retval == 0) {
+            /* Timeout */
+            return 0;
+        } else if (retval == -1 && errno != EINTR) {
+            panic("aeWait: poll, %s", strerror(errno));
+        }
+        /* Interrupted, try again */
+        now = getMonotonicUs();
     }
 }
 
