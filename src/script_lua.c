@@ -1559,8 +1559,10 @@ static void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     UNUSED(ar);
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     serverAssert(rctx); /* Only supported inside script invocation */
-    if (scriptInterrupt(rctx) == SCRIPT_KILL) {
-        serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
+    int res = scriptInterrupt(rctx);
+    if (res == SCRIPT_KILL || res == SCRIPT_KILL_ENGINE) {
+        res == SCRIPT_KILL ? serverLogRaw(LL_WARNING, "Lua script killed by user with SCRIPT KILL.") : 
+                             serverLogRaw(LL_WARNING, "Read-only script that has been running longer than busy-reply-threshold has been killed.");
 
         /*
          * Set the hook to invoke all the time so the user
@@ -1569,7 +1571,8 @@ static void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
          */
         lua_sethook(lua, luaMaskCountHook, LUA_MASKLINE, 0);
 
-        luaPushError(lua,"Script killed by user with SCRIPT KILL...");
+        res == SCRIPT_KILL ? luaPushError(lua, "Script killed by user with SCRIPT KILL...") :
+                             luaPushError(lua, "Read-only Script killed by engine for exceeding busy-reply-threshold...");
         luaError(lua);
     }
 }

@@ -161,6 +161,12 @@ configEnum propagation_error_behavior_enum[] = {
     {NULL, 0}
 };
 
+configEnum script_readonly_timeout_behavior_enum[] = {
+    {"yield", SCRIPT_READONLY_TIMEOUT_YIELD},
+    {"kill", SCRIPT_READONLY_TIMEOUT_KILL},
+    {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -3106,6 +3112,7 @@ standardConfig static_configs[] = {
     createEnumConfig("propagation-error-behavior", NULL, MODIFIABLE_CONFIG, propagation_error_behavior_enum, server.propagation_error_behavior, PROPAGATION_ERR_BEHAVIOR_IGNORE, NULL, NULL),
     createEnumConfig("shutdown-on-sigint", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigint, 0, isValidShutdownOnSigFlags, NULL),
     createEnumConfig("shutdown-on-sigterm", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigterm, 0, isValidShutdownOnSigFlags, NULL),
+    createEnumConfig("script-readonly-timeout-behavior", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, script_readonly_timeout_behavior_enum, server.script_readonly_timeout_behavior, SCRIPT_READONLY_TIMEOUT_YIELD, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),

@@ -1995,5 +1995,34 @@ start_server {tags {"scripting"}} {
             } 0
         ] {asdf}
     }
+
+    test "LUA test script-readonly-timeout-behavior kills only readonly" {
+        r config set script-readonly-timeout-behavior kill
+        r config set busy-reply-threshold 1
+        # kills if readonly
+        assert_error {ERR Read-only Script killed by engine for exceeding*} {
+            r eval {
+                for i = 0, 150000, 1
+                do
+                    redis.call('get', 'key')
+                end
+                return 1
+            } 0
+        }
+        # does not kill if script has performed a write
+        assert_equal [
+            r eval {
+                redis.call('set', 'key', 'val')
+                for i = 0, 150000, 1
+                do
+                    redis.call('get', 'key')
+                end
+                return 1
+            } 0
+        ] {1}
+        # restore defaults
+        r config set script-readonly-timeout-behavior yield
+        r config set busy-reply-threshold 5000
+    }
 }
 
