@@ -625,7 +625,7 @@ NULL
         /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
         int j;
 
-        addReplyArrayLen(c,(c->argc-2)*2);
+        addReplyMapLen(c, c->argc-2);
         for (j = 2; j < c->argc; j++) {
             list *l = dictFetchValue(server.pubsub_channels,c->argv[j]);
 
