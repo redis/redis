@@ -2518,8 +2518,8 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
         }
     }
 
-    client *realclient = c;
-    if (realclient->flags & CLIENT_SCRIPT) realclient = server.script_caller;
+    /* if we have a real client from the network, use it (could be missing on module timers) */
+    client *realclient = server.current_client? server.current_client : c;
 
     le->cinfo = catClientInfoString(sdsempty(),realclient);
     le->context = context;

@@ -1846,14 +1846,13 @@ void logModulesInfo(void) {
 /* Log information about the "current" client, that is, the client that is
  * currently being served by Redis. May be NULL if Redis is not serving a
  * client right now. */
-void logCurrentClient(void) {
-    if (server.current_client == NULL) return;
+void logCurrentClient(client *cc, const char *title) {
+    if (cc == NULL) return;
 
-    client *cc = server.current_client;
     sds client;
     int j;
 
-    serverLogRaw(LL_WARNING|LL_RAW, "\n------ CURRENT CLIENT INFO ------\n");
+    serverLog(LL_WARNING|LL_RAW, "\n------ %s CLIENT INFO ------\n", title);
     client = catClientInfoString(sdsempty(),cc);
     serverLog(LL_WARNING|LL_RAW,"%s\n", client);
     sdsfree(client);
@@ -2112,7 +2111,8 @@ void printCrashReport(void) {
     logServerInfo();
 
     /* Log the current client */
-    logCurrentClient();
+    logCurrentClient(server.current_client, "CURRENT");
+    logCurrentClient(server.executing_client, "EXECUTING");
 
     /* Log modules info. Something we wanna do last since we fear it may crash. */
     logModulesInfo();

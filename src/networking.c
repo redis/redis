@@ -3921,6 +3921,13 @@ void processEventsWhileBlocked(void) {
      * interaction time with clients and for other important things. */
     updateCachedTime(0);
 
+    /* For the few commands that are allowed during busy scripts, we rather
+     * provide a fresher time than the one from when the script started (they
+     * still won't get it from the call due to execution_nesting. For commands
+     * during loading this doesn't matter. */
+    mstime_t prev_cmd_time_snapshot = server.cmd_time_snapshot;
+    server.cmd_time_snapshot = server.mstime;
+
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we
      * avoid handling the read part of clients using threaded I/O.
@@ -3945,6 +3952,8 @@ void processEventsWhileBlocked(void) {
 
     ProcessingEventsWhileBlocked--;
     serverAssert(ProcessingEventsWhileBlocked >= 0);
+
+    server.cmd_time_snapshot = prev_cmd_time_snapshot;
 }
 
 /* ==========================================================================
