@@ -676,7 +676,7 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
         newlen += min(newlen, 300); /* Greediness: double 'newlen' if it is smaller than 300, or add 300 to it when it exceeds 300 */
         if (newlen > server.hll_sparse_max_bytes)
             newlen = server.hll_sparse_max_bytes;
-        o->ptr = sdsResize(o->ptr, newlen);
+        o->ptr = sdsResize(o->ptr, newlen, 1);
     }
 
     /* Step 1: we need to locate the opcode we need to modify to check

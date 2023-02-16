@@ -48,6 +48,18 @@ typedef long long ustime_t;
 /* RedisModule_OpenKey extra flags for the 'mode' argument.
  * Avoid touching the LRU/LFU of the key when opened. */
 #define REDISMODULE_OPEN_KEY_NOTOUCH (1<<16)
+/* Don't trigger keyspace event on key misses. */
+#define REDISMODULE_OPEN_KEY_NONOTIFY (1<<17)
+/* Don't update keyspace hits/misses counters. */
+#define REDISMODULE_OPEN_KEY_NOSTATS (1<<18)
+/* Avoid deleting lazy expired keys. */
+#define REDISMODULE_OPEN_KEY_NOEXPIRE (1<<19)
+/* Avoid any effects from fetching the key */
+#define REDISMODULE_OPEN_KEY_NOEFFECTS (1<<20)
+/* Mask of all REDISMODULE_OPEN_KEY_* values. Any new mode should be added to this list.
+ * Should not be used directly by the module, use RM_GetOpenKeyModesAll instead.
+ * Located here so when we will add new modes we will not forget to update it. */
+#define _REDISMODULE_OPEN_KEY_ALL REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_NOEFFECTS
 
 /* List push and pop */
 #define REDISMODULE_LIST_HEAD 0
@@ -955,6 +967,7 @@ REDISMODULE_API int (*RedisModule_GetSelectedDb)(RedisModuleCtx *ctx) REDISMODUL
 REDISMODULE_API int (*RedisModule_SelectDb)(RedisModuleCtx *ctx, int newid) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_KeyExists)(RedisModuleCtx *ctx, RedisModuleString *keyname) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleKey * (*RedisModule_OpenKey)(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetOpenKeyModesAll)() REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_CloseKey)(RedisModuleKey *kp) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_KeyType)(RedisModuleKey *kp) REDISMODULE_ATTR;
 REDISMODULE_API size_t (*RedisModule_ValueLength)(RedisModuleKey *kp) REDISMODULE_ATTR;
@@ -1326,6 +1339,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SelectDb);
     REDISMODULE_GET_API(KeyExists);
     REDISMODULE_GET_API(OpenKey);
+    REDISMODULE_GET_API(GetOpenKeyModesAll);
     REDISMODULE_GET_API(CloseKey);
     REDISMODULE_GET_API(KeyType);
     REDISMODULE_GET_API(ValueLength);
