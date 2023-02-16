@@ -1132,6 +1132,7 @@ int reclaimFilePageCache(int fd, size_t offset, size_t length) {
 #ifdef REDIS_TEST
 #include <assert.h>
 #include <sys/mman.h>
+#include "testhelp.h"
 
 static void test_string2ll(void) {
     char buf[32];
@@ -1399,8 +1400,11 @@ int utilTest(int argc, char **argv, int flags) {
     test_ld2string();
     test_fixedpoint_d2string();
 #if defined(__linux__)
-    test_reclaimFilePageCache();
+    if (!(flags & REDIS_TEST_VALGRIND)) {
+        test_reclaimFilePageCache();
+    }
 #endif
+    printf("Done testing util\n");
     return 0;
 }
 #endif
