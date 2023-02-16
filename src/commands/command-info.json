@@ -49,7 +49,7 @@
                                 "type": "string"
                             },
                             {
-                                "description": "command arrity",
+                                "description": "command arity",
                                 "type": "integer"
                             },
                             {
@@ -94,7 +94,9 @@
                                 "items": {
                                     "type": "object",
                                     "properties": {
-                                        "notes": { "type": "string" },
+                                        "notes": {
+                                            "type": "string"
+                                        },
                                         "flags": {
                                             "type": "array",
                                             "items": {
@@ -103,7 +105,9 @@
                                             "begin_search": {
                                                 "type": "object",
                                                 "properties": {
-                                                    "type": { "type": "string" },
+                                                    "type": {
+                                                        "type": "string"
+                                                    },
                                                     "spec": {
                                                         "oneOf": [
                                                             {
@@ -115,7 +119,9 @@
                                                                 "description": "index type",
                                                                 "type": "object",
                                                                 "properties": {
-                                                                    "index": { "type":  "integer" }
+                                                                    "index": {
+                                                                        "type":  "integer"
+                                                                    }
                                                                 },
                                                                 "additionalProperties": false
                                                             },
@@ -123,8 +129,12 @@
                                                                 "description": "keyword type",
                                                                 "type": "object",
                                                                 "properties": {
-                                                                    "keyword": { "type": "string" },
-                                                                    "startsfrom": { "type": "integer" }
+                                                                    "keyword": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "startsfrom": {
+                                                                        "type": "integer"
+                                                                    }
                                                                 },
                                                                 "additionalProperties": false
                                                             }
@@ -134,7 +144,7 @@
                                             },
                                             "find_keys": {
                                                 "type": "object",
-                                                "propeties": {
+                                                "properties": {
                                                     "spec": {
                                                         "oneOf": [
                                                             {

@@ -4649,27 +4649,27 @@ void addReplyJson(client *c, struct jsonObject *rs) {
         struct jsonObjectElement *curr = &rs->elements[i];
         addReplyBulkCString(c, curr->key);
         switch (curr->type) {
-            case (JSON_TYPE_BOOLEAN):
-                addReplyBool(c, curr->value.boolean);
-                break;
-            case (JSON_TYPE_INTEGER):
-                addReplyLongLong(c, curr->value.integer);
-                break;
-            case (JSON_TYPE_STRING):
-                addReplyBulkCString(c, curr->value.string);
-                break;
-            case (JSON_TYPE_OBJECT):
-                addReplyJson(c, curr->value.object);
-                break;
-            case (JSON_TYPE_ARRAY):
-                addReplyArrayLen(c, curr->value.array.length);
-                for (int k = 0; k < curr->value.array.length; k++) {
-                    struct jsonObject *object = curr->value.array.objects[k];
-                    addReplyJson(c, object);
-                }
-                break;
-            default:
-                serverPanic("Invalid JSON type %d", curr->type);
+        case (JSON_TYPE_BOOLEAN):
+            addReplyBool(c, curr->value.boolean);
+            break;
+        case (JSON_TYPE_INTEGER):
+            addReplyLongLong(c, curr->value.integer);
+            break;
+        case (JSON_TYPE_STRING):
+            addReplyBulkCString(c, curr->value.string);
+            break;
+        case (JSON_TYPE_OBJECT):
+            addReplyJson(c, curr->value.object);
+            break;
+        case (JSON_TYPE_ARRAY):
+            addReplyArrayLen(c, curr->value.array.length);
+            for (int k = 0; k < curr->value.array.length; k++) {
+                struct jsonObject *object = curr->value.array.objects[k];
+                addReplyJson(c, object);
+            }
+            break;
+        default:
+            serverPanic("Invalid JSON type %d", curr->type);
         }
     }
 }
@@ -4870,7 +4870,9 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     if (cmd->deprecated_since) maplen++;
     if (cmd->replaced_by) maplen++;
     if (cmd->history) maplen++;
+#ifdef LOG_REQ_RES
     if (cmd->reply_schema) maplen++;
+#endif
     if (cmd->args) maplen++;
     if (cmd->subcommands_dict) maplen++;
     addReplyMapLen(c, maplen);
@@ -4912,10 +4914,12 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
         addReplyBulkCString(c, "history");
         addReplyCommandHistory(c, cmd);
     }
+#ifdef LOG_REQ_RES
     if (cmd->reply_schema) {
         addReplyBulkCString(c, "reply_schema");
         addReplyJson(c, cmd->reply_schema);
     }
+#endif
     if (cmd->args) {
         addReplyBulkCString(c, "arguments");
         addReplyCommandArgList(c, cmd->args, cmd->num_args);

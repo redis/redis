@@ -30,7 +30,7 @@
 /* This file implements the interface of logging clients' requests and
  * responses into a file.
  * This feature needs the LOG_REQ_RES macro to be compiled and is turned
- * on/off by "DEBUG set-req-res-logfile <path>"
+ * on by the req-res-logfile config."
  *
  * Some examples:
  *
@@ -58,7 +58,7 @@
  * $3
  * ele
  *
- * The request is everything up until the __argv_end__ sentinel.
+ * The request is everything up until the __argv_end__ marker.
  * The format is:
  * <number of characters>
  * <the argument>
@@ -117,15 +117,45 @@ static size_t reqresAppendArg(client *c, char *arg, size_t arg_len) {
 
 /* ----- API ----- */
 
+
+/* Zero out the clientReqResInfo struct inside the client,
+ * and free the buffer if needed */
 void reqresReset(client *c, int free_buf) {
-    if (free_buf && c->reqres.buf) {
+    if (free_buf && c->reqres.buf)
         zfree(c->reqres.buf);
-        c->reqres.buf = NULL;
-        c->reqres.used = c->reqres.capacity = 0;
-    }
     memset(&c->reqres, 0, sizeof(c->reqres));
 }
 
+/* Save the offset of the reply buffer (or the reply list).
+ * Should be called when adding a reply (but it will only save the offset
+ * on the very first time it's called, because of c->reqres.offset.saved)
+ * The idea is:
+ * 1. When a client is executing a command, we save the reply offset.
+ * 2. During the execution, the reply offset may grow, ass addReply* functions are called.
+ * 3. When client is done with the command (commandProcessed), reqresAppendResponse
+ *    is called.
+ * 4. reqresAppendResponse will append the diff between the current offset and the one from step (1)
+ * 5. When client is reset before the next command, we clear c->reqres.offset.saved and start again
+ *
+ * We cannot reply on c->sentlen to keep track because it depends on the network
+ * (reqresAppendResponse will always write the whole buffer, unlike writeToClient)
+ *
+ * Ideally, we would just have this code inside reqresAppendRequest, which is called
+ * from processCommand, but we cannot save the reply offset inside processCommand
+ * because of the following pipe-lining scenario:
+ * set rd [redis_deferring_client]
+ * set buf ""
+ * append buf "SET key vale\r\n"
+ * append buf "BLPOP mylist 0\r\n"
+ * $rd write $buf
+ * $rd flush
+ *
+ * Let's assume we save the reply offset in processCommand
+ * When BLPOP is processed the offset is 5 (+OK\r\n from the SET)
+ * Then beforeSleep is called, the +OK is written to network, and bufpos is 0
+ * When the client is finally unblocked, the cached offset is 5, but bufpos is already
+ * 0, so we would miss the first 5 bytes of the reply.
+ **/
 void reqresSaveClientReplyOffset(client *c) {
     if (!reqresShouldLog(c))
         return;
@@ -233,7 +263,8 @@ size_t reqresAppendResponse(client *c) {
                 continue;
             }
             if (i == c->reqres.offset.last_node.index) {
-                /* Write the potentially incomplete node from last writeToClient */
+                /* Write the potentially incomplete node, which had data from
+                 * before the current command started */
                 written = reqresAppendBuffer(c,
                                              o->buf + c->reqres.offset.last_node.used,
                                              o->used - c->reqres.offset.last_node.used);
@@ -250,9 +281,7 @@ size_t reqresAppendResponse(client *c) {
     /* Flush both request and response to file */
     FILE *fp = fopen(server.req_res_logfile, "a");
     serverAssert(fp);
-
     fwrite(c->reqres.buf, c->reqres.used, 1, fp);
-    fflush(fp);
     fclose(fp);
 
     return ret;

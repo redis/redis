@@ -207,6 +207,12 @@ proc tags_acceptable {tags err_return} {
         }
     }
 
+    # some units mess with the client output buffer so we can't really use the req-res logging mechanism.
+    if {$::log_req_res && [lsearch $tags "logreqres:skip"] >= 0} {
+        set err "Not supported when running in log-req-res mode"
+        return 0
+    }
+
     if {$::external && [lsearch $tags "external:skip"] >= 0} {
         set err "Not supported on external server"
         return 0
