@@ -219,6 +219,10 @@
                 "type": "pure-token",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "the number of elements in the resulting set",
+            "type": "integer"
+        }
     }
 }
