@@ -98,6 +98,11 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The number of entries deleted from the stream.",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

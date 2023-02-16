@@ -175,6 +175,9 @@ def process_file(docs, path):
             if res.error or res.queued:
                 continue
 
+            if req.command == 'debug':
+                continue
+
             if not req.schema:
                 missing_schema.add(req.command)
                 continue
