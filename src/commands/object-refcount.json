@@ -41,6 +41,10 @@
                 "type": "key",
                 "key_spec_index": 0
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "the number of references",
+            "type": "integer"
+        }
     }
 }
