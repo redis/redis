@@ -1,4 +1,11 @@
 ================================================================================
+xredis-2.0.3 Released Thu Nov 24 10:59:48 CST 2022
+================================================================================
+* [opt] use skiplist to store gtid set, so complexity to test gtid set contains
+        gno is now Olog(n).
+* [new] limit gtid gap maxmemory, so that gtid gap consumed memory is bounded.
+
+================================================================================
 xredis-2.0.2 Released Thu Nov 24 10:59:48 CST 2022
 ================================================================================
 * [feature]  supports gtid.
