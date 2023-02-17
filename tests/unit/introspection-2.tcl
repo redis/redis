@@ -4,8 +4,12 @@ proc cmdstat {cmd} {
 
 proc getlru {key} {
     set objinfo [r debug object $key]
-    set lruinfo [lindex [split $objinfo " "] 5]
-    return [lindex [split $lruinfo ":"] 1]
+    foreach info $objinfo {
+        set kvinfo [split $info ":"]
+        if {[string compare [lindex $kvinfo 0] "lru"] == 0} {
+            return [lindex $kvinfo 1]
+        }
+    }
 }
 
 start_server {tags {"introspection"}} {
