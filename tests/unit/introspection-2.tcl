@@ -10,6 +10,7 @@ proc getlru {key} {
             return [lindex $kvinfo 1]
         }
     }
+    fail "Can't get LRU info with DEBUG OBJECT"
 }
 
 start_server {tags {"introspection"}} {
