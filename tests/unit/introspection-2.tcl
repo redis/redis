@@ -44,7 +44,7 @@ start_server {tags {"introspection"}} {
         r get foo
         set newlru [getlru foo]
         assert_morethan $newlru $oldlru
-    }
+    } {} {needs:debug}
 
     test {TOUCH returns the number of existing keys specified} {
         r flushdb
