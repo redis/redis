@@ -5487,6 +5487,27 @@ struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_client_inf
 
 struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info = {ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info_elements,.length=1};
 
+/* ACL_LOG_ReplySchema_oneOf_0_items_properties_entry_id reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_entry_id_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_entry_id = {ACL_LOG_ReplySchema_oneOf_0_items_properties_entry_id_elements,.length=1};
+
+/* ACL_LOG_ReplySchema_oneOf_0_items_properties_timestamp_created reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_timestamp_created_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_timestamp_created = {ACL_LOG_ReplySchema_oneOf_0_items_properties_timestamp_created_elements,.length=1};
+
+/* ACL_LOG_ReplySchema_oneOf_0_items_properties_timestamp_last_updated reply schema */
+struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_timestamp_last_updated_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties_timestamp_last_updated = {ACL_LOG_ReplySchema_oneOf_0_items_properties_timestamp_last_updated_elements,.length=1};
+
 /* ACL_LOG_ReplySchema_oneOf_0_items_properties reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_elements[] = {
 {JSON_TYPE_OBJECT,"count",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_count},
@@ -5496,9 +5517,12 @@ struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_elements[]
 {JSON_TYPE_OBJECT,"username",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_username},
 {JSON_TYPE_OBJECT,"age-seconds",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_age_seconds},
 {JSON_TYPE_OBJECT,"client-info",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_client_info},
+{JSON_TYPE_OBJECT,"entry-id",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_entry_id},
+{JSON_TYPE_OBJECT,"timestamp-created",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_timestamp_created},
+{JSON_TYPE_OBJECT,"timestamp-last-updated",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items_properties_timestamp_last_updated},
 };
 
-struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties = {ACL_LOG_ReplySchema_oneOf_0_items_properties_elements,.length=7};
+struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items_properties = {ACL_LOG_ReplySchema_oneOf_0_items_properties_elements,.length=10};
 
 /* ACL_LOG_ReplySchema_oneOf_0_items reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_elements[] = {

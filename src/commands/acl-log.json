@@ -49,6 +49,15 @@
                             },
                             "client-info": {
                                 "type": "string"
+                            },
+                            "entry-id": {
+                                "type": "integer"
+                            },
+                            "timestamp-created": {
+                                "type": "integer"
+                            },
+                            "timestamp-last-updated": {
+                                "type": "integer"
                             }
                         }
                     }
