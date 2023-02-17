@@ -739,6 +739,36 @@ start_server {tags {"tracking network"}} {
         assert_equal {} $prefixes
     }
 
+    test {Regression test for #11715} {
+        # This issue manifests when a client invalidates keys through the max key
+        # limit, which invalidates keys to get Redis below the limit, but no command is
+        # then executed. This can occur in several ways but the simplest is through 
+        # multi-exec which queues commands.
+        clean_all
+        r config set tracking-table-max-keys 10
+
+        # The cron will invalidate keys if we're above the limit, so disable it.
+        r debug pause-cron 1
+
+        # Set up a client that has listened to 10 keys and start a multi, this
+        # sets up the crash for later.
+        r HELLO 3
+        r CLIENT TRACKING on
+        r mget a b c d e 1 2 3 4 5
+        r multi
+
+        # The second client will listen to 10 more keys, which will invalidate 10
+        # keys. These invalidations will be random, so we spread the key names out.
+        $rd HELLO 3
+        $rd CLIENT TRACKING ON
+        $rd mget z y x v u 9 8 7 6 5
+
+        # This command will get queued, so make sure this command doesn't crash.
+        r ping
+        r exec
+        r debug pause-cron 0
+    }
+
     $rd_redirection close
     $rd close
 }
