@@ -71,6 +71,9 @@
                 "type": "integer",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }
