@@ -752,10 +752,11 @@ start_server {tags {"tracking network"}} {
 
         # Set up a client that has listened to 10 keys and start a multi, this
         # sets up the crash for later.
-        r HELLO 3
-        r CLIENT TRACKING on
-        r mget "1{tag}" "2{tag}" "3{tag}" "4{tag}" "0{tag}" "a{tag}" "b{tag}" "c{tag}" "d{tag}" "e{tag}"
-        r multi
+        set rd2 [redis_deferring_client]
+        $rd2 HELLO 3
+        $rd2 CLIENT TRACKING on
+        $rd2 mget "1{tag}" "2{tag}" "3{tag}" "4{tag}" "0{tag}" "a{tag}" "b{tag}" "c{tag}" "d{tag}" "e{tag}"
+        $rd2 multi
 
         # The second client will listen to 10 more keys, which will invalidate 10
         # keys. These invalidations will be random, so we spread the key names out.
@@ -764,11 +765,12 @@ start_server {tags {"tracking network"}} {
         $rd mget "z{tag}" "y{tag}" "x{tag}" "v{tag}" "u{tag}" "9{tag}" "8{tag}" "7{tag}" "6{tag}" "5{tag}"
 
         # This command will get queued, so make sure this command doesn't crash.
-        r ping
-        r exec
+        $rd2 ping
+        $rd2 exec
         r debug pause-cron 0
-    } {} {needs:debug}
+    } {OK} {needs:debug}
 
     $rd_redirection close
     $rd close
+    $rd2 close
 }
