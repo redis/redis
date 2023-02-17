@@ -82,6 +82,12 @@ typedef struct {
     dictEntry *next;
 } dictEntryNoValue;
 
+typedef struct {
+    void *key;
+    dictValue v;
+    void *metadata[];
+} dictEntryNoNext;
+
 /* -------------------------- private prototypes ---------------------------- */
 
 static int _dictExpandIfNeeded(dict *d);
@@ -126,6 +132,7 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
  *     Pointer | What it actually points to
  *     --------|----------------------------------------------
  *     ....000 | dictEntry { key, value, next, (metadata) }
+ *     ....100 | dictEntryNoNext { key, value, (metadata) }
  *     ....010 | dictEntryNoValue { key, next }
  *     ....xx1 | key
  */
@@ -133,6 +140,7 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
 #define ENTRY_PTR_MASK     7 /* 111 */
 #define ENTRY_PTR_NORMAL   0 /* 000 */
 #define ENTRY_PTR_NO_VALUE 2 /* 010 */
+#define ENTRY_PTR_NO_NEXT  4 /* 100 */
 
 /* Returns 1 if the entry pointer is a pointer to a key, rather than to an
  * allocated entry. Returns 0 otherwise. */
@@ -152,6 +160,12 @@ static inline int entryIsNoValue(const dictEntry *de) {
     return ((uintptr_t)(void *)de & ENTRY_PTR_MASK) == ENTRY_PTR_NO_VALUE;
 }
 
+/* Returns 1 if the entry is a special entry with key and value, but without a
+ * next pointer. Returns 0 otherwise. */
+static inline int entryIsNoNext(const dictEntry *de) {
+    return ((uintptr_t)(void *)de & ENTRY_PTR_MASK) == ENTRY_PTR_NO_NEXT;
+}
+
 static inline dictEntry *encodeMaskedPtr(const void *ptr, unsigned int bits) {
     assert(((uintptr_t)ptr & ENTRY_PTR_MASK) == 0);
     return (dictEntry *)(void *)((uintptr_t)ptr | bits);
@@ -168,15 +182,23 @@ static inline dictEntryNoValue *decodeEntryNoValue(const dictEntry *de) {
     return decodeMaskedPtr(de);
 }
 
+/* Decodes the pointer to an entry without next, when you know it is an entry
+ * without next. Hint: Use entryIsNoNext to check. */
+static inline dictEntryNoNext *decodeEntryNoNext(const dictEntry *de) {
+    return decodeMaskedPtr(de);
+}
+
 /* Returns the value field in an entry which has one. Due to 'const', this is
  * almost a copy of entryValueRef(). */
 static inline dictValue entryValue(const dictEntry *de) {
+    if (entryIsNoNext(de)) return decodeEntryNoNext(de)->v;
     assert(entryIsNormal(de));
     return de->v;
 }
 
 /* Returns a pointer to the value field in an entry which has one. */
 static inline dictValue *entryValueRef(dictEntry *de) {
+    if (entryIsNoNext(de)) return &decodeEntryNoNext(de)->v;
     assert(entryIsNormal(de));
     return &de->v;
 }
@@ -204,6 +226,11 @@ static dictEntry *createEntry(dict *d, void *key, dictEntry *next) {
             entry->next = next;
             de = encodeMaskedPtr(entry, ENTRY_PTR_NO_VALUE);
         }
+    } else if (!next) {
+        /* Allocate an entry without next. */
+        dictEntryNoNext *entry = zmalloc(sizeof(*entry) + metasize);
+        entry->key = key;
+        de = encodeMaskedPtr(entry, ENTRY_PTR_NO_NEXT);
     } else {
         /* Allocate a normal dictEntry. */
         de = zmalloc(sizeof(*de) + metasize);
@@ -221,6 +248,7 @@ static dictEntry *createEntry(dict *d, void *key, dictEntry *next) {
  * 'next' field. */
 static dictEntry *dictGetNext(const dictEntry *de) {
     if (entryIsKey(de)) return NULL;
+    if (entryIsNoNext(de)) return NULL;
     if (entryIsNoValue(de)) return decodeEntryNoValue(de)->next;
     assert(entryIsNormal(de));
     return de->next;
@@ -230,6 +258,7 @@ static dictEntry *dictGetNext(const dictEntry *de) {
  * doesn't have a next field. */
 static dictEntry **dictGetNextRef(dictEntry *de) {
     if (entryIsKey(de)) return NULL;
+    if (entryIsNoNext(de)) return NULL;
     if (entryIsNoValue(de)) return &decodeEntryNoValue(de)->next;
     assert(entryIsNormal(de));
     return &de->next;
@@ -257,9 +286,41 @@ static dictEntry *dictSetNext(dict *d, dictEntry *de, dictEntry *next) {
         } else {
             entry->next = next;
         }
+    } else if (entryIsNoNext(de)) {
+        if (!next) return de;
+        /* Convert to normal entry */
+        dictEntryNoNext *entry = decodeEntryNoNext(de);
+        size_t metasize = dictEntryMetadataSize(d);
+        dictEntry *newde = zmalloc(sizeof(*newde) + metasize);
+        newde->key = entry->key;
+        newde->v.u64 = entry->v.u64;
+        newde->next = next;
+        if (metasize) {
+            memcpy(&newde->metadata, &entry->metadata, metasize);
+            if (d->type->afterReplaceEntry)
+                d->type->afterReplaceEntry(d, newde);
+        }
+        zfree(entry);
+        de = newde;
     } else {
         assert(entryIsNormal(de));
-        de->next = next;
+        if (next) {
+            de->next = next;
+        } else {
+            /* Convert to dictEntryNoNext. */
+            size_t metasize = dictEntryMetadataSize(d);
+            dictEntryNoNext *entry = zmalloc(sizeof(*entry) + metasize);
+            entry->key = de->key;
+            entry->v.u64 = de->v.u64;
+            dictEntry *newde = encodeMaskedPtr(entry, ENTRY_PTR_NO_NEXT);
+            if (metasize) {
+                memcpy(&entry->metadata, &de->metadata, metasize);
+                if (d->type->afterReplaceEntry)
+                    d->type->afterReplaceEntry(d, newde);
+            }
+            zfree(de);
+            de = newde;
+        }
     }
     return de;
 }
@@ -853,6 +914,10 @@ double dictIncrDoubleVal(dictEntry *de, double val) {
 
 /* A pointer to the metadata section within the dict entry. */
 void *dictEntryMetadata(dictEntry *de) {
+    if (entryIsNoNext(de)) {
+        dictEntryNoNext *entry_no_next = decodeEntryNoNext(de);
+        return &entry_no_next->metadata;
+    }
     assert(entryIsNormal(de));
     return &de->metadata;
 }
@@ -860,6 +925,7 @@ void *dictEntryMetadata(dictEntry *de) {
 void *dictGetKey(const dictEntry *de) {
     if (entryIsKey(de)) return (void*)de;
     if (entryIsNoValue(de)) return decodeEntryNoValue(de)->key;
+    if (entryIsNoNext(de)) return decodeEntryNoNext(de)->key;
     assert(entryIsNormal(de));
     return de->key;
 }
@@ -914,7 +980,7 @@ size_t dictMemUsage(const dict *d) {
     if (!d->type->no_value) {
         /* A dict with keys and values. */
         return num_entries_with_next * sizeof(dictEntry) +
-            num_entries_without_next * sizeof(dictEntry) +
+            num_entries_without_next * sizeof(dictEntryNoNext) +
             ht_size;
     } else if (d->type->keys_are_odd) {
         /* No values. Keys without 'next' have no allocated entry. */
