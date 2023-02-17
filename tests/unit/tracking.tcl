@@ -754,20 +754,20 @@ start_server {tags {"tracking network"}} {
         # sets up the crash for later.
         r HELLO 3
         r CLIENT TRACKING on
-        r mget a b c d e 1 2 3 4 5
+        r mget "1{tag}" "2{tag}" "3{tag}" "4{tag}" "0{tag}" "a{tag}" "b{tag}" "c{tag}" "d{tag}" "e{tag}"
         r multi
 
         # The second client will listen to 10 more keys, which will invalidate 10
         # keys. These invalidations will be random, so we spread the key names out.
         $rd HELLO 3
         $rd CLIENT TRACKING ON
-        $rd mget z y x v u 9 8 7 6 5
+        $rd mget "z{tag}" "y{tag}" "x{tag}" "v{tag}" "u{tag}" "9{tag}" "8{tag}" "7{tag}" "6{tag}" "5{tag}"
 
         # This command will get queued, so make sure this command doesn't crash.
         r ping
         r exec
         r debug pause-cron 0
-    }
+    } {} {needs:debug}
 
     $rd_redirection close
     $rd close
