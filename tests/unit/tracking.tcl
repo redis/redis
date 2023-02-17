@@ -768,9 +768,9 @@ start_server {tags {"tracking network"}} {
         $rd2 ping
         $rd2 exec
         r debug pause-cron 0
-        $rd_redirection close
-    } {OK} {needs:debug}
+        $rd2 close
+    } {0} {needs:debug}
 
     $rd close
-    $rd2 close
+    $rd_redirection close
 }
