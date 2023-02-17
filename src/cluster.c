@@ -1460,7 +1460,7 @@ void freeClusterNode(clusterNode *n) {
     serverAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
     sdsfree(nodename);
     sdsfree(n->hostname);
-    //nodename feature sdsfree(n->nodename);
+    sdsfree(n->human_nodename);
 
     /* Release links and associated data structures. */
     if (n->link) freeClusterLink(n->link);
