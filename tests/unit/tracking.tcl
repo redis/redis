@@ -776,6 +776,6 @@ start_server {tags {"tracking network"}} {
         r debug pause-cron 0
     } {OK} {needs:debug}
 
-    $rd close
     $rd_redirection close
+    $rd close
 }
