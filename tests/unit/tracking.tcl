@@ -745,31 +745,36 @@ start_server {tags {"tracking network"}} {
         # then executed. This can occur in several ways but the simplest is through 
         # multi-exec which queues commands.
         clean_all
-        r config set tracking-table-max-keys 10
+        r config set tracking-table-max-keys 2
 
         # The cron will invalidate keys if we're above the limit, so disable it.
         r debug pause-cron 1
 
-        # Set up a client that has listened to 10 keys and start a multi, this
+        # Set up a client that has listened to 2 keys and start a multi, this
         # sets up the crash for later.
-        set rd2 [redis_deferring_client]
-        $rd2 HELLO 3
-        $rd2 CLIENT TRACKING on
-        $rd2 mget "1{tag}" "2{tag}" "3{tag}" "4{tag}" "0{tag}" "a{tag}" "b{tag}" "c{tag}" "d{tag}" "e{tag}"
-        $rd2 multi
-
-        # The second client will listen to 10 more keys, which will invalidate 10
-        # keys. These invalidations will be random, so we spread the key names out.
         $rd HELLO 3
-        $rd CLIENT TRACKING ON
-        $rd mget "z{tag}" "y{tag}" "x{tag}" "v{tag}" "u{tag}" "9{tag}" "8{tag}" "7{tag}" "6{tag}" "5{tag}"
+        $rd read
+        $rd CLIENT TRACKING on
+        $rd read
+        $rd mget "1{tag}" "2{tag}"
+        $rd read
+        $rd multi
+        $rd read
+
+        # Reduce the tracking table keys to 1, this doesn't immediately take affect, but
+        # instead will apply on the next command.
+        r config set tracking-table-max-keys 1
 
         # This command will get queued, so make sure this command doesn't crash.
-        $rd2 ping
-        $rd2 exec
+        $rd ping
+        $rd exec
+
+        # Validate we got some invalidation message and then the command was queued.
+        assert_match "invalidate *{tag}" [$rd read]
+        assert_match "QUEUED" [$rd read]
+
         r debug pause-cron 0
-        $rd2 close
-    } {0} {needs:debug}
+    } {OK} {needs:debug}
 
     $rd close
     $rd_redirection close
