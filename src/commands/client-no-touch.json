@@ -1,17 +1,15 @@
 {
     "NO-TOUCH": {
-        "summary": "Set client will or not touch LFU/LRU stats for the current connection.",
+        "summary": "Controls whether commands sent by the client will alter the LRU/LFU of the keys they access.",
         "complexity": "O(1)",
         "group": "connection",
         "arity": 3,
         "container": "CLIENT",
         "function": "clientCommand",
         "command_flags": [
-            "ADMIN",
             "NOSCRIPT",
             "LOADING",
-            "STALE",
-            "SENTINEL"
+            "STALE"
         ],
         "acl_categories": [
             "CONNECTION"

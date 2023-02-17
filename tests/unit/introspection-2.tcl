@@ -2,6 +2,12 @@ proc cmdstat {cmd} {
     return [cmdrstat $cmd r]
 }
 
+proc getlru {key} {
+    set objinfo [r debug object $key]
+    set lruinfo [lindex [split $objinfo " "] 5]
+    return [lindex [split $lruinfo ":"] 1]
+}
+
 start_server {tags {"introspection"}} {
     test {The microsecond part of the TIME command will not overflow} {
         set now [r time]
@@ -29,12 +35,15 @@ start_server {tags {"introspection"}} {
     test {Operations in no-touch mode do not alter the last access time of a key} {
         r set foo bar
         r client no-touch on
-        after 3000
+        set oldlru [getlru foo]
+        after 1000
         r get foo
-        assert {[r object idletime foo] > 2}
+        set newlru [getlru foo]
+        assert_equal $newlru $oldlru
         r client no-touch off
         r get foo
-        assert {[r object idletime foo] < 2}
+        set newlru [getlru foo]
+        assert_morethan $newlru $oldlru
     }
 
     test {TOUCH returns the number of existing keys specified} {
