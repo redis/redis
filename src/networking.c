@@ -2715,7 +2715,7 @@ sds catClientInfoString(sds s, client *client) {
     if (client->flags & CLIENT_UNIX_SOCKET) *p++ = 'U';
     if (client->flags & CLIENT_READONLY) *p++ = 'r';
     if (client->flags & CLIENT_NO_EVICT) *p++ = 'e';
-    if (client->flags & CLIENT_NO_TOUCH) *p++ = 'h';
+    if (client->flags & CLIENT_NO_TOUCH) *p++ = 'T';
     if (p == flags) *p++ = 'N';
     *p++ = '\0';
 
