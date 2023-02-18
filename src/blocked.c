@@ -226,7 +226,7 @@ void replyToBlockedClientTimedOut(client *c) {
     } else if (c->bstate.btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bstate.reploffset));
     } else if (c->bstate.btype == BLOCKED_WAIT_AFTER_REPL) {
-        addReplyErrorObject(c, shared.noreplicaserr);
+        addReplyErrorObject(c, shared.timeouterr);
     } else if (c->bstate.btype == BLOCKED_MODULE) {
         moduleBlockedClientTimedOut(c);
     } else {

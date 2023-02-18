@@ -1257,7 +1257,7 @@ struct sharedObjectsStruct {
     *outofrangeerr, *noscripterr, *loadingerr,
     *slowevalerr, *slowscripterr, *slowmoduleerr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
-    *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
+    *busykeyerr, *oomerr, *timeouterr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
     *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
     *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,  

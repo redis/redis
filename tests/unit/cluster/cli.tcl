@@ -303,7 +303,7 @@ test {Migrate the last slot away from a node using redis-cli} {
         # Check that the now empty primary node doesn't turned itself into
         # a replica of any other nodes
         after 5000
-        assert_equal [string match "*slave*" [$owner_r CLUSTER REPLICAS $owner_id]] 0
+        assert_match *master* [$owner_r role]
     }
 }
 
