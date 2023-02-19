@@ -115,7 +115,8 @@ jobs:
         echo $VMOUT
         grep -q "0%" <<< $VMOUT
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then echo "$CACHE0 $CACHE"; exit 1; fi
+        echo "$CACHE0 $CACHE"
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
 
         echo "test replication doesn't increase cache"
         ./src/redis-cli -p 8081 REPLICAOF 127.0.0.1 8080 > /dev/null
@@ -128,7 +129,8 @@ jobs:
         echo $VMOUT
         grep -q "0%" <<< $VMOUT
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then echo "$CACHE0 $CACHE"; exit 1; fi
+        echo "$CACHE0 $CACHE"
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
 
         echo "test reboot doesn't increase cache"
         PID=$(cat /tmp/master/redis.pid)
@@ -141,4 +143,5 @@ jobs:
         echo $VMOUT
         grep -q "0%" <<< $VMOUT
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then echo "$CACHE0 $CACHE"; exit 1; fi
+        echo "$CACHE0 $CACHE"
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
