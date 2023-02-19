@@ -423,6 +423,7 @@ int TestTrimString(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_Log(ctx, "Error", "String was not trimmed as expected.");
     }
     RedisModule_Free(tmp);
+    RedisModule_FreeString(ctx,s);
     return REDISMODULE_OK;
 }
 
