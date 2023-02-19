@@ -321,7 +321,7 @@ char *strcat(char *restrict dest, const char *restrict src) __attribute__((depre
 
 /* Test for posix_fadvise() */
 #if defined(__linux__) || __FreeBSD__ >= 10
-//#define HAVE_FADVISE
+#define HAVE_FADVISE
 #endif
 
 #endif
