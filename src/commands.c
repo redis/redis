@@ -7562,6 +7562,63 @@ struct redisCommandArg SRANDMEMBER_Args[] = {
 {0}
 };
 
+/* SRANDMEMBER_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement SRANDMEMBER_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="In case `count` is not given and key doesn't exist"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject SRANDMEMBER_ReplySchema_oneOf_0 = {SRANDMEMBER_ReplySchema_oneOf_0_elements,.length=2};
+
+/* SRANDMEMBER_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement SRANDMEMBER_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="In case `count` is not given, randomly selected element"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SRANDMEMBER_ReplySchema_oneOf_1 = {SRANDMEMBER_ReplySchema_oneOf_1_elements,.length=2};
+
+/* SRANDMEMBER_ReplySchema_oneOf_2_items reply schema */
+struct jsonObjectElement SRANDMEMBER_ReplySchema_oneOf_2_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SRANDMEMBER_ReplySchema_oneOf_2_items = {SRANDMEMBER_ReplySchema_oneOf_2_items_elements,.length=1};
+
+/* SRANDMEMBER_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement SRANDMEMBER_ReplySchema_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="In case `count` is given, an array of elements"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&SRANDMEMBER_ReplySchema_oneOf_2_items},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
+};
+
+struct jsonObject SRANDMEMBER_ReplySchema_oneOf_2 = {SRANDMEMBER_ReplySchema_oneOf_2_elements,.length=4};
+
+/* SRANDMEMBER_ReplySchema_oneOf_3 reply schema */
+struct jsonObjectElement SRANDMEMBER_ReplySchema_oneOf_3_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="In case `count` is given and key doesn't exist"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=0},
+};
+
+struct jsonObject SRANDMEMBER_ReplySchema_oneOf_3 = {SRANDMEMBER_ReplySchema_oneOf_3_elements,.length=3};
+
+/* SRANDMEMBER_ReplySchema_oneOf array reply schema */
+struct jsonObject *SRANDMEMBER_ReplySchema_oneOf[] = {
+&SRANDMEMBER_ReplySchema_oneOf_0,
+&SRANDMEMBER_ReplySchema_oneOf_1,
+&SRANDMEMBER_ReplySchema_oneOf_2,
+&SRANDMEMBER_ReplySchema_oneOf_3,
+};
+
+/* SRANDMEMBER_ReplySchema reply schema */
+struct jsonObjectElement SRANDMEMBER_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SRANDMEMBER_ReplySchema_oneOf,.length=4}},
+};
+
+struct jsonObject SRANDMEMBER_ReplySchema = {SRANDMEMBER_ReplySchema_elements,.length=1};
+
 /********** SREM ********************/
 
 /* SREM history */
@@ -11731,7 +11788,7 @@ struct redisCommand redisCommandTable[] = {
 {"smismember","Returns the membership associated with the given elements for a set","O(N) where N is the number of elements being checked for membership","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SMISMEMBER_History,SMISMEMBER_tips,smismemberCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SMISMEMBER_Args},
 {"smove","Move a member from one set to another","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SMOVE_History,SMOVE_tips,smoveCommand,4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SMOVE_Args},
 {"spop","Remove and return one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the value of the passed count.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SPOP_History,SPOP_tips,spopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SPOP_Args},
-{"srandmember","Get one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the absolute value of the passed count.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SRANDMEMBER_History,SRANDMEMBER_tips,srandmemberCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SRANDMEMBER_Args},
+{"srandmember","Get one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the absolute value of the passed count.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SRANDMEMBER_History,SRANDMEMBER_tips,srandmemberCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SRANDMEMBER_Args,.reply_schema=&SRANDMEMBER_ReplySchema},
 {"srem","Remove one or more members from a set","O(N) where N is the number of members to be removed.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SREM_History,SREM_tips,sremCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SREM_Args},
 {"sscan","Incrementally iterate Set elements","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SSCAN_History,SSCAN_tips,sscanCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SSCAN_Args},
 {"sunion","Add multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SUNION_History,SUNION_tips,sunionCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNION_Args},
