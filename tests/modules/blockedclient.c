@@ -224,6 +224,8 @@ static void rm_call_async_send_reply(RedisModuleCtx *ctx, RedisModuleCallReply *
     RedisModule_FreeCallReply(reply);
 }
 
+/* Called when the command that was blocked on 'RM_Call' gets unblocked
+ * and send the reply to the blocked client. */
 static void rm_call_async_on_unblocked(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data) {
     UNUSED(ctx);
     RedisModuleBlockedClient *bc = private_data;
@@ -233,6 +235,13 @@ static void rm_call_async_on_unblocked(RedisModuleCtx *ctx, RedisModuleCallReply
     RedisModule_UnblockClient(bc, NULL);
 }
 
+/*
+ * Callback for do_rm_call_async / do_rm_call_async_script_mode
+ * Gets the command to invoke as the first argument to the command and runs it,
+ * passing the rest of the arguments to the command invocation.
+ * If the command got blocked, blocks the client and unblock it when the command gets unblocked,
+ * this allows check the K (allow blocking) argument to RM_Call.
+ */
 int do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     UNUSED(argv);
     UNUSED(argc);
@@ -272,12 +281,19 @@ int do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     return REDISMODULE_OK;
 }
 
+/* Private data for wait_and_do_rm_call_async that holds information about:
+ * 1. the block client, to unblock when done.
+ * 2. the arguments, contains the command to run using RM_Call */
 typedef struct WaitAndDoRMCallCtx {
     RedisModuleBlockedClient *bc;
     RedisModuleString **argv;
     int argc;
 } WaitAndDoRMCallCtx;
 
+/*
+ * This callback will be called when the 'wait' command invoke on 'wait_and_do_rm_call_async' will finish.
+ * This callback will continue the execution flow just like 'do_rm_call_async' command.
+ */
 static void wait_and_do_rm_call_async_on_unblocked(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data) {
     UNUSED(reply);
     WaitAndDoRMCallCtx *wctx = private_data;
@@ -311,6 +327,12 @@ done:
     RedisModule_Free(wctx);
 }
 
+/*
+ * Callback for wait_and_do_rm_call
+ * Gets the command to invoke as the first argument, runs 'wait'
+ * command (using the K flag to RM_Call). Once the wait finished, runs the
+ * command that was given (just like 'do_rm_call_async').
+ */
 int wait_and_do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
     UNUSED(argc);
