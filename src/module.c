@@ -274,15 +274,6 @@ typedef struct RedisModuleBlockedClient {
                                      Used for measuring latency of blocking cmds */
 } RedisModuleBlockedClient;
 
-/* Unblock callback */
-typedef void (*RedisModuleOnUnblocked)(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data);
-
-typedef struct AsyncRMCallCtx {
-    void *private_data;
-    RedisModule *module;
-    RedisModuleOnUnblocked on_unblocked;
-} AsyncRMCallCtx;
-
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static list *moduleUnblockedClients;
 
@@ -389,6 +380,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS (1<<8)
 #define REDISMODULE_ARGV_RESPECT_DENY_OOM (1<<9)
 #define REDISMODULE_ARGV_DRY_RUN (1<<10)
+#define REDISMODULE_ARGV_ALLOW_BLOCK (1<<11)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -471,7 +463,7 @@ struct ModuleConfig {
 void RM_FreeCallReply(RedisModuleCallReply *reply);
 void RM_CloseKey(RedisModuleKey *key);
 void autoMemoryCollect(RedisModuleCtx *ctx);
-robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, RedisModuleOnUnblocked *on_unblock, void **private_data, va_list ap);
+robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
 static void moduleInitKeyTypeSpecific(RedisModuleKey *key);
@@ -629,7 +621,7 @@ void moduleReleaseTempClient(client *c) {
     c->user = NULL; /* Root user */
     c->cmd = c->lastcmd = c->realcmd = NULL;
     if (c->bstate.async_rm_call_handle) {
-        zfree(c->bstate.async_rm_call_handle);
+        freeCallReply(c->bstate.async_rm_call_handle);
         c->bstate.async_rm_call_handle = NULL;
     }
     moduleTempClients[moduleTempClientCount++] = c;
@@ -813,15 +805,21 @@ static CallReply* moduleParseReply(client *c, RedisModuleCtx *ctx) {
 
 void moduleOnUnblocked(client *c) {
     RedisModuleCtx ctx;
-    AsyncRMCallCtx *async_ctx = c->bstate.async_rm_call_handle;
-    serverAssert(async_ctx);
-    moduleCreateContext(&ctx, async_ctx->module, REDISMODULE_CTX_TEMP_CLIENT);
+    CallReply *promise = c->bstate.async_rm_call_handle;
+    serverAssert(promise);
+    RedisModule *module = callReplyPromiseGetModule(promise);
+    RedisModuleOnUnblocked on_unblock = callReplyPromiseGetOnUnblockCallback(promise);
+    void *private_data = callReplyPromiseGetOnUnblockPrivateData(promise);
+    if (!on_unblock) {
+        return; // module did not set any unblock callback.
+    }
+    moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
     RM_SelectDb(&ctx, c->db->id);
 
     CallReply *reply = moduleParseReply(c, &ctx);
-    async_ctx->module->in_call++;
-    async_ctx->on_unblocked(&ctx, reply, async_ctx->private_data);
-    async_ctx->module->in_call--;
+    module->in_call++;
+    on_unblock(&ctx, reply, private_data);
+    module->in_call--;
 
     moduleFreeContext(&ctx);
     moduleReleaseTempClient(c);
@@ -3344,7 +3342,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
 
     /* Create the client and dispatch the command. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,NULL,NULL,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     va_end(ap);
     if (argv == NULL) return REDISMODULE_ERR;
 
@@ -5682,7 +5680,8 @@ void RM_FreeCallReply(RedisModuleCallReply *reply) {
  * - REDISMODULE_REPLY_DOUBLE
  * - REDISMODULE_REPLY_BIG_NUMBER
  * - REDISMODULE_REPLY_VERBATIM_STRING
- * - REDISMODULE_REPLY_ATTRIBUTE */
+ * - REDISMODULE_REPLY_ATTRIBUTE
+ * - REDISMODULE_REPLY_PROMISE */
 int RM_CallReplyType(RedisModuleCallReply *reply) {
     return callReplyType(reply);
 }
@@ -5765,6 +5764,12 @@ int RM_CallReplyAttributeElement(RedisModuleCallReply *reply, size_t idx, RedisM
     return REDISMODULE_ERR;
 }
 
+/* Set unblock handler (callback and private data) on the given promise RedisModuleCallReply.
+ * The given reply must be of promise type (REDISMODULE_REPLY_PROMISE). */
+void RM_CallReplyPromiseSetUnblockHandler(RedisModuleCallReply *reply, RedisModuleOnUnblocked on_unblock, void *private_data) {
+    callReplyPromiseSetUnblockHandler(reply, on_unblock, private_data);
+}
+
 /* Return the pointer and length of a string or error reply. */
 const char *RM_CallReplyStringPtr(RedisModuleCallReply *reply, size_t *len) {
     size_t private_len;
@@ -5812,10 +5817,11 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
  *     "C" -> REDISMODULE_ARGV_RUN_AS_USER
  *     "M" -> REDISMODULE_ARGV_RESPECT_DENY_OOM
+ *     "K" -> REDISMODULE_ARGV_ALLOW_BLOCK
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
-robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, RedisModuleOnUnblocked *on_unblock, void **private_data, va_list ap) {
+robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap) {
     int argc = 0, argv_size, j;
     robj **argv = NULL;
 
@@ -5887,8 +5893,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
         } else if (*p == 'D') {
             if (flags) (*flags) |= (REDISMODULE_ARGV_DRY_RUN | REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS);
         } else if (*p == 'K') {
-            if (on_unblock) *on_unblock = va_arg(ap,RedisModuleOnUnblocked);
-            if (private_data) *private_data = va_arg(ap,void*);
+            if (flags) (*flags) |= REDISMODULE_ARGV_ALLOW_BLOCK;
         } else {
             goto fmterr;
         }
@@ -5953,13 +5958,16 @@ fmterr:
  *              If everything succeeded, it will return with a NULL, otherwise it will
  *              return with a CallReply object denoting the error, as if it was called with
  *              the 'E' code.
- *     * 'K' -- Argument is a callback to call when client gets unblock (in case of blocking command)
- *              follow private data (void*) that will be given to the callback. In case the command
- *              did not block the client, the code flow stays the same. In case the command
- *              did block the client, the given callback will be called when the client gets unblock.
- *              callback signature is define on 'RedisModuleOnUnblocked', its gets the RedisModuleCtx,
- *              the command reply, and the private data that was give when calling 'RM_Call'.
- *              The command reply is of type RedisModuleReply and need to be freed by the user.
+ *     * 'K' -- Allow running blocking commands. If enabled and the command was blocked, a
+ *              special reply type will be return, REDISMODULE_REPLY_PROMISE. This reply type
+ *              indicated that the command was blocked and the reply will be given asynchronously.
+ *              The module can use this promise call reply to set handler which will be called when
+ *              the command gets unblocked using RedisModule_CallReplyPromiseSetUnblockHandler.
+ *              the handler must be set atomically along side the command invocation (without releasing
+ *              the Redis lock in between). The module should not keep the promise call reply after
+ *              the Redis lock has been released (implicitly when the command invocation was finished or
+ *              explicitly using RedisModule_ThreadSafeContextUnlock). The module should not free the
+ *              promise call reply.
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
@@ -5996,12 +6004,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     int replicate = 0; /* Replicate this command? */
     int error_as_call_replies = 0; /* return errors as RedisModuleCallReply object */
     uint64_t cmd_flags;
-    void *private_data = NULL;
-    RedisModuleOnUnblocked on_unblock = NULL;
 
     /* Handle arguments. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,&on_unblock, &private_data,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
     error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
@@ -6021,7 +6027,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     c = moduleAllocTempClient(user);
 
-    if (!on_unblock) {
+    if (!(flags & REDISMODULE_ARGV_ALLOW_BLOCK)) {
         /* We do not want to allow block, the module do not expect it */
         c->flags |= CLIENT_DENY_BLOCKING;
     }
@@ -6258,13 +6264,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     server.replication_allowed = prev_replication_allowed;
 
     if (c->flags & CLIENT_BLOCKED) {
-        serverAssert(on_unblock);
+        serverAssert(flags & REDISMODULE_ARGV_ALLOW_BLOCK);
         serverAssert(ctx->module);
-        AsyncRMCallCtx *async_ctx = zmalloc(sizeof(*async_ctx));
-        async_ctx->on_unblocked = on_unblock;
-        async_ctx->module = ctx->module;
-        async_ctx->private_data = private_data;
-        c->bstate.async_rm_call_handle = async_ctx;
+        reply = callReplyCreatePromise(ctx->module);
+        c->bstate.async_rm_call_handle = reply;
         c = NULL; /* Make sure not to free the client */
     } else {
         reply = moduleParseReply(c, ctx);
@@ -7204,7 +7207,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
 
     /* Emit the arguments into the AOF in Redis protocol format. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,NULL,NULL,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     va_end(ap);
     if (argv == NULL) {
         serverLog(LL_WARNING,
@@ -12922,6 +12925,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CallReplySetElement);
     REGISTER_API(CallReplyMapElement);
     REGISTER_API(CallReplyAttributeElement);
+    REGISTER_API(CallReplyPromiseSetUnblockHandler);
     REGISTER_API(CallReplyAttribute);
     REGISTER_API(CallReplyType);
     REGISTER_API(CallReplyLength);

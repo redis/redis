@@ -257,14 +257,16 @@ int do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
 
     const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, script_mode ? "SEKv" : "EKv", on_unblock, bc, argv + 2, argc - 2);
-    if(rep) {
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, script_mode ? "SEKv" : "EKv", argv + 2, argc - 2);
+    if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
         RedisModuleCtx *bctx = bc? RedisModule_GetThreadSafeContext(bc) : ctx;
         rm_call_async_send_reply(bctx, rep);
         if (bc) {
             RedisModule_FreeThreadSafeContext(bctx);
             RedisModule_UnblockClient(bc, NULL);
         }
+    } else {
+        RedisModule_CallReplyPromiseSetUnblockHandler(rep, on_unblock, bc);
     }
 
     return REDISMODULE_OK;
@@ -291,14 +293,16 @@ static void wait_and_do_rm_call_async_on_unblocked(RedisModuleCtx *ctx, RedisMod
     reply = NULL;
 
     const char* cmd = RedisModule_StringPtrLen(wctx->argv[0], NULL);
-    reply = RedisModule_Call(ctx, cmd, "EKv", rm_call_async_on_unblocked, wctx->bc, wctx->argv + 1, wctx->argc - 1);
+    reply = RedisModule_Call(ctx, cmd, "EKv", wctx->argv + 1, wctx->argc - 1);
 
 done:
-    if(reply) {
+    if(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_PROMISE) {
         RedisModuleCtx *bctx = RedisModule_GetThreadSafeContext(wctx->bc);
         rm_call_async_send_reply(bctx, reply);
         RedisModule_FreeThreadSafeContext(bctx);
         RedisModule_UnblockClient(wctx->bc, NULL);
+    } else {
+        RedisModule_CallReplyPromiseSetUnblockHandler(reply, rm_call_async_on_unblocked, wctx->bc);
     }
     for (int i = 0 ; i < wctx->argc ; ++i) {
         RedisModule_FreeString(NULL, wctx->argv[i]);
@@ -333,12 +337,14 @@ int wait_and_do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int
         wctx->argv[i - 1] = RedisModule_HoldString(NULL, argv[i]);
     }
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, "wait", "EKcc", wait_and_do_rm_call_async_on_unblocked, wctx, "1", "0");
-    if(rep) {
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "wait", "EKcc", "1", "0");
+    if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
         RedisModuleCtx *bctx = RedisModule_GetThreadSafeContext(bc);
         rm_call_async_send_reply(bctx, rep);
         RedisModule_FreeThreadSafeContext(bctx);
         RedisModule_UnblockClient(bc, NULL);
+    } else {
+        RedisModule_CallReplyPromiseSetUnblockHandler(rep, wait_and_do_rm_call_async_on_unblocked, wctx);
     }
 
     return REDISMODULE_OK;

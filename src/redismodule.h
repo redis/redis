@@ -89,6 +89,7 @@ typedef long long ustime_t;
 #define REDISMODULE_REPLY_BIG_NUMBER 9
 #define REDISMODULE_REPLY_VERBATIM_STRING 10
 #define REDISMODULE_REPLY_ATTRIBUTE 11
+#define REDISMODULE_REPLY_PROMISE 12
 
 /* Postponed array length. */
 #define REDISMODULE_POSTPONED_ARRAY_LEN -1  /* Deprecated, please use REDISMODULE_POSTPONED_LEN */
@@ -990,6 +991,7 @@ REDISMODULE_API const char* (*RedisModule_CallReplyVerbatim)(RedisModuleCallRepl
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplySetElement)(RedisModuleCallReply *reply, size_t idx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CallReplyMapElement)(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CallReplyAttributeElement)(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_CallReplyPromiseSetUnblockHandler)(RedisModuleCallReply *reply, RedisModuleOnUnblocked on_unblock, void *private_data) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplyAttribute)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
 REDISMODULE_API size_t (*RedisModule_CallReplyLength)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplyArrayElement)(RedisModuleCallReply *reply, size_t idx) REDISMODULE_ATTR;
@@ -1366,6 +1368,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CallReplySetElement);
     REDISMODULE_GET_API(CallReplyMapElement);
     REDISMODULE_GET_API(CallReplyAttributeElement);
+    REDISMODULE_GET_API(CallReplyPromiseSetUnblockHandler);
     REDISMODULE_GET_API(CallReplyAttribute);
     REDISMODULE_GET_API(CallReplyType);
     REDISMODULE_GET_API(CallReplyLength);
