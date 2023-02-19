@@ -200,4 +200,26 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal 3 [llength [r slowlog get -1]]
         assert_equal 3 [llength [r slowlog get 3]]
     }
+    
+     test {SLOWLOG - blocking command is reported only after unblocked} {
+        # Cleanup first
+        r del mylist
+        # create a test client
+        set rd [redis_deferring_client]
+        
+        # config the slowlog and reset
+        r config set slowlog-log-slower-than 0
+        r config set slowlog-max-len 110
+        r slowlog reset
+        
+        $rd BLPOP mylist 0
+        wait_for_blocked_clients_count 1 50 20
+        assert_equal 0 [llength [regexp -all -inline (?=BLPOP) [r slowlog get]]]
+        
+        r LPUSH mylist 1
+        wait_for_blocked_clients_count 0 50 20
+        assert_equal 1 [llength [regexp -all -inline (?=BLPOP) [r slowlog get]]]
+        
+        $rd close
+    }
 }

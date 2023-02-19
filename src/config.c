@@ -611,6 +611,12 @@ void loadServerConfigFromString(char *config) {
         goto loaderr;
     }
 
+    /* in case cluster mode is enabled dbnum must be 1 */
+    if (server.cluster_enabled && server.dbnum > 1) {
+        serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
+        server.dbnum = 1;
+    }
+
     /* To ensure backward compatibility and work while hz is out of range */
     if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
     if (server.config_hz > CONFIG_MAX_HZ) server.config_hz = CONFIG_MAX_HZ;
@@ -983,8 +989,8 @@ void configGetCommand(client *c) {
             /* Note that hidden configs require an exact match (not a pattern) */
             if (config->flags & HIDDEN_CONFIG) continue;
             if (dictFind(matches, config->name)) continue;
-            if (stringmatch(name, de->key, 1)) {
-                dictAdd(matches, de->key, config);
+            if (stringmatch(name, dictGetKey(de), 1)) {
+                dictAdd(matches, dictGetKey(de), config);
             }
         }
         dictReleaseIterator(di);
@@ -994,7 +1000,7 @@ void configGetCommand(client *c) {
     addReplyMapLen(c, dictSize(matches));
     while ((de = dictNext(di)) != NULL) {
         standardConfig *config = (standardConfig *) dictGetVal(de);
-        addReplyBulkCString(c, de->key);
+        addReplyBulkCString(c, dictGetKey(de));
         addReplyBulkSds(c, config->interface.get(config));
     }
     dictReleaseIterator(di);
@@ -1748,7 +1754,7 @@ int rewriteConfig(char *path, int force_write) {
         standardConfig *config = dictGetVal(de);
         /* Only rewrite the primary names */
         if (config->flags & ALIAS_CONFIG) continue;
-        if (config->interface.rewrite) config->interface.rewrite(config, de->key, state);
+        if (config->interface.rewrite) config->interface.rewrite(config, dictGetKey(de), state);
     }
     dictReleaseIterator(di);
 
@@ -2904,7 +2910,7 @@ static sds getConfigReplicaOfOption(standardConfig *config) {
 
 int allowProtectedAction(int config, client *c) {
     return (config == PROTECTED_ACTION_ALLOWED_YES) ||
-           (config == PROTECTED_ACTION_ALLOWED_LOCAL && islocalClient(c));
+           (config == PROTECTED_ACTION_ALLOWED_LOCAL && (connIsLocal(c->conn) == 1));
 }
 
 
@@ -2974,6 +2980,37 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(standardConfig *con
         }
     }
     rewriteConfigRewriteLine(state,name,line,1);
+}
+
+static int applyClientMaxMemoryUsage(const char **err) {
+    UNUSED(err);
+    listIter li;
+    listNode *ln;
+
+    /* server.client_mem_usage_buckets is an indication that the previous config
+     * was non-zero, in which case we can exit and no apply is needed. */
+    if(server.maxmemory_clients !=0 && server.client_mem_usage_buckets)
+        return 1;
+    if (server.maxmemory_clients != 0)
+        initServerClientMemUsageBuckets();
+
+    /* When client eviction is enabled update memory buckets for all clients.
+     * When disabled, clear that data structure. */
+    listRewind(server.clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        if (server.maxmemory_clients == 0) {
+            /* Remove client from memory usage bucket. */
+            removeClientFromMemUsageBucket(c, 0);
+        } else {
+            /* Update each client(s) memory usage and add to appropriate bucket. */
+            updateClientMemUsageAndBucket(c);
+        }
+    }
+
+    if (server.maxmemory_clients == 0)
+        freeServerClientMemUsageBuckets();
+    return 1;
 }
 
 standardConfig static_configs[] = {
@@ -3146,7 +3183,7 @@ standardConfig static_configs[] = {
     createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
     createSizeTConfig("client-query-buffer-limit", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */
-    createSSizeTConfig("maxmemory-clients", NULL, MODIFIABLE_CONFIG, -100, SSIZE_MAX, server.maxmemory_clients, 0, MEMORY_CONFIG | PERCENT_CONFIG, NULL, NULL),
+    createSSizeTConfig("maxmemory-clients", NULL, MODIFIABLE_CONFIG, -100, SSIZE_MAX, server.maxmemory_clients, 0, MEMORY_CONFIG | PERCENT_CONFIG, NULL, applyClientMaxMemoryUsage),
 
     /* Other configs */
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */

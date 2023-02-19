@@ -71,7 +71,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
-#include "intset.h"  /* Compact integer set structure */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
@@ -228,6 +227,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                      * Populated by populateCommandLegacyRangeSpec. */
 #define CMD_ALLOW_BUSY ((1ULL<<26))
 #define CMD_MODULE_GETCHANNELS (1ULL<<27)  /* Use the modules getchannels interface. */
+#define CMD_TOUCHES_ARBITRARY_KEYS (1ULL<<28)
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -360,7 +360,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_LUA_DEBUG_SYNC (1<<26)  /* EVAL debugging without fork() */
 #define CLIENT_MODULE (1<<27) /* Non connected client used by some module. */
 #define CLIENT_PROTECTED (1<<28) /* Client should not be freed for now. */
-/* #define CLIENT_... (1<<29) currently unused, feel free to use in the future */
+#define CLIENT_EXECUTING_COMMAND (1<<29) /* Indicates that the client is currently in the process of handling
+                                          a command. usually this will be marked only during call()
+                                          however, blocked clients might have this flag kept until they
+                                          will try to reprocess the command. */
+
 #define CLIENT_PENDING_COMMAND (1<<30) /* Indicates the client has a fully
                                         * parsed command ready for execution. */
 #define CLIENT_TRACKING (1ULL<<31) /* Client enabled keys tracking in order to
@@ -389,15 +393,18 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
-#define BLOCKED_NONE 0    /* Not blocked, no CLIENT_BLOCKED flag set. */
-#define BLOCKED_LIST 1    /* BLPOP & co. */
-#define BLOCKED_WAIT 2    /* WAIT for synchronous replication. */
-#define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
-#define BLOCKED_STREAM 4  /* XREAD. */
-#define BLOCKED_ZSET 5    /* BZPOP et al. */
-#define BLOCKED_POSTPONE 6 /* Blocked by processCommand, re-try processing later. */
-#define BLOCKED_SHUTDOWN 7 /* SHUTDOWN. */
-#define BLOCKED_NUM 8      /* Number of blocked states. */
+typedef enum blocking_type {
+    BLOCKED_NONE,    /* Not blocked, no CLIENT_BLOCKED flag set. */
+    BLOCKED_LIST,    /* BLPOP & co. */
+    BLOCKED_WAIT,    /* WAIT for synchronous replication. */
+    BLOCKED_MODULE,  /* Blocked by a loadable module. */
+    BLOCKED_STREAM,  /* XREAD. */
+    BLOCKED_ZSET,    /* BZPOP et al. */
+    BLOCKED_POSTPONE, /* Blocked by processCommand, re-try processing later. */
+    BLOCKED_SHUTDOWN, /* SHUTDOWN. */
+    BLOCKED_NUM,      /* Number of blocked states. */
+    BLOCKED_END       /* End of enumeration */
+} blocking_type;
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -570,13 +577,11 @@ typedef enum {
 
 /* Command call flags, see call() function */
 #define CMD_CALL_NONE 0
-#define CMD_CALL_SLOWLOG (1<<0)
-#define CMD_CALL_STATS (1<<1)
-#define CMD_CALL_PROPAGATE_AOF (1<<2)
-#define CMD_CALL_PROPAGATE_REPL (1<<3)
+#define CMD_CALL_PROPAGATE_AOF (1<<0)
+#define CMD_CALL_PROPAGATE_REPL (1<<1)
 #define CMD_CALL_PROPAGATE (CMD_CALL_PROPAGATE_AOF|CMD_CALL_PROPAGATE_REPL)
-#define CMD_CALL_FULL (CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE)
-#define CMD_CALL_FROM_MODULE (1<<4)  /* From RM_Call */
+#define CMD_CALL_FULL (CMD_CALL_PROPAGATE)
+#define CMD_CALL_FROM_MODULE (1<<2)  /* From RM_Call */
 
 /* Command propagation flags, see propagateNow() function */
 #define PROPAGATE_NONE 0
@@ -993,27 +998,13 @@ typedef struct multiState {
  * The fields used depend on client->btype. */
 typedef struct blockingState {
     /* Generic fields. */
-    long count;             /* Elements to pop if count was specified (BLMPOP/BZMPOP), -1 otherwise. */
-    mstime_t timeout;       /* Blocking operation timeout. If UNIX current time
-                             * is > timeout then the operation timed out. */
-
-    /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM */
-    dict *keys;             /* The keys we are waiting to terminate a blocking
-                             * operation such as BLPOP or XREAD. Or NULL. */
-    robj *target;           /* The key that should receive the element,
-                             * for BLMOVE. */
-    struct blockPos {
-        int wherefrom;      /* Where to pop from */
-        int whereto;        /* Where to push to */
-    } blockpos;              /* The positions in the src/dst lists/zsets
-                             * where we want to pop/push an element
-                             * for BLPOP, BRPOP, BLMOVE and BZMPOP. */
-
-    /* BLOCK_STREAM */
-    size_t xread_count;     /* XREAD COUNT option. */
-    robj *xread_group;      /* XREADGROUP group name. */
-    robj *xread_consumer;   /* XREADGROUP consumer name. */
-    int xread_group_noack;
+    blocking_type btype;                  /* Type of blocking op if CLIENT_BLOCKED. */
+    mstime_t timeout;           /* Blocking operation timeout. If UNIX current time
+                                 * is > timeout then the operation timed out. */
+    int unblock_on_nokey;       /* Whether to unblock the client when at least one of the keys
+                                   is deleted or does not exist anymore */
+    /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM or any other Keys related blocking */
+    dict *keys;                 /* The keys we are blocked on */
 
     /* BLOCKED_WAIT */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
@@ -1034,7 +1025,7 @@ typedef struct blockingState {
  * operation such as B[LR]POP, but received new data in the context of the
  * last executed command.
  *
- * After the execution of every command or script, we run this list to check
+ * After the execution of every command or script, we iterate over this list to check
  * if as a result we should serve data to clients blocked, unblocking them.
  * Note that server.ready_keys will not have duplicates as there dictionary
  * also called ready_keys in every structure representing a Redis database,
@@ -1172,8 +1163,7 @@ typedef struct client {
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     int slave_req;          /* Slave requirements: SLAVE_REQ_* */
     multiState mstate;      /* MULTI/EXEC state */
-    int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
-    blockingState bpop;     /* blocking state */
+    blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
@@ -1201,7 +1191,7 @@ typedef struct client {
     rax *client_tracking_prefixes; /* A dictionary of prefixes we are already
                                       subscribed to in BCAST mode, in the
                                       context of client side caching. */
-    /* In updateClientMemUsage() we track the memory usage of
+    /* In updateClientMemoryUsage() we track the memory usage of
      * each client and add it to the sum of all the clients of a given type,
      * however we need to remember what was the old contribution of each
      * client, and in which category the client was, in order to remove it
@@ -1520,8 +1510,6 @@ struct redisServer {
     int in_exec;                /* Are we inside EXEC? */
     int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
     const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
-    int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
-    int module_ctx_nesting;     /* moduleCreateContext() nesting level */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     int thp_enabled;                 /* If true, THP is enabled. */
@@ -1552,13 +1540,16 @@ struct redisServer {
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
-    client *current_client;     /* Current client executing the command. */
+    client *current_client;     /* The client that triggered the command execution (External or AOF). */
+    client *executing_client;   /* The client executing the current command (possibly script or module). */
 
     /* Stuff for client mem eviction */
-    clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];
+    clientMemUsageBucket* client_mem_usage_buckets;
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
-    int in_nested_call;         /* If > 0, in a nested call of a call */
+    int execution_nesting;      /* Execution nesting level.
+                                 * e.g. call(), async module stuff (timers, events, etc.),
+                                 * cron stuff (active expire, eviction) */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */
@@ -1887,6 +1878,7 @@ struct redisServer {
     int daylight_active;        /* Currently in daylight saving time. */
     mstime_t mstime;            /* 'unixtime' in milliseconds. */
     ustime_t ustime;            /* 'unixtime' in microseconds. */
+    mstime_t cmd_time_snapshot; /* Time snapshot of the root execution nesting. */
     size_t blocking_op_nesting; /* Nesting level of blocking operation, used to reset blocked_last_cron. */
     long long blocked_last_cron; /* Indicate the mstime of the last time we did cron jobs from a blocking operation */
     /* Pubsub */
@@ -1926,7 +1918,6 @@ struct redisServer {
     int cluster_drop_packet_filter; /* Debug config that allows tactically
                                    * dropping packets of a specific type */
     /* Scripting */
-    client *script_caller;       /* The client running script right now, or NULL */
     mstime_t busy_reply_threshold;  /* Script / module timeout in milliseconds */
     int pre_command_oom_state;         /* OOM before command (script?) was started */
     int script_disable_deny_script;    /* Allow running commands marked "no-script" inside a script. */
@@ -2240,6 +2231,12 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *
  * CMD_NO_MULTI: The command is not allowed inside a transaction
  *
+ * CMD_ALLOW_BUSY: The command can run while another command is running for
+ *                 a long time (timedout script, module command that yields)
+ *
+ * CMD_TOUCHES_ARBITRARY_KEYS: The command may touch (and cause lazy-expire)
+ *                             arbitrary key (i.e not provided in argv)
+ *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
  * See redis.conf for the exact meaning of each.
@@ -2440,6 +2437,7 @@ void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 void firePostExecutionUnitJobs();
 void moduleCallCommandFilters(client *c);
+void modulePostExecutionUnitOperations();
 void ModuleForkDoneHandler(int exitcode, int bysignal);
 int TerminateModuleForkChild(int child_pid, int wait);
 ssize_t rdbSaveModulesAux(rio *rdb, int when);
@@ -2457,9 +2455,9 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags);
 size_t moduleGetFreeEffort(robj *key, robj *val, int dbid);
 size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid);
 robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj *value);
-int moduleDefragValue(robj *key, robj *obj, long *defragged, int dbid);
-int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged, int dbid);
-long moduleDefragGlobals(void);
+int moduleDefragValue(robj *key, robj *obj, int dbid);
+int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, int dbid);
+void moduleDefragGlobals(void);
 void *moduleGetHandleByName(char *modulename);
 int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 
@@ -2581,9 +2579,8 @@ int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
-int islocalClient(client *c);
-int updateClientMemUsage(client *c);
-void updateClientMemUsageBucket(client *c);
+int updateClientMemUsageAndBucket(client *c);
+void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
@@ -2610,7 +2607,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...);
 /* Client side caching (tracking mode) */
 void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **prefix, size_t numprefix);
 void disableTracking(client *c);
-void trackingRememberKeys(client *c);
+void trackingRememberKeys(client *tracking, client *executing);
 void trackingInvalidateKey(client *c, robj *keyobj, int bcast);
 void trackingScheduleKeyInvalidation(uint64_t client_id, robj *keyobj);
 void trackingHandlePendingKeyInvalidations(void);
@@ -2640,7 +2637,6 @@ int listTypeEqual(listTypeEntry *entry, robj *o);
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 robj *listTypeDup(robj *o);
 void listTypeDelRange(robj *o, long start, long stop);
-void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted);
 typedef enum {
@@ -2943,6 +2939,7 @@ int overMaxmemoryAfterAlloc(size_t moremem);
 uint64_t getCommandFlags(client *c);
 int processCommand(client *c);
 int processPendingCommandAndInputBuffer(client *c);
+int processCommandAndResetClient(client *c);
 void setupSignalHandlers(void);
 void removeSignalHandlers(void);
 int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler);
@@ -3004,7 +3001,7 @@ void checkChildrenDone(void);
 int setOOMScoreAdj(int process_class);
 void rejectCommandFormat(client *c, const char *fmt, ...);
 void *activeDefragAlloc(void *ptr);
-robj *activeDefragStringOb(robj* ob, long *defragged);
+robj *activeDefragStringOb(robj* ob);
 void dismissSds(sds s);
 void dismissMemory(void* ptr, size_t size_hint);
 void dismissMemoryInChild(void);
@@ -3017,8 +3014,11 @@ int restartServer(int flags, mstime_t delay);
 /* Set data type */
 robj *setTypeCreate(sds value);
 int setTypeAdd(robj *subject, sds value);
+int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeRemove(robj *subject, sds value);
+int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeIsMember(robj *subject, sds value);
+int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 setTypeIterator *setTypeInitIterator(robj *subject);
 void setTypeReleaseIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
@@ -3027,6 +3027,7 @@ int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
 unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
 unsigned long setTypeSize(const robj *subject);
 void setTypeConvert(robj *subject, int enc);
+int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
 
 /* Hash data type */
@@ -3121,6 +3122,8 @@ void initConfigValues();
 void removeConfig(sds name);
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
+void initServerClientMemUsageBuckets();
+void freeServerClientMemUsageBuckets();
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
@@ -3165,6 +3168,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 #define LOOKUP_NOSTATS (1<<2)  /* Don't update keyspace hits/misses counters. */
 #define LOOKUP_WRITE (1<<3)    /* Delete expired keys even in replicas. */
 #define LOOKUP_NOEXPIRE (1<<4) /* Avoid deleting lazy expired keys. */
+#define LOOKUP_NOEFFECTS (LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH | LOOKUP_NOEXPIRE) /* Avoid any effects from fetching the key */
 
 void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
@@ -3280,20 +3284,28 @@ typedef struct luaScript {
     robj *body;
 } luaScript;
 
-/* Blocked clients */
+/* Blocked clients API */
 void processUnblockedClients(void);
+void initClientBlockingState(client *c);
 void blockClient(client *c, int btype);
 void unblockClient(client *c);
+void unblockClientOnTimeout(client *c);
+void unblockClientOnError(client *c, const char *err_str);
 void queueClientForReprocessing(client *c);
 void replyToBlockedClientTimedOut(client *c);
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit);
 void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, int unblock_on_nokey);
+void blockClientShutdown(client *c);
+void blockPostponeClient(client *c);
+void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas);
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids, int unblock_on_nokey);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
 void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with);
+void totalNumberOfBlockingKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey);
+
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */
 void addClientToTimeoutTable(client *c);

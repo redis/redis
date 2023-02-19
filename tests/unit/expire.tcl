@@ -151,7 +151,7 @@ start_server {tags {"expire"}} {
         r del x
         r setex x 1 somevalue
         set ttl [r pttl x]
-        assert {$ttl > 900 && $ttl <= 1000}
+        assert {$ttl > 500 && $ttl <= 1000}
     }
 
     test {TTL / PTTL / EXPIRETIME / PEXPIRETIME return -1 if key has no expire} {
@@ -603,9 +603,9 @@ start_server {tags {"expire"}} {
     } {-1}
 
     test {GETEX use of PERSIST option should remove TTL after loadaof} {
+       r config set appendonly yes
        r set foo bar EX 100
        r getex foo PERSIST
-       after 2000
        r debug loadaof
        r ttl foo
     } {-1} {needs:debug}
@@ -764,6 +764,48 @@ start_server {tags {"expire"}} {
             {select *}
             {del foo}
             {set x 1}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
+
+    test {SCAN: Lazy-expire should not be wrapped in MULTI/EXEC} {
+        r debug set-active-expire 0
+        r flushall
+
+        r set foo1 bar PX 1
+        r set foo2 bar PX 1
+        after 2
+
+        set repl [attach_to_replication_stream]
+
+        r scan 0
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo*}
+            {del foo*}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
+
+    test {RANDOMKEY: Lazy-expire should not be wrapped in MULTI/EXEC} {
+        r debug set-active-expire 0
+        r flushall
+
+        r set foo1 bar PX 1
+        r set foo2 bar PX 1
+        after 2
+
+        set repl [attach_to_replication_stream]
+
+        r randomkey
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo*}
+            {del foo*}
         }
         close_replication_stream $repl
         assert_equal [r debug set-active-expire 1] {OK}

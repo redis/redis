@@ -57,6 +57,7 @@
  * from tail to head, useful for ZREVRANGE. */
 
 #include "server.h"
+#include "intset.h"  /* Compact integer set structure */
 #include <math.h>
 
 /*-----------------------------------------------------------------------------
@@ -1427,7 +1428,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 /* Note that we did not removed the original element from
                  * the hash table representing the sorted set, so we just
                  * update the score. */
-                dictGetVal(de) = &znode->score; /* Update score ptr. */
+                dictSetVal(zs->dict, de, &znode->score); /* Update score ptr. */
                 *out_flags |= ZADD_OUT_UPDATED;
             }
             return 1;
@@ -2257,26 +2258,13 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
         return 0;
 
     if (op->type == OBJ_SET) {
-        if (op->encoding == OBJ_ENCODING_INTSET) {
-            if (zuiLongLongFromValue(val) &&
-                intsetFind(op->subject->ptr,val->ell))
-            {
-                *score = 1.0;
-                return 1;
-            } else {
-                return 0;
-            }
-        } else if (op->encoding == OBJ_ENCODING_HT) {
-            dict *ht = op->subject->ptr;
-            zuiSdsFromValue(val);
-            if (dictFind(ht,val->ele) != NULL) {
-                *score = 1.0;
-                return 1;
-            } else {
-                return 0;
-            }
+        char *str = val->ele ? val->ele : (char *)val->estr;
+        size_t len = val->ele ? sdslen(val->ele) : val->elen;
+        if (setTypeIsMemberAux(op->subject, str, len, val->ell, val->ele != NULL)) {
+            *score = 1.0;
+            return 1;
         } else {
-            serverPanic("Unknown set encoding");
+            return 0;
         }
     } else if (op->type == OBJ_ZSET) {
         zuiSdsFromValue(val);
@@ -2753,7 +2741,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                      * Here we access directly the dictEntry double
                      * value inside the union as it is a big speedup
                      * compared to using the getDouble/setDouble API. */
-                    zunionInterAggregate(&existing->v.d,score,aggregate);
+                    double *existing_score_ptr = dictGetDoubleValPtr(existing);
+                    zunionInterAggregate(existing_score_ptr, score, aggregate);
                 }
             }
             zuiClearIterator(&src[i]);
@@ -4083,8 +4072,7 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
     }
 
     /* If the keys do not exist we must block */
-    struct blockPos pos = {where};
-    blockForKeys(c,BLOCKED_ZSET,keys,numkeys,count,timeout,NULL,&pos,NULL,0);
+    blockForKeys(c,BLOCKED_ZSET,keys,numkeys,timeout,0);
 }
 
 // BZPOPMIN key [key ...] timeout
@@ -4166,6 +4154,8 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withscores)
                     addReplyDouble(c, *(double*)dictGetVal(de));
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
         } else if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
             listpackEntry *keys, *vals = NULL;
@@ -4179,6 +4169,8 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 count -= sample_count;
                 lpRandomPairs(zsetobj->ptr, sample_count, keys, vals);
                 zrandmemberReplyWithListpack(c, sample_count, keys, vals);
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
             zfree(keys);
             zfree(vals);
@@ -4329,8 +4321,13 @@ void zrandmemberCommand(client *c) {
         if (c->argc > 4 || (c->argc == 4 && strcasecmp(c->argv[3]->ptr,"withscores"))) {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
-        } else if (c->argc == 4)
+        } else if (c->argc == 4) {
             withscores = 1;
+            if (l < LONG_MIN/2 || l > LONG_MAX/2) {
+                addReplyError(c,"value is out of range");
+                return;
+            }
+        }
         zrandmemberWithCountCommand(c, l, withscores);
         return;
     }

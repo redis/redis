@@ -44,6 +44,7 @@
 #include <openssl/decoder.h>
 #endif
 #include <sys/uio.h>
+#include <arpa/inet.h>
 
 #define REDIS_TLS_PROTO_TLSv1       (1<<0)
 #define REDIS_TLS_PROTO_TLSv1_1     (1<<1)
@@ -786,6 +787,10 @@ static int connTLSAddr(connection *conn, char *ip, size_t ip_len, int *port, int
     return anetFdToString(conn->fd, ip, ip_len, port, remote);
 }
 
+static int connTLSIsLocal(connection *conn) {
+    return connectionTypeTcp()->is_local(conn);
+}
+
 static int connTLSListen(connListener *listener) {
     return listenToPort(listener);
 }
@@ -857,9 +862,15 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
 
 static int connTLSConnect(connection *conn_, const char *addr, int port, const char *src_addr, ConnectionCallbackFunc connect_handler) {
     tls_connection *conn = (tls_connection *) conn_;
+    unsigned char addr_buf[sizeof(struct in6_addr)];
 
     if (conn->c.state != CONN_STATE_NONE) return C_ERR;
     ERR_clear_error();
+
+    /* Check whether addr is an IP address, if not, use the value for Server Name Indication */
+    if (inet_pton(AF_INET, addr, addr_buf) != 1 && inet_pton(AF_INET6, addr, addr_buf) != 1) {
+        SSL_set_tlsext_host_name(conn->ssl, addr);
+    }
 
     /* Initiate Socket connection first */
     if (connectionTypeTcp()->connect(conn_, addr, port, src_addr, connect_handler) == C_ERR) return C_ERR;
@@ -1107,6 +1118,7 @@ static ConnectionType CT_TLS = {
     .ae_handler = tlsEventHandler,
     .accept_handler = tlsAcceptHandler,
     .addr = connTLSAddr,
+    .is_local = connTLSIsLocal,
     .listen = connTLSListen,
 
     /* create/shutdown/close connection */

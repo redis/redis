@@ -111,7 +111,7 @@ int bg_unlink(const char *filename) {
             errno = old_errno;
             return -1;
         }
-        bioCreateCloseJob(fd, 0);
+        bioCreateCloseJob(fd, 0, 0);
         return 0; /* Success. */
     }
 }
@@ -593,7 +593,6 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
         addReply(monitor,cmdobj);
-        updateClientMemUsage(c);
     }
     decrRefCount(cmdobj);
 }
@@ -859,8 +858,10 @@ int startBgsaveForReplication(int mincapa, int req) {
     if (rsiptr) {
         if (socket_target)
             retval = rdbSaveToSlavesSockets(req,rsiptr);
-        else
-            retval = rdbSaveBackground(req,server.rdb_filename,rsiptr);
+        else {
+            /* Keep the page cache since it'll get used soon */
+            retval = rdbSaveBackground(req,server.rdb_filename,rsiptr,RDBFLAGS_KEEP_CACHE);
+        }
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
         retval = C_ERR;
@@ -1351,6 +1352,29 @@ void removeRDBUsedToSyncReplicas(void) {
     }
 }
 
+/* Close the repldbfd and reclaim the page cache if the client hold
+ * the last reference to replication DB */
+void closeRepldbfd(client *myself) {
+    listNode *ln;
+    listIter li;
+    int reclaim = 1;
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+        if (slave != myself && slave->replstate == SLAVE_STATE_SEND_BULK) {
+            reclaim = 0;
+            break;
+        }
+    }
+
+    if (reclaim) {
+        bioCreateCloseJob(myself->repldbfd, 0, 1);
+    } else {
+        close(myself->repldbfd);
+    }
+    myself->repldbfd = -1;
+}
+
 void sendBulkToSlave(connection *conn) {
     client *slave = connGetPrivateData(conn);
     char buf[PROTO_IOBUF_LEN];
@@ -1399,8 +1423,7 @@ void sendBulkToSlave(connection *conn) {
     slave->repldboff += nwritten;
     atomicIncr(server.stat_net_repl_output_bytes, nwritten);
     if (slave->repldboff == slave->repldbsize) {
-        close(slave->repldbfd);
-        slave->repldbfd = -1;
+        closeRepldbfd(slave);
         connSetWriteHandler(slave->conn,NULL);
         if (!replicaPutOnline(slave)) {
             freeClient(slave);
@@ -2165,7 +2188,7 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
         /* Close old rdb asynchronously. */
-        if (old_rdb_fd != -1) bioCreateCloseJob(old_rdb_fd, 0);
+        if (old_rdb_fd != -1) bioCreateCloseJob(old_rdb_fd, 0, 0);
 
         /* Sync the directory to ensure rename is persisted */
         if (fsyncFileDir(server.rdb_filename) == -1) {
@@ -2202,7 +2225,6 @@ void readSyncBulkPayload(connection *conn) {
         }
 
         zfree(server.repl_transfer_tmpfile);
-        close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
         server.repl_transfer_tmpfile = NULL;
     }
@@ -3481,11 +3503,7 @@ void waitCommand(client *c) {
 
     /* Otherwise block the client and put it into our list of clients
      * waiting for ack from slaves. */
-    c->bpop.timeout = timeout;
-    c->bpop.reploffset = offset;
-    c->bpop.numreplicas = numreplicas;
-    listAddNodeHead(server.clients_waiting_acks,c);
-    blockClient(c,BLOCKED_WAIT);
+    blockForReplication(c,timeout,offset,numreplicas);
 
     /* Make sure that the server will send an ACK request to all the slaves
      * before returning to the event loop. */
@@ -3519,16 +3537,16 @@ void processClientsWaitingReplicas(void) {
          * offset and number of replicas, we remember it so the next client
          * may be unblocked without calling replicationCountAcksByOffset()
          * if the requested offset / replicas were equal or less. */
-        if (last_offset && last_offset >= c->bpop.reploffset &&
-                           last_numreplicas >= c->bpop.numreplicas)
+        if (last_offset && last_offset >= c->bstate.reploffset &&
+                           last_numreplicas >= c->bstate.numreplicas)
         {
             unblockClient(c);
             addReplyLongLong(c,last_numreplicas);
         } else {
-            int numreplicas = replicationCountAcksByOffset(c->bpop.reploffset);
+            int numreplicas = replicationCountAcksByOffset(c->bstate.reploffset);
 
-            if (numreplicas >= c->bpop.numreplicas) {
-                last_offset = c->bpop.reploffset;
+            if (numreplicas >= c->bstate.numreplicas) {
+                last_offset = c->bstate.reploffset;
                 last_numreplicas = numreplicas;
                 unblockClient(c);
                 addReplyLongLong(c,numreplicas);

@@ -92,6 +92,10 @@ const char *replstateToString(int replstate);
 
 /*============================ Utility functions ============================ */
 
+/* This macro tells if we are in the context of loading an AOF. */
+#define isAOFLoadingContext() \
+    ((server.current_client && server.current_client->id == CLIENT_ID_AOF) ? 1 : 0)
+
 /* We use a private localtime implementation which is fork-safe. The logging
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
@@ -205,24 +209,20 @@ mstime_t mstime(void) {
  * reflect the same time.
  * More details can be found in the comments below. */
 mstime_t commandTimeSnapshot(void) {
-    /* If we are in the context of a Lua script, we pretend that time is
-     * blocked to when the Lua script started. This way a key can expire
-     * only the first time it is accessed and not in the middle of the
-     * script execution, making propagation to slaves / AOF consistent.
-     * See issue #1525 on Github for more information. */
-    if (server.script_caller) {
-        return scriptTimeSnapshot();
-    }
-    /* If we are in the middle of a command execution, we still want to use
-     * a reference time that does not change: in that case we just use the
+    /* When we are in the middle of a command execution, we want to use a
+     * reference time that does not change: in that case we just use the
      * cached time, that we update before each call in the call() function.
      * This way we avoid that commands such as RPOPLPUSH or similar, that
      * may re-open the same key multiple times, can invalidate an already
      * open object in a next call, if the next call will see the key expired,
-     * while the first did not. */
-    else {
-        return server.mstime;
-    }
+     * while the first did not.
+     * This is specificlally important in the context of scripts, where we
+     * pretend that time freezes. This way a key can expire only the first time
+     * it is accessed and not in the middle of the script execution, making
+     * propagation to slaves / AOF consistent. See issue #1525 for more info.
+     * Note that we cannot use the cached server.mstime because it can change
+     * in processEventsWhileBlocked etc. */
+    return server.cmd_time_snapshot;
 }
 
 /* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
@@ -395,11 +395,22 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
 /* Returns the size of the DB dict entry metadata in bytes. In cluster mode, the
  * metadata is used for constructing a doubly linked list of the dict entries
  * belonging to the same cluster slot. See the Slot to Key API in cluster.c. */
-size_t dictEntryMetadataSize(dict *d) {
+size_t dbDictEntryMetadataSize(dict *d) {
     UNUSED(d);
     /* NOTICE: this also affects overhead_ht_slot_to_keys in getMemoryOverheadData.
      * If we ever add non-cluster related data here, that code must be modified too. */
     return server.cluster_enabled ? sizeof(clusterDictEntryMetadata) : 0;
+}
+
+/* Returns the size of the DB dict metadata in bytes. In cluster mode, we store
+ * a pointer to the db in the main db dict, used for updating the slot-to-key
+ * mapping when a dictEntry is reallocated. */
+size_t dbDictMetadataSize(void) {
+    return server.cluster_enabled ? sizeof(clusterDictMetadata) : 0;
+}
+
+void dbDictAfterReplaceEntry(dict *d, dictEntry *de) {
+    if (server.cluster_enabled) slotToKeyReplaceEntry(d, de);
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -433,7 +444,8 @@ dictType setDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     dictSdsDestructor,         /* key destructor */
-    NULL                       /* val destructor */
+    .no_value = 1,             /* no values in this dict */
+    .keys_are_odd = 1          /* an SDS string is always an odd pointer */
 };
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
@@ -456,7 +468,9 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
-    dictEntryMetadataSize       /* size of entry metadata in bytes */
+    .dictEntryMetadataBytes = dbDictEntryMetadataSize,
+    .dictMetadataBytes = dbDictMetadataSize,
+    .afterReplaceEntry = dbDictAfterReplaceEntry
 };
 
 /* Db->expires */
@@ -618,13 +632,15 @@ int incrementallyRehash(int dbid) {
  * as we want to avoid resizing the hash tables when there is a child in order
  * to play well with copy-on-write (otherwise when a resize happens lots of
  * memory pages are copied). The goal of this function is to update the ability
- * for dict.c to resize the hash tables accordingly to the fact we have an
+ * for dict.c to resize or rehash the tables accordingly to the fact we have an
  * active fork child running. */
 void updateDictResizePolicy(void) {
-    if (!hasActiveChildProcess())
-        dictEnableResize();
+    if (server.in_fork_child != CHILD_TYPE_NONE)
+        dictSetResizeEnabled(DICT_RESIZE_FORBID);
+    else if (hasActiveChildProcess())
+        dictSetResizeEnabled(DICT_RESIZE_AVOID);
     else
-        dictDisableResize();
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
 }
 
 const char *strChildType(int type) {
@@ -719,7 +735,7 @@ int clientsCronResizeQueryBuffer(client *c) {
         /* There are two conditions to resize the query buffer: */
         if (idletime > 2) {
             /* 1) Query is idle for a long time. */
-            c->querybuf = sdsRemoveFreeSpace(c->querybuf);
+            c->querybuf = sdsRemoveFreeSpace(c->querybuf, 1);
         } else if (querybuf_size > PROTO_RESIZE_THRESHOLD && querybuf_size/2 > c->querybuf_peak) {
             /* 2) Query buffer is too big for latest peak and is larger than
              *    resize threshold. Trim excess space but only up to a limit,
@@ -729,7 +745,7 @@ int clientsCronResizeQueryBuffer(client *c) {
             size_t resize = sdslen(c->querybuf);
             if (resize < c->querybuf_peak) resize = c->querybuf_peak;
             if (c->bulklen != -1 && resize < (size_t)c->bulklen) resize = c->bulklen;
-            c->querybuf = sdsResize(c->querybuf, resize);
+            c->querybuf = sdsResize(c->querybuf, resize, 1);
         }
     }
 
@@ -839,37 +855,44 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
     return &server.client_mem_usage_buckets[bucket_idx];
 }
 
-/* This is called both on explicit clients when something changed their buffers,
- * so we can track clients' memory and enforce clients' maxmemory in real time,
- * and also from the clientsCron. We call it from the cron so we have updated
- * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients and in case a configuration
- * change requires us to evict a non-active client.
+/*
+ * This method updates the client memory usage and update the
+ * server stats for client type.
  *
- * This also adds the client to the correct memory usage bucket. Each bucket contains
- * all clients with roughly the same amount of memory. This way we group
- * together clients consuming about the same amount of memory and can quickly
- * free them in case we reach maxmemory-clients (client eviction).
+ * This method is called from the clientsCron to have updated
+ * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients to accurately
+ * provide information around clients memory usage.
+ *
+ * It is also used in updateClientMemUsageAndBucket to have latest
+ * client memory usage information to place it into appropriate client memory
+ * usage bucket.
  */
-int updateClientMemUsage(client *c) {
-    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+void updateClientMemoryUsage(client *c) {
     size_t mem = getClientMemoryUsage(c, NULL);
     int type = getClientType(c);
+    /* Now that we have the memory used by the client, remove the old
+     * value from the old category, and add it back. */
+    server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
+    server.stat_clients_type_memory[type] += mem;
+    /* Remember what we added and where, to remove it next time. */
+    c->last_memory_type = type;
+    c->last_memory_usage = mem;
+}
 
-    /* Remove the old value of the memory used by the client from the old
-     * category, and add it back. */
-    if (type != c->last_memory_type) {
-        server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
-        server.stat_clients_type_memory[type] += mem;
-        c->last_memory_type = type;
-    } else {
-        server.stat_clients_type_memory[type] += mem - c->last_memory_usage;
+int clientEvictionAllowed(client *c) {
+    if (server.maxmemory_clients == 0 || c->flags & CLIENT_NO_EVICT) {
+        return 0;
     }
+    int type = getClientType(c);
+    return (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB);
+}
 
-    int allow_eviction =
-            (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
-            !(c->flags & CLIENT_NO_EVICT);
 
-    /* Update the client in the mem usage buckets */
+/* This function is used to cleanup the client's previously tracked memory usage.
+ * This is called during incremental client memory usage tracking as well as
+ * used to reset when client to bucket allocation is not required when 
+ * client eviction is disabled.  */
+void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
     if (c->mem_usage_bucket) {
         c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
         /* If this client can't be evicted then remove it from the mem usage
@@ -880,23 +903,48 @@ int updateClientMemUsage(client *c) {
             c->mem_usage_bucket_node = NULL;
         }
     }
-    if (allow_eviction) {
-        clientMemUsageBucket *bucket = getMemUsageBucket(mem);
-        bucket->mem_usage_sum += mem;
-        if (bucket != c->mem_usage_bucket) {
-            if (c->mem_usage_bucket)
-                listDelNode(c->mem_usage_bucket->clients,
-                            c->mem_usage_bucket_node);
-            c->mem_usage_bucket = bucket;
-            listAddNodeTail(bucket->clients, c);
-            c->mem_usage_bucket_node = listLast(bucket->clients);
-        }
+}
+
+/* This is called only if explicit clients when something changed their buffers,
+ * so we can track clients' memory and enforce clients' maxmemory in real time.
+ *
+ * This also adds the client to the correct memory usage bucket. Each bucket contains
+ * all clients with roughly the same amount of memory. This way we group
+ * together clients consuming about the same amount of memory and can quickly
+ * free them in case we reach maxmemory-clients (client eviction).
+ *
+ * Note: This function filters clients of type monitor, master or replica regardless
+ * of whether the eviction is enabled or not, so the memory usage we get from these
+ * types of clients via the INFO command may be out of date. If someday we wanna
+ * improve that to make monitors' memory usage more accurate, we need to re-add this
+ * function call to `replicationFeedMonitors()`.
+ *
+ * returns 1 if client eviction for this client is allowed, 0 otherwise.
+ */
+int updateClientMemUsageAndBucket(client *c) {
+    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+    int allow_eviction = clientEvictionAllowed(c);
+    removeClientFromMemUsageBucket(c, allow_eviction);
+
+    if (!allow_eviction) {
+        return 0;
     }
 
-    /* Remember what we added, to remove it next time. */
-    c->last_memory_usage = mem;
+    /* Update client memory usage. */
+    updateClientMemoryUsage(c);
 
-    return 0;
+    /* Update the client in the mem usage buckets */
+    clientMemUsageBucket *bucket = getMemUsageBucket(c->last_memory_usage);
+    bucket->mem_usage_sum += c->last_memory_usage;
+    if (bucket != c->mem_usage_bucket) {
+        if (c->mem_usage_bucket)
+            listDelNode(c->mem_usage_bucket->clients,
+                        c->mem_usage_bucket_node);
+        c->mem_usage_bucket = bucket;
+        listAddNodeTail(bucket->clients, c);
+        c->mem_usage_bucket_node = listLast(bucket->clients);
+    }
+    return 1;
 }
 
 /* Return the max samples in the memory usage of clients tracked by
@@ -984,8 +1032,11 @@ void clientsCron(void) {
          * in turn would make the INFO command too slow. So we perform this
          * computation incrementally and track the (not instantaneous but updated
          * to the second) total memory used by clients using clientsCron() in
-         * a more incremental way (depending on server.hz). */
-        if (updateClientMemUsage(c)) continue;
+         * a more incremental way (depending on server.hz).
+         * If client eviction is enabled, update the bucket as well. */
+        if (!updateClientMemUsageAndBucket(c))
+            updateClientMemoryUsage(c);
+
         if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
     }
 }
@@ -1332,7 +1383,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                     sp->changes, (int)sp->seconds);
                 rdbSaveInfo rsi, *rsiptr;
                 rsiptr = rdbPopulateSaveInfo(&rsi);
-                rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
+                rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE);
                 break;
             }
         }
@@ -1427,7 +1478,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     {
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK)
+        if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE) == C_OK)
             server.rdb_bgsave_scheduled = 0;
     }
 
@@ -1667,8 +1718,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * releasing the GIL. Redis main thread will not touch anything at this
      * time. */
     if (moduleCount()) moduleReleaseGIL();
-
-    /* Do NOT add anything below moduleReleaseGIL !!! */
+    /********************* WARNING ********************
+     * Do NOT add anything below moduleReleaseGIL !!! *
+     ***************************** ********************/
 }
 
 /* This function is called immediately after the event loop multiplexing
@@ -1676,14 +1728,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
  * the different events callbacks. */
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
-
-    /* Update the time cache. */
-    updateCachedTime(1);
-
-    /* Do NOT add anything above moduleAcquireGIL !!! */
-
-    /* Acquire the modules GIL so that their threads won't touch anything. */
+    /********************* WARNING ********************
+     * Do NOT add anything above moduleAcquireGIL !!! *
+     ***************************** ********************/
     if (!ProcessingEventsWhileBlocked) {
+        /* Acquire the modules GIL so that their threads won't touch anything. */
         if (moduleCount()) {
             mstime_t latency;
             latencyStartMonitor(latency);
@@ -1695,6 +1744,16 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
         }
+    }
+
+    /* Update the time cache. */
+    updateCachedTime(1);
+
+    /* Update command time snapshot in case it'll be required without a command
+     * e.g. somehow used by module timers. Don't update it while yielding to a
+     * blocked command, call() will handle that and restore the original time. */
+    if (!ProcessingEventsWhileBlocked) {
+        server.cmd_time_snapshot = server.mstime;
     }
 }
 
@@ -1865,12 +1924,32 @@ void createSharedObjects(void) {
     shared.maxstring = sdsnew("maxstring");
 }
 
+void initServerClientMemUsageBuckets() {
+    if (server.client_mem_usage_buckets)
+        return;
+    server.client_mem_usage_buckets = zmalloc(sizeof(clientMemUsageBucket)*CLIENT_MEM_USAGE_BUCKETS);
+    for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
+        server.client_mem_usage_buckets[j].mem_usage_sum = 0;
+        server.client_mem_usage_buckets[j].clients = listCreate();
+    }
+}
+
+void freeServerClientMemUsageBuckets() {
+    if (!server.client_mem_usage_buckets)
+        return;
+    for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++)
+        listRelease(server.client_mem_usage_buckets[j].clients);
+    zfree(server.client_mem_usage_buckets);
+    server.client_mem_usage_buckets = NULL;
+}
+
 void initServerConfig(void) {
     int j;
     char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
 
     initConfigValues();
     updateCachedTime(1);
+    server.cmd_time_snapshot = server.mstime;
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
@@ -2433,7 +2512,7 @@ void initServer(void) {
     server.main_thread_id = pthread_self();
     server.current_client = NULL;
     server.errors = raxNew();
-    server.in_nested_call = 0;
+    server.execution_nesting = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
@@ -2461,17 +2540,13 @@ void initServer(void) {
     server.cluster_drop_packet_filter = -1;
     server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     server.reply_buffer_resizing_enabled = 1;
+    server.client_mem_usage_buckets = NULL;
     resetReplicationBuffer();
 
     /* Make sure the locale is set on startup based on the config file. */
     if (setlocale(LC_COLLATE,server.locale_collate) == NULL) {
         serverLog(LL_WARNING, "Failed to configure LOCALE for invalid locale name.");
         exit(1);
-    }
-
-    for (j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
-        server.client_mem_usage_buckets[j].mem_usage_sum = 0;
-        server.client_mem_usage_buckets[j].clients = listCreate();
     }
 
     createSharedObjects();
@@ -2510,8 +2585,6 @@ void initServer(void) {
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
     server.busy_module_yield_reply = NULL;
-    server.core_propagates = 0;
-    server.module_ctx_nesting = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
@@ -2606,6 +2679,9 @@ void initServer(void) {
     ACLUpdateDefaultUserPassword(server.requirepass);
 
     applyWatchdogPeriod();
+
+    if (server.maxmemory_clients != 0)
+        initServerClientMemUsageBuckets();
 }
 
 void initListeners() {
@@ -3233,21 +3309,27 @@ static void propagatePendingCommands() {
 
     int j;
     redisOp *rop;
-    int multi_emitted = 0;
 
-    /* Wrap the commands in server.also_propagate array,
-     * but don't wrap it if we are already in MULTI context,
-     * in case the nested MULTI/EXEC.
-     *
-     * And if the array contains only one command, no need to
-     * wrap it, since the single command is atomic. */
-    if (server.also_propagate.numops > 1) {
+    /* If we got here it means we have finished an execution-unit.
+     * If that unit has caused propagation of multiple commands, they
+     * should be propagated as a transaction */
+    int transaction = server.also_propagate.numops > 1;
+
+    /* In case a command that may modify random keys was run *directly*
+     * (i.e. not from within a script, MULTI/EXEC, RM_Call, etc.) we want
+     * to avoid using a transaction (much like active-expire) */
+    if (server.current_client &&
+        server.current_client->cmd &&
+        server.current_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS)
+    {
+        transaction = 0;
+    }
+
+    if (transaction) {
         /* We use dbid=-1 to indicate we do not want to replicate SELECT.
          * It'll be inserted together with the next command (inside the MULTI) */
         propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
-        multi_emitted = 1;
     }
-
 
     for (j = 0; j < server.also_propagate.numops; j++) {
         rop = &server.also_propagate.ops[j];
@@ -3255,7 +3337,7 @@ static void propagatePendingCommands() {
         propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
     }
 
-    if (multi_emitted) {
+    if (transaction) {
         /* We use dbid=-1 to indicate we do not want to replicate select */
         propagateNow(-1,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
     }
@@ -3276,16 +3358,19 @@ static void propagatePendingCommands() {
  * What we want to achieve is that the entire execution unit will be done atomically,
  * currently with respect to replication and post jobs, but in the future there might
  * be other considerations. So we basically want the `postUnitOperations` to trigger
- * after the entire chain finished.
- *
- * Current, in order to avoid massive code changes that could be risky to cherry-pick,
- * we count on the mechanism we already have such as `server.core_propagation`,
- * `server.module_ctx_nesting`, and `server.in_nested_call`. We understand that we probably
- * do not need all of those variable and we will make an attempt to re-arrange it on unstable
- * branch. */
+ * after the entire chain finished. */
 void postExecutionUnitOperations() {
+    if (server.execution_nesting)
+        return;
+
     firePostExecutionUnitJobs();
+
+    /* If we are at the top-most call() and not inside a an active module
+     * context (e.g. within a module timer) we can propagate what we accumulated. */
     propagatePendingCommands();
+
+    /* Module subsystem post-execution-unit logic */
+    modulePostExecutionUnitOperations();
 }
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).
@@ -3320,8 +3405,6 @@ int incrCommandStatsOnError(struct redisCommand *cmd, int flags) {
  *
  * The following flags can be passed:
  * CMD_CALL_NONE        No flags.
- * CMD_CALL_SLOWLOG     Check command speed and log in the slow log if needed.
- * CMD_CALL_STATS       Populate command stats.
  * CMD_CALL_PROPAGATE_AOF   Append command to AOF if it modified the dataset
  *                          or if the client flags are forcing propagation.
  * CMD_CALL_PROPAGATE_REPL  Send command to slaves if it modified the dataset
@@ -3357,6 +3440,18 @@ void call(client *c, int flags) {
     long long dirty;
     uint64_t client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->realcmd;
+    client *prev_client = server.executing_client;
+    server.executing_client = c;
+
+    /* When call() is issued during loading the AOF we don't want commands called
+     * from module, exec or LUA to go into the slowlog or to populate statistics. */
+    int update_command_stats = !isAOFLoadingContext();
+
+    /* We want to be aware of a client which is making a first time attempt to execute this command
+     * and a client which is reprocessing command again (after being unblocked).
+     * Blocked clients can be blocked in different places and not always it means the call() function has been
+     * called. For example this is required for avoiding double logging to monitors.*/
+    int reprocessing_command = ((!server.execution_nesting) && (c->flags & CLIENT_EXECUTING_COMMAND)) ? 1 : 0;
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
@@ -3367,13 +3462,7 @@ void call(client *c, int flags) {
      * The only other option to get to call() without having processCommand
      * as an entry point is if a module triggers RM_Call outside of call()
      * context (for example, in a timer).
-     * In that case, the module is in charge of propagation.
-     *
-     * Because call() is re-entrant we have to cache and restore
-     * server.core_propagates. */
-    int prev_core_propagates = server.core_propagates;
-    if (!server.core_propagates && !(flags & CMD_CALL_FROM_MODULE))
-        server.core_propagates = 1;
+     * In that case, the module is in charge of propagation. */
 
     /* Call the command. */
     dirty = server.dirty;
@@ -3381,10 +3470,12 @@ void call(client *c, int flags) {
 
     const long long call_timer = ustime();
 
-    /* Update cache time, in case we have nested calls we want to
-     * update only on the first call*/
-    if (server.in_nested_call++ == 0) {
+    /* Update cache time, and indicate we are starting command execution.
+     * in case we have nested calls we want to update only on the first call */
+    if (server.execution_nesting++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
+        server.cmd_time_snapshot = server.mstime;
+        c->flags |= CLIENT_EXECUTING_COMMAND;
     }
 
     monotime monotonic_start = 0;
@@ -3392,7 +3483,13 @@ void call(client *c, int flags) {
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
-    server.in_nested_call--;
+
+    if (--server.execution_nesting == 0) {
+        /* In case client is blocked after trying to execute the command,
+         * it means the execution is not yet completed and we MIGHT reprocess the command in the future. */
+        if (!(c->flags & CLIENT_BLOCKED))
+            c->flags &= ~(CLIENT_EXECUTING_COMMAND);
+    }
 
     /* In order to avoid performance implication due to querying the clock using a system call 3 times,
      * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
@@ -3402,7 +3499,7 @@ void call(client *c, int flags) {
     else
         duration = ustime() - call_timer;
 
-    c->duration = duration;
+    c->duration += duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -3423,21 +3520,6 @@ void call(client *c, int flags) {
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
     }
 
-    /* When EVAL is called loading the AOF we don't want commands called
-     * from Lua to go into the slowlog or to populate statistics. */
-    if (server.loading && c->flags & CLIENT_SCRIPT)
-        flags &= ~(CMD_CALL_SLOWLOG | CMD_CALL_STATS);
-
-    /* If the caller is Lua, we want to force the EVAL caller to propagate
-     * the script if the command flag or client flag are forcing the
-     * propagation. */
-    if (c->flags & CLIENT_SCRIPT && server.script_caller) {
-        if (c->flags & CLIENT_FORCE_REPL)
-            server.script_caller->flags |= CLIENT_FORCE_REPL;
-        if (c->flags & CLIENT_FORCE_AOF)
-            server.script_caller->flags |= CLIENT_FORCE_AOF;
-    }
-
     /* Note: the code below uses the real command that was executed
      * c->cmd and c->lastcmd may be different, in case of MULTI-EXEC or
      * re-written commands such as EXPIRE, GEOADD, etc. */
@@ -3445,7 +3527,7 @@ void call(client *c, int flags) {
     /* Record the latency this command induced on the main thread.
      * unless instructed by the caller not to log. (happens when processing
      * a MULTI-EXEC from inside an AOF). */
-    if (flags & CMD_CALL_SLOWLOG) {
+    if (update_command_stats) {
         char *latency_event = (real_cmd->flags & CMD_FAST) ?
                                "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
@@ -3453,12 +3535,15 @@ void call(client *c, int flags) {
 
     /* Log the command into the Slow log if needed.
      * If the client is blocked we will handle slowlog when it is unblocked. */
-    if ((flags & CMD_CALL_SLOWLOG) && !(c->flags & CLIENT_BLOCKED))
-        slowlogPushCurrentCommand(c, real_cmd, duration);
+    if (update_command_stats && !(c->flags & CLIENT_BLOCKED))
+        slowlogPushCurrentCommand(c, real_cmd, c->duration);
 
-    /* Send the command to clients in MONITOR mode if applicable.
-     * Administrative commands are considered too dangerous to be shown. */
-    if (!(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
+    /* Send the command to clients in MONITOR mode if applicable,
+     * since some administrative commands are considered too dangerous to be shown.
+     * Other exceptions is a client which is unblocked and retring to process the command
+     * or we are currently in the process of loading AOF. */
+    if (update_command_stats && !reprocessing_command &&
+        !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
         robj **argv = c->original_argv ? c->original_argv : c->argv;
         int argc = c->original_argv ? c->original_argc : c->argc;
         replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
@@ -3469,13 +3554,13 @@ void call(client *c, int flags) {
     if (!(c->flags & CLIENT_BLOCKED))
         freeClientOriginalArgv(c);
 
-    /* populate the per-command statistics that we show in INFO commandstats. */
-    if (flags & CMD_CALL_STATS) {
-        real_cmd->microseconds += duration;
+    /* populate the per-command statistics that we show in INFO commandstats.
+     * If the client is blocked we will handle latency stats and duration when it is unblocked. */
+    if (update_command_stats && !(c->flags & CLIENT_BLOCKED)) {
         real_cmd->calls++;
-        /* If the client is blocked we will handle latency stats when it is unblocked. */
+        real_cmd->microseconds += c->duration;
         if (server.latency_tracking_enabled && !(c->flags & CLIENT_BLOCKED))
-            updateCommandLatencyHistogram(&(real_cmd->latency_histogram), duration*1000);
+            updateCommandLatencyHistogram(&(real_cmd->latency_histogram), c->duration*1000);
     }
 
     /* Propagate the command into the AOF and replication link.
@@ -3521,22 +3606,24 @@ void call(client *c, int flags) {
         (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
     /* If the client has keys tracking enabled for client side caching,
-     * make sure to remember the keys it fetched via this command. Scripting
-     * works a bit differently, where if the scripts executes any read command, it
-     * remembers all of the declared keys from the script. */
+     * make sure to remember the keys it fetched via this command. For read-only
+     * scripts, don't process the script, only the commands it executes. */
     if ((c->cmd->flags & CMD_READONLY) && (c->cmd->proc != evalRoCommand)
         && (c->cmd->proc != evalShaRoCommand) && (c->cmd->proc != fcallroCommand))
     {
-        client *caller = (c->flags & CLIENT_SCRIPT && server.script_caller) ?
-                            server.script_caller : c;
-        if (caller->flags & CLIENT_TRACKING &&
-            !(caller->flags & CLIENT_TRACKING_BCAST))
+        /* We use the tracking flag of the original external client that
+         * triggered the command, but we take the keys from the actual command
+         * being executed. */
+        if (server.current_client &&
+            (server.current_client->flags & CLIENT_TRACKING) &&
+            !(server.current_client->flags & CLIENT_TRACKING_BCAST))
         {
-            trackingRememberKeys(caller);
+            trackingRememberKeys(server.current_client, c);
         }
     }
 
-    server.stat_numcommands++;
+    if (!(c->flags & CLIENT_BLOCKED))
+        server.stat_numcommands++;
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
@@ -3553,7 +3640,7 @@ void call(client *c, int flags) {
         server.client_pause_in_transaction = 0;
     }
 
-    server.core_propagates = prev_core_propagates;
+    server.executing_client = prev_client;
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
@@ -3598,17 +3685,10 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
     UNUSED(c);
-    if (!server.in_nested_call) {
-        /* If we are at the top-most call() we can propagate what we accumulated.
-         * Should be done before trackingHandlePendingKeyInvalidations so that we
-         * reply to client before invalidating cache (makes more sense) */
-        if (server.core_propagates) {
-            postExecutionUnitOperations();
-        }
-        /* Flush pending invalidation messages only when we are not in nested call.
-         * So the messages are not interleaved with transaction response. */
-        trackingHandlePendingKeyInvalidations();
-    }
+    /* Should be done before trackingHandlePendingKeyInvalidations so that we
+     * reply to client before invalidating cache (makes more sense) */
+    postExecutionUnitOperations();
+    trackingHandlePendingKeyInvalidations();
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.
@@ -3696,6 +3776,10 @@ int processCommand(client *c) {
 
     moduleCallCommandFilters(c);
 
+    /* in case we are starting to ProcessCommand and we already have a command we assume
+     * this is a reprocessing of this command, so we do not want to perform some of the actions again. */
+    int client_reprocessing_command = c->cmd ? 1 : 0;
+
     /* Handle possible security attacks. */
     if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {
         securityWarningCommand(c);
@@ -3707,36 +3791,40 @@ int processCommand(client *c) {
     if (server.busy_module_yield_flags != BUSY_MODULE_YIELD_NONE &&
         !(server.busy_module_yield_flags & BUSY_MODULE_YIELD_CLIENTS))
     {
-        c->bpop.timeout = 0;
-        blockClient(c,BLOCKED_POSTPONE);
+        blockPostponeClient(c);
         return C_OK;
     }
 
     /* Now lookup the command and check ASAP about trivial error conditions
-     * such as wrong arity, bad command name and so forth. */
-    c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
-    sds err;
-    if (!commandCheckExistence(c, &err)) {
-        rejectCommandSds(c, err);
-        return C_OK;
-    }
-    if (!commandCheckArity(c, &err)) {
-        rejectCommandSds(c, err);
-        return C_OK;
-    }
-
-    /* Check if the command is marked as protected and the relevant configuration allows it */
-    if (c->cmd->flags & CMD_PROTECTED) {
-        if ((c->cmd->proc == debugCommand && !allowProtectedAction(server.enable_debug_cmd, c)) ||
-            (c->cmd->proc == moduleCommand && !allowProtectedAction(server.enable_module_cmd, c)))
-        {
-            rejectCommandFormat(c,"%s command not allowed. If the %s option is set to \"local\", "
-                                  "you can run it from a local connection, otherwise you need to set this option "
-                                  "in the configuration file, and then restart the server.",
-                                  c->cmd->proc == debugCommand ? "DEBUG" : "MODULE",
-                                  c->cmd->proc == debugCommand ? "enable-debug-command" : "enable-module-command");
+     * such as wrong arity, bad command name and so forth.
+     * In case we are reprocessing a command after it was blocked,
+     * we do not have to repeat the same checks */
+    if (!client_reprocessing_command) {
+        c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
+        sds err;
+        if (!commandCheckExistence(c, &err)) {
+            rejectCommandSds(c, err);
             return C_OK;
+        }
+        if (!commandCheckArity(c, &err)) {
+            rejectCommandSds(c, err);
+            return C_OK;
+        }
 
+
+        /* Check if the command is marked as protected and the relevant configuration allows it */
+        if (c->cmd->flags & CMD_PROTECTED) {
+            if ((c->cmd->proc == debugCommand && !allowProtectedAction(server.enable_debug_cmd, c)) ||
+                (c->cmd->proc == moduleCommand && !allowProtectedAction(server.enable_module_cmd, c)))
+            {
+                rejectCommandFormat(c,"%s command not allowed. If the %s option is set to \"local\", "
+                                      "you can run it from a local connection, otherwise you need to set this option "
+                                      "in the configuration file, and then restart the server.",
+                                      c->cmd->proc == debugCommand ? "DEBUG" : "MODULE",
+                                      c->cmd->proc == debugCommand ? "enable-debug-command" : "enable-module-command");
+                return C_OK;
+
+            }
         }
     }
 
@@ -3989,8 +4077,7 @@ int processCommand(client *c) {
         ((isPausedActions(PAUSE_ACTION_CLIENT_ALL)) ||
         ((isPausedActions(PAUSE_ACTION_CLIENT_WRITE)) && is_may_replicate_command)))
     {
-        c->bpop.timeout = 0;
-        blockClient(c,BLOCKED_POSTPONE);
+        blockPostponeClient(c);
         return C_OK;       
     }
 
@@ -4250,7 +4337,8 @@ int finishShutdown(void) {
         /* Snapshotting. Perform a SYNC SAVE and exit */
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) != C_OK) {
+        /* Keep the page cache since it's likely to restart soon */
+        if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_KEEP_CACHE) != C_OK) {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
              * in the next cron() Redis will be notified that the background
@@ -4435,6 +4523,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_NO_MULTI,          "no_multi"},
         {CMD_MOVABLE_KEYS,      "movablekeys"},
         {CMD_ALLOW_BUSY,        "allow_busy"},
+        /* {CMD_TOUCHES_ARBITRARY_KEYS,  "TOUCHES_ARBITRARY_KEYS"}, Hidden on purpose */
         {0,NULL}
     };
     addReplyCommandFlags(c, cmd->flags, flagNames);
@@ -5405,7 +5494,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     /* Clients */
     if (all_sections || (dictFind(section_dict,"clients") != NULL)) {
         size_t maxin, maxout;
+        unsigned long blocking_keys, blocking_keys_on_nokey;
         getExpansiveClientsInfo(&maxin,&maxout);
+        totalNumberOfBlockingKeys(&blocking_keys, &blocking_keys_on_nokey);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Clients\r\n"
@@ -5416,14 +5507,18 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "client_recent_max_output_buffer:%zu\r\n"
             "blocked_clients:%d\r\n"
             "tracking_clients:%d\r\n"
-            "clients_in_timeout_table:%llu\r\n",
+            "clients_in_timeout_table:%llu\r\n"
+            "total_blocking_keys:%lu\r\n"
+            "total_blocking_keys_on_nokey:%lu\r\n",
             listLength(server.clients)-listLength(server.slaves),
             getClusterConnectionsCount(),
             server.maxclients,
             maxin, maxout,
             server.blocked_clients,
             server.tracking_clients,
-            (unsigned long long) raxSize(server.clients_timeout_table));
+            (unsigned long long) raxSize(server.clients_timeout_table),
+            blocking_keys,
+            blocking_keys_on_nokey);
     }
 
     /* Memory */
@@ -6427,6 +6522,7 @@ int redisFork(int purpose) {
         server.in_fork_child = purpose;
         setupChildSignalHandlers();
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
+        updateDictResizePolicy();
         dismissMemoryInChild();
         closeChildUnusedResourceAfterFork();
         /* Close the reading part, so that if the parent crashes, the child will
@@ -6809,6 +6905,7 @@ int iAmMaster(void) {
 
 #ifdef REDIS_TEST
 #include "testhelp.h"
+#include "intset.h"  /* Compact integer set structure */
 
 int __failed_tests = 0;
 int __test_num = 0;
@@ -6858,6 +6955,7 @@ int main(int argc, char **argv) {
             char *arg = argv[j];
             if (!strcasecmp(arg, "--accurate")) flags |= REDIS_TEST_ACCURATE;
             else if (!strcasecmp(arg, "--large-memory")) flags |= REDIS_TEST_LARGE_MEMORY;
+            else if (!strcasecmp(arg, "--valgrind")) flags |= REDIS_TEST_VALGRIND;
         }
 
         if (!strcasecmp(argv[2], "all")) {
@@ -7024,6 +7122,24 @@ int main(int argc, char **argv) {
                          * so it will become `--save ""` and will follow the same reset thing. */
                         options = sdscat(options, "\"\"");
                     }
+                    else if ((j != argc-1) && argv[j+1][0] == '-' && argv[j+1][1] == '-' &&
+                        !strcasecmp(argv[j], "--sentinel"))
+                    {
+                        /* Special case: handle some things like `--sentinel --config value`.
+                         * It is a pseudo config option with no value. In this case, if next
+                         * argument starts with `--`, we will reset handled_last_config_arg flag.
+                         * We are doing it to be compatible with pre 7.0 behavior (which we
+                         * break it in #10660, 7.0.1). */
+                        options = sdscat(options, "");
+                        handled_last_config_arg = 1;
+                    }
+                    else if ((j == argc-1) && !strcasecmp(argv[j], "--sentinel")) {
+                        /* Special case: when --sentinel is the last argument.
+                         * It is a pseudo config option with no value. In this case, do nothing.
+                         * We are doing it to be compatible with pre 7.0 behavior (which we
+                         * break it in #10660, 7.0.1). */
+                        options = sdscat(options, "");
+                    }
                 } else {
                     /* Means that we are passing both config name and it's value in the same arg,
                      * like "--port 6380", so we need to reset handled_last_config_arg flag. */
@@ -7114,12 +7230,7 @@ int main(int argc, char **argv) {
         aofOpenIfNeededOnServerStart();
         aofDelHistoryFiles();
         if (server.cluster_enabled) {
-            if (verifyClusterConfigWithData() == C_ERR) {
-                serverLog(LL_WARNING,
-                    "You can't have keys in a DB different than DB 0 when in "
-                    "Cluster mode. Exiting.");
-                exit(1);
-            }
+            serverAssert(verifyClusterConfigWithData() == C_OK);
         }
 
         for (j = 0; j < CONN_TYPE_MAX; j++) {

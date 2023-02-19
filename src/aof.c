@@ -925,7 +925,7 @@ void aof_background_fsync(int fd) {
 
 /* Close the fd on the basis of aof_background_fsync. */
 void aof_background_fsync_and_close(int fd) {
-    bioCreateCloseJob(fd, 1);
+    bioCreateCloseJob(fd, 1, 1);
 }
 
 /* Kills an AOFRW child process if exists */
@@ -1413,8 +1413,10 @@ int loadSingleAppendOnlyFile(char *filename) {
      * to the same file we're about to read. */
     server.aof_state = AOF_OFF;
 
-    client *old_client = server.current_client;
-    fakeClient = server.current_client = createAOFClient();
+    client *old_cur_client = server.current_client;
+    client *old_exec_client = server.executing_client;
+    fakeClient = createAOFClient();
+    server.current_client = server.executing_client = fakeClient;
 
     /* Check if the AOF file is in RDB format (it may be RDB encoded base AOF
      * or old style RDB-preamble AOF). In that case we need to load the RDB file 
@@ -1622,7 +1624,8 @@ fmterr: /* Format error. */
 
 cleanup:
     if (fakeClient) freeClient(fakeClient);
-    server.current_client = old_client;
+    server.current_client = old_cur_client;
+    server.executing_client = old_exec_client;
     fclose(fp);
     sdsfree(aof_filepath);
     return ret;
@@ -2342,8 +2345,10 @@ int rewriteAppendOnlyFile(char *filename) {
 
     rioInitWithFile(&aof,fp);
 
-    if (server.aof_rewrite_incremental_fsync)
+    if (server.aof_rewrite_incremental_fsync) {
         rioSetAutoSync(&aof,REDIS_AUTOSYNC_BYTES);
+        rioSetReclaimCache(&aof,1);
+    }
 
     startSaving(RDBFLAGS_AOF_PREAMBLE);
 
@@ -2360,6 +2365,10 @@ int rewriteAppendOnlyFile(char *filename) {
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp)) goto werr;
     if (fsync(fileno(fp))) goto werr;
+    if (reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
+        /* A minor error. Just log to know what happens */
+        serverLog(LL_NOTICE,"Unable to reclaim page cache: %s", strerror(errno));
+    }
     if (fclose(fp)) { fp = NULL; goto werr; }
     fp = NULL;
 

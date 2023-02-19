@@ -212,7 +212,6 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
     client *script_client = run_ctx->c;
     client *curr_client = run_ctx->original_client;
-    server.script_caller = curr_client;
 
     /* Select the right DB in the context of the Lua client */
     selectDb(script_client, curr_client->db->id);
@@ -224,7 +223,6 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     }
 
     run_ctx->start_time = getMonotonicUs();
-    run_ctx->snapshot_time = mstime();
 
     run_ctx->flags = 0;
     run_ctx->repl_flags = PROPAGATE_AOF | PROPAGATE_REPL;
@@ -256,8 +254,6 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
 
     /* After the script done, remove the MULTI state. */
     run_ctx->c->flags &= ~CLIENT_MULTI;
-
-    server.script_caller = NULL;
 
     if (scriptIsTimedout()) {
         exitScriptTimedoutMode(run_ctx);
@@ -513,22 +509,18 @@ static int scriptVerifyAllowStale(client *c, sds *err) {
  * up to the engine to take and parse.
  * The err out variable is set only if error occurs and describe the error.
  * If err is set on reply is written to the run_ctx client. */
-void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
+void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     client *c = run_ctx->c;
 
     /* Setup our fake client for command execution */
-    c->argv = argv;
-    c->argc = argc;
     c->user = run_ctx->original_client->user;
 
     /* Process module hooks */
     moduleCallCommandFilters(c);
-    argv = c->argv;
-    argc = c->argc;
 
-    struct redisCommand *cmd = lookupCommand(argv, argc);
+    struct redisCommand *cmd = lookupCommand(c->argv, c->argc);
     c->cmd = c->lastcmd = c->realcmd = cmd;
-    if (scriptVerifyCommandArity(cmd, argc, err) != C_OK) {
+    if (scriptVerifyCommandArity(cmd, c->argc, err) != C_OK) {
         goto error;
     }
 
@@ -563,7 +555,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
         goto error;
     }
 
-    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
+    int call_flags = CMD_CALL_NONE;
     if (run_ctx->repl_flags & PROPAGATE_AOF) {
         call_flags |= CMD_CALL_PROPAGATE_AOF;
     }
@@ -577,12 +569,6 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
 error:
     afterErrorReply(c, *err, sdslen(*err), 0);
     incrCommandStatsOnError(cmd, ERROR_COMMAND_REJECTED);
-}
-
-/* Returns the time when the script invocation started */
-mstime_t scriptTimeSnapshot() {
-    serverAssert(curr_run_ctx);
-    return curr_run_ctx->snapshot_time;
 }
 
 long long scriptRunDuration() {

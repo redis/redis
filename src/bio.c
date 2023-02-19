@@ -74,6 +74,8 @@ typedef union bio_job {
         int fd; /* Fd for file based background jobs */
         unsigned need_fsync:1; /* A flag to indicate that a fsync is required before
                                 * the file is closed. */
+        unsigned need_reclaim_cache:1; /* A flag to indicate that reclaim cache is required before
+                                * the file is closed. */
     } fd_args;
 
     struct {
@@ -144,10 +146,11 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
     bioSubmitJob(BIO_LAZY_FREE, job);
 }
 
-void bioCreateCloseJob(int fd, int need_fsync) {
+void bioCreateCloseJob(int fd, int need_fsync, int need_reclaim_cache) {
     bio_job *job = zmalloc(sizeof(*job));
     job->fd_args.fd = fd;
     job->fd_args.need_fsync = need_fsync;
+    job->fd_args.need_reclaim_cache = need_reclaim_cache;
 
     bioSubmitJob(BIO_CLOSE_FILE, job);
 }
@@ -215,6 +218,11 @@ void *bioProcessBackgroundJobs(void *arg) {
         if (type == BIO_CLOSE_FILE) {
             if (job->fd_args.need_fsync) {
                 redis_fsync(job->fd_args.fd);
+            }
+            if (job->fd_args.need_reclaim_cache) {
+                if (reclaimFilePageCache(job->fd_args.fd, 0, 0) == -1) {
+                    serverLog(LL_NOTICE,"Unable to reclaim page cache: %s", strerror(errno));
+                }
             }
             close(job->fd_args.fd);
         } else if (type == BIO_AOF_FSYNC) {
