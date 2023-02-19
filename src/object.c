@@ -613,10 +613,16 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
  * string. This happens because SDS strings tend to overallocate to avoid
  * wasting too much time in allocations when appending to the string. */
 void trimStringObjectIfNeeded(robj *o) {
-    if (o->encoding == OBJ_ENCODING_RAW &&
-        sdsavail(o->ptr) > sdslen(o->ptr)/10)
-    {
-        o->ptr = sdsRemoveFreeSpace(o->ptr, 0);
+    size_t len = sdslen(o->ptr);
+     /* A string may have free space in the following cases:
+     * 1. When an arg len is greater than PROTO_MBULK_BIG_ARG the query buffer may be used directly as the SDS string.
+     * 2. When utilizing the argument caching mechanism in Lua.
+     * 3. When the function is called from a module that has allocated a larger buffer than needed. */
+    if (len >= PROTO_MBULK_BIG_ARG || 
+        (server.executing_client && server.executing_client->flags & (CLIENT_SCRIPT|CLIENT_MODULE))) {
+        if (o->encoding == OBJ_ENCODING_RAW && sdsavail(o->ptr) > len/10) {
+            o->ptr = sdsRemoveFreeSpace(o->ptr, 0);
+        }
     }
 }
 
