@@ -3680,6 +3680,35 @@ struct redisCommandArg PFADD_Args[] = {
 {0}
 };
 
+/* PFADD_ReplySchema_anyOf_0 reply schema */
+struct jsonObjectElement PFADD_ReplySchema_anyOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="if at least 1 HyperLogLog internal register was altered"},
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+};
+
+struct jsonObject PFADD_ReplySchema_anyOf_0 = {PFADD_ReplySchema_anyOf_0_elements,.length=2};
+
+/* PFADD_ReplySchema_anyOf_1 reply schema */
+struct jsonObjectElement PFADD_ReplySchema_anyOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="if no HyperLogLog internal register were altered"},
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+};
+
+struct jsonObject PFADD_ReplySchema_anyOf_1 = {PFADD_ReplySchema_anyOf_1_elements,.length=2};
+
+/* PFADD_ReplySchema_anyOf array reply schema */
+struct jsonObject *PFADD_ReplySchema_anyOf[] = {
+&PFADD_ReplySchema_anyOf_0,
+&PFADD_ReplySchema_anyOf_1,
+};
+
+/* PFADD_ReplySchema reply schema */
+struct jsonObjectElement PFADD_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=PFADD_ReplySchema_anyOf,.length=2}},
+};
+
+struct jsonObject PFADD_ReplySchema = {PFADD_ReplySchema_elements,.length=1};
+
 /********** PFCOUNT ********************/
 
 /* PFCOUNT history */
@@ -3693,6 +3722,14 @@ struct redisCommandArg PFCOUNT_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* PFCOUNT_ReplySchema reply schema */
+struct jsonObjectElement PFCOUNT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The approximated number of unique elements observed via PFADD"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject PFCOUNT_ReplySchema = {PFCOUNT_ReplySchema_elements,.length=2};
 
 /********** PFDEBUG ********************/
 
@@ -3724,6 +3761,13 @@ struct redisCommandArg PFMERGE_Args[] = {
 {0}
 };
 
+/* PFMERGE_ReplySchema reply schema */
+struct jsonObjectElement PFMERGE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject PFMERGE_ReplySchema = {PFMERGE_ReplySchema_elements,.length=1};
+
 /********** PFSELFTEST ********************/
 
 /* PFSELFTEST history */
@@ -3731,6 +3775,13 @@ struct redisCommandArg PFMERGE_Args[] = {
 
 /* PFSELFTEST tips */
 #define PFSELFTEST_tips NULL
+
+/* PFSELFTEST_ReplySchema reply schema */
+struct jsonObjectElement PFSELFTEST_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject PFSELFTEST_ReplySchema = {PFSELFTEST_ReplySchema_elements,.length=1};
 
 /********** BLMOVE ********************/
 
@@ -8947,7 +8998,7 @@ struct redisCommandArg XGROUP_DELCONSUMER_Args[] = {
 struct jsonObjectElement XGROUP_DELCONSUMER_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The number of pending messages that were yet associated with such a consumer"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
-{JSON_TYPE_STRING,"minimum",.value.string="0"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
 };
 
 struct jsonObject XGROUP_DELCONSUMER_ReplySchema = {XGROUP_DELCONSUMER_ReplySchema_elements,.length=3};
@@ -11200,11 +11251,11 @@ struct redisCommand redisCommandTable[] = {
 {"hstrlen","Get the length of the value of a hash field","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSTRLEN_History,HSTRLEN_tips,hstrlenCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSTRLEN_Args},
 {"hvals","Get all the values in a hash","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HVALS_History,HVALS_tips,hvalsCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HVALS_Args},
 /* hyperloglog */
-{"pfadd","Adds the specified elements to the specified HyperLogLog.","O(1) to add every element.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFADD_History,PFADD_tips,pfaddCommand,-2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HYPERLOGLOG,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PFADD_Args},
-{"pfcount","Return the approximated cardinality of the set(s) observed by the HyperLogLog at key(s).","O(1) with a very small average constant time when called with a single key. O(N) with N being the number of keys, and much bigger constant times, when called with multiple keys.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFCOUNT_History,PFCOUNT_tips,pfcountCommand,-2,CMD_READONLY|CMD_MAY_REPLICATE,ACL_CATEGORY_HYPERLOGLOG,{{"RW because it may change the internal representation of the key, and propagate to replicas",CMD_KEY_RW|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=PFCOUNT_Args},
+{"pfadd","Adds the specified elements to the specified HyperLogLog.","O(1) to add every element.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFADD_History,PFADD_tips,pfaddCommand,-2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HYPERLOGLOG,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PFADD_Args,.reply_schema=&PFADD_ReplySchema},
+{"pfcount","Return the approximated cardinality of the set(s) observed by the HyperLogLog at key(s).","O(1) with a very small average constant time when called with a single key. O(N) with N being the number of keys, and much bigger constant times, when called with multiple keys.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFCOUNT_History,PFCOUNT_tips,pfcountCommand,-2,CMD_READONLY|CMD_MAY_REPLICATE,ACL_CATEGORY_HYPERLOGLOG,{{"RW because it may change the internal representation of the key, and propagate to replicas",CMD_KEY_RW|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=PFCOUNT_Args,.reply_schema=&PFCOUNT_ReplySchema},
 {"pfdebug","Internal commands for debugging HyperLogLog values","N/A","2.8.9",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFDEBUG_History,PFDEBUG_tips,pfdebugCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_ADMIN,ACL_CATEGORY_HYPERLOGLOG,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PFDEBUG_Args},
-{"pfmerge","Merge N different HyperLogLogs into a single one.","O(N) to merge N HyperLogLogs, but with high constant times.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFMERGE_History,PFMERGE_tips,pfmergeCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_HYPERLOGLOG,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=PFMERGE_Args},
-{"pfselftest","An internal command for testing HyperLogLog values","N/A","2.8.9",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFSELFTEST_History,PFSELFTEST_tips,pfselftestCommand,1,CMD_ADMIN,ACL_CATEGORY_HYPERLOGLOG},
+{"pfmerge","Merge N different HyperLogLogs into a single one.","O(N) to merge N HyperLogLogs, but with high constant times.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFMERGE_History,PFMERGE_tips,pfmergeCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_HYPERLOGLOG,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=PFMERGE_Args,.reply_schema=&PFMERGE_ReplySchema},
+{"pfselftest","An internal command for testing HyperLogLog values","N/A","2.8.9",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFSELFTEST_History,PFSELFTEST_tips,pfselftestCommand,1,CMD_ADMIN,ACL_CATEGORY_HYPERLOGLOG,.reply_schema=&PFSELFTEST_ReplySchema},
 /* list */
 {"blmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMOVE_History,BLMOVE_tips,blmoveCommand,6,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BLMOVE_Args,.reply_schema=&BLMOVE_ReplySchema},
 {"blmpop","Pop elements from a list, or block until one is available","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMPOP_History,BLMPOP_tips,blmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BLMPOP_Args,.reply_schema=&BLMPOP_ReplySchema},
