@@ -23,8 +23,8 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "type": "array",
                     "description": "In case `RESET` was not given, a list of recent ACL security events.",
+                    "type": "array",
                     "items": {
                         "type": "object",
                         "additionalProperties": false,

@@ -39,6 +39,15 @@ struct redisCommandArg BITCOUNT_Args[] = {
 {0}
 };
 
+/* BITCOUNT_ReplySchema reply schema */
+struct jsonObjectElement BITCOUNT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The number of bits set to 1."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject BITCOUNT_ReplySchema = {BITCOUNT_ReplySchema_elements,.length=3};
+
 /********** BITFIELD ********************/
 
 /* BITFIELD history */
@@ -106,6 +115,48 @@ struct redisCommandArg BITFIELD_Args[] = {
 {0}
 };
 
+/* BITFIELD_ReplySchema_items_0_oneOf_0 reply schema */
+struct jsonObjectElement BITFIELD_ReplySchema_items_0_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The result of the subcommand at the same position"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject BITFIELD_ReplySchema_items_0_oneOf_0 = {BITFIELD_ReplySchema_items_0_oneOf_0_elements,.length=2};
+
+/* BITFIELD_ReplySchema_items_0_oneOf_1 reply schema */
+struct jsonObjectElement BITFIELD_ReplySchema_items_0_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="In case OVERFLOW FAIL was given and overflows or underflows detected"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject BITFIELD_ReplySchema_items_0_oneOf_1 = {BITFIELD_ReplySchema_items_0_oneOf_1_elements,.length=2};
+
+/* BITFIELD_ReplySchema_items_0_oneOf array reply schema */
+struct jsonObject *BITFIELD_ReplySchema_items_0_oneOf[] = {
+&BITFIELD_ReplySchema_items_0_oneOf_0,
+&BITFIELD_ReplySchema_items_0_oneOf_1,
+};
+
+/* BITFIELD_ReplySchema_items_0 reply schema */
+struct jsonObjectElement BITFIELD_ReplySchema_items_0_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=BITFIELD_ReplySchema_items_0_oneOf,.length=2}},
+};
+
+struct jsonObject BITFIELD_ReplySchema_items_0 = {BITFIELD_ReplySchema_items_0_elements,.length=1};
+
+/* BITFIELD_ReplySchema_items array reply schema */
+struct jsonObject *BITFIELD_ReplySchema_items[] = {
+&BITFIELD_ReplySchema_items_0,
+};
+
+/* BITFIELD_ReplySchema reply schema */
+struct jsonObjectElement BITFIELD_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=BITFIELD_ReplySchema_items,.length=1}},
+};
+
+struct jsonObject BITFIELD_ReplySchema = {BITFIELD_ReplySchema_elements,.length=2};
+
 /********** BITFIELD_RO ********************/
 
 /* BITFIELD_RO history */
@@ -127,6 +178,27 @@ struct redisCommandArg BITFIELD_RO_Args[] = {
 {"get-block",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.subargs=BITFIELD_RO_get_block_Subargs},
 {0}
 };
+
+/* BITFIELD_RO_ReplySchema_items_0 reply schema */
+struct jsonObjectElement BITFIELD_RO_ReplySchema_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The result of the subcommand at the same position"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject BITFIELD_RO_ReplySchema_items_0 = {BITFIELD_RO_ReplySchema_items_0_elements,.length=2};
+
+/* BITFIELD_RO_ReplySchema_items array reply schema */
+struct jsonObject *BITFIELD_RO_ReplySchema_items[] = {
+&BITFIELD_RO_ReplySchema_items_0,
+};
+
+/* BITFIELD_RO_ReplySchema reply schema */
+struct jsonObjectElement BITFIELD_RO_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=BITFIELD_RO_ReplySchema_items,.length=1}},
+};
+
+struct jsonObject BITFIELD_RO_ReplySchema = {BITFIELD_RO_ReplySchema_elements,.length=2};
 
 /********** BITOP ********************/
 
@@ -152,6 +224,15 @@ struct redisCommandArg BITOP_Args[] = {
 {"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* BITOP_ReplySchema reply schema */
+struct jsonObjectElement BITOP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the size of the string stored in the destination key, that is equal to the size of the longest input string"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=1},
+};
+
+struct jsonObject BITOP_ReplySchema = {BITOP_ReplySchema_elements,.length=3};
 
 /********** BITPOS ********************/
 
@@ -192,6 +273,36 @@ struct redisCommandArg BITPOS_Args[] = {
 {"range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITPOS_range_Subargs},
 {0}
 };
+
+/* BITPOS_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement BITPOS_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the position of the first bit set to 1 or 0 according to the request"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject BITPOS_ReplySchema_oneOf_0 = {BITPOS_ReplySchema_oneOf_0_elements,.length=3};
+
+/* BITPOS_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement BITPOS_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="In case the `bit` argument is 1 and the string is empty or composed of just zero bytest"},
+{JSON_TYPE_INTEGER,"const",.value.integer=-1},
+};
+
+struct jsonObject BITPOS_ReplySchema_oneOf_1 = {BITPOS_ReplySchema_oneOf_1_elements,.length=2};
+
+/* BITPOS_ReplySchema_oneOf array reply schema */
+struct jsonObject *BITPOS_ReplySchema_oneOf[] = {
+&BITPOS_ReplySchema_oneOf_0,
+&BITPOS_ReplySchema_oneOf_1,
+};
+
+/* BITPOS_ReplySchema reply schema */
+struct jsonObjectElement BITPOS_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=BITPOS_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject BITPOS_ReplySchema = {BITPOS_ReplySchema_elements,.length=1};
 
 /********** GETBIT ********************/
 
@@ -1206,6 +1317,35 @@ struct redisCommandArg COPY_Args[] = {
 {0}
 };
 
+/* COPY_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement COPY_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="source was copied"},
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+};
+
+struct jsonObject COPY_ReplySchema_oneOf_0 = {COPY_ReplySchema_oneOf_0_elements,.length=2};
+
+/* COPY_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement COPY_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="source was not copied"},
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+};
+
+struct jsonObject COPY_ReplySchema_oneOf_1 = {COPY_ReplySchema_oneOf_1_elements,.length=2};
+
+/* COPY_ReplySchema_oneOf array reply schema */
+struct jsonObject *COPY_ReplySchema_oneOf[] = {
+&COPY_ReplySchema_oneOf_0,
+&COPY_ReplySchema_oneOf_1,
+};
+
+/* COPY_ReplySchema reply schema */
+struct jsonObjectElement COPY_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=COPY_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject COPY_ReplySchema = {COPY_ReplySchema_elements,.length=1};
+
 /********** DEL ********************/
 
 /* DEL history */
@@ -1226,10 +1366,12 @@ struct redisCommandArg DEL_Args[] = {
 
 /* DEL_ReplySchema reply schema */
 struct jsonObjectElement DEL_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of keys that were removed"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
 };
 
-struct jsonObject DEL_ReplySchema = {DEL_ReplySchema_elements,.length=1};
+struct jsonObject DEL_ReplySchema = {DEL_ReplySchema_elements,.length=3};
 
 /********** DUMP ********************/
 
@@ -1921,6 +2063,65 @@ struct redisCommandArg SORT_Args[] = {
 {0}
 };
 
+/* SORT_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement SORT_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="when the store option is specified the command returns the number of sorted elements in the destination list"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SORT_ReplySchema_oneOf_0 = {SORT_ReplySchema_oneOf_0_elements,.length=3};
+
+/* SORT_ReplySchema_oneOf_1_items_oneOf_0 reply schema */
+struct jsonObjectElement SORT_ReplySchema_oneOf_1_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SORT_ReplySchema_oneOf_1_items_oneOf_0 = {SORT_ReplySchema_oneOf_1_items_oneOf_0_elements,.length=1};
+
+/* SORT_ReplySchema_oneOf_1_items_oneOf_1 reply schema */
+struct jsonObjectElement SORT_ReplySchema_oneOf_1_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="GET option is specified, but no object was found "},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject SORT_ReplySchema_oneOf_1_items_oneOf_1 = {SORT_ReplySchema_oneOf_1_items_oneOf_1_elements,.length=2};
+
+/* SORT_ReplySchema_oneOf_1_items_oneOf array reply schema */
+struct jsonObject *SORT_ReplySchema_oneOf_1_items_oneOf[] = {
+&SORT_ReplySchema_oneOf_1_items_oneOf_0,
+&SORT_ReplySchema_oneOf_1_items_oneOf_1,
+};
+
+/* SORT_ReplySchema_oneOf_1_items reply schema */
+struct jsonObjectElement SORT_ReplySchema_oneOf_1_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SORT_ReplySchema_oneOf_1_items_oneOf,.length=2}},
+};
+
+struct jsonObject SORT_ReplySchema_oneOf_1_items = {SORT_ReplySchema_oneOf_1_items_elements,.length=1};
+
+/* SORT_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement SORT_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="when not passing the store option the command returns a list of sorted elements"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&SORT_ReplySchema_oneOf_1_items},
+};
+
+struct jsonObject SORT_ReplySchema_oneOf_1 = {SORT_ReplySchema_oneOf_1_elements,.length=3};
+
+/* SORT_ReplySchema_oneOf array reply schema */
+struct jsonObject *SORT_ReplySchema_oneOf[] = {
+&SORT_ReplySchema_oneOf_0,
+&SORT_ReplySchema_oneOf_1,
+};
+
+/* SORT_ReplySchema reply schema */
+struct jsonObjectElement SORT_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SORT_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject SORT_ReplySchema = {SORT_ReplySchema_elements,.length=1};
+
 /********** SORT_RO ********************/
 
 /* SORT_RO history */
@@ -1953,6 +2154,22 @@ struct redisCommandArg SORT_RO_Args[] = {
 {"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+/* SORT_RO_ReplySchema_items reply schema */
+struct jsonObjectElement SORT_RO_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SORT_RO_ReplySchema_items = {SORT_RO_ReplySchema_items_elements,.length=1};
+
+/* SORT_RO_ReplySchema reply schema */
+struct jsonObjectElement SORT_RO_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="a list of sorted elements"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&SORT_RO_ReplySchema_items},
+};
+
+struct jsonObject SORT_RO_ReplySchema = {SORT_RO_ReplySchema_elements,.length=3};
 
 /********** TOUCH ********************/
 
@@ -4736,6 +4953,13 @@ struct redisCommandArg FUNCTION_DELETE_Args[] = {
 {0}
 };
 
+/* FUNCTION_DELETE_ReplySchema reply schema */
+struct jsonObjectElement FUNCTION_DELETE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject FUNCTION_DELETE_ReplySchema = {FUNCTION_DELETE_ReplySchema_elements,.length=1};
+
 /********** FUNCTION DUMP ********************/
 
 /* FUNCTION DUMP history */
@@ -4743,6 +4967,14 @@ struct redisCommandArg FUNCTION_DELETE_Args[] = {
 
 /* FUNCTION DUMP tips */
 #define FUNCTION_DUMP_tips NULL
+
+/* FUNCTION_DUMP_ReplySchema reply schema */
+struct jsonObjectElement FUNCTION_DUMP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the serialized payload"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject FUNCTION_DUMP_ReplySchema = {FUNCTION_DUMP_ReplySchema_elements,.length=2};
 
 /********** FUNCTION FLUSH ********************/
 
@@ -4768,6 +5000,13 @@ struct redisCommandArg FUNCTION_FLUSH_Args[] = {
 {"flush-type",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FUNCTION_FLUSH_flush_type_Subargs},
 {0}
 };
+
+/* FUNCTION_FLUSH_ReplySchema reply schema */
+struct jsonObjectElement FUNCTION_FLUSH_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject FUNCTION_FLUSH_ReplySchema = {FUNCTION_FLUSH_ReplySchema_elements,.length=1};
 
 /********** FUNCTION HELP ********************/
 
@@ -4868,6 +5107,13 @@ struct redisCommandArg FUNCTION_RESTORE_Args[] = {
 {0}
 };
 
+/* FUNCTION_RESTORE_ReplySchema reply schema */
+struct jsonObjectElement FUNCTION_RESTORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject FUNCTION_RESTORE_ReplySchema = {FUNCTION_RESTORE_ReplySchema_elements,.length=1};
+
 /********** FUNCTION STATS ********************/
 
 /* FUNCTION STATS history */
@@ -4883,14 +5129,14 @@ NULL
 
 /* FUNCTION command table */
 struct redisCommand FUNCTION_Subcommands[] = {
-{"delete","Delete a function by name","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_DELETE_History,FUNCTION_DELETE_tips,functionDeleteCommand,3,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_DELETE_Args},
-{"dump","Dump all functions into a serialized binary payload","O(N) where N is the number of functions","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_DUMP_History,FUNCTION_DUMP_tips,functionDumpCommand,2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING},
-{"flush","Deleting all functions","O(N) where N is the number of functions deleted","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_FLUSH_History,FUNCTION_FLUSH_tips,functionFlushCommand,-2,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_FLUSH_Args},
+{"delete","Delete a function by name","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_DELETE_History,FUNCTION_DELETE_tips,functionDeleteCommand,3,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_DELETE_Args,.reply_schema=&FUNCTION_DELETE_ReplySchema},
+{"dump","Dump all functions into a serialized binary payload","O(N) where N is the number of functions","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_DUMP_History,FUNCTION_DUMP_tips,functionDumpCommand,2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.reply_schema=&FUNCTION_DUMP_ReplySchema},
+{"flush","Deleting all functions","O(N) where N is the number of functions deleted","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_FLUSH_History,FUNCTION_FLUSH_tips,functionFlushCommand,-2,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_FLUSH_Args,.reply_schema=&FUNCTION_FLUSH_ReplySchema},
 {"help","Show helpful text about the different subcommands","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_HELP_History,FUNCTION_HELP_tips,functionHelpCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_SCRIPTING},
 {"kill","Kill the function currently in execution.","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_KILL_History,FUNCTION_KILL_tips,functionKillCommand,2,CMD_NOSCRIPT|CMD_ALLOW_BUSY,ACL_CATEGORY_SCRIPTING,.reply_schema=&FUNCTION_KILL_ReplySchema},
 {"list","List information about all the functions","O(N) where N is the number of functions","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LIST_History,FUNCTION_LIST_tips,functionListCommand,-2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_LIST_Args},
 {"load","Create a function with the given arguments (name, code, description)","O(1) (considering compilation time is redundant)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LOAD_History,FUNCTION_LOAD_tips,functionLoadCommand,-3,CMD_NOSCRIPT|CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_LOAD_Args,.reply_schema=&FUNCTION_LOAD_ReplySchema},
-{"restore","Restore all the functions on the given payload","O(N) where N is the number of functions on the payload","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_RESTORE_History,FUNCTION_RESTORE_tips,functionRestoreCommand,-3,CMD_NOSCRIPT|CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_RESTORE_Args},
+{"restore","Restore all the functions on the given payload","O(N) where N is the number of functions on the payload","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_RESTORE_History,FUNCTION_RESTORE_tips,functionRestoreCommand,-3,CMD_NOSCRIPT|CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_RESTORE_Args,.reply_schema=&FUNCTION_RESTORE_ReplySchema},
 {"stats","Return information about the function currently running (name, description, duration)","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_STATS_History,FUNCTION_STATS_tips,functionStatsCommand,2,CMD_NOSCRIPT|CMD_ALLOW_BUSY,ACL_CATEGORY_SCRIPTING},
 {0}
 };
@@ -5602,6 +5848,148 @@ struct redisCommandArg ACL_GETUSER_Args[] = {
 {0}
 };
 
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_flags_items reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_flags_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_flags_items = {ACL_GETUSER_ReplySchema_oneOf_0_properties_flags_items_elements,.length=1};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_flags reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_flags_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_flags_items},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_flags = {ACL_GETUSER_ReplySchema_oneOf_0_properties_flags_elements,.length=2};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_passwords_items reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_passwords_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_passwords_items = {ACL_GETUSER_ReplySchema_oneOf_0_properties_passwords_items_elements,.length=1};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_passwords reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_passwords_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_passwords_items},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_passwords = {ACL_GETUSER_ReplySchema_oneOf_0_properties_passwords_elements,.length=2};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_commands reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_commands_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="root selector's commands"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_commands = {ACL_GETUSER_ReplySchema_oneOf_0_properties_commands_elements,.length=2};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_keys reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_keys_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="root selector's keys"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_keys = {ACL_GETUSER_ReplySchema_oneOf_0_properties_keys_elements,.length=2};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_channels reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_channels_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="root selector's channels"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_channels = {ACL_GETUSER_ReplySchema_oneOf_0_properties_channels_elements,.length=2};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_commands reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_commands_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_commands = {ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_commands_elements,.length=1};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_keys reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_keys_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_keys = {ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_keys_elements,.length=1};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_channels reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_channels_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_channels = {ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_channels_elements,.length=1};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_elements[] = {
+{JSON_TYPE_OBJECT,"commands",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_commands},
+{JSON_TYPE_OBJECT,"keys",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_keys},
+{JSON_TYPE_OBJECT,"channels",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_channels},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties = {ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties_elements,.length=3};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items = {ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_elements,.length=2};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors = {ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_elements,.length=2};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0_properties reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_elements[] = {
+{JSON_TYPE_OBJECT,"flags",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_flags},
+{JSON_TYPE_OBJECT,"passwords",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_passwords},
+{JSON_TYPE_OBJECT,"commands",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_commands},
+{JSON_TYPE_OBJECT,"keys",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_keys},
+{JSON_TYPE_OBJECT,"channels",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_channels},
+{JSON_TYPE_OBJECT,"selectors",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties = {ACL_GETUSER_ReplySchema_oneOf_0_properties_elements,.length=6};
+
+/* ACL_GETUSER_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="a set of ACL rule definitions for the user"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0 = {ACL_GETUSER_ReplySchema_oneOf_0_elements,.length=3};
+
+/* ACL_GETUSER_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If user does not exist"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_1 = {ACL_GETUSER_ReplySchema_oneOf_1_elements,.length=2};
+
+/* ACL_GETUSER_ReplySchema_oneOf array reply schema */
+struct jsonObject *ACL_GETUSER_ReplySchema_oneOf[] = {
+&ACL_GETUSER_ReplySchema_oneOf_0,
+&ACL_GETUSER_ReplySchema_oneOf_1,
+};
+
+/* ACL_GETUSER_ReplySchema reply schema */
+struct jsonObjectElement ACL_GETUSER_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=ACL_GETUSER_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject ACL_GETUSER_ReplySchema = {ACL_GETUSER_ReplySchema_elements,.length=1};
+
 /********** ACL HELP ********************/
 
 /* ACL HELP history */
@@ -5786,8 +6174,8 @@ struct jsonObject ACL_LOG_ReplySchema_oneOf_0_items = {ACL_LOG_ReplySchema_oneOf
 
 /* ACL_LOG_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_elements[] = {
-{JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_STRING,"description",.value.string="In case `RESET` was not given, a list of recent ACL security events."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&ACL_LOG_ReplySchema_oneOf_0_items},
 };
 
@@ -5901,7 +6289,7 @@ struct redisCommand ACL_Subcommands[] = {
 {"deluser","Remove the specified ACL users and the associated rules","O(1) amortized time considering the typical user.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_DELUSER_History,ACL_DELUSER_tips,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_DELUSER_Args,.reply_schema=&ACL_DELUSER_ReplySchema},
 {"dryrun","Returns whether the user can execute the given command without executing the command.","O(1).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_DRYRUN_History,ACL_DRYRUN_tips,aclCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_DRYRUN_Args,.reply_schema=&ACL_DRYRUN_ReplySchema},
 {"genpass","Generate a pseudorandom secure password to use for ACL users","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_GENPASS_History,ACL_GENPASS_tips,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_GENPASS_Args,.reply_schema=&ACL_GENPASS_ReplySchema},
-{"getuser","Get the rules for a specific ACL user","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_GETUSER_History,ACL_GETUSER_tips,aclCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_GETUSER_Args},
+{"getuser","Get the rules for a specific ACL user","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_GETUSER_History,ACL_GETUSER_tips,aclCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_GETUSER_Args,.reply_schema=&ACL_GETUSER_ReplySchema},
 {"help","Show helpful text about the different subcommands","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_HELP_History,ACL_HELP_tips,aclCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.reply_schema=&ACL_HELP_ReplySchema},
 {"list","List the current ACL rules in ACL config file format","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_LIST_History,ACL_LIST_tips,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.reply_schema=&ACL_LIST_ReplySchema},
 {"load","Reload the ACLs from the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_LOAD_History,ACL_LOAD_tips,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.reply_schema=&ACL_LOAD_ReplySchema},
@@ -11172,11 +11560,11 @@ struct redisCommandArg WATCH_Args[] = {
 /* Main command table */
 struct redisCommand redisCommandTable[] = {
 /* bitmap */
-{"bitcount","Count set bits in a string","O(N)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITCOUNT_History,BITCOUNT_tips,bitcountCommand,-2,CMD_READONLY,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITCOUNT_Args},
-{"bitfield","Perform arbitrary bitfield integer operations on strings","O(1) for each subcommand specified","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITFIELD_History,BITFIELD_tips,bitfieldCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,{{"This command allows both access and modification of the key",CMD_KEY_RW|CMD_KEY_UPDATE|CMD_KEY_ACCESS|CMD_KEY_VARIABLE_FLAGS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},bitfieldGetKeys,.args=BITFIELD_Args},
-{"bitfield_ro","Perform arbitrary bitfield integer operations on strings. Read-only variant of BITFIELD","O(1) for each subcommand specified","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITFIELD_RO_History,BITFIELD_RO_tips,bitfieldroCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITFIELD_RO_Args},
-{"bitop","Perform bitwise operations between strings","O(N)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITOP_History,BITOP_tips,bitopCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=BITOP_Args},
-{"bitpos","Find first bit set or clear in a string","O(N)","2.8.7",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITPOS_History,BITPOS_tips,bitposCommand,-3,CMD_READONLY,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITPOS_Args},
+{"bitcount","Count set bits in a string","O(N)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITCOUNT_History,BITCOUNT_tips,bitcountCommand,-2,CMD_READONLY,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITCOUNT_Args,.reply_schema=&BITCOUNT_ReplySchema},
+{"bitfield","Perform arbitrary bitfield integer operations on strings","O(1) for each subcommand specified","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITFIELD_History,BITFIELD_tips,bitfieldCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,{{"This command allows both access and modification of the key",CMD_KEY_RW|CMD_KEY_UPDATE|CMD_KEY_ACCESS|CMD_KEY_VARIABLE_FLAGS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},bitfieldGetKeys,.args=BITFIELD_Args,.reply_schema=&BITFIELD_ReplySchema},
+{"bitfield_ro","Perform arbitrary bitfield integer operations on strings. Read-only variant of BITFIELD","O(1) for each subcommand specified","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITFIELD_RO_History,BITFIELD_RO_tips,bitfieldroCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITFIELD_RO_Args,.reply_schema=&BITFIELD_RO_ReplySchema},
+{"bitop","Perform bitwise operations between strings","O(N)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITOP_History,BITOP_tips,bitopCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=BITOP_Args,.reply_schema=&BITOP_ReplySchema},
+{"bitpos","Find first bit set or clear in a string","O(N)","2.8.7",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITPOS_History,BITPOS_tips,bitposCommand,-3,CMD_READONLY,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITPOS_Args,.reply_schema=&BITPOS_ReplySchema},
 {"getbit","Returns the bit value at offset in the string value stored at key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,GETBIT_History,GETBIT_tips,getbitCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETBIT_Args},
 {"setbit","Sets or clears the bit at offset in the string value stored at key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,SETBIT_History,SETBIT_tips,setbitCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETBIT_Args},
 /* cluster */
@@ -11194,7 +11582,7 @@ struct redisCommand redisCommandTable[] = {
 {"reset","Reset the connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,RESET_History,RESET_tips,resetCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION},
 {"select","Change the selected database for the current connection","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,SELECT_History,SELECT_tips,selectCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,.args=SELECT_Args,.reply_schema=&SELECT_ReplySchema},
 /* generic */
-{"copy","Copy a key","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,COPY_History,COPY_tips,copyCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=COPY_Args},
+{"copy","Copy a key","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,COPY_History,COPY_tips,copyCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=COPY_Args,.reply_schema=&COPY_ReplySchema},
 {"del","Delete a key","O(N) where N is the number of keys that will be removed. When a key to remove holds a value other than a string, the individual complexity for this key is O(M) where M is the number of elements in the list, set, sorted set or hash. Removing a single key that holds a string value is O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,DEL_History,DEL_tips,delCommand,-2,CMD_WRITE,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RM|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=DEL_Args,.reply_schema=&DEL_ReplySchema},
 {"dump","Return a serialized version of the value stored at the specified key.","O(1) to access the key and additional O(N*M) to serialize it, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1).","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,DUMP_History,DUMP_tips,dumpCommand,2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DUMP_Args},
 {"exists","Determine if a key exists","O(N) where N is the number of keys to check.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,EXISTS_History,EXISTS_tips,existsCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=EXISTS_Args,.reply_schema=&EXISTS_ReplySchema},
@@ -11215,8 +11603,8 @@ struct redisCommand redisCommandTable[] = {
 {"renamenx","Rename a key, only if the new key does not exist","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RENAMENX_History,RENAMENX_tips,renamenxCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RENAMENX_Args,.reply_schema=&RENAMENX_ReplySchema},
 {"restore","Create a key using the provided serialized value, previously obtained using DUMP.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RESTORE_History,RESTORE_tips,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RESTORE_Args},
 {"scan","Incrementally iterate the keys space","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SCAN_History,SCAN_tips,scanCommand,-2,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,.args=SCAN_Args},
-{"sort","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_History,SORT_tips,sortCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}},{"For the optional STORE keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortGetKeys,.args=SORT_Args},
-{"sort_ro","Sort the elements in a list, set or sorted set. Read-only variant of SORT.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_RO_History,SORT_RO_tips,sortroCommand,-2,CMD_READONLY,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortROGetKeys,.args=SORT_RO_Args},
+{"sort","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_History,SORT_tips,sortCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}},{"For the optional STORE keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortGetKeys,.args=SORT_Args,.reply_schema=&SORT_ReplySchema},
+{"sort_ro","Sort the elements in a list, set or sorted set. Read-only variant of SORT.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_RO_History,SORT_RO_tips,sortroCommand,-2,CMD_READONLY,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortROGetKeys,.args=SORT_RO_Args,.reply_schema=&SORT_RO_ReplySchema},
 {"touch","Alters the last access time of a key(s). Returns the number of existing keys specified.","O(N) where N is the number of keys that will be touched.","3.2.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TOUCH_History,TOUCH_tips,touchCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=TOUCH_Args},
 {"ttl","Get the time to live for a key in seconds","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TTL_History,TTL_tips,ttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TTL_Args},
 {"type","Determine the type stored at key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TYPE_History,TYPE_tips,typeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TYPE_Args,.reply_schema=&TYPE_ReplySchema},

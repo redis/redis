@@ -77,6 +77,11 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The number of bits set to 1.",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }
