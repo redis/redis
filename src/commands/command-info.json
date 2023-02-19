@@ -31,6 +31,162 @@
                 "optional": true,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "command does not exist",
+                        "type": "null"
+                    },
+                    {
+                        "description": "command info array output",
+                        "type": "array",
+                        "items": [
+                            {
+                                "description": "command name",
+                                "type": "string"
+                            },
+                            {
+                                "description": "command arrity",
+                                "type": "integer"
+                            },
+                            {
+                                "description": "command flags",
+                                "type": "array",
+                                "items": {
+                                    "description": "command flag",
+                                    "type": "string"
+                                }
+                            },
+                            {
+                                "description": "command first key index",
+                                "type": "integer"
+                            },
+                            {
+                                "description": "command last key index",
+                                "type": "integer"
+                            },
+                            {
+                                "description": "command key step index",
+                                "type": "integer"
+                            },
+                            {
+                                "description": "command categories",
+                                "type": "array",
+                                "items": {
+                                    "description": "command category",
+                                    "type": "string"
+                                }
+                            },
+                            {
+                                "description": "command tips",
+                                "type": "array",
+                                "items": {
+                                    "description": "command tip",
+                                    "type": "string"
+                                }
+                            },
+                            {
+                                "description": "command key specs",
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "notes": { "type": "string" },
+                                        "flags": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            },
+                                            "begin_search": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "type": { "type": "string" },
+                                                    "spec": {
+                                                        "oneOf": [
+                                                            {
+                                                                "description": "unknown type, empty map",
+                                                                "type": "object",
+                                                                "additionalProperties": "false"
+                                                            },
+                                                            {
+                                                                "description": "index type",
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "index": { "type":  "integer" }
+                                                                },
+                                                                "additionalProperties": false
+                                                            },
+                                                            {
+                                                                "description": "keyword type",
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "keyword": { "type": "string" },
+                                                                    "startsfrom": { "type": "integer" }
+                                                                },
+                                                                "additionalProperties": false
+                                                            }
+                                                        ]
+                                                    }
+                                                }
+                                            },
+                                            "find_keys": {
+                                                "type": "object",
+                                                "propeties": {
+                                                    "spec": {
+                                                        "oneOf": [
+                                                            {
+                                                                "description": "unknown type",
+                                                                "type": "object",
+                                                                "additionalProperties": false
+                                                            },
+                                                            {
+                                                                "description": "range type",
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "lastkey": {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    "keystep": {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    "limit": {
+                                                                        "type": "integer"
+                                                                    }
+                                                                },
+                                                                "additionalProperties": false
+                                                            },
+                                                            {
+                                                                "description": "keynum type",
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "keynumidx": {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    "firstkey": {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    "keystep": {
+                                                                        "type": "integer"
+                                                                    }
+                                                                },
+                                                                "additionalProperties": false
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "additionalProperties": false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
     }
 }
