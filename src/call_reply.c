@@ -257,7 +257,7 @@ CallReply* callReplyCreatePromise(RedisModule *module) {
     res->val.promise.module = module;
     res->val.promise.on_unblocked = NULL;
     res->val.promise.private_data = NULL;
-    // No need to accidently parse call reply.
+    // No need to accidentally parse call reply.
     res->flags |= REPLY_FLAG_PARSED | REPLY_FLAG_ROOT;
     return res;
 }
