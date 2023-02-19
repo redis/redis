@@ -609,17 +609,17 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 }
 
 /* Optimize the SDS string inside the string object to require little space,
- * in case there is more than 10% of free space at the end of the SDS
- * string. This happens because SDS strings tend to overallocate to avoid
- * wasting too much time in allocations when appending to the string. */
+ * in case there is more than 10% of free space at the end of the SDS. */
 void trimStringObjectIfNeeded(robj *o) {
     size_t len = sdslen(o->ptr);
      /* A string may have free space in the following cases:
      * 1. When an arg len is greater than PROTO_MBULK_BIG_ARG the query buffer may be used directly as the SDS string.
      * 2. When utilizing the argument caching mechanism in Lua.
      * 3. When the function is called from a module that has allocated a larger buffer than needed. */
-    if (len >= PROTO_MBULK_BIG_ARG || 
-        (server.executing_client && server.executing_client->flags & (CLIENT_SCRIPT|CLIENT_MODULE))) {
+    if (len >= PROTO_MBULK_BIG_ARG ||
+       (server.executing_client &&
+       (server.executing_client->flags & CLIENT_MODULE ||
+       (server.executing_client->flags & CLIENT_SCRIPT && len < LUA_CMD_OBJCACHE_MAX_LEN)))) {        
         if (o->encoding == OBJ_ENCODING_RAW && sdsavail(o->ptr) > len/10) {
             o->ptr = sdsRemoveFreeSpace(o->ptr, 0);
         }
@@ -691,14 +691,7 @@ robj *tryObjectEncoding(robj *o) {
     }
 
     /* We can't encode the object...
-     *
-     * Do the last try, and at least optimize the SDS string inside
-     * the string object to require little space, in case there
-     * is more than 10% of free space at the end of the SDS string.
-     *
-     * We do that only for relatively large strings as this branch
-     * is only entered if the length of the string is greater than
-     * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
+     * Do the last try, and at least optimize the SDS string inside */
     trimStringObjectIfNeeded(o);
 
     /* Return the original object. */
