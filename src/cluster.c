@@ -302,7 +302,7 @@ int clusterLoadConfig(char *filename) {
                     server.cluster->lastVoteEpoch =
                             strtoull(argv[j+1],NULL,10);
                 } else {
-                    serverLog(LL_WARNING,
+                    serverLog(LL_NOTICE,
                         "Skipping unknown cluster config variable '%s'",
                         argv[j]);
                 }
@@ -993,7 +993,7 @@ void clusterReset(int hard) {
         server.cluster->currentEpoch = 0;
         server.cluster->lastVoteEpoch = 0;
         myself->configEpoch = 0;
-        serverLog(LL_WARNING, "configEpoch set to 0 via CLUSTER RESET HARD");
+        serverLog(LL_NOTICE, "configEpoch set to 0 via CLUSTER RESET HARD");
 
         /* To change the Node ID we need to remove the old name from the
          * nodes table, change the ID, and re-add back with new name. */
@@ -1628,7 +1628,7 @@ int clusterBumpConfigEpochWithoutConsensus(void) {
         myself->configEpoch = server.cluster->currentEpoch;
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_FSYNC_CONFIG);
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "New configEpoch set to %llu",
             (unsigned long long) myself->configEpoch);
         return C_OK;
@@ -2121,7 +2121,7 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     node->cport = cport;
     if (node->link) freeClusterLink(node->link);
     node->flags &= ~CLUSTER_NODE_NOADDR;
-    serverLog(LL_WARNING,"Address updated for node %.40s, now %s:%d",
+    serverLog(LL_NOTICE,"Address updated for node %.40s, now %s:%d",
         node->name, node->ip, node->port);
 
     /* Check if this is our master and we have to change the
@@ -2186,7 +2186,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     curmaster = nodeIsMaster(myself) ? myself : myself->slaveof;
 
     if (sender == myself) {
-        serverLog(LL_WARNING,"Discarding UPDATE message about myself.");
+        serverLog(LL_NOTICE,"Discarding UPDATE message about myself.");
         return;
     }
 
@@ -2249,7 +2249,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     if (newmaster && curmaster->numslots == 0 &&
             (server.cluster_allow_replica_migration ||
              sender_slots == migrated_our_slots)) {
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "Configuration change detected. Reconfiguring myself "
             "as a replica of %.40s", sender->name);
         clusterSetMaster(sender);
@@ -2266,7 +2266,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         /* Safeguard against sub-replicas. A replica's master can turn itself
          * into a replica if its last slot is removed. If no other node takes
          * over the slot, there is nothing else to trigger replica migration. */
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
                   "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s",
                   myself->slaveof->slaveof->name);
         clusterSetMaster(myself->slaveof->slaveof);
@@ -2618,7 +2618,7 @@ int clusterProcessPacket(clusterLink *link) {
         {
             server.cluster->mf_master_offset = sender->repl_offset;
             clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_MANUALFAILOVER);
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "Received replication offset for paused "
                 "master manual failover: %lld",
                 server.cluster->mf_master_offset);
@@ -2647,7 +2647,7 @@ int clusterProcessPacket(clusterLink *link) {
                 strcmp(ip,myself->ip))
             {
                 memcpy(myself->ip,ip,NET_IP_STR_LEN);
-                serverLog(LL_WARNING,"IP address for this node updated to %s",
+                serverLog(LL_NOTICE,"IP address for this node updated to %s",
                     myself->ip);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
             }
@@ -2969,7 +2969,7 @@ int clusterProcessPacket(clusterLink *link) {
         pauseActions(PAUSE_DURING_FAILOVER,
                      now + (CLUSTER_MF_TIMEOUT * CLUSTER_MF_PAUSE_MULT),
                      PAUSE_ACTIONS_CLIENT_WRITE_SET);
-        serverLog(LL_WARNING,"Manual failover requested by replica %.40s.",
+        serverLog(LL_NOTICE,"Manual failover requested by replica %.40s.",
             sender->name);
         /* We need to send a ping message to the replica, as it would carry
          * `server.cluster->mf_master_offset`, which means the master paused clients
@@ -3782,7 +3782,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     node->slaveof->voted_time = mstime();
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
     clusterSendFailoverAuth(node);
-    serverLog(LL_WARNING, "Failover auth granted to %.40s for epoch %llu",
+    serverLog(LL_NOTICE, "Failover auth granted to %.40s for epoch %llu",
         node->name, (unsigned long long) server.cluster->currentEpoch);
 }
 
@@ -4020,7 +4020,7 @@ void clusterHandleSlaveFailover(void) {
             server.cluster->failover_auth_rank = 0;
 	    clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
         }
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "Start of election delayed for %lld milliseconds "
             "(rank #%d, offset %lld).",
             server.cluster->failover_auth_time - mstime(),
@@ -4047,7 +4047,7 @@ void clusterHandleSlaveFailover(void) {
                 (newrank - server.cluster->failover_auth_rank) * 1000;
             server.cluster->failover_auth_time += added_delay;
             server.cluster->failover_auth_rank = newrank;
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "Replica rank updated to #%d, added %lld milliseconds of delay.",
                 newrank, added_delay);
         }
@@ -4069,7 +4069,7 @@ void clusterHandleSlaveFailover(void) {
     if (server.cluster->failover_auth_sent == 0) {
         server.cluster->currentEpoch++;
         server.cluster->failover_auth_epoch = server.cluster->currentEpoch;
-        serverLog(LL_WARNING,"Starting a failover election for epoch %llu.",
+        serverLog(LL_NOTICE,"Starting a failover election for epoch %llu.",
             (unsigned long long) server.cluster->currentEpoch);
         clusterRequestFailoverAuth();
         server.cluster->failover_auth_sent = 1;
@@ -4083,13 +4083,13 @@ void clusterHandleSlaveFailover(void) {
     if (server.cluster->failover_auth_count >= needed_quorum) {
         /* We have the quorum, we can finally failover the master. */
 
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "Failover election won: I'm the new master.");
 
         /* Update my configEpoch to the epoch of the election. */
         if (myself->configEpoch < server.cluster->failover_auth_epoch) {
             myself->configEpoch = server.cluster->failover_auth_epoch;
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "configEpoch set to %llu after successful failover",
                 (unsigned long long) myself->configEpoch);
         }
@@ -4207,7 +4207,7 @@ void clusterHandleSlaveMigration(int max_slaves) {
         (mstime()-target->orphaned_time) > CLUSTER_SLAVE_MIGRATION_DELAY &&
        !(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_FAILOVER))
     {
-        serverLog(LL_WARNING,"Migrating to orphaned master %.40s",
+        serverLog(LL_NOTICE,"Migrating to orphaned master %.40s",
             target->name);
         clusterSetMaster(target);
     }
@@ -4283,7 +4283,7 @@ void clusterHandleManualFailover(void) {
         /* Our replication offset matches the master replication offset
          * announced after clients were paused. We can start the failover. */
         server.cluster->mf_can_start = 1;
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "All master replication stream processed, "
             "manual failover can start.");
         clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
@@ -4842,7 +4842,8 @@ void clusterUpdateState(void) {
         }
 
         /* Change the state and log the event. */
-        serverLog(LL_WARNING,"Cluster state changed: %s",
+        serverLog(new_state == CLUSTER_OK ? LL_NOTICE : LL_WARNING,
+            "Cluster state changed: %s",
             new_state == CLUSTER_OK ? "ok" : "fail");
         server.cluster->state = new_state;
     }
@@ -4905,11 +4906,11 @@ int verifyClusterConfigWithData(void) {
         update_config++;
         /* Case A: slot is unassigned. Take responsibility for it. */
         if (server.cluster->slots[j] == NULL) {
-            serverLog(LL_WARNING, "I have keys for unassigned slot %d. "
+            serverLog(LL_NOTICE, "I have keys for unassigned slot %d. "
                                     "Taking responsibility for it.",j);
             clusterAddSlot(myself,j);
         } else {
-            serverLog(LL_WARNING, "I have keys for slot %d, but the slot is "
+            serverLog(LL_NOTICE, "I have keys for slot %d, but the slot is "
                                     "assigned to another node. "
                                     "Setting it to importing state.",j);
             server.cluster->importing_slots_from[j] = server.cluster->slots[j];
@@ -5920,7 +5921,7 @@ NULL
                 myself->numslots == 0 &&
                 server.cluster_allow_replica_migration)
             {
-                serverLog(LL_WARNING,
+                serverLog(LL_NOTICE,
                           "Configuration change detected. Reconfiguring myself "
                           "as a replica of %.40s", n->name);
                 clusterSetMaster(n);
@@ -5944,7 +5945,7 @@ NULL
                  * configEpoch collision resolution will fix it assigning
                  * a different epoch to each node. */
                 if (clusterBumpConfigEpochWithoutConsensus() == C_OK) {
-                    serverLog(LL_WARNING,
+                    serverLog(LL_NOTICE,
                         "configEpoch updated after importing slot %d", slot);
                 }
                 server.cluster->importing_slots_from[slot] = NULL;
@@ -6160,17 +6161,17 @@ NULL
              * generates a new configuration epoch for this node without
              * consensus, claims the master's slots, and broadcast the new
              * configuration. */
-            serverLog(LL_WARNING,"Taking over the master (user request).");
+            serverLog(LL_NOTICE,"Taking over the master (user request).");
             clusterBumpConfigEpochWithoutConsensus();
             clusterFailoverReplaceYourMaster();
         } else if (force) {
             /* If this is a forced failover, we don't need to talk with our
              * master to agree about the offset. We just failover taking over
              * it without coordination. */
-            serverLog(LL_WARNING,"Forced failover user request accepted.");
+            serverLog(LL_NOTICE,"Forced failover user request accepted.");
             server.cluster->mf_can_start = 1;
         } else {
-            serverLog(LL_WARNING,"Manual failover user request accepted.");
+            serverLog(LL_NOTICE,"Manual failover user request accepted.");
             clusterSendMFStart(myself->slaveof);
         }
         addReply(c,shared.ok);
@@ -6197,7 +6198,7 @@ NULL
             addReplyError(c,"Node config epoch is already non-zero");
         } else {
             myself->configEpoch = epoch;
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "configEpoch set to %llu via CLUSTER SET-CONFIG-EPOCH",
                 (unsigned long long) myself->configEpoch);
 

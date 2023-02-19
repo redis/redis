@@ -4175,7 +4175,7 @@ int prepareForShutdown(int flags) {
 
     server.shutdown_flags = flags;
 
-    serverLog(LL_WARNING,"User requested shutdown...");
+    serverLog(LL_NOTICE,"User requested shutdown...");
     if (server.supervised_mode == SUPERVISED_SYSTEMD)
         redisCommunicateSystemd("STOPPING=1\n");
 
@@ -4263,7 +4263,7 @@ int finishShutdown(void) {
             num_lagging_replicas++;
             long lag = replica->replstate == SLAVE_STATE_ONLINE ?
                 time(NULL) - replica->repl_ack_time : 0;
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                       "Lagging replica %s reported offset %lld behind master, lag=%ld, state=%s.",
                       replicationGetSlaveName(replica),
                       server.master_repl_offset - replica->repl_ack_off,
@@ -7164,8 +7164,8 @@ int main(int argc, char **argv) {
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
 
-    serverLog(LL_WARNING, "oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo");
-    serverLog(LL_WARNING,
+    serverLog(LL_NOTICE, "oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo");
+    serverLog(LL_NOTICE,
         "Redis version=%s, bits=%d, commit=%s, modified=%d, pid=%d, just started",
             REDIS_VERSION,
             (sizeof(long) == 8) ? 64 : 32,
@@ -7176,7 +7176,7 @@ int main(int argc, char **argv) {
     if (argc == 1) {
         serverLog(LL_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/redis.conf", argv[0]);
     } else {
-        serverLog(LL_WARNING, "Configuration loaded");
+        serverLog(LL_NOTICE, "Configuration loaded");
     }
 
     initServer();
@@ -7200,7 +7200,7 @@ int main(int argc, char **argv) {
 
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
-        serverLog(LL_WARNING,"Server initialized");
+        serverLog(LL_NOTICE,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
         sds err_msg = NULL;
