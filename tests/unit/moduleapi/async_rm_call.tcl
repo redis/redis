@@ -109,4 +109,15 @@ start_server {tags {"modules"}} {
             assert_equal [$rd read] {l a}
         }
     }
+
+    test {Become replica while having async RM_Call running} {
+        set rd [redis_deferring_client]
+        $rd wait_and_do_rm_call blpop l 0
+
+        #become a replica of a not existing redis
+        r replicaof locahost 30000
+
+        catch {[$rd read]} e
+        assert_match {UNBLOCKED force unblock from blocking operation*} $e
+    }
 }
