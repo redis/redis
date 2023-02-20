@@ -308,29 +308,29 @@ start_server {tags {"zset"}} {
             assert_error "*NaN*" {r zincrby myzset -inf abc}
         }
 
-        test {ZADD - Variadic version base case - $encoding} {
+        test "ZADD - Variadic version base case - $encoding" {
             r del myzset
             list [r zadd myzset 10 a 20 b 30 c] [r zrange myzset 0 -1 withscores]
         } {3 {a 10 b 20 c 30}}
 
-        test {ZADD - Return value is the number of actually added items - $encoding} {
+        test "ZADD - Return value is the number of actually added items - $encoding" {
             list [r zadd myzset 5 x 20 b 30 c] [r zrange myzset 0 -1 withscores]
         } {1 {x 5 a 10 b 20 c 30}}
 
-        test {ZADD - Variadic version does not add nothing on single parsing err - $encoding} {
+        test "ZADD - Variadic version does not add nothing on single parsing err - $encoding" {
             r del myzset
             catch {r zadd myzset 10 a 20 b 30.badscore c} e
             assert_match {*ERR*not*float*} $e
             r exists myzset
         } {0}
 
-        test {ZADD - Variadic version will raise error on missing arg - $encoding} {
+        test "ZADD - Variadic version will raise error on missing arg - $encoding" {
             r del myzset
             catch {r zadd myzset 10 a 20 b 30 c 40} e
             assert_match {*ERR*syntax*} $e
         }
 
-        test {ZINCRBY does not work variadic even if shares ZADD implementation - $encoding} {
+        test "ZINCRBY does not work variadic even if shares ZADD implementation - $encoding" {
             r del myzset
             catch {r zincrby myzset 10 a 20 b 30 c} e
             assert_match {*ERR*wrong*number*arg*} $e

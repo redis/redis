@@ -640,7 +640,7 @@ void flushAllDataAndResetRDB(int flags) {
     if (server.saveparamslen > 0) {
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
+        rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE);
     }
 
 #if defined(USE_JEMALLOC)
@@ -1622,8 +1622,8 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
  *    because call() handles server.also_propagate(); or
  * 2. Outside of call(): Example: Active-expire, eviction.
  *    In this the caller must remember to call
- *    propagatePendingCommands, preferably at the end of
- *    the deletion batch, so that DELs will be wrapped
+ *    postExecutionUnitOperations, preferably just after a
+ *    single deletion batch, so that DELs will NOT be wrapped
  *    in MULTI/EXEC */
 void propagateDeletion(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
