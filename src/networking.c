@@ -1493,8 +1493,8 @@ void clearClientConnectionState(client *c) {
     }
 
     /* Selectively clear state flags not covered above */
-    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
-                  CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT|CLIENT_NO_TOUCH);
+    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|CLIENT_REPLY_OFF|
+                  CLIENT_REPLY_SKIP_NEXT|CLIENT_NO_TOUCH|CLIENT_NO_EVICT);
 }
 
 void freeClient(client *c) {
