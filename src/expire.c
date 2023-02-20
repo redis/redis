@@ -426,7 +426,8 @@ void expireSlaveKeys(void) {
         if (dictSize(slaveKeysWithExpire) == 0) break;
     }
 
-    /* DELs aren't propagated, but modules may want their hooks. */
+    /* Propagate the DEL (writable replicas do not propagate anything to other replicas,
+     * but they might propagate to AOF) and trigger module hooks. */
     propagatePendingCommands();
 }
 
