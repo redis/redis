@@ -474,34 +474,47 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 }
 
 /* Wait for milliseconds until the given file descriptor becomes
- * writable/readable/exception */
+ * writable/readable/exception. If milliseconds is 0, then aeWait() will
+ * return without blocking. If the value of milliseconds is -1, the aeWait
+ * blocks indefinitely.
+ * */
 int aeWait(int fd, int mask, long long milliseconds) {
     struct pollfd pfd;
     int retmask = 0, retval;
+    monotime begin, now;
+    long long timeout;
 
     memset(&pfd, 0, sizeof(pfd));
     pfd.fd = fd;
     if (mask & AE_READABLE) pfd.events |= POLLIN;
     if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
 
-    monotime begin = getMonotonicUs();
-    monotime now = begin;
+    monotonicInitIfNeeded();
+    begin = getMonotonicUs();
+    now = begin;
     while (1) {
-        long long left = milliseconds - (long long)(now - begin) / 1000;
-        if ((retval = poll(&pfd, 1, left))== 1) {
+        if (milliseconds > 0) {
+            timeout = milliseconds - (long long)(now - begin) / 1000;
+            if (timeout < 0) timeout = 0; /* just to be on the safe side */
+        } else {
+            timeout = milliseconds;
+        }
+
+        if ((retval = poll(&pfd, 1, timeout)) == 1) {
             if (pfd.revents & POLLIN) retmask |= AE_READABLE;
             if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
-            if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
-            if (pfd.revents & POLLHUP) retmask |= AE_WRITABLE;
+            if (pfd.revents & POLLERR) retmask |= AE_WRITABLE|AE_READABLE;
+            if (pfd.revents & POLLHUP) retmask |= AE_WRITABLE|AE_READABLE;
             return retmask;
         } else if (retval == 0) {
             /* Timeout */
             return 0;
         } else if (retval == -1 && errno != EINTR) {
             panic("aeWait: poll, %s", strerror(errno));
+        } else {
+            /* Interrupted, try again */
+            now = getMonotonicUs();
         }
-        /* Interrupted, try again */
-        now = getMonotonicUs();
     }
 }
 

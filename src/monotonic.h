@@ -58,4 +58,10 @@ static inline uint64_t elapsedMs(monotime start_time) {
     return elapsedUs(start_time) / 1000;
 }
 
+/* The same with monotonicInit, except saving a function call if initialization
+ * is done */
+static inline void monotonicInitIfNeeded() {
+    if (getMonotonicUs == NULL)  monotonicInit();
+}
+
 #endif
