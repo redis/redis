@@ -134,7 +134,7 @@ void processUnblockedClients(void) {
 
         if (c->flags & CLIENT_MODULE) {
             if (!(c->flags & CLIENT_BLOCKED)) {
-                moduleOnUnblocked(c);
+                moduleCallCommandUnblockedHandler(c);
             }
             continue;
         }

@@ -257,24 +257,18 @@ CallReply* callReplyCreatePromise(RedisModule *module) {
     res->val.promise.module = module;
     res->val.promise.on_unblocked = NULL;
     res->val.promise.private_data = NULL;
-    // No need to accidentally parse call reply.
+    /* Marked the reply as parsed so there will be not attempt to parse
+     * it when calling reply API such as freeCallReply.
+     * Also mark the reply as root so freeCallReply will not ignore it. */
     res->flags |= REPLY_FLAG_PARSED | REPLY_FLAG_ROOT;
     return res;
 }
 
-RedisModule* callReplyPromiseGetModule(CallReply *rep) {
-    if (rep->type != REDISMODULE_REPLY_PROMISE) return NULL;
-    return rep->val.promise.module;
-}
-
-RedisModuleOnUnblocked callReplyPromiseGetOnUnblockCallback(CallReply *rep) {
-    if (rep->type != REDISMODULE_REPLY_PROMISE) return NULL;
-    return rep->val.promise.on_unblocked;
-}
-
-void* callReplyPromiseGetOnUnblockPrivateData(CallReply *rep) {
-    if (rep->type != REDISMODULE_REPLY_PROMISE) return NULL;
-    return rep->val.promise.private_data;
+void callReplyPromiseGetUnblockHandler(CallReply *rep, RedisModule **module, RedisModuleOnUnblocked *on_unblock, void **private_data) {
+    if (rep->type != REDISMODULE_REPLY_PROMISE) return;
+    *module = rep->val.promise.module;
+    *on_unblock = rep->val.promise.on_unblocked;
+    *private_data = rep->val.promise.private_data;
 }
 
 void callReplyPromiseSetUnblockHandler(CallReply *rep, RedisModuleOnUnblocked on_unblock, void *private_data) {

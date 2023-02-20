@@ -4,14 +4,22 @@ start_server {tags {"modules"}} {
     r module load $testmodule
 
     test {Locked GIL acquisition from async RM_Call} {
-    	assert_equal {OK} [r do_rm_call_async acquire_gil]
+        assert_equal {OK} [r do_rm_call_async acquire_gil]
+    }
+
+    test "Blpop on async RM_Call fire and forget" {
+        assert_equal {Blocked} [r do_rm_call_fire_and_forget blpop l 0]
+        r lpush l a
+        assert_equal {0} [r llen l]
     }
 
     foreach cmd {do_rm_call_async do_rm_call_async_script_mode} {
+
         test "Blpop on async RM_Call using $cmd" {
             set rd [redis_deferring_client]
 
             $rd $cmd blpop l 0
+            wait_for_blocked_client
             r lpush l a
             assert_equal [$rd read] {l a}
         }
@@ -20,6 +28,7 @@ start_server {tags {"modules"}} {
             set rd [redis_deferring_client]
 
             $rd $cmd brpop l 0
+            wait_for_blocked_client
             r lpush l a
             assert_equal [$rd read] {l a}
         }
@@ -28,6 +37,7 @@ start_server {tags {"modules"}} {
             set rd [redis_deferring_client]
 
             $rd $cmd brpoplpush l1 l2 0
+            wait_for_blocked_client
             r lpush l1 a
             assert_equal [$rd read] {a}
             r lpop l2
@@ -37,6 +47,7 @@ start_server {tags {"modules"}} {
             set rd [redis_deferring_client]
 
             $rd $cmd blmove l1 l2 LEFT LEFT 0
+            wait_for_blocked_client
             r lpush l1 a
             assert_equal [$rd read] {a}
             r lpop l2
@@ -46,6 +57,7 @@ start_server {tags {"modules"}} {
             set rd [redis_deferring_client]
 
             $rd $cmd bzpopmin s 0
+            wait_for_blocked_client
             r zadd s 10 foo
             assert_equal [$rd read] {s foo 10}
         }
@@ -54,6 +66,7 @@ start_server {tags {"modules"}} {
             set rd [redis_deferring_client]
 
             $rd $cmd bzpopmax s 0
+            wait_for_blocked_client
             r zadd s 10 foo
             assert_equal [$rd read] {s foo 10}
         }
@@ -63,7 +76,8 @@ start_server {tags {"modules"}} {
         set rd [redis_deferring_client]
 
         $rd do_rm_call_async do_rm_call_async do_rm_call_async do_rm_call_async blpop l 0
-    	r lpush l a
+        wait_for_blocked_client
+        r lpush l a
         assert_equal [$rd read] {l a}
     }
 
@@ -73,7 +87,8 @@ start_server {tags {"modules"}} {
 
         $rd1 do_rm_call_async do_rm_call_async do_rm_call_async do_rm_call_async blpop l 0
         $rd2 do_rm_call_async do_rm_call_async do_rm_call_async do_rm_call_async blpop l 0
-    	r lpush l element element
+        wait_for_blocked_client
+        r lpush l element element
         assert_equal [$rd1 read] {l element}
         assert_equal [$rd2 read] {l element}
     }
@@ -93,6 +108,7 @@ start_server {tags {"modules"}} {
     test {async RM_Call inside async RM_Call callback} {
         set rd [redis_deferring_client]
         $rd wait_and_do_rm_call blpop l 0
+        wait_for_blocked_client
 
         start_server {} {
             test "Connect a replica to the master instance" {
@@ -113,6 +129,7 @@ start_server {tags {"modules"}} {
     test {Become replica while having async RM_Call running} {
         set rd [redis_deferring_client]
         $rd wait_and_do_rm_call blpop l 0
+        wait_for_blocked_client
 
         #become a replica of a not existing redis
         r replicaof localhost 30000

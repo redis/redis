@@ -56,9 +56,7 @@ int callReplyIsResp3(CallReply *rep);
 list *callReplyDeferredErrorList(CallReply *rep);
 void freeCallReply(CallReply *rep);
 CallReply* callReplyCreatePromise(RedisModule *module);
-RedisModule* callReplyPromiseGetModule(CallReply *rep);
-RedisModuleOnUnblocked callReplyPromiseGetOnUnblockCallback(CallReply *rep);
-void* callReplyPromiseGetOnUnblockPrivateData(CallReply *rep);
+void callReplyPromiseGetUnblockHandler(CallReply *rep, RedisModule **module, RedisModuleOnUnblocked *on_unblock, void **private_data);
 void callReplyPromiseSetUnblockHandler(CallReply *rep, RedisModuleOnUnblocked on_unblock, void *private_data);
 
 #endif /* SRC_CALL_REPLY_H_ */

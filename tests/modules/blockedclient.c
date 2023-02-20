@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <strings.h>
+#include "sds.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -235,6 +236,26 @@ static void rm_call_async_on_unblocked(RedisModuleCtx *ctx, RedisModuleCallReply
     RedisModule_UnblockClient(bc, NULL);
 }
 
+int do_rm_call_async_fire_and_forget(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    UNUSED(argv);
+    UNUSED(argc);
+
+    if(argc < 2){
+        return RedisModule_WrongArity(ctx);
+    }
+    const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "KEv", argv + 2, argc - 2);
+
+    if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
+        rm_call_async_send_reply(ctx, rep);
+    } else {
+        RedisModule_ReplyWithSimpleString(ctx, "Blocked");
+    }
+
+    return REDISMODULE_OK;
+}
+
 /*
  * Callback for do_rm_call_async / do_rm_call_async_script_mode
  * Gets the command to invoke as the first argument to the command and runs it,
@@ -250,32 +271,30 @@ int do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
         return RedisModule_WrongArity(ctx);
     }
 
-    RedisModuleBlockedClient *bc = NULL;
-    RedisModuleOnUnblocked on_unblock = NULL;
-    int flags = RedisModule_GetContextFlags(ctx);
-    if (!(flags & REDISMODULE_CTX_FLAGS_DENY_BLOCKING)) {
-        bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-        on_unblock = rm_call_async_on_unblocked;
+    sds format = sdsempty();
+
+    if (!(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING)) {
+        /* We are allowed to block the client so we can allow RM_Call to also block us */
+        format = sdscat(format, "K");
     }
 
-    int script_mode = 0;
     const char* invoked_cmd = RedisModule_StringPtrLen(argv[0], NULL);
     if (strcasecmp(invoked_cmd, "do_rm_call_async_script_mode") == 0) {
-        script_mode = 1;
+        format = sdscat(format, "S");
     }
+
+    format = sdscat(format, "Ev");
 
     const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, script_mode ? "SEKv" : "EKv", argv + 2, argc - 2);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, format, argv + 2, argc - 2);
+    sdsfree(format);
+
     if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
-        RedisModuleCtx *bctx = bc? RedisModule_GetThreadSafeContext(bc) : ctx;
-        rm_call_async_send_reply(bctx, rep);
-        if (bc) {
-            RedisModule_FreeThreadSafeContext(bctx);
-            RedisModule_UnblockClient(bc, NULL);
-        }
+        rm_call_async_send_reply(ctx, rep);
     } else {
-        RedisModule_CallReplyPromiseSetUnblockHandler(rep, on_unblock, bc);
+        RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);;
+        RedisModule_CallReplyPromiseSetUnblockHandler(rep, rm_call_async_on_unblocked, bc);
     }
 
     return REDISMODULE_OK;
@@ -475,7 +494,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx, "do_rm_call_async_script_mode", do_rm_call_async,
                                   "write", 0, 0, 0) == REDISMODULE_ERR)
-            return REDISMODULE_ERR;
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "do_rm_call_fire_and_forget", do_rm_call_async_fire_and_forget,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "wait_and_do_rm_call", wait_and_do_rm_call_async,
                                   "write", 0, 0, 0) == REDISMODULE_ERR)

@@ -480,7 +480,6 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
 static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, int *error);
 static int moduleConvertArgFlags(int flags);
 void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_flags);
-int RM_SelectDb(RedisModuleCtx *ctx, int newid);
 /* --------------------------------------------------------------------------
  * ## Heap allocation raw functions
  *
@@ -803,18 +802,20 @@ static CallReply* moduleParseReply(client *c, RedisModuleCtx *ctx) {
     return reply;
 }
 
-void moduleOnUnblocked(client *c) {
+void moduleCallCommandUnblockedHandler(client *c) {
     RedisModuleCtx ctx;
     CallReply *promise = c->bstate.async_rm_call_handle;
     serverAssert(promise);
-    RedisModule *module = callReplyPromiseGetModule(promise);
-    RedisModuleOnUnblocked on_unblock = callReplyPromiseGetOnUnblockCallback(promise);
-    void *private_data = callReplyPromiseGetOnUnblockPrivateData(promise);
+    RedisModule *module = NULL;
+    RedisModuleOnUnblocked on_unblock = NULL;
+    void *private_data = NULL;
+    callReplyPromiseGetUnblockHandler(promise, &module, &on_unblock, &private_data);
     if (!on_unblock) {
-        return; // module did not set any unblock callback.
+        moduleReleaseTempClient(c);
+        return; /* module did not set any unblock callback. */
     }
     moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
-    RM_SelectDb(&ctx, c->db->id);
+    selectDb(ctx.client, c->db->id);
 
     CallReply *reply = moduleParseReply(c, &ctx);
     module->in_call++;
@@ -5661,6 +5662,10 @@ void RM_FreeCallReply(RedisModuleCallReply *reply) {
     /* This is a wrapper for the recursive free reply function. This is needed
      * in order to have the first level function to return on nested replies,
      * but only if called by the module API. */
+
+    /* Module should never directly free a promise call reply. */
+    serverAssert(callReplyType(reply) != REDISMODULE_REPLY_PROMISE);
+
     RedisModuleCtx *ctx = callReplyGetPrivateData(reply);
     freeCallReply(reply);
     autoMemoryFreed(ctx,REDISMODULE_AM_REPLY,reply);
@@ -5963,9 +5968,11 @@ fmterr:
  *              indicates that the command was blocked and the reply will be given asynchronously.
  *              The module can use this reply object to set a handler which will be called when
  *              the command gets unblocked using RedisModule_CallReplyPromiseSetUnblockHandler.
- *              The handler must be set immediately after the command invocation (without releasing
- *              the Redis lock in between). The module should not keep the promise call reply after
- *              the Redis lock has been released. The module should not free the promise call reply.
+ *              If the handler is not set, the blocking command will still continue its execution
+ *              but the reply will be ignored (fire and forget). The handler must be set immediately
+ *              after the command invocation (without releasing the Redis lock in between).
+ *              The module should not keep the promise call reply after the Redis lock has been released.
+ *              The module should not free the promise call reply.
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
