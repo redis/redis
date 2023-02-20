@@ -420,7 +420,7 @@ int TestTrimString(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (len_after_trim < string_len) {
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
-        RedisModule_Log(ctx, "Error", "String was not trimmed as expected.");
+        RedisModule_ReplyWithError(ctx, "String was not trimmed as expected.");
     }
     RedisModule_Free(tmp);
     RedisModule_FreeString(ctx,s);
