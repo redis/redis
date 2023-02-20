@@ -140,7 +140,7 @@ start_server {tags {"modules"}} {
         r replicaof no one
     }
 
-    test {Become replica while having async RM_Call running} {
+    test {Pipeline with blocking RM_Call} {
         set rd [redis_deferring_client]
         $rd do_rm_call_async blpop l 0
         wait_for_blocked_client
