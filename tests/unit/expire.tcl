@@ -577,6 +577,7 @@ start_server {tags {"expire"}} {
             $replica config set replica-read-only no
             foreach {yes_or_no} {yes no} {
                 $replica config set appendonly $yes_or_no
+                waitForBgrewriteaof $replica
                 set prev_expired [s expired_keys]
                 $replica set foo bar PX 1
                 wait_for_condition 100 10 {
