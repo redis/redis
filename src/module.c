@@ -5958,16 +5958,14 @@ fmterr:
  *              If everything succeeded, it will return with a NULL, otherwise it will
  *              return with a CallReply object denoting the error, as if it was called with
  *              the 'E' code.
- *     * 'K' -- Allow running blocking commands. If enabled and the command was blocked, a
- *              special reply type will be return, REDISMODULE_REPLY_PROMISE. This reply type
- *              indicated that the command was blocked and the reply will be given asynchronously.
- *              The module can use this promise call reply to set handler which will be called when
+ *     * 'K' -- Allow running blocking commands. If enabled and the command gets blocked, a
+ *              special REDISMODULE_REPLY_PROMISE will be returned. This reply type
+ *              indicates that the command was blocked and the reply will be given asynchronously.
+ *              The module can use this reply object to set a handler which will be called when
  *              the command gets unblocked using RedisModule_CallReplyPromiseSetUnblockHandler.
- *              the handler must be set atomically along side the command invocation (without releasing
+ *              The handler must be set immediately after the command invocation (without releasing
  *              the Redis lock in between). The module should not keep the promise call reply after
- *              the Redis lock has been released (implicitly when the command invocation was finished or
- *              explicitly using RedisModule_ThreadSafeContextUnlock). The module should not free the
- *              promise call reply.
+ *              the Redis lock has been released. The module should not free the promise call reply.
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
