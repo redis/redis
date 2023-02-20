@@ -114,180 +114,171 @@ void SHA1Transform_software(uint32_t state[5], const unsigned char buffer[64])
 #ifdef ARMV8_CE_SHA
 void SHA1Transform_arm64(uint32_t state[5], const unsigned char buffer[64])
 {
-    /* declare variables */
-    uint32x4_t k0, k1, k2, k3;
-    uint32x4_t abcd, abcd0;
-    uint32x4_t w0, w1, w2, w3;
-    uint32_t   a, e, e0, e1;
-    uint32x4_t wk0, wk1;
+        uint32x4_t ABCD, ABCD_SAVED;
+        uint32x4_t TMP0, TMP1;
+        uint32x4_t MSG0, MSG1, MSG2, MSG3;
+        uint32_t   E0, E0_SAVED, E1;
 
-    /* set K0..K3 constants */
-    k0 = vdupq_n_u32( 0x5A827999 );
-    k1 = vdupq_n_u32( 0x6ED9EBA1 );
-    k2 = vdupq_n_u32( 0x8F1BBCDC );
-    k3 = vdupq_n_u32( 0xCA62C1D6 );
+        /* Load state */
+        ABCD = vld1q_u32(&state[0]);
+        E0 = state[4];
 
-    /* load state */
-    abcd = vld1q_u32( state );
-    abcd0 = abcd;
-    e = state[4];
+        /* Save state */
+        ABCD_SAVED = ABCD;
+        E0_SAVED = E0;
 
-    /* load message */
-    w0 = vld1q_u32( (uint32_t const *)(buffer) );
-    w1 = vld1q_u32( (uint32_t const *)(buffer + 16) );
-    w2 = vld1q_u32( (uint32_t const *)(buffer + 32) );
-    w3 = vld1q_u32( (uint32_t const *)(buffer + 48) );
+        /* Load message */
+        MSG0 = vld1q_u32((const uint32_t*)(buffer));
+        MSG1 = vld1q_u32((const uint32_t*)(buffer + 16));
+        MSG2 = vld1q_u32((const uint32_t*)(buffer + 32));
+        MSG3 = vld1q_u32((const uint32_t*)(buffer + 48));
 
-    #ifdef LITTLE_ENDIAN_ORDER
-    w0 = vreinterpretq_u32_u8( vrev32q_u8( vreinterpretq_u8_u32( w0 ) ) );
-    w1 = vreinterpretq_u32_u8( vrev32q_u8( vreinterpretq_u8_u32( w1 ) ) );
-    w2 = vreinterpretq_u32_u8( vrev32q_u8( vreinterpretq_u8_u32( w2 ) ) );
-    w3 = vreinterpretq_u32_u8( vrev32q_u8( vreinterpretq_u8_u32( w3 ) ) );
-    #endif
+        /* Reverse for little endian */
+        MSG0 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG0)));
+        MSG1 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG1)));
+        MSG2 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG2)));
+        MSG3 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG3)));
 
-    /* initialize wk0 wk1 */
-    wk0 = vaddq_u32( w0, k0 );
-    wk1 = vaddq_u32( w1, k0 );
+        TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x5A827999));
+        TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x5A827999));
 
-    /* perform rounds */
-    a = vgetq_lane_u32( abcd, 0 );
-    e1 = vsha1h_u32( a );
-    abcd = vsha1cq_u32( abcd, e, wk0 ); /* 0 */
-    wk0 = vaddq_u32( w2, k0 );
-    w0 = vsha1su0q_u32( w0, w1, w2 );
+        /* Rounds 0-3 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1cq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x5A827999));
+        MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e0 = vsha1h_u32( a );
-    abcd = vsha1cq_u32( abcd, e1, wk1 ); /* 1 */
-    wk1 = vaddq_u32( w3, k0 );
-    w0 = vsha1su1q_u32( w0, w3 );
-    w1 = vsha1su0q_u32( w1, w2, w3 );
+        /* Rounds 4-7 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1cq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0x5A827999));
+        MSG0 = vsha1su1q_u32(MSG0, MSG3);
+        MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
+        /* Rounds 8-11 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1cq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x5A827999));
+        MSG1 = vsha1su1q_u32(MSG1, MSG0);
+        MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e1 = vsha1h_u32( a );
-    abcd = vsha1cq_u32( abcd, e0, wk0 ); /* 2 */
-    wk0 = vaddq_u32( w0, k0 );
-    w1 = vsha1su1q_u32( w1, w0 );
-    w2 = vsha1su0q_u32( w2, w3, w0 );
+        /* Rounds 12-15 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1cq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x6ED9EBA1));
+        MSG2 = vsha1su1q_u32(MSG2, MSG1);
+        MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e0 = vsha1h_u32( a );
-    abcd = vsha1cq_u32( abcd, e1, wk1 ); /* 3 */
-    wk1 = vaddq_u32( w1, k1 );
-    w2 = vsha1su1q_u32( w2, w1 );
-    w3 = vsha1su0q_u32( w3, w0, w1 );
+        /* Rounds 16-19 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1cq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x6ED9EBA1));
+        MSG3 = vsha1su1q_u32(MSG3, MSG2);
+        MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e1 = vsha1h_u32( a );
-    abcd = vsha1cq_u32( abcd, e0, wk0 ); /* 4 */
-    wk0 = vaddq_u32( w2, k1 );
-    w3 = vsha1su1q_u32( w3, w2 );
-    w0 = vsha1su0q_u32( w0, w1, w2 );
+        /* Rounds 20-23 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0x6ED9EBA1));
+        MSG0 = vsha1su1q_u32(MSG0, MSG3);
+        MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e0 = vsha1h_u32( a );
-    abcd = vsha1pq_u32( abcd, e1, wk1 ); /* 5 */
-    wk1 = vaddq_u32( w3, k1 );
-    w0 = vsha1su1q_u32( w0, w3 );
-    w1 = vsha1su0q_u32( w1, w2, w3 );
+        /* Rounds 24-27 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x6ED9EBA1));
+        MSG1 = vsha1su1q_u32(MSG1, MSG0);
+        MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e1 = vsha1h_u32( a );
-    abcd = vsha1pq_u32( abcd, e0, wk0 ); /* 6 */
-    wk0 = vaddq_u32( w0, k1 );
-    w1 = vsha1su1q_u32( w1, w0 );
-    w2 = vsha1su0q_u32( w2, w3, w0 );
+        /* Rounds 28-31 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x6ED9EBA1));
+        MSG2 = vsha1su1q_u32(MSG2, MSG1);
+        MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e0 = vsha1h_u32( a );
-    abcd = vsha1pq_u32( abcd, e1, wk1 ); /* 7 */
-    wk1 = vaddq_u32( w1, k1 );
-    w2 = vsha1su1q_u32( w2, w1 );
-    w3 = vsha1su0q_u32( w3, w0, w1 );
+        /* Rounds 32-35 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x8F1BBCDC));
+        MSG3 = vsha1su1q_u32(MSG3, MSG2);
+        MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e1 = vsha1h_u32( a );
-    abcd = vsha1pq_u32( abcd, e0, wk0 ); /* 8 */
-    wk0 = vaddq_u32( w2, k2 );
-    w3 = vsha1su1q_u32( w3, w2 );
-    w0 = vsha1su0q_u32( w0, w1, w2 );
+        /* Rounds 36-39 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0x8F1BBCDC));
+        MSG0 = vsha1su1q_u32(MSG0, MSG3);
+        MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e0 = vsha1h_u32( a );
-    abcd = vsha1pq_u32( abcd, e1, wk1 ); /* 9 */
-    wk1 = vaddq_u32( w3, k2 );
-    w0 = vsha1su1q_u32( w0, w3 );
-    w1 = vsha1su0q_u32( w1, w2, w3 );
+        /* Rounds 40-43 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1mq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x8F1BBCDC));
+        MSG1 = vsha1su1q_u32(MSG1, MSG0);
+        MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e1 = vsha1h_u32( a );
-    abcd = vsha1mq_u32( abcd, e0, wk0 ); /* 10 */
-    wk0 = vaddq_u32( w0, k2 );
-    w1 = vsha1su1q_u32( w1, w0 );
-    w2 = vsha1su0q_u32( w2, w3, w0 );
+        /* Rounds 44-47 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1mq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x8F1BBCDC));
+        MSG2 = vsha1su1q_u32(MSG2, MSG1);
+        MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e0 = vsha1h_u32( a );
-    abcd = vsha1mq_u32( abcd, e1, wk1 ); /* 11 */
-    wk1 = vaddq_u32( w1, k2 );
-    w2 = vsha1su1q_u32( w2, w1 );
-    w3 = vsha1su0q_u32( w3, w0, w1 );
+        /* Rounds 48-51 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1mq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x8F1BBCDC));
+        MSG3 = vsha1su1q_u32(MSG3, MSG2);
+        MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e1 = vsha1h_u32( a );
-    abcd = vsha1mq_u32( abcd, e0, wk0 ); /* 12 */
-    wk0 = vaddq_u32( w2, k2 );
-    w3 = vsha1su1q_u32( w3, w2 );
-    w0 = vsha1su0q_u32( w0, w1, w2 );
+        /* Rounds 52-55 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1mq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0xCA62C1D6));
+        MSG0 = vsha1su1q_u32(MSG0, MSG3);
+        MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e0 = vsha1h_u32( a );
-    abcd = vsha1mq_u32( abcd, e1, wk1 ); /* 13 */
-    wk1 = vaddq_u32( w3, k3 );
-    w0 = vsha1su1q_u32( w0, w3 );
-    w1 = vsha1su0q_u32( w1, w2, w3 );
+        /* Rounds 56-59 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1mq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0xCA62C1D6));
+        MSG1 = vsha1su1q_u32(MSG1, MSG0);
+        MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
+        /* Rounds 60-63 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0xCA62C1D6));
+        MSG2 = vsha1su1q_u32(MSG2, MSG1);
+        MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e1 = vsha1h_u32( a );
-    abcd = vsha1mq_u32( abcd, e0, wk0 ); /* 14 */
-    wk0 = vaddq_u32( w0, k3 );
-    w1 = vsha1su1q_u32( w1, w0 );
-    w2 = vsha1su0q_u32( w2, w3, w0 );
+        /* Rounds 64-67 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0xCA62C1D6));
+        MSG3 = vsha1su1q_u32(MSG3, MSG2);
+        MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e0 = vsha1h_u32( a );
-    abcd = vsha1pq_u32( abcd, e1, wk1 ); /* 15 */
-    wk1 = vaddq_u32( w1, k3 );
-    w2 = vsha1su1q_u32( w2, w1 );
-    w3 = vsha1su0q_u32( w3, w0, w1 );
+        /* Rounds 68-71 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0xCA62C1D6));
+        MSG0 = vsha1su1q_u32(MSG0, MSG3);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e1 = vsha1h_u32( a );
-    abcd = vsha1pq_u32( abcd, e0, wk0 ); /* 16 */
-    wk0 = vaddq_u32( w2, k3 );
-    w3 = vsha1su1q_u32( w3, w2 );
-    w0 = vsha1su0q_u32( w0, w1, w2 );
+        /* Rounds 72-75 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E0, TMP0);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e0 = vsha1h_u32( a );
-    abcd = vsha1pq_u32( abcd, e1, wk1 ); /* 17 */
-    wk1 = vaddq_u32( w3, k3 );
-    w0 = vsha1su1q_u32( w0, w3 );
+        /* Rounds 76-79 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e1 = vsha1h_u32( a );
-    abcd = vsha1pq_u32( abcd, e0, wk0 ); /* 18 */
+        /* Combine state */
+        E0 += E0_SAVED;
+        ABCD = vaddq_u32(ABCD_SAVED, ABCD);
 
-    a = vgetq_lane_u32( abcd, 0 );
-    e0 = vsha1h_u32( a );
-    abcd = vsha1pq_u32( abcd, e1, wk1 ); /* 19 */
-
-    e = e + e0;
-    abcd = vaddq_u32( abcd0, abcd );
-
-    /* save state */
-    vst1q_u32(state, abcd );
-    state[4] = e;
+        /* Save state */
+        vst1q_u32(&state[0], ABCD);
+        state[4] = E0;
 }
 
 static int sha1_armv8_available(void)
