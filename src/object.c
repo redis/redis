@@ -617,9 +617,10 @@ void trimStringObjectIfNeeded(robj *o) {
      * 2. When utilizing the argument caching mechanism in Lua.
      * 3. When the function is called from a module that has allocated a larger buffer than needed. */
     if (len >= PROTO_MBULK_BIG_ARG ||
-       (server.executing_client &&
-       (server.executing_client->flags & CLIENT_MODULE ||
-       (server.executing_client->flags & CLIENT_SCRIPT && len < LUA_CMD_OBJCACHE_MAX_LEN)))) {        
+        (server.executing_client &&
+         (server.executing_client->flags & CLIENT_MODULE ||
+          (server.executing_client->flags & CLIENT_SCRIPT && len < LUA_CMD_OBJCACHE_MAX_LEN))))
+    {        
         if (o->encoding == OBJ_ENCODING_RAW && sdsavail(o->ptr) > len/10) {
             o->ptr = sdsRemoveFreeSpace(o->ptr, 0);
         }
