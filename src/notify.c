@@ -58,6 +58,9 @@ int keyspaceEventsStringToFlags(char *classes) {
         case 'm': flags |= NOTIFY_KEY_MISS; break;
         case 'd': flags |= NOTIFY_MODULE; break;
         case 'n': flags |= NOTIFY_NEW; break;
+        case 'D': flags |= NOTIFY_DBEVENT; break;
+        case 'f': flags |= NOTIFY_FLUSHDB; break;
+        case 'w': flags |= NOTIFY_SWAPDB; break;
         default: return -1;
         }
     }
@@ -86,9 +89,12 @@ sds keyspaceEventsFlagsToString(int flags) {
         if (flags & NOTIFY_STREAM) res = sdscatlen(res,"t",1);
         if (flags & NOTIFY_MODULE) res = sdscatlen(res,"d",1);
         if (flags & NOTIFY_NEW) res = sdscatlen(res,"n",1);
+        if (flags & NOTIFY_FLUSHDB) res = sdscatlen(res,"f",1);
+        if (flags & NOTIFY_SWAPDB) res = sdscatlen(res,"w",1);
     }
     if (flags & NOTIFY_KEYSPACE) res = sdscatlen(res,"K",1);
     if (flags & NOTIFY_KEYEVENT) res = sdscatlen(res,"E",1);
+    if (flags & NOTIFY_DBEVENT) res = sdscatlen(res,"D",1);
     if (flags & NOTIFY_KEY_MISS) res = sdscatlen(res,"m",1);
     return res;
 }
@@ -111,7 +117,7 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
      * This bypasses the notifications configuration, but the module engine
      * will only call event subscribers if the event type matches the types
      * they are interested in. */
-     moduleNotifyKeyspaceEvent(type, event, key, dbid);
+    moduleNotifyKeyspaceEvent(type, event, key, dbid);
 
     /* If notifications for this class of events are off, return ASAP. */
     if (!(server.notify_keyspace_events & type)) return;
@@ -143,3 +149,36 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     }
     decrRefCount(eventobj);
 }
+
+/* The API provided to the rest of the Redis core is a simple function:
+ *
+ * notifyDBEvent(int type, char *event, char *msg, int dbid);
+ *
+ * 'type' is the notification class we define in `server.h`.
+ * 'event' is a C string representing the event name.
+ * 'msg' is the massage content related to the event
+ * 'dbid' is the database ID where the key lives.  */
+void notifyDBEvent(int type, char *event, robj *msg, int dbid) {
+    sds chan;
+    robj *chanobj, *eventobj;
+    int len = -1;
+    char buf[24];
+
+    /* If notifications for this class of events are off, return ASAP. */
+    if (!(server.notify_keyspace_events & type)) return;
+
+    if (server.notify_keyspace_events & NOTIFY_DBEVENT) {
+        eventobj = createStringObject(event,strlen(event));
+        chan = sdsnewlen("__dbevent@",10);
+        if (len == -1) len = ll2string(buf,sizeof(buf),dbid);
+        chan = sdscatlen(chan, buf, len);
+        chan = sdscatlen(chan, "__:", 3);
+        chan = sdscatsds(chan, eventobj->ptr);
+        chanobj = createObject(OBJ_STRING, chan);
+        pubsubPublishMessage(chanobj, msg, 0);
+        decrRefCount(chanobj);
+        decrRefCount(eventobj);
+    }
+
+}
+

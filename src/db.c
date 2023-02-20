@@ -487,7 +487,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
                           REDISMODULE_SUBEVENT_FLUSHDB_START,
                           &fi);
 
-    /* Make sure the WATCHed keys are affected by the FLUSH* commands.
+   /* Make sure the WATCHed keys are affected by the FLUSH* commands.
      * Note that we need to call the function while the keys are still
      * there. */
     signalFlushedDb(dbnum, async);
@@ -586,20 +586,25 @@ void signalModifiedKey(client *c, redisDb *db, robj *key) {
 
 void signalFlushedDb(int dbid, int async) {
     int startdb, enddb;
+    robj *msgobj;
     if (dbid == -1) {
         startdb = 0;
         enddb = server.dbnum-1;
     } else {
         startdb = enddb = dbid;
     }
+    if (async)
+        msgobj = createStringObject("async",sizeof("async")-1);
+    else
+        msgobj  = createStringObject("sync",sizeof("sync")-1);
 
     for (int j = startdb; j <= enddb; j++) {
         scanDatabaseForDeletedKeys(&server.db[j], NULL);
         touchAllWatchedKeysInDb(&server.db[j], NULL);
+        notifyDBEvent(NOTIFY_FLUSHDB, "flushdb", msgobj, server.db[j].id);
     }
-
+    decrRefCount(msgobj);
     trackingInvalidateKeysOnFlush(async);
-
     /* Changes in this method may take place in swapMainDbWithTempDb as well,
      * where we execute similar calls, but with subtle differences as it's
      * not simply flushing db. */
@@ -1544,6 +1549,8 @@ void swapdbCommand(client *c) {
         return;
     } else {
         RedisModuleSwapDbInfo si = {REDISMODULE_SWAPDBINFO_VERSION,id1,id2};
+        notifyDBEvent(NOTIFY_SWAPDB, "swapdb", c->argv[2], id1);
+        notifyDBEvent(NOTIFY_SWAPDB, "swapdb", c->argv[1], id2);
         moduleFireServerEvent(REDISMODULE_EVENT_SWAPDB,0,&si);
         server.dirty++;
         addReply(c,shared.ok);

@@ -389,6 +389,10 @@ start_server {tags {"pubsub network"}} {
         assert_equal {AK} [lindex [r config get notify-keyspace-events] 1]
         r config set notify-keyspace-events EA
         assert_equal {AE} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events DA
+        assert_equal {AD} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events {$lshzxewfKED}
+        assert_equal {$lshzxefwKED} [lindex [r config get notify-keyspace-events] 1]
     }
 
     test "Keyspace notifications: new key test" {
@@ -401,6 +405,45 @@ start_server {tags {"pubsub network"}} {
         r set bar bar
         assert_equal "pmessage * __keyevent@${db}__:new foo" [$rd1 read]
         assert_equal "pmessage * __keyevent@${db}__:new bar" [$rd1 read]
+        $rd1 close
+    }
+    
+    test "Keyspace notifications: Flushdb trigger event" {
+        r config set notify-keyspace-events Df
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r flushdb sync
+        assert_equal "pmessage * __dbevent@${db}__:flushdb sync" [$rd1 read]
+        r flushdb async
+        assert_equal "pmessage * __dbevent@${db}__:flushdb async" [$rd1 read]
+        $rd1 close
+    }
+    
+    test "Keyspace notifications: Flushall trigger event on all dbs" {
+        r config set notify-keyspace-events Df
+        
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r flushall sync
+        set maxdb [lindex [r config get databases] 1]
+        for {set dbid 0} {$dbid < $maxdb} {incr dbid} {
+            assert_equal "pmessage * __dbevent@${dbid}__:flushdb sync" [$rd1 read]
+        }          
+        r flushall async
+        for {set dbid 0} {$dbid < $maxdb} {incr dbid} {
+            assert_equal "pmessage * __dbevent@${dbid}__:flushdb async" [$rd1 read]         
+        }
+        $rd1 close
+    }
+    
+    test "Keyspace notifications: Swapdb trigger event" {
+        r config set notify-keyspace-events Dw
+        
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r swapdb 1 9
+        assert_equal "pmessage * __dbevent@1__:swapdb 9" [$rd1 read]
+        assert_equal "pmessage * __dbevent@9__:swapdb 1" [$rd1 read]
         $rd1 close
     }
 }
