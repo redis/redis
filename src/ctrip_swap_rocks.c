@@ -88,6 +88,10 @@ int rocksInit() {
     rocksdb_options_set_max_open_files(rocks->db_opts,server.rocksdb_max_open_files);
     rocksdb_options_set_enable_pipelined_write(rocks->db_opts,server.rocksdb_enable_pipelined_write);
 
+    rocksdb_options_set_max_manifest_file_size(rocks->db_opts, 64*MB);
+    rocksdb_options_set_max_log_file_size(rocks->db_opts, 256*MB);
+    rocksdb_options_set_keep_log_file_num(rocks->db_opts, 12);
+
     rocks->ropts = rocksdb_readoptions_create();
     rocksdb_readoptions_set_verify_checksums(rocks->ropts, 0);
     rocksdb_readoptions_set_fill_cache(rocks->ropts, 1);
