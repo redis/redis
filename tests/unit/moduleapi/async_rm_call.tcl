@@ -136,5 +136,22 @@ start_server {tags {"modules"}} {
 
         catch {[$rd read]} e
         assert_match {UNBLOCKED force unblock from blocking operation*} $e
+
+        r replicaof no one
+    }
+
+    test {Become replica while having async RM_Call running} {
+        set rd [redis_deferring_client]
+        $rd do_rm_call_async blpop l 0
+        wait_for_blocked_client
+
+        # run another command
+        $rd ping
+
+        # release the blocked client
+        r lpush l 1
+
+        assert_equal [$rd read] {l 1}
+        assert_equal [$rd read] {PONG}
     }
 }
