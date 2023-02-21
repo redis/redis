@@ -652,6 +652,7 @@ start_server {tags {"acl external:skip"}} {
         assert {[dict get $entry context] eq {toplevel}}
         assert {[dict get $entry reason] eq {command}}
         assert {[dict get $entry object] eq {get}}
+        assert_match {*cmd=get*} [dict get $entry client-info]
     }
 
     test "ACL LOG shows failed subcommand executions at toplevel" {
@@ -728,6 +729,7 @@ start_server {tags {"acl external:skip"}} {
         set entry [lindex [r ACL LOG] 0]
         assert {[dict get $entry context] eq {multi}}
         assert {[dict get $entry object] eq {incr}}
+        assert_match {*cmd=exec*} [dict get $entry client-info]
         r ACL SETUSER antirez -incr
     }
 
@@ -738,6 +740,7 @@ start_server {tags {"acl external:skip"}} {
         set entry [lindex [r ACL LOG] 0]
         assert {[dict get $entry context] eq {lua}}
         assert {[dict get $entry object] eq {incr}}
+        assert_match {*cmd=eval*} [dict get $entry client-info]
     }
 
     test {ACL LOG can accept a numerical argument to show less entries} {
