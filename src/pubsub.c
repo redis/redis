@@ -105,11 +105,10 @@ pubsubtype pubSubShardType = {
  * to send a special message (for instance an Array type) by using the
  * addReply*() API family. */
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bulk) {
-    const unsigned int reply_len = msg ? 3 : 2;
     if (c->resp == 2)
-        addReply(c,shared.mbulkhdr[reply_len]);
+        addReply(c,shared.mbulkhdr[3]);
     else
-        addReplyPushLen(c,reply_len);
+        addReplyPushLen(c,3);
     addReply(c,message_bulk);
     addReplyBulk(c,channel);
     if (msg) addReplyBulk(c,msg);
@@ -119,15 +118,14 @@ void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bu
  * with the "message" type delivered by addReplyPubsubMessage() is that
  * this message format also includes the pattern that matched the message. */
 void addReplyPubsubPatMessage(client *c, robj *pat, robj *channel, robj *msg) {
-    const unsigned int reply_len = msg ? 4 : 3;
     if (c->resp == 2)
-        addReply(c,shared.mbulkhdr[reply_len]);
+        addReply(c,shared.mbulkhdr[4]);
     else
-        addReplyPushLen(c,reply_len);
+        addReplyPushLen(c,4);
     addReply(c,shared.pmessagebulk);
     addReplyBulk(c,pat);
     addReplyBulk(c,channel);
-    if (msg) addReplyBulk(c,msg);
+    addReplyBulk(c,msg);
 }
 
 /* Send the pubsub subscription notification to the client. */
