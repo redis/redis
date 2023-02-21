@@ -1541,9 +1541,7 @@ void freeClient(client *c) {
     moduleNotifyUserChanged(c);
 
     /* Free the RedisModuleBlockedClient held onto for reprocessing if not already freed. */
-    if (c->module_blocked_client) {
-        zfree(c->module_blocked_client);
-    }
+    zfree(c->module_blocked_client);
 
     /* If this client was scheduled for async freeing we need to remove it
      * from the queue. Note that we need to do this here, because later
