@@ -7671,7 +7671,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
  * returned similar to the RM_BlockClient API.
  * Note: Only use this API from the context of a custom auth callback. */
 RedisModuleBlockedClient *RM_BlockClientOnAuth(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback reply_callback,
-                                                void (*free_privdata)(RedisModuleCtx*,void*)) {
+                                               void (*free_privdata)(RedisModuleCtx*,void*)) {
     if (!clientHasModuleAuthInProgress(ctx->client)) {
         addReplyError(ctx->client, "Module blocking client on auth when not currently undergoing module authentication");
         return NULL;
