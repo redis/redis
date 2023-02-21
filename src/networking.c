@@ -3377,7 +3377,7 @@ NULL
         } else {
             addReplyArrayLen(c,0);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr, "no-touch") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr, "no-touch")) {
         /* CLIENT NO-TOUCH ON|OFF */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
             c->flags |= CLIENT_NO_TOUCH;
