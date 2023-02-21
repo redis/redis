@@ -157,3 +157,49 @@ start_server {tags {"modules"}} {
         assert_equal [$rd read] {PONG}
     }
 }
+
+start_server {tags {"modules"}} {
+    r module load $testmodule
+
+    test {Test basic replication stream on unblock handler} {
+        r flushall
+        set repl [attach_to_replication_stream]
+
+        set rd [redis_deferring_client]
+
+        $rd do_rm_call_async blpop l 0
+        wait_for_blocked_client
+        r lpush l a
+        assert_equal [$rd read] {l a}
+
+        assert_replication_stream $repl {
+            {select *}
+            {lpush l a}
+            {lpop l}
+        }
+        close_replication_stream $repl
+    }
+
+    test {Test unblock handler are executed as a unit} {
+        r flushall
+        set repl [attach_to_replication_stream]
+
+        set rd [redis_deferring_client]
+
+        $rd blpop_and_set_multiple_keys l x 1 y 2
+        wait_for_blocked_client
+        r lpush l a
+        assert_equal [$rd read] {OK}
+
+        assert_replication_stream $repl {
+            {select *}
+            {lpush l a}
+            {lpop l}
+            {multi}
+            {set x 1}
+            {set y 2}
+            {exec}
+        }
+        close_replication_stream $repl
+    }
+}

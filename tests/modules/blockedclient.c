@@ -314,7 +314,6 @@ typedef struct WaitAndDoRMCallCtx {
  * This callback will continue the execution flow just like 'do_rm_call_async' command.
  */
 static void wait_and_do_rm_call_async_on_unblocked(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data) {
-    UNUSED(reply);
     WaitAndDoRMCallCtx *wctx = private_data;
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
         goto done;
@@ -381,6 +380,67 @@ int wait_and_do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int
             wctx->argv[i - 1] = RedisModule_HoldString(NULL, argv[i]);
         }
         RedisModule_CallReplyPromiseSetUnblockHandler(rep, wait_and_do_rm_call_async_on_unblocked, wctx);
+    }
+
+    return REDISMODULE_OK;
+}
+
+static void blpop_and_set_multiple_keys_on_unblocked(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data) {
+    /* ignore the reply */
+    RedisModule_FreeCallReply(reply);
+    WaitAndDoRMCallCtx *wctx = private_data;
+    for (int i = 0 ; i < wctx->argc ; i += 2) {
+        RedisModuleCallReply* rep = RedisModule_Call(ctx, "set", "!ss", wctx->argv[i], wctx->argv[i + 1]);
+        RedisModule_FreeCallReply(rep);
+    }
+
+    RedisModuleCtx *bctx = RedisModule_GetThreadSafeContext(wctx->bc);
+    RedisModule_ReplyWithSimpleString(bctx, "OK");
+    RedisModule_FreeThreadSafeContext(bctx);
+    RedisModule_UnblockClient(wctx->bc, NULL);
+
+    for (int i = 0 ; i < wctx->argc ; ++i) {
+        RedisModule_FreeString(NULL, wctx->argv[i]);
+    }
+    RedisModule_Free(wctx->argv);
+    RedisModule_Free(wctx);
+
+}
+
+/*
+ * Performs a blpop command on a given list and when unblocked set multiple string keys.
+ * This command allows checking that the unblock callback is performed as a unit
+ * and its effect are replicated to the replica and AOF wrapped with multi exec.
+ */
+int blpop_and_set_multiple_keys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+
+    if(argc < 2 || argc % 2 != 0){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    int flags = RedisModule_GetContextFlags(ctx);
+    if (flags & REDISMODULE_CTX_FLAGS_DENY_BLOCKING) {
+        return RedisModule_ReplyWithError(ctx, "Err can not run wait, blocking is not allowed.");
+    }
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "blpop", "EKsc", argv[1], "0");
+    if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
+        rm_call_async_send_reply(ctx, rep);
+    } else {
+        RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+        WaitAndDoRMCallCtx *wctx = RedisModule_Alloc(sizeof(*wctx));
+        *wctx = (WaitAndDoRMCallCtx){
+                .bc = bc,
+                .argv = RedisModule_Alloc((argc - 2) * sizeof(RedisModuleString*)),
+                .argc = argc - 2,
+        };
+
+        for (int i = 0 ; i < argc - 2 ; ++i) {
+            wctx->argv[i] = RedisModule_HoldString(NULL, argv[i + 2]);
+        }
+        RedisModule_CallReplyPromiseSetUnblockHandler(rep, blpop_and_set_multiple_keys_on_unblocked, wctx);
     }
 
     return REDISMODULE_OK;
@@ -497,7 +557,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx, "wait_and_do_rm_call", wait_and_do_rm_call_async,
                                   "write", 0, 0, 0) == REDISMODULE_ERR)
-                return REDISMODULE_ERR;
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "blpop_and_set_multiple_keys", blpop_and_set_multiple_keys,
+                                      "write", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "do_bg_rm_call", do_bg_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
