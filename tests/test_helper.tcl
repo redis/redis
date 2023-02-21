@@ -12,7 +12,6 @@ source tests/support/cluster_util.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
-source tests/support/response_transformers.tcl
 
 set ::all_tests {
     unit/printver
@@ -655,8 +654,6 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j 2
     } elseif {$opt eq {--log-req-res}} {
         set ::log_req_res 1
-        # some units mess with the client output buffer so we can't really use the req-res logging mechanism.
-        lappend ::skipunits unit/client-eviction unit/tracking unit/obuf-limits integration/redis-benchmark
     } elseif {$opt eq {--force-resp3}} {
         set ::force_resp3 1
     } elseif {$opt eq {--skipfile}} {

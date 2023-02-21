@@ -1,9 +1,7 @@
 source tests/support/redis.tcl
 source tests/support/util.tcl
-source tests/support/response_transformers.tcl
 
 set ::tlsdir "tests/tls"
-set ::force_resp3 0
 
 # This function sometimes writes sometimes blocking-reads from lists/sorted
 # sets. There are multiple processes like this executing at the same time

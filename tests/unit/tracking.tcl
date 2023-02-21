@@ -1,4 +1,4 @@
-start_server {tags {"tracking network"}} {
+start_server {tags {"tracking network logreqres:skip"}} {
     # Create a deferred client we'll use to redirect invalidation
     # messages to.
     set rd_redirection [redis_deferring_client]

@@ -229,7 +229,7 @@ struct redisCommandArg BITOP_Args[] = {
 struct jsonObjectElement BITOP_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the size of the string stored in the destination key, that is equal to the size of the longest input string"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
-{JSON_TYPE_INTEGER,"minimum",.value.integer=1},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
 };
 
 struct jsonObject BITOP_ReplySchema = {BITOP_ReplySchema_elements,.length=3};
@@ -903,6 +903,14 @@ const char *CLIENT_INFO_tips[] = {
 NULL
 };
 
+/* CLIENT_INFO_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_INFO_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="a unique string, as described at the CLIENT LIST page, for the current client"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject CLIENT_INFO_ReplySchema = {CLIENT_INFO_ReplySchema_elements,.length=2};
+
 /********** CLIENT KILL ********************/
 
 /* CLIENT KILL history */
@@ -958,6 +966,36 @@ struct redisCommandArg CLIENT_KILL_Args[] = {
 {"filter",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_KILL_filter_Subargs},
 {0}
 };
+
+/* CLIENT_KILL_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement CLIENT_KILL_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="when called in 3 argument format"},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject CLIENT_KILL_ReplySchema_oneOf_0 = {CLIENT_KILL_ReplySchema_oneOf_0_elements,.length=2};
+
+/* CLIENT_KILL_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement CLIENT_KILL_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="when called in filter/value format, the number of clients killed"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject CLIENT_KILL_ReplySchema_oneOf_1 = {CLIENT_KILL_ReplySchema_oneOf_1_elements,.length=3};
+
+/* CLIENT_KILL_ReplySchema_oneOf array reply schema */
+struct jsonObject *CLIENT_KILL_ReplySchema_oneOf[] = {
+&CLIENT_KILL_ReplySchema_oneOf_0,
+&CLIENT_KILL_ReplySchema_oneOf_1,
+};
+
+/* CLIENT_KILL_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_KILL_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=CLIENT_KILL_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject CLIENT_KILL_ReplySchema = {CLIENT_KILL_ReplySchema_elements,.length=1};
 
 /********** CLIENT LIST ********************/
 
@@ -1015,6 +1053,13 @@ struct redisCommandArg CLIENT_NO_EVICT_Args[] = {
 {0}
 };
 
+/* CLIENT_NO_EVICT_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_NO_EVICT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject CLIENT_NO_EVICT_ReplySchema = {CLIENT_NO_EVICT_ReplySchema_elements,.length=1};
+
 /********** CLIENT PAUSE ********************/
 
 /* CLIENT PAUSE history */
@@ -1039,6 +1084,13 @@ struct redisCommandArg CLIENT_PAUSE_Args[] = {
 {"mode",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=CLIENT_PAUSE_mode_Subargs},
 {0}
 };
+
+/* CLIENT_PAUSE_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_PAUSE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject CLIENT_PAUSE_ReplySchema = {CLIENT_PAUSE_ReplySchema_elements,.length=1};
 
 /********** CLIENT REPLY ********************/
 
@@ -1076,6 +1128,13 @@ struct redisCommandArg CLIENT_SETNAME_Args[] = {
 {0}
 };
 
+/* CLIENT_SETNAME_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_SETNAME_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject CLIENT_SETNAME_ReplySchema = {CLIENT_SETNAME_ReplySchema_elements,.length=1};
+
 /********** CLIENT TRACKING ********************/
 
 /* CLIENT TRACKING history */
@@ -1102,6 +1161,14 @@ struct redisCommandArg CLIENT_TRACKING_Args[] = {
 {"noloop",ARG_TYPE_PURE_TOKEN,-1,"NOLOOP",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+/* CLIENT_TRACKING_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_TRACKING_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="if the cliet was successfully put into or taken out of tracking mode"},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject CLIENT_TRACKING_ReplySchema = {CLIENT_TRACKING_ReplySchema_elements,.length=2};
 
 /********** CLIENT TRACKINGINFO ********************/
 
@@ -1141,6 +1208,13 @@ struct redisCommandArg CLIENT_UNBLOCK_Args[] = {
 /* CLIENT UNPAUSE tips */
 #define CLIENT_UNPAUSE_tips NULL
 
+/* CLIENT_UNPAUSE_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_UNPAUSE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject CLIENT_UNPAUSE_ReplySchema = {CLIENT_UNPAUSE_ReplySchema_elements,.length=1};
+
 /* CLIENT command table */
 struct redisCommand CLIENT_Subcommands[] = {
 {"caching","Instruct the server about tracking or not keys in the next request","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_CACHING_History,CLIENT_CACHING_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_CACHING_Args},
@@ -1148,17 +1222,17 @@ struct redisCommand CLIENT_Subcommands[] = {
 {"getredir","Get tracking notifications redirection client ID if any","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETREDIR_History,CLIENT_GETREDIR_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_HELP_History,CLIENT_HELP_tips,clientCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
 {"id","Returns the client ID for the current connection","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_ID_History,CLIENT_ID_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
-{"info","Returns information about the current client connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_INFO_History,CLIENT_INFO_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
-{"kill","Kill the connection of a client","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_KILL_History,CLIENT_KILL_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_KILL_Args},
+{"info","Returns information about the current client connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_INFO_History,CLIENT_INFO_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.reply_schema=&CLIENT_INFO_ReplySchema},
+{"kill","Kill the connection of a client","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_KILL_History,CLIENT_KILL_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_KILL_Args,.reply_schema=&CLIENT_KILL_ReplySchema},
 {"list","Get the list of client connections","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_LIST_History,CLIENT_LIST_tips,clientCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_LIST_Args},
-{"no-evict","Set client eviction mode for the current connection","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_NO_EVICT_History,CLIENT_NO_EVICT_tips,clientCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_NO_EVICT_Args},
-{"pause","Stop processing commands from clients for some time","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,CLIENT_PAUSE_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_PAUSE_Args},
+{"no-evict","Set client eviction mode for the current connection","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_NO_EVICT_History,CLIENT_NO_EVICT_tips,clientCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_NO_EVICT_Args,.reply_schema=&CLIENT_NO_EVICT_ReplySchema},
+{"pause","Stop processing commands from clients for some time","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,CLIENT_PAUSE_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_PAUSE_Args,.reply_schema=&CLIENT_PAUSE_ReplySchema},
 {"reply","Instruct the server whether to reply to commands","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,CLIENT_REPLY_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_REPLY_Args},
-{"setname","Set the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,CLIENT_SETNAME_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETNAME_Args},
-{"tracking","Enable or disable server assisted client side caching support","O(1). Some options may introduce additional complexity.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_History,CLIENT_TRACKING_tips,clientCommand,-3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_TRACKING_Args},
+{"setname","Set the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,CLIENT_SETNAME_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETNAME_Args,.reply_schema=&CLIENT_SETNAME_ReplySchema},
+{"tracking","Enable or disable server assisted client side caching support","O(1). Some options may introduce additional complexity.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_History,CLIENT_TRACKING_tips,clientCommand,-3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_TRACKING_Args,.reply_schema=&CLIENT_TRACKING_ReplySchema},
 {"trackinginfo","Return information about server assisted client side caching for the current connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_History,CLIENT_TRACKINGINFO_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
 {"unblock","Unblock a client blocked in a blocking command from a different connection","O(log N) where N is the number of client connections","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_UNBLOCK_History,CLIENT_UNBLOCK_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_UNBLOCK_Args},
-{"unpause","Resume processing of clients that were paused","O(N) Where N is the number of paused clients","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_UNPAUSE_History,CLIENT_UNPAUSE_tips,clientCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
+{"unpause","Resume processing of clients that were paused","O(N) Where N is the number of paused clients","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_UNPAUSE_History,CLIENT_UNPAUSE_tips,clientCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.reply_schema=&CLIENT_UNPAUSE_ReplySchema},
 {0}
 };
 
@@ -1271,6 +1345,13 @@ struct jsonObject PING_ReplySchema = {PING_ReplySchema_elements,.length=1};
 /* QUIT tips */
 #define QUIT_tips NULL
 
+/* QUIT_ReplySchema reply schema */
+struct jsonObjectElement QUIT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject QUIT_ReplySchema = {QUIT_ReplySchema_elements,.length=1};
+
 /********** RESET ********************/
 
 /* RESET history */
@@ -1278,6 +1359,13 @@ struct jsonObject PING_ReplySchema = {PING_ReplySchema_elements,.length=1};
 
 /* RESET tips */
 #define RESET_tips NULL
+
+/* RESET_ReplySchema reply schema */
+struct jsonObjectElement RESET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="RESET"},
+};
+
+struct jsonObject RESET_ReplySchema = {RESET_ReplySchema_elements,.length=1};
 
 /********** SELECT ********************/
 
@@ -2189,6 +2277,15 @@ struct redisCommandArg TOUCH_Args[] = {
 {0}
 };
 
+/* TOUCH_ReplySchema reply schema */
+struct jsonObjectElement TOUCH_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of touched keys"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject TOUCH_ReplySchema = {TOUCH_ReplySchema_elements,.length=3};
+
 /********** TTL ********************/
 
 /* TTL history */
@@ -2269,6 +2366,15 @@ struct redisCommandArg UNLINK_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* UNLINK_ReplySchema reply schema */
+struct jsonObjectElement UNLINK_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of keys that were unlinked"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject UNLINK_ReplySchema = {UNLINK_ReplySchema_elements,.length=3};
 
 /********** WAIT ********************/
 
@@ -6342,6 +6448,33 @@ struct redisCommandArg BGSAVE_Args[] = {
 {0}
 };
 
+/* BGSAVE_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement BGSAVE_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="Background saving started"},
+};
+
+struct jsonObject BGSAVE_ReplySchema_oneOf_0 = {BGSAVE_ReplySchema_oneOf_0_elements,.length=1};
+
+/* BGSAVE_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement BGSAVE_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="Background saving scheduled"},
+};
+
+struct jsonObject BGSAVE_ReplySchema_oneOf_1 = {BGSAVE_ReplySchema_oneOf_1_elements,.length=1};
+
+/* BGSAVE_ReplySchema_oneOf array reply schema */
+struct jsonObject *BGSAVE_ReplySchema_oneOf[] = {
+&BGSAVE_ReplySchema_oneOf_0,
+&BGSAVE_ReplySchema_oneOf_1,
+};
+
+/* BGSAVE_ReplySchema reply schema */
+struct jsonObjectElement BGSAVE_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=BGSAVE_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject BGSAVE_ReplySchema = {BGSAVE_ReplySchema_elements,.length=1};
+
 /********** COMMAND COUNT ********************/
 
 /* COMMAND COUNT history */
@@ -6425,6 +6558,418 @@ struct redisCommandArg COMMAND_INFO_Args[] = {
 {0}
 };
 
+/* COMMAND_INFO_ReplySchema_items_oneOf_0 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command does not exist"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_0 = {COMMAND_INFO_ReplySchema_items_oneOf_0_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_0 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_0 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_0_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_1 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command arity"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_1 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_1_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_2_items reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_2_items_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command flag"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_2_items = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_2_items_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_2 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command flags"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_2_items},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_2 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_2_elements,.length=3};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_3 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_3_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command first key index"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_3 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_3_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_4 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_4_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command last key index"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_4 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_4_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_5 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_5_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command key step index"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_5 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_5_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_6_items reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_6_items_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command category"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_6_items = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_6_items_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_6 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_6_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command categories"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_6_items},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_6 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_6_elements,.length=3};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_7_items reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_7_items_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command tip"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_7_items = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_7_items_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_7 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_7_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command tips"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_7_items},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_7 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_7_elements,.length=3};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_notes reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_notes_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_notes = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_notes_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_items reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_items = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_items_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_type reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_type_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_type = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_type_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_0 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="unknown type, empty map"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_STRING,"additionalProperties",.value.string="false"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_0 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_0_elements,.length=3};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_properties_index reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_properties_index_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_properties_index = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_properties_index_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_properties reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_properties_elements[] = {
+{JSON_TYPE_OBJECT,"index",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_properties_index},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_properties = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_properties_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="index type"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_properties},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1_elements,.length=4};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_keyword reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_keyword_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_keyword = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_keyword_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_startsfrom reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_startsfrom_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_startsfrom = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_startsfrom_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_elements[] = {
+{JSON_TYPE_OBJECT,"keyword",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_keyword},
+{JSON_TYPE_OBJECT,"startsfrom",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_startsfrom},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="keyword type"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_properties},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2_elements,.length=4};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf array reply schema */
+struct jsonObject *COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf[] = {
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_0,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_1,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_2,
+};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf,.length=3}},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_elements[] = {
+{JSON_TYPE_OBJECT,"type",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_type},
+{JSON_TYPE_OBJECT,"spec",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_0 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="unknown type"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_0 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_0_elements,.length=3};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_lastkey reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_lastkey_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_lastkey = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_lastkey_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_keystep reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_keystep_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_keystep = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_keystep_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_limit reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_limit_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_limit = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_limit_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_elements[] = {
+{JSON_TYPE_OBJECT,"lastkey",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_lastkey},
+{JSON_TYPE_OBJECT,"keystep",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_keystep},
+{JSON_TYPE_OBJECT,"limit",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_limit},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties_elements,.length=3};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="range type"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_properties},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1_elements,.length=4};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_keynumidx reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_keynumidx_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_keynumidx = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_keynumidx_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_firstkey reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_firstkey_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_firstkey = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_firstkey_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_keystep reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_keystep_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_keystep = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_keystep_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_elements[] = {
+{JSON_TYPE_OBJECT,"keynumidx",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_keynumidx},
+{JSON_TYPE_OBJECT,"firstkey",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_firstkey},
+{JSON_TYPE_OBJECT,"keystep",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_keystep},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties_elements,.length=3};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="keynum type"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_properties},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2_elements,.length=4};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf array reply schema */
+struct jsonObject *COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf[] = {
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_0,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_1,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_2,
+};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf,.length=3}},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_elements[] = {
+{JSON_TYPE_OBJECT,"spec",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_elements,.length=3};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_items},
+{JSON_TYPE_OBJECT,"begin_search",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search},
+{JSON_TYPE_OBJECT,"find_keys",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_elements,.length=4};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_elements[] = {
+{JSON_TYPE_OBJECT,"notes",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_notes},
+{JSON_TYPE_OBJECT,"flags",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_elements,.length=2};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command key specs"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_elements,.length=3};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1_items array reply schema */
+struct jsonObject *COMMAND_INFO_ReplySchema_items_oneOf_1_items[] = {
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_0,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_1,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_2,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_3,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_4,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_5,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_6,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_7,
+&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8,
+};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf_1 reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command info array output"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=COMMAND_INFO_ReplySchema_items_oneOf_1_items,.length=9}},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1 = {COMMAND_INFO_ReplySchema_items_oneOf_1_elements,.length=3};
+
+/* COMMAND_INFO_ReplySchema_items_oneOf array reply schema */
+struct jsonObject *COMMAND_INFO_ReplySchema_items_oneOf[] = {
+&COMMAND_INFO_ReplySchema_items_oneOf_0,
+&COMMAND_INFO_ReplySchema_items_oneOf_1,
+};
+
+/* COMMAND_INFO_ReplySchema_items reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=COMMAND_INFO_ReplySchema_items_oneOf,.length=2}},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema_items = {COMMAND_INFO_ReplySchema_items_elements,.length=1};
+
+/* COMMAND_INFO_ReplySchema reply schema */
+struct jsonObjectElement COMMAND_INFO_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_INFO_ReplySchema_items},
+};
+
+struct jsonObject COMMAND_INFO_ReplySchema = {COMMAND_INFO_ReplySchema_elements,.length=2};
+
 /********** COMMAND LIST ********************/
 
 /* COMMAND LIST history */
@@ -6450,6 +6995,23 @@ struct redisCommandArg COMMAND_LIST_Args[] = {
 {0}
 };
 
+/* COMMAND_LIST_ReplySchema_items reply schema */
+struct jsonObjectElement COMMAND_LIST_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_LIST_ReplySchema_items = {COMMAND_LIST_ReplySchema_items_elements,.length=2};
+
+/* COMMAND_LIST_ReplySchema reply schema */
+struct jsonObjectElement COMMAND_LIST_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_LIST_ReplySchema_items},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+};
+
+struct jsonObject COMMAND_LIST_ReplySchema = {COMMAND_LIST_ReplySchema_elements,.length=3};
+
 /* COMMAND command table */
 struct redisCommand COMMAND_Subcommands[] = {
 {"count","Get total number of Redis commands","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_COUNT_History,COMMAND_COUNT_tips,commandCountCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
@@ -6457,8 +7019,8 @@ struct redisCommand COMMAND_Subcommands[] = {
 {"getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYS_History,COMMAND_GETKEYS_tips,commandGetKeysCommand,-3,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_GETKEYS_Args},
 {"getkeysandflags","Extract keys and access flags given a full Redis command","O(N) where N is the number of arguments to the command","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYSANDFLAGS_History,COMMAND_GETKEYSANDFLAGS_tips,commandGetKeysAndFlagsCommand,-3,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_GETKEYSANDFLAGS_Args},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_History,COMMAND_HELP_tips,commandHelpCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
-{"info","Get array of specific Redis command details, or all when no argument is given.","O(N) where N is the number of commands to look up","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_INFO_History,COMMAND_INFO_tips,commandInfoCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_INFO_Args},
-{"list","Get an array of Redis command names","O(N) where N is the total number of Redis commands","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_History,COMMAND_LIST_tips,commandListCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_LIST_Args},
+{"info","Get array of specific Redis command details, or all when no argument is given.","O(N) where N is the number of commands to look up","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_INFO_History,COMMAND_INFO_tips,commandInfoCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_INFO_Args,.reply_schema=&COMMAND_INFO_ReplySchema},
+{"list","Get an array of Redis command names","O(N) where N is the total number of Redis commands","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_History,COMMAND_LIST_tips,commandListCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_LIST_Args,.reply_schema=&COMMAND_LIST_ReplySchema},
 {0}
 };
 
@@ -6536,6 +7098,13 @@ struct jsonObject CONFIG_RESETSTAT_ReplySchema = {CONFIG_RESETSTAT_ReplySchema_e
 /* CONFIG REWRITE tips */
 #define CONFIG_REWRITE_tips NULL
 
+/* CONFIG_REWRITE_ReplySchema reply schema */
+struct jsonObjectElement CONFIG_REWRITE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject CONFIG_REWRITE_ReplySchema = {CONFIG_REWRITE_ReplySchema_elements,.length=1};
+
 /********** CONFIG SET ********************/
 
 /* CONFIG SET history */
@@ -6576,7 +7145,7 @@ struct redisCommand CONFIG_Subcommands[] = {
 {"get","Get the values of configuration parameters","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_GET_History,CONFIG_GET_tips,configGetCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=CONFIG_GET_Args,.reply_schema=&CONFIG_GET_ReplySchema},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_HELP_History,CONFIG_HELP_tips,configHelpCommand,2,CMD_LOADING|CMD_STALE,0},
 {"resetstat","Reset the stats returned by INFO","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,CONFIG_RESETSTAT_tips,configResetStatCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.reply_schema=&CONFIG_RESETSTAT_ReplySchema},
-{"rewrite","Rewrite the configuration file with the in memory configuration","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,CONFIG_REWRITE_tips,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
+{"rewrite","Rewrite the configuration file with the in memory configuration","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,CONFIG_REWRITE_tips,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.reply_schema=&CONFIG_REWRITE_ReplySchema},
 {"set","Set configuration parameters to the given values","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_SET_History,CONFIG_SET_tips,configSetCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=CONFIG_SET_Args,.reply_schema=&CONFIG_SET_ReplySchema},
 {0}
 };
@@ -7174,6 +7743,13 @@ struct redisCommandArg RESTORE_ASKING_Args[] = {
 /* SAVE tips */
 #define SAVE_tips NULL
 
+/* SAVE_ReplySchema reply schema */
+struct jsonObjectElement SAVE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SAVE_ReplySchema = {SAVE_ReplySchema_elements,.length=1};
+
 /********** SHUTDOWN ********************/
 
 /* SHUTDOWN history */
@@ -7200,6 +7776,14 @@ struct redisCommandArg SHUTDOWN_Args[] = {
 {"abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,"7.0.0",CMD_ARG_OPTIONAL},
 {0}
 };
+
+/* SHUTDOWN_ReplySchema reply schema */
+struct jsonObjectElement SHUTDOWN_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="OK if ABORT was specified and shutdown was aborted. On successful shutdown, nothing is returned since the server quits and the connection is closed. On failure, an error is returned."},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SHUTDOWN_ReplySchema = {SHUTDOWN_ReplySchema_elements,.length=2};
 
 /********** SLAVEOF ********************/
 
@@ -9791,62 +10375,70 @@ struct redisCommandArg XINFO_STREAM_Args[] = {
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_length reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_length_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of entries in the stream (see `XLEN`)"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_length = {XINFO_STREAM_ReplySchema_oneOf_0_properties_length_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_length = {XINFO_STREAM_ReplySchema_oneOf_0_properties_length_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of keys in the underlying radix data structure"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_keys_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of nodes in the underlying radix data structure"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_0_properties_radix_tree_nodes_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the ID of the least-recently entry that was added to the stream"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_generated_id_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the maximal entry ID that was deleted from the stream"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_max_deleted_entry_id_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="cached copy of the first entry ID"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id = {XINFO_STREAM_ReplySchema_oneOf_0_properties_recorded_first_entry_id_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the count of all entries added to the stream during its lifetime"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_0_properties_entries_added_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_groups reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_groups_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of consumer groups defined for the stream"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_groups = {XINFO_STREAM_ReplySchema_oneOf_0_properties_groups_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_groups = {XINFO_STREAM_ReplySchema_oneOf_0_properties_groups_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_0_elements[] = {
@@ -9857,7 +10449,7 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Entry ID"},
+{JSON_TYPE_STRING,"description",.value.string="entry ID"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
@@ -9873,7 +10465,7 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Data"},
+{JSON_TYPE_STRING,"description",.value.string="data"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf_1_items_1_items},
 };
@@ -9904,10 +10496,11 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the first entry of the stream"},
 {JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_oneOf,.length=2}},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry = {XINFO_STREAM_ReplySchema_oneOf_0_properties_first_entry_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0_elements[] = {
@@ -9918,7 +10511,7 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_0
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Entry ID"},
+{JSON_TYPE_STRING,"description",.value.string="entry ID"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
@@ -9934,7 +10527,7 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Data"},
+{JSON_TYPE_STRING,"description",.value.string="data"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf_1_items_1_items},
 };
@@ -9965,10 +10558,11 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf[
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the last entry of the stream"},
 {JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_oneOf,.length=2}},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry = {XINFO_STREAM_ReplySchema_oneOf_0_properties_last_entry_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_elements[] = {
@@ -9998,59 +10592,66 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_0 = {XINFO_STREAM_ReplySchema_o
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_length reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_length_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of entries in the stream (see `XLEN`)"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_length = {XINFO_STREAM_ReplySchema_oneOf_1_properties_length_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_length = {XINFO_STREAM_ReplySchema_oneOf_1_properties_length_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of keys in the underlying radix data structure"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_keys_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of nodes in the underlying radix data structure"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_1_properties_radix_tree_nodes_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the ID of the least-recently entry that was added to the stream"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_last_generated_id_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the maximal entry ID that was deleted from the stream"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_max_deleted_entry_id_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="cached copy of the first entry ID"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_recorded_first_entry_id_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the count of all entries added to the stream during its lifetime"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_added_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Entry ID"},
+{JSON_TYPE_STRING,"description",.value.string="entry ID"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
@@ -10066,7 +10667,7 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_item
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Data"},
+{JSON_TYPE_STRING,"description",.value.string="data"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items_items_1_items},
 };
@@ -10091,27 +10692,30 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items = {X
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_entries reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="all the entries of the stream"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
 {JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_items},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_elements,.length=3};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_entries = {XINFO_STREAM_ReplySchema_oneOf_1_properties_entries_elements,.length=4};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="group name"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_name_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="last entry ID that was delivered to a consumer"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_last_delivered_id_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf_0_elements[] = {
@@ -10135,10 +10739,11 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_prop
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="total number of entries ever read by consumers in the group"},
 {JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_oneOf,.length=2}},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_entries_read_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf_0_elements[] = {
@@ -10162,17 +10767,19 @@ struct jsonObject *XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_prop
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="number of entries left to be consumed from the stream"},
 {JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_oneOf,.length=2}},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_lag_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="total number of unacknowledged entries"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pel_count_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items_items_0_elements[] = {
@@ -10227,32 +10834,36 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_prope
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="data about all of the unacknowledged entries"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_items},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_pending_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="consumer name"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_name_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="timestamp of the last interaction attempt of the consumer"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_seen_time_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="number of unacknowledged entries that belong to the consumer"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count_elements,.length=1};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pel_count_elements,.length=2};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_0 reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items_items_0_elements[] = {
@@ -10298,11 +10909,12 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_prope
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="data about the unacknowledged entries"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_items},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_pending_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties_elements[] = {
@@ -10324,11 +10936,12 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_prope
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="data about all of the consumers of the group"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_elements[] = {
@@ -11547,6 +12160,13 @@ struct redisCommandArg SUBSTR_Args[] = {
 /* DISCARD tips */
 #define DISCARD_tips NULL
 
+/* DISCARD_ReplySchema reply schema */
+struct jsonObjectElement DISCARD_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject DISCARD_ReplySchema = {DISCARD_ReplySchema_elements,.length=1};
+
 /********** EXEC ********************/
 
 /* EXEC history */
@@ -11600,6 +12220,13 @@ struct jsonObject EXEC_ReplySchema = {EXEC_ReplySchema_elements,.length=1};
 /* UNWATCH tips */
 #define UNWATCH_tips NULL
 
+/* UNWATCH_ReplySchema reply schema */
+struct jsonObjectElement UNWATCH_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject UNWATCH_ReplySchema = {UNWATCH_ReplySchema_elements,.length=1};
+
 /********** WATCH ********************/
 
 /* WATCH history */
@@ -11635,8 +12262,8 @@ struct redisCommand redisCommandTable[] = {
 {"echo","Echo the given string","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,ECHO_History,ECHO_tips,echoCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,.args=ECHO_Args},
 {"hello","Handshake with Redis","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,HELLO_History,HELLO_tips,helloCommand,-1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,.args=HELLO_Args},
 {"ping","Ping the server","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,PING_History,PING_tips,pingCommand,-1,CMD_FAST|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=PING_Args,.reply_schema=&PING_ReplySchema},
-{"quit","Close the connection","O(1)","1.0.0",CMD_DOC_DEPRECATED,"just closing the connection","7.2.0",COMMAND_GROUP_CONNECTION,QUIT_History,QUIT_tips,quitCommand,-1,CMD_ALLOW_BUSY|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH,ACL_CATEGORY_CONNECTION},
-{"reset","Reset the connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,RESET_History,RESET_tips,resetCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION},
+{"quit","Close the connection","O(1)","1.0.0",CMD_DOC_DEPRECATED,"just closing the connection","7.2.0",COMMAND_GROUP_CONNECTION,QUIT_History,QUIT_tips,quitCommand,-1,CMD_ALLOW_BUSY|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH,ACL_CATEGORY_CONNECTION,.reply_schema=&QUIT_ReplySchema},
+{"reset","Reset the connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,RESET_History,RESET_tips,resetCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,.reply_schema=&RESET_ReplySchema},
 {"select","Change the selected database for the current connection","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,SELECT_History,SELECT_tips,selectCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,.args=SELECT_Args,.reply_schema=&SELECT_ReplySchema},
 /* generic */
 {"copy","Copy a key","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,COPY_History,COPY_tips,copyCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=COPY_Args,.reply_schema=&COPY_ReplySchema},
@@ -11662,10 +12289,10 @@ struct redisCommand redisCommandTable[] = {
 {"scan","Incrementally iterate the keys space","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SCAN_History,SCAN_tips,scanCommand,-2,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,.args=SCAN_Args},
 {"sort","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_History,SORT_tips,sortCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}},{"For the optional STORE keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortGetKeys,.args=SORT_Args,.reply_schema=&SORT_ReplySchema},
 {"sort_ro","Sort the elements in a list, set or sorted set. Read-only variant of SORT.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_RO_History,SORT_RO_tips,sortroCommand,-2,CMD_READONLY,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortROGetKeys,.args=SORT_RO_Args,.reply_schema=&SORT_RO_ReplySchema},
-{"touch","Alters the last access time of a key(s). Returns the number of existing keys specified.","O(N) where N is the number of keys that will be touched.","3.2.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TOUCH_History,TOUCH_tips,touchCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=TOUCH_Args},
+{"touch","Alters the last access time of a key(s). Returns the number of existing keys specified.","O(N) where N is the number of keys that will be touched.","3.2.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TOUCH_History,TOUCH_tips,touchCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=TOUCH_Args,.reply_schema=&TOUCH_ReplySchema},
 {"ttl","Get the time to live for a key in seconds","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TTL_History,TTL_tips,ttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TTL_Args},
 {"type","Determine the type stored at key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TYPE_History,TYPE_tips,typeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TYPE_Args,.reply_schema=&TYPE_ReplySchema},
-{"unlink","Delete a key asynchronously in another thread. Otherwise it is just as DEL, but non blocking.","O(1) for each key removed regardless of its size. Then the command does O(N) work in a different thread in order to reclaim memory, where N is the number of allocations the deleted objects where composed of.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,UNLINK_History,UNLINK_tips,unlinkCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RM|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=UNLINK_Args},
+{"unlink","Delete a key asynchronously in another thread. Otherwise it is just as DEL, but non blocking.","O(1) for each key removed regardless of its size. Then the command does O(N) work in a different thread in order to reclaim memory, where N is the number of allocations the deleted objects where composed of.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,UNLINK_History,UNLINK_tips,unlinkCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RM|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=UNLINK_Args,.reply_schema=&UNLINK_ReplySchema},
 {"wait","Wait for the synchronous replication of all the write commands sent in the context of the current connection","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,WAIT_History,WAIT_tips,waitCommand,3,CMD_NOSCRIPT,ACL_CATEGORY_CONNECTION,.args=WAIT_Args},
 /* geo */
 {"geoadd","Add one or more geospatial items in the geospatial index represented using a sorted set","O(log(N)) for each item added, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GEO,GEOADD_History,GEOADD_tips,geoaddCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOADD_Args,.reply_schema=&GEOADD_ReplySchema},
@@ -11748,7 +12375,7 @@ struct redisCommand redisCommandTable[] = {
 /* server */
 {"acl","A container for Access List Control commands ","Depends on subcommand.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_History,ACL_tips,NULL,-2,CMD_SENTINEL,0,.subcommands=ACL_Subcommands},
 {"bgrewriteaof","Asynchronously rewrite the append-only file","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,BGREWRITEAOF_History,BGREWRITEAOF_tips,bgrewriteaofCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT,0,.reply_schema=&BGREWRITEAOF_ReplySchema},
-{"bgsave","Asynchronously save the dataset to disk","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,BGSAVE_History,BGSAVE_tips,bgsaveCommand,-1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT,0,.args=BGSAVE_Args},
+{"bgsave","Asynchronously save the dataset to disk","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,BGSAVE_History,BGSAVE_tips,bgsaveCommand,-1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT,0,.args=BGSAVE_Args,.reply_schema=&BGSAVE_ReplySchema},
 {"command","Get array of Redis command details","O(N) where N is the total number of Redis commands","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_History,COMMAND_tips,commandCommand,-1,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.subcommands=COMMAND_Subcommands},
 {"config","A container for server configuration commands","Depends on subcommand.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_History,CONFIG_tips,NULL,-2,0,0,.subcommands=CONFIG_Subcommands},
 {"dbsize","Return the number of keys in the selected database","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,DBSIZE_History,DBSIZE_tips,dbsizeCommand,1,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,.reply_schema=&DBSIZE_ReplySchema},
@@ -11768,8 +12395,8 @@ struct redisCommand redisCommandTable[] = {
 {"replicaof","Make the server a replica of another instance, or promote it as master.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,REPLICAOF_History,REPLICAOF_tips,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=REPLICAOF_Args,.reply_schema=&REPLICAOF_ReplySchema},
 {"restore-asking","An internal command for migrating keys in a cluster","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_SERVER,RESTORE_ASKING_History,RESTORE_ASKING_tips,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_ASKING,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RESTORE_ASKING_Args},
 {"role","Return the role of the instance in the context of replication","O(1)","2.8.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ROLE_History,ROLE_tips,roleCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_SENTINEL,ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS},
-{"save","Synchronously save the dataset to disk","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SAVE_History,SAVE_tips,saveCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_NO_MULTI,0},
-{"shutdown","Synchronously save the dataset to disk and then shut down the server","O(N) when saving, where N is the total number of keys in all databases when saving data, otherwise O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SHUTDOWN_History,SHUTDOWN_tips,shutdownCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_NO_MULTI|CMD_SENTINEL|CMD_ALLOW_BUSY,0,.args=SHUTDOWN_Args},
+{"save","Synchronously save the dataset to disk","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SAVE_History,SAVE_tips,saveCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_NO_MULTI,0,.reply_schema=&SAVE_ReplySchema},
+{"shutdown","Synchronously save the dataset to disk and then shut down the server","O(N) when saving, where N is the total number of keys in all databases when saving data, otherwise O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SHUTDOWN_History,SHUTDOWN_tips,shutdownCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_NO_MULTI|CMD_SENTINEL|CMD_ALLOW_BUSY,0,.args=SHUTDOWN_Args,.reply_schema=&SHUTDOWN_ReplySchema},
 {"slaveof","Make the server a replica of another instance, or promote it as master.","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`REPLICAOF`","5.0.0",COMMAND_GROUP_SERVER,SLAVEOF_History,SLAVEOF_tips,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=SLAVEOF_Args,.reply_schema=&SLAVEOF_ReplySchema},
 {"slowlog","A container for slow log commands","Depends on subcommand.","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_History,SLOWLOG_tips,NULL,-2,0,0,.subcommands=SLOWLOG_Subcommands},
 {"swapdb","Swaps two Redis databases","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SWAPDB_History,SWAPDB_tips,swapdbCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=SWAPDB_Args,.reply_schema=&SWAPDB_ReplySchema},
@@ -11869,10 +12496,10 @@ struct redisCommand redisCommandTable[] = {
 {"strlen","Get the length of the value stored in a key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,STRLEN_History,STRLEN_tips,strlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=STRLEN_Args},
 {"substr","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","1.0.0",CMD_DOC_DEPRECATED,"`GETRANGE`","2.0.0",COMMAND_GROUP_STRING,SUBSTR_History,SUBSTR_tips,getrangeCommand,4,CMD_READONLY,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SUBSTR_Args},
 /* transactions */
-{"discard","Discard all commands issued after MULTI","O(N), when N is the number of queued commands","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,DISCARD_History,DISCARD_tips,discardCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION},
+{"discard","Discard all commands issued after MULTI","O(N), when N is the number of queued commands","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,DISCARD_History,DISCARD_tips,discardCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,.reply_schema=&DISCARD_ReplySchema},
 {"exec","Execute all commands issued after MULTI","Depends on commands in the transaction","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,EXEC_History,EXEC_tips,execCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SKIP_SLOWLOG,ACL_CATEGORY_TRANSACTION,.reply_schema=&EXEC_ReplySchema},
 {"multi","Mark the start of a transaction block","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,MULTI_History,MULTI_tips,multiCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION},
-{"unwatch","Forget about all watched keys","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,UNWATCH_History,UNWATCH_tips,unwatchCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION},
+{"unwatch","Forget about all watched keys","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,UNWATCH_History,UNWATCH_tips,unwatchCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,.reply_schema=&UNWATCH_ReplySchema},
 {"watch","Watch the given keys to determine execution of the MULTI/EXEC block","O(1) for every key.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,WATCH_History,WATCH_tips,watchCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=WATCH_Args},
 {0}
 };

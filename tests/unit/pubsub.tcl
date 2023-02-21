@@ -21,6 +21,10 @@ start_server {tags {"pubsub network"}} {
             # While subscribed to non-zero channels PING works in Pub/Sub mode.
             $rd1 ping
             $rd1 ping "foo"
+            # In RESP3, the SUBSCRIBEd client can issue any command and get a reply, so the PINGs are standard
+            # In RESP2, only a handful of commands are allowed after a client is SUBSCRIBED (PING is one of them).
+            # For some reason, the reply in that case is an array with two elements: "pong"  and argv[1] or an empty string
+            # God knows why. Done in commit 2264b981
             if {$resp == 3} {
                 assert_equal {PONG} [$rd1 read]
                 assert_equal {foo} [$rd1 read]

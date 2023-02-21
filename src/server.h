@@ -1100,6 +1100,9 @@ typedef struct {
     size_t mem_usage_sum;
 } clientMemUsageBucket;
 
+#ifdef LOG_REQ_RES
+/* Structure used to log client's requests and their
+ * responses (see logreqres.c) */
 typedef struct {
     /* General */
     int argv_logged; /* 1 if the command was logged */
@@ -1120,6 +1123,7 @@ typedef struct {
         } last_node;
     } offset;
 } clientReqResInfo;
+#endif
 
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
@@ -1232,8 +1236,9 @@ typedef struct client {
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
-
+#ifdef LOG_REQ_RES
     clientReqResInfo reqres;
+#endif
 } client;
 
 /* ACL information */

@@ -3540,6 +3540,7 @@ void processClientsWaitingReplicas(void) {
         if (last_offset && last_offset >= c->bstate.reploffset &&
                            last_numreplicas >= c->bstate.numreplicas)
         {
+            /* Reply before unblocking, because unblock client calls reqresAppendResponse */
             addReplyLongLong(c,last_numreplicas);
             unblockClient(c);
         } else {
@@ -3548,6 +3549,7 @@ void processClientsWaitingReplicas(void) {
             if (numreplicas >= c->bstate.numreplicas) {
                 last_offset = c->bstate.reploffset;
                 last_numreplicas = numreplicas;
+                /* Reply before unblocking, because unblock client calls reqresAppendResponse */
                 addReplyLongLong(c,numreplicas);
                 unblockClient(c);
             }

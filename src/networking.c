@@ -395,6 +395,8 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
         return;
     }
 
+    /* We call it here because this function may affect the reply
+     * buffer offset (see function comment) */
     reqresSaveClientReplyOffset(c);
 
     size_t reply_len = _addReplyToBuffer(c,s,len);
@@ -721,6 +723,8 @@ void *addReplyDeferredLen(client *c) {
         return NULL;
     }
 
+    /* We call it here because this function conceptually affects the reply
+     * buffer offset (see function comment) */
     reqresSaveClientReplyOffset(c);
 
     trimReplyUnusedTailSpace(c);
