@@ -742,6 +742,44 @@ start_server {tags {"tracking network"}} {
         assert_equal {} $prefixes
     }
 
+    test {Regression test for #11715} {
+        # This issue manifests when a client invalidates keys through the max key
+        # limit, which invalidates keys to get Redis below the limit, but no command is
+        # then executed. This can occur in several ways but the simplest is through 
+        # multi-exec which queues commands.
+        clean_all
+        r config set tracking-table-max-keys 2
+
+        # The cron will invalidate keys if we're above the limit, so disable it.
+        r debug pause-cron 1
+
+        # Set up a client that has listened to 2 keys and start a multi, this
+        # sets up the crash for later.
+        $rd HELLO 3
+        $rd read
+        $rd CLIENT TRACKING on
+        assert_match "OK" [$rd read]
+        $rd mget "1{tag}" "2{tag}"
+        assert_match "{} {}" [$rd read]
+        $rd multi
+        assert_match "OK" [$rd read]
+
+        # Reduce the tracking table keys to 1, this doesn't immediately take affect, but
+        # instead will apply on the next command.
+        r config set tracking-table-max-keys 1
+
+        # This command will get queued, so make sure this command doesn't crash.
+        $rd ping
+        $rd exec
+
+        # Validate we got some invalidation message and then the command was queued.
+        assert_match "invalidate *{tag}" [$rd read]
+        assert_match "QUEUED" [$rd read]
+        assert_match "PONG" [$rd read]
+
+        r debug pause-cron 0
+    } {OK} {needs:debug}
+
     $rd_redirection close
     $rd close
 }
