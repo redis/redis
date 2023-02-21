@@ -257,7 +257,7 @@ CallReply* callReplyCreatePromise(RedisModule *module) {
     res->val.promise.module = module;
     res->val.promise.on_unblocked = NULL;
     res->val.promise.private_data = NULL;
-    /* Marked the reply as parsed so there will be not attempt to parse
+    /* Mark the reply as parsed so there will be not attempt to parse
      * it when calling reply API such as freeCallReply.
      * Also mark the reply as root so freeCallReply will not ignore it. */
     res->flags |= REPLY_FLAG_PARSED | REPLY_FLAG_ROOT;

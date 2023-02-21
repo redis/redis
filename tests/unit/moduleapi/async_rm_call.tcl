@@ -142,11 +142,13 @@ start_server {tags {"modules"}} {
 
     test {Pipeline with blocking RM_Call} {
         set rd [redis_deferring_client]
-        $rd do_rm_call_async blpop l 0
+        set buf ""
+        append buf "do_rm_call_async blpop l 0\r\n"
+        append buf "ping\r\n"
+        $rd write $buf
+        $rd flush
         wait_for_blocked_client
 
-        # run another command
-        $rd ping
 
         # release the blocked client
         r lpush l 1
