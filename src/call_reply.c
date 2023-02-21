@@ -264,11 +264,16 @@ CallReply* callReplyCreatePromise(RedisModule *module) {
     return res;
 }
 
-void callReplyPromiseGetUnblockHandler(CallReply *rep, RedisModule **module, RedisModuleOnUnblocked *on_unblock, void **private_data) {
-    if (rep->type != REDISMODULE_REPLY_PROMISE) return;
+/*
+ * Return the promise on unblock handler.
+ * The function handler is the return value, the module and the private data are returned as an out params.
+ * Return NULL in case the CallReply is not of REDISMODULE_REPLY_PROMISE type.
+ */
+RedisModuleOnUnblocked callReplyPromiseGetUnblockHandler(CallReply *rep, RedisModule **module, void **private_data) {
+    if (rep->type != REDISMODULE_REPLY_PROMISE) return NULL;
     *module = rep->val.promise.module;
-    *on_unblock = rep->val.promise.on_unblocked;
     *private_data = rep->val.promise.private_data;
+    return rep->val.promise.on_unblocked;
 }
 
 void callReplyPromiseSetUnblockHandler(CallReply *rep, RedisModuleOnUnblocked on_unblock, void *private_data) {

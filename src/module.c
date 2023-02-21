@@ -807,9 +807,8 @@ void moduleCallCommandUnblockedHandler(client *c) {
     CallReply *promise = c->bstate.async_rm_call_handle;
     serverAssert(promise);
     RedisModule *module = NULL;
-    RedisModuleOnUnblocked on_unblock = NULL;
     void *private_data = NULL;
-    callReplyPromiseGetUnblockHandler(promise, &module, &on_unblock, &private_data);
+    RedisModuleOnUnblocked on_unblock = callReplyPromiseGetUnblockHandler(promise, &module, &private_data);
     if (!on_unblock) {
         moduleReleaseTempClient(c);
         return; /* module did not set any unblock callback. */
