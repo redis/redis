@@ -271,7 +271,7 @@ if __name__ == '__main__':
     counter = collections.Counter()
     missing_schema = set()
 
-    # Spin several proccesses to handle the files in parallel
+    # Spin several processes to handle the files in parallel
     with multiprocessing.Pool(multiprocessing.cpu_count()) as pool:
         func = partial(process_file, docs)
         # pool.map blocks until all the files have been processed
