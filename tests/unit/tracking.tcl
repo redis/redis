@@ -755,11 +755,11 @@ start_server {tags {"tracking network"}} {
         $rd HELLO 3
         $rd read
         $rd CLIENT TRACKING on
-        $rd read
+        assert_match "OK" [$rd read]
         $rd mget "1{tag}" "2{tag}"
-        $rd read
+        assert_match "{} {}" [$rd read]
         $rd multi
-        $rd read
+        assert_match "OK" [$rd read]
 
         # Reduce the tracking table keys to 1, this doesn't immediately take affect, but
         # instead will apply on the next command.
@@ -772,6 +772,7 @@ start_server {tags {"tracking network"}} {
         # Validate we got some invalidation message and then the command was queued.
         assert_match "invalidate *{tag}" [$rd read]
         assert_match "QUEUED" [$rd read]
+        assert_match "PONG" [$rd read]
 
         r debug pause-cron 0
     } {OK} {needs:debug}
