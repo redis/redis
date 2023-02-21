@@ -11825,15 +11825,8 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 }
 
 /* Unload the module registered with the specified name. On success
- * C_OK is returned, otherwise C_ERR is returned and errno is set
- * to the following values depending on the type of error:
- *
- * * ENONET: No such module having the specified name.
- * * EBUSY: The module exports a new data type and can only be reloaded. 
- * * EPERM: The module exports APIs which are used by other module. 
- * * EAGAIN: The module has blocked clients. 
- * * EINPROGRESS: The module holds timer not fired.
- * * ECANCELED: Unload module error.  */
+ * C_OK is returned, otherwise C_ERR is returned and errmsg is set
+ * with an appropriate message. */
 int moduleUnload(sds name, const char **errmsg) {
     struct RedisModule *module = dictFetchValue(modules,name);
 
