@@ -7570,11 +7570,9 @@ int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, c
 int checkModuleAuthentication(client *c, robj *username, robj *password, const char **err) {
     if (!listLength(moduleCustomAuthCallbacks)) return C_ERR;
     int result = attemptBlockedAuthReplyCallback(c, username, password, err);
-    if (result == REDISMODULE_AUTH_HANDLED) {
-        goto handle_result;
+    if (result == REDISMODULE_AUTH_NOT_HANDLED) {
+        result = attemptNextCustomAuthCb(c, username, password, err);
     }
-    result = attemptNextCustomAuthCb(c, username, password, err);
-handle_result:
     if (c->flags & CLIENT_BLOCKED) {
         /* Modules are expected to return REDISMODULE_AUTH_HANDLED when blocking clients. */
         serverAssert(result == REDISMODULE_AUTH_HANDLED);
