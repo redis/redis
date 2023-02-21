@@ -479,4 +479,10 @@ start_server {tags {"keyspace"}} {
         r keys *
         r keys *
     } {dlskeriewrioeuwqoirueioqwrueoqwrueqw}
+
+    test {Regression for pattern matching long nested loops} {
+        r flushdb
+        r SET aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1
+        r KEYS "a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*b"
+    } {}
 }
