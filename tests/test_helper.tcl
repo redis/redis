@@ -12,7 +12,6 @@ source tests/support/cluster_util.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
-source tests/support/response_transformers.tcl
 
 set ::all_tests {
     unit/printver
