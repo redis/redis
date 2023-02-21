@@ -487,7 +487,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
                           REDISMODULE_SUBEVENT_FLUSHDB_START,
                           &fi);
 
-   /* Make sure the WATCHed keys are affected by the FLUSH* commands.
+    /* Make sure the WATCHed keys are affected by the FLUSH* commands.
      * Note that we need to call the function while the keys are still
      * there. */
     signalFlushedDb(dbnum, async);
