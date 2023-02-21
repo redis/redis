@@ -554,6 +554,11 @@ start_server {
         r srandmember nonexisting_key 100
     } {}
 
+    test "SRANDMEMBER count overflow" {
+        r sadd myset a
+        assert_error {*value is out of range*} {r srandmember myset -9223372036854775808}
+    } {}
+
     foreach {type contents} {
         hashtable {
             1 5 10 50 125 50000 33959417 4775547 65434162

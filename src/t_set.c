@@ -626,6 +626,10 @@ void srandmemberWithCountCommand(client *c) {
     dict *d;
 
     if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
+    if (l<-LONG_MAX) {
+        addReplyError(c, "value is out of range");
+        return;
+    }
     if (l >= 0) {
         count = (unsigned long) l;
     } else {
