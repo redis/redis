@@ -393,10 +393,10 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
             continue;
         }
 
-        /* If target is current client, we need schedule key invalidation.
+        /* If target is current client and it's executing a command, we need schedule key invalidation.
          * As the invalidation messages may be interleaved with command
-         * response and should after command response */
-        if (target == server.current_client){
+         * response and should after command response. */
+        if (target == server.current_client && server.fixed_time_expire) {
             incrRefCount(keyobj);
             listAddNodeTail(server.tracking_pending_keys, keyobj);
         } else {
