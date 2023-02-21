@@ -242,6 +242,8 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
         moduleNotifyKeyUnlink(key,old,db->id,DB_FLAG_KEY_OVERWRITE);
         /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
         signalDeletedKeyAsReady(db,key,old->type);
+        /* Unsubscribe all clients subscribed to the old key. */
+        signalPublishStream(db, key, NULL, NULL);
         decrRefCount(old);
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetVal(de);
@@ -346,6 +348,8 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         moduleNotifyKeyUnlink(key,val,db->id,flags);
         /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
         signalDeletedKeyAsReady(db,key,val->type);
+        /* Unsubscribe all clients subscribed to the old key. */
+        signalPublishStream(db, key, NULL, NULL);
         /* We should call decr before freeObjAsync. If not, the refcount may be
          * greater than 1, so freeObjAsync doesn't work */
         decrRefCount(val);
@@ -1415,6 +1419,8 @@ void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
             signalDeletedKeyAsReady(emptied, key, original_type);
     }
     dictReleaseIterator(di);
+
+    // TODO: stream pubsub unsubscribe when no key in new db
 }
 
 /* Swap two databases at runtime so that all clients will magically see
@@ -2182,6 +2188,11 @@ int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(0, 2, 3, 1, argv, argc, result);
+}
+
+int xsubscribegroupGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 3, 4, 1, argv, argc, result);
 }
 
 /* Helper function to extract keys from the SORT RO command.
