@@ -74,6 +74,8 @@ start_server {tags {"hash"}} {
     test "HRANDFIELD count overflow" {
         r hmset myhash a 1
         assert_error {*value is out of range*} {r hrandfield myhash -9223372036854770000 withvalues}
+        assert_error {*value is out of range*} {r hrandfield myhash -9223372036854775808 withvalues}
+        assert_error {*value is out of range*} {r hrandfield myhash -9223372036854775808}
     } {}
 
     test "HRANDFIELD with <count> against non existing key" {
