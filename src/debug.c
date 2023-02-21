@@ -467,6 +467,8 @@ void debugCommand(client *c) {
 "    Return the size of different Redis core C structures.",
 "ZIPLIST <key>",
 "    Show low level info about the ziplist encoding of <key>.",
+"PAUSE-CRON <0|1>",
+"    Stop periodic cron job processing.",
 NULL
         };
         addReplyHelp(c, help);
@@ -887,6 +889,9 @@ NULL
         mallctl_string(c, c->argv+2, c->argc-2);
         return;
 #endif
+    } else if (!strcasecmp(c->argv[1]->ptr,"pause-cron") && c->argc == 3) {
+        server.pause_cron = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
