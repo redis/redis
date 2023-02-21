@@ -984,7 +984,7 @@ void srandmemberWithCountCommand(client *c) {
 
     dict *d;
 
-    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
+    if (getRangeLongFromObjectOrReply(c,c->argv[2],-LONG_MAX,LONG_MAX,&l,NULL) != C_OK) return;
     if (l >= 0) {
         count = (unsigned long) l;
     } else {
