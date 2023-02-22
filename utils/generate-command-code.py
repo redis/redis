@@ -240,9 +240,14 @@ class Argument(object):
             f.write("};\n\n")
 
 
+def to_c_name(str):
+    return str.replace(":", "").replace(".", "_").replace("$", "_")\
+        .replace("^", "_").replace("*", "_").replace("-", "_")
+
+
 class ReplySchema(object):
     def __init__(self, name, desc):
-        self.name = name.replace("-", "_").replace(":", "")
+        self.name = to_c_name(name)
         self.schema = {}
         for k, v in desc.items():
             if isinstance(v, dict):
@@ -280,7 +285,7 @@ class ReplySchema(object):
             elif isinstance(v, list):
                 for i, schema in enumerate(v):
                     schema.write(f)
-                name = ("%s_%s" % (self.name, k)).replace("-", "_").replace(":", "")
+                name = to_c_name("%s_%s" % (self.name, k))
                 f.write("/* %s array reply schema */\n" % name)
                 f.write("struct jsonObject *%s[] = {\n" % name)
                 for i, schema in enumerate(v):
@@ -290,7 +295,7 @@ class ReplySchema(object):
         f.write("/* %s reply schema */\n" % self.name)
         f.write("struct jsonObjectElement %s_elements[] = {\n" % self.name)
         for k, v in self.schema.items():
-            name = ("%s_%s" % (self.name, k)).replace("-", "_").replace(":", "")
+            name = to_c_name("%s_%s" % (self.name, k))
             f.write("{%s},\n" % struct_code(name, k, v))
         f.write("};\n\n")
         f.write("struct jsonObject %s = {%s_elements,.length=%d};\n\n" % (self.name, self.name, len(self.schema)))

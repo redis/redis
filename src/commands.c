@@ -7328,6 +7328,14 @@ const char *LATENCY_DOCTOR_tips[] = {
 NULL
 };
 
+/* LATENCY_DOCTOR_ReplySchema reply schema */
+struct jsonObjectElement LATENCY_DOCTOR_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="A human readable latency analysis report."},
+};
+
+struct jsonObject LATENCY_DOCTOR_ReplySchema = {LATENCY_DOCTOR_ReplySchema_elements,.length=2};
+
 /********** LATENCY GRAPH ********************/
 
 /* LATENCY GRAPH history */
@@ -7374,6 +7382,64 @@ struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
 {0}
 };
 
+/* LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_calls reply schema */
+struct jsonObjectElement LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_calls_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The total calls for the command."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_calls = {LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_calls_elements,.length=3};
+
+/* LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec_additionalProperties reply schema */
+struct jsonObjectElement LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec_additionalProperties_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec_additionalProperties = {LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec_additionalProperties_elements,.length=1};
+
+/* LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec reply schema */
+struct jsonObjectElement LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Histogram map."},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec_additionalProperties},
+};
+
+struct jsonObject LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec = {LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec_elements,.length=3};
+
+/* LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties reply schema */
+struct jsonObjectElement LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_elements[] = {
+{JSON_TYPE_OBJECT,"calls",.value.object=&LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_calls},
+{JSON_TYPE_OBJECT,"histogram_usec",.value.object=&LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec},
+};
+
+struct jsonObject LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties = {LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_elements,.length=2};
+
+/* LATENCY_HISTOGRAM_ReplySchema_patternProperties_____ reply schema */
+struct jsonObjectElement LATENCY_HISTOGRAM_ReplySchema_patternProperties______elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties},
+};
+
+struct jsonObject LATENCY_HISTOGRAM_ReplySchema_patternProperties_____ = {LATENCY_HISTOGRAM_ReplySchema_patternProperties______elements,.length=3};
+
+/* LATENCY_HISTOGRAM_ReplySchema_patternProperties reply schema */
+struct jsonObjectElement LATENCY_HISTOGRAM_ReplySchema_patternProperties_elements[] = {
+{JSON_TYPE_OBJECT,"^.*$",.value.object=&LATENCY_HISTOGRAM_ReplySchema_patternProperties_____},
+};
+
+struct jsonObject LATENCY_HISTOGRAM_ReplySchema_patternProperties = {LATENCY_HISTOGRAM_ReplySchema_patternProperties_elements,.length=1};
+
+/* LATENCY_HISTOGRAM_ReplySchema reply schema */
+struct jsonObjectElement LATENCY_HISTOGRAM_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_STRING,"description",.value.string="A map where each key is a command name, and each value is a map with the total calls, and an inner map of the histogram time buckets."},
+{JSON_TYPE_OBJECT,"patternProperties",.value.object=&LATENCY_HISTOGRAM_ReplySchema_patternProperties},
+};
+
+struct jsonObject LATENCY_HISTOGRAM_ReplySchema = {LATENCY_HISTOGRAM_ReplySchema_elements,.length=3};
+
 /********** LATENCY HISTORY ********************/
 
 /* LATENCY HISTORY history */
@@ -7393,6 +7459,31 @@ struct redisCommandArg LATENCY_HISTORY_Args[] = {
 {0}
 };
 
+/* LATENCY_HISTORY_ReplySchema_items_items reply schema */
+struct jsonObjectElement LATENCY_HISTORY_ReplySchema_items_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject LATENCY_HISTORY_ReplySchema_items_items = {LATENCY_HISTORY_ReplySchema_items_items_elements,.length=2};
+
+/* LATENCY_HISTORY_ReplySchema_items reply schema */
+struct jsonObjectElement LATENCY_HISTORY_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&LATENCY_HISTORY_ReplySchema_items_items},
+};
+
+struct jsonObject LATENCY_HISTORY_ReplySchema_items = {LATENCY_HISTORY_ReplySchema_items_elements,.length=2};
+
+/* LATENCY_HISTORY_ReplySchema reply schema */
+struct jsonObjectElement LATENCY_HISTORY_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="An array where each element is a two elements array representing the timestamp and the latency of the event."},
+{JSON_TYPE_OBJECT,"items",.value.object=&LATENCY_HISTORY_ReplySchema_items},
+};
+
+struct jsonObject LATENCY_HISTORY_ReplySchema = {LATENCY_HISTORY_ReplySchema_elements,.length=3};
+
 /********** LATENCY LATEST ********************/
 
 /* LATENCY LATEST history */
@@ -7405,6 +7496,65 @@ const char *LATENCY_LATEST_tips[] = {
 "response_policy:special",
 NULL
 };
+
+/* LATENCY_LATEST_ReplySchema_items_items_0 reply schema */
+struct jsonObjectElement LATENCY_LATEST_ReplySchema_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Event name."},
+};
+
+struct jsonObject LATENCY_LATEST_ReplySchema_items_items_0 = {LATENCY_LATEST_ReplySchema_items_items_0_elements,.length=2};
+
+/* LATENCY_LATEST_ReplySchema_items_items_1 reply schema */
+struct jsonObjectElement LATENCY_LATEST_ReplySchema_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Timestamp."},
+};
+
+struct jsonObject LATENCY_LATEST_ReplySchema_items_items_1 = {LATENCY_LATEST_ReplySchema_items_items_1_elements,.length=2};
+
+/* LATENCY_LATEST_ReplySchema_items_items_2 reply schema */
+struct jsonObjectElement LATENCY_LATEST_ReplySchema_items_items_2_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Latest latency in milliseconds."},
+};
+
+struct jsonObject LATENCY_LATEST_ReplySchema_items_items_2 = {LATENCY_LATEST_ReplySchema_items_items_2_elements,.length=2};
+
+/* LATENCY_LATEST_ReplySchema_items_items_3 reply schema */
+struct jsonObjectElement LATENCY_LATEST_ReplySchema_items_items_3_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Max latency in milliseconds."},
+};
+
+struct jsonObject LATENCY_LATEST_ReplySchema_items_items_3 = {LATENCY_LATEST_ReplySchema_items_items_3_elements,.length=2};
+
+/* LATENCY_LATEST_ReplySchema_items_items array reply schema */
+struct jsonObject *LATENCY_LATEST_ReplySchema_items_items[] = {
+&LATENCY_LATEST_ReplySchema_items_items_0,
+&LATENCY_LATEST_ReplySchema_items_items_1,
+&LATENCY_LATEST_ReplySchema_items_items_2,
+&LATENCY_LATEST_ReplySchema_items_items_3,
+};
+
+/* LATENCY_LATEST_ReplySchema_items reply schema */
+struct jsonObjectElement LATENCY_LATEST_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=LATENCY_LATEST_ReplySchema_items_items,.length=4}},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+};
+
+struct jsonObject LATENCY_LATEST_ReplySchema_items = {LATENCY_LATEST_ReplySchema_items_elements,.length=4};
+
+/* LATENCY_LATEST_ReplySchema reply schema */
+struct jsonObjectElement LATENCY_LATEST_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="An array where each element is a four elements array representing the event's name, timestamp, latest and all-time latency measurements."},
+{JSON_TYPE_OBJECT,"items",.value.object=&LATENCY_LATEST_ReplySchema_items},
+};
+
+struct jsonObject LATENCY_LATEST_ReplySchema = {LATENCY_LATEST_ReplySchema_elements,.length=3};
 
 /********** LATENCY RESET ********************/
 
@@ -7424,15 +7574,23 @@ struct redisCommandArg LATENCY_RESET_Args[] = {
 {0}
 };
 
+/* LATENCY_RESET_ReplySchema reply schema */
+struct jsonObjectElement LATENCY_RESET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Number of event time series that were reset."},
+};
+
+struct jsonObject LATENCY_RESET_ReplySchema = {LATENCY_RESET_ReplySchema_elements,.length=2};
+
 /* LATENCY command table */
 struct redisCommand LATENCY_Subcommands[] = {
-{"doctor","Return a human readable latency analysis report.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_DOCTOR_History,LATENCY_DOCTOR_tips,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
+{"doctor","Return a human readable latency analysis report.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_DOCTOR_History,LATENCY_DOCTOR_tips,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.reply_schema=&LATENCY_DOCTOR_ReplySchema},
 {"graph","Return a latency graph for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_GRAPH_History,LATENCY_GRAPH_tips,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_GRAPH_Args},
 {"help","Show helpful text about the different subcommands.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HELP_History,LATENCY_HELP_tips,latencyCommand,2,CMD_LOADING|CMD_STALE,0},
-{"histogram","Return the cumulative distribution of latencies of a subset of commands or all.","O(N) where N is the number of commands with latency information being retrieved.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTOGRAM_History,LATENCY_HISTOGRAM_tips,latencyCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTOGRAM_Args},
-{"history","Return timestamp-latency samples for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTORY_History,LATENCY_HISTORY_tips,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTORY_Args},
-{"latest","Return the latest latency samples for all events.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_LATEST_History,LATENCY_LATEST_tips,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
-{"reset","Reset latency data for one or more events.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_RESET_History,LATENCY_RESET_tips,latencyCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_RESET_Args},
+{"histogram","Return the cumulative distribution of latencies of a subset of commands or all.","O(N) where N is the number of commands with latency information being retrieved.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTOGRAM_History,LATENCY_HISTOGRAM_tips,latencyCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTOGRAM_Args,.reply_schema=&LATENCY_HISTOGRAM_ReplySchema},
+{"history","Return timestamp-latency samples for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTORY_History,LATENCY_HISTORY_tips,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTORY_Args,.reply_schema=&LATENCY_HISTORY_ReplySchema},
+{"latest","Return the latest latency samples for all events.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_LATEST_History,LATENCY_LATEST_tips,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.reply_schema=&LATENCY_LATEST_ReplySchema},
+{"reset","Reset latency data for one or more events.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_RESET_History,LATENCY_RESET_tips,latencyCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_RESET_Args,.reply_schema=&LATENCY_RESET_ReplySchema},
 {0}
 };
 
@@ -7570,6 +7728,73 @@ const char *MODULE_LIST_tips[] = {
 NULL
 };
 
+/* MODULE_LIST_ReplySchema_items_properties_name reply schema */
+struct jsonObjectElement MODULE_LIST_ReplySchema_items_properties_name_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Name of the module."},
+};
+
+struct jsonObject MODULE_LIST_ReplySchema_items_properties_name = {MODULE_LIST_ReplySchema_items_properties_name_elements,.length=2};
+
+/* MODULE_LIST_ReplySchema_items_properties_ver reply schema */
+struct jsonObjectElement MODULE_LIST_ReplySchema_items_properties_ver_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Version of the module."},
+};
+
+struct jsonObject MODULE_LIST_ReplySchema_items_properties_ver = {MODULE_LIST_ReplySchema_items_properties_ver_elements,.length=2};
+
+/* MODULE_LIST_ReplySchema_items_properties_path reply schema */
+struct jsonObjectElement MODULE_LIST_ReplySchema_items_properties_path_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Module path."},
+};
+
+struct jsonObject MODULE_LIST_ReplySchema_items_properties_path = {MODULE_LIST_ReplySchema_items_properties_path_elements,.length=2};
+
+/* MODULE_LIST_ReplySchema_items_properties_args_items reply schema */
+struct jsonObjectElement MODULE_LIST_ReplySchema_items_properties_args_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject MODULE_LIST_ReplySchema_items_properties_args_items = {MODULE_LIST_ReplySchema_items_properties_args_items_elements,.length=1};
+
+/* MODULE_LIST_ReplySchema_items_properties_args reply schema */
+struct jsonObjectElement MODULE_LIST_ReplySchema_items_properties_args_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Module arguments."},
+{JSON_TYPE_OBJECT,"items",.value.object=&MODULE_LIST_ReplySchema_items_properties_args_items},
+};
+
+struct jsonObject MODULE_LIST_ReplySchema_items_properties_args = {MODULE_LIST_ReplySchema_items_properties_args_elements,.length=3};
+
+/* MODULE_LIST_ReplySchema_items_properties reply schema */
+struct jsonObjectElement MODULE_LIST_ReplySchema_items_properties_elements[] = {
+{JSON_TYPE_OBJECT,"name",.value.object=&MODULE_LIST_ReplySchema_items_properties_name},
+{JSON_TYPE_OBJECT,"ver",.value.object=&MODULE_LIST_ReplySchema_items_properties_ver},
+{JSON_TYPE_OBJECT,"path",.value.object=&MODULE_LIST_ReplySchema_items_properties_path},
+{JSON_TYPE_OBJECT,"args",.value.object=&MODULE_LIST_ReplySchema_items_properties_args},
+};
+
+struct jsonObject MODULE_LIST_ReplySchema_items_properties = {MODULE_LIST_ReplySchema_items_properties_elements,.length=4};
+
+/* MODULE_LIST_ReplySchema_items reply schema */
+struct jsonObjectElement MODULE_LIST_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&MODULE_LIST_ReplySchema_items_properties},
+};
+
+struct jsonObject MODULE_LIST_ReplySchema_items = {MODULE_LIST_ReplySchema_items_elements,.length=2};
+
+/* MODULE_LIST_ReplySchema reply schema */
+struct jsonObjectElement MODULE_LIST_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Returns information about the modules loaded to the server."},
+{JSON_TYPE_OBJECT,"items",.value.object=&MODULE_LIST_ReplySchema_items},
+};
+
+struct jsonObject MODULE_LIST_ReplySchema = {MODULE_LIST_ReplySchema_elements,.length=3};
+
 /********** MODULE LOAD ********************/
 
 /* MODULE LOAD history */
@@ -7584,6 +7809,13 @@ struct redisCommandArg MODULE_LOAD_Args[] = {
 {"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* MODULE_LOAD_ReplySchema reply schema */
+struct jsonObjectElement MODULE_LOAD_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject MODULE_LOAD_ReplySchema = {MODULE_LOAD_ReplySchema_elements,.length=1};
 
 /********** MODULE LOADEX ********************/
 
@@ -7608,6 +7840,13 @@ struct redisCommandArg MODULE_LOADEX_Args[] = {
 {0}
 };
 
+/* MODULE_LOADEX_ReplySchema reply schema */
+struct jsonObjectElement MODULE_LOADEX_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject MODULE_LOADEX_ReplySchema = {MODULE_LOADEX_ReplySchema_elements,.length=1};
+
 /********** MODULE UNLOAD ********************/
 
 /* MODULE UNLOAD history */
@@ -7622,13 +7861,20 @@ struct redisCommandArg MODULE_UNLOAD_Args[] = {
 {0}
 };
 
+/* MODULE_UNLOAD_ReplySchema reply schema */
+struct jsonObjectElement MODULE_UNLOAD_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject MODULE_UNLOAD_ReplySchema = {MODULE_UNLOAD_ReplySchema_elements,.length=1};
+
 /* MODULE command table */
 struct redisCommand MODULE_Subcommands[] = {
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_HELP_History,MODULE_HELP_tips,moduleCommand,2,CMD_LOADING|CMD_STALE,0},
-{"list","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LIST_History,MODULE_LIST_tips,moduleCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0},
-{"load","Load a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOAD_History,MODULE_LOAD_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOAD_Args},
-{"loadex","Load a module with extended parameters","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOADEX_History,MODULE_LOADEX_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOADEX_Args},
-{"unload","Unload a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_UNLOAD_History,MODULE_UNLOAD_tips,moduleCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_UNLOAD_Args},
+{"list","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LIST_History,MODULE_LIST_tips,moduleCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,.reply_schema=&MODULE_LIST_ReplySchema},
+{"load","Load a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOAD_History,MODULE_LOAD_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOAD_Args,.reply_schema=&MODULE_LOAD_ReplySchema},
+{"loadex","Load a module with extended parameters","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOADEX_History,MODULE_LOADEX_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOADEX_Args,.reply_schema=&MODULE_LOADEX_ReplySchema},
+{"unload","Unload a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_UNLOAD_History,MODULE_UNLOAD_tips,moduleCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_UNLOAD_Args,.reply_schema=&MODULE_UNLOAD_ReplySchema},
 {0}
 };
 
@@ -7830,6 +8076,92 @@ struct redisCommandArg SLOWLOG_GET_Args[] = {
 {0}
 };
 
+/* SLOWLOG_GET_ReplySchema_items_items_0 reply schema */
+struct jsonObjectElement SLOWLOG_GET_ReplySchema_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Slow log entry ID."},
+};
+
+struct jsonObject SLOWLOG_GET_ReplySchema_items_items_0 = {SLOWLOG_GET_ReplySchema_items_items_0_elements,.length=2};
+
+/* SLOWLOG_GET_ReplySchema_items_items_1 reply schema */
+struct jsonObjectElement SLOWLOG_GET_ReplySchema_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The unix timestamp at which the logged command was processed."},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SLOWLOG_GET_ReplySchema_items_items_1 = {SLOWLOG_GET_ReplySchema_items_items_1_elements,.length=3};
+
+/* SLOWLOG_GET_ReplySchema_items_items_2 reply schema */
+struct jsonObjectElement SLOWLOG_GET_ReplySchema_items_items_2_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The amount of time needed for its execution, in microseconds."},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SLOWLOG_GET_ReplySchema_items_items_2 = {SLOWLOG_GET_ReplySchema_items_items_2_elements,.length=3};
+
+/* SLOWLOG_GET_ReplySchema_items_items_3_items reply schema */
+struct jsonObjectElement SLOWLOG_GET_ReplySchema_items_items_3_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SLOWLOG_GET_ReplySchema_items_items_3_items = {SLOWLOG_GET_ReplySchema_items_items_3_items_elements,.length=1};
+
+/* SLOWLOG_GET_ReplySchema_items_items_3 reply schema */
+struct jsonObjectElement SLOWLOG_GET_ReplySchema_items_items_3_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="The arguments of the command."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SLOWLOG_GET_ReplySchema_items_items_3_items},
+};
+
+struct jsonObject SLOWLOG_GET_ReplySchema_items_items_3 = {SLOWLOG_GET_ReplySchema_items_items_3_elements,.length=3};
+
+/* SLOWLOG_GET_ReplySchema_items_items_4 reply schema */
+struct jsonObjectElement SLOWLOG_GET_ReplySchema_items_items_4_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Client IP address and port."},
+};
+
+struct jsonObject SLOWLOG_GET_ReplySchema_items_items_4 = {SLOWLOG_GET_ReplySchema_items_items_4_elements,.length=2};
+
+/* SLOWLOG_GET_ReplySchema_items_items_5 reply schema */
+struct jsonObjectElement SLOWLOG_GET_ReplySchema_items_items_5_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Client name if set via the CLIENT SETNAME command."},
+};
+
+struct jsonObject SLOWLOG_GET_ReplySchema_items_items_5 = {SLOWLOG_GET_ReplySchema_items_items_5_elements,.length=2};
+
+/* SLOWLOG_GET_ReplySchema_items_items array reply schema */
+struct jsonObject *SLOWLOG_GET_ReplySchema_items_items[] = {
+&SLOWLOG_GET_ReplySchema_items_items_0,
+&SLOWLOG_GET_ReplySchema_items_items_1,
+&SLOWLOG_GET_ReplySchema_items_items_2,
+&SLOWLOG_GET_ReplySchema_items_items_3,
+&SLOWLOG_GET_ReplySchema_items_items_4,
+&SLOWLOG_GET_ReplySchema_items_items_5,
+};
+
+/* SLOWLOG_GET_ReplySchema_items reply schema */
+struct jsonObjectElement SLOWLOG_GET_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=SLOWLOG_GET_ReplySchema_items_items,.length=6}},
+};
+
+struct jsonObject SLOWLOG_GET_ReplySchema_items = {SLOWLOG_GET_ReplySchema_items_elements,.length=3};
+
+/* SLOWLOG_GET_ReplySchema reply schema */
+struct jsonObjectElement SLOWLOG_GET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Entries from the slow log in chronological order."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SLOWLOG_GET_ReplySchema_items},
+};
+
+struct jsonObject SLOWLOG_GET_ReplySchema = {SLOWLOG_GET_ReplySchema_elements,.length=3};
+
 /********** SLOWLOG HELP ********************/
 
 /* SLOWLOG HELP history */
@@ -7851,6 +8183,15 @@ const char *SLOWLOG_LEN_tips[] = {
 NULL
 };
 
+/* SLOWLOG_LEN_ReplySchema reply schema */
+struct jsonObjectElement SLOWLOG_LEN_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Number of entries in the slow log."},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SLOWLOG_LEN_ReplySchema = {SLOWLOG_LEN_ReplySchema_elements,.length=3};
+
 /********** SLOWLOG RESET ********************/
 
 /* SLOWLOG RESET history */
@@ -7863,12 +8204,19 @@ const char *SLOWLOG_RESET_tips[] = {
 NULL
 };
 
+/* SLOWLOG_RESET_ReplySchema reply schema */
+struct jsonObjectElement SLOWLOG_RESET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SLOWLOG_RESET_ReplySchema = {SLOWLOG_RESET_ReplySchema_elements,.length=1};
+
 /* SLOWLOG command table */
 struct redisCommand SLOWLOG_Subcommands[] = {
-{"get","Get the slow log's entries","O(N) where N is the number of entries returned","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_GET_History,SLOWLOG_GET_tips,slowlogCommand,-2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,.args=SLOWLOG_GET_Args},
+{"get","Get the slow log's entries","O(N) where N is the number of entries returned","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_GET_History,SLOWLOG_GET_tips,slowlogCommand,-2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,.args=SLOWLOG_GET_Args,.reply_schema=&SLOWLOG_GET_ReplySchema},
 {"help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_HELP_History,SLOWLOG_HELP_tips,slowlogCommand,2,CMD_LOADING|CMD_STALE,0},
-{"len","Get the slow log's length","O(1)","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_LEN_History,SLOWLOG_LEN_tips,slowlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0},
-{"reset","Clear all entries from the slow log","O(N) where N is the number of entries in the slowlog","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_RESET_History,SLOWLOG_RESET_tips,slowlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0},
+{"len","Get the slow log's length","O(1)","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_LEN_History,SLOWLOG_LEN_tips,slowlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,.reply_schema=&SLOWLOG_LEN_ReplySchema},
+{"reset","Clear all entries from the slow log","O(N) where N is the number of entries in the slowlog","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_RESET_History,SLOWLOG_RESET_tips,slowlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,.reply_schema=&SLOWLOG_RESET_ReplySchema},
 {0}
 };
 
