@@ -1433,14 +1433,11 @@ int passwordBasedAuth(client *c, robj *username, robj *password) {
     }
 }
 
-/* Attempt authenticating the user. First through Module based custom authentication if any exists,
- * and otherwise password based authentication.
+/* Attempt authenticating the user - first through Module based custom authentication,
+ * and then, if needed, with normal password based authentication.
  * Returns C_OK if module based auth succeeded OR if in progress through a blocking custom auth
  * OR if password based auth succeeded.
- * Otherwise C_ERR is returned and errno is set to:
- *  EINVAL: if the user is disabled or if the username-password do not match (password based auth).
- *  ENONENT: if the specified user does not exist at all.
- */
+ * Otherwise C_ERR is returned. */
 int ACLAuthenticateUser(client *c, robj *username, robj *password, const char **err) {
     if (checkModuleAuthentication(c, username, password, err) == C_OK) {
         return C_OK;
