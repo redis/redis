@@ -445,5 +445,5 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __dbevent@1__:swapdb 9" [$rd1 read]
         assert_equal "pmessage * __dbevent@9__:swapdb 1" [$rd1 read]
         $rd1 close
-    } {} {cluster:skip}
+    } {0} {cluster:skip}
 }
