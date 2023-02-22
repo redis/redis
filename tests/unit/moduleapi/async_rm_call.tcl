@@ -257,4 +257,56 @@ start_server {tags {"modules"}} {
         }
         close_replication_stream $repl
     }
+
+    test {Test unblock handler are executed as a unit} {
+        r flushall
+        r DEBUG SET-ACTIVE-EXPIRE 0
+        set repl [attach_to_replication_stream]
+
+        set rd [redis_deferring_client]
+
+        $rd blpop_and_set_multiple_keys l string_foo 1 string_bar 2
+        wait_for_blocked_client
+        r lpush l a
+        assert_equal [$rd read] {OK}
+
+        # set expiration on string_foo
+        r pexpire string_foo 1
+        after 10
+
+        # now the key should have been expired
+        $rd blpop_and_set_multiple_keys l string_foo 1 string_bar 2
+        wait_for_blocked_client
+        r lpush l a
+        assert_equal [$rd read] {OK}
+
+        assert_replication_stream $repl {
+            {select *}
+            {lpush l a}
+            {lpop l}
+            {multi}
+            {set string_foo 1}
+            {set string_bar 2}
+            {incr string_changed{string_foo}}
+            {incr string_changed{string_bar}}
+            {incr string_total}
+            {incr string_total}
+            {exec}
+            {pexpireat string_foo *}
+            {lpush l a}
+            {lpop l}
+            {multi}
+            {del string_foo}
+            {set string_foo 1}
+            {set string_bar 2}
+            {incr expired}
+            {incr string_changed{string_foo}}
+            {incr string_changed{string_bar}}
+            {incr string_total}
+            {incr string_total}
+            {exec}
+        }
+        close_replication_stream $repl
+        r DEBUG SET-ACTIVE-EXPIRE 1
+    }
 }
