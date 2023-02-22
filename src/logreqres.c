@@ -131,7 +131,7 @@ void reqresReset(client *c, int free_buf) {
  * on the very first time it's called, because of c->reqres.offset.saved)
  * The idea is:
  * 1. When a client is executing a command, we save the reply offset.
- * 2. During the execution, the reply offset may grow, ass addReply* functions are called.
+ * 2. During the execution, the reply offset may grow, as addReply* functions are called.
  * 3. When client is done with the command (commandProcessed), reqresAppendResponse
  *    is called.
  * 4. reqresAppendResponse will append the diff between the current offset and the one from step (1)
