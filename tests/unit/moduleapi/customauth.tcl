@@ -22,13 +22,11 @@ start_server {tags {"modules"}} {
     test {test custom AUTH for non existing / disabled users} {
         r config resetstat
         # Validate that an error is thrown for non existing users.
-        catch { r AUTH foo pwd } e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r AUTH foo pwd}
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
         # Validate that an error is thrown for disabled users.
         r acl setuser foo >pwd off ~* &* +@all
-        catch { r AUTH foo pwd } e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r AUTH foo pwd}
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdstat auth]
     }
 
@@ -37,18 +35,15 @@ start_server {tags {"modules"}} {
         # Test for a fixed password user
         r acl setuser foo >pwd on ~* &* +@all
         assert_equal {OK} [r AUTH foo allow]
-        catch { r AUTH foo deny } e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r AUTH foo deny}
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
-        catch { r AUTH foo nomatch } e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r AUTH foo nomatch}
         assert_match {*calls=3,*,rejected_calls=0,failed_calls=2} [cmdstat auth]
         assert_equal {OK} [r AUTH foo pwd]
         # Test for No Pass user
         r acl setuser foo on ~* &* +@all nopass
         assert_equal {OK} [r AUTH foo allow]
-        catch { r AUTH foo deny } e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r AUTH foo deny}
         assert_match {*calls=6,*,rejected_calls=0,failed_calls=3} [cmdstat auth]
         assert_equal {OK} [r AUTH foo nomatch]
     }
@@ -62,17 +57,13 @@ start_server {tags {"modules"}} {
         assert_equal $hello3_response [r HELLO 3 AUTH foo pwd]
         assert_equal $hello3_response [r HELLO 3 AUTH foo allow]
         # Validate denying AUTH for the HELLO cmd
-        catch {r HELLO 2 AUTH foo deny} e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r HELLO 2 AUTH foo deny}
         assert_match {*calls=5,*,rejected_calls=0,failed_calls=1} [cmdstat hello]
-        catch {r HELLO 2 AUTH foo nomatch} e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r HELLO 2 AUTH foo nomatch}
         assert_match {*calls=6,*,rejected_calls=0,failed_calls=2} [cmdstat hello]
-        catch {r HELLO 3 AUTH foo deny} e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r HELLO 3 AUTH foo deny}
         assert_match {*calls=7,*,rejected_calls=0,failed_calls=3} [cmdstat hello]
-        catch {r HELLO 3 AUTH foo nomatch} e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r HELLO 3 AUTH foo nomatch}
         assert_match {*calls=8,*,rejected_calls=0,failed_calls=4} [cmdstat hello]
     }
 
@@ -86,12 +77,10 @@ start_server {tags {"modules"}} {
         assert {[r client getname] eq {client2}}
         # Validate clientname is not updated on failure
         r client setname client0
-        catch {r HELLO 2 AUTH foo deny setname client1} e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r HELLO 2 AUTH foo deny setname client1}
         assert {[r client getname] eq {client0}}
         assert_match {*calls=3,*,rejected_calls=0,failed_calls=1} [cmdstat hello]
-        catch {r HELLO 2 AUTH foo nomatch setname client2} e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r HELLO 2 AUTH foo nomatch setname client2}
         assert {[r client getname] eq {client0}}
         assert_match {*calls=4,*,rejected_calls=0,failed_calls=2} [cmdstat hello]
     }
@@ -101,18 +90,15 @@ start_server {tags {"modules"}} {
         # Test for a fixed password user
         r acl setuser foo >pwd on ~* &* +@all
         assert_equal {OK} [r AUTH foo block_allow]
-        catch { r AUTH foo block_deny } e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r AUTH foo block_deny}
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
-        catch { r AUTH foo nomatch } e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r AUTH foo nomatch}
         assert_match {*calls=3,*,rejected_calls=0,failed_calls=2} [cmdstat auth]
         assert_equal {OK} [r AUTH foo pwd]
         # Test for No Pass user
         r acl setuser foo on ~* &* +@all nopass
         assert_equal {OK} [r AUTH foo block_allow]
-        catch { r AUTH foo block_deny } e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r AUTH foo block_deny}
         assert_match {*calls=6,*,rejected_calls=0,failed_calls=3} [cmdstat auth]
         assert_equal {OK} [r AUTH foo nomatch]
         # Validate that every Blocking AUTH command took at least 500000 usec.
@@ -130,17 +116,13 @@ start_server {tags {"modules"}} {
         assert_equal $hello3_response [r HELLO 3 AUTH foo pwd]
         assert_equal $hello3_response [r HELLO 3 AUTH foo block_allow]
         # validate denying AUTH for the HELLO cmd
-        catch {r HELLO 2 AUTH foo block_deny} e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r HELLO 2 AUTH foo block_deny}
         assert_match {*calls=5,*,rejected_calls=0,failed_calls=1} [cmdstat hello]
-        catch {r HELLO 2 AUTH foo nomatch} e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r HELLO 2 AUTH foo nomatch}
         assert_match {*calls=6,*,rejected_calls=0,failed_calls=2} [cmdstat hello]
-        catch {r HELLO 3 AUTH foo block_deny} e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r HELLO 3 AUTH foo block_deny}
         assert_match {*calls=7,*,rejected_calls=0,failed_calls=3} [cmdstat hello]
-        catch {r HELLO 3 AUTH foo nomatch} e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r HELLO 3 AUTH foo nomatch}
         assert_match {*calls=8,*,rejected_calls=0,failed_calls=4} [cmdstat hello]
         # Validate that every HELLO AUTH command took at least 500000 usec.
         set stats [cmdstat hello]
@@ -158,12 +140,10 @@ start_server {tags {"modules"}} {
         assert {[r client getname] eq {client2}}
         # Validate clientname is not updated on failure
         r client setname client0
-        catch {r HELLO 2 AUTH foo block_deny setname client1} e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r HELLO 2 AUTH foo block_deny setname client1}
         assert {[r client getname] eq {client0}}
         assert_match {*calls=3,*,rejected_calls=0,failed_calls=1} [cmdstat hello]
-        catch {r HELLO 2 AUTH foo nomatch setname client2} e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r HELLO 2 AUTH foo nomatch setname client2}
         assert {[r client getname] eq {client0}}
         assert_match {*calls=4,*,rejected_calls=0,failed_calls=2} [cmdstat hello]
         # Validate that every HELLO AUTH SETNAME command took at least 500000 usec.
@@ -188,8 +168,7 @@ start_server {tags {"modules"}} {
         assert_equal {OK} [r AUTH foo allow]
 
         # Case 2 - Non Blocking Deny
-        catch { r AUTH foo deny } e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r AUTH foo deny}
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
 
         r config resetstat
@@ -198,8 +177,7 @@ start_server {tags {"modules"}} {
         assert_equal {OK} [r AUTH foo block_allow]
 
         # Case 4 - Blocking Deny
-        catch { r AUTH foo block_deny } e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r AUTH foo block_deny}
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
 
         # Validate that every Blocking AUTH command took at least 500000 usec.
@@ -213,15 +191,13 @@ start_server {tags {"modules"}} {
         assert_equal {OK} [r AUTH foo allow_two]
 
         # Case 6 - Non Blocking Deny via the second module.
-        catch { r AUTH foo deny_two } e
-        assert_match {*Auth denied by Misc Module*} $e
+        assert_error {*Auth denied by Misc Module*} {r AUTH foo deny_two}
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
 
         r config resetstat
 
         # Case 7 - All four auth callbacks "Skip" by not explictly allowing or denying.
-        catch { r AUTH foo nomatch } e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r AUTH foo nomatch}
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
         assert_equal {OK} [r AUTH foo pwd]
 
@@ -270,8 +246,7 @@ start_server {tags {"modules"}} {
         # Validate that blocking custom auth inside MULTI throws an err.
         r multi
         r AUTH foo block_allow
-        catch {r exec} e
-        assert_match {*ERR Blocking module command called from transaction*} $e
+        assert_error {*ERR Blocking module command called from transaction*} {r exec}
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
     }
 
@@ -288,8 +263,7 @@ start_server {tags {"modules"}} {
         # Validate that custom auth failed.
         wait_for_blocked_clients_count 0 500 10
         $rd flush
-        catch { $rd read } e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} { $rd read }
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
     }
 
@@ -309,8 +283,7 @@ start_server {tags {"modules"}} {
         # Validate that the blocked client count goes to 0 and no AUTH command is tracked.
         wait_for_blocked_clients_count 0 500 10
         $rd flush
-        catch { $rd read } e
-        assert_match {I/O error reading reply} $e
+        assert_error {*I/O error reading reply*} { $rd read }
         assert_match {} [cmdstat auth]
     }
 
@@ -321,8 +294,7 @@ start_server {tags {"modules"}} {
         # Attempt custom auth. With the "block_abort" as the password, the "customauth.so" module
         # blocks the client and uses the RM_AbortBlock API. This should result in custom auth
         # failing and the client being unblocked with the default AUTH err message.
-        catch { r AUTH foo block_abort } e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r AUTH foo block_abort}
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
     }
 
@@ -389,10 +361,8 @@ start_server {tags {"modules"}} {
         r module unload customauthtwo
 
         # Validate that since custom auth cbs are unregistered, custom auth attempts fail.
-        catch {r AUTH foo block_allow} e
-        assert_match {*WRONGPASS*} $e
-        catch {r AUTH foo allow_two} e
-        assert_match {*WRONGPASS*} $e
+        assert_error {*WRONGPASS*} {r AUTH foo block_allow}
+        assert_error {*WRONGPASS*} {r AUTH foo allow_two}
         assert_match {*calls=4,*,rejected_calls=0,failed_calls=2} [cmdstat auth]
     }
 }
