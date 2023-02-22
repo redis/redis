@@ -626,7 +626,7 @@ void incrDecrCommand(client *c, long long incr, const char *event) {
         }
     }
     signalModifiedKey(c,c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_STRING, event,c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_STRING,event,c->argv[1],c->db->id);
     server.dirty++;
     addReplyLongLong(c, value);
 }
