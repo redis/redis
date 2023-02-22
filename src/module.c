@@ -7415,27 +7415,24 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     return bc;
 }
 
-/* This API registers a callback for the Module to implement custom auth functionality.
- * Modules can have multiple callbacks registered at a given time. And multiple modules can also
- * have custom auth callbacks registered.
- * These callbacks are attempted serially when the AUTH / HELLO command (containing an AUTH sub cmd)
- * is used. These callbacks will receive the RM_Context, username, password, and err as args and
- * Modules are expected to do one of the following:
- * (1) Authenticate - Use the RM_Authenticate* API successfully and return REDISMODULE_AUTH_HANDLED.
- * This will immediately end the auth chain as successful and add the OK reply.
- * (2) Block a client on authentication - Use the RM_BlockClientOnAuth API and return
- * REDISMODULE_AUTH_HANDLED. Here, the client will be blocked until the RM_UnblockClient API is used
- * which will trigger the auth reply callback (provided through the RM_BlockClientOnAuth).
- * In this reply callback, the Module should authenticate, deny or skip handling authentication.
- * (3) Deny Authentication - Return REDISMODULE_AUTH_HANDLED without authenticating or blocking the
- * client. Optionally, `err` can be set to a custom error message. This will immediately end the
- * auth chain as unsuccessful and add the ERR reply.
- * (4) Skip handling Authentication - Return REDISMODULE_AUTH_NOT_HANDLED without blocking the
- * client. This will allow the engine to attempt the next custom auth callback.
- * If none of the callbacks authenticate or deny auth, then password based auth is attempted
- * and will authenticate or add failure logs and reply to the clients accordingly.
- * Note: If a client is disconnected while it was in the middle of blocking custom auth, that
- * occurrence of the AUTH or HELLO command will not be tracked in the INFO command stats. */
+This API registers a callback to execute in addition to normal password based authentication. 
+Multiple callbacks can be registered across different modules.
+The callbacks are attempted, in the order they were registered, when the AUTH/HELLO (with AUTH field is provided) commands are called. 
+The callbacks will be called with a module context along with a username and a password, and are expected to take one of the following actions:
+(1) Authenticate - Use the RM_Authenticate* API and return REDISMODULE_AUTH_HANDLED.
+This will immediately end the auth chain as successful and add the OK reply.
+(2) Deny Authentication - Return REDISMODULE_AUTH_HANDLED without authenticating or blocking the client. 
+Optionally, `err` can be set to a custom error message.
+This will immediately end the auth chain as unsuccessful and add the ERR reply.
+(3) Block a client on authentication - Use the RM_BlockClientOnAuth API and return REDISMODULE_AUTH_HANDLED. 
+Here, the client will be blocked until the RM_UnblockClient API is used which will trigger the auth reply callback (provided through the RM_BlockClientOnAuth).
+In this reply callback, the Module should authenticate, deny or skip handling authentication.
+(4) Skip handling Authentication - Return REDISMODULE_AUTH_NOT_HANDLED without blocking the
+client. This will allow the engine to attempt the next custom auth callback.
+If none of the callbacks authenticate or deny auth, then password based auth is attempted and will authenticate or add failure logs and reply to the clients accordingly.
+
+Note: If a client is disconnected while it was in the middle of blocking custom auth, that
+occurrence of the AUTH or HELLO command will not be tracked in the INFO command stats. */
 void RM_RegisterCustomAuthCallback(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback cb) {
     RedisModuleCustomAuthCtx *auth_ctx = zmalloc(sizeof(RedisModuleCustomAuthCtx));
     auth_ctx->module = ctx->module;
