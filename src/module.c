@@ -7525,7 +7525,7 @@ int attemptNextCustomAuthCb(client *c, robj *username, robj *password, const cha
     return result;
 }
 
-/* Helper function to handle a reprocessed unblocked client that had custom auth ongoing.
+/* Helper function to handle a reprocessed unblocked auth client.
  * Returns REDISMODULE_AUTH_NOT_HANDLED if the client was not reprocessed after a blocking custom
  * auth operation.
  * Otherwise, we attempt the auth reply callback & the free priv data callback, update fields and
