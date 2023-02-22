@@ -202,4 +202,26 @@ start_server {tags {"modules"}} {
         }
         close_replication_stream $repl
     }
+
+    test {Test no propagation of blocking command} {
+        r flushall
+        set repl [attach_to_replication_stream]
+
+        set rd [redis_deferring_client]
+
+        $rd do_rm_call_async_no_replicate blpop l 0
+        wait_for_blocked_client
+        r lpush l a
+        assert_equal [$rd read] {l a}
+
+        # make sure the lpop are not replicated
+        r set x 1
+
+        assert_replication_stream $repl {
+            {select *}
+            {lpush l a}
+            {set x 1}
+        }
+        close_replication_stream $repl
+    }
 }

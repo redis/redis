@@ -244,7 +244,7 @@ int do_rm_call_async_fire_and_forget(RedisModuleCtx *ctx, RedisModuleString **ar
     }
     const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "KEv", argv + 2, argc - 2);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "!KEv", argv + 2, argc - 2);
 
     if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
         rm_call_async_send_reply(ctx, rep);
@@ -271,7 +271,7 @@ int do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     }
 
     size_t format_len = 0;
-    char format[5] = {0};
+    char format[6] = {0};
 
     if (!(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING)) {
         /* We are allowed to block the client so we can allow RM_Call to also block us */
@@ -285,6 +285,11 @@ int do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
 
     format[format_len++] = 'E';
     format[format_len++] = 'v';
+    if (strcasecmp(invoked_cmd, "do_rm_call_async_no_replicate") != 0) {
+        /* Notice, without the '!' flag we will have inconsistency between master and replica.
+         * This is used only to check '!' flag correctness on blocked commands. */
+        format[format_len++] = '!';
+    }
 
     const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -327,7 +332,7 @@ static void wait_and_do_rm_call_async_on_unblocked(RedisModuleCtx *ctx, RedisMod
     reply = NULL;
 
     const char* cmd = RedisModule_StringPtrLen(wctx->argv[0], NULL);
-    reply = RedisModule_Call(ctx, cmd, "EKv", wctx->argv + 1, wctx->argc - 1);
+    reply = RedisModule_Call(ctx, cmd, "!EKv", wctx->argv + 1, wctx->argc - 1);
 
 done:
     if(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_PROMISE) {
@@ -364,7 +369,7 @@ int wait_and_do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int
         return RedisModule_ReplyWithError(ctx, "Err can not run wait, blocking is not allowed.");
     }
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, "wait", "EKcc", "1", "0");
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "wait", "!EKcc", "1", "0");
     if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
         rm_call_async_send_reply(ctx, rep);
     } else {
@@ -425,7 +430,7 @@ int blpop_and_set_multiple_keys(RedisModuleCtx *ctx, RedisModuleString **argv, i
         return RedisModule_ReplyWithError(ctx, "Err can not run wait, blocking is not allowed.");
     }
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, "blpop", "EKsc", argv[1], "0");
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "blpop", "!EKsc", argv[1], "0");
     if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
         rm_call_async_send_reply(ctx, rep);
     } else {
@@ -550,6 +555,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "do_rm_call_async_script_mode", do_rm_call_async,
                                   "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "do_rm_call_async_no_replicate", do_rm_call_async,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "do_rm_call_fire_and_forget", do_rm_call_async_fire_and_forget,
                                   "write", 0, 0, 0) == REDISMODULE_ERR)

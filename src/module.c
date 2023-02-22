@@ -6272,6 +6272,14 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         serverAssert(ctx->module);
         reply = callReplyCreatePromise(ctx->module);
         c->bstate.async_rm_call_handle = reply;
+        if (!(call_flags & CMD_CALL_PROPAGATE_AOF)) {
+            /* No need for AOF propagation, set the relevant flags of the client */
+            c->flags |= CLIENT_MODULE_PREVENT_AOF_PROP;
+        }
+        if (!(call_flags & CMD_CALL_PROPAGATE_REPL)) {
+            /* No need for replication propagation, set the relevant flags of the client */
+            c->flags |= CLIENT_MODULE_PREVENT_REPL_PROP;
+        }
         c = NULL; /* Make sure not to free the client */
     } else {
         reply = moduleParseReply(c, ctx);
