@@ -1442,8 +1442,8 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password, const char **
     if (checkModuleAuthentication(c, username, password, err) == C_OK) {
         return C_OK;
     }
-    if (c->flags & CLIENT_CUSTOM_AUTH_RESULT) {
-        c->flags &= ~CLIENT_CUSTOM_AUTH_RESULT;
+    if (c->flags & CLIENT_CUSTOM_AUTH_HAS_RESULT) {
+        c->flags &= ~CLIENT_CUSTOM_AUTH_HAS_RESULT;
         return C_ERR;
     }
     /* If custom authentication did not succeed / explicity get denied, attempt password auth. */

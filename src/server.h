@@ -389,8 +389,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                       memory eviction. */
 #define CLIENT_ALLOW_OOM (1ULL<<44) /* Client used by RM_Call is allowed to fully execute
                                        scripts even when in OOM */
-#define CLIENT_CUSTOM_AUTH_RESULT (1ULL<<45) /* Indicates a Module has concluded custom auth with an
-                                                explicit result (Success / Error) */
+#define CLIENT_CUSTOM_AUTH_HAS_RESULT (1ULL<<45) /* Indicates a client in the middle of module based
+                                                authentication has an explicit result (Allow / Deny)
+                                                from the Module, so we can reply & conclude auth. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
