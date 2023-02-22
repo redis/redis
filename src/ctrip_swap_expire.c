@@ -363,7 +363,7 @@ sds genSwapScanExpireInfoString(sds info) {
         db = server.db + dbid;
         scan_expire = db->scan_expire;
 
-        if (!scan_expire || !scan_expire->candidates)
+        if (db->cold_keys <= 0 || !scan_expire || !scan_expire->candidates)
             continue;
 
         used_memory += sizeof(scanExpire) + sizeof(expireCandidates);
