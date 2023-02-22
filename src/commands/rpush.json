@@ -40,6 +40,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "Length of the list after the push operations.",
+            "type": "integer",
+            "minimum": 1
+        },
         "arguments": [
             {
                 "name": "key",

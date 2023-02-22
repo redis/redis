@@ -33,6 +33,17 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The bit value stored at offset.",
+            "oneOf": [
+                {
+                    "const": 0
+                },
+                {
+                    "const": 1
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

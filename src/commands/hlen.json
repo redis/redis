@@ -32,6 +32,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "Number of the fields in the hash, or 0 when the key does not exist."
+        },
         "arguments": [
             {
                 "name": "key",

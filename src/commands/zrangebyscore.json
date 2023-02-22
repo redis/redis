@@ -43,6 +43,33 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List of the elements in the specified score range.",
+            "uniqueItems": true,
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "string",
+                        "description": "Element when 'WITHSCORES' is not used."
+                    },
+                    {
+                        "type": "array",
+                        "description": "Element and its score when 'WITHSCORES' is used.",
+                        "uniqueItems": true,
+                        "additionalItems": false,
+                        "items": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
         "arguments": [
             {
                 "name": "key",

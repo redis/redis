@@ -32,6 +32,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The hash does not contain the field, or key does not exist.",
+                    "const": 0
+                },
+                {
+                    "description": "The hash contains the field.",
+                    "const": 1
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",
