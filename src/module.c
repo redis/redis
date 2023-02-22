@@ -7578,9 +7578,6 @@ int checkModuleAuthentication(client *c, robj *username, robj *password, const c
         serverAssert(result == REDISMODULE_AUTH_HANDLED);
         return C_OK;
     }
-    if (c->flags & CLIENT_PENDING_COMMAND) {
-        c->flags &= ~CLIENT_PENDING_COMMAND;
-    }
     c->custom_auth_ctx = NULL;
     if (result == REDISMODULE_AUTH_NOT_HANDLED) return C_ERR;
     if (c->flags & CLIENT_CUSTOM_AUTH_RESULT && c->authenticated) {
@@ -7674,8 +7671,10 @@ RedisModuleBlockedClient *RM_BlockClientOnAuth(RedisModuleCtx *ctx, RedisModuleC
         addReplyError(ctx->client, "Module blocking client on auth when not currently undergoing module authentication");
         return NULL;
     }
-    ctx->client->flags |= CLIENT_PENDING_COMMAND;
     RedisModuleBlockedClient *bc = moduleBlockClient(ctx,NULL,reply_callback,NULL,free_privdata,0, NULL,0,NULL,0);
+    if (ctx->client->flags & CLIENT_BLOCKED) {
+        ctx->client->flags |= CLIENT_PENDING_COMMAND;
+    }
     return bc;
 }
 
