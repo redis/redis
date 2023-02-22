@@ -632,18 +632,18 @@ void incrDecrCommand(client *c, long long incr, const char *event) {
 }
 
 void incrCommand(client *c) {
-    incrDecrCommand(c,1, "incr");
+    incrDecrCommand(c,1,"incr");
 }
 
 void decrCommand(client *c) {
-    incrDecrCommand(c,-1, "decr");
+    incrDecrCommand(c,-1,"decr");
 }
 
 void incrbyCommand(client *c) {
     long long incr;
 
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) return;
-    incrDecrCommand(c,incr, "incrby");
+    incrDecrCommand(c,incr,"incrby");
 }
 
 void decrbyCommand(client *c) {
@@ -655,7 +655,7 @@ void decrbyCommand(client *c) {
         addReplyError(c, "decrement would overflow");
         return;
     }
-    incrDecrCommand(c,-incr, "decrby");
+    incrDecrCommand(c,-incr,"decrby");
 }
 
 void incrbyfloatCommand(client *c) {
