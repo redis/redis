@@ -904,7 +904,7 @@ typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, 
 typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, RedisModuleString **err);
 typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, RedisModuleString **err);
 typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, RedisModuleString **err);
-typedef int (*RedisModuleCustomAuthCallback)(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, const char **err);
+typedef int (*RedisModuleCustomAuthCallback)(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err);
 
 typedef struct RedisModuleTypeMethods {
     uint64_t version;

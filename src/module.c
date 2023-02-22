@@ -229,7 +229,7 @@ struct RedisModuleKey {
  * a Redis module. */
 struct RedisModuleBlockedClient;
 typedef int (*RedisModuleCmdFunc) (RedisModuleCtx *ctx, void **argv, int argc);
-typedef int (*RedisModuleCustomAuthCallback)(RedisModuleCtx *ctx, void *username, void *password, const char **err);
+typedef int (*RedisModuleCustomAuthCallback)(RedisModuleCtx *ctx, void *username, void *password, RedisModuleString **err);
 typedef void (*RedisModuleDisconnectFunc) (RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc);
 
 /* This struct holds the information about a command registered by a module.*/
@@ -7506,8 +7506,13 @@ int attemptNextCustomAuthCb(client *c, robj *username, robj *password, const cha
             moduleCreateContext(&ctx, cur_auth_ctx->module, REDISMODULE_CTX_NONE);
             ctx.client = c;
             *err = NULL;
+            RedisModuleString *err_string = NULL;
             c->custom_auth_ctx = cur_auth_ctx;
-            result = cur_auth_ctx->auth_cb(&ctx, username, password, err);
+            result = cur_auth_ctx->auth_cb(&ctx, username, password, &err_string);
+            if (err_string) {
+                *err = err_string->ptr;
+                decrRefCount(err_string);
+            }
             moduleFreeContext(&ctx);
             /* If the client is blocked, we are still in the auth chain. Set the auth_ctx. */
             if (c->flags & CLIENT_BLOCKED) {
@@ -7542,7 +7547,13 @@ int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, c
         ctx.blocked_ready_key = NULL;
         ctx.client = bc->client;
         ctx.blocked_client = bc;
-        result = bc->auth_reply_cb(&ctx, username, password, err);
+        RedisModuleString *err_string = NULL;
+        result = bc->auth_reply_cb(&ctx, username, password, &err_string);
+        if (err_string) {
+            *err = err_string->ptr;
+            decrRefCount(err_string);
+        }
+        moduleFreeContext(&ctx);
     }
     moduleInvokeFreePrivDataCallback(c, bc);
     c->module_blocked_client = NULL;

@@ -80,7 +80,7 @@ int Auth_ChangeCount(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  * to support both non-blocking and blocking module based authentication. */
 
 /* Non Blocking Custom Auth callback / implementation. */
-int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, const char **err) {
+int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
     const char* user = RedisModule_StringPtrLen(username, NULL);
     const char* pwd = RedisModule_StringPtrLen(password, NULL);
     if (!strcmp(user,"foo") && !strcmp(pwd,"allow")) {
@@ -93,7 +93,8 @@ int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString 
             RedisModule_ACLAddLogEntry(ctx, user, NULL, REDISMODULE_ACL_LOG_AUTH);
             RedisModule_FreeModuleUser(user);
         }
-        *err = "Auth denied by Misc Module.";
+        const char *err_msg = "Auth denied by Misc Module.";
+        *err = RedisModule_CreateString(ctx, err_msg, strlen(err_msg));
         return REDISMODULE_AUTH_HANDLED;
     }
     return REDISMODULE_AUTH_NOT_HANDLED;
@@ -147,7 +148,7 @@ cleanup:
 /*
  * Reply callback for a blocking AUTH command. This is called when the client is unblocked.
  */
-int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, const char **err) {
+int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
     REDISMODULE_NOT_USED(password);
     void **targ = RedisModule_GetBlockedClientPrivateData(ctx);
     int result = (uintptr_t) targ[0];
@@ -165,7 +166,8 @@ int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModul
             RedisModule_ACLAddLogEntry(ctx, user, NULL, REDISMODULE_ACL_LOG_AUTH);
             RedisModule_FreeModuleUser(user);
         }
-        *err = "Auth denied by Misc Module.";
+        const char *err_msg = "Auth denied by Misc Module.";
+        *err = RedisModule_CreateString(ctx, err_msg, strlen(err_msg));
         return REDISMODULE_AUTH_HANDLED;
     }
     /* "Skip" Authentication */
@@ -184,7 +186,7 @@ void AuthBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
  * The Module can have auth succeed / denied here itself, but this is an example
  * of blocking custom auth.
  */
-int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, const char **err) {
+int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
     REDISMODULE_NOT_USED(username);
     REDISMODULE_NOT_USED(password);
     REDISMODULE_NOT_USED(err);

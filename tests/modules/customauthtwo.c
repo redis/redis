@@ -6,7 +6,7 @@
  * from multiple modules. */
 
 /* Non Blocking Custom Auth callback / implementation. */
-int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, const char **err) {
+int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
     const char* user = RedisModule_StringPtrLen(username, NULL);
     const char* pwd = RedisModule_StringPtrLen(password, NULL);
     if (!strcmp(user,"foo") && !strcmp(pwd,"allow_two")) {
@@ -19,7 +19,8 @@ int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString 
             RedisModule_ACLAddLogEntry(ctx, user, NULL, REDISMODULE_ACL_LOG_AUTH);
             RedisModule_FreeModuleUser(user);
         }
-        *err = "Auth denied by Misc Module.";
+        const char *err_msg = "Auth denied by Misc Module.";
+        *err = RedisModule_CreateString(ctx, err_msg, strlen(err_msg));
         return REDISMODULE_AUTH_HANDLED;
     }
     return REDISMODULE_AUTH_NOT_HANDLED;
