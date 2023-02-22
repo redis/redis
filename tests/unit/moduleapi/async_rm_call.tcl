@@ -1,4 +1,5 @@
 set testmodule [file normalize tests/modules/blockedclient.so]
+set testmodule2 [file normalize tests/modules/postnotifications.so]
 
 start_server {tags {"modules"}} {
     r module load $testmodule
@@ -221,6 +222,38 @@ start_server {tags {"modules"}} {
             {select *}
             {lpush l a}
             {set x 1}
+        }
+        close_replication_stream $repl
+    }
+}
+
+start_server {tags {"modules"}} {
+    r module load $testmodule
+    r module load $testmodule2
+
+    test {Test unblock handler are executed as a unit} {
+        r flushall
+        set repl [attach_to_replication_stream]
+
+        set rd [redis_deferring_client]
+
+        $rd blpop_and_set_multiple_keys l string_foo 1 string_bar 2
+        wait_for_blocked_client
+        r lpush l a
+        assert_equal [$rd read] {OK}
+
+        assert_replication_stream $repl {
+            {select *}
+            {lpush l a}
+            {lpop l}
+            {multi}
+            {set string_foo 1}
+            {set string_bar 2}
+            {incr string_changed{string_foo}}
+            {incr string_changed{string_bar}}
+            {incr string_total}
+            {incr string_total}
+            {exec}
         }
         close_replication_stream $repl
     }
