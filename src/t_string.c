@@ -595,7 +595,7 @@ void msetnxCommand(client *c) {
     msetGenericCommand(c,1);
 }
 
-void incrDecrCommand(client *c, long long incr, char * const event) {
+void incrDecrCommand(client *c, long long incr, const char *event) {
     long long value, oldvalue;
     robj *o, *new;
 
