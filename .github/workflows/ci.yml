@@ -87,6 +87,8 @@ jobs:
         run: |
           sudo apt-get install tcl8.6 tclx
           ./runtest --verbose --tags -slow --dump-logs --log-req-res --dont-clean --force-resp3
+          ./runtest-cluster --log-req-res --dont-clean --force-resp3
+          ./runtest-sentinel --log-req-res --dont-clean --force-resp3
       - name: Install Python dependencies
         uses: py-actions/py-dependency-install@v4
         with:
