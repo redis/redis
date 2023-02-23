@@ -7416,12 +7416,13 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
 }
 
 /* This API registers a callback to execute in addition to normal password based authentication.
- * Multiple callbacks can be registered across different modules.
+ * Multiple callbacks can be registered across different modules. When a Module is unloaded, all the
+ * auth callbacks registered by it are unregistered.
  * The callbacks are attempted, in the order they were registered, when the AUTH/HELLO
  * (with AUTH field is provided) commands are called.
  * The callbacks will be called with a module context along with a username and a password, and are
  * expected to take one of the following actions:
- * (1) Authenticate - Use the RM_Authenticate* API and return REDISMODULE_AUTH_HANDLED.
+ * (1) Authenticate - Use the RM_AuthenticateClient* API and return REDISMODULE_AUTH_HANDLED.
  * This will immediately end the auth chain as successful and add the OK reply.
  * (2) Deny Authentication - Return REDISMODULE_AUTH_HANDLED without authenticating or blocking the
  * client. Optionally, `err` can be set to a custom error message and `err` will be automatically
@@ -7437,7 +7438,39 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
  * will authenticate or add failure logs and reply to the clients accordingly.
  *
  * Note: If a client is disconnected while it was in the middle of blocking custom auth, that
- * occurrence of the AUTH or HELLO command will not be tracked in the INFO command stats. */
+ * occurrence of the AUTH or HELLO command will not be tracked in the INFO command stats.
+ *
+ * The following is an example of how non-blocking module based authentication can be used:
+ *
+ *      int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
+ *           const char* user = RedisModule_StringPtrLen(username, NULL);
+ *           const char* pwd = RedisModule_StringPtrLen(password, NULL);
+ *           if (!strcmp(user,"foo") && !strcmp(pwd,"valid_password")) {
+ *               RedisModule_AuthenticateClientWithACLUser(ctx, "foo", 3, NULL, NULL, NULL);
+ *               return REDISMODULE_AUTH_HANDLED;
+ *           }
+ *           else if (!strcmp(user,"foo") && !strcmp(pwd,"wrong_password")) {
+ *               RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(username);
+ *               if (user) {
+ *                   RedisModule_ACLAddLogEntry(ctx, user, NULL, REDISMODULE_ACL_LOG_AUTH);
+ *                   RedisModule_FreeModuleUser(user);
+ *               }
+ *               const char *err_msg = "Authentication denied by Module.";
+ *               *err = RedisModule_CreateString(ctx, err_msg, strlen(err_msg));
+ *               return REDISMODULE_AUTH_HANDLED;
+ *           }
+ *           return REDISMODULE_AUTH_NOT_HANDLED;
+ *       }
+ *
+ *       int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+ *           REDISMODULE_NOT_USED(argv);
+ *           REDISMODULE_NOT_USED(argc);
+ *           if (RedisModule_Init(ctx,"authmodule",1,REDISMODULE_APIVER_1)== REDISMODULE_ERR)
+ *               return REDISMODULE_ERR;
+ *           RedisModule_RegisterCustomAuthCallback(ctx, auth_cb);
+ *           return REDISMODULE_OK;
+ *       }
+ */
 void RM_RegisterCustomAuthCallback(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback cb) {
     RedisModuleCustomAuthCtx *auth_ctx = zmalloc(sizeof(RedisModuleCustomAuthCtx));
     auth_ctx->module = ctx->module;
