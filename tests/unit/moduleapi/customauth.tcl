@@ -51,7 +51,7 @@ start_server {tags {"modules"}} {
     test {test non blocking custom HELLO AUTH} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
-        # Validate proto 2 and 3 incase of success
+        # Validate proto 2 and 3 in case of success
         assert_equal $hello2_response [r HELLO 2 AUTH foo pwd]
         assert_equal $hello2_response [r HELLO 2 AUTH foo allow]
         assert_equal $hello3_response [r HELLO 3 AUTH foo pwd]
@@ -110,7 +110,7 @@ start_server {tags {"modules"}} {
     test {test blocking custom HELLO AUTH} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
-        # validate proto 2 and 3 incase of success
+        # validate proto 2 and 3 in case of success
         assert_equal $hello2_response [r HELLO 2 AUTH foo pwd]
         assert_equal $hello2_response [r HELLO 2 AUTH foo block_allow]
         assert_equal $hello3_response [r HELLO 3 AUTH foo pwd]
@@ -196,7 +196,7 @@ start_server {tags {"modules"}} {
 
         r config resetstat
 
-        # Case 7 - All four auth callbacks "Skip" by not explictly allowing or denying.
+        # Case 7 - All four auth callbacks "Skip" by not explicitly allowing or denying.
         assert_error {*WRONGPASS*} {r AUTH foo nomatch}
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
         assert_equal {OK} [r AUTH foo pwd]

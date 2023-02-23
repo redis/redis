@@ -7603,7 +7603,7 @@ int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, c
 
 /* Helper function to attempt Module based authentication through custom auth callbacks.
  * Here, the Module is expected to authenticate the client using the RedisModule APIs and to add ACL
- * logs incase of errors.
+ * logs in case of errors.
  * Returns one of the following codes:
  * AUTH_OK - Indicates that a module handled and authenticated the client.
  * AUTH_ERR - Indicates that a module handled and denied authentication for this client.
