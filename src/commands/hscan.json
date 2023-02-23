@@ -57,6 +57,23 @@
                 "type": "integer",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "cursor and scan response in array form",
+            "type": "array",
+            "items": [
+                {
+                    "description": "cursor",
+                    "type": "string"
+                },
+                {
+                    "description": "list of key/value pairs from the hash where each even element is the key, and each odd element is the value",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        }
     }
 }
