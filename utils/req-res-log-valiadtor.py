@@ -2,6 +2,8 @@
 import os
 import glob
 import json
+import sys
+
 import jsonschema
 import subprocess
 import redis
@@ -216,6 +218,35 @@ def process_file(docs, path):
     return command_counter, missing_schema
 
 
+def fetch_schemas(cli, port, args, docs):
+    redis_proc = subprocess.Popen(args, stdout=subprocess.PIPE)
+
+    while True:
+        try:
+            print('Connecting to Redis...')
+            r = redis.Redis(port=port)
+            r.ping()
+            break
+        except Exception as e:
+            time.sleep(0.1)
+            pass
+    print('Connected')
+
+    cli_proc = subprocess.Popen([cli, '-p', str(port), '--json', 'command', 'docs'], stdout=subprocess.PIPE)
+    stdout, stderr = cli_proc.communicate()
+    docs_response = json.loads(stdout)
+
+    for name, doc in docs_response.items():
+        if "subcommands" in doc:
+            for subname, subdoc in doc["subcommands"].items():
+                docs[subname] = subdoc
+        else:
+            docs[name] = doc
+
+    redis_proc.terminate()
+    redis_proc.wait()
+
+
 if __name__ == '__main__':
     # Figure out where the sources are
     srcdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../src")
@@ -230,42 +261,38 @@ if __name__ == '__main__':
     parser.add_argument('--fail-commands-not-all-hit', type=bool, default=False)
     args = parser.parse_args()
 
+    docs = dict()
+
+    # Fetch schemas from a Redis instance
     print('Starting Redis server')
     redis_args = [args.server, '--port', str(args.port)]
     for module in args.module:
         redis_args += ['--loadmodule', 'tests/modules/%s.so' % module]
-    redis_proc = subprocess.Popen(redis_args, stdout=subprocess.PIPE)
-    
-    while True:
-        try:
-            print('Connecting to Redis...')
-            r = redis.Redis(port=args.port)
-            r.ping()
-            break
-        except Exception as e:
-            time.sleep(0.1)
-            pass
-    print('Connected')
 
-    cli_proc = subprocess.Popen([args.cli, '-p', str(args.port), '--json', 'command', 'docs'], stdout=subprocess.PIPE)
-    stdout, stderr = cli_proc.communicate()
-    docs_response = json.loads(stdout)
-    docs = dict()
-    for name, doc in docs_response.items():
-        if "subcommands" in doc:
-            for subname, subdoc in doc["subcommands"].items():
-                docs[subname] = subdoc
-        else:
-            docs[name] = doc
+    fetch_schemas(args.cli, args.port, redis_args, docs)
 
-    redis_proc.terminate()
-    redis_proc.wait()
+    # Fetch schemas from a sentinel
+    print('Starting Redis sentinel')
+
+    # Sentinel needs a config file to start
+    config_file = "tmpsentinel.conf"
+    open(config_file, 'a').close()
+
+    sentinel_args = [args.server, config_file, '--port', str(args.port), "--sentinel"]
+    fetch_schemas(args.cli, args.port, sentinel_args, docs)
+    os.unlink(config_file)
 
     start = time.time()
 
     # Obtain all the files toprocesses
     paths = []
     for path in glob.glob('%s/tmp/*/*.reqres' % testdir):
+        paths.append(path)
+
+    for path in glob.glob('%s/cluster/tmp/*/*.reqres' % testdir):
+        paths.append(path)
+
+    for path in glob.glob('%s/sentinel/tmp/*/*.reqres' % testdir):
         paths.append(path)
 
     counter = collections.Counter()

@@ -2776,7 +2776,7 @@ void sentinelInfoReplyCallback(redisAsyncContext *c, void *reply, void *privdata
     link->pending_commands--;
     r = reply;
 
-    if (r->type == REDIS_REPLY_STRING)
+    if (r->type == REDIS_REPLY_STRING || r->type == REDIS_REPLY_VERB)
         sentinelRefreshInstanceInfo(ri,r->str);
 }
 
@@ -2988,7 +2988,7 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
 
     /* Sanity check in the reply we expect, so that the code that follows
      * can avoid to check for details. */
-    if (r->type != REDIS_REPLY_ARRAY ||
+    if ((r->type != REDIS_REPLY_ARRAY && r->type != REDIS_REPLY_PUSH) ||
         r->elements != 3 ||
         r->element[0]->type != REDIS_REPLY_STRING ||
         r->element[1]->type != REDIS_REPLY_STRING ||
