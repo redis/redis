@@ -21,7 +21,14 @@
                 "properties": {
                     "direction": {
                         "description": "This link is established by the local node _to_ the peer, or accepted by the local node _from_ the peer.",
-                        "type": "string"
+                        "oneOf": [
+                            {
+                                "const": "from"
+                            },
+                            {
+                                "const": "to"
+                            }
+                        ]
                     },
                     "node": {
                         "description": "the node id of the peer",
