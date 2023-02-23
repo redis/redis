@@ -769,10 +769,30 @@ const char *CLUSTER_LINKS_tips[] = {
 NULL
 };
 
+/* CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_0 reply schema */
+struct jsonObjectElement CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="from"},
+};
+
+struct jsonObject CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_0 = {CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_0_elements,.length=1};
+
+/* CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_1 reply schema */
+struct jsonObjectElement CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="to"},
+};
+
+struct jsonObject CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_1 = {CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_1_elements,.length=1};
+
+/* CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf array reply schema */
+struct jsonObject *CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf[] = {
+&CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_0,
+&CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_1,
+};
+
 /* CLUSTER_LINKS_ReplySchema_items_properties_direction reply schema */
 struct jsonObjectElement CLUSTER_LINKS_ReplySchema_items_properties_direction_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="This link is established by the local node _to_ the peer, or accepted by the local node _from_ the peer."},
-{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf,.length=2}},
 };
 
 struct jsonObject CLUSTER_LINKS_ReplySchema_items_properties_direction = {CLUSTER_LINKS_ReplySchema_items_properties_direction_elements,.length=2};
@@ -6843,6 +6863,15 @@ struct redisCommandArg PUBLISH_Args[] = {
 {0}
 };
 
+/* PUBLISH_ReplySchema reply schema */
+struct jsonObjectElement PUBLISH_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of clients that received the message. Note that in a Redis Cluster, only clients that are connected to the same node as the publishing client are included in the count"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject PUBLISH_ReplySchema = {PUBLISH_ReplySchema_elements,.length=3};
+
 /********** PUBSUB CHANNELS ********************/
 
 /* PUBSUB CHANNELS history */
@@ -7037,6 +7066,15 @@ struct redisCommandArg SPUBLISH_Args[] = {
 {"message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SPUBLISH_ReplySchema reply schema */
+struct jsonObjectElement SPUBLISH_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of clients that received the message. Note that in a Redis Cluster, only clients that are connected to the same node as the publishing client are included in the count"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SPUBLISH_ReplySchema = {SPUBLISH_ReplySchema_elements,.length=3};
 
 /********** SSUBSCRIBE ********************/
 
@@ -7690,6 +7728,15 @@ struct redisCommandArg SENTINEL_CKQUORUM_Args[] = {
 {0}
 };
 
+/* SENTINEL_CKQUORUM_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_CKQUORUM_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Returns OK if the current Sentinel configuration is able to reach the quorum needed to failover a master, and the majority needed to authorize the failover."},
+{JSON_TYPE_STRING,"pattern",.value.string="OK"},
+};
+
+struct jsonObject SENTINEL_CKQUORUM_ReplySchema = {SENTINEL_CKQUORUM_ReplySchema_elements,.length=3};
+
 /********** SENTINEL CONFIG ********************/
 
 /* SENTINEL CONFIG history */
@@ -7717,6 +7764,183 @@ struct redisCommandArg SENTINEL_CONFIG_Args[] = {
 {"action",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=SENTINEL_CONFIG_action_Subargs},
 {0}
 };
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_0 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="yes"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_0 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_0_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_1 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="no"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_1 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_1_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf array reply schema */
+struct jsonObject *SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf[] = {
+&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_0,
+&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_1,
+};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf,.length=2}},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf_0 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="yes"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf_0 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf_0_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf_1 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="no"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf_1 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf_1_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf array reply schema */
+struct jsonObject *SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf[] = {
+&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf_0,
+&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf_1,
+};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_oneOf,.length=2}},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_ip reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_ip_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_ip = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_ip_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_port reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_port_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_port = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_port_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_sentinel_user reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_sentinel_user_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_sentinel_user = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_sentinel_user_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_sentinel_pass reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_sentinel_pass_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_sentinel_pass = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_sentinel_pass_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_0 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="debug"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_0 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_0_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_1 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="verbose"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_1 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_1_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_2 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="notice"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_2 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_2_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_3 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_3_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="warning"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_3 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_3_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_4 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_4_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="unknown"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_4 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_4_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf array reply schema */
+struct jsonObject *SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf[] = {
+&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_0,
+&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_1,
+&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_2,
+&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_3,
+&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_4,
+};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf,.length=5}},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_elements[] = {
+{JSON_TYPE_OBJECT,"resolve-hostnames",.value.object=&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames},
+{JSON_TYPE_OBJECT,"announce-hostnames",.value.object=&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_hostnames},
+{JSON_TYPE_OBJECT,"announce-ip",.value.object=&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_ip},
+{JSON_TYPE_OBJECT,"announce-port",.value.object=&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_port},
+{JSON_TYPE_OBJECT,"sentinel-user",.value.object=&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_sentinel_user},
+{JSON_TYPE_OBJECT,"sentinel-pass",.value.object=&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_sentinel_pass},
+{JSON_TYPE_OBJECT,"loglevel",.value.object=&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_elements,.length=7};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_STRING,"description",.value.string="When 'SENTINEL-CONFIG GET' is called, returns a map."},
+{JSON_TYPE_OBJECT,"properties",.value.object=&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_elements,.length=4};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+{JSON_TYPE_STRING,"description",.value.string="When 'SENTINEL-CONFIG SET' is called, returns OK on success."},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_1 = {SENTINEL_CONFIG_ReplySchema_oneOf_1_elements,.length=2};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf array reply schema */
+struct jsonObject *SENTINEL_CONFIG_ReplySchema_oneOf[] = {
+&SENTINEL_CONFIG_ReplySchema_oneOf_0,
+&SENTINEL_CONFIG_ReplySchema_oneOf_1,
+};
+
+/* SENTINEL_CONFIG_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_CONFIG_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema = {SENTINEL_CONFIG_ReplySchema_elements,.length=1};
 
 /********** SENTINEL DEBUG ********************/
 
@@ -7753,6 +7977,14 @@ struct redisCommandArg SENTINEL_FAILOVER_Args[] = {
 {0}
 };
 
+/* SENTINEL_FAILOVER_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_FAILOVER_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+{JSON_TYPE_STRING,"description",.value.string="Force a fail over as if the master was not reachable, and without asking for agreement to other Sentinels."},
+};
+
+struct jsonObject SENTINEL_FAILOVER_ReplySchema = {SENTINEL_FAILOVER_ReplySchema_elements,.length=2};
+
 /********** SENTINEL FLUSHCONFIG ********************/
 
 /* SENTINEL FLUSHCONFIG history */
@@ -7760,6 +7992,14 @@ struct redisCommandArg SENTINEL_FAILOVER_Args[] = {
 
 /* SENTINEL FLUSHCONFIG tips */
 #define SENTINEL_FLUSHCONFIG_tips NULL
+
+/* SENTINEL_FLUSHCONFIG_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_FLUSHCONFIG_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+{JSON_TYPE_STRING,"description",.value.string="Force Sentinel to rewrite its configuration on disk, including the current Sentinel state."},
+};
+
+struct jsonObject SENTINEL_FLUSHCONFIG_ReplySchema = {SENTINEL_FLUSHCONFIG_ReplySchema_elements,.length=2};
 
 /********** SENTINEL GET_MASTER_ADDR_BY_NAME ********************/
 
@@ -7774,6 +8014,40 @@ struct redisCommandArg SENTINEL_GET_MASTER_ADDR_BY_NAME_Args[] = {
 {"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0 reply schema */
+struct jsonObjectElement SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="IP addr or hostname."},
+};
+
+struct jsonObject SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0 = {SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0_elements,.length=2};
+
+/* SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_1 reply schema */
+struct jsonObjectElement SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Port."},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+"},
+};
+
+struct jsonObject SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_1 = {SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_1_elements,.length=3};
+
+/* SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items array reply schema */
+struct jsonObject *SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items[] = {
+&SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0,
+&SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_1,
+};
+
+/* SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items,.length=2}},
+};
+
+struct jsonObject SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema = {SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_elements,.length=5};
 
 /********** SENTINEL HELP ********************/
 
@@ -7830,6 +8104,70 @@ struct redisCommandArg SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args[] = {
 {0}
 };
 
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0 reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+{JSON_TYPE_STRING,"description",.value.string="Master is up."},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0_elements,.length=2};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_1 reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+{JSON_TYPE_STRING,"description",.value.string="Master is down."},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_1 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_1_elements,.length=2};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf array reply schema */
+struct jsonObject *SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf[] = {
+&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0,
+&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_1,
+};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0 reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf,.length=2}},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_elements,.length=1};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_1 reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Sentinel address."},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_1 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_1_elements,.length=2};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2 reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Port."},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+"},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2_elements,.length=3};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items array reply schema */
+struct jsonObject *SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items[] = {
+&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0,
+&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_1,
+&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2,
+};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=3},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=3},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items,.length=3}},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_elements,.length=5};
+
 /********** SENTINEL MASTER ********************/
 
 /* SENTINEL MASTER history */
@@ -7843,6 +8181,22 @@ struct redisCommandArg SENTINEL_MASTER_Args[] = {
 {"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SENTINEL_MASTER_ReplySchema_additionalProperties reply schema */
+struct jsonObjectElement SENTINEL_MASTER_ReplySchema_additionalProperties_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_MASTER_ReplySchema_additionalProperties = {SENTINEL_MASTER_ReplySchema_additionalProperties_elements,.length=1};
+
+/* SENTINEL_MASTER_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_MASTER_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_STRING,"description",.value.string="The state and info of the specified master."},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&SENTINEL_MASTER_ReplySchema_additionalProperties},
+};
+
+struct jsonObject SENTINEL_MASTER_ReplySchema = {SENTINEL_MASTER_ReplySchema_elements,.length=3};
 
 /********** SENTINEL MASTERS ********************/
 
@@ -7868,6 +8222,13 @@ struct redisCommandArg SENTINEL_MONITOR_Args[] = {
 {"quorum",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SENTINEL_MONITOR_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_MONITOR_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SENTINEL_MONITOR_ReplySchema = {SENTINEL_MONITOR_ReplySchema_elements,.length=1};
 
 /********** SENTINEL MYID ********************/
 
@@ -7899,6 +8260,13 @@ struct redisCommandArg SENTINEL_REMOVE_Args[] = {
 {0}
 };
 
+/* SENTINEL_REMOVE_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_REMOVE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SENTINEL_REMOVE_ReplySchema = {SENTINEL_REMOVE_ReplySchema_elements,.length=1};
+
 /********** SENTINEL REPLICAS ********************/
 
 /* SENTINEL REPLICAS history */
@@ -7912,6 +8280,30 @@ struct redisCommandArg SENTINEL_REPLICAS_Args[] = {
 {"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SENTINEL_REPLICAS_ReplySchema_items_additionalProperties reply schema */
+struct jsonObjectElement SENTINEL_REPLICAS_ReplySchema_items_additionalProperties_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_REPLICAS_ReplySchema_items_additionalProperties = {SENTINEL_REPLICAS_ReplySchema_items_additionalProperties_elements,.length=1};
+
+/* SENTINEL_REPLICAS_ReplySchema_items reply schema */
+struct jsonObjectElement SENTINEL_REPLICAS_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&SENTINEL_REPLICAS_ReplySchema_items_additionalProperties},
+};
+
+struct jsonObject SENTINEL_REPLICAS_ReplySchema_items = {SENTINEL_REPLICAS_ReplySchema_items_elements,.length=2};
+
+/* SENTINEL_REPLICAS_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_REPLICAS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of replicas for this master, and their state."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SENTINEL_REPLICAS_ReplySchema_items},
+};
+
+struct jsonObject SENTINEL_REPLICAS_ReplySchema = {SENTINEL_REPLICAS_ReplySchema_elements,.length=3};
 
 /********** SENTINEL RESET ********************/
 
@@ -7963,6 +8355,13 @@ struct redisCommandArg SENTINEL_SET_Args[] = {
 {0}
 };
 
+/* SENTINEL_SET_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_SET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SENTINEL_SET_ReplySchema = {SENTINEL_SET_ReplySchema_elements,.length=1};
+
 /********** SENTINEL SIMULATE_FAILURE ********************/
 
 /* SENTINEL SIMULATE_FAILURE history */
@@ -8001,25 +8400,25 @@ struct redisCommandArg SENTINEL_SLAVES_Args[] = {
 
 /* SENTINEL command table */
 struct redisCommand SENTINEL_Subcommands[] = {
-{"ckquorum","Check for a Sentinel quorum",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CKQUORUM_History,SENTINEL_CKQUORUM_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_CKQUORUM_Args},
-{"config","Configure Sentinel","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CONFIG_History,SENTINEL_CONFIG_tips,sentinelCommand,-4,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_CONFIG_Args},
+{"ckquorum","Check for a Sentinel quorum",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CKQUORUM_History,SENTINEL_CKQUORUM_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_CKQUORUM_Args,.reply_schema=&SENTINEL_CKQUORUM_ReplySchema},
+{"config","Configure Sentinel","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CONFIG_History,SENTINEL_CONFIG_tips,sentinelCommand,-4,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_CONFIG_Args,.reply_schema=&SENTINEL_CONFIG_ReplySchema},
 {"debug","List or update the current configurable parameters","O(N) where N is the number of configurable parameters","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_DEBUG_History,SENTINEL_DEBUG_tips,sentinelCommand,-2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_DEBUG_Args},
-{"failover","Force a failover",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FAILOVER_History,SENTINEL_FAILOVER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_FAILOVER_Args},
-{"flushconfig","Rewrite configuration file","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FLUSHCONFIG_History,SENTINEL_FLUSHCONFIG_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"get-master-addr-by-name","Get port and address of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_GET_MASTER_ADDR_BY_NAME_History,SENTINEL_GET_MASTER_ADDR_BY_NAME_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_GET_MASTER_ADDR_BY_NAME_Args},
+{"failover","Force a failover",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FAILOVER_History,SENTINEL_FAILOVER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_FAILOVER_Args,.reply_schema=&SENTINEL_FAILOVER_ReplySchema},
+{"flushconfig","Rewrite configuration file","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FLUSHCONFIG_History,SENTINEL_FLUSHCONFIG_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.reply_schema=&SENTINEL_FLUSHCONFIG_ReplySchema},
+{"get-master-addr-by-name","Get port and address of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_GET_MASTER_ADDR_BY_NAME_History,SENTINEL_GET_MASTER_ADDR_BY_NAME_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_GET_MASTER_ADDR_BY_NAME_Args,.reply_schema=&SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema},
 {"help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_HELP_History,SENTINEL_HELP_tips,sentinelCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.reply_schema=&SENTINEL_HELP_ReplySchema},
 {"info-cache","Get cached INFO from the instances in the deployment","O(N) where N is the number of instances","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_INFO_CACHE_History,SENTINEL_INFO_CACHE_tips,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_INFO_CACHE_Args},
-{"is-master-down-by-addr","Check if a master is down","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_IS_MASTER_DOWN_BY_ADDR_History,SENTINEL_IS_MASTER_DOWN_BY_ADDR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args},
-{"master","Shows the state of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MASTER_History,SENTINEL_MASTER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_MASTER_Args},
+{"is-master-down-by-addr","Check if a master is down","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_IS_MASTER_DOWN_BY_ADDR_History,SENTINEL_IS_MASTER_DOWN_BY_ADDR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args,.reply_schema=&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema},
+{"master","Shows the state of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MASTER_History,SENTINEL_MASTER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_MASTER_Args,.reply_schema=&SENTINEL_MASTER_ReplySchema},
 {"masters","List the monitored masters","O(N) where N is the number of masters","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MASTERS_History,SENTINEL_MASTERS_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"monitor","Start monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MONITOR_History,SENTINEL_MONITOR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_MONITOR_Args},
+{"monitor","Start monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MONITOR_History,SENTINEL_MONITOR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_MONITOR_Args,.reply_schema=&SENTINEL_MONITOR_ReplySchema},
 {"myid","Get the Sentinel instance ID","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MYID_History,SENTINEL_MYID_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
 {"pending-scripts","Get information about pending scripts",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_PENDING_SCRIPTS_History,SENTINEL_PENDING_SCRIPTS_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"remove","Stop monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REMOVE_History,SENTINEL_REMOVE_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REMOVE_Args},
-{"replicas","List the monitored replicas","O(N) where N is the number of replicas","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REPLICAS_History,SENTINEL_REPLICAS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REPLICAS_Args},
+{"remove","Stop monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REMOVE_History,SENTINEL_REMOVE_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REMOVE_Args,.reply_schema=&SENTINEL_REMOVE_ReplySchema},
+{"replicas","List the monitored replicas","O(N) where N is the number of replicas","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REPLICAS_History,SENTINEL_REPLICAS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REPLICAS_Args,.reply_schema=&SENTINEL_REPLICAS_ReplySchema},
 {"reset","Reset masters by name pattern","O(N) where N is the number of monitored masters","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_RESET_History,SENTINEL_RESET_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_RESET_Args},
 {"sentinels","List the Sentinel instances","O(N) where N is the number of Sentinels","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SENTINELS_History,SENTINEL_SENTINELS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SENTINELS_Args},
-{"set","Change the configuration of a monitored master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SET_History,SENTINEL_SET_tips,sentinelCommand,-5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SET_Args},
+{"set","Change the configuration of a monitored master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SET_History,SENTINEL_SET_tips,sentinelCommand,-5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SET_Args,.reply_schema=&SENTINEL_SET_ReplySchema},
 {"simulate-failure","Simulate failover scenarios",NULL,"3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SIMULATE_FAILURE_History,SENTINEL_SIMULATE_FAILURE_tips,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SIMULATE_FAILURE_Args},
 {"slaves","List the monitored slaves","O(N) where N is the number of slaves","2.8.0",CMD_DOC_DEPRECATED,"`SENTINEL REPLICAS`","5.0.0",COMMAND_GROUP_SENTINEL,SENTINEL_SLAVES_History,SENTINEL_SLAVES_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SLAVES_Args},
 {0}
@@ -9968,6 +10367,14 @@ const char *MEMORY_DOCTOR_tips[] = {
 NULL
 };
 
+/* MEMORY_DOCTOR_ReplySchema reply schema */
+struct jsonObjectElement MEMORY_DOCTOR_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="memory problems report"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject MEMORY_DOCTOR_ReplySchema = {MEMORY_DOCTOR_ReplySchema_elements,.length=2};
+
 /********** MEMORY HELP ********************/
 
 /* MEMORY HELP history */
@@ -10045,6 +10452,284 @@ const char *MEMORY_STATS_tips[] = {
 NULL
 };
 
+/* MEMORY_STATS_ReplySchema_properties_peak_allocated reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_peak_allocated_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_peak_allocated = {MEMORY_STATS_ReplySchema_properties_peak_allocated_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_total_allocated reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_total_allocated_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_total_allocated = {MEMORY_STATS_ReplySchema_properties_total_allocated_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_startup_allocated reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_startup_allocated_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_startup_allocated = {MEMORY_STATS_ReplySchema_properties_startup_allocated_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_replication_backlog reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_replication_backlog_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_replication_backlog = {MEMORY_STATS_ReplySchema_properties_replication_backlog_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_clients_slaves reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_clients_slaves_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_clients_slaves = {MEMORY_STATS_ReplySchema_properties_clients_slaves_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_clients_normal reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_clients_normal_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_clients_normal = {MEMORY_STATS_ReplySchema_properties_clients_normal_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_cluster_links reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_cluster_links_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_cluster_links = {MEMORY_STATS_ReplySchema_properties_cluster_links_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_aof_buffer reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_aof_buffer_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_aof_buffer = {MEMORY_STATS_ReplySchema_properties_aof_buffer_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_lua_caches reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_lua_caches_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_lua_caches = {MEMORY_STATS_ReplySchema_properties_lua_caches_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_functions_caches reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_functions_caches_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_functions_caches = {MEMORY_STATS_ReplySchema_properties_functions_caches_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_overhead_total reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_overhead_total_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_overhead_total = {MEMORY_STATS_ReplySchema_properties_overhead_total_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_keys_count reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_keys_count_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_keys_count = {MEMORY_STATS_ReplySchema_properties_keys_count_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_keys_bytes_per_key reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_keys_bytes_per_key_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_keys_bytes_per_key = {MEMORY_STATS_ReplySchema_properties_keys_bytes_per_key_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_dataset_bytes reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_dataset_bytes_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_dataset_bytes = {MEMORY_STATS_ReplySchema_properties_dataset_bytes_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_dataset_percentage reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_dataset_percentage_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_dataset_percentage = {MEMORY_STATS_ReplySchema_properties_dataset_percentage_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_peak_percentage reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_peak_percentage_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_peak_percentage = {MEMORY_STATS_ReplySchema_properties_peak_percentage_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_allocator_allocated reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_allocator_allocated_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_allocator_allocated = {MEMORY_STATS_ReplySchema_properties_allocator_allocated_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_allocator_active reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_allocator_active_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_allocator_active = {MEMORY_STATS_ReplySchema_properties_allocator_active_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_allocator_resident reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_allocator_resident_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_allocator_resident = {MEMORY_STATS_ReplySchema_properties_allocator_resident_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_allocator_fragmentation_ratio reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_allocator_fragmentation_ratio_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_allocator_fragmentation_ratio = {MEMORY_STATS_ReplySchema_properties_allocator_fragmentation_ratio_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_allocator_fragmentation_bytes reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_allocator_fragmentation_bytes_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_allocator_fragmentation_bytes = {MEMORY_STATS_ReplySchema_properties_allocator_fragmentation_bytes_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_allocator_rss_ratio reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_allocator_rss_ratio_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_allocator_rss_ratio = {MEMORY_STATS_ReplySchema_properties_allocator_rss_ratio_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_allocator_rss_bytes reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_allocator_rss_bytes_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_allocator_rss_bytes = {MEMORY_STATS_ReplySchema_properties_allocator_rss_bytes_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_rss_overhead_ratio reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_rss_overhead_ratio_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_rss_overhead_ratio = {MEMORY_STATS_ReplySchema_properties_rss_overhead_ratio_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_rss_overhead_bytes reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_rss_overhead_bytes_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_rss_overhead_bytes = {MEMORY_STATS_ReplySchema_properties_rss_overhead_bytes_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_fragmentation reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_fragmentation_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_fragmentation = {MEMORY_STATS_ReplySchema_properties_fragmentation_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties_fragmentation_bytes reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_fragmentation_bytes_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties_fragmentation_bytes = {MEMORY_STATS_ReplySchema_properties_fragmentation_bytes_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_properties reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_elements[] = {
+{JSON_TYPE_OBJECT,"peak.allocated",.value.object=&MEMORY_STATS_ReplySchema_properties_peak_allocated},
+{JSON_TYPE_OBJECT,"total.allocated",.value.object=&MEMORY_STATS_ReplySchema_properties_total_allocated},
+{JSON_TYPE_OBJECT,"startup.allocated",.value.object=&MEMORY_STATS_ReplySchema_properties_startup_allocated},
+{JSON_TYPE_OBJECT,"replication.backlog",.value.object=&MEMORY_STATS_ReplySchema_properties_replication_backlog},
+{JSON_TYPE_OBJECT,"clients.slaves",.value.object=&MEMORY_STATS_ReplySchema_properties_clients_slaves},
+{JSON_TYPE_OBJECT,"clients.normal",.value.object=&MEMORY_STATS_ReplySchema_properties_clients_normal},
+{JSON_TYPE_OBJECT,"cluster.links",.value.object=&MEMORY_STATS_ReplySchema_properties_cluster_links},
+{JSON_TYPE_OBJECT,"aof.buffer",.value.object=&MEMORY_STATS_ReplySchema_properties_aof_buffer},
+{JSON_TYPE_OBJECT,"lua.caches",.value.object=&MEMORY_STATS_ReplySchema_properties_lua_caches},
+{JSON_TYPE_OBJECT,"functions.caches",.value.object=&MEMORY_STATS_ReplySchema_properties_functions_caches},
+{JSON_TYPE_OBJECT,"overhead.total",.value.object=&MEMORY_STATS_ReplySchema_properties_overhead_total},
+{JSON_TYPE_OBJECT,"keys.count",.value.object=&MEMORY_STATS_ReplySchema_properties_keys_count},
+{JSON_TYPE_OBJECT,"keys.bytes-per-key",.value.object=&MEMORY_STATS_ReplySchema_properties_keys_bytes_per_key},
+{JSON_TYPE_OBJECT,"dataset.bytes",.value.object=&MEMORY_STATS_ReplySchema_properties_dataset_bytes},
+{JSON_TYPE_OBJECT,"dataset.percentage",.value.object=&MEMORY_STATS_ReplySchema_properties_dataset_percentage},
+{JSON_TYPE_OBJECT,"peak.percentage",.value.object=&MEMORY_STATS_ReplySchema_properties_peak_percentage},
+{JSON_TYPE_OBJECT,"allocator.allocated",.value.object=&MEMORY_STATS_ReplySchema_properties_allocator_allocated},
+{JSON_TYPE_OBJECT,"allocator.active",.value.object=&MEMORY_STATS_ReplySchema_properties_allocator_active},
+{JSON_TYPE_OBJECT,"allocator.resident",.value.object=&MEMORY_STATS_ReplySchema_properties_allocator_resident},
+{JSON_TYPE_OBJECT,"allocator-fragmentation.ratio",.value.object=&MEMORY_STATS_ReplySchema_properties_allocator_fragmentation_ratio},
+{JSON_TYPE_OBJECT,"allocator-fragmentation.bytes",.value.object=&MEMORY_STATS_ReplySchema_properties_allocator_fragmentation_bytes},
+{JSON_TYPE_OBJECT,"allocator-rss.ratio",.value.object=&MEMORY_STATS_ReplySchema_properties_allocator_rss_ratio},
+{JSON_TYPE_OBJECT,"allocator-rss.bytes",.value.object=&MEMORY_STATS_ReplySchema_properties_allocator_rss_bytes},
+{JSON_TYPE_OBJECT,"rss-overhead.ratio",.value.object=&MEMORY_STATS_ReplySchema_properties_rss_overhead_ratio},
+{JSON_TYPE_OBJECT,"rss-overhead.bytes",.value.object=&MEMORY_STATS_ReplySchema_properties_rss_overhead_bytes},
+{JSON_TYPE_OBJECT,"fragmentation",.value.object=&MEMORY_STATS_ReplySchema_properties_fragmentation},
+{JSON_TYPE_OBJECT,"fragmentation.bytes",.value.object=&MEMORY_STATS_ReplySchema_properties_fragmentation_bytes},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_properties = {MEMORY_STATS_ReplySchema_properties_elements,.length=27};
+
+/* MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_main reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_main_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_main = {MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_main_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_expires reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_expires_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_expires = {MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_expires_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_slot_to_keys reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_slot_to_keys_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_slot_to_keys = {MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_slot_to_keys_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema_patternProperties__db__properties reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_patternProperties__db__properties_elements[] = {
+{JSON_TYPE_OBJECT,"overhead.hashtable.main",.value.object=&MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_main},
+{JSON_TYPE_OBJECT,"overhead.hashtable.expires",.value.object=&MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_expires},
+{JSON_TYPE_OBJECT,"overhead.hashtable.slot-to-keys",.value.object=&MEMORY_STATS_ReplySchema_patternProperties__db__properties_overhead_hashtable_slot_to_keys},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_patternProperties__db__properties = {MEMORY_STATS_ReplySchema_patternProperties__db__properties_elements,.length=3};
+
+/* MEMORY_STATS_ReplySchema_patternProperties__db_ reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_patternProperties__db__elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&MEMORY_STATS_ReplySchema_patternProperties__db__properties},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_patternProperties__db_ = {MEMORY_STATS_ReplySchema_patternProperties__db__elements,.length=3};
+
+/* MEMORY_STATS_ReplySchema_patternProperties reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_patternProperties_elements[] = {
+{JSON_TYPE_OBJECT,"^db.",.value.object=&MEMORY_STATS_ReplySchema_patternProperties__db_},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema_patternProperties = {MEMORY_STATS_ReplySchema_patternProperties_elements,.length=1};
+
+/* MEMORY_STATS_ReplySchema reply schema */
+struct jsonObjectElement MEMORY_STATS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="memory usage details"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"properties",.value.object=&MEMORY_STATS_ReplySchema_properties},
+{JSON_TYPE_OBJECT,"patternProperties",.value.object=&MEMORY_STATS_ReplySchema_patternProperties},
+};
+
+struct jsonObject MEMORY_STATS_ReplySchema = {MEMORY_STATS_ReplySchema_elements,.length=4};
+
 /********** MEMORY USAGE ********************/
 
 /* MEMORY USAGE history */
@@ -10091,11 +10776,11 @@ struct jsonObject MEMORY_USAGE_ReplySchema = {MEMORY_USAGE_ReplySchema_elements,
 
 /* MEMORY command table */
 struct redisCommand MEMORY_Subcommands[] = {
-{"doctor","Outputs memory problems report","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_DOCTOR_History,MEMORY_DOCTOR_tips,memoryCommand,2,0,0},
+{"doctor","Outputs memory problems report","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_DOCTOR_History,MEMORY_DOCTOR_tips,memoryCommand,2,0,0,.reply_schema=&MEMORY_DOCTOR_ReplySchema},
 {"help","Show helpful text about the different subcommands","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_HELP_History,MEMORY_HELP_tips,memoryCommand,2,CMD_LOADING|CMD_STALE,0,.reply_schema=&MEMORY_HELP_ReplySchema},
 {"malloc-stats","Show allocator internal stats","Depends on how much memory is allocated, could be slow","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_MALLOC_STATS_History,MEMORY_MALLOC_STATS_tips,memoryCommand,2,0,0,.reply_schema=&MEMORY_MALLOC_STATS_ReplySchema},
 {"purge","Ask the allocator to release memory","Depends on how much memory is allocated, could be slow","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_PURGE_History,MEMORY_PURGE_tips,memoryCommand,2,0,0,.reply_schema=&MEMORY_PURGE_ReplySchema},
-{"stats","Show memory usage details","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_STATS_History,MEMORY_STATS_tips,memoryCommand,2,0,0},
+{"stats","Show memory usage details","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_STATS_History,MEMORY_STATS_tips,memoryCommand,2,0,0,.reply_schema=&MEMORY_STATS_ReplySchema},
 {"usage","Estimate the memory usage of a key","O(N) where N is the number of samples.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_USAGE_History,MEMORY_USAGE_tips,memoryCommand,-3,CMD_READONLY,0,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MEMORY_USAGE_Args,.reply_schema=&MEMORY_USAGE_ReplySchema},
 {0}
 };
@@ -17114,10 +17799,10 @@ struct redisCommand redisCommandTable[] = {
 {"rpushx","Append an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,RPUSHX_History,RPUSHX_tips,rpushxCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPUSHX_Args,.reply_schema=&RPUSHX_ReplySchema},
 /* pubsub */
 {"psubscribe","Listen for messages published to channels matching the given patterns","O(N) where N is the number of patterns the client is already subscribed to.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PSUBSCRIBE_History,PSUBSCRIBE_tips,psubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=PSUBSCRIBE_Args},
-{"publish","Post a message to a channel","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBLISH_History,PUBLISH_tips,publishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE|CMD_SENTINEL,0,.args=PUBLISH_Args},
+{"publish","Post a message to a channel","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBLISH_History,PUBLISH_tips,publishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE|CMD_SENTINEL,0,.args=PUBLISH_Args,.reply_schema=&PUBLISH_ReplySchema},
 {"pubsub","A container for Pub/Sub commands","Depends on subcommand.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_History,PUBSUB_tips,NULL,-2,0,0,.subcommands=PUBSUB_Subcommands},
 {"punsubscribe","Stop listening for messages posted to channels matching the given patterns","O(N+M) where N is the number of patterns the client is already subscribed and M is the number of total patterns subscribed in the system (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_History,PUNSUBSCRIBE_tips,punsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=PUNSUBSCRIBE_Args},
-{"spublish","Post a message to a shard channel","O(N) where N is the number of clients subscribed to the receiving shard channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SPUBLISH_History,SPUBLISH_tips,spublishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE,0,{{NULL,CMD_KEY_NOT_KEY,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SPUBLISH_Args},
+{"spublish","Post a message to a shard channel","O(N) where N is the number of clients subscribed to the receiving shard channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SPUBLISH_History,SPUBLISH_tips,spublishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE,0,{{NULL,CMD_KEY_NOT_KEY,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SPUBLISH_Args,.reply_schema=&SPUBLISH_ReplySchema},
 {"ssubscribe","Listen for messages published to the given shard channels","O(N) where N is the number of shard channels to subscribe to.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SSUBSCRIBE_History,SSUBSCRIBE_tips,ssubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,{{NULL,CMD_KEY_NOT_KEY,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SSUBSCRIBE_Args},
 {"subscribe","Listen for messages published to the given channels","O(N) where N is the number of channels to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SUBSCRIBE_History,SUBSCRIBE_tips,subscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=SUBSCRIBE_Args},
 {"sunsubscribe","Stop listening for messages posted to the given shard channels","O(N) where N is the number of clients already subscribed to a shard channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SUNSUBSCRIBE_History,SUNSUBSCRIBE_tips,sunsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,{{NULL,CMD_KEY_NOT_KEY,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNSUBSCRIBE_Args},
