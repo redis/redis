@@ -1,0 +1,36 @@
+{
+    "NO-TOUCH": {
+        "summary": "Controls whether commands sent by the client will alter the LRU/LFU of the keys they access.",
+        "complexity": "O(1)",
+        "group": "connection",
+        "arity": 3,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "arguments": [
+            {
+                "name": "enabled",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "on",
+                        "type": "pure-token",
+                        "token": "ON"
+                    },
+                    {
+                        "name": "off",
+                        "type": "pure-token",
+                        "token": "OFF"
+                    }
+                ]
+            }
+        ]
+    }
+}

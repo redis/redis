@@ -1493,8 +1493,8 @@ void clearClientConnectionState(client *c) {
     }
 
     /* Selectively clear state flags not covered above */
-    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
-                  CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT);
+    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|CLIENT_REPLY_OFF|
+                  CLIENT_REPLY_SKIP_NEXT|CLIENT_NO_TOUCH|CLIENT_NO_EVICT);
 }
 
 void freeClient(client *c) {
@@ -2692,7 +2692,7 @@ char *getClientSockname(client *c) {
 /* Concatenate a string representing the state of a client in a human
  * readable format, into the sds string 's'. */
 sds catClientInfoString(sds s, client *client) {
-    char flags[16], events[3], conninfo[CONN_INFO_LEN], *p;
+    char flags[17], events[3], conninfo[CONN_INFO_LEN], *p;
 
     p = flags;
     if (client->flags & CLIENT_SLAVE) {
@@ -2715,6 +2715,7 @@ sds catClientInfoString(sds s, client *client) {
     if (client->flags & CLIENT_UNIX_SOCKET) *p++ = 'U';
     if (client->flags & CLIENT_READONLY) *p++ = 'r';
     if (client->flags & CLIENT_NO_EVICT) *p++ = 'e';
+    if (client->flags & CLIENT_NO_TOUCH) *p++ = 'T';
     if (p == flags) *p++ = 'N';
     *p++ = '\0';
 
@@ -2905,6 +2906,8 @@ void clientCommand(client *c) {
 "    Report tracking status for the current connection.",
 "NO-EVICT (ON|OFF)",
 "    Protect current client connection from eviction.",
+"NO-TOUCH (ON|OFF)",
+"    Will not touch LRU/LFU stats when this mode is on.",
 NULL
         };
         addReplyHelp(c, help);
@@ -3373,6 +3376,17 @@ NULL
             raxStop(&ri);
         } else {
             addReplyArrayLen(c,0);
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr, "no-touch")) {
+        /* CLIENT NO-TOUCH ON|OFF */
+        if (!strcasecmp(c->argv[2]->ptr,"on")) {
+            c->flags |= CLIENT_NO_TOUCH;
+            addReply(c,shared.ok);
+        } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
+            c->flags &= ~CLIENT_NO_TOUCH;
+            addReply(c,shared.ok);
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
         }
     } else {
         addReplySubcommandSyntaxError(c);
