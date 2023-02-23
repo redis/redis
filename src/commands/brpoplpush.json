@@ -65,6 +65,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "description": "The element being popped from source and pushed to destination."
+                },
+                {
+                    "type": "null",
+                    "description": "Timeout is reached."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "source",
