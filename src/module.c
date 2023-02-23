@@ -7571,17 +7571,15 @@ int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, c
 /* Helper function to attempt Module based authentication through custom auth callbacks.
  * Here, the Module is expected to authenticate the client using the RedisModule APIs and to add ACL
  * logs incase of errors.
- * Returns C_ERR if no callbacks have been registered OR if a callback denied authentication OR if
- * none of the callbacks successfully authenticated the client. In these cases, an ERR can be
- * returned to the client.
- * Returns C_OK if:
- * - A callback has authenticated the client (concluding module based auth). Here, an OK message can
- * be returned to the client.
- * - Custom auth is still in progress through a blocking implementation. In this case, the client
- * can be replied to later after the blocking operation & after handling the module client unblock.
- */
+ * Returns one of the following codes:
+ * AUTH_OK - Indicates that a module handled and authenticated the client.
+ * AUTH_ERR - Indicates that a module handled and denied authentication for this client.
+ * AUTH_NOT_HANDLED - Indicates that authentication was not handled by any Module and that
+ * normal password based authentication can be attempted next.
+ * AUTH_BLOCKED - Indicates module authentication is in progress through a blocking implementation.
+ * In this case, authentication is handled here again after the client is unblocked / reprocessed. */
 int checkModuleAuthentication(client *c, robj *username, robj *password, const char **err) {
-    if (!listLength(moduleCustomAuthCallbacks)) return C_ERR;
+    if (!listLength(moduleCustomAuthCallbacks)) return AUTH_NOT_HANDLED;
     int result = attemptBlockedAuthReplyCallback(c, username, password, err);
     if (result == REDISMODULE_AUTH_NOT_HANDLED) {
         result = attemptNextCustomAuthCb(c, username, password, err);
@@ -7589,16 +7587,18 @@ int checkModuleAuthentication(client *c, robj *username, robj *password, const c
     if (c->flags & CLIENT_BLOCKED) {
         /* Modules are expected to return REDISMODULE_AUTH_HANDLED when blocking clients. */
         serverAssert(result == REDISMODULE_AUTH_HANDLED);
-        return C_OK;
+        return AUTH_BLOCKED;
     }
     c->custom_auth_ctx = NULL;
-    if (result == REDISMODULE_AUTH_NOT_HANDLED) return C_ERR;
-    if (c->flags & CLIENT_CUSTOM_AUTH_HAS_RESULT && c->authenticated) {
+    if (result == REDISMODULE_AUTH_NOT_HANDLED) {
         c->flags &= ~CLIENT_CUSTOM_AUTH_HAS_RESULT;
-        return C_OK;
+        return AUTH_NOT_HANDLED;
     }
-    c->flags |= CLIENT_CUSTOM_AUTH_HAS_RESULT;
-    return C_ERR;
+    if (c->flags & CLIENT_CUSTOM_AUTH_HAS_RESULT) {
+        c->flags &= ~CLIENT_CUSTOM_AUTH_HAS_RESULT;
+        if (c->authenticated) return AUTH_OK;
+    }
+    return AUTH_ERR;
 }
 
 /* This function is called from module.c in order to check if a module

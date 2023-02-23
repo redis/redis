@@ -3459,15 +3459,17 @@ void helloCommand(client *c) {
         }
     }
 
-    const char *err = NULL;
-    if (username && password && ACLAuthenticateUser(c, username, password, &err) == C_ERR) {
-        addAuthErrReply(c, err);
-        return;
-    }
-
-    /* In case of a blocking custom auth, we reply to the client / setname later upon unblocking. */
-    if (c->flags & CLIENT_BLOCKED) {
-        return;
+    if (username && password) {
+        const char *err = NULL;
+        int auth_result = ACLAuthenticateUser(c, username, password, &err);
+        if (auth_result == AUTH_ERR) {
+            addAuthErrReply(c, err);
+            return;
+        }
+        /* In case of blocking module auth, we reply to the client/setname later upon unblocking. */
+        if (auth_result == AUTH_BLOCKED) {
+            return;
+        }
     }
 
     /* At this point we need to be authenticated to continue. */
