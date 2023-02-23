@@ -34,6 +34,31 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneof": [
+                {
+                    "description": "If no element could be popped.",
+                    "type": "null"
+                },
+                {
+                    "description": "List key from which elements were popped.",
+                    "items": [
+                        {
+                            "description": "Name of the key from which elements were popped.",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Array of popped elements.",
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "numkeys",

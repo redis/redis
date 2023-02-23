@@ -13,6 +13,10 @@
         ],
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT"
-        ]
+        ],
+        "reply_schema": {
+            "description": "the node's shard id",
+            "type": "string"
+        }
     }
 }

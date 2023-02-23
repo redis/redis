@@ -25,9 +25,9 @@
         "reply_schema": {
             "type": "array",
             "description": "Entries from the slow log in chronological order.",
+            "uniqueItems": true,
             "items": {
                 "type": "array",
-                "uniqueItems": true,
                 "additionalItems": false,
                 "items": [
                     {

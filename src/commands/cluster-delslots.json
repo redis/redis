@@ -18,6 +18,9 @@
                 "type": "integer",
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }
