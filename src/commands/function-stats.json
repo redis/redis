@@ -30,7 +30,7 @@
                             "type": "null"
                         },
                         {
-                            "decription": "a map with the information about the running script",
+                            "description": "a map with the information about the running script",
                             "type": "object",
                             "properties": {
                                 "name": {
