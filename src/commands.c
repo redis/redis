@@ -319,6 +319,34 @@ struct redisCommandArg GETBIT_Args[] = {
 {0}
 };
 
+/* GETBIT_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement GETBIT_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+};
+
+struct jsonObject GETBIT_ReplySchema_oneOf_0 = {GETBIT_ReplySchema_oneOf_0_elements,.length=1};
+
+/* GETBIT_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement GETBIT_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+};
+
+struct jsonObject GETBIT_ReplySchema_oneOf_1 = {GETBIT_ReplySchema_oneOf_1_elements,.length=1};
+
+/* GETBIT_ReplySchema_oneOf array reply schema */
+struct jsonObject *GETBIT_ReplySchema_oneOf[] = {
+&GETBIT_ReplySchema_oneOf_0,
+&GETBIT_ReplySchema_oneOf_1,
+};
+
+/* GETBIT_ReplySchema reply schema */
+struct jsonObjectElement GETBIT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The bit value stored at offset."},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=GETBIT_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject GETBIT_ReplySchema = {GETBIT_ReplySchema_elements,.length=2};
+
 /********** SETBIT ********************/
 
 /* SETBIT history */
@@ -334,6 +362,34 @@ struct redisCommandArg SETBIT_Args[] = {
 {"value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SETBIT_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement SETBIT_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+};
+
+struct jsonObject SETBIT_ReplySchema_oneOf_0 = {SETBIT_ReplySchema_oneOf_0_elements,.length=1};
+
+/* SETBIT_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement SETBIT_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+};
+
+struct jsonObject SETBIT_ReplySchema_oneOf_1 = {SETBIT_ReplySchema_oneOf_1_elements,.length=1};
+
+/* SETBIT_ReplySchema_oneOf array reply schema */
+struct jsonObject *SETBIT_ReplySchema_oneOf[] = {
+&SETBIT_ReplySchema_oneOf_0,
+&SETBIT_ReplySchema_oneOf_1,
+};
+
+/* SETBIT_ReplySchema reply schema */
+struct jsonObjectElement SETBIT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The original bit value stored at offset."},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SETBIT_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject SETBIT_ReplySchema = {SETBIT_ReplySchema_elements,.length=2};
 
 /********** ASKING ********************/
 
@@ -530,6 +586,22 @@ struct redisCommandArg CLUSTER_GETKEYSINSLOT_Args[] = {
 
 /* CLUSTER HELP tips */
 #define CLUSTER_HELP_tips NULL
+
+/* CLUSTER_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement CLUSTER_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject CLUSTER_HELP_ReplySchema_items = {CLUSTER_HELP_ReplySchema_items_elements,.length=1};
+
+/* CLUSTER_HELP_ReplySchema reply schema */
+struct jsonObjectElement CLUSTER_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&CLUSTER_HELP_ReplySchema_items},
+};
+
+struct jsonObject CLUSTER_HELP_ReplySchema = {CLUSTER_HELP_ReplySchema_elements,.length=3};
 
 /********** CLUSTER INFO ********************/
 
@@ -770,7 +842,7 @@ struct redisCommand CLUSTER_Subcommands[] = {
 {"flushslots","Delete a node's own slots information","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_FLUSHSLOTS_History,CLUSTER_FLUSHSLOTS_tips,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0},
 {"forget","Remove a node from the nodes table","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_FORGET_History,CLUSTER_FORGET_tips,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_FORGET_Args},
 {"getkeysinslot","Return local key names in the specified hash slot","O(N) where N is the number of requested keys","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_GETKEYSINSLOT_History,CLUSTER_GETKEYSINSLOT_tips,clusterCommand,4,CMD_STALE,0,.args=CLUSTER_GETKEYSINSLOT_Args},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_HELP_History,CLUSTER_HELP_tips,clusterCommand,2,CMD_LOADING|CMD_STALE,0},
+{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_HELP_History,CLUSTER_HELP_tips,clusterCommand,2,CMD_LOADING|CMD_STALE,0,.reply_schema=&CLUSTER_HELP_ReplySchema},
 {"info","Provides info about Redis Cluster node state","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_INFO_History,CLUSTER_INFO_tips,clusterCommand,2,CMD_STALE,0},
 {"keyslot","Returns the hash slot of the specified key","O(N) where N is the number of bytes in the key","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_KEYSLOT_History,CLUSTER_KEYSLOT_tips,clusterCommand,3,CMD_STALE,0,.args=CLUSTER_KEYSLOT_Args},
 {"links","Returns a list of all TCP links to and from peer nodes in cluster","O(N) where N is the total number of Cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_LINKS_History,CLUSTER_LINKS_tips,clusterCommand,2,CMD_STALE,0},
@@ -860,6 +932,13 @@ struct redisCommandArg CLIENT_CACHING_Args[] = {
 {0}
 };
 
+/* CLIENT_CACHING_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_CACHING_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject CLIENT_CACHING_ReplySchema = {CLIENT_CACHING_ReplySchema_elements,.length=1};
+
 /********** CLIENT GETNAME ********************/
 
 /* CLIENT GETNAME history */
@@ -876,6 +955,45 @@ struct redisCommandArg CLIENT_CACHING_Args[] = {
 /* CLIENT GETREDIR tips */
 #define CLIENT_GETREDIR_tips NULL
 
+/* CLIENT_GETREDIR_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement CLIENT_GETREDIR_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+{JSON_TYPE_STRING,"description",.value.string="Not redirecting notifications to any client."},
+};
+
+struct jsonObject CLIENT_GETREDIR_ReplySchema_oneOf_0 = {CLIENT_GETREDIR_ReplySchema_oneOf_0_elements,.length=2};
+
+/* CLIENT_GETREDIR_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement CLIENT_GETREDIR_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=-1},
+{JSON_TYPE_STRING,"description",.value.string="Client tracking is not enabled."},
+};
+
+struct jsonObject CLIENT_GETREDIR_ReplySchema_oneOf_1 = {CLIENT_GETREDIR_ReplySchema_oneOf_1_elements,.length=2};
+
+/* CLIENT_GETREDIR_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement CLIENT_GETREDIR_ReplySchema_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="ID of the client we are redirecting the notifications to."},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=1},
+};
+
+struct jsonObject CLIENT_GETREDIR_ReplySchema_oneOf_2 = {CLIENT_GETREDIR_ReplySchema_oneOf_2_elements,.length=3};
+
+/* CLIENT_GETREDIR_ReplySchema_oneOf array reply schema */
+struct jsonObject *CLIENT_GETREDIR_ReplySchema_oneOf[] = {
+&CLIENT_GETREDIR_ReplySchema_oneOf_0,
+&CLIENT_GETREDIR_ReplySchema_oneOf_1,
+&CLIENT_GETREDIR_ReplySchema_oneOf_2,
+};
+
+/* CLIENT_GETREDIR_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_GETREDIR_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=CLIENT_GETREDIR_ReplySchema_oneOf,.length=3}},
+};
+
+struct jsonObject CLIENT_GETREDIR_ReplySchema = {CLIENT_GETREDIR_ReplySchema_elements,.length=1};
+
 /********** CLIENT HELP ********************/
 
 /* CLIENT HELP history */
@@ -883,6 +1001,22 @@ struct redisCommandArg CLIENT_CACHING_Args[] = {
 
 /* CLIENT HELP tips */
 #define CLIENT_HELP_tips NULL
+
+/* CLIENT_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement CLIENT_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject CLIENT_HELP_ReplySchema_items = {CLIENT_HELP_ReplySchema_items_elements,.length=1};
+
+/* CLIENT_HELP_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&CLIENT_HELP_ReplySchema_items},
+};
+
+struct jsonObject CLIENT_HELP_ReplySchema = {CLIENT_HELP_ReplySchema_elements,.length=3};
 
 /********** CLIENT ID ********************/
 
@@ -1114,6 +1248,14 @@ struct redisCommandArg CLIENT_REPLY_Args[] = {
 {0}
 };
 
+/* CLIENT_REPLY_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_REPLY_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+{JSON_TYPE_STRING,"description",.value.string="When called with either OFF or SKIP subcommands, no reply is made. When called with ON, reply is OK."},
+};
+
+struct jsonObject CLIENT_REPLY_ReplySchema = {CLIENT_REPLY_ReplySchema_elements,.length=2};
+
 /********** CLIENT SETNAME ********************/
 
 /* CLIENT SETNAME history */
@@ -1217,17 +1359,17 @@ struct jsonObject CLIENT_UNPAUSE_ReplySchema = {CLIENT_UNPAUSE_ReplySchema_eleme
 
 /* CLIENT command table */
 struct redisCommand CLIENT_Subcommands[] = {
-{"caching","Instruct the server about tracking or not keys in the next request","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_CACHING_History,CLIENT_CACHING_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_CACHING_Args},
+{"caching","Instruct the server about tracking or not keys in the next request","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_CACHING_History,CLIENT_CACHING_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_CACHING_Args,.reply_schema=&CLIENT_CACHING_ReplySchema},
 {"getname","Get the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETNAME_History,CLIENT_GETNAME_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
-{"getredir","Get tracking notifications redirection client ID if any","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETREDIR_History,CLIENT_GETREDIR_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_HELP_History,CLIENT_HELP_tips,clientCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
+{"getredir","Get tracking notifications redirection client ID if any","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETREDIR_History,CLIENT_GETREDIR_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.reply_schema=&CLIENT_GETREDIR_ReplySchema},
+{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_HELP_History,CLIENT_HELP_tips,clientCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.reply_schema=&CLIENT_HELP_ReplySchema},
 {"id","Returns the client ID for the current connection","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_ID_History,CLIENT_ID_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
 {"info","Returns information about the current client connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_INFO_History,CLIENT_INFO_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.reply_schema=&CLIENT_INFO_ReplySchema},
 {"kill","Kill the connection of a client","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_KILL_History,CLIENT_KILL_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_KILL_Args,.reply_schema=&CLIENT_KILL_ReplySchema},
 {"list","Get the list of client connections","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_LIST_History,CLIENT_LIST_tips,clientCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_LIST_Args},
 {"no-evict","Set client eviction mode for the current connection","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_NO_EVICT_History,CLIENT_NO_EVICT_tips,clientCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_NO_EVICT_Args,.reply_schema=&CLIENT_NO_EVICT_ReplySchema},
 {"pause","Stop processing commands from clients for some time","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,CLIENT_PAUSE_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_PAUSE_Args,.reply_schema=&CLIENT_PAUSE_ReplySchema},
-{"reply","Instruct the server whether to reply to commands","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,CLIENT_REPLY_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_REPLY_Args},
+{"reply","Instruct the server whether to reply to commands","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,CLIENT_REPLY_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_REPLY_Args,.reply_schema=&CLIENT_REPLY_ReplySchema},
 {"setname","Set the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,CLIENT_SETNAME_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETNAME_Args,.reply_schema=&CLIENT_SETNAME_ReplySchema},
 {"tracking","Enable or disable server assisted client side caching support","O(1). Some options may introduce additional complexity.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_History,CLIENT_TRACKING_tips,clientCommand,-3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_TRACKING_Args,.reply_schema=&CLIENT_TRACKING_ReplySchema},
 {"trackinginfo","Return information about server assisted client side caching for the current connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_History,CLIENT_TRACKINGINFO_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
@@ -1289,6 +1431,133 @@ struct redisCommandArg HELLO_Args[] = {
 {"arguments",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HELLO_arguments_Subargs},
 {0}
 };
+
+/* HELLO_ReplySchema_properties_server reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_server_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_server = {HELLO_ReplySchema_properties_server_elements,.length=1};
+
+/* HELLO_ReplySchema_properties_version reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_version_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_version = {HELLO_ReplySchema_properties_version_elements,.length=1};
+
+/* HELLO_ReplySchema_properties_proto reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_proto_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=3},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_proto = {HELLO_ReplySchema_properties_proto_elements,.length=1};
+
+/* HELLO_ReplySchema_properties_id reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_id_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_id = {HELLO_ReplySchema_properties_id_elements,.length=1};
+
+/* HELLO_ReplySchema_properties_mode reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_mode_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_mode = {HELLO_ReplySchema_properties_mode_elements,.length=1};
+
+/* HELLO_ReplySchema_properties_role reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_role_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_role = {HELLO_ReplySchema_properties_role_elements,.length=1};
+
+/* HELLO_ReplySchema_properties_modules_items_properties_name reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_modules_items_properties_name_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_modules_items_properties_name = {HELLO_ReplySchema_properties_modules_items_properties_name_elements,.length=1};
+
+/* HELLO_ReplySchema_properties_modules_items_properties_ver reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_modules_items_properties_ver_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_modules_items_properties_ver = {HELLO_ReplySchema_properties_modules_items_properties_ver_elements,.length=1};
+
+/* HELLO_ReplySchema_properties_modules_items_properties_path reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_modules_items_properties_path_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_modules_items_properties_path = {HELLO_ReplySchema_properties_modules_items_properties_path_elements,.length=1};
+
+/* HELLO_ReplySchema_properties_modules_items_properties_args_items reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_modules_items_properties_args_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_modules_items_properties_args_items = {HELLO_ReplySchema_properties_modules_items_properties_args_items_elements,.length=1};
+
+/* HELLO_ReplySchema_properties_modules_items_properties_args reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_modules_items_properties_args_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&HELLO_ReplySchema_properties_modules_items_properties_args_items},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_modules_items_properties_args = {HELLO_ReplySchema_properties_modules_items_properties_args_elements,.length=2};
+
+/* HELLO_ReplySchema_properties_modules_items_properties reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_modules_items_properties_elements[] = {
+{JSON_TYPE_OBJECT,"name",.value.object=&HELLO_ReplySchema_properties_modules_items_properties_name},
+{JSON_TYPE_OBJECT,"ver",.value.object=&HELLO_ReplySchema_properties_modules_items_properties_ver},
+{JSON_TYPE_OBJECT,"path",.value.object=&HELLO_ReplySchema_properties_modules_items_properties_path},
+{JSON_TYPE_OBJECT,"args",.value.object=&HELLO_ReplySchema_properties_modules_items_properties_args},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_modules_items_properties = {HELLO_ReplySchema_properties_modules_items_properties_elements,.length=4};
+
+/* HELLO_ReplySchema_properties_modules_items reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_modules_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&HELLO_ReplySchema_properties_modules_items_properties},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_modules_items = {HELLO_ReplySchema_properties_modules_items_elements,.length=3};
+
+/* HELLO_ReplySchema_properties_modules reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_modules_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&HELLO_ReplySchema_properties_modules_items},
+};
+
+struct jsonObject HELLO_ReplySchema_properties_modules = {HELLO_ReplySchema_properties_modules_elements,.length=2};
+
+/* HELLO_ReplySchema_properties reply schema */
+struct jsonObjectElement HELLO_ReplySchema_properties_elements[] = {
+{JSON_TYPE_OBJECT,"server",.value.object=&HELLO_ReplySchema_properties_server},
+{JSON_TYPE_OBJECT,"version",.value.object=&HELLO_ReplySchema_properties_version},
+{JSON_TYPE_OBJECT,"proto",.value.object=&HELLO_ReplySchema_properties_proto},
+{JSON_TYPE_OBJECT,"id",.value.object=&HELLO_ReplySchema_properties_id},
+{JSON_TYPE_OBJECT,"mode",.value.object=&HELLO_ReplySchema_properties_mode},
+{JSON_TYPE_OBJECT,"role",.value.object=&HELLO_ReplySchema_properties_role},
+{JSON_TYPE_OBJECT,"modules",.value.object=&HELLO_ReplySchema_properties_modules},
+};
+
+struct jsonObject HELLO_ReplySchema_properties = {HELLO_ReplySchema_properties_elements,.length=7};
+
+/* HELLO_ReplySchema reply schema */
+struct jsonObjectElement HELLO_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&HELLO_ReplySchema_properties},
+};
+
+struct jsonObject HELLO_ReplySchema = {HELLO_ReplySchema_elements,.length=3};
 
 /********** PING ********************/
 
@@ -1478,6 +1747,35 @@ struct redisCommandArg DUMP_Args[] = {
 {0}
 };
 
+/* DUMP_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement DUMP_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The serialized value."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject DUMP_ReplySchema_oneOf_0 = {DUMP_ReplySchema_oneOf_0_elements,.length=2};
+
+/* DUMP_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement DUMP_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Key does not exist."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject DUMP_ReplySchema_oneOf_1 = {DUMP_ReplySchema_oneOf_1_elements,.length=2};
+
+/* DUMP_ReplySchema_oneOf array reply schema */
+struct jsonObject *DUMP_ReplySchema_oneOf[] = {
+&DUMP_ReplySchema_oneOf_0,
+&DUMP_ReplySchema_oneOf_1,
+};
+
+/* DUMP_ReplySchema reply schema */
+struct jsonObjectElement DUMP_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=DUMP_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject DUMP_ReplySchema = {DUMP_ReplySchema_elements,.length=1};
+
 /********** EXISTS ********************/
 
 /* EXISTS history */
@@ -1535,6 +1833,35 @@ struct redisCommandArg EXPIRE_Args[] = {
 {0}
 };
 
+/* EXPIRE_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement EXPIRE_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The timeout was not set. e.g. key doesn't exist, or operation skipped due to the provided arguments."},
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+};
+
+struct jsonObject EXPIRE_ReplySchema_oneOf_0 = {EXPIRE_ReplySchema_oneOf_0_elements,.length=2};
+
+/* EXPIRE_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement EXPIRE_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The timeout was set."},
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+};
+
+struct jsonObject EXPIRE_ReplySchema_oneOf_1 = {EXPIRE_ReplySchema_oneOf_1_elements,.length=2};
+
+/* EXPIRE_ReplySchema_oneOf array reply schema */
+struct jsonObject *EXPIRE_ReplySchema_oneOf[] = {
+&EXPIRE_ReplySchema_oneOf_0,
+&EXPIRE_ReplySchema_oneOf_1,
+};
+
+/* EXPIRE_ReplySchema reply schema */
+struct jsonObjectElement EXPIRE_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=EXPIRE_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject EXPIRE_ReplySchema = {EXPIRE_ReplySchema_elements,.length=1};
+
 /********** EXPIREAT ********************/
 
 /* EXPIREAT history */
@@ -1563,6 +1890,35 @@ struct redisCommandArg EXPIREAT_Args[] = {
 {0}
 };
 
+/* EXPIREAT_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement EXPIREAT_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+{JSON_TYPE_STRING,"description",.value.string="The timeout was set."},
+};
+
+struct jsonObject EXPIREAT_ReplySchema_oneOf_0 = {EXPIREAT_ReplySchema_oneOf_0_elements,.length=2};
+
+/* EXPIREAT_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement EXPIREAT_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+{JSON_TYPE_STRING,"description",.value.string="The timeout was not set. e.g. key doesn't exist, or operation skipped due to the provided arguments."},
+};
+
+struct jsonObject EXPIREAT_ReplySchema_oneOf_1 = {EXPIREAT_ReplySchema_oneOf_1_elements,.length=2};
+
+/* EXPIREAT_ReplySchema_oneOf array reply schema */
+struct jsonObject *EXPIREAT_ReplySchema_oneOf[] = {
+&EXPIREAT_ReplySchema_oneOf_0,
+&EXPIREAT_ReplySchema_oneOf_1,
+};
+
+/* EXPIREAT_ReplySchema reply schema */
+struct jsonObjectElement EXPIREAT_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=EXPIREAT_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject EXPIREAT_ReplySchema = {EXPIREAT_ReplySchema_elements,.length=1};
+
 /********** EXPIRETIME ********************/
 
 /* EXPIRETIME history */
@@ -1576,6 +1932,45 @@ struct redisCommandArg EXPIRETIME_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* EXPIRETIME_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement EXPIRETIME_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Expiration Unix timestamp in seconds."},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject EXPIRETIME_ReplySchema_oneOf_0 = {EXPIRETIME_ReplySchema_oneOf_0_elements,.length=3};
+
+/* EXPIRETIME_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement EXPIRETIME_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=-1},
+{JSON_TYPE_STRING,"description",.value.string="The key exists but has no associated expiration time."},
+};
+
+struct jsonObject EXPIRETIME_ReplySchema_oneOf_1 = {EXPIRETIME_ReplySchema_oneOf_1_elements,.length=2};
+
+/* EXPIRETIME_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement EXPIRETIME_ReplySchema_oneOf_2_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=-2},
+{JSON_TYPE_STRING,"description",.value.string="The key does not exist."},
+};
+
+struct jsonObject EXPIRETIME_ReplySchema_oneOf_2 = {EXPIRETIME_ReplySchema_oneOf_2_elements,.length=2};
+
+/* EXPIRETIME_ReplySchema_oneOf array reply schema */
+struct jsonObject *EXPIRETIME_ReplySchema_oneOf[] = {
+&EXPIRETIME_ReplySchema_oneOf_0,
+&EXPIRETIME_ReplySchema_oneOf_1,
+&EXPIRETIME_ReplySchema_oneOf_2,
+};
+
+/* EXPIRETIME_ReplySchema reply schema */
+struct jsonObjectElement EXPIRETIME_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=EXPIRETIME_ReplySchema_oneOf,.length=3}},
+};
+
+struct jsonObject EXPIRETIME_ReplySchema = {EXPIRETIME_ReplySchema_elements,.length=1};
 
 /********** KEYS ********************/
 
@@ -1662,6 +2057,35 @@ struct redisCommandArg MIGRATE_Args[] = {
 {"keys",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.display_text="key"},
 {0}
 };
+
+/* MIGRATE_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement MIGRATE_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+{JSON_TYPE_STRING,"description",.value.string="Success."},
+};
+
+struct jsonObject MIGRATE_ReplySchema_oneOf_0 = {MIGRATE_ReplySchema_oneOf_0_elements,.length=2};
+
+/* MIGRATE_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement MIGRATE_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="NOKEY"},
+{JSON_TYPE_STRING,"description",.value.string="No keys were found in the source instance."},
+};
+
+struct jsonObject MIGRATE_ReplySchema_oneOf_1 = {MIGRATE_ReplySchema_oneOf_1_elements,.length=2};
+
+/* MIGRATE_ReplySchema_oneOf array reply schema */
+struct jsonObject *MIGRATE_ReplySchema_oneOf[] = {
+&MIGRATE_ReplySchema_oneOf_0,
+&MIGRATE_ReplySchema_oneOf_1,
+};
+
+/* MIGRATE_ReplySchema reply schema */
+struct jsonObjectElement MIGRATE_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=MIGRATE_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject MIGRATE_ReplySchema = {MIGRATE_ReplySchema_elements,.length=1};
 
 /********** MOVE ********************/
 
@@ -1786,6 +2210,22 @@ struct jsonObject OBJECT_FREQ_ReplySchema = {OBJECT_FREQ_ReplySchema_elements,.l
 /* OBJECT HELP tips */
 #define OBJECT_HELP_tips NULL
 
+/* OBJECT_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement OBJECT_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject OBJECT_HELP_ReplySchema_items = {OBJECT_HELP_ReplySchema_items_elements,.length=1};
+
+/* OBJECT_HELP_ReplySchema reply schema */
+struct jsonObjectElement OBJECT_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&OBJECT_HELP_ReplySchema_items},
+};
+
+struct jsonObject OBJECT_HELP_ReplySchema = {OBJECT_HELP_ReplySchema_elements,.length=3};
+
 /********** OBJECT IDLETIME ********************/
 
 /* OBJECT IDLETIME history */
@@ -1840,7 +2280,7 @@ struct jsonObject OBJECT_REFCOUNT_ReplySchema = {OBJECT_REFCOUNT_ReplySchema_ele
 struct redisCommand OBJECT_Subcommands[] = {
 {"encoding","Inspect the internal encoding of a Redis object","O(1)","2.2.3",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,OBJECT_ENCODING_History,OBJECT_ENCODING_tips,objectCommand,3,CMD_READONLY,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=OBJECT_ENCODING_Args,.reply_schema=&OBJECT_ENCODING_ReplySchema},
 {"freq","Get the logarithmic access frequency counter of a Redis object","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,OBJECT_FREQ_History,OBJECT_FREQ_tips,objectCommand,3,CMD_READONLY,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=OBJECT_FREQ_Args,.reply_schema=&OBJECT_FREQ_ReplySchema},
-{"help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,OBJECT_HELP_History,OBJECT_HELP_tips,objectCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_KEYSPACE},
+{"help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,OBJECT_HELP_History,OBJECT_HELP_tips,objectCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_KEYSPACE,.reply_schema=&OBJECT_HELP_ReplySchema},
 {"idletime","Get the time since a Redis object was last accessed","O(1)","2.2.3",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,OBJECT_IDLETIME_History,OBJECT_IDLETIME_tips,objectCommand,3,CMD_READONLY,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=OBJECT_IDLETIME_Args,.reply_schema=&OBJECT_IDLETIME_ReplySchema},
 {"refcount","Get the number of references to the value of the key","O(1)","2.2.3",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,OBJECT_REFCOUNT_History,OBJECT_REFCOUNT_tips,objectCommand,3,CMD_READONLY,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=OBJECT_REFCOUNT_Args,.reply_schema=&OBJECT_REFCOUNT_ReplySchema},
 {0}
@@ -1867,6 +2307,35 @@ struct redisCommandArg PERSIST_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* PERSIST_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement PERSIST_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+{JSON_TYPE_STRING,"description",.value.string="Key does not exist or does not have an associated timeout."},
+};
+
+struct jsonObject PERSIST_ReplySchema_oneOf_0 = {PERSIST_ReplySchema_oneOf_0_elements,.length=2};
+
+/* PERSIST_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement PERSIST_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+{JSON_TYPE_STRING,"description",.value.string="The timeout has been removed."},
+};
+
+struct jsonObject PERSIST_ReplySchema_oneOf_1 = {PERSIST_ReplySchema_oneOf_1_elements,.length=2};
+
+/* PERSIST_ReplySchema_oneOf array reply schema */
+struct jsonObject *PERSIST_ReplySchema_oneOf[] = {
+&PERSIST_ReplySchema_oneOf_0,
+&PERSIST_ReplySchema_oneOf_1,
+};
+
+/* PERSIST_ReplySchema reply schema */
+struct jsonObjectElement PERSIST_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=PERSIST_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject PERSIST_ReplySchema = {PERSIST_ReplySchema_elements,.length=1};
 
 /********** PEXPIRE ********************/
 
@@ -1896,6 +2365,35 @@ struct redisCommandArg PEXPIRE_Args[] = {
 {0}
 };
 
+/* PEXPIRE_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement PEXPIRE_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+{JSON_TYPE_STRING,"description",.value.string="The timeout was not set. e.g. key doesn't exist, or operation skipped due to the provided arguments."},
+};
+
+struct jsonObject PEXPIRE_ReplySchema_oneOf_0 = {PEXPIRE_ReplySchema_oneOf_0_elements,.length=2};
+
+/* PEXPIRE_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement PEXPIRE_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+{JSON_TYPE_STRING,"description",.value.string="The timeout was set."},
+};
+
+struct jsonObject PEXPIRE_ReplySchema_oneOf_1 = {PEXPIRE_ReplySchema_oneOf_1_elements,.length=2};
+
+/* PEXPIRE_ReplySchema_oneOf array reply schema */
+struct jsonObject *PEXPIRE_ReplySchema_oneOf[] = {
+&PEXPIRE_ReplySchema_oneOf_0,
+&PEXPIRE_ReplySchema_oneOf_1,
+};
+
+/* PEXPIRE_ReplySchema reply schema */
+struct jsonObjectElement PEXPIRE_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=PEXPIRE_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject PEXPIRE_ReplySchema = {PEXPIRE_ReplySchema_elements,.length=1};
+
 /********** PEXPIREAT ********************/
 
 /* PEXPIREAT history */
@@ -1924,6 +2422,35 @@ struct redisCommandArg PEXPIREAT_Args[] = {
 {0}
 };
 
+/* PEXPIREAT_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement PEXPIREAT_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+{JSON_TYPE_STRING,"description",.value.string="The timeout was set."},
+};
+
+struct jsonObject PEXPIREAT_ReplySchema_oneOf_0 = {PEXPIREAT_ReplySchema_oneOf_0_elements,.length=2};
+
+/* PEXPIREAT_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement PEXPIREAT_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+{JSON_TYPE_STRING,"description",.value.string="The timeout was not set. e.g. key doesn't exist, or operation skipped due to the provided arguments."},
+};
+
+struct jsonObject PEXPIREAT_ReplySchema_oneOf_1 = {PEXPIREAT_ReplySchema_oneOf_1_elements,.length=2};
+
+/* PEXPIREAT_ReplySchema_oneOf array reply schema */
+struct jsonObject *PEXPIREAT_ReplySchema_oneOf[] = {
+&PEXPIREAT_ReplySchema_oneOf_0,
+&PEXPIREAT_ReplySchema_oneOf_1,
+};
+
+/* PEXPIREAT_ReplySchema reply schema */
+struct jsonObjectElement PEXPIREAT_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=PEXPIREAT_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject PEXPIREAT_ReplySchema = {PEXPIREAT_ReplySchema_elements,.length=1};
+
 /********** PEXPIRETIME ********************/
 
 /* PEXPIRETIME history */
@@ -1937,6 +2464,45 @@ struct redisCommandArg PEXPIRETIME_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* PEXPIRETIME_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement PEXPIRETIME_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Expiration Unix timestamp in milliseconds."},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject PEXPIRETIME_ReplySchema_oneOf_0 = {PEXPIRETIME_ReplySchema_oneOf_0_elements,.length=3};
+
+/* PEXPIRETIME_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement PEXPIRETIME_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=-1},
+{JSON_TYPE_STRING,"description",.value.string="The key exists but has no associated expiration time."},
+};
+
+struct jsonObject PEXPIRETIME_ReplySchema_oneOf_1 = {PEXPIRETIME_ReplySchema_oneOf_1_elements,.length=2};
+
+/* PEXPIRETIME_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement PEXPIRETIME_ReplySchema_oneOf_2_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=-2},
+{JSON_TYPE_STRING,"description",.value.string="The key does not exist."},
+};
+
+struct jsonObject PEXPIRETIME_ReplySchema_oneOf_2 = {PEXPIRETIME_ReplySchema_oneOf_2_elements,.length=2};
+
+/* PEXPIRETIME_ReplySchema_oneOf array reply schema */
+struct jsonObject *PEXPIRETIME_ReplySchema_oneOf[] = {
+&PEXPIRETIME_ReplySchema_oneOf_0,
+&PEXPIRETIME_ReplySchema_oneOf_1,
+&PEXPIRETIME_ReplySchema_oneOf_2,
+};
+
+/* PEXPIRETIME_ReplySchema reply schema */
+struct jsonObjectElement PEXPIRETIME_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=PEXPIRETIME_ReplySchema_oneOf,.length=3}},
+};
+
+struct jsonObject PEXPIRETIME_ReplySchema = {PEXPIRETIME_ReplySchema_elements,.length=1};
 
 /********** PTTL ********************/
 
@@ -1957,6 +2523,45 @@ struct redisCommandArg PTTL_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* PTTL_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement PTTL_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="TTL in milliseconds."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject PTTL_ReplySchema_oneOf_0 = {PTTL_ReplySchema_oneOf_0_elements,.length=3};
+
+/* PTTL_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement PTTL_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The key exists but has no associated expire."},
+{JSON_TYPE_INTEGER,"const",.value.integer=-1},
+};
+
+struct jsonObject PTTL_ReplySchema_oneOf_1 = {PTTL_ReplySchema_oneOf_1_elements,.length=2};
+
+/* PTTL_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement PTTL_ReplySchema_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The key does not exist."},
+{JSON_TYPE_INTEGER,"const",.value.integer=-2},
+};
+
+struct jsonObject PTTL_ReplySchema_oneOf_2 = {PTTL_ReplySchema_oneOf_2_elements,.length=2};
+
+/* PTTL_ReplySchema_oneOf array reply schema */
+struct jsonObject *PTTL_ReplySchema_oneOf[] = {
+&PTTL_ReplySchema_oneOf_0,
+&PTTL_ReplySchema_oneOf_1,
+&PTTL_ReplySchema_oneOf_2,
+};
+
+/* PTTL_ReplySchema reply schema */
+struct jsonObjectElement PTTL_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=PTTL_ReplySchema_oneOf,.length=3}},
+};
+
+struct jsonObject PTTL_ReplySchema = {PTTL_ReplySchema_elements,.length=1};
 
 /********** RANDOMKEY ********************/
 
@@ -2093,6 +2698,13 @@ struct redisCommandArg RESTORE_Args[] = {
 {0}
 };
 
+/* RESTORE_ReplySchema reply schema */
+struct jsonObjectElement RESTORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject RESTORE_ReplySchema = {RESTORE_ReplySchema_elements,.length=1};
+
 /********** SCAN ********************/
 
 /* SCAN history */
@@ -2116,6 +2728,45 @@ struct redisCommandArg SCAN_Args[] = {
 {"type",ARG_TYPE_STRING,-1,"TYPE",NULL,"6.0.0",CMD_ARG_OPTIONAL},
 {0}
 };
+
+/* SCAN_ReplySchema_items_0 reply schema */
+struct jsonObjectElement SCAN_ReplySchema_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="cursor"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SCAN_ReplySchema_items_0 = {SCAN_ReplySchema_items_0_elements,.length=2};
+
+/* SCAN_ReplySchema_items_1_items reply schema */
+struct jsonObjectElement SCAN_ReplySchema_items_1_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SCAN_ReplySchema_items_1_items = {SCAN_ReplySchema_items_1_items_elements,.length=1};
+
+/* SCAN_ReplySchema_items_1 reply schema */
+struct jsonObjectElement SCAN_ReplySchema_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="list of keys"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&SCAN_ReplySchema_items_1_items},
+};
+
+struct jsonObject SCAN_ReplySchema_items_1 = {SCAN_ReplySchema_items_1_elements,.length=3};
+
+/* SCAN_ReplySchema_items array reply schema */
+struct jsonObject *SCAN_ReplySchema_items[] = {
+&SCAN_ReplySchema_items_0,
+&SCAN_ReplySchema_items_1,
+};
+
+/* SCAN_ReplySchema reply schema */
+struct jsonObjectElement SCAN_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="cursor and scan response in array form"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=SCAN_ReplySchema_items,.length=2}},
+};
+
+struct jsonObject SCAN_ReplySchema = {SCAN_ReplySchema_elements,.length=3};
 
 /********** SORT ********************/
 
@@ -2306,6 +2957,45 @@ struct redisCommandArg TTL_Args[] = {
 {0}
 };
 
+/* TTL_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement TTL_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="TTL in seconds."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject TTL_ReplySchema_oneOf_0 = {TTL_ReplySchema_oneOf_0_elements,.length=3};
+
+/* TTL_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement TTL_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The key exists but has no associated expire."},
+{JSON_TYPE_INTEGER,"const",.value.integer=-1},
+};
+
+struct jsonObject TTL_ReplySchema_oneOf_1 = {TTL_ReplySchema_oneOf_1_elements,.length=2};
+
+/* TTL_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement TTL_ReplySchema_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The key does not exist."},
+{JSON_TYPE_INTEGER,"const",.value.integer=-2},
+};
+
+struct jsonObject TTL_ReplySchema_oneOf_2 = {TTL_ReplySchema_oneOf_2_elements,.length=2};
+
+/* TTL_ReplySchema_oneOf array reply schema */
+struct jsonObject *TTL_ReplySchema_oneOf[] = {
+&TTL_ReplySchema_oneOf_0,
+&TTL_ReplySchema_oneOf_1,
+&TTL_ReplySchema_oneOf_2,
+};
+
+/* TTL_ReplySchema reply schema */
+struct jsonObjectElement TTL_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=TTL_ReplySchema_oneOf,.length=3}},
+};
+
+struct jsonObject TTL_ReplySchema = {TTL_ReplySchema_elements,.length=1};
+
 /********** TYPE ********************/
 
 /* TYPE history */
@@ -2394,6 +3084,15 @@ struct redisCommandArg WAIT_Args[] = {
 {"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* WAIT_ReplySchema reply schema */
+struct jsonObjectElement WAIT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The number of replicas reached by all the writes performed in the context of the current connection."},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject WAIT_ReplySchema = {WAIT_ReplySchema_elements,.length=3};
 
 /********** GEOADD ********************/
 
@@ -3610,6 +4309,14 @@ struct redisCommandArg HDEL_Args[] = {
 {0}
 };
 
+/* HDEL_ReplySchema reply schema */
+struct jsonObjectElement HDEL_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The number of fields that were removed from the hash."},
+};
+
+struct jsonObject HDEL_ReplySchema = {HDEL_ReplySchema_elements,.length=2};
+
 /********** HEXISTS ********************/
 
 /* HEXISTS history */
@@ -3625,6 +4332,35 @@ struct redisCommandArg HEXISTS_Args[] = {
 {0}
 };
 
+/* HEXISTS_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement HEXISTS_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The hash does not contain the field, or key does not exist."},
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+};
+
+struct jsonObject HEXISTS_ReplySchema_oneOf_0 = {HEXISTS_ReplySchema_oneOf_0_elements,.length=2};
+
+/* HEXISTS_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement HEXISTS_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The hash contains the field."},
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+};
+
+struct jsonObject HEXISTS_ReplySchema_oneOf_1 = {HEXISTS_ReplySchema_oneOf_1_elements,.length=2};
+
+/* HEXISTS_ReplySchema_oneOf array reply schema */
+struct jsonObject *HEXISTS_ReplySchema_oneOf[] = {
+&HEXISTS_ReplySchema_oneOf_0,
+&HEXISTS_ReplySchema_oneOf_1,
+};
+
+/* HEXISTS_ReplySchema reply schema */
+struct jsonObjectElement HEXISTS_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=HEXISTS_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject HEXISTS_ReplySchema = {HEXISTS_ReplySchema_elements,.length=1};
+
 /********** HGET ********************/
 
 /* HGET history */
@@ -3639,6 +4375,35 @@ struct redisCommandArg HGET_Args[] = {
 {"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* HGET_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement HGET_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The value associated with the field."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HGET_ReplySchema_oneOf_0 = {HGET_ReplySchema_oneOf_0_elements,.length=2};
+
+/* HGET_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement HGET_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If the field is not present in the hash or key does not exist."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject HGET_ReplySchema_oneOf_1 = {HGET_ReplySchema_oneOf_1_elements,.length=2};
+
+/* HGET_ReplySchema_oneOf array reply schema */
+struct jsonObject *HGET_ReplySchema_oneOf[] = {
+&HGET_ReplySchema_oneOf_0,
+&HGET_ReplySchema_oneOf_1,
+};
+
+/* HGET_ReplySchema reply schema */
+struct jsonObjectElement HGET_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=HGET_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject HGET_ReplySchema = {HGET_ReplySchema_elements,.length=1};
 
 /********** HGETALL ********************/
 
@@ -3690,6 +4455,14 @@ struct redisCommandArg HINCRBY_Args[] = {
 {0}
 };
 
+/* HINCRBY_ReplySchema reply schema */
+struct jsonObjectElement HINCRBY_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The value of the field after the increment operation."},
+};
+
+struct jsonObject HINCRBY_ReplySchema = {HINCRBY_ReplySchema_elements,.length=2};
+
 /********** HINCRBYFLOAT ********************/
 
 /* HINCRBYFLOAT history */
@@ -3705,6 +4478,14 @@ struct redisCommandArg HINCRBYFLOAT_Args[] = {
 {"increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* HINCRBYFLOAT_ReplySchema reply schema */
+struct jsonObjectElement HINCRBYFLOAT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The value of the field after the increment operation."},
+};
+
+struct jsonObject HINCRBYFLOAT_ReplySchema = {HINCRBYFLOAT_ReplySchema_elements,.length=2};
 
 /********** HKEYS ********************/
 
@@ -3723,6 +4504,23 @@ struct redisCommandArg HKEYS_Args[] = {
 {0}
 };
 
+/* HKEYS_ReplySchema_items reply schema */
+struct jsonObjectElement HKEYS_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HKEYS_ReplySchema_items = {HKEYS_ReplySchema_items_elements,.length=1};
+
+/* HKEYS_ReplySchema reply schema */
+struct jsonObjectElement HKEYS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of fields in the hash, or an empty list when the key does not exist."},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&HKEYS_ReplySchema_items},
+};
+
+struct jsonObject HKEYS_ReplySchema = {HKEYS_ReplySchema_elements,.length=4};
+
 /********** HLEN ********************/
 
 /* HLEN history */
@@ -3736,6 +4534,14 @@ struct redisCommandArg HLEN_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* HLEN_ReplySchema reply schema */
+struct jsonObjectElement HLEN_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Number of the fields in the hash, or 0 when the key does not exist."},
+};
+
+struct jsonObject HLEN_ReplySchema = {HLEN_ReplySchema_elements,.length=2};
 
 /********** HMGET ********************/
 
@@ -3751,6 +4557,43 @@ struct redisCommandArg HMGET_Args[] = {
 {"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* HMGET_ReplySchema_items_oneOf_0 reply schema */
+struct jsonObjectElement HMGET_ReplySchema_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HMGET_ReplySchema_items_oneOf_0 = {HMGET_ReplySchema_items_oneOf_0_elements,.length=1};
+
+/* HMGET_ReplySchema_items_oneOf_1 reply schema */
+struct jsonObjectElement HMGET_ReplySchema_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject HMGET_ReplySchema_items_oneOf_1 = {HMGET_ReplySchema_items_oneOf_1_elements,.length=1};
+
+/* HMGET_ReplySchema_items_oneOf array reply schema */
+struct jsonObject *HMGET_ReplySchema_items_oneOf[] = {
+&HMGET_ReplySchema_items_oneOf_0,
+&HMGET_ReplySchema_items_oneOf_1,
+};
+
+/* HMGET_ReplySchema_items reply schema */
+struct jsonObjectElement HMGET_ReplySchema_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=HMGET_ReplySchema_items_oneOf,.length=2}},
+};
+
+struct jsonObject HMGET_ReplySchema_items = {HMGET_ReplySchema_items_elements,.length=1};
+
+/* HMGET_ReplySchema reply schema */
+struct jsonObjectElement HMGET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="List of values associated with the given fields, in the same order as they are requested."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&HMGET_ReplySchema_items},
+};
+
+struct jsonObject HMGET_ReplySchema = {HMGET_ReplySchema_elements,.length=4};
 
 /********** HMSET ********************/
 
@@ -3773,6 +4616,13 @@ struct redisCommandArg HMSET_Args[] = {
 {"data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=HMSET_data_Subargs},
 {0}
 };
+
+/* HMSET_ReplySchema reply schema */
+struct jsonObjectElement HMSET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject HMSET_ReplySchema = {HMSET_ReplySchema_elements,.length=1};
 
 /********** HRANDFIELD ********************/
 
@@ -3908,6 +4758,45 @@ struct redisCommandArg HSCAN_Args[] = {
 {0}
 };
 
+/* HSCAN_ReplySchema_items_0 reply schema */
+struct jsonObjectElement HSCAN_ReplySchema_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="cursor"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HSCAN_ReplySchema_items_0 = {HSCAN_ReplySchema_items_0_elements,.length=2};
+
+/* HSCAN_ReplySchema_items_1_items reply schema */
+struct jsonObjectElement HSCAN_ReplySchema_items_1_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HSCAN_ReplySchema_items_1_items = {HSCAN_ReplySchema_items_1_items_elements,.length=1};
+
+/* HSCAN_ReplySchema_items_1 reply schema */
+struct jsonObjectElement HSCAN_ReplySchema_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="list of key/value pairs from the hash where each even element is the key, and each odd element is the value"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&HSCAN_ReplySchema_items_1_items},
+};
+
+struct jsonObject HSCAN_ReplySchema_items_1 = {HSCAN_ReplySchema_items_1_elements,.length=3};
+
+/* HSCAN_ReplySchema_items array reply schema */
+struct jsonObject *HSCAN_ReplySchema_items[] = {
+&HSCAN_ReplySchema_items_0,
+&HSCAN_ReplySchema_items_1,
+};
+
+/* HSCAN_ReplySchema reply schema */
+struct jsonObjectElement HSCAN_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="cursor and scan response in array form"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=HSCAN_ReplySchema_items,.length=2}},
+};
+
+struct jsonObject HSCAN_ReplySchema = {HSCAN_ReplySchema_elements,.length=3};
+
 /********** HSET ********************/
 
 /* HSET history */
@@ -3956,6 +4845,35 @@ struct redisCommandArg HSETNX_Args[] = {
 {0}
 };
 
+/* HSETNX_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement HSETNX_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The field is a new field in the hash and value was set."},
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+};
+
+struct jsonObject HSETNX_ReplySchema_oneOf_0 = {HSETNX_ReplySchema_oneOf_0_elements,.length=2};
+
+/* HSETNX_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement HSETNX_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The field already exists in the hash and no operation was performed."},
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+};
+
+struct jsonObject HSETNX_ReplySchema_oneOf_1 = {HSETNX_ReplySchema_oneOf_1_elements,.length=2};
+
+/* HSETNX_ReplySchema_oneOf array reply schema */
+struct jsonObject *HSETNX_ReplySchema_oneOf[] = {
+&HSETNX_ReplySchema_oneOf_0,
+&HSETNX_ReplySchema_oneOf_1,
+};
+
+/* HSETNX_ReplySchema reply schema */
+struct jsonObjectElement HSETNX_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=HSETNX_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject HSETNX_ReplySchema = {HSETNX_ReplySchema_elements,.length=1};
+
 /********** HSTRLEN ********************/
 
 /* HSTRLEN history */
@@ -3970,6 +4888,15 @@ struct redisCommandArg HSTRLEN_Args[] = {
 {"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* HSTRLEN_ReplySchema reply schema */
+struct jsonObjectElement HSTRLEN_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="String length of the value associated with the field, or zero when the field is not present in the hash or key does not exist at all."},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject HSTRLEN_ReplySchema = {HSTRLEN_ReplySchema_elements,.length=3};
 
 /********** HVALS ********************/
 
@@ -3987,6 +4914,22 @@ struct redisCommandArg HVALS_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* HVALS_ReplySchema_items reply schema */
+struct jsonObjectElement HVALS_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject HVALS_ReplySchema_items = {HVALS_ReplySchema_items_elements,.length=1};
+
+/* HVALS_ReplySchema reply schema */
+struct jsonObjectElement HVALS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of values in the hash, or an empty list when the key does not exist."},
+{JSON_TYPE_OBJECT,"items",.value.object=&HVALS_ReplySchema_items},
+};
+
+struct jsonObject HVALS_ReplySchema = {HVALS_ReplySchema_elements,.length=3};
 
 /********** PFADD ********************/
 
@@ -4363,6 +5306,35 @@ struct redisCommandArg BRPOPLPUSH_Args[] = {
 {0}
 };
 
+/* BRPOPLPUSH_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement BRPOPLPUSH_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The element being popped from source and pushed to destination."},
+};
+
+struct jsonObject BRPOPLPUSH_ReplySchema_oneOf_0 = {BRPOPLPUSH_ReplySchema_oneOf_0_elements,.length=2};
+
+/* BRPOPLPUSH_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement BRPOPLPUSH_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Timeout is reached."},
+};
+
+struct jsonObject BRPOPLPUSH_ReplySchema_oneOf_1 = {BRPOPLPUSH_ReplySchema_oneOf_1_elements,.length=2};
+
+/* BRPOPLPUSH_ReplySchema_oneOf array reply schema */
+struct jsonObject *BRPOPLPUSH_ReplySchema_oneOf[] = {
+&BRPOPLPUSH_ReplySchema_oneOf_0,
+&BRPOPLPUSH_ReplySchema_oneOf_1,
+};
+
+/* BRPOPLPUSH_ReplySchema reply schema */
+struct jsonObjectElement BRPOPLPUSH_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=BRPOPLPUSH_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject BRPOPLPUSH_ReplySchema = {BRPOPLPUSH_ReplySchema_elements,.length=1};
+
 /********** LINDEX ********************/
 
 /* LINDEX history */
@@ -4525,6 +5497,14 @@ struct redisCommandArg LPUSH_Args[] = {
 {0}
 };
 
+/* LPUSH_ReplySchema reply schema */
+struct jsonObjectElement LPUSH_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Length of the list after the push operations."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject LPUSH_ReplySchema = {LPUSH_ReplySchema_elements,.length=2};
+
 /********** LPUSHX ********************/
 
 /* LPUSHX history */
@@ -4623,6 +5603,13 @@ struct redisCommandArg LTRIM_Args[] = {
 {0}
 };
 
+/* LTRIM_ReplySchema reply schema */
+struct jsonObjectElement LTRIM_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject LTRIM_ReplySchema = {LTRIM_ReplySchema_elements,.length=1};
+
 /********** RPOP ********************/
 
 /* RPOP history */
@@ -4641,6 +5628,52 @@ struct redisCommandArg RPOP_Args[] = {
 {0}
 };
 
+/* RPOP_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement RPOP_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Key does not exist."},
+};
+
+struct jsonObject RPOP_ReplySchema_oneOf_0 = {RPOP_ReplySchema_oneOf_0_elements,.length=2};
+
+/* RPOP_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement RPOP_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="When 'COUNT' was not given, the value of the last element."},
+};
+
+struct jsonObject RPOP_ReplySchema_oneOf_1 = {RPOP_ReplySchema_oneOf_1_elements,.length=2};
+
+/* RPOP_ReplySchema_oneOf_2_items reply schema */
+struct jsonObjectElement RPOP_ReplySchema_oneOf_2_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject RPOP_ReplySchema_oneOf_2_items = {RPOP_ReplySchema_oneOf_2_items_elements,.length=1};
+
+/* RPOP_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement RPOP_ReplySchema_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="When 'COUNT' was given, list of popped elements."},
+{JSON_TYPE_OBJECT,"items",.value.object=&RPOP_ReplySchema_oneOf_2_items},
+};
+
+struct jsonObject RPOP_ReplySchema_oneOf_2 = {RPOP_ReplySchema_oneOf_2_elements,.length=3};
+
+/* RPOP_ReplySchema_oneOf array reply schema */
+struct jsonObject *RPOP_ReplySchema_oneOf[] = {
+&RPOP_ReplySchema_oneOf_0,
+&RPOP_ReplySchema_oneOf_1,
+&RPOP_ReplySchema_oneOf_2,
+};
+
+/* RPOP_ReplySchema reply schema */
+struct jsonObjectElement RPOP_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=RPOP_ReplySchema_oneOf,.length=3}},
+};
+
+struct jsonObject RPOP_ReplySchema = {RPOP_ReplySchema_elements,.length=1};
+
 /********** RPOPLPUSH ********************/
 
 /* RPOPLPUSH history */
@@ -4655,6 +5688,35 @@ struct redisCommandArg RPOPLPUSH_Args[] = {
 {"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* RPOPLPUSH_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement RPOPLPUSH_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The element being popped and pushed."},
+};
+
+struct jsonObject RPOPLPUSH_ReplySchema_oneOf_0 = {RPOPLPUSH_ReplySchema_oneOf_0_elements,.length=2};
+
+/* RPOPLPUSH_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement RPOPLPUSH_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Source list is empty."},
+};
+
+struct jsonObject RPOPLPUSH_ReplySchema_oneOf_1 = {RPOPLPUSH_ReplySchema_oneOf_1_elements,.length=2};
+
+/* RPOPLPUSH_ReplySchema_oneOf array reply schema */
+struct jsonObject *RPOPLPUSH_ReplySchema_oneOf[] = {
+&RPOPLPUSH_ReplySchema_oneOf_0,
+&RPOPLPUSH_ReplySchema_oneOf_1,
+};
+
+/* RPOPLPUSH_ReplySchema reply schema */
+struct jsonObjectElement RPOPLPUSH_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=RPOPLPUSH_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject RPOPLPUSH_ReplySchema = {RPOPLPUSH_ReplySchema_elements,.length=1};
 
 /********** RPUSH ********************/
 
@@ -4674,6 +5736,15 @@ struct redisCommandArg RPUSH_Args[] = {
 {0}
 };
 
+/* RPUSH_ReplySchema reply schema */
+struct jsonObjectElement RPUSH_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Length of the list after the push operations."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=1},
+};
+
+struct jsonObject RPUSH_ReplySchema = {RPUSH_ReplySchema_elements,.length=3};
+
 /********** RPUSHX ********************/
 
 /* RPUSHX history */
@@ -4691,6 +5762,15 @@ struct redisCommandArg RPUSHX_Args[] = {
 {"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* RPUSHX_ReplySchema reply schema */
+struct jsonObjectElement RPUSHX_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Length of the list after the push operation."},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject RPUSHX_ReplySchema = {RPUSHX_ReplySchema_elements,.length=3};
 
 /********** PSUBSCRIBE ********************/
 
@@ -4735,6 +5815,23 @@ struct redisCommandArg PUBSUB_CHANNELS_Args[] = {
 {0}
 };
 
+/* PUBSUB_CHANNELS_ReplySchema_items reply schema */
+struct jsonObjectElement PUBSUB_CHANNELS_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject PUBSUB_CHANNELS_ReplySchema_items = {PUBSUB_CHANNELS_ReplySchema_items_elements,.length=1};
+
+/* PUBSUB_CHANNELS_ReplySchema reply schema */
+struct jsonObjectElement PUBSUB_CHANNELS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="a list of active channels, optionally matching the specified pattern"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&PUBSUB_CHANNELS_ReplySchema_items},
+};
+
+struct jsonObject PUBSUB_CHANNELS_ReplySchema = {PUBSUB_CHANNELS_ReplySchema_elements,.length=4};
+
 /********** PUBSUB HELP ********************/
 
 /* PUBSUB HELP history */
@@ -4743,6 +5840,22 @@ struct redisCommandArg PUBSUB_CHANNELS_Args[] = {
 /* PUBSUB HELP tips */
 #define PUBSUB_HELP_tips NULL
 
+/* PUBSUB_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement PUBSUB_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject PUBSUB_HELP_ReplySchema_items = {PUBSUB_HELP_ReplySchema_items_elements,.length=1};
+
+/* PUBSUB_HELP_ReplySchema reply schema */
+struct jsonObjectElement PUBSUB_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&PUBSUB_HELP_ReplySchema_items},
+};
+
+struct jsonObject PUBSUB_HELP_ReplySchema = {PUBSUB_HELP_ReplySchema_elements,.length=3};
+
 /********** PUBSUB NUMPAT ********************/
 
 /* PUBSUB NUMPAT history */
@@ -4750,6 +5863,15 @@ struct redisCommandArg PUBSUB_CHANNELS_Args[] = {
 
 /* PUBSUB NUMPAT tips */
 #define PUBSUB_NUMPAT_tips NULL
+
+/* PUBSUB_NUMPAT_ReplySchema reply schema */
+struct jsonObjectElement PUBSUB_NUMPAT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of patterns all the clients are subscribed to"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject PUBSUB_NUMPAT_ReplySchema = {PUBSUB_NUMPAT_ReplySchema_elements,.length=3};
 
 /********** PUBSUB NUMSUB ********************/
 
@@ -4765,6 +5887,14 @@ struct redisCommandArg PUBSUB_NUMSUB_Args[] = {
 {0}
 };
 
+/* PUBSUB_NUMSUB_ReplySchema reply schema */
+struct jsonObjectElement PUBSUB_NUMSUB_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of subscribers per channel, each even element (including 0th) is channel name, each odd element is the number of subscribers"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+};
+
+struct jsonObject PUBSUB_NUMSUB_ReplySchema = {PUBSUB_NUMSUB_ReplySchema_elements,.length=2};
+
 /********** PUBSUB SHARDCHANNELS ********************/
 
 /* PUBSUB SHARDCHANNELS history */
@@ -4778,6 +5908,23 @@ struct redisCommandArg PUBSUB_SHARDCHANNELS_Args[] = {
 {"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+/* PUBSUB_SHARDCHANNELS_ReplySchema_items reply schema */
+struct jsonObjectElement PUBSUB_SHARDCHANNELS_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject PUBSUB_SHARDCHANNELS_ReplySchema_items = {PUBSUB_SHARDCHANNELS_ReplySchema_items_elements,.length=1};
+
+/* PUBSUB_SHARDCHANNELS_ReplySchema reply schema */
+struct jsonObjectElement PUBSUB_SHARDCHANNELS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="a list of active channels, optionally matching the specified pattern"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&PUBSUB_SHARDCHANNELS_ReplySchema_items},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+};
+
+struct jsonObject PUBSUB_SHARDCHANNELS_ReplySchema = {PUBSUB_SHARDCHANNELS_ReplySchema_elements,.length=4};
 
 /********** PUBSUB SHARDNUMSUB ********************/
 
@@ -4793,14 +5940,22 @@ struct redisCommandArg PUBSUB_SHARDNUMSUB_Args[] = {
 {0}
 };
 
+/* PUBSUB_SHARDNUMSUB_ReplySchema reply schema */
+struct jsonObjectElement PUBSUB_SHARDNUMSUB_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the number of subscribers per shard channel, each even element (including 0th) is channel name, each odd element is the number of subscribers"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+};
+
+struct jsonObject PUBSUB_SHARDNUMSUB_ReplySchema = {PUBSUB_SHARDNUMSUB_ReplySchema_elements,.length=2};
+
 /* PUBSUB command table */
 struct redisCommand PUBSUB_Subcommands[] = {
-{"channels","List active channels","O(N) where N is the number of active channels, and assuming constant time pattern matching (relatively short channels and patterns)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_CHANNELS_History,PUBSUB_CHANNELS_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_CHANNELS_Args},
-{"help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_HELP_History,PUBSUB_HELP_tips,pubsubCommand,2,CMD_LOADING|CMD_STALE,0},
-{"numpat","Get the count of unique patterns pattern subscriptions","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_NUMPAT_History,PUBSUB_NUMPAT_tips,pubsubCommand,2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0},
-{"numsub","Get the count of subscribers for channels","O(N) for the NUMSUB subcommand, where N is the number of requested channels","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_NUMSUB_History,PUBSUB_NUMSUB_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_NUMSUB_Args},
-{"shardchannels","List active shard channels","O(N) where N is the number of active shard channels, and assuming constant time pattern matching (relatively short shard channels).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_SHARDCHANNELS_History,PUBSUB_SHARDCHANNELS_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_SHARDCHANNELS_Args},
-{"shardnumsub","Get the count of subscribers for shard channels","O(N) for the SHARDNUMSUB subcommand, where N is the number of requested shard channels","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_SHARDNUMSUB_History,PUBSUB_SHARDNUMSUB_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_SHARDNUMSUB_Args},
+{"channels","List active channels","O(N) where N is the number of active channels, and assuming constant time pattern matching (relatively short channels and patterns)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_CHANNELS_History,PUBSUB_CHANNELS_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_CHANNELS_Args,.reply_schema=&PUBSUB_CHANNELS_ReplySchema},
+{"help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_HELP_History,PUBSUB_HELP_tips,pubsubCommand,2,CMD_LOADING|CMD_STALE,0,.reply_schema=&PUBSUB_HELP_ReplySchema},
+{"numpat","Get the count of unique patterns pattern subscriptions","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_NUMPAT_History,PUBSUB_NUMPAT_tips,pubsubCommand,2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.reply_schema=&PUBSUB_NUMPAT_ReplySchema},
+{"numsub","Get the count of subscribers for channels","O(N) for the NUMSUB subcommand, where N is the number of requested channels","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_NUMSUB_History,PUBSUB_NUMSUB_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_NUMSUB_Args,.reply_schema=&PUBSUB_NUMSUB_ReplySchema},
+{"shardchannels","List active shard channels","O(N) where N is the number of active shard channels, and assuming constant time pattern matching (relatively short shard channels).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_SHARDCHANNELS_History,PUBSUB_SHARDCHANNELS_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_SHARDCHANNELS_Args,.reply_schema=&PUBSUB_SHARDCHANNELS_ReplySchema},
+{"shardnumsub","Get the count of subscribers for shard channels","O(N) for the SHARDNUMSUB subcommand, where N is the number of requested shard channels","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_SHARDNUMSUB_History,PUBSUB_SHARDNUMSUB_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_SHARDNUMSUB_Args,.reply_schema=&PUBSUB_SHARDNUMSUB_ReplySchema},
 {0}
 };
 
@@ -5122,6 +6277,22 @@ struct jsonObject FUNCTION_FLUSH_ReplySchema = {FUNCTION_FLUSH_ReplySchema_eleme
 /* FUNCTION HELP tips */
 #define FUNCTION_HELP_tips NULL
 
+/* FUNCTION_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement FUNCTION_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject FUNCTION_HELP_ReplySchema_items = {FUNCTION_HELP_ReplySchema_items_elements,.length=1};
+
+/* FUNCTION_HELP_ReplySchema reply schema */
+struct jsonObjectElement FUNCTION_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&FUNCTION_HELP_ReplySchema_items},
+};
+
+struct jsonObject FUNCTION_HELP_ReplySchema = {FUNCTION_HELP_ReplySchema_elements,.length=3};
+
 /********** FUNCTION KILL ********************/
 
 /* FUNCTION KILL history */
@@ -5238,7 +6409,7 @@ struct redisCommand FUNCTION_Subcommands[] = {
 {"delete","Delete a function by name","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_DELETE_History,FUNCTION_DELETE_tips,functionDeleteCommand,3,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_DELETE_Args,.reply_schema=&FUNCTION_DELETE_ReplySchema},
 {"dump","Dump all functions into a serialized binary payload","O(N) where N is the number of functions","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_DUMP_History,FUNCTION_DUMP_tips,functionDumpCommand,2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.reply_schema=&FUNCTION_DUMP_ReplySchema},
 {"flush","Deleting all functions","O(N) where N is the number of functions deleted","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_FLUSH_History,FUNCTION_FLUSH_tips,functionFlushCommand,-2,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_FLUSH_Args,.reply_schema=&FUNCTION_FLUSH_ReplySchema},
-{"help","Show helpful text about the different subcommands","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_HELP_History,FUNCTION_HELP_tips,functionHelpCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_SCRIPTING},
+{"help","Show helpful text about the different subcommands","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_HELP_History,FUNCTION_HELP_tips,functionHelpCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_SCRIPTING,.reply_schema=&FUNCTION_HELP_ReplySchema},
 {"kill","Kill the function currently in execution.","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_KILL_History,FUNCTION_KILL_tips,functionKillCommand,2,CMD_NOSCRIPT|CMD_ALLOW_BUSY,ACL_CATEGORY_SCRIPTING,.reply_schema=&FUNCTION_KILL_ReplySchema},
 {"list","List information about all the functions","O(N) where N is the number of functions","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LIST_History,FUNCTION_LIST_tips,functionListCommand,-2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_LIST_Args},
 {"load","Create a function with the given arguments (name, code, description)","O(1) (considering compilation time is redundant)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LOAD_History,FUNCTION_LOAD_tips,functionLoadCommand,-3,CMD_NOSCRIPT|CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_LOAD_Args,.reply_schema=&FUNCTION_LOAD_ReplySchema},
@@ -5383,6 +6554,22 @@ struct jsonObject SCRIPT_FLUSH_ReplySchema = {SCRIPT_FLUSH_ReplySchema_elements,
 /* SCRIPT HELP tips */
 #define SCRIPT_HELP_tips NULL
 
+/* SCRIPT_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement SCRIPT_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SCRIPT_HELP_ReplySchema_items = {SCRIPT_HELP_ReplySchema_items_elements,.length=1};
+
+/* SCRIPT_HELP_ReplySchema reply schema */
+struct jsonObjectElement SCRIPT_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SCRIPT_HELP_ReplySchema_items},
+};
+
+struct jsonObject SCRIPT_HELP_ReplySchema = {SCRIPT_HELP_ReplySchema_elements,.length=3};
+
 /********** SCRIPT KILL ********************/
 
 /* SCRIPT KILL history */
@@ -5433,7 +6620,7 @@ struct redisCommand SCRIPT_Subcommands[] = {
 {"debug","Set the debug mode for executed scripts.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_DEBUG_History,SCRIPT_DEBUG_tips,scriptCommand,3,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=SCRIPT_DEBUG_Args,.reply_schema=&SCRIPT_DEBUG_ReplySchema},
 {"exists","Check existence of scripts in the script cache.","O(N) with N being the number of scripts to check (so checking a single script is an O(1) operation).","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_EXISTS_History,SCRIPT_EXISTS_tips,scriptCommand,-3,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=SCRIPT_EXISTS_Args,.reply_schema=&SCRIPT_EXISTS_ReplySchema},
 {"flush","Remove all the scripts from the script cache.","O(N) with N being the number of scripts in cache","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_FLUSH_History,SCRIPT_FLUSH_tips,scriptCommand,-2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=SCRIPT_FLUSH_Args,.reply_schema=&SCRIPT_FLUSH_ReplySchema},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_HELP_History,SCRIPT_HELP_tips,scriptCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_SCRIPTING},
+{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_HELP_History,SCRIPT_HELP_tips,scriptCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_SCRIPTING,.reply_schema=&SCRIPT_HELP_ReplySchema},
 {"kill","Kill the script currently in execution.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_KILL_History,SCRIPT_KILL_tips,scriptCommand,2,CMD_NOSCRIPT|CMD_ALLOW_BUSY,ACL_CATEGORY_SCRIPTING,.reply_schema=&SCRIPT_KILL_ReplySchema},
 {"load","Load the specified Lua script into the script cache.","O(N) with N being the length in bytes of the script body.","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_LOAD_History,SCRIPT_LOAD_tips,scriptCommand,3,CMD_NOSCRIPT|CMD_STALE,ACL_CATEGORY_SCRIPTING,.args=SCRIPT_LOAD_Args,.reply_schema=&SCRIPT_LOAD_ReplySchema},
 {0}
@@ -5460,6 +6647,15 @@ struct redisCommandArg SENTINEL_CKQUORUM_Args[] = {
 {"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SENTINEL_CKQUORUM_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_CKQUORUM_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Returns OK if the current Sentinel configuration is able to reach the quorum needed to failover a master, and the majority needed to authorize the failover."},
+{JSON_TYPE_STRING,"pattern",.value.string="OK"},
+};
+
+struct jsonObject SENTINEL_CKQUORUM_ReplySchema = {SENTINEL_CKQUORUM_ReplySchema_elements,.length=3};
 
 /********** SENTINEL CONFIG ********************/
 
@@ -5488,6 +6684,43 @@ struct redisCommandArg SENTINEL_CONFIG_Args[] = {
 {"action",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=SENTINEL_CONFIG_action_Subargs},
 {0}
 };
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_additionalProperties reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_additionalProperties_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_additionalProperties = {SENTINEL_CONFIG_ReplySchema_oneOf_0_additionalProperties_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_STRING,"description",.value.string="When 'SENTINEL-CONFIG GET' is called, returns a map."},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&SENTINEL_CONFIG_ReplySchema_oneOf_0_additionalProperties},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_elements,.length=3};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+{JSON_TYPE_STRING,"description",.value.string="When 'SENTINEL-CONFIG SET' is called, returns OK on success."},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_1 = {SENTINEL_CONFIG_ReplySchema_oneOf_1_elements,.length=2};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf array reply schema */
+struct jsonObject *SENTINEL_CONFIG_ReplySchema_oneOf[] = {
+&SENTINEL_CONFIG_ReplySchema_oneOf_0,
+&SENTINEL_CONFIG_ReplySchema_oneOf_1,
+};
+
+/* SENTINEL_CONFIG_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_CONFIG_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema = {SENTINEL_CONFIG_ReplySchema_elements,.length=1};
 
 /********** SENTINEL DEBUG ********************/
 
@@ -5524,6 +6757,14 @@ struct redisCommandArg SENTINEL_FAILOVER_Args[] = {
 {0}
 };
 
+/* SENTINEL_FAILOVER_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_FAILOVER_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+{JSON_TYPE_STRING,"description",.value.string="Force a fail over as if the master was not reachable, and without asking for agreement to other Sentinels."},
+};
+
+struct jsonObject SENTINEL_FAILOVER_ReplySchema = {SENTINEL_FAILOVER_ReplySchema_elements,.length=2};
+
 /********** SENTINEL FLUSHCONFIG ********************/
 
 /* SENTINEL FLUSHCONFIG history */
@@ -5531,6 +6772,14 @@ struct redisCommandArg SENTINEL_FAILOVER_Args[] = {
 
 /* SENTINEL FLUSHCONFIG tips */
 #define SENTINEL_FLUSHCONFIG_tips NULL
+
+/* SENTINEL_FLUSHCONFIG_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_FLUSHCONFIG_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+{JSON_TYPE_STRING,"description",.value.string="Force Sentinel to rewrite its configuration on disk, including the current Sentinel state."},
+};
+
+struct jsonObject SENTINEL_FLUSHCONFIG_ReplySchema = {SENTINEL_FLUSHCONFIG_ReplySchema_elements,.length=2};
 
 /********** SENTINEL GET_MASTER_ADDR_BY_NAME ********************/
 
@@ -5546,6 +6795,40 @@ struct redisCommandArg SENTINEL_GET_MASTER_ADDR_BY_NAME_Args[] = {
 {0}
 };
 
+/* SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0 reply schema */
+struct jsonObjectElement SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="IP addr or hostname."},
+};
+
+struct jsonObject SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0 = {SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0_elements,.length=2};
+
+/* SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_1 reply schema */
+struct jsonObjectElement SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Port."},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+"},
+};
+
+struct jsonObject SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_1 = {SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_1_elements,.length=3};
+
+/* SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items array reply schema */
+struct jsonObject *SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items[] = {
+&SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0,
+&SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_1,
+};
+
+/* SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items,.length=2}},
+};
+
+struct jsonObject SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema = {SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_elements,.length=5};
+
 /********** SENTINEL HELP ********************/
 
 /* SENTINEL HELP history */
@@ -5553,6 +6836,22 @@ struct redisCommandArg SENTINEL_GET_MASTER_ADDR_BY_NAME_Args[] = {
 
 /* SENTINEL HELP tips */
 #define SENTINEL_HELP_tips NULL
+
+/* SENTINEL_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement SENTINEL_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_HELP_ReplySchema_items = {SENTINEL_HELP_ReplySchema_items_elements,.length=1};
+
+/* SENTINEL_HELP_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SENTINEL_HELP_ReplySchema_items},
+};
+
+struct jsonObject SENTINEL_HELP_ReplySchema = {SENTINEL_HELP_ReplySchema_elements,.length=3};
 
 /********** SENTINEL INFO_CACHE ********************/
 
@@ -5585,6 +6884,71 @@ struct redisCommandArg SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args[] = {
 {0}
 };
 
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0 reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+{JSON_TYPE_STRING,"description",.value.string="Master is up."},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0_elements,.length=2};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_1 reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+{JSON_TYPE_STRING,"description",.value.string="Master is down."},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_1 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_1_elements,.length=2};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf array reply schema */
+struct jsonObject *SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf[] = {
+&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0,
+&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_1,
+};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0 reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf,.length=2}},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_elements,.length=1};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_1 reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Sentinel address."},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_1 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_1_elements,.length=2};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2 reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Port."},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+"},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2_elements,.length=3};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items array reply schema */
+struct jsonObject *SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items[] = {
+&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0,
+&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_1,
+&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2,
+};
+
+/* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string=""},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=3},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=3},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items,.length=3}},
+};
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_elements,.length=6};
+
 /********** SENTINEL MASTER ********************/
 
 /* SENTINEL MASTER history */
@@ -5598,6 +6962,22 @@ struct redisCommandArg SENTINEL_MASTER_Args[] = {
 {"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SENTINEL_MASTER_ReplySchema_additionalProperties reply schema */
+struct jsonObjectElement SENTINEL_MASTER_ReplySchema_additionalProperties_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_MASTER_ReplySchema_additionalProperties = {SENTINEL_MASTER_ReplySchema_additionalProperties_elements,.length=1};
+
+/* SENTINEL_MASTER_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_MASTER_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_STRING,"description",.value.string="The state and info of the specified master."},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&SENTINEL_MASTER_ReplySchema_additionalProperties},
+};
+
+struct jsonObject SENTINEL_MASTER_ReplySchema = {SENTINEL_MASTER_ReplySchema_elements,.length=3};
 
 /********** SENTINEL MASTERS ********************/
 
@@ -5623,6 +7003,13 @@ struct redisCommandArg SENTINEL_MONITOR_Args[] = {
 {"quorum",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SENTINEL_MONITOR_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_MONITOR_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SENTINEL_MONITOR_ReplySchema = {SENTINEL_MONITOR_ReplySchema_elements,.length=1};
 
 /********** SENTINEL MYID ********************/
 
@@ -5654,6 +7041,13 @@ struct redisCommandArg SENTINEL_REMOVE_Args[] = {
 {0}
 };
 
+/* SENTINEL_REMOVE_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_REMOVE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SENTINEL_REMOVE_ReplySchema = {SENTINEL_REMOVE_ReplySchema_elements,.length=1};
+
 /********** SENTINEL REPLICAS ********************/
 
 /* SENTINEL REPLICAS history */
@@ -5667,6 +7061,30 @@ struct redisCommandArg SENTINEL_REPLICAS_Args[] = {
 {"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SENTINEL_REPLICAS_ReplySchema_items_additionalProperties reply schema */
+struct jsonObjectElement SENTINEL_REPLICAS_ReplySchema_items_additionalProperties_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_REPLICAS_ReplySchema_items_additionalProperties = {SENTINEL_REPLICAS_ReplySchema_items_additionalProperties_elements,.length=1};
+
+/* SENTINEL_REPLICAS_ReplySchema_items reply schema */
+struct jsonObjectElement SENTINEL_REPLICAS_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&SENTINEL_REPLICAS_ReplySchema_items_additionalProperties},
+};
+
+struct jsonObject SENTINEL_REPLICAS_ReplySchema_items = {SENTINEL_REPLICAS_ReplySchema_items_elements,.length=2};
+
+/* SENTINEL_REPLICAS_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_REPLICAS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of replicas for this master, and their state."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SENTINEL_REPLICAS_ReplySchema_items},
+};
+
+struct jsonObject SENTINEL_REPLICAS_ReplySchema = {SENTINEL_REPLICAS_ReplySchema_elements,.length=3};
 
 /********** SENTINEL RESET ********************/
 
@@ -5718,6 +7136,13 @@ struct redisCommandArg SENTINEL_SET_Args[] = {
 {0}
 };
 
+/* SENTINEL_SET_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_SET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SENTINEL_SET_ReplySchema = {SENTINEL_SET_ReplySchema_elements,.length=1};
+
 /********** SENTINEL SIMULATE_FAILURE ********************/
 
 /* SENTINEL SIMULATE_FAILURE history */
@@ -5756,25 +7181,25 @@ struct redisCommandArg SENTINEL_SLAVES_Args[] = {
 
 /* SENTINEL command table */
 struct redisCommand SENTINEL_Subcommands[] = {
-{"ckquorum","Check for a Sentinel quorum",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CKQUORUM_History,SENTINEL_CKQUORUM_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_CKQUORUM_Args},
-{"config","Configure Sentinel","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CONFIG_History,SENTINEL_CONFIG_tips,sentinelCommand,-4,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_CONFIG_Args},
+{"ckquorum","Check for a Sentinel quorum",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CKQUORUM_History,SENTINEL_CKQUORUM_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_CKQUORUM_Args,.reply_schema=&SENTINEL_CKQUORUM_ReplySchema},
+{"config","Configure Sentinel","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CONFIG_History,SENTINEL_CONFIG_tips,sentinelCommand,-4,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_CONFIG_Args,.reply_schema=&SENTINEL_CONFIG_ReplySchema},
 {"debug","List or update the current configurable parameters","O(N) where N is the number of configurable parameters","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_DEBUG_History,SENTINEL_DEBUG_tips,sentinelCommand,-2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_DEBUG_Args},
-{"failover","Force a failover",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FAILOVER_History,SENTINEL_FAILOVER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_FAILOVER_Args},
-{"flushconfig","Rewrite configuration file","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FLUSHCONFIG_History,SENTINEL_FLUSHCONFIG_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"get-master-addr-by-name","Get port and address of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_GET_MASTER_ADDR_BY_NAME_History,SENTINEL_GET_MASTER_ADDR_BY_NAME_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_GET_MASTER_ADDR_BY_NAME_Args},
-{"help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_HELP_History,SENTINEL_HELP_tips,sentinelCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
+{"failover","Force a failover",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FAILOVER_History,SENTINEL_FAILOVER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_FAILOVER_Args,.reply_schema=&SENTINEL_FAILOVER_ReplySchema},
+{"flushconfig","Rewrite configuration file","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FLUSHCONFIG_History,SENTINEL_FLUSHCONFIG_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.reply_schema=&SENTINEL_FLUSHCONFIG_ReplySchema},
+{"get-master-addr-by-name","Get port and address of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_GET_MASTER_ADDR_BY_NAME_History,SENTINEL_GET_MASTER_ADDR_BY_NAME_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_GET_MASTER_ADDR_BY_NAME_Args,.reply_schema=&SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema},
+{"help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_HELP_History,SENTINEL_HELP_tips,sentinelCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.reply_schema=&SENTINEL_HELP_ReplySchema},
 {"info-cache","Get cached INFO from the instances in the deployment","O(N) where N is the number of instances","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_INFO_CACHE_History,SENTINEL_INFO_CACHE_tips,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_INFO_CACHE_Args},
-{"is-master-down-by-addr","Check if a master is down","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_IS_MASTER_DOWN_BY_ADDR_History,SENTINEL_IS_MASTER_DOWN_BY_ADDR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args},
-{"master","Shows the state of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MASTER_History,SENTINEL_MASTER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_MASTER_Args},
+{"is-master-down-by-addr","Check if a master is down","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_IS_MASTER_DOWN_BY_ADDR_History,SENTINEL_IS_MASTER_DOWN_BY_ADDR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args,.reply_schema=&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema},
+{"master","Shows the state of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MASTER_History,SENTINEL_MASTER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_MASTER_Args,.reply_schema=&SENTINEL_MASTER_ReplySchema},
 {"masters","List the monitored masters","O(N) where N is the number of masters","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MASTERS_History,SENTINEL_MASTERS_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"monitor","Start monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MONITOR_History,SENTINEL_MONITOR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_MONITOR_Args},
+{"monitor","Start monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MONITOR_History,SENTINEL_MONITOR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_MONITOR_Args,.reply_schema=&SENTINEL_MONITOR_ReplySchema},
 {"myid","Get the Sentinel instance ID","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MYID_History,SENTINEL_MYID_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
 {"pending-scripts","Get information about pending scripts",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_PENDING_SCRIPTS_History,SENTINEL_PENDING_SCRIPTS_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"remove","Stop monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REMOVE_History,SENTINEL_REMOVE_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REMOVE_Args},
-{"replicas","List the monitored replicas","O(N) where N is the number of replicas","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REPLICAS_History,SENTINEL_REPLICAS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REPLICAS_Args},
+{"remove","Stop monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REMOVE_History,SENTINEL_REMOVE_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REMOVE_Args,.reply_schema=&SENTINEL_REMOVE_ReplySchema},
+{"replicas","List the monitored replicas","O(N) where N is the number of replicas","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REPLICAS_History,SENTINEL_REPLICAS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REPLICAS_Args,.reply_schema=&SENTINEL_REPLICAS_ReplySchema},
 {"reset","Reset masters by name pattern","O(N) where N is the number of monitored masters","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_RESET_History,SENTINEL_RESET_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_RESET_Args},
 {"sentinels","List the Sentinel instances","O(N) where N is the number of Sentinels","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SENTINELS_History,SENTINEL_SENTINELS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SENTINELS_Args},
-{"set","Change the configuration of a monitored master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SET_History,SENTINEL_SET_tips,sentinelCommand,-5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SET_Args},
+{"set","Change the configuration of a monitored master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SET_History,SENTINEL_SET_tips,sentinelCommand,-5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SET_Args,.reply_schema=&SENTINEL_SET_ReplySchema},
 {"simulate-failure","Simulate failover scenarios",NULL,"3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SIMULATE_FAILURE_History,SENTINEL_SIMULATE_FAILURE_tips,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SIMULATE_FAILURE_Args},
 {"slaves","List the monitored slaves","O(N) where N is the number of slaves","2.8.0",CMD_DOC_DEPRECATED,"`SENTINEL REPLICAS`","5.0.0",COMMAND_GROUP_SENTINEL,SENTINEL_SLAVES_History,SENTINEL_SLAVES_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SLAVES_Args},
 {0}
@@ -6538,6 +7963,22 @@ struct redisCommandArg COMMAND_GETKEYSANDFLAGS_Args[] = {
 /* COMMAND HELP tips */
 #define COMMAND_HELP_tips NULL
 
+/* COMMAND_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement COMMAND_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_HELP_ReplySchema_items = {COMMAND_HELP_ReplySchema_items_elements,.length=1};
+
+/* COMMAND_HELP_ReplySchema reply schema */
+struct jsonObjectElement COMMAND_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_HELP_ReplySchema_items},
+};
+
+struct jsonObject COMMAND_HELP_ReplySchema = {COMMAND_HELP_ReplySchema_elements,.length=3};
+
 /********** COMMAND INFO ********************/
 
 /* COMMAND INFO history */
@@ -7018,7 +8459,7 @@ struct redisCommand COMMAND_Subcommands[] = {
 {"docs","Get array of specific Redis command documentation","O(N) where N is the number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_DOCS_History,COMMAND_DOCS_tips,commandDocsCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_DOCS_Args},
 {"getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYS_History,COMMAND_GETKEYS_tips,commandGetKeysCommand,-3,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_GETKEYS_Args},
 {"getkeysandflags","Extract keys and access flags given a full Redis command","O(N) where N is the number of arguments to the command","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYSANDFLAGS_History,COMMAND_GETKEYSANDFLAGS_tips,commandGetKeysAndFlagsCommand,-3,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_GETKEYSANDFLAGS_Args},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_History,COMMAND_HELP_tips,commandHelpCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
+{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_History,COMMAND_HELP_tips,commandHelpCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.reply_schema=&COMMAND_HELP_ReplySchema},
 {"info","Get array of specific Redis command details, or all when no argument is given.","O(N) where N is the number of commands to look up","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_INFO_History,COMMAND_INFO_tips,commandInfoCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_INFO_Args,.reply_schema=&COMMAND_INFO_ReplySchema},
 {"list","Get an array of Redis command names","O(N) where N is the total number of Redis commands","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_History,COMMAND_LIST_tips,commandListCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_LIST_Args,.reply_schema=&COMMAND_LIST_ReplySchema},
 {0}
@@ -7074,6 +8515,22 @@ struct jsonObject CONFIG_GET_ReplySchema = {CONFIG_GET_ReplySchema_elements,.len
 
 /* CONFIG HELP tips */
 #define CONFIG_HELP_tips NULL
+
+/* CONFIG_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement CONFIG_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject CONFIG_HELP_ReplySchema_items = {CONFIG_HELP_ReplySchema_items_elements,.length=1};
+
+/* CONFIG_HELP_ReplySchema reply schema */
+struct jsonObjectElement CONFIG_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&CONFIG_HELP_ReplySchema_items},
+};
+
+struct jsonObject CONFIG_HELP_ReplySchema = {CONFIG_HELP_ReplySchema_elements,.length=3};
 
 /********** CONFIG RESETSTAT ********************/
 
@@ -7143,7 +8600,7 @@ struct jsonObject CONFIG_SET_ReplySchema = {CONFIG_SET_ReplySchema_elements,.len
 /* CONFIG command table */
 struct redisCommand CONFIG_Subcommands[] = {
 {"get","Get the values of configuration parameters","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_GET_History,CONFIG_GET_tips,configGetCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=CONFIG_GET_Args,.reply_schema=&CONFIG_GET_ReplySchema},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_HELP_History,CONFIG_HELP_tips,configHelpCommand,2,CMD_LOADING|CMD_STALE,0},
+{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_HELP_History,CONFIG_HELP_tips,configHelpCommand,2,CMD_LOADING|CMD_STALE,0,.reply_schema=&CONFIG_HELP_ReplySchema},
 {"resetstat","Reset the stats returned by INFO","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,CONFIG_RESETSTAT_tips,configResetStatCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.reply_schema=&CONFIG_RESETSTAT_ReplySchema},
 {"rewrite","Rewrite the configuration file with the in memory configuration","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,CONFIG_REWRITE_tips,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.reply_schema=&CONFIG_REWRITE_ReplySchema},
 {"set","Set configuration parameters to the given values","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_SET_History,CONFIG_SET_tips,configSetCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=CONFIG_SET_Args,.reply_schema=&CONFIG_SET_ReplySchema},
@@ -7210,6 +8667,13 @@ struct redisCommandArg FAILOVER_Args[] = {
 {0}
 };
 
+/* FAILOVER_ReplySchema reply schema */
+struct jsonObjectElement FAILOVER_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject FAILOVER_ReplySchema = {FAILOVER_ReplySchema_elements,.length=1};
+
 /********** FLUSHALL ********************/
 
 /* FLUSHALL history */
@@ -7275,6 +8739,13 @@ struct redisCommandArg FLUSHDB_Args[] = {
 {0}
 };
 
+/* FLUSHDB_ReplySchema reply schema */
+struct jsonObjectElement FLUSHDB_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject FLUSHDB_ReplySchema = {FLUSHDB_ReplySchema_elements,.length=1};
+
 /********** INFO ********************/
 
 /* INFO history */
@@ -7314,6 +8785,14 @@ const char *LASTSAVE_tips[] = {
 "nondeterministic_output",
 NULL
 };
+
+/* LASTSAVE_ReplySchema reply schema */
+struct jsonObjectElement LASTSAVE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="UNIX TIME of the last DB save executed with success."},
+};
+
+struct jsonObject LASTSAVE_ReplySchema = {LASTSAVE_ReplySchema_elements,.length=2};
 
 /********** LATENCY DOCTOR ********************/
 
@@ -7363,6 +8842,22 @@ struct redisCommandArg LATENCY_GRAPH_Args[] = {
 /* LATENCY HELP tips */
 #define LATENCY_HELP_tips NULL
 
+/* LATENCY_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement LATENCY_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject LATENCY_HELP_ReplySchema_items = {LATENCY_HELP_ReplySchema_items_elements,.length=1};
+
+/* LATENCY_HELP_ReplySchema reply schema */
+struct jsonObjectElement LATENCY_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&LATENCY_HELP_ReplySchema_items},
+};
+
+struct jsonObject LATENCY_HELP_ReplySchema = {LATENCY_HELP_ReplySchema_elements,.length=3};
+
 /********** LATENCY HISTOGRAM ********************/
 
 /* LATENCY HISTOGRAM history */
@@ -7400,7 +8895,7 @@ struct jsonObject LATENCY_HISTOGRAM_ReplySchema_patternProperties______propertie
 
 /* LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec reply schema */
 struct jsonObjectElement LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Histogram map."},
+{JSON_TYPE_STRING,"description",.value.string="Histogram map, bucket id to latency"},
 {JSON_TYPE_STRING,"type",.value.string="object"},
 {JSON_TYPE_OBJECT,"additionalProperties",.value.object=&LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_histogram_usec_additionalProperties},
 };
@@ -7459,21 +8954,38 @@ struct redisCommandArg LATENCY_HISTORY_Args[] = {
 {0}
 };
 
-/* LATENCY_HISTORY_ReplySchema_items_items reply schema */
-struct jsonObjectElement LATENCY_HISTORY_ReplySchema_items_items_elements[] = {
+/* LATENCY_HISTORY_ReplySchema_items_items_0 reply schema */
+struct jsonObjectElement LATENCY_HISTORY_ReplySchema_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="timestamp of the event"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 {JSON_TYPE_INTEGER,"minimum",.value.integer=0},
 };
 
-struct jsonObject LATENCY_HISTORY_ReplySchema_items_items = {LATENCY_HISTORY_ReplySchema_items_items_elements,.length=2};
+struct jsonObject LATENCY_HISTORY_ReplySchema_items_items_0 = {LATENCY_HISTORY_ReplySchema_items_items_0_elements,.length=3};
+
+/* LATENCY_HISTORY_ReplySchema_items_items_1 reply schema */
+struct jsonObjectElement LATENCY_HISTORY_ReplySchema_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="latency of the event"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject LATENCY_HISTORY_ReplySchema_items_items_1 = {LATENCY_HISTORY_ReplySchema_items_items_1_elements,.length=3};
+
+/* LATENCY_HISTORY_ReplySchema_items_items array reply schema */
+struct jsonObject *LATENCY_HISTORY_ReplySchema_items_items[] = {
+&LATENCY_HISTORY_ReplySchema_items_items_0,
+&LATENCY_HISTORY_ReplySchema_items_items_1,
+};
 
 /* LATENCY_HISTORY_ReplySchema_items reply schema */
 struct jsonObjectElement LATENCY_HISTORY_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_OBJECT,"items",.value.object=&LATENCY_HISTORY_ReplySchema_items_items},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=LATENCY_HISTORY_ReplySchema_items_items,.length=2}},
 };
 
-struct jsonObject LATENCY_HISTORY_ReplySchema_items = {LATENCY_HISTORY_ReplySchema_items_elements,.length=2};
+struct jsonObject LATENCY_HISTORY_ReplySchema_items = {LATENCY_HISTORY_ReplySchema_items_elements,.length=3};
 
 /* LATENCY_HISTORY_ReplySchema reply schema */
 struct jsonObjectElement LATENCY_HISTORY_ReplySchema_elements[] = {
@@ -7540,12 +9052,11 @@ struct jsonObject *LATENCY_LATEST_ReplySchema_items_items[] = {
 /* LATENCY_LATEST_ReplySchema_items reply schema */
 struct jsonObjectElement LATENCY_LATEST_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
 {JSON_TYPE_ARRAY,"items",.value.array={.objects=LATENCY_LATEST_ReplySchema_items_items,.length=4}},
 {JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
 };
 
-struct jsonObject LATENCY_LATEST_ReplySchema_items = {LATENCY_LATEST_ReplySchema_items_elements,.length=4};
+struct jsonObject LATENCY_LATEST_ReplySchema_items = {LATENCY_LATEST_ReplySchema_items_elements,.length=3};
 
 /* LATENCY_LATEST_ReplySchema reply schema */
 struct jsonObjectElement LATENCY_LATEST_ReplySchema_elements[] = {
@@ -7586,7 +9097,7 @@ struct jsonObject LATENCY_RESET_ReplySchema = {LATENCY_RESET_ReplySchema_element
 struct redisCommand LATENCY_Subcommands[] = {
 {"doctor","Return a human readable latency analysis report.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_DOCTOR_History,LATENCY_DOCTOR_tips,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.reply_schema=&LATENCY_DOCTOR_ReplySchema},
 {"graph","Return a latency graph for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_GRAPH_History,LATENCY_GRAPH_tips,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_GRAPH_Args},
-{"help","Show helpful text about the different subcommands.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HELP_History,LATENCY_HELP_tips,latencyCommand,2,CMD_LOADING|CMD_STALE,0},
+{"help","Show helpful text about the different subcommands.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HELP_History,LATENCY_HELP_tips,latencyCommand,2,CMD_LOADING|CMD_STALE,0,.reply_schema=&LATENCY_HELP_ReplySchema},
 {"histogram","Return the cumulative distribution of latencies of a subset of commands or all.","O(N) where N is the number of commands with latency information being retrieved.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTOGRAM_History,LATENCY_HISTOGRAM_tips,latencyCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTOGRAM_Args,.reply_schema=&LATENCY_HISTOGRAM_ReplySchema},
 {"history","Return timestamp-latency samples for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTORY_History,LATENCY_HISTORY_tips,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTORY_Args,.reply_schema=&LATENCY_HISTORY_ReplySchema},
 {"latest","Return the latest latency samples for all events.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_LATEST_History,LATENCY_LATEST_tips,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.reply_schema=&LATENCY_LATEST_ReplySchema},
@@ -7616,6 +9127,14 @@ struct redisCommandArg LOLWUT_Args[] = {
 {0}
 };
 
+/* LOLWUT_ReplySchema reply schema */
+struct jsonObjectElement LOLWUT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="String containing the generative computer art, and a text with the Redis version."},
+};
+
+struct jsonObject LOLWUT_ReplySchema = {LOLWUT_ReplySchema_elements,.length=2};
+
 /********** MEMORY DOCTOR ********************/
 
 /* MEMORY DOCTOR history */
@@ -7637,6 +9156,22 @@ NULL
 /* MEMORY HELP tips */
 #define MEMORY_HELP_tips NULL
 
+/* MEMORY_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement MEMORY_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject MEMORY_HELP_ReplySchema_items = {MEMORY_HELP_ReplySchema_items_elements,.length=1};
+
+/* MEMORY_HELP_ReplySchema reply schema */
+struct jsonObjectElement MEMORY_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&MEMORY_HELP_ReplySchema_items},
+};
+
+struct jsonObject MEMORY_HELP_ReplySchema = {MEMORY_HELP_ReplySchema_elements,.length=3};
+
 /********** MEMORY MALLOC_STATS ********************/
 
 /* MEMORY MALLOC_STATS history */
@@ -7650,6 +9185,14 @@ const char *MEMORY_MALLOC_STATS_tips[] = {
 NULL
 };
 
+/* MEMORY_MALLOC_STATS_ReplySchema reply schema */
+struct jsonObjectElement MEMORY_MALLOC_STATS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The memory allocator's internal statistics report."},
+};
+
+struct jsonObject MEMORY_MALLOC_STATS_ReplySchema = {MEMORY_MALLOC_STATS_ReplySchema_elements,.length=2};
+
 /********** MEMORY PURGE ********************/
 
 /* MEMORY PURGE history */
@@ -7661,6 +9204,13 @@ const char *MEMORY_PURGE_tips[] = {
 "response_policy:all_succeeded",
 NULL
 };
+
+/* MEMORY_PURGE_ReplySchema reply schema */
+struct jsonObjectElement MEMORY_PURGE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject MEMORY_PURGE_ReplySchema = {MEMORY_PURGE_ReplySchema_elements,.length=1};
 
 /********** MEMORY STATS ********************/
 
@@ -7690,14 +9240,43 @@ struct redisCommandArg MEMORY_USAGE_Args[] = {
 {0}
 };
 
+/* MEMORY_USAGE_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement MEMORY_USAGE_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Number of bytes that a key and its value require to be stored in RAM."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject MEMORY_USAGE_ReplySchema_oneOf_0 = {MEMORY_USAGE_ReplySchema_oneOf_0_elements,.length=2};
+
+/* MEMORY_USAGE_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement MEMORY_USAGE_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Key does not exist."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject MEMORY_USAGE_ReplySchema_oneOf_1 = {MEMORY_USAGE_ReplySchema_oneOf_1_elements,.length=2};
+
+/* MEMORY_USAGE_ReplySchema_oneOf array reply schema */
+struct jsonObject *MEMORY_USAGE_ReplySchema_oneOf[] = {
+&MEMORY_USAGE_ReplySchema_oneOf_0,
+&MEMORY_USAGE_ReplySchema_oneOf_1,
+};
+
+/* MEMORY_USAGE_ReplySchema reply schema */
+struct jsonObjectElement MEMORY_USAGE_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=MEMORY_USAGE_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject MEMORY_USAGE_ReplySchema = {MEMORY_USAGE_ReplySchema_elements,.length=1};
+
 /* MEMORY command table */
 struct redisCommand MEMORY_Subcommands[] = {
 {"doctor","Outputs memory problems report","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_DOCTOR_History,MEMORY_DOCTOR_tips,memoryCommand,2,0,0},
-{"help","Show helpful text about the different subcommands","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_HELP_History,MEMORY_HELP_tips,memoryCommand,2,CMD_LOADING|CMD_STALE,0},
-{"malloc-stats","Show allocator internal stats","Depends on how much memory is allocated, could be slow","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_MALLOC_STATS_History,MEMORY_MALLOC_STATS_tips,memoryCommand,2,0,0},
-{"purge","Ask the allocator to release memory","Depends on how much memory is allocated, could be slow","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_PURGE_History,MEMORY_PURGE_tips,memoryCommand,2,0,0},
+{"help","Show helpful text about the different subcommands","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_HELP_History,MEMORY_HELP_tips,memoryCommand,2,CMD_LOADING|CMD_STALE,0,.reply_schema=&MEMORY_HELP_ReplySchema},
+{"malloc-stats","Show allocator internal stats","Depends on how much memory is allocated, could be slow","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_MALLOC_STATS_History,MEMORY_MALLOC_STATS_tips,memoryCommand,2,0,0,.reply_schema=&MEMORY_MALLOC_STATS_ReplySchema},
+{"purge","Ask the allocator to release memory","Depends on how much memory is allocated, could be slow","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_PURGE_History,MEMORY_PURGE_tips,memoryCommand,2,0,0,.reply_schema=&MEMORY_PURGE_ReplySchema},
 {"stats","Show memory usage details","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_STATS_History,MEMORY_STATS_tips,memoryCommand,2,0,0},
-{"usage","Estimate the memory usage of a key","O(N) where N is the number of samples.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_USAGE_History,MEMORY_USAGE_tips,memoryCommand,-3,CMD_READONLY,0,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MEMORY_USAGE_Args},
+{"usage","Estimate the memory usage of a key","O(N) where N is the number of samples.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_USAGE_History,MEMORY_USAGE_tips,memoryCommand,-3,CMD_READONLY,0,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MEMORY_USAGE_Args,.reply_schema=&MEMORY_USAGE_ReplySchema},
 {0}
 };
 
@@ -7716,6 +9295,22 @@ struct redisCommand MEMORY_Subcommands[] = {
 
 /* MODULE HELP tips */
 #define MODULE_HELP_tips NULL
+
+/* MODULE_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement MODULE_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject MODULE_HELP_ReplySchema_items = {MODULE_HELP_ReplySchema_items_elements,.length=1};
+
+/* MODULE_HELP_ReplySchema reply schema */
+struct jsonObjectElement MODULE_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&MODULE_HELP_ReplySchema_items},
+};
+
+struct jsonObject MODULE_HELP_ReplySchema = {MODULE_HELP_ReplySchema_elements,.length=3};
 
 /********** MODULE LIST ********************/
 
@@ -7870,7 +9465,7 @@ struct jsonObject MODULE_UNLOAD_ReplySchema = {MODULE_UNLOAD_ReplySchema_element
 
 /* MODULE command table */
 struct redisCommand MODULE_Subcommands[] = {
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_HELP_History,MODULE_HELP_tips,moduleCommand,2,CMD_LOADING|CMD_STALE,0},
+{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_HELP_History,MODULE_HELP_tips,moduleCommand,2,CMD_LOADING|CMD_STALE,0,.reply_schema=&MODULE_HELP_ReplySchema},
 {"list","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LIST_History,MODULE_LIST_tips,moduleCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,.reply_schema=&MODULE_LIST_ReplySchema},
 {"load","Load a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOAD_History,MODULE_LOAD_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOAD_Args,.reply_schema=&MODULE_LOAD_ReplySchema},
 {"loadex","Load a module with extended parameters","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOADEX_History,MODULE_LOADEX_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOADEX_Args,.reply_schema=&MODULE_LOADEX_ReplySchema},
@@ -8157,10 +9752,11 @@ struct jsonObject SLOWLOG_GET_ReplySchema_items = {SLOWLOG_GET_ReplySchema_items
 struct jsonObjectElement SLOWLOG_GET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_STRING,"description",.value.string="Entries from the slow log in chronological order."},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
 {JSON_TYPE_OBJECT,"items",.value.object=&SLOWLOG_GET_ReplySchema_items},
 };
 
-struct jsonObject SLOWLOG_GET_ReplySchema = {SLOWLOG_GET_ReplySchema_elements,.length=3};
+struct jsonObject SLOWLOG_GET_ReplySchema = {SLOWLOG_GET_ReplySchema_elements,.length=4};
 
 /********** SLOWLOG HELP ********************/
 
@@ -8169,6 +9765,22 @@ struct jsonObject SLOWLOG_GET_ReplySchema = {SLOWLOG_GET_ReplySchema_elements,.l
 
 /* SLOWLOG HELP tips */
 #define SLOWLOG_HELP_tips NULL
+
+/* SLOWLOG_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement SLOWLOG_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SLOWLOG_HELP_ReplySchema_items = {SLOWLOG_HELP_ReplySchema_items_elements,.length=1};
+
+/* SLOWLOG_HELP_ReplySchema reply schema */
+struct jsonObjectElement SLOWLOG_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SLOWLOG_HELP_ReplySchema_items},
+};
+
+struct jsonObject SLOWLOG_HELP_ReplySchema = {SLOWLOG_HELP_ReplySchema_elements,.length=3};
 
 /********** SLOWLOG LEN ********************/
 
@@ -8214,7 +9826,7 @@ struct jsonObject SLOWLOG_RESET_ReplySchema = {SLOWLOG_RESET_ReplySchema_element
 /* SLOWLOG command table */
 struct redisCommand SLOWLOG_Subcommands[] = {
 {"get","Get the slow log's entries","O(N) where N is the number of entries returned","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_GET_History,SLOWLOG_GET_tips,slowlogCommand,-2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,.args=SLOWLOG_GET_Args,.reply_schema=&SLOWLOG_GET_ReplySchema},
-{"help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_HELP_History,SLOWLOG_HELP_tips,slowlogCommand,2,CMD_LOADING|CMD_STALE,0},
+{"help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_HELP_History,SLOWLOG_HELP_tips,slowlogCommand,2,CMD_LOADING|CMD_STALE,0,.reply_schema=&SLOWLOG_HELP_ReplySchema},
 {"len","Get the slow log's length","O(1)","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_LEN_History,SLOWLOG_LEN_tips,slowlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,.reply_schema=&SLOWLOG_LEN_ReplySchema},
 {"reset","Clear all entries from the slow log","O(N) where N is the number of entries in the slowlog","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_RESET_History,SLOWLOG_RESET_tips,slowlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,.reply_schema=&SLOWLOG_RESET_ReplySchema},
 {0}
@@ -8269,6 +9881,25 @@ const char *TIME_tips[] = {
 NULL
 };
 
+/* TIME_ReplySchema_items reply schema */
+struct jsonObjectElement TIME_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+"},
+};
+
+struct jsonObject TIME_ReplySchema_items = {TIME_ReplySchema_items_elements,.length=2};
+
+/* TIME_ReplySchema reply schema */
+struct jsonObjectElement TIME_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Array containing two elements: Unix time in seconds and microseconds."},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_OBJECT,"items",.value.object=&TIME_ReplySchema_items},
+};
+
+struct jsonObject TIME_ReplySchema = {TIME_ReplySchema_elements,.length=5};
+
 /********** SADD ********************/
 
 /* SADD history */
@@ -8309,6 +9940,15 @@ struct redisCommandArg SCARD_Args[] = {
 {0}
 };
 
+/* SCARD_ReplySchema reply schema */
+struct jsonObjectElement SCARD_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The cardinality (number of elements) of the set, or 0 if key does not exist."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SCARD_ReplySchema = {SCARD_ReplySchema_elements,.length=3};
+
 /********** SDIFF ********************/
 
 /* SDIFF history */
@@ -8326,6 +9966,23 @@ struct redisCommandArg SDIFF_Args[] = {
 {0}
 };
 
+/* SDIFF_ReplySchema_items reply schema */
+struct jsonObjectElement SDIFF_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SDIFF_ReplySchema_items = {SDIFF_ReplySchema_items_elements,.length=1};
+
+/* SDIFF_ReplySchema reply schema */
+struct jsonObjectElement SDIFF_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List with the members of the resulting set."},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&SDIFF_ReplySchema_items},
+};
+
+struct jsonObject SDIFF_ReplySchema = {SDIFF_ReplySchema_elements,.length=4};
+
 /********** SDIFFSTORE ********************/
 
 /* SDIFFSTORE history */
@@ -8340,6 +9997,15 @@ struct redisCommandArg SDIFFSTORE_Args[] = {
 {"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* SDIFFSTORE_ReplySchema reply schema */
+struct jsonObjectElement SDIFFSTORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Number of the elements in the resulting set."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SDIFFSTORE_ReplySchema = {SDIFFSTORE_ReplySchema_elements,.length=3};
 
 /********** SINTER ********************/
 
@@ -8358,6 +10024,23 @@ struct redisCommandArg SINTER_Args[] = {
 {0}
 };
 
+/* SINTER_ReplySchema_items reply schema */
+struct jsonObjectElement SINTER_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SINTER_ReplySchema_items = {SINTER_ReplySchema_items_elements,.length=1};
+
+/* SINTER_ReplySchema reply schema */
+struct jsonObjectElement SINTER_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List with the members of the resulting set."},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&SINTER_ReplySchema_items},
+};
+
+struct jsonObject SINTER_ReplySchema = {SINTER_ReplySchema_elements,.length=4};
+
 /********** SINTERCARD ********************/
 
 /* SINTERCARD history */
@@ -8374,6 +10057,15 @@ struct redisCommandArg SINTERCARD_Args[] = {
 {0}
 };
 
+/* SINTERCARD_ReplySchema reply schema */
+struct jsonObjectElement SINTERCARD_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Number of the elements in the resulting intersection."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SINTERCARD_ReplySchema = {SINTERCARD_ReplySchema_elements,.length=3};
+
 /********** SINTERSTORE ********************/
 
 /* SINTERSTORE history */
@@ -8389,6 +10081,15 @@ struct redisCommandArg SINTERSTORE_Args[] = {
 {0}
 };
 
+/* SINTERSTORE_ReplySchema reply schema */
+struct jsonObjectElement SINTERSTORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Number of the elements in the result set."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SINTERSTORE_ReplySchema = {SINTERSTORE_ReplySchema_elements,.length=3};
+
 /********** SISMEMBER ********************/
 
 /* SISMEMBER history */
@@ -8403,6 +10104,35 @@ struct redisCommandArg SISMEMBER_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SISMEMBER_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement SISMEMBER_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+{JSON_TYPE_STRING,"description",.value.string="The element is not a member of the set, or the key does not exist."},
+};
+
+struct jsonObject SISMEMBER_ReplySchema_oneOf_0 = {SISMEMBER_ReplySchema_oneOf_0_elements,.length=2};
+
+/* SISMEMBER_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement SISMEMBER_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+{JSON_TYPE_STRING,"description",.value.string="The element is a member of the set."},
+};
+
+struct jsonObject SISMEMBER_ReplySchema_oneOf_1 = {SISMEMBER_ReplySchema_oneOf_1_elements,.length=2};
+
+/* SISMEMBER_ReplySchema_oneOf array reply schema */
+struct jsonObject *SISMEMBER_ReplySchema_oneOf[] = {
+&SISMEMBER_ReplySchema_oneOf_0,
+&SISMEMBER_ReplySchema_oneOf_1,
+};
+
+/* SISMEMBER_ReplySchema reply schema */
+struct jsonObjectElement SISMEMBER_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SISMEMBER_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject SISMEMBER_ReplySchema = {SISMEMBER_ReplySchema_elements,.length=1};
 
 /********** SMEMBERS ********************/
 
@@ -8421,6 +10151,22 @@ struct redisCommandArg SMEMBERS_Args[] = {
 {0}
 };
 
+/* SMEMBERS_ReplySchema_items reply schema */
+struct jsonObjectElement SMEMBERS_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SMEMBERS_ReplySchema_items = {SMEMBERS_ReplySchema_items_elements,.length=1};
+
+/* SMEMBERS_ReplySchema reply schema */
+struct jsonObjectElement SMEMBERS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="All elements of the set."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SMEMBERS_ReplySchema_items},
+};
+
+struct jsonObject SMEMBERS_ReplySchema = {SMEMBERS_ReplySchema_elements,.length=3};
+
 /********** SMISMEMBER ********************/
 
 /* SMISMEMBER history */
@@ -8435,6 +10181,45 @@ struct redisCommandArg SMISMEMBER_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* SMISMEMBER_ReplySchema_items_oneOf_0 reply schema */
+struct jsonObjectElement SMISMEMBER_ReplySchema_items_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+{JSON_TYPE_STRING,"description",.value.string="Not a member of the set or the key does not exist."},
+};
+
+struct jsonObject SMISMEMBER_ReplySchema_items_oneOf_0 = {SMISMEMBER_ReplySchema_items_oneOf_0_elements,.length=2};
+
+/* SMISMEMBER_ReplySchema_items_oneOf_1 reply schema */
+struct jsonObjectElement SMISMEMBER_ReplySchema_items_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+{JSON_TYPE_STRING,"description",.value.string="A member of the set."},
+};
+
+struct jsonObject SMISMEMBER_ReplySchema_items_oneOf_1 = {SMISMEMBER_ReplySchema_items_oneOf_1_elements,.length=2};
+
+/* SMISMEMBER_ReplySchema_items_oneOf array reply schema */
+struct jsonObject *SMISMEMBER_ReplySchema_items_oneOf[] = {
+&SMISMEMBER_ReplySchema_items_oneOf_0,
+&SMISMEMBER_ReplySchema_items_oneOf_1,
+};
+
+/* SMISMEMBER_ReplySchema_items reply schema */
+struct jsonObjectElement SMISMEMBER_ReplySchema_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SMISMEMBER_ReplySchema_items_oneOf,.length=2}},
+};
+
+struct jsonObject SMISMEMBER_ReplySchema_items = {SMISMEMBER_ReplySchema_items_elements,.length=1};
+
+/* SMISMEMBER_ReplySchema reply schema */
+struct jsonObjectElement SMISMEMBER_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List representing the membership of the given elements, in the same order as they are requested."},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&SMISMEMBER_ReplySchema_items},
+};
+
+struct jsonObject SMISMEMBER_ReplySchema = {SMISMEMBER_ReplySchema_elements,.length=4};
 
 /********** SMOVE ********************/
 
@@ -8451,6 +10236,35 @@ struct redisCommandArg SMOVE_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SMOVE_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement SMOVE_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+{JSON_TYPE_STRING,"description",.value.string="Element is moved."},
+};
+
+struct jsonObject SMOVE_ReplySchema_oneOf_0 = {SMOVE_ReplySchema_oneOf_0_elements,.length=2};
+
+/* SMOVE_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement SMOVE_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+{JSON_TYPE_STRING,"description",.value.string="The element is not a member of source and no operation was performed."},
+};
+
+struct jsonObject SMOVE_ReplySchema_oneOf_1 = {SMOVE_ReplySchema_oneOf_1_elements,.length=2};
+
+/* SMOVE_ReplySchema_oneOf array reply schema */
+struct jsonObject *SMOVE_ReplySchema_oneOf[] = {
+&SMOVE_ReplySchema_oneOf_0,
+&SMOVE_ReplySchema_oneOf_1,
+};
+
+/* SMOVE_ReplySchema reply schema */
+struct jsonObjectElement SMOVE_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SMOVE_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject SMOVE_ReplySchema = {SMOVE_ReplySchema_elements,.length=1};
 
 /********** SPOP ********************/
 
@@ -8472,6 +10286,53 @@ struct redisCommandArg SPOP_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"3.2.0",CMD_ARG_OPTIONAL},
 {0}
 };
+
+/* SPOP_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement SPOP_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="The key does not exist."},
+};
+
+struct jsonObject SPOP_ReplySchema_oneOf_0 = {SPOP_ReplySchema_oneOf_0_elements,.length=2};
+
+/* SPOP_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement SPOP_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The removed member when 'COUNT' is not given."},
+};
+
+struct jsonObject SPOP_ReplySchema_oneOf_1 = {SPOP_ReplySchema_oneOf_1_elements,.length=2};
+
+/* SPOP_ReplySchema_oneOf_2_items reply schema */
+struct jsonObjectElement SPOP_ReplySchema_oneOf_2_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SPOP_ReplySchema_oneOf_2_items = {SPOP_ReplySchema_oneOf_2_items_elements,.length=1};
+
+/* SPOP_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement SPOP_ReplySchema_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List to the removed members when 'COUNT' is given."},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&SPOP_ReplySchema_oneOf_2_items},
+};
+
+struct jsonObject SPOP_ReplySchema_oneOf_2 = {SPOP_ReplySchema_oneOf_2_elements,.length=4};
+
+/* SPOP_ReplySchema_oneOf array reply schema */
+struct jsonObject *SPOP_ReplySchema_oneOf[] = {
+&SPOP_ReplySchema_oneOf_0,
+&SPOP_ReplySchema_oneOf_1,
+&SPOP_ReplySchema_oneOf_2,
+};
+
+/* SPOP_ReplySchema reply schema */
+struct jsonObjectElement SPOP_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SPOP_ReplySchema_oneOf,.length=3}},
+};
+
+struct jsonObject SPOP_ReplySchema = {SPOP_ReplySchema_elements,.length=1};
 
 /********** SRANDMEMBER ********************/
 
@@ -8569,6 +10430,15 @@ struct redisCommandArg SREM_Args[] = {
 {0}
 };
 
+/* SREM_ReplySchema reply schema */
+struct jsonObjectElement SREM_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Number of members that were removed from the set, not including non existing members."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SREM_ReplySchema = {SREM_ReplySchema_elements,.length=3};
+
 /********** SSCAN ********************/
 
 /* SSCAN history */
@@ -8589,6 +10459,45 @@ struct redisCommandArg SSCAN_Args[] = {
 {0}
 };
 
+/* SSCAN_ReplySchema_items_0 reply schema */
+struct jsonObjectElement SSCAN_ReplySchema_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="cursor"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SSCAN_ReplySchema_items_0 = {SSCAN_ReplySchema_items_0_elements,.length=2};
+
+/* SSCAN_ReplySchema_items_1_items reply schema */
+struct jsonObjectElement SSCAN_ReplySchema_items_1_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SSCAN_ReplySchema_items_1_items = {SSCAN_ReplySchema_items_1_items_elements,.length=1};
+
+/* SSCAN_ReplySchema_items_1 reply schema */
+struct jsonObjectElement SSCAN_ReplySchema_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="list of set members"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&SSCAN_ReplySchema_items_1_items},
+};
+
+struct jsonObject SSCAN_ReplySchema_items_1 = {SSCAN_ReplySchema_items_1_elements,.length=3};
+
+/* SSCAN_ReplySchema_items array reply schema */
+struct jsonObject *SSCAN_ReplySchema_items[] = {
+&SSCAN_ReplySchema_items_0,
+&SSCAN_ReplySchema_items_1,
+};
+
+/* SSCAN_ReplySchema reply schema */
+struct jsonObjectElement SSCAN_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="cursor and scan response in array form"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=SSCAN_ReplySchema_items,.length=2}},
+};
+
+struct jsonObject SSCAN_ReplySchema = {SSCAN_ReplySchema_elements,.length=3};
+
 /********** SUNION ********************/
 
 /* SUNION history */
@@ -8606,6 +10515,23 @@ struct redisCommandArg SUNION_Args[] = {
 {0}
 };
 
+/* SUNION_ReplySchema_items reply schema */
+struct jsonObjectElement SUNION_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SUNION_ReplySchema_items = {SUNION_ReplySchema_items_elements,.length=1};
+
+/* SUNION_ReplySchema reply schema */
+struct jsonObjectElement SUNION_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List with the members of the resulting set."},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&SUNION_ReplySchema_items},
+};
+
+struct jsonObject SUNION_ReplySchema = {SUNION_ReplySchema_elements,.length=4};
+
 /********** SUNIONSTORE ********************/
 
 /* SUNIONSTORE history */
@@ -8620,6 +10546,15 @@ struct redisCommandArg SUNIONSTORE_Args[] = {
 {"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* SUNIONSTORE_ReplySchema reply schema */
+struct jsonObjectElement SUNIONSTORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Number of the elements in the resulting set."},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SUNIONSTORE_ReplySchema = {SUNIONSTORE_ReplySchema_elements,.length=3};
 
 /********** BZMPOP ********************/
 
@@ -9282,6 +11217,15 @@ struct redisCommandArg ZINTERCARD_Args[] = {
 {0}
 };
 
+/* ZINTERCARD_ReplySchema reply schema */
+struct jsonObjectElement ZINTERCARD_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Number of elements in the resulting intersection."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject ZINTERCARD_ReplySchema = {ZINTERCARD_ReplySchema_elements,.length=3};
+
 /********** ZINTERSTORE ********************/
 
 /* ZINTERSTORE history */
@@ -9308,6 +11252,15 @@ struct redisCommandArg ZINTERSTORE_Args[] = {
 {0}
 };
 
+/* ZINTERSTORE_ReplySchema reply schema */
+struct jsonObjectElement ZINTERSTORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Number of elements in the resulting sorted set."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject ZINTERSTORE_ReplySchema = {ZINTERSTORE_ReplySchema_elements,.length=3};
+
 /********** ZLEXCOUNT ********************/
 
 /* ZLEXCOUNT history */
@@ -9323,6 +11276,15 @@ struct redisCommandArg ZLEXCOUNT_Args[] = {
 {"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* ZLEXCOUNT_ReplySchema reply schema */
+struct jsonObjectElement ZLEXCOUNT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Number of elements in the specified score range."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject ZLEXCOUNT_ReplySchema = {ZLEXCOUNT_ReplySchema_elements,.length=3};
 
 /********** ZMPOP ********************/
 
@@ -9348,6 +11310,93 @@ struct redisCommandArg ZMPOP_Args[] = {
 {0}
 };
 
+/* ZMPOP_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement ZMPOP_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="No element could be popped."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject ZMPOP_ReplySchema_oneOf_0 = {ZMPOP_ReplySchema_oneOf_0_elements,.length=2};
+
+/* ZMPOP_ReplySchema_oneOf_1_items_0 reply schema */
+struct jsonObjectElement ZMPOP_ReplySchema_oneOf_1_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Name of the key that elements were popped."},
+};
+
+struct jsonObject ZMPOP_ReplySchema_oneOf_1_items_0 = {ZMPOP_ReplySchema_oneOf_1_items_0_elements,.length=2};
+
+/* ZMPOP_ReplySchema_oneOf_1_items_1_items_items_0 reply schema */
+struct jsonObjectElement ZMPOP_ReplySchema_oneOf_1_items_1_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Name of the member."},
+};
+
+struct jsonObject ZMPOP_ReplySchema_oneOf_1_items_1_items_items_0 = {ZMPOP_ReplySchema_oneOf_1_items_1_items_items_0_elements,.length=2};
+
+/* ZMPOP_ReplySchema_oneOf_1_items_1_items_items_1 reply schema */
+struct jsonObjectElement ZMPOP_ReplySchema_oneOf_1_items_1_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score."},
+};
+
+struct jsonObject ZMPOP_ReplySchema_oneOf_1_items_1_items_items_1 = {ZMPOP_ReplySchema_oneOf_1_items_1_items_items_1_elements,.length=2};
+
+/* ZMPOP_ReplySchema_oneOf_1_items_1_items_items array reply schema */
+struct jsonObject *ZMPOP_ReplySchema_oneOf_1_items_1_items_items[] = {
+&ZMPOP_ReplySchema_oneOf_1_items_1_items_items_0,
+&ZMPOP_ReplySchema_oneOf_1_items_1_items_items_1,
+};
+
+/* ZMPOP_ReplySchema_oneOf_1_items_1_items reply schema */
+struct jsonObjectElement ZMPOP_ReplySchema_oneOf_1_items_1_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZMPOP_ReplySchema_oneOf_1_items_1_items_items,.length=2}},
+};
+
+struct jsonObject ZMPOP_ReplySchema_oneOf_1_items_1_items = {ZMPOP_ReplySchema_oneOf_1_items_1_items_elements,.length=4};
+
+/* ZMPOP_ReplySchema_oneOf_1_items_1 reply schema */
+struct jsonObjectElement ZMPOP_ReplySchema_oneOf_1_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Popped elements."},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZMPOP_ReplySchema_oneOf_1_items_1_items},
+};
+
+struct jsonObject ZMPOP_ReplySchema_oneOf_1_items_1 = {ZMPOP_ReplySchema_oneOf_1_items_1_elements,.length=3};
+
+/* ZMPOP_ReplySchema_oneOf_1_items array reply schema */
+struct jsonObject *ZMPOP_ReplySchema_oneOf_1_items[] = {
+&ZMPOP_ReplySchema_oneOf_1_items_0,
+&ZMPOP_ReplySchema_oneOf_1_items_1,
+};
+
+/* ZMPOP_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement ZMPOP_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZMPOP_ReplySchema_oneOf_1_items,.length=2}},
+};
+
+struct jsonObject ZMPOP_ReplySchema_oneOf_1 = {ZMPOP_ReplySchema_oneOf_1_elements,.length=5};
+
+/* ZMPOP_ReplySchema_oneOf array reply schema */
+struct jsonObject *ZMPOP_ReplySchema_oneOf[] = {
+&ZMPOP_ReplySchema_oneOf_0,
+&ZMPOP_ReplySchema_oneOf_1,
+};
+
+/* ZMPOP_ReplySchema reply schema */
+struct jsonObjectElement ZMPOP_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=ZMPOP_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject ZMPOP_ReplySchema = {ZMPOP_ReplySchema_elements,.length=1};
+
 /********** ZMSCORE ********************/
 
 /* ZMSCORE history */
@@ -9362,6 +11411,45 @@ struct redisCommandArg ZMSCORE_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* ZMSCORE_ReplySchema_items_oneOf_0 reply schema */
+struct jsonObjectElement ZMSCORE_ReplySchema_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+{JSON_TYPE_STRING,"notes",.value.string="In RESP2, this is returned as string."},
+{JSON_TYPE_STRING,"description",.value.string="The score of the member (a double precision floating point number)."},
+};
+
+struct jsonObject ZMSCORE_ReplySchema_items_oneOf_0 = {ZMSCORE_ReplySchema_items_oneOf_0_elements,.length=3};
+
+/* ZMSCORE_ReplySchema_items_oneOf_1 reply schema */
+struct jsonObjectElement ZMSCORE_ReplySchema_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Member does not exist in the sorted set."},
+};
+
+struct jsonObject ZMSCORE_ReplySchema_items_oneOf_1 = {ZMSCORE_ReplySchema_items_oneOf_1_elements,.length=2};
+
+/* ZMSCORE_ReplySchema_items_oneOf array reply schema */
+struct jsonObject *ZMSCORE_ReplySchema_items_oneOf[] = {
+&ZMSCORE_ReplySchema_items_oneOf_0,
+&ZMSCORE_ReplySchema_items_oneOf_1,
+};
+
+/* ZMSCORE_ReplySchema_items reply schema */
+struct jsonObjectElement ZMSCORE_ReplySchema_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=ZMSCORE_ReplySchema_items_oneOf,.length=2}},
+};
+
+struct jsonObject ZMSCORE_ReplySchema_items = {ZMSCORE_ReplySchema_items_elements,.length=1};
+
+/* ZMSCORE_ReplySchema reply schema */
+struct jsonObjectElement ZMSCORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZMSCORE_ReplySchema_items},
+};
+
+struct jsonObject ZMSCORE_ReplySchema = {ZMSCORE_ReplySchema_elements,.length=3};
 
 /********** ZPOPMAX ********************/
 
@@ -9378,6 +11466,92 @@ struct redisCommandArg ZPOPMAX_Args[] = {
 {0}
 };
 
+/* ZPOPMAX_ReplySchema_anyOf_0_items_0 reply schema */
+struct jsonObjectElement ZPOPMAX_ReplySchema_anyOf_0_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Popped element."},
+};
+
+struct jsonObject ZPOPMAX_ReplySchema_anyOf_0_items_0 = {ZPOPMAX_ReplySchema_anyOf_0_items_0_elements,.length=2};
+
+/* ZPOPMAX_ReplySchema_anyOf_0_items_1 reply schema */
+struct jsonObjectElement ZPOPMAX_ReplySchema_anyOf_0_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score."},
+};
+
+struct jsonObject ZPOPMAX_ReplySchema_anyOf_0_items_1 = {ZPOPMAX_ReplySchema_anyOf_0_items_1_elements,.length=2};
+
+/* ZPOPMAX_ReplySchema_anyOf_0_items array reply schema */
+struct jsonObject *ZPOPMAX_ReplySchema_anyOf_0_items[] = {
+&ZPOPMAX_ReplySchema_anyOf_0_items_0,
+&ZPOPMAX_ReplySchema_anyOf_0_items_1,
+};
+
+/* ZPOPMAX_ReplySchema_anyOf_0 reply schema */
+struct jsonObjectElement ZPOPMAX_ReplySchema_anyOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of popped elements and scores when 'COUNT' isn't specified."},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZPOPMAX_ReplySchema_anyOf_0_items,.length=2}},
+};
+
+struct jsonObject ZPOPMAX_ReplySchema_anyOf_0 = {ZPOPMAX_ReplySchema_anyOf_0_elements,.length=4};
+
+/* ZPOPMAX_ReplySchema_anyOf_1_items_items_0 reply schema */
+struct jsonObjectElement ZPOPMAX_ReplySchema_anyOf_1_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Popped element."},
+};
+
+struct jsonObject ZPOPMAX_ReplySchema_anyOf_1_items_items_0 = {ZPOPMAX_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
+
+/* ZPOPMAX_ReplySchema_anyOf_1_items_items_1 reply schema */
+struct jsonObjectElement ZPOPMAX_ReplySchema_anyOf_1_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score."},
+};
+
+struct jsonObject ZPOPMAX_ReplySchema_anyOf_1_items_items_1 = {ZPOPMAX_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
+
+/* ZPOPMAX_ReplySchema_anyOf_1_items_items array reply schema */
+struct jsonObject *ZPOPMAX_ReplySchema_anyOf_1_items_items[] = {
+&ZPOPMAX_ReplySchema_anyOf_1_items_items_0,
+&ZPOPMAX_ReplySchema_anyOf_1_items_items_1,
+};
+
+/* ZPOPMAX_ReplySchema_anyOf_1_items reply schema */
+struct jsonObjectElement ZPOPMAX_ReplySchema_anyOf_1_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZPOPMAX_ReplySchema_anyOf_1_items_items,.length=2}},
+};
+
+struct jsonObject ZPOPMAX_ReplySchema_anyOf_1_items = {ZPOPMAX_ReplySchema_anyOf_1_items_elements,.length=4};
+
+/* ZPOPMAX_ReplySchema_anyOf_1 reply schema */
+struct jsonObjectElement ZPOPMAX_ReplySchema_anyOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of popped elements and scores when 'COUNT' is specified."},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZPOPMAX_ReplySchema_anyOf_1_items},
+};
+
+struct jsonObject ZPOPMAX_ReplySchema_anyOf_1 = {ZPOPMAX_ReplySchema_anyOf_1_elements,.length=3};
+
+/* ZPOPMAX_ReplySchema_anyOf array reply schema */
+struct jsonObject *ZPOPMAX_ReplySchema_anyOf[] = {
+&ZPOPMAX_ReplySchema_anyOf_0,
+&ZPOPMAX_ReplySchema_anyOf_1,
+};
+
+/* ZPOPMAX_ReplySchema reply schema */
+struct jsonObjectElement ZPOPMAX_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=ZPOPMAX_ReplySchema_anyOf,.length=2}},
+};
+
+struct jsonObject ZPOPMAX_ReplySchema = {ZPOPMAX_ReplySchema_elements,.length=1};
+
 /********** ZPOPMIN ********************/
 
 /* ZPOPMIN history */
@@ -9392,6 +11566,92 @@ struct redisCommandArg ZPOPMIN_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+/* ZPOPMIN_ReplySchema_anyOf_0_items_0 reply schema */
+struct jsonObjectElement ZPOPMIN_ReplySchema_anyOf_0_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Popped element."},
+};
+
+struct jsonObject ZPOPMIN_ReplySchema_anyOf_0_items_0 = {ZPOPMIN_ReplySchema_anyOf_0_items_0_elements,.length=2};
+
+/* ZPOPMIN_ReplySchema_anyOf_0_items_1 reply schema */
+struct jsonObjectElement ZPOPMIN_ReplySchema_anyOf_0_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score."},
+};
+
+struct jsonObject ZPOPMIN_ReplySchema_anyOf_0_items_1 = {ZPOPMIN_ReplySchema_anyOf_0_items_1_elements,.length=2};
+
+/* ZPOPMIN_ReplySchema_anyOf_0_items array reply schema */
+struct jsonObject *ZPOPMIN_ReplySchema_anyOf_0_items[] = {
+&ZPOPMIN_ReplySchema_anyOf_0_items_0,
+&ZPOPMIN_ReplySchema_anyOf_0_items_1,
+};
+
+/* ZPOPMIN_ReplySchema_anyOf_0 reply schema */
+struct jsonObjectElement ZPOPMIN_ReplySchema_anyOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of popped elements and scores when 'COUNT' isn't specified."},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZPOPMIN_ReplySchema_anyOf_0_items,.length=2}},
+};
+
+struct jsonObject ZPOPMIN_ReplySchema_anyOf_0 = {ZPOPMIN_ReplySchema_anyOf_0_elements,.length=4};
+
+/* ZPOPMIN_ReplySchema_anyOf_1_items_items_0 reply schema */
+struct jsonObjectElement ZPOPMIN_ReplySchema_anyOf_1_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Popped element."},
+};
+
+struct jsonObject ZPOPMIN_ReplySchema_anyOf_1_items_items_0 = {ZPOPMIN_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
+
+/* ZPOPMIN_ReplySchema_anyOf_1_items_items_1 reply schema */
+struct jsonObjectElement ZPOPMIN_ReplySchema_anyOf_1_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score."},
+};
+
+struct jsonObject ZPOPMIN_ReplySchema_anyOf_1_items_items_1 = {ZPOPMIN_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
+
+/* ZPOPMIN_ReplySchema_anyOf_1_items_items array reply schema */
+struct jsonObject *ZPOPMIN_ReplySchema_anyOf_1_items_items[] = {
+&ZPOPMIN_ReplySchema_anyOf_1_items_items_0,
+&ZPOPMIN_ReplySchema_anyOf_1_items_items_1,
+};
+
+/* ZPOPMIN_ReplySchema_anyOf_1_items reply schema */
+struct jsonObjectElement ZPOPMIN_ReplySchema_anyOf_1_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZPOPMIN_ReplySchema_anyOf_1_items_items,.length=2}},
+};
+
+struct jsonObject ZPOPMIN_ReplySchema_anyOf_1_items = {ZPOPMIN_ReplySchema_anyOf_1_items_elements,.length=4};
+
+/* ZPOPMIN_ReplySchema_anyOf_1 reply schema */
+struct jsonObjectElement ZPOPMIN_ReplySchema_anyOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of popped elements and scores when 'COUNT' is specified."},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZPOPMIN_ReplySchema_anyOf_1_items},
+};
+
+struct jsonObject ZPOPMIN_ReplySchema_anyOf_1 = {ZPOPMIN_ReplySchema_anyOf_1_elements,.length=3};
+
+/* ZPOPMIN_ReplySchema_anyOf array reply schema */
+struct jsonObject *ZPOPMIN_ReplySchema_anyOf[] = {
+&ZPOPMIN_ReplySchema_anyOf_0,
+&ZPOPMIN_ReplySchema_anyOf_1,
+};
+
+/* ZPOPMIN_ReplySchema reply schema */
+struct jsonObjectElement ZPOPMIN_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=ZPOPMIN_ReplySchema_anyOf,.length=2}},
+};
+
+struct jsonObject ZPOPMIN_ReplySchema = {ZPOPMIN_ReplySchema_elements,.length=1};
 
 /********** ZRANDMEMBER ********************/
 
@@ -9417,6 +11677,93 @@ struct redisCommandArg ZRANDMEMBER_Args[] = {
 {"options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANDMEMBER_options_Subargs},
 {0}
 };
+
+/* ZRANDMEMBER_ReplySchema_anyOf_0 reply schema */
+struct jsonObjectElement ZRANDMEMBER_ReplySchema_anyOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Key does not exist."},
+};
+
+struct jsonObject ZRANDMEMBER_ReplySchema_anyOf_0 = {ZRANDMEMBER_ReplySchema_anyOf_0_elements,.length=2};
+
+/* ZRANDMEMBER_ReplySchema_anyOf_1 reply schema */
+struct jsonObjectElement ZRANDMEMBER_ReplySchema_anyOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Randomly selected element when 'COUNT' is not used."},
+};
+
+struct jsonObject ZRANDMEMBER_ReplySchema_anyOf_1 = {ZRANDMEMBER_ReplySchema_anyOf_1_elements,.length=2};
+
+/* ZRANDMEMBER_ReplySchema_anyOf_2_items reply schema */
+struct jsonObjectElement ZRANDMEMBER_ReplySchema_anyOf_2_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ZRANDMEMBER_ReplySchema_anyOf_2_items = {ZRANDMEMBER_ReplySchema_anyOf_2_items_elements,.length=1};
+
+/* ZRANDMEMBER_ReplySchema_anyOf_2 reply schema */
+struct jsonObjectElement ZRANDMEMBER_ReplySchema_anyOf_2_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Randomly selected elements when 'COUNT' is used."},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZRANDMEMBER_ReplySchema_anyOf_2_items},
+};
+
+struct jsonObject ZRANDMEMBER_ReplySchema_anyOf_2 = {ZRANDMEMBER_ReplySchema_anyOf_2_elements,.length=3};
+
+/* ZRANDMEMBER_ReplySchema_anyOf_3_items_items_0 reply schema */
+struct jsonObjectElement ZRANDMEMBER_ReplySchema_anyOf_3_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Element."},
+};
+
+struct jsonObject ZRANDMEMBER_ReplySchema_anyOf_3_items_items_0 = {ZRANDMEMBER_ReplySchema_anyOf_3_items_items_0_elements,.length=2};
+
+/* ZRANDMEMBER_ReplySchema_anyOf_3_items_items_1 reply schema */
+struct jsonObjectElement ZRANDMEMBER_ReplySchema_anyOf_3_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+{JSON_TYPE_STRING,"description",.value.string="Score."},
+};
+
+struct jsonObject ZRANDMEMBER_ReplySchema_anyOf_3_items_items_1 = {ZRANDMEMBER_ReplySchema_anyOf_3_items_items_1_elements,.length=2};
+
+/* ZRANDMEMBER_ReplySchema_anyOf_3_items_items array reply schema */
+struct jsonObject *ZRANDMEMBER_ReplySchema_anyOf_3_items_items[] = {
+&ZRANDMEMBER_ReplySchema_anyOf_3_items_items_0,
+&ZRANDMEMBER_ReplySchema_anyOf_3_items_items_1,
+};
+
+/* ZRANDMEMBER_ReplySchema_anyOf_3_items reply schema */
+struct jsonObjectElement ZRANDMEMBER_ReplySchema_anyOf_3_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZRANDMEMBER_ReplySchema_anyOf_3_items_items,.length=2}},
+};
+
+struct jsonObject ZRANDMEMBER_ReplySchema_anyOf_3_items = {ZRANDMEMBER_ReplySchema_anyOf_3_items_elements,.length=3};
+
+/* ZRANDMEMBER_ReplySchema_anyOf_3 reply schema */
+struct jsonObjectElement ZRANDMEMBER_ReplySchema_anyOf_3_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Randomly selected elements when 'COUNT' and 'WITHSCORES' modifiers are used."},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZRANDMEMBER_ReplySchema_anyOf_3_items},
+};
+
+struct jsonObject ZRANDMEMBER_ReplySchema_anyOf_3 = {ZRANDMEMBER_ReplySchema_anyOf_3_elements,.length=3};
+
+/* ZRANDMEMBER_ReplySchema_anyOf array reply schema */
+struct jsonObject *ZRANDMEMBER_ReplySchema_anyOf[] = {
+&ZRANDMEMBER_ReplySchema_anyOf_0,
+&ZRANDMEMBER_ReplySchema_anyOf_1,
+&ZRANDMEMBER_ReplySchema_anyOf_2,
+&ZRANDMEMBER_ReplySchema_anyOf_3,
+};
+
+/* ZRANDMEMBER_ReplySchema reply schema */
+struct jsonObjectElement ZRANDMEMBER_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=ZRANDMEMBER_ReplySchema_anyOf,.length=4}},
+};
+
+struct jsonObject ZRANDMEMBER_ReplySchema = {ZRANDMEMBER_ReplySchema_elements,.length=1};
 
 /********** ZRANGE ********************/
 
@@ -9552,6 +11899,23 @@ struct redisCommandArg ZRANGEBYLEX_Args[] = {
 {0}
 };
 
+/* ZRANGEBYLEX_ReplySchema_items reply schema */
+struct jsonObjectElement ZRANGEBYLEX_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ZRANGEBYLEX_ReplySchema_items = {ZRANGEBYLEX_ReplySchema_items_elements,.length=1};
+
+/* ZRANGEBYLEX_ReplySchema reply schema */
+struct jsonObjectElement ZRANGEBYLEX_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of elements in the specified score range."},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZRANGEBYLEX_ReplySchema_items},
+};
+
+struct jsonObject ZRANGEBYLEX_ReplySchema = {ZRANGEBYLEX_ReplySchema_elements,.length=4};
+
 /********** ZRANGEBYSCORE ********************/
 
 /* ZRANGEBYSCORE history */
@@ -9579,6 +11943,68 @@ struct redisCommandArg ZRANGEBYSCORE_Args[] = {
 {"limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGEBYSCORE_limit_Subargs},
 {0}
 };
+
+/* ZRANGEBYSCORE_ReplySchema_items_oneOf_0 reply schema */
+struct jsonObjectElement ZRANGEBYSCORE_ReplySchema_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Element when 'WITHSCORES' is not used."},
+};
+
+struct jsonObject ZRANGEBYSCORE_ReplySchema_items_oneOf_0 = {ZRANGEBYSCORE_ReplySchema_items_oneOf_0_elements,.length=2};
+
+/* ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items_0 reply schema */
+struct jsonObjectElement ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items_0 = {ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items_0_elements,.length=1};
+
+/* ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items_1 reply schema */
+struct jsonObjectElement ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items_1 = {ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items_1_elements,.length=1};
+
+/* ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items array reply schema */
+struct jsonObject *ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items[] = {
+&ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items_0,
+&ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items_1,
+};
+
+/* ZRANGEBYSCORE_ReplySchema_items_oneOf_1 reply schema */
+struct jsonObjectElement ZRANGEBYSCORE_ReplySchema_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Element and its score when 'WITHSCORES' is used."},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZRANGEBYSCORE_ReplySchema_items_oneOf_1_items,.length=2}},
+};
+
+struct jsonObject ZRANGEBYSCORE_ReplySchema_items_oneOf_1 = {ZRANGEBYSCORE_ReplySchema_items_oneOf_1_elements,.length=5};
+
+/* ZRANGEBYSCORE_ReplySchema_items_oneOf array reply schema */
+struct jsonObject *ZRANGEBYSCORE_ReplySchema_items_oneOf[] = {
+&ZRANGEBYSCORE_ReplySchema_items_oneOf_0,
+&ZRANGEBYSCORE_ReplySchema_items_oneOf_1,
+};
+
+/* ZRANGEBYSCORE_ReplySchema_items reply schema */
+struct jsonObjectElement ZRANGEBYSCORE_ReplySchema_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=ZRANGEBYSCORE_ReplySchema_items_oneOf,.length=2}},
+};
+
+struct jsonObject ZRANGEBYSCORE_ReplySchema_items = {ZRANGEBYSCORE_ReplySchema_items_elements,.length=1};
+
+/* ZRANGEBYSCORE_ReplySchema reply schema */
+struct jsonObjectElement ZRANGEBYSCORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of the elements in the specified score range."},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZRANGEBYSCORE_ReplySchema_items},
+};
+
+struct jsonObject ZRANGEBYSCORE_ReplySchema = {ZRANGEBYSCORE_ReplySchema_elements,.length=4};
 
 /********** ZRANGESTORE ********************/
 
@@ -9614,6 +12040,14 @@ struct redisCommandArg ZRANGESTORE_Args[] = {
 {0}
 };
 
+/* ZRANGESTORE_ReplySchema reply schema */
+struct jsonObjectElement ZRANGESTORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Number of elements in the resulting sorted set."},
+};
+
+struct jsonObject ZRANGESTORE_ReplySchema = {ZRANGESTORE_ReplySchema_elements,.length=2};
+
 /********** ZRANK ********************/
 
 /* ZRANK history */
@@ -9633,6 +12067,68 @@ struct redisCommandArg ZRANK_Args[] = {
 {0}
 };
 
+/* ZRANK_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement ZRANK_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Key does not exist or the member does not exist in the sorted set."},
+};
+
+struct jsonObject ZRANK_ReplySchema_oneOf_0 = {ZRANK_ReplySchema_oneOf_0_elements,.length=2};
+
+/* ZRANK_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement ZRANK_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The rank of the member when 'WITHSCORES' is not used."},
+};
+
+struct jsonObject ZRANK_ReplySchema_oneOf_1 = {ZRANK_ReplySchema_oneOf_1_elements,.length=2};
+
+/* ZRANK_ReplySchema_oneOf_2_items_0 reply schema */
+struct jsonObjectElement ZRANK_ReplySchema_oneOf_2_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject ZRANK_ReplySchema_oneOf_2_items_0 = {ZRANK_ReplySchema_oneOf_2_items_0_elements,.length=1};
+
+/* ZRANK_ReplySchema_oneOf_2_items_1 reply schema */
+struct jsonObjectElement ZRANK_ReplySchema_oneOf_2_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject ZRANK_ReplySchema_oneOf_2_items_1 = {ZRANK_ReplySchema_oneOf_2_items_1_elements,.length=1};
+
+/* ZRANK_ReplySchema_oneOf_2_items array reply schema */
+struct jsonObject *ZRANK_ReplySchema_oneOf_2_items[] = {
+&ZRANK_ReplySchema_oneOf_2_items_0,
+&ZRANK_ReplySchema_oneOf_2_items_1,
+};
+
+/* ZRANK_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement ZRANK_ReplySchema_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="The rank and score of the member when 'WITHSCORES' is used."},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZRANK_ReplySchema_oneOf_2_items,.length=2}},
+};
+
+struct jsonObject ZRANK_ReplySchema_oneOf_2 = {ZRANK_ReplySchema_oneOf_2_elements,.length=6};
+
+/* ZRANK_ReplySchema_oneOf array reply schema */
+struct jsonObject *ZRANK_ReplySchema_oneOf[] = {
+&ZRANK_ReplySchema_oneOf_0,
+&ZRANK_ReplySchema_oneOf_1,
+&ZRANK_ReplySchema_oneOf_2,
+};
+
+/* ZRANK_ReplySchema reply schema */
+struct jsonObjectElement ZRANK_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=ZRANK_ReplySchema_oneOf,.length=3}},
+};
+
+struct jsonObject ZRANK_ReplySchema = {ZRANK_ReplySchema_elements,.length=1};
+
 /********** ZREM ********************/
 
 /* ZREM history */
@@ -9651,6 +12147,15 @@ struct redisCommandArg ZREM_Args[] = {
 {0}
 };
 
+/* ZREM_ReplySchema reply schema */
+struct jsonObjectElement ZREM_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The number of members removed from the sorted set, not including non existing members."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject ZREM_ReplySchema = {ZREM_ReplySchema_elements,.length=3};
+
 /********** ZREMRANGEBYLEX ********************/
 
 /* ZREMRANGEBYLEX history */
@@ -9666,6 +12171,14 @@ struct redisCommandArg ZREMRANGEBYLEX_Args[] = {
 {"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* ZREMRANGEBYLEX_ReplySchema reply schema */
+struct jsonObjectElement ZREMRANGEBYLEX_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Number of elements removed."},
+};
+
+struct jsonObject ZREMRANGEBYLEX_ReplySchema = {ZREMRANGEBYLEX_ReplySchema_elements,.length=2};
 
 /********** ZREMRANGEBYRANK ********************/
 
@@ -9683,6 +12196,14 @@ struct redisCommandArg ZREMRANGEBYRANK_Args[] = {
 {0}
 };
 
+/* ZREMRANGEBYRANK_ReplySchema reply schema */
+struct jsonObjectElement ZREMRANGEBYRANK_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Number of elements removed."},
+};
+
+struct jsonObject ZREMRANGEBYRANK_ReplySchema = {ZREMRANGEBYRANK_ReplySchema_elements,.length=2};
+
 /********** ZREMRANGEBYSCORE ********************/
 
 /* ZREMRANGEBYSCORE history */
@@ -9698,6 +12219,14 @@ struct redisCommandArg ZREMRANGEBYSCORE_Args[] = {
 {"max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* ZREMRANGEBYSCORE_ReplySchema reply schema */
+struct jsonObjectElement ZREMRANGEBYSCORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Number of elements removed."},
+};
+
+struct jsonObject ZREMRANGEBYSCORE_ReplySchema = {ZREMRANGEBYSCORE_ReplySchema_elements,.length=2};
 
 /********** ZREVRANGE ********************/
 
@@ -9715,6 +12244,79 @@ struct redisCommandArg ZREVRANGE_Args[] = {
 {"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+/* ZREVRANGE_ReplySchema_anyOf_0_items reply schema */
+struct jsonObjectElement ZREVRANGE_ReplySchema_anyOf_0_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ZREVRANGE_ReplySchema_anyOf_0_items = {ZREVRANGE_ReplySchema_anyOf_0_items_elements,.length=1};
+
+/* ZREVRANGE_ReplySchema_anyOf_0 reply schema */
+struct jsonObjectElement ZREVRANGE_ReplySchema_anyOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="List of member elements."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZREVRANGE_ReplySchema_anyOf_0_items},
+};
+
+struct jsonObject ZREVRANGE_ReplySchema_anyOf_0 = {ZREVRANGE_ReplySchema_anyOf_0_elements,.length=4};
+
+/* ZREVRANGE_ReplySchema_anyOf_1_items_items_0 reply schema */
+struct jsonObjectElement ZREVRANGE_ReplySchema_anyOf_1_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Member."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ZREVRANGE_ReplySchema_anyOf_1_items_items_0 = {ZREVRANGE_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
+
+/* ZREVRANGE_ReplySchema_anyOf_1_items_items_1 reply schema */
+struct jsonObjectElement ZREVRANGE_ReplySchema_anyOf_1_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Score."},
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject ZREVRANGE_ReplySchema_anyOf_1_items_items_1 = {ZREVRANGE_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
+
+/* ZREVRANGE_ReplySchema_anyOf_1_items_items array reply schema */
+struct jsonObject *ZREVRANGE_ReplySchema_anyOf_1_items_items[] = {
+&ZREVRANGE_ReplySchema_anyOf_1_items_items_0,
+&ZREVRANGE_ReplySchema_anyOf_1_items_items_1,
+};
+
+/* ZREVRANGE_ReplySchema_anyOf_1_items reply schema */
+struct jsonObjectElement ZREVRANGE_ReplySchema_anyOf_1_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZREVRANGE_ReplySchema_anyOf_1_items_items,.length=2}},
+};
+
+struct jsonObject ZREVRANGE_ReplySchema_anyOf_1_items = {ZREVRANGE_ReplySchema_anyOf_1_items_elements,.length=5};
+
+/* ZREVRANGE_ReplySchema_anyOf_1 reply schema */
+struct jsonObjectElement ZREVRANGE_ReplySchema_anyOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="List of the members and their scores. Returned in case `WITHSCORES` was used."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZREVRANGE_ReplySchema_anyOf_1_items},
+};
+
+struct jsonObject ZREVRANGE_ReplySchema_anyOf_1 = {ZREVRANGE_ReplySchema_anyOf_1_elements,.length=4};
+
+/* ZREVRANGE_ReplySchema_anyOf array reply schema */
+struct jsonObject *ZREVRANGE_ReplySchema_anyOf[] = {
+&ZREVRANGE_ReplySchema_anyOf_0,
+&ZREVRANGE_ReplySchema_anyOf_1,
+};
+
+/* ZREVRANGE_ReplySchema reply schema */
+struct jsonObjectElement ZREVRANGE_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=ZREVRANGE_ReplySchema_anyOf,.length=2}},
+};
+
+struct jsonObject ZREVRANGE_ReplySchema = {ZREVRANGE_ReplySchema_elements,.length=1};
 
 /********** ZREVRANGEBYLEX ********************/
 
@@ -9739,6 +12341,23 @@ struct redisCommandArg ZREVRANGEBYLEX_Args[] = {
 {"limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZREVRANGEBYLEX_limit_Subargs},
 {0}
 };
+
+/* ZREVRANGEBYLEX_ReplySchema_items reply schema */
+struct jsonObjectElement ZREVRANGEBYLEX_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ZREVRANGEBYLEX_ReplySchema_items = {ZREVRANGEBYLEX_ReplySchema_items_elements,.length=1};
+
+/* ZREVRANGEBYLEX_ReplySchema reply schema */
+struct jsonObjectElement ZREVRANGEBYLEX_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of the elements in the specified score range."},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZREVRANGEBYLEX_ReplySchema_items},
+};
+
+struct jsonObject ZREVRANGEBYLEX_ReplySchema = {ZREVRANGEBYLEX_ReplySchema_elements,.length=4};
 
 /********** ZREVRANGEBYSCORE ********************/
 
@@ -9768,6 +12387,67 @@ struct redisCommandArg ZREVRANGEBYSCORE_Args[] = {
 {0}
 };
 
+/* ZREVRANGEBYSCORE_ReplySchema_items_oneOf_0 reply schema */
+struct jsonObjectElement ZREVRANGEBYSCORE_ReplySchema_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Element when 'WITHSCORES' is not used."},
+};
+
+struct jsonObject ZREVRANGEBYSCORE_ReplySchema_items_oneOf_0 = {ZREVRANGEBYSCORE_ReplySchema_items_oneOf_0_elements,.length=2};
+
+/* ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items_0 reply schema */
+struct jsonObjectElement ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items_0 = {ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items_0_elements,.length=1};
+
+/* ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items_1 reply schema */
+struct jsonObjectElement ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items_1 = {ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items_1_elements,.length=1};
+
+/* ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items array reply schema */
+struct jsonObject *ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items[] = {
+&ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items_0,
+&ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items_1,
+};
+
+/* ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1 reply schema */
+struct jsonObjectElement ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Element and its score when 'WITHSCORES' is used."},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_items,.length=2}},
+};
+
+struct jsonObject ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1 = {ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1_elements,.length=4};
+
+/* ZREVRANGEBYSCORE_ReplySchema_items_oneOf array reply schema */
+struct jsonObject *ZREVRANGEBYSCORE_ReplySchema_items_oneOf[] = {
+&ZREVRANGEBYSCORE_ReplySchema_items_oneOf_0,
+&ZREVRANGEBYSCORE_ReplySchema_items_oneOf_1,
+};
+
+/* ZREVRANGEBYSCORE_ReplySchema_items reply schema */
+struct jsonObjectElement ZREVRANGEBYSCORE_ReplySchema_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=ZREVRANGEBYSCORE_ReplySchema_items_oneOf,.length=2}},
+};
+
+struct jsonObject ZREVRANGEBYSCORE_ReplySchema_items = {ZREVRANGEBYSCORE_ReplySchema_items_elements,.length=1};
+
+/* ZREVRANGEBYSCORE_ReplySchema reply schema */
+struct jsonObjectElement ZREVRANGEBYSCORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of the elements in the specified score range."},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZREVRANGEBYSCORE_ReplySchema_items},
+};
+
+struct jsonObject ZREVRANGEBYSCORE_ReplySchema = {ZREVRANGEBYSCORE_ReplySchema_elements,.length=4};
+
 /********** ZREVRANK ********************/
 
 /* ZREVRANK history */
@@ -9786,6 +12466,68 @@ struct redisCommandArg ZREVRANK_Args[] = {
 {"withscore",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORE",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+/* ZREVRANK_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement ZREVRANK_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Key does not exist or the member does not exist in the sorted set."},
+};
+
+struct jsonObject ZREVRANK_ReplySchema_oneOf_0 = {ZREVRANK_ReplySchema_oneOf_0_elements,.length=2};
+
+/* ZREVRANK_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement ZREVRANK_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The rank of the member when 'WITHSCORES' is not used."},
+};
+
+struct jsonObject ZREVRANK_ReplySchema_oneOf_1 = {ZREVRANK_ReplySchema_oneOf_1_elements,.length=2};
+
+/* ZREVRANK_ReplySchema_oneOf_2_items_0 reply schema */
+struct jsonObjectElement ZREVRANK_ReplySchema_oneOf_2_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject ZREVRANK_ReplySchema_oneOf_2_items_0 = {ZREVRANK_ReplySchema_oneOf_2_items_0_elements,.length=1};
+
+/* ZREVRANK_ReplySchema_oneOf_2_items_1 reply schema */
+struct jsonObjectElement ZREVRANK_ReplySchema_oneOf_2_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject ZREVRANK_ReplySchema_oneOf_2_items_1 = {ZREVRANK_ReplySchema_oneOf_2_items_1_elements,.length=1};
+
+/* ZREVRANK_ReplySchema_oneOf_2_items array reply schema */
+struct jsonObject *ZREVRANK_ReplySchema_oneOf_2_items[] = {
+&ZREVRANK_ReplySchema_oneOf_2_items_0,
+&ZREVRANK_ReplySchema_oneOf_2_items_1,
+};
+
+/* ZREVRANK_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement ZREVRANK_ReplySchema_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="The rank and score of the member when 'WITHSCORES' is used."},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZREVRANK_ReplySchema_oneOf_2_items,.length=2}},
+};
+
+struct jsonObject ZREVRANK_ReplySchema_oneOf_2 = {ZREVRANK_ReplySchema_oneOf_2_elements,.length=6};
+
+/* ZREVRANK_ReplySchema_oneOf array reply schema */
+struct jsonObject *ZREVRANK_ReplySchema_oneOf[] = {
+&ZREVRANK_ReplySchema_oneOf_0,
+&ZREVRANK_ReplySchema_oneOf_1,
+&ZREVRANK_ReplySchema_oneOf_2,
+};
+
+/* ZREVRANK_ReplySchema reply schema */
+struct jsonObjectElement ZREVRANK_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=ZREVRANK_ReplySchema_oneOf,.length=3}},
+};
+
+struct jsonObject ZREVRANK_ReplySchema = {ZREVRANK_ReplySchema_elements,.length=1};
 
 /********** ZSCAN ********************/
 
@@ -9807,6 +12549,45 @@ struct redisCommandArg ZSCAN_Args[] = {
 {0}
 };
 
+/* ZSCAN_ReplySchema_items_0 reply schema */
+struct jsonObjectElement ZSCAN_ReplySchema_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="cursor"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ZSCAN_ReplySchema_items_0 = {ZSCAN_ReplySchema_items_0_elements,.length=2};
+
+/* ZSCAN_ReplySchema_items_1_items reply schema */
+struct jsonObjectElement ZSCAN_ReplySchema_items_1_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ZSCAN_ReplySchema_items_1_items = {ZSCAN_ReplySchema_items_1_items_elements,.length=1};
+
+/* ZSCAN_ReplySchema_items_1 reply schema */
+struct jsonObjectElement ZSCAN_ReplySchema_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="list of elements of the sorted set, where each even element is the member, and each odd value is its associated score"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZSCAN_ReplySchema_items_1_items},
+};
+
+struct jsonObject ZSCAN_ReplySchema_items_1 = {ZSCAN_ReplySchema_items_1_elements,.length=3};
+
+/* ZSCAN_ReplySchema_items array reply schema */
+struct jsonObject *ZSCAN_ReplySchema_items[] = {
+&ZSCAN_ReplySchema_items_0,
+&ZSCAN_ReplySchema_items_1,
+};
+
+/* ZSCAN_ReplySchema reply schema */
+struct jsonObjectElement ZSCAN_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="cursor and scan response in array form"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZSCAN_ReplySchema_items,.length=2}},
+};
+
+struct jsonObject ZSCAN_ReplySchema = {ZSCAN_ReplySchema_elements,.length=3};
+
 /********** ZSCORE ********************/
 
 /* ZSCORE history */
@@ -9821,6 +12602,36 @@ struct redisCommandArg ZSCORE_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* ZSCORE_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement ZSCORE_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+{JSON_TYPE_STRING,"notes",.value.string="In RESP2, this is returned as string."},
+{JSON_TYPE_STRING,"description",.value.string="The score of the member (a double precision floating point number)."},
+};
+
+struct jsonObject ZSCORE_ReplySchema_oneOf_0 = {ZSCORE_ReplySchema_oneOf_0_elements,.length=3};
+
+/* ZSCORE_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement ZSCORE_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+{JSON_TYPE_STRING,"description",.value.string="Member does not exist in the sorted set, or key does not exist."},
+};
+
+struct jsonObject ZSCORE_ReplySchema_oneOf_1 = {ZSCORE_ReplySchema_oneOf_1_elements,.length=2};
+
+/* ZSCORE_ReplySchema_oneOf array reply schema */
+struct jsonObject *ZSCORE_ReplySchema_oneOf[] = {
+&ZSCORE_ReplySchema_oneOf_0,
+&ZSCORE_ReplySchema_oneOf_1,
+};
+
+/* ZSCORE_ReplySchema reply schema */
+struct jsonObjectElement ZSCORE_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=ZSCORE_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject ZSCORE_ReplySchema = {ZSCORE_ReplySchema_elements,.length=1};
 
 /********** ZUNION ********************/
 
@@ -9848,6 +12659,68 @@ struct redisCommandArg ZUNION_Args[] = {
 {0}
 };
 
+/* ZUNION_ReplySchema_items_oneOf_0 reply schema */
+struct jsonObjectElement ZUNION_ReplySchema_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The result of union when 'WITHSCORES' is not used."},
+};
+
+struct jsonObject ZUNION_ReplySchema_items_oneOf_0 = {ZUNION_ReplySchema_items_oneOf_0_elements,.length=2};
+
+/* ZUNION_ReplySchema_items_oneOf_1_items_0 reply schema */
+struct jsonObjectElement ZUNION_ReplySchema_items_oneOf_1_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject ZUNION_ReplySchema_items_oneOf_1_items_0 = {ZUNION_ReplySchema_items_oneOf_1_items_0_elements,.length=1};
+
+/* ZUNION_ReplySchema_items_oneOf_1_items_1 reply schema */
+struct jsonObjectElement ZUNION_ReplySchema_items_oneOf_1_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject ZUNION_ReplySchema_items_oneOf_1_items_1 = {ZUNION_ReplySchema_items_oneOf_1_items_1_elements,.length=1};
+
+/* ZUNION_ReplySchema_items_oneOf_1_items array reply schema */
+struct jsonObject *ZUNION_ReplySchema_items_oneOf_1_items[] = {
+&ZUNION_ReplySchema_items_oneOf_1_items_0,
+&ZUNION_ReplySchema_items_oneOf_1_items_1,
+};
+
+/* ZUNION_ReplySchema_items_oneOf_1 reply schema */
+struct jsonObjectElement ZUNION_ReplySchema_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="The result of union when 'WITHSCORES' is used."},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_BOOLEAN,"additionalItems",.value.boolean=0},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=ZUNION_ReplySchema_items_oneOf_1_items,.length=2}},
+};
+
+struct jsonObject ZUNION_ReplySchema_items_oneOf_1 = {ZUNION_ReplySchema_items_oneOf_1_elements,.length=6};
+
+/* ZUNION_ReplySchema_items_oneOf array reply schema */
+struct jsonObject *ZUNION_ReplySchema_items_oneOf[] = {
+&ZUNION_ReplySchema_items_oneOf_0,
+&ZUNION_ReplySchema_items_oneOf_1,
+};
+
+/* ZUNION_ReplySchema_items reply schema */
+struct jsonObjectElement ZUNION_ReplySchema_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=ZUNION_ReplySchema_items_oneOf,.length=2}},
+};
+
+struct jsonObject ZUNION_ReplySchema_items = {ZUNION_ReplySchema_items_elements,.length=1};
+
+/* ZUNION_ReplySchema reply schema */
+struct jsonObjectElement ZUNION_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&ZUNION_ReplySchema_items},
+};
+
+struct jsonObject ZUNION_ReplySchema = {ZUNION_ReplySchema_elements,.length=3};
+
 /********** ZUNIONSTORE ********************/
 
 /* ZUNIONSTORE history */
@@ -9873,6 +12746,14 @@ struct redisCommandArg ZUNIONSTORE_Args[] = {
 {"aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZUNIONSTORE_aggregate_Subargs},
 {0}
 };
+
+/* ZUNIONSTORE_ReplySchema reply schema */
+struct jsonObjectElement ZUNIONSTORE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The number of elements in the resulting sorted set."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject ZUNIONSTORE_ReplySchema = {ZUNIONSTORE_ReplySchema_elements,.length=2};
 
 /********** XACK ********************/
 
@@ -10431,6 +13312,22 @@ struct jsonObject XGROUP_DESTROY_ReplySchema = {XGROUP_DESTROY_ReplySchema_eleme
 /* XGROUP HELP tips */
 #define XGROUP_HELP_tips NULL
 
+/* XGROUP_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement XGROUP_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject XGROUP_HELP_ReplySchema_items = {XGROUP_HELP_ReplySchema_items_elements,.length=1};
+
+/* XGROUP_HELP_ReplySchema reply schema */
+struct jsonObjectElement XGROUP_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&XGROUP_HELP_ReplySchema_items},
+};
+
+struct jsonObject XGROUP_HELP_ReplySchema = {XGROUP_HELP_ReplySchema_elements,.length=3};
+
 /********** XGROUP SETID ********************/
 
 /* XGROUP SETID history */
@@ -10471,7 +13368,7 @@ struct redisCommand XGROUP_Subcommands[] = {
 {"createconsumer","Create a consumer in a consumer group.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_CREATECONSUMER_History,XGROUP_CREATECONSUMER_tips,xgroupCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_CREATECONSUMER_Args,.reply_schema=&XGROUP_CREATECONSUMER_ReplySchema},
 {"delconsumer","Delete a consumer from a consumer group.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_DELCONSUMER_History,XGROUP_DELCONSUMER_tips,xgroupCommand,5,CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_DELCONSUMER_Args,.reply_schema=&XGROUP_DELCONSUMER_ReplySchema},
 {"destroy","Destroy a consumer group.","O(N) where N is the number of entries in the group's pending entries list (PEL).","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_DESTROY_History,XGROUP_DESTROY_tips,xgroupCommand,4,CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_DESTROY_Args,.reply_schema=&XGROUP_DESTROY_ReplySchema},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_HELP_History,XGROUP_HELP_tips,xgroupCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_STREAM},
+{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_HELP_History,XGROUP_HELP_tips,xgroupCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_STREAM,.reply_schema=&XGROUP_HELP_ReplySchema},
 {"setid","Set a consumer group to an arbitrary last delivered ID value.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_SETID_History,XGROUP_SETID_tips,xgroupCommand,-5,CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_SETID_Args,.reply_schema=&XGROUP_SETID_ReplySchema},
 {0}
 };
@@ -10694,6 +13591,22 @@ struct jsonObject XINFO_GROUPS_ReplySchema = {XINFO_GROUPS_ReplySchema_elements,
 
 /* XINFO HELP tips */
 #define XINFO_HELP_tips NULL
+
+/* XINFO_HELP_ReplySchema_items reply schema */
+struct jsonObjectElement XINFO_HELP_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject XINFO_HELP_ReplySchema_items = {XINFO_HELP_ReplySchema_items_elements,.length=1};
+
+/* XINFO_HELP_ReplySchema reply schema */
+struct jsonObjectElement XINFO_HELP_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Helpful text about subcommands."},
+{JSON_TYPE_OBJECT,"items",.value.object=&XINFO_HELP_ReplySchema_items},
+};
+
+struct jsonObject XINFO_HELP_ReplySchema = {XINFO_HELP_ReplySchema_elements,.length=3};
 
 /********** XINFO STREAM ********************/
 
@@ -11362,7 +14275,7 @@ struct jsonObject XINFO_STREAM_ReplySchema = {XINFO_STREAM_ReplySchema_elements,
 struct redisCommand XINFO_Subcommands[] = {
 {"consumers","List the consumers in a consumer group","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_CONSUMERS_History,XINFO_CONSUMERS_tips,xinfoCommand,4,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_CONSUMERS_Args,.reply_schema=&XINFO_CONSUMERS_ReplySchema},
 {"groups","List the consumer groups of a stream","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_GROUPS_History,XINFO_GROUPS_tips,xinfoCommand,3,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_GROUPS_Args,.reply_schema=&XINFO_GROUPS_ReplySchema},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_HELP_History,XINFO_HELP_tips,xinfoCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_STREAM},
+{"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_HELP_History,XINFO_HELP_tips,xinfoCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_STREAM,.reply_schema=&XINFO_HELP_ReplySchema},
 {"stream","Get information about a stream","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_STREAM_History,XINFO_STREAM_tips,xinfoCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_STREAM_Args,.reply_schema=&XINFO_STREAM_ReplySchema},
 {0}
 };
@@ -12097,6 +15010,14 @@ struct redisCommandArg DECRBY_Args[] = {
 {0}
 };
 
+/* DECRBY_ReplySchema reply schema */
+struct jsonObjectElement DECRBY_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The value of the key after decrementing it."},
+};
+
+struct jsonObject DECRBY_ReplySchema = {DECRBY_ReplySchema_elements,.length=2};
+
 /********** GET ********************/
 
 /* GET history */
@@ -12111,6 +15032,35 @@ struct redisCommandArg GET_Args[] = {
 {0}
 };
 
+/* GET_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement GET_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The value of the key."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GET_ReplySchema_oneOf_0 = {GET_ReplySchema_oneOf_0_elements,.length=2};
+
+/* GET_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement GET_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Key does not exist."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject GET_ReplySchema_oneOf_1 = {GET_ReplySchema_oneOf_1_elements,.length=2};
+
+/* GET_ReplySchema_oneOf array reply schema */
+struct jsonObject *GET_ReplySchema_oneOf[] = {
+&GET_ReplySchema_oneOf_0,
+&GET_ReplySchema_oneOf_1,
+};
+
+/* GET_ReplySchema reply schema */
+struct jsonObjectElement GET_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=GET_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject GET_ReplySchema = {GET_ReplySchema_elements,.length=1};
+
 /********** GETDEL ********************/
 
 /* GETDEL history */
@@ -12124,6 +15074,35 @@ struct redisCommandArg GETDEL_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* GETDEL_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement GETDEL_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The value of the key."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GETDEL_ReplySchema_oneOf_0 = {GETDEL_ReplySchema_oneOf_0_elements,.length=2};
+
+/* GETDEL_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement GETDEL_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The key does not exist."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject GETDEL_ReplySchema_oneOf_1 = {GETDEL_ReplySchema_oneOf_1_elements,.length=2};
+
+/* GETDEL_ReplySchema_oneOf array reply schema */
+struct jsonObject *GETDEL_ReplySchema_oneOf[] = {
+&GETDEL_ReplySchema_oneOf_0,
+&GETDEL_ReplySchema_oneOf_1,
+};
+
+/* GETDEL_ReplySchema reply schema */
+struct jsonObjectElement GETDEL_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=GETDEL_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject GETDEL_ReplySchema = {GETDEL_ReplySchema_elements,.length=1};
 
 /********** GETEX ********************/
 
@@ -12150,6 +15129,35 @@ struct redisCommandArg GETEX_Args[] = {
 {0}
 };
 
+/* GETEX_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement GETEX_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The value of the key."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GETEX_ReplySchema_oneOf_0 = {GETEX_ReplySchema_oneOf_0_elements,.length=2};
+
+/* GETEX_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement GETEX_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Key does not exist."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject GETEX_ReplySchema_oneOf_1 = {GETEX_ReplySchema_oneOf_1_elements,.length=2};
+
+/* GETEX_ReplySchema_oneOf array reply schema */
+struct jsonObject *GETEX_ReplySchema_oneOf[] = {
+&GETEX_ReplySchema_oneOf_0,
+&GETEX_ReplySchema_oneOf_1,
+};
+
+/* GETEX_ReplySchema reply schema */
+struct jsonObjectElement GETEX_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=GETEX_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject GETEX_ReplySchema = {GETEX_ReplySchema_elements,.length=1};
+
 /********** GETRANGE ********************/
 
 /* GETRANGE history */
@@ -12166,6 +15174,14 @@ struct redisCommandArg GETRANGE_Args[] = {
 {0}
 };
 
+/* GETRANGE_ReplySchema reply schema */
+struct jsonObjectElement GETRANGE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The substring of the string value stored at key, determined by the offsets start and end (both are inclusive)."},
+};
+
+struct jsonObject GETRANGE_ReplySchema = {GETRANGE_ReplySchema_elements,.length=2};
+
 /********** GETSET ********************/
 
 /* GETSET history */
@@ -12180,6 +15196,35 @@ struct redisCommandArg GETSET_Args[] = {
 {"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* GETSET_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement GETSET_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The old value stored at the key."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GETSET_ReplySchema_oneOf_0 = {GETSET_ReplySchema_oneOf_0_elements,.length=2};
+
+/* GETSET_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement GETSET_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The key does not exist."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject GETSET_ReplySchema_oneOf_1 = {GETSET_ReplySchema_oneOf_1_elements,.length=2};
+
+/* GETSET_ReplySchema_oneOf array reply schema */
+struct jsonObject *GETSET_ReplySchema_oneOf[] = {
+&GETSET_ReplySchema_oneOf_0,
+&GETSET_ReplySchema_oneOf_1,
+};
+
+/* GETSET_ReplySchema reply schema */
+struct jsonObjectElement GETSET_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=GETSET_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject GETSET_ReplySchema = {GETSET_ReplySchema_elements,.length=1};
 
 /********** INCR ********************/
 
@@ -12218,6 +15263,14 @@ struct redisCommandArg INCRBY_Args[] = {
 {0}
 };
 
+/* INCRBY_ReplySchema reply schema */
+struct jsonObjectElement INCRBY_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The value of the key after incrementing it."},
+};
+
+struct jsonObject INCRBY_ReplySchema = {INCRBY_ReplySchema_elements,.length=2};
+
 /********** INCRBYFLOAT ********************/
 
 /* INCRBYFLOAT history */
@@ -12232,6 +15285,14 @@ struct redisCommandArg INCRBYFLOAT_Args[] = {
 {"increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* INCRBYFLOAT_ReplySchema reply schema */
+struct jsonObjectElement INCRBYFLOAT_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The value of the key after incrementing it."},
+};
+
+struct jsonObject INCRBYFLOAT_ReplySchema = {INCRBYFLOAT_ReplySchema_elements,.length=2};
 
 /********** LCS ********************/
 
@@ -12252,6 +15313,123 @@ struct redisCommandArg LCS_Args[] = {
 {0}
 };
 
+/* LCS_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The longest common subsequence."},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_0 = {LCS_ReplySchema_oneOf_0_elements,.length=2};
+
+/* LCS_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The length of the longest common subsequence when 'LEN' is given."},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_1 = {LCS_ReplySchema_oneOf_1_elements,.length=2};
+
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_0_items reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_0_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_0_items = {LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_0_items_elements,.length=1};
+
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_0 reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Ranges."},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_OBJECT,"items",.value.object=&LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_0_items},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_0 = {LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_0_elements,.length=5};
+
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_1 reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The length of the match when 'WITHMATCHLEN' is given."},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_1 = {LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_1_elements,.length=2};
+
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf array reply schema */
+struct jsonObject *LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf[] = {
+&LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_0,
+&LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf_1,
+};
+
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_0_items reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_oneOf,.length=2}},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_0_items = {LCS_ReplySchema_oneOf_2_properties_matches_items_0_items_elements,.length=1};
+
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_0 reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&LCS_ReplySchema_oneOf_2_properties_matches_items_0_items},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_0 = {LCS_ReplySchema_oneOf_2_properties_matches_items_0_elements,.length=2};
+
+/* LCS_ReplySchema_oneOf_2_properties_matches_items array reply schema */
+struct jsonObject *LCS_ReplySchema_oneOf_2_properties_matches_items[] = {
+&LCS_ReplySchema_oneOf_2_properties_matches_items_0,
+};
+
+/* LCS_ReplySchema_oneOf_2_properties_matches reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=LCS_ReplySchema_oneOf_2_properties_matches_items,.length=1}},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches = {LCS_ReplySchema_oneOf_2_properties_matches_elements,.length=2};
+
+/* LCS_ReplySchema_oneOf_2_properties_len reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_len_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="Length of the longest common subsequence."},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_len = {LCS_ReplySchema_oneOf_2_properties_len_elements,.length=2};
+
+/* LCS_ReplySchema_oneOf_2_properties reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_elements[] = {
+{JSON_TYPE_OBJECT,"matches",.value.object=&LCS_ReplySchema_oneOf_2_properties_matches},
+{JSON_TYPE_OBJECT,"len",.value.object=&LCS_ReplySchema_oneOf_2_properties_len},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_2_properties = {LCS_ReplySchema_oneOf_2_properties_elements,.length=2};
+
+/* LCS_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_STRING,"description",.value.string="Array with the LCS length and all the ranges in both the strings when 'IDX' is given."},
+{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&LCS_ReplySchema_oneOf_2_properties},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_2 = {LCS_ReplySchema_oneOf_2_elements,.length=5};
+
+/* LCS_ReplySchema_oneOf array reply schema */
+struct jsonObject *LCS_ReplySchema_oneOf[] = {
+&LCS_ReplySchema_oneOf_0,
+&LCS_ReplySchema_oneOf_1,
+&LCS_ReplySchema_oneOf_2,
+};
+
+/* LCS_ReplySchema reply schema */
+struct jsonObjectElement LCS_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=LCS_ReplySchema_oneOf,.length=3}},
+};
+
+struct jsonObject LCS_ReplySchema = {LCS_ReplySchema_elements,.length=1};
+
 /********** MGET ********************/
 
 /* MGET history */
@@ -12268,6 +15446,43 @@ struct redisCommandArg MGET_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* MGET_ReplySchema_items_oneOf_0 reply schema */
+struct jsonObjectElement MGET_ReplySchema_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject MGET_ReplySchema_items_oneOf_0 = {MGET_ReplySchema_items_oneOf_0_elements,.length=1};
+
+/* MGET_ReplySchema_items_oneOf_1 reply schema */
+struct jsonObjectElement MGET_ReplySchema_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject MGET_ReplySchema_items_oneOf_1 = {MGET_ReplySchema_items_oneOf_1_elements,.length=1};
+
+/* MGET_ReplySchema_items_oneOf array reply schema */
+struct jsonObject *MGET_ReplySchema_items_oneOf[] = {
+&MGET_ReplySchema_items_oneOf_0,
+&MGET_ReplySchema_items_oneOf_1,
+};
+
+/* MGET_ReplySchema_items reply schema */
+struct jsonObjectElement MGET_ReplySchema_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=MGET_ReplySchema_items_oneOf,.length=2}},
+};
+
+struct jsonObject MGET_ReplySchema_items = {MGET_ReplySchema_items_elements,.length=1};
+
+/* MGET_ReplySchema reply schema */
+struct jsonObjectElement MGET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="List of values at the specified keys."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
+{JSON_TYPE_OBJECT,"items",.value.object=&MGET_ReplySchema_items},
+};
+
+struct jsonObject MGET_ReplySchema = {MGET_ReplySchema_elements,.length=4};
 
 /********** MSET ********************/
 
@@ -12294,6 +15509,13 @@ struct redisCommandArg MSET_Args[] = {
 {0}
 };
 
+/* MSET_ReplySchema reply schema */
+struct jsonObjectElement MSET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject MSET_ReplySchema = {MSET_ReplySchema_elements,.length=1};
+
 /********** MSETNX ********************/
 
 /* MSETNX history */
@@ -12318,6 +15540,35 @@ struct redisCommandArg MSETNX_Args[] = {
 {"data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=MSETNX_data_Subargs},
 {0}
 };
+
+/* MSETNX_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement MSETNX_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="No key was set (at least one key already existed)."},
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+};
+
+struct jsonObject MSETNX_ReplySchema_oneOf_0 = {MSETNX_ReplySchema_oneOf_0_elements,.length=2};
+
+/* MSETNX_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement MSETNX_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="All the keys were set."},
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+};
+
+struct jsonObject MSETNX_ReplySchema_oneOf_1 = {MSETNX_ReplySchema_oneOf_1_elements,.length=2};
+
+/* MSETNX_ReplySchema_oneOf array reply schema */
+struct jsonObject *MSETNX_ReplySchema_oneOf[] = {
+&MSETNX_ReplySchema_oneOf_0,
+&MSETNX_ReplySchema_oneOf_1,
+};
+
+/* MSETNX_ReplySchema reply schema */
+struct jsonObjectElement MSETNX_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=MSETNX_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject MSETNX_ReplySchema = {MSETNX_ReplySchema_elements,.length=1};
 
 /********** PSETEX ********************/
 
@@ -12439,6 +15690,13 @@ struct redisCommandArg SETEX_Args[] = {
 {0}
 };
 
+/* SETEX_ReplySchema reply schema */
+struct jsonObjectElement SETEX_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SETEX_ReplySchema = {SETEX_ReplySchema_elements,.length=1};
+
 /********** SETNX ********************/
 
 /* SETNX history */
@@ -12453,6 +15711,35 @@ struct redisCommandArg SETNX_Args[] = {
 {"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SETNX_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement SETNX_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The key was set."},
+{JSON_TYPE_INTEGER,"const",.value.integer=0},
+};
+
+struct jsonObject SETNX_ReplySchema_oneOf_0 = {SETNX_ReplySchema_oneOf_0_elements,.length=2};
+
+/* SETNX_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement SETNX_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The key was not set."},
+{JSON_TYPE_INTEGER,"const",.value.integer=1},
+};
+
+struct jsonObject SETNX_ReplySchema_oneOf_1 = {SETNX_ReplySchema_oneOf_1_elements,.length=2};
+
+/* SETNX_ReplySchema_oneOf array reply schema */
+struct jsonObject *SETNX_ReplySchema_oneOf[] = {
+&SETNX_ReplySchema_oneOf_0,
+&SETNX_ReplySchema_oneOf_1,
+};
+
+/* SETNX_ReplySchema reply schema */
+struct jsonObjectElement SETNX_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SETNX_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject SETNX_ReplySchema = {SETNX_ReplySchema_elements,.length=1};
 
 /********** SETRANGE ********************/
 
@@ -12470,6 +15757,15 @@ struct redisCommandArg SETRANGE_Args[] = {
 {0}
 };
 
+/* SETRANGE_ReplySchema reply schema */
+struct jsonObjectElement SETRANGE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Length of the string after it was modified by the command."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject SETRANGE_ReplySchema = {SETRANGE_ReplySchema_elements,.length=3};
+
 /********** STRLEN ********************/
 
 /* STRLEN history */
@@ -12483,6 +15779,15 @@ struct redisCommandArg STRLEN_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* STRLEN_ReplySchema reply schema */
+struct jsonObjectElement STRLEN_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The length of the string value stored at key, or 0 when key does not exist."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_INTEGER,"minimum",.value.integer=0},
+};
+
+struct jsonObject STRLEN_ReplySchema = {STRLEN_ReplySchema_elements,.length=3};
 
 /********** SUBSTR ********************/
 
@@ -12499,6 +15804,14 @@ struct redisCommandArg SUBSTR_Args[] = {
 {"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* SUBSTR_ReplySchema reply schema */
+struct jsonObjectElement SUBSTR_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The substring of the string value stored at key, determined by the offsets start and end (both are inclusive)."},
+};
+
+struct jsonObject SUBSTR_ReplySchema = {SUBSTR_ReplySchema_elements,.length=2};
 
 /********** DISCARD ********************/
 
@@ -12560,6 +15873,13 @@ struct jsonObject EXEC_ReplySchema = {EXEC_ReplySchema_elements,.length=1};
 /* MULTI tips */
 #define MULTI_tips NULL
 
+/* MULTI_ReplySchema reply schema */
+struct jsonObjectElement MULTI_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject MULTI_ReplySchema = {MULTI_ReplySchema_elements,.length=1};
+
 /********** UNWATCH ********************/
 
 /* UNWATCH history */
@@ -12589,6 +15909,13 @@ struct redisCommandArg WATCH_Args[] = {
 {0}
 };
 
+/* WATCH_ReplySchema reply schema */
+struct jsonObjectElement WATCH_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject WATCH_ReplySchema = {WATCH_ReplySchema_elements,.length=1};
+
 /* Main command table */
 struct redisCommand redisCommandTable[] = {
 /* bitmap */
@@ -12597,8 +15924,8 @@ struct redisCommand redisCommandTable[] = {
 {"bitfield_ro","Perform arbitrary bitfield integer operations on strings. Read-only variant of BITFIELD","O(1) for each subcommand specified","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITFIELD_RO_History,BITFIELD_RO_tips,bitfieldroCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITFIELD_RO_Args,.reply_schema=&BITFIELD_RO_ReplySchema},
 {"bitop","Perform bitwise operations between strings","O(N)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITOP_History,BITOP_tips,bitopCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=BITOP_Args,.reply_schema=&BITOP_ReplySchema},
 {"bitpos","Find first bit set or clear in a string","O(N)","2.8.7",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITPOS_History,BITPOS_tips,bitposCommand,-3,CMD_READONLY,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITPOS_Args,.reply_schema=&BITPOS_ReplySchema},
-{"getbit","Returns the bit value at offset in the string value stored at key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,GETBIT_History,GETBIT_tips,getbitCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETBIT_Args},
-{"setbit","Sets or clears the bit at offset in the string value stored at key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,SETBIT_History,SETBIT_tips,setbitCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETBIT_Args},
+{"getbit","Returns the bit value at offset in the string value stored at key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,GETBIT_History,GETBIT_tips,getbitCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETBIT_Args,.reply_schema=&GETBIT_ReplySchema},
+{"setbit","Sets or clears the bit at offset in the string value stored at key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,SETBIT_History,SETBIT_tips,setbitCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETBIT_Args,.reply_schema=&SETBIT_ReplySchema},
 /* cluster */
 {"asking","Sent by cluster clients after an -ASK redirect","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,ASKING_History,ASKING_tips,askingCommand,1,CMD_FAST,ACL_CATEGORY_CONNECTION,.reply_schema=&ASKING_ReplySchema},
 {"cluster","A container for cluster commands","Depends on subcommand.","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_History,CLUSTER_tips,NULL,-2,0,0,.subcommands=CLUSTER_Subcommands},
@@ -12608,7 +15935,7 @@ struct redisCommand redisCommandTable[] = {
 {"auth","Authenticate to the server","O(N) where N is the number of passwords defined for the user","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,AUTH_History,AUTH_tips,authCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,.args=AUTH_Args,.reply_schema=&AUTH_ReplySchema},
 {"client","A container for client connection commands","Depends on subcommand.","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_History,CLIENT_tips,NULL,-2,CMD_SENTINEL,0,.subcommands=CLIENT_Subcommands},
 {"echo","Echo the given string","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,ECHO_History,ECHO_tips,echoCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,.args=ECHO_Args},
-{"hello","Handshake with Redis","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,HELLO_History,HELLO_tips,helloCommand,-1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,.args=HELLO_Args},
+{"hello","Handshake with Redis","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,HELLO_History,HELLO_tips,helloCommand,-1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,.args=HELLO_Args,.reply_schema=&HELLO_ReplySchema},
 {"ping","Ping the server","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,PING_History,PING_tips,pingCommand,-1,CMD_FAST|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=PING_Args,.reply_schema=&PING_ReplySchema},
 {"quit","Close the connection","O(1)","1.0.0",CMD_DOC_DEPRECATED,"just closing the connection","7.2.0",COMMAND_GROUP_CONNECTION,QUIT_History,QUIT_tips,quitCommand,-1,CMD_ALLOW_BUSY|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH,ACL_CATEGORY_CONNECTION,.reply_schema=&QUIT_ReplySchema},
 {"reset","Reset the connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,RESET_History,RESET_tips,resetCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,.reply_schema=&RESET_ReplySchema},
@@ -12616,32 +15943,32 @@ struct redisCommand redisCommandTable[] = {
 /* generic */
 {"copy","Copy a key","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,COPY_History,COPY_tips,copyCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=COPY_Args,.reply_schema=&COPY_ReplySchema},
 {"del","Delete a key","O(N) where N is the number of keys that will be removed. When a key to remove holds a value other than a string, the individual complexity for this key is O(M) where M is the number of elements in the list, set, sorted set or hash. Removing a single key that holds a string value is O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,DEL_History,DEL_tips,delCommand,-2,CMD_WRITE,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RM|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=DEL_Args,.reply_schema=&DEL_ReplySchema},
-{"dump","Return a serialized version of the value stored at the specified key.","O(1) to access the key and additional O(N*M) to serialize it, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1).","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,DUMP_History,DUMP_tips,dumpCommand,2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DUMP_Args},
+{"dump","Return a serialized version of the value stored at the specified key.","O(1) to access the key and additional O(N*M) to serialize it, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1).","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,DUMP_History,DUMP_tips,dumpCommand,2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DUMP_Args,.reply_schema=&DUMP_ReplySchema},
 {"exists","Determine if a key exists","O(N) where N is the number of keys to check.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,EXISTS_History,EXISTS_tips,existsCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=EXISTS_Args,.reply_schema=&EXISTS_ReplySchema},
-{"expire","Set a key's time to live in seconds","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,EXPIRE_History,EXPIRE_tips,expireCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIRE_Args},
-{"expireat","Set the expiration for a key as a UNIX timestamp","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,EXPIREAT_History,EXPIREAT_tips,expireatCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIREAT_Args},
-{"expiretime","Get the expiration Unix timestamp for a key","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,EXPIRETIME_History,EXPIRETIME_tips,expiretimeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIRETIME_Args},
+{"expire","Set a key's time to live in seconds","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,EXPIRE_History,EXPIRE_tips,expireCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIRE_Args,.reply_schema=&EXPIRE_ReplySchema},
+{"expireat","Set the expiration for a key as a UNIX timestamp","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,EXPIREAT_History,EXPIREAT_tips,expireatCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIREAT_Args,.reply_schema=&EXPIREAT_ReplySchema},
+{"expiretime","Get the expiration Unix timestamp for a key","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,EXPIRETIME_History,EXPIRETIME_tips,expiretimeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIRETIME_Args,.reply_schema=&EXPIRETIME_ReplySchema},
 {"keys","Find all keys matching the given pattern","O(N) with N being the number of keys in the database, under the assumption that the key names in the database and the given pattern have limited length.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,KEYS_History,KEYS_tips,keysCommand,2,CMD_READONLY,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=KEYS_Args,.reply_schema=&KEYS_ReplySchema},
-{"migrate","Atomically transfer a key from a Redis instance to another one.","This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,MIGRATE_History,MIGRATE_tips,migrateCommand,-6,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE|CMD_KEY_INCOMPLETE,KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},migrateGetKeys,.args=MIGRATE_Args},
+{"migrate","Atomically transfer a key from a Redis instance to another one.","This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,MIGRATE_History,MIGRATE_tips,migrateCommand,-6,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE|CMD_KEY_INCOMPLETE,KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},migrateGetKeys,.args=MIGRATE_Args,.reply_schema=&MIGRATE_ReplySchema},
 {"move","Move a key to another database","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,MOVE_History,MOVE_tips,moveCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MOVE_Args,.reply_schema=&MOVE_ReplySchema},
 {"object","A container for object introspection commands","Depends on subcommand.","2.2.3",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,OBJECT_History,OBJECT_tips,NULL,-2,0,0,.subcommands=OBJECT_Subcommands},
-{"persist","Remove the expiration from a key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PERSIST_History,PERSIST_tips,persistCommand,2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PERSIST_Args},
-{"pexpire","Set a key's time to live in milliseconds","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PEXPIRE_History,PEXPIRE_tips,pexpireCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIRE_Args},
-{"pexpireat","Set the expiration for a key as a UNIX timestamp specified in milliseconds","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PEXPIREAT_History,PEXPIREAT_tips,pexpireatCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIREAT_Args},
-{"pexpiretime","Get the expiration Unix timestamp for a key in milliseconds","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PEXPIRETIME_History,PEXPIRETIME_tips,pexpiretimeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIRETIME_Args},
-{"pttl","Get the time to live for a key in milliseconds","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PTTL_History,PTTL_tips,pttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PTTL_Args},
+{"persist","Remove the expiration from a key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PERSIST_History,PERSIST_tips,persistCommand,2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PERSIST_Args,.reply_schema=&PERSIST_ReplySchema},
+{"pexpire","Set a key's time to live in milliseconds","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PEXPIRE_History,PEXPIRE_tips,pexpireCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIRE_Args,.reply_schema=&PEXPIRE_ReplySchema},
+{"pexpireat","Set the expiration for a key as a UNIX timestamp specified in milliseconds","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PEXPIREAT_History,PEXPIREAT_tips,pexpireatCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIREAT_Args,.reply_schema=&PEXPIREAT_ReplySchema},
+{"pexpiretime","Get the expiration Unix timestamp for a key in milliseconds","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PEXPIRETIME_History,PEXPIRETIME_tips,pexpiretimeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIRETIME_Args,.reply_schema=&PEXPIRETIME_ReplySchema},
+{"pttl","Get the time to live for a key in milliseconds","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PTTL_History,PTTL_tips,pttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PTTL_Args,.reply_schema=&PTTL_ReplySchema},
 {"randomkey","Return a random key from the keyspace","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RANDOMKEY_History,RANDOMKEY_tips,randomkeyCommand,1,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,.reply_schema=&RANDOMKEY_ReplySchema},
 {"rename","Rename a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RENAME_History,RENAME_tips,renameCommand,3,CMD_WRITE,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RENAME_Args,.reply_schema=&RENAME_ReplySchema},
 {"renamenx","Rename a key, only if the new key does not exist","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RENAMENX_History,RENAMENX_tips,renamenxCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RENAMENX_Args,.reply_schema=&RENAMENX_ReplySchema},
-{"restore","Create a key using the provided serialized value, previously obtained using DUMP.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RESTORE_History,RESTORE_tips,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RESTORE_Args},
-{"scan","Incrementally iterate the keys space","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SCAN_History,SCAN_tips,scanCommand,-2,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,.args=SCAN_Args},
+{"restore","Create a key using the provided serialized value, previously obtained using DUMP.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RESTORE_History,RESTORE_tips,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RESTORE_Args,.reply_schema=&RESTORE_ReplySchema},
+{"scan","Incrementally iterate the keys space","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SCAN_History,SCAN_tips,scanCommand,-2,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,.args=SCAN_Args,.reply_schema=&SCAN_ReplySchema},
 {"sort","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_History,SORT_tips,sortCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}},{"For the optional STORE keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortGetKeys,.args=SORT_Args,.reply_schema=&SORT_ReplySchema},
 {"sort_ro","Sort the elements in a list, set or sorted set. Read-only variant of SORT.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_RO_History,SORT_RO_tips,sortroCommand,-2,CMD_READONLY,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortROGetKeys,.args=SORT_RO_Args,.reply_schema=&SORT_RO_ReplySchema},
 {"touch","Alters the last access time of a key(s). Returns the number of existing keys specified.","O(N) where N is the number of keys that will be touched.","3.2.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TOUCH_History,TOUCH_tips,touchCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=TOUCH_Args,.reply_schema=&TOUCH_ReplySchema},
-{"ttl","Get the time to live for a key in seconds","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TTL_History,TTL_tips,ttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TTL_Args},
+{"ttl","Get the time to live for a key in seconds","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TTL_History,TTL_tips,ttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TTL_Args,.reply_schema=&TTL_ReplySchema},
 {"type","Determine the type stored at key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TYPE_History,TYPE_tips,typeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TYPE_Args,.reply_schema=&TYPE_ReplySchema},
 {"unlink","Delete a key asynchronously in another thread. Otherwise it is just as DEL, but non blocking.","O(1) for each key removed regardless of its size. Then the command does O(N) work in a different thread in order to reclaim memory, where N is the number of allocations the deleted objects where composed of.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,UNLINK_History,UNLINK_tips,unlinkCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RM|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=UNLINK_Args,.reply_schema=&UNLINK_ReplySchema},
-{"wait","Wait for the synchronous replication of all the write commands sent in the context of the current connection","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,WAIT_History,WAIT_tips,waitCommand,3,CMD_NOSCRIPT,ACL_CATEGORY_CONNECTION,.args=WAIT_Args},
+{"wait","Wait for the synchronous replication of all the write commands sent in the context of the current connection","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,WAIT_History,WAIT_tips,waitCommand,3,CMD_NOSCRIPT,ACL_CATEGORY_CONNECTION,.args=WAIT_Args,.reply_schema=&WAIT_ReplySchema},
 /* geo */
 {"geoadd","Add one or more geospatial items in the geospatial index represented using a sorted set","O(log(N)) for each item added, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GEO,GEOADD_History,GEOADD_tips,geoaddCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOADD_Args,.reply_schema=&GEOADD_ReplySchema},
 {"geodist","Returns the distance between two members of a geospatial index","O(log(N))","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GEO,GEODIST_History,GEODIST_tips,geodistCommand,-4,CMD_READONLY,ACL_CATEGORY_GEO,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEODIST_Args,.reply_schema=&GEODIST_ReplySchema},
@@ -12654,22 +15981,22 @@ struct redisCommand redisCommandTable[] = {
 {"geosearch","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GEO,GEOSEARCH_History,GEOSEARCH_tips,geosearchCommand,-7,CMD_READONLY,ACL_CATEGORY_GEO,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOSEARCH_Args,.reply_schema=&GEOSEARCH_ReplySchema},
 {"geosearchstore","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle, and store the result in another key.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GEO,GEOSEARCHSTORE_History,GEOSEARCHSTORE_tips,geosearchstoreCommand,-8,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOSEARCHSTORE_Args,.reply_schema=&GEOSEARCHSTORE_ReplySchema},
 /* hash */
-{"hdel","Delete one or more hash fields","O(N) where N is the number of fields to be removed.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HDEL_History,HDEL_tips,hdelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HDEL_Args},
-{"hexists","Determine if a hash field exists","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HEXISTS_History,HEXISTS_tips,hexistsCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HEXISTS_Args},
-{"hget","Get the value of a hash field","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HGET_History,HGET_tips,hgetCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HGET_Args},
+{"hdel","Delete one or more hash fields","O(N) where N is the number of fields to be removed.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HDEL_History,HDEL_tips,hdelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HDEL_Args,.reply_schema=&HDEL_ReplySchema},
+{"hexists","Determine if a hash field exists","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HEXISTS_History,HEXISTS_tips,hexistsCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HEXISTS_Args,.reply_schema=&HEXISTS_ReplySchema},
+{"hget","Get the value of a hash field","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HGET_History,HGET_tips,hgetCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HGET_Args,.reply_schema=&HGET_ReplySchema},
 {"hgetall","Get all the fields and values in a hash","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HGETALL_History,HGETALL_tips,hgetallCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HGETALL_Args,.reply_schema=&HGETALL_ReplySchema},
-{"hincrby","Increment the integer value of a hash field by the given number","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HINCRBY_History,HINCRBY_tips,hincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HINCRBY_Args},
-{"hincrbyfloat","Increment the float value of a hash field by the given amount","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HINCRBYFLOAT_History,HINCRBYFLOAT_tips,hincrbyfloatCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HINCRBYFLOAT_Args},
-{"hkeys","Get all the fields in a hash","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HKEYS_History,HKEYS_tips,hkeysCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HKEYS_Args},
-{"hlen","Get the number of fields in a hash","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HLEN_History,HLEN_tips,hlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HLEN_Args},
-{"hmget","Get the values of all the given hash fields","O(N) where N is the number of fields being requested.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HMGET_History,HMGET_tips,hmgetCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HMGET_Args},
-{"hmset","Set multiple hash fields to multiple values","O(N) where N is the number of fields being set.","2.0.0",CMD_DOC_DEPRECATED,"`HSET` with multiple field-value pairs","4.0.0",COMMAND_GROUP_HASH,HMSET_History,HMSET_tips,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HMSET_Args},
+{"hincrby","Increment the integer value of a hash field by the given number","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HINCRBY_History,HINCRBY_tips,hincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HINCRBY_Args,.reply_schema=&HINCRBY_ReplySchema},
+{"hincrbyfloat","Increment the float value of a hash field by the given amount","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HINCRBYFLOAT_History,HINCRBYFLOAT_tips,hincrbyfloatCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HINCRBYFLOAT_Args,.reply_schema=&HINCRBYFLOAT_ReplySchema},
+{"hkeys","Get all the fields in a hash","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HKEYS_History,HKEYS_tips,hkeysCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HKEYS_Args,.reply_schema=&HKEYS_ReplySchema},
+{"hlen","Get the number of fields in a hash","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HLEN_History,HLEN_tips,hlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HLEN_Args,.reply_schema=&HLEN_ReplySchema},
+{"hmget","Get the values of all the given hash fields","O(N) where N is the number of fields being requested.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HMGET_History,HMGET_tips,hmgetCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HMGET_Args,.reply_schema=&HMGET_ReplySchema},
+{"hmset","Set multiple hash fields to multiple values","O(N) where N is the number of fields being set.","2.0.0",CMD_DOC_DEPRECATED,"`HSET` with multiple field-value pairs","4.0.0",COMMAND_GROUP_HASH,HMSET_History,HMSET_tips,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HMSET_Args,.reply_schema=&HMSET_ReplySchema},
 {"hrandfield","Get one or multiple random fields from a hash","O(N) where N is the number of fields returned","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HRANDFIELD_History,HRANDFIELD_tips,hrandfieldCommand,-2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HRANDFIELD_Args,.reply_schema=&HRANDFIELD_ReplySchema},
-{"hscan","Incrementally iterate hash fields and associated values","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSCAN_History,HSCAN_tips,hscanCommand,-3,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSCAN_Args},
+{"hscan","Incrementally iterate hash fields and associated values","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSCAN_History,HSCAN_tips,hscanCommand,-3,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSCAN_Args,.reply_schema=&HSCAN_ReplySchema},
 {"hset","Set the string value of a hash field","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSET_History,HSET_tips,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSET_Args,.reply_schema=&HSET_ReplySchema},
-{"hsetnx","Set the value of a hash field, only if the field does not exist","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSETNX_History,HSETNX_tips,hsetnxCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSETNX_Args},
-{"hstrlen","Get the length of the value of a hash field","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSTRLEN_History,HSTRLEN_tips,hstrlenCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSTRLEN_Args},
-{"hvals","Get all the values in a hash","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HVALS_History,HVALS_tips,hvalsCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HVALS_Args},
+{"hsetnx","Set the value of a hash field, only if the field does not exist","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSETNX_History,HSETNX_tips,hsetnxCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSETNX_Args,.reply_schema=&HSETNX_ReplySchema},
+{"hstrlen","Get the length of the value of a hash field","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HSTRLEN_History,HSTRLEN_tips,hstrlenCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSTRLEN_Args,.reply_schema=&HSTRLEN_ReplySchema},
+{"hvals","Get all the values in a hash","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HVALS_History,HVALS_tips,hvalsCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HVALS_Args,.reply_schema=&HVALS_ReplySchema},
 /* hyperloglog */
 {"pfadd","Adds the specified elements to the specified HyperLogLog.","O(1) to add every element.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFADD_History,PFADD_tips,pfaddCommand,-2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HYPERLOGLOG,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PFADD_Args,.reply_schema=&PFADD_ReplySchema},
 {"pfcount","Return the approximated cardinality of the set(s) observed by the HyperLogLog at key(s).","O(1) with a very small average constant time when called with a single key. O(N) with N being the number of keys, and much bigger constant times, when called with multiple keys.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFCOUNT_History,PFCOUNT_tips,pfcountCommand,-2,CMD_READONLY|CMD_MAY_REPLICATE,ACL_CATEGORY_HYPERLOGLOG,{{"RW because it may change the internal representation of the key, and propagate to replicas",CMD_KEY_RW|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=PFCOUNT_Args,.reply_schema=&PFCOUNT_ReplySchema},
@@ -12681,7 +16008,7 @@ struct redisCommand redisCommandTable[] = {
 {"blmpop","Pop elements from a list, or block until one is available","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMPOP_History,BLMPOP_tips,blmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BLMPOP_Args,.reply_schema=&BLMPOP_ReplySchema},
 {"blpop","Remove and get the first element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLPOP_History,BLPOP_tips,blpopCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BLPOP_Args},
 {"brpop","Remove and get the last element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BRPOP_History,BRPOP_tips,brpopCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BRPOP_Args,.reply_schema=&BRPOP_ReplySchema},
-{"brpoplpush","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","2.2.0",CMD_DOC_DEPRECATED,"`BLMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0",COMMAND_GROUP_LIST,BRPOPLPUSH_History,BRPOPLPUSH_tips,brpoplpushCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BRPOPLPUSH_Args},
+{"brpoplpush","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","2.2.0",CMD_DOC_DEPRECATED,"`BLMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0",COMMAND_GROUP_LIST,BRPOPLPUSH_History,BRPOPLPUSH_tips,brpoplpushCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BRPOPLPUSH_Args,.reply_schema=&BRPOPLPUSH_ReplySchema},
 {"lindex","Get an element from a list by its index","O(N) where N is the number of elements to traverse to get to the element at index. This makes asking for the first or the last element of the list O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LINDEX_History,LINDEX_tips,lindexCommand,3,CMD_READONLY,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LINDEX_Args},
 {"linsert","Insert an element before or after another element in a list","O(N) where N is the number of elements to traverse before seeing the value pivot. This means that inserting somewhere on the left end on the list (head) can be considered O(1) and inserting somewhere on the right end (tail) is O(N).","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LINSERT_History,LINSERT_tips,linsertCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LINSERT_Args},
 {"llen","Get the length of a list","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LLEN_History,LLEN_tips,llenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LLEN_Args},
@@ -12689,16 +16016,16 @@ struct redisCommand redisCommandTable[] = {
 {"lmpop","Pop elements from a list","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LMPOP_History,LMPOP_tips,lmpopCommand,-4,CMD_WRITE,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},lmpopGetKeys,.args=LMPOP_Args},
 {"lpop","Remove and get the first elements in a list","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LPOP_History,LPOP_tips,lpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPOP_Args},
 {"lpos","Return the index of matching elements on a list","O(N) where N is the number of elements in the list, for the average case. When searching for elements near the head or the tail of the list, or when the MAXLEN option is provided, the command may run in constant time.","6.0.6",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LPOS_History,LPOS_tips,lposCommand,-3,CMD_READONLY,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPOS_Args},
-{"lpush","Prepend one or multiple elements to a list","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LPUSH_History,LPUSH_tips,lpushCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPUSH_Args},
+{"lpush","Prepend one or multiple elements to a list","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LPUSH_History,LPUSH_tips,lpushCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPUSH_Args,.reply_schema=&LPUSH_ReplySchema},
 {"lpushx","Prepend an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LPUSHX_History,LPUSHX_tips,lpushxCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPUSHX_Args},
 {"lrange","Get a range of elements from a list","O(S+N) where S is the distance of start offset from HEAD for small lists, from nearest end (HEAD or TAIL) for large lists; and N is the number of elements in the specified range.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LRANGE_History,LRANGE_tips,lrangeCommand,4,CMD_READONLY,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LRANGE_Args,.reply_schema=&LRANGE_ReplySchema},
 {"lrem","Remove elements from a list","O(N+M) where N is the length of the list and M is the number of elements removed.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LREM_History,LREM_tips,lremCommand,4,CMD_WRITE,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LREM_Args},
 {"lset","Set the value of an element in a list by its index","O(N) where N is the length of the list. Setting either the first or the last element of the list is O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LSET_History,LSET_tips,lsetCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LSET_Args},
-{"ltrim","Trim a list to the specified range","O(N) where N is the number of elements to be removed by the operation.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LTRIM_History,LTRIM_tips,ltrimCommand,4,CMD_WRITE,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LTRIM_Args},
-{"rpop","Remove and get the last elements in a list","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,RPOP_History,RPOP_tips,rpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPOP_Args},
-{"rpoplpush","Remove the last element in a list, prepend it to another list and return it","O(1)","1.2.0",CMD_DOC_DEPRECATED,"`LMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0",COMMAND_GROUP_LIST,RPOPLPUSH_History,RPOPLPUSH_tips,rpoplpushCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPOPLPUSH_Args},
-{"rpush","Append one or multiple elements to a list","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,RPUSH_History,RPUSH_tips,rpushCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPUSH_Args},
-{"rpushx","Append an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,RPUSHX_History,RPUSHX_tips,rpushxCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPUSHX_Args},
+{"ltrim","Trim a list to the specified range","O(N) where N is the number of elements to be removed by the operation.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LTRIM_History,LTRIM_tips,ltrimCommand,4,CMD_WRITE,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LTRIM_Args,.reply_schema=&LTRIM_ReplySchema},
+{"rpop","Remove and get the last elements in a list","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,RPOP_History,RPOP_tips,rpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPOP_Args,.reply_schema=&RPOP_ReplySchema},
+{"rpoplpush","Remove the last element in a list, prepend it to another list and return it","O(1)","1.2.0",CMD_DOC_DEPRECATED,"`LMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0",COMMAND_GROUP_LIST,RPOPLPUSH_History,RPOPLPUSH_tips,rpoplpushCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPOPLPUSH_Args,.reply_schema=&RPOPLPUSH_ReplySchema},
+{"rpush","Append one or multiple elements to a list","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,RPUSH_History,RPUSH_tips,rpushCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPUSH_Args,.reply_schema=&RPUSH_ReplySchema},
+{"rpushx","Append an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,RPUSHX_History,RPUSHX_tips,rpushxCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPUSHX_Args,.reply_schema=&RPUSHX_ReplySchema},
 /* pubsub */
 {"psubscribe","Listen for messages published to channels matching the given patterns","O(N) where N is the number of patterns the client is already subscribed to.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PSUBSCRIBE_History,PSUBSCRIBE_tips,psubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=PSUBSCRIBE_Args},
 {"publish","Post a message to a channel","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBLISH_History,PUBLISH_tips,publishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE|CMD_SENTINEL,0,.args=PUBLISH_Args},
@@ -12728,13 +16055,13 @@ struct redisCommand redisCommandTable[] = {
 {"config","A container for server configuration commands","Depends on subcommand.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_History,CONFIG_tips,NULL,-2,0,0,.subcommands=CONFIG_Subcommands},
 {"dbsize","Return the number of keys in the selected database","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,DBSIZE_History,DBSIZE_tips,dbsizeCommand,1,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,.reply_schema=&DBSIZE_ReplySchema},
 {"debug","A container for debugging commands","Depends on subcommand.","1.0.0",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_SERVER,DEBUG_History,DEBUG_tips,debugCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_PROTECTED,0},
-{"failover","Start a coordinated failover between this server and one of its replicas.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FAILOVER_History,FAILOVER_tips,failoverCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=FAILOVER_Args},
+{"failover","Start a coordinated failover between this server and one of its replicas.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FAILOVER_History,FAILOVER_tips,failoverCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=FAILOVER_Args,.reply_schema=&FAILOVER_ReplySchema},
 {"flushall","Remove all keys from all databases","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FLUSHALL_History,FLUSHALL_tips,flushallCommand,-1,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=FLUSHALL_Args,.reply_schema=&FLUSHALL_ReplySchema},
-{"flushdb","Remove all keys from the current database","O(N) where N is the number of keys in the selected database","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FLUSHDB_History,FLUSHDB_tips,flushdbCommand,-1,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=FLUSHDB_Args},
+{"flushdb","Remove all keys from the current database","O(N) where N is the number of keys in the selected database","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FLUSHDB_History,FLUSHDB_tips,flushdbCommand,-1,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=FLUSHDB_Args,.reply_schema=&FLUSHDB_ReplySchema},
 {"info","Get information and statistics about the server","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,INFO_History,INFO_tips,infoCommand,-1,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_DANGEROUS,.args=INFO_Args,.reply_schema=&INFO_ReplySchema},
-{"lastsave","Get the UNIX time stamp of the last successful save to disk","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LASTSAVE_History,LASTSAVE_tips,lastsaveCommand,1,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS},
+{"lastsave","Get the UNIX time stamp of the last successful save to disk","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LASTSAVE_History,LASTSAVE_tips,lastsaveCommand,1,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS,.reply_schema=&LASTSAVE_ReplySchema},
 {"latency","A container for latency diagnostics commands","Depends on subcommand.","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_History,LATENCY_tips,NULL,-2,0,0,.subcommands=LATENCY_Subcommands},
-{"lolwut","Display some computer art and the Redis version",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LOLWUT_History,LOLWUT_tips,lolwutCommand,-1,CMD_READONLY|CMD_FAST,0,.args=LOLWUT_Args},
+{"lolwut","Display some computer art and the Redis version",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LOLWUT_History,LOLWUT_tips,lolwutCommand,-1,CMD_READONLY|CMD_FAST,0,.args=LOLWUT_Args,.reply_schema=&LOLWUT_ReplySchema},
 {"memory","A container for memory diagnostics commands","Depends on subcommand.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_History,MEMORY_tips,NULL,-2,0,0,.subcommands=MEMORY_Subcommands},
 {"module","A container for module commands","Depends on subcommand.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_History,MODULE_tips,NULL,-2,0,0,.subcommands=MODULE_Subcommands},
 {"monitor","Listen for all requests received by the server in real time",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MONITOR_History,MONITOR_tips,monitorCommand,1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
@@ -12749,25 +16076,25 @@ struct redisCommand redisCommandTable[] = {
 {"slowlog","A container for slow log commands","Depends on subcommand.","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_History,SLOWLOG_tips,NULL,-2,0,0,.subcommands=SLOWLOG_Subcommands},
 {"swapdb","Swaps two Redis databases","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SWAPDB_History,SWAPDB_tips,swapdbCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=SWAPDB_Args,.reply_schema=&SWAPDB_ReplySchema},
 {"sync","Internal command used for replication",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SYNC_History,SYNC_tips,syncCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NO_MULTI|CMD_NOSCRIPT,0},
-{"time","Return the current server time","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,TIME_History,TIME_tips,timeCommand,1,CMD_LOADING|CMD_STALE|CMD_FAST,0},
+{"time","Return the current server time","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,TIME_History,TIME_tips,timeCommand,1,CMD_LOADING|CMD_STALE|CMD_FAST,0,.reply_schema=&TIME_ReplySchema},
 /* set */
 {"sadd","Add one or more members to a set","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SADD_History,SADD_tips,saddCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SADD_Args,.reply_schema=&SADD_ReplySchema},
-{"scard","Get the number of members in a set","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SCARD_History,SCARD_tips,scardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SCARD_Args},
-{"sdiff","Subtract multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SDIFF_History,SDIFF_tips,sdiffCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SDIFF_Args},
-{"sdiffstore","Subtract multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SDIFFSTORE_History,SDIFFSTORE_tips,sdiffstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SDIFFSTORE_Args},
-{"sinter","Intersect multiple sets","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SINTER_History,SINTER_tips,sinterCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SINTER_Args},
-{"sintercard","Intersect multiple sets and return the cardinality of the result","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SINTERCARD_History,SINTERCARD_tips,sinterCardCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},sintercardGetKeys,.args=SINTERCARD_Args},
-{"sinterstore","Intersect multiple sets and store the resulting set in a key","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SINTERSTORE_History,SINTERSTORE_tips,sinterstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SINTERSTORE_Args},
-{"sismember","Determine if a given value is a member of a set","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SISMEMBER_History,SISMEMBER_tips,sismemberCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SISMEMBER_Args},
-{"smembers","Get all the members in a set","O(N) where N is the set cardinality.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SMEMBERS_History,SMEMBERS_tips,sinterCommand,2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SMEMBERS_Args},
-{"smismember","Returns the membership associated with the given elements for a set","O(N) where N is the number of elements being checked for membership","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SMISMEMBER_History,SMISMEMBER_tips,smismemberCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SMISMEMBER_Args},
-{"smove","Move a member from one set to another","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SMOVE_History,SMOVE_tips,smoveCommand,4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SMOVE_Args},
-{"spop","Remove and return one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the value of the passed count.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SPOP_History,SPOP_tips,spopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SPOP_Args},
+{"scard","Get the number of members in a set","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SCARD_History,SCARD_tips,scardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SCARD_Args,.reply_schema=&SCARD_ReplySchema},
+{"sdiff","Subtract multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SDIFF_History,SDIFF_tips,sdiffCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SDIFF_Args,.reply_schema=&SDIFF_ReplySchema},
+{"sdiffstore","Subtract multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SDIFFSTORE_History,SDIFFSTORE_tips,sdiffstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SDIFFSTORE_Args,.reply_schema=&SDIFFSTORE_ReplySchema},
+{"sinter","Intersect multiple sets","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SINTER_History,SINTER_tips,sinterCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SINTER_Args,.reply_schema=&SINTER_ReplySchema},
+{"sintercard","Intersect multiple sets and return the cardinality of the result","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SINTERCARD_History,SINTERCARD_tips,sinterCardCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},sintercardGetKeys,.args=SINTERCARD_Args,.reply_schema=&SINTERCARD_ReplySchema},
+{"sinterstore","Intersect multiple sets and store the resulting set in a key","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SINTERSTORE_History,SINTERSTORE_tips,sinterstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SINTERSTORE_Args,.reply_schema=&SINTERSTORE_ReplySchema},
+{"sismember","Determine if a given value is a member of a set","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SISMEMBER_History,SISMEMBER_tips,sismemberCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SISMEMBER_Args,.reply_schema=&SISMEMBER_ReplySchema},
+{"smembers","Get all the members in a set","O(N) where N is the set cardinality.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SMEMBERS_History,SMEMBERS_tips,sinterCommand,2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SMEMBERS_Args,.reply_schema=&SMEMBERS_ReplySchema},
+{"smismember","Returns the membership associated with the given elements for a set","O(N) where N is the number of elements being checked for membership","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SMISMEMBER_History,SMISMEMBER_tips,smismemberCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SMISMEMBER_Args,.reply_schema=&SMISMEMBER_ReplySchema},
+{"smove","Move a member from one set to another","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SMOVE_History,SMOVE_tips,smoveCommand,4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SMOVE_Args,.reply_schema=&SMOVE_ReplySchema},
+{"spop","Remove and return one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the value of the passed count.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SPOP_History,SPOP_tips,spopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SPOP_Args,.reply_schema=&SPOP_ReplySchema},
 {"srandmember","Get one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the absolute value of the passed count.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SRANDMEMBER_History,SRANDMEMBER_tips,srandmemberCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SRANDMEMBER_Args,.reply_schema=&SRANDMEMBER_ReplySchema},
-{"srem","Remove one or more members from a set","O(N) where N is the number of members to be removed.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SREM_History,SREM_tips,sremCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SREM_Args},
-{"sscan","Incrementally iterate Set elements","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SSCAN_History,SSCAN_tips,sscanCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SSCAN_Args},
-{"sunion","Add multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SUNION_History,SUNION_tips,sunionCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNION_Args},
-{"sunionstore","Add multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SUNIONSTORE_History,SUNIONSTORE_tips,sunionstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNIONSTORE_Args},
+{"srem","Remove one or more members from a set","O(N) where N is the number of members to be removed.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SREM_History,SREM_tips,sremCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SREM_Args,.reply_schema=&SREM_ReplySchema},
+{"sscan","Incrementally iterate Set elements","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SSCAN_History,SSCAN_tips,sscanCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SSCAN_Args,.reply_schema=&SSCAN_ReplySchema},
+{"sunion","Add multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SUNION_History,SUNION_tips,sunionCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNION_Args,.reply_schema=&SUNION_ReplySchema},
+{"sunionstore","Add multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SUNIONSTORE_History,SUNIONSTORE_tips,sunionstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNIONSTORE_Args,.reply_schema=&SUNIONSTORE_ReplySchema},
 /* sorted_set */
 {"bzmpop","Remove and return members with scores in a sorted set or block until one is available","O(K) + O(M*log(N)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZMPOP_History,BZMPOP_tips,bzmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BZMPOP_Args,.reply_schema=&BZMPOP_ReplySchema},
 {"bzpopmax","Remove and return the member with the highest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZPOPMAX_History,BZPOPMAX_tips,bzpopmaxCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BZPOPMAX_Args,.reply_schema=&BZPOPMAX_ReplySchema},
@@ -12779,31 +16106,31 @@ struct redisCommand redisCommandTable[] = {
 {"zdiffstore","Subtract multiple sorted sets and store the resulting sorted set in a new key","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZDIFFSTORE_History,ZDIFFSTORE_tips,zdiffstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZDIFFSTORE_Args,.reply_schema=&ZDIFFSTORE_ReplySchema},
 {"zincrby","Increment the score of a member in a sorted set","O(log(N)) where N is the number of elements in the sorted set.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZINCRBY_History,ZINCRBY_tips,zincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZINCRBY_Args,.reply_schema=&ZINCRBY_ReplySchema},
 {"zinter","Intersect multiple sorted sets","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZINTER_History,ZINTER_tips,zinterCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZINTER_Args,.reply_schema=&ZINTER_ReplySchema},
-{"zintercard","Intersect multiple sorted sets and return the cardinality of the result","O(N*K) worst case with N being the smallest input sorted set, K being the number of input sorted sets.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZINTERCARD_History,ZINTERCARD_tips,zinterCardCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZINTERCARD_Args},
-{"zinterstore","Intersect multiple sorted sets and store the resulting sorted set in a new key","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZINTERSTORE_History,ZINTERSTORE_tips,zinterstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZINTERSTORE_Args},
-{"zlexcount","Count the number of members in a sorted set between a given lexicographical range","O(log(N)) with N being the number of elements in the sorted set.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZLEXCOUNT_History,ZLEXCOUNT_tips,zlexcountCommand,4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZLEXCOUNT_Args},
-{"zmpop","Remove and return members with scores in a sorted set","O(K) + O(M*log(N)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZMPOP_History,ZMPOP_tips,zmpopCommand,-4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zmpopGetKeys,.args=ZMPOP_Args},
-{"zmscore","Get the score associated with the given members in a sorted set","O(N) where N is the number of members being requested.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZMSCORE_History,ZMSCORE_tips,zmscoreCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZMSCORE_Args},
-{"zpopmax","Remove and return members with the highest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZPOPMAX_History,ZPOPMAX_tips,zpopmaxCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZPOPMAX_Args},
-{"zpopmin","Remove and return members with the lowest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZPOPMIN_History,ZPOPMIN_tips,zpopminCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZPOPMIN_Args},
-{"zrandmember","Get one or multiple random elements from a sorted set","O(N) where N is the number of elements returned","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANDMEMBER_History,ZRANDMEMBER_tips,zrandmemberCommand,-2,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANDMEMBER_Args},
+{"zintercard","Intersect multiple sorted sets and return the cardinality of the result","O(N*K) worst case with N being the smallest input sorted set, K being the number of input sorted sets.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZINTERCARD_History,ZINTERCARD_tips,zinterCardCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZINTERCARD_Args,.reply_schema=&ZINTERCARD_ReplySchema},
+{"zinterstore","Intersect multiple sorted sets and store the resulting sorted set in a new key","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZINTERSTORE_History,ZINTERSTORE_tips,zinterstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZINTERSTORE_Args,.reply_schema=&ZINTERSTORE_ReplySchema},
+{"zlexcount","Count the number of members in a sorted set between a given lexicographical range","O(log(N)) with N being the number of elements in the sorted set.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZLEXCOUNT_History,ZLEXCOUNT_tips,zlexcountCommand,4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZLEXCOUNT_Args,.reply_schema=&ZLEXCOUNT_ReplySchema},
+{"zmpop","Remove and return members with scores in a sorted set","O(K) + O(M*log(N)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZMPOP_History,ZMPOP_tips,zmpopCommand,-4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zmpopGetKeys,.args=ZMPOP_Args,.reply_schema=&ZMPOP_ReplySchema},
+{"zmscore","Get the score associated with the given members in a sorted set","O(N) where N is the number of members being requested.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZMSCORE_History,ZMSCORE_tips,zmscoreCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZMSCORE_Args,.reply_schema=&ZMSCORE_ReplySchema},
+{"zpopmax","Remove and return members with the highest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZPOPMAX_History,ZPOPMAX_tips,zpopmaxCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZPOPMAX_Args,.reply_schema=&ZPOPMAX_ReplySchema},
+{"zpopmin","Remove and return members with the lowest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZPOPMIN_History,ZPOPMIN_tips,zpopminCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZPOPMIN_Args,.reply_schema=&ZPOPMIN_ReplySchema},
+{"zrandmember","Get one or multiple random elements from a sorted set","O(N) where N is the number of elements returned","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANDMEMBER_History,ZRANDMEMBER_tips,zrandmemberCommand,-2,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANDMEMBER_Args,.reply_schema=&ZRANDMEMBER_ReplySchema},
 {"zrange","Return a range of members in a sorted set","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANGE_History,ZRANGE_tips,zrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGE_Args,.reply_schema=&ZRANGE_ReplySchema},
-{"zrangebylex","Return a range of members in a sorted set, by lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",CMD_DOC_DEPRECATED,"`ZRANGE` with the `BYLEX` argument","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANGEBYLEX_History,ZRANGEBYLEX_tips,zrangebylexCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGEBYLEX_Args},
-{"zrangebyscore","Return a range of members in a sorted set, by score","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","1.0.5",CMD_DOC_DEPRECATED,"`ZRANGE` with the `BYSCORE` argument","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANGEBYSCORE_History,ZRANGEBYSCORE_tips,zrangebyscoreCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGEBYSCORE_Args},
-{"zrangestore","Store a range of members from sorted set into another key","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements stored into the destination key.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANGESTORE_History,ZRANGESTORE_tips,zrangestoreCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGESTORE_Args},
-{"zrank","Determine the index of a member in a sorted set","O(log(N))","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANK_History,ZRANK_tips,zrankCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANK_Args},
-{"zrem","Remove one or more members from a sorted set","O(M*log(N)) with N being the number of elements in the sorted set and M the number of elements to be removed.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREM_History,ZREM_tips,zremCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREM_Args},
-{"zremrangebylex","Remove all members in a sorted set between the given lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREMRANGEBYLEX_History,ZREMRANGEBYLEX_tips,zremrangebylexCommand,4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREMRANGEBYLEX_Args},
-{"zremrangebyrank","Remove all members in a sorted set within the given indexes","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREMRANGEBYRANK_History,ZREMRANGEBYRANK_tips,zremrangebyrankCommand,4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREMRANGEBYRANK_Args},
-{"zremrangebyscore","Remove all members in a sorted set within the given scores","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREMRANGEBYSCORE_History,ZREMRANGEBYSCORE_tips,zremrangebyscoreCommand,4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREMRANGEBYSCORE_Args},
-{"zrevrange","Return a range of members in a sorted set, by index, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",CMD_DOC_DEPRECATED,"`ZRANGE` with the `REV` argument","6.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGE_History,ZREVRANGE_tips,zrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGE_Args},
-{"zrevrangebylex","Return a range of members in a sorted set, by lexicographical range, ordered from higher to lower strings.","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",CMD_DOC_DEPRECATED,"`ZRANGE` with the `REV` and `BYLEX` arguments","6.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYLEX_History,ZREVRANGEBYLEX_tips,zrevrangebylexCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGEBYLEX_Args},
-{"zrevrangebyscore","Return a range of members in a sorted set, by score, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.2.0",CMD_DOC_DEPRECATED,"`ZRANGE` with the `REV` and `BYSCORE` arguments","6.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYSCORE_History,ZREVRANGEBYSCORE_tips,zrevrangebyscoreCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGEBYSCORE_Args},
-{"zrevrank","Determine the index of a member in a sorted set, with scores ordered from high to low","O(log(N))","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREVRANK_History,ZREVRANK_tips,zrevrankCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANK_Args},
-{"zscan","Incrementally iterate sorted sets elements and associated scores","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZSCAN_History,ZSCAN_tips,zscanCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZSCAN_Args},
-{"zscore","Get the score associated with the given member in a sorted set","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZSCORE_History,ZSCORE_tips,zscoreCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZSCORE_Args},
-{"zunion","Add multiple sorted sets","O(N)+O(M*log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZUNION_History,ZUNION_tips,zunionCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZUNION_Args},
-{"zunionstore","Add multiple sorted sets and store the resulting sorted set in a new key","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_History,ZUNIONSTORE_tips,zunionstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZUNIONSTORE_Args},
+{"zrangebylex","Return a range of members in a sorted set, by lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",CMD_DOC_DEPRECATED,"`ZRANGE` with the `BYLEX` argument","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANGEBYLEX_History,ZRANGEBYLEX_tips,zrangebylexCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGEBYLEX_Args,.reply_schema=&ZRANGEBYLEX_ReplySchema},
+{"zrangebyscore","Return a range of members in a sorted set, by score","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","1.0.5",CMD_DOC_DEPRECATED,"`ZRANGE` with the `BYSCORE` argument","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANGEBYSCORE_History,ZRANGEBYSCORE_tips,zrangebyscoreCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGEBYSCORE_Args,.reply_schema=&ZRANGEBYSCORE_ReplySchema},
+{"zrangestore","Store a range of members from sorted set into another key","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements stored into the destination key.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANGESTORE_History,ZRANGESTORE_tips,zrangestoreCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGESTORE_Args,.reply_schema=&ZRANGESTORE_ReplySchema},
+{"zrank","Determine the index of a member in a sorted set","O(log(N))","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANK_History,ZRANK_tips,zrankCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANK_Args,.reply_schema=&ZRANK_ReplySchema},
+{"zrem","Remove one or more members from a sorted set","O(M*log(N)) with N being the number of elements in the sorted set and M the number of elements to be removed.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREM_History,ZREM_tips,zremCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREM_Args,.reply_schema=&ZREM_ReplySchema},
+{"zremrangebylex","Remove all members in a sorted set between the given lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREMRANGEBYLEX_History,ZREMRANGEBYLEX_tips,zremrangebylexCommand,4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREMRANGEBYLEX_Args,.reply_schema=&ZREMRANGEBYLEX_ReplySchema},
+{"zremrangebyrank","Remove all members in a sorted set within the given indexes","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREMRANGEBYRANK_History,ZREMRANGEBYRANK_tips,zremrangebyrankCommand,4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREMRANGEBYRANK_Args,.reply_schema=&ZREMRANGEBYRANK_ReplySchema},
+{"zremrangebyscore","Remove all members in a sorted set within the given scores","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREMRANGEBYSCORE_History,ZREMRANGEBYSCORE_tips,zremrangebyscoreCommand,4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREMRANGEBYSCORE_Args,.reply_schema=&ZREMRANGEBYSCORE_ReplySchema},
+{"zrevrange","Return a range of members in a sorted set, by index, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",CMD_DOC_DEPRECATED,"`ZRANGE` with the `REV` argument","6.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGE_History,ZREVRANGE_tips,zrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGE_Args,.reply_schema=&ZREVRANGE_ReplySchema},
+{"zrevrangebylex","Return a range of members in a sorted set, by lexicographical range, ordered from higher to lower strings.","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",CMD_DOC_DEPRECATED,"`ZRANGE` with the `REV` and `BYLEX` arguments","6.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYLEX_History,ZREVRANGEBYLEX_tips,zrevrangebylexCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGEBYLEX_Args,.reply_schema=&ZREVRANGEBYLEX_ReplySchema},
+{"zrevrangebyscore","Return a range of members in a sorted set, by score, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.2.0",CMD_DOC_DEPRECATED,"`ZRANGE` with the `REV` and `BYSCORE` arguments","6.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYSCORE_History,ZREVRANGEBYSCORE_tips,zrevrangebyscoreCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGEBYSCORE_Args,.reply_schema=&ZREVRANGEBYSCORE_ReplySchema},
+{"zrevrank","Determine the index of a member in a sorted set, with scores ordered from high to low","O(log(N))","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZREVRANK_History,ZREVRANK_tips,zrevrankCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANK_Args,.reply_schema=&ZREVRANK_ReplySchema},
+{"zscan","Incrementally iterate sorted sets elements and associated scores","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZSCAN_History,ZSCAN_tips,zscanCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZSCAN_Args,.reply_schema=&ZSCAN_ReplySchema},
+{"zscore","Get the score associated with the given member in a sorted set","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZSCORE_History,ZSCORE_tips,zscoreCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZSCORE_Args,.reply_schema=&ZSCORE_ReplySchema},
+{"zunion","Add multiple sorted sets","O(N)+O(M*log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZUNION_History,ZUNION_tips,zunionCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZUNION_Args,.reply_schema=&ZUNION_ReplySchema},
+{"zunionstore","Add multiple sorted sets and store the resulting sorted set in a new key","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_History,ZUNIONSTORE_tips,zunionstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZUNIONSTORE_Args,.reply_schema=&ZUNIONSTORE_ReplySchema},
 /* stream */
 {"xack","Marks a pending message as correctly processed, effectively removing it from the pending entries list of the consumer group. Return value of the command is the number of messages successfully acknowledged, that is, the IDs we were actually able to resolve in the PEL.","O(1) for each message ID processed.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XACK_History,XACK_tips,xackCommand,-4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XACK_Args,.reply_schema=&XACK_ReplySchema},
 {"xadd","Appends a new entry to a stream","O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XADD_History,XADD_tips,xaddCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,{{"UPDATE instead of INSERT because of the optional trimming feature",CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XADD_Args,.reply_schema=&XADD_ReplySchema},
@@ -12823,31 +16150,31 @@ struct redisCommand redisCommandTable[] = {
 /* string */
 {"append","Append a value to a key","O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,APPEND_History,APPEND_tips,appendCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=APPEND_Args,.reply_schema=&APPEND_ReplySchema},
 {"decr","Decrement the integer value of a key by one","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,DECR_History,DECR_tips,decrCommand,2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DECR_Args},
-{"decrby","Decrement the integer value of a key by the given number","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,DECRBY_History,DECRBY_tips,decrbyCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DECRBY_Args},
-{"get","Get the value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,GET_History,GET_tips,getCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GET_Args},
-{"getdel","Get the value of a key and delete the key","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,GETDEL_History,GETDEL_tips,getdelCommand,2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETDEL_Args},
-{"getex","Get the value of a key and optionally set its expiration","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,GETEX_History,GETEX_tips,getexCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STRING,{{"RW and UPDATE because it changes the TTL",CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETEX_Args},
-{"getrange","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,GETRANGE_History,GETRANGE_tips,getrangeCommand,4,CMD_READONLY,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETRANGE_Args},
-{"getset","Set the string value of a key and return its old value","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`SET` with the `!GET` argument","6.2.0",COMMAND_GROUP_STRING,GETSET_History,GETSET_tips,getsetCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETSET_Args},
+{"decrby","Decrement the integer value of a key by the given number","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,DECRBY_History,DECRBY_tips,decrbyCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DECRBY_Args,.reply_schema=&DECRBY_ReplySchema},
+{"get","Get the value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,GET_History,GET_tips,getCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GET_Args,.reply_schema=&GET_ReplySchema},
+{"getdel","Get the value of a key and delete the key","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,GETDEL_History,GETDEL_tips,getdelCommand,2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETDEL_Args,.reply_schema=&GETDEL_ReplySchema},
+{"getex","Get the value of a key and optionally set its expiration","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,GETEX_History,GETEX_tips,getexCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STRING,{{"RW and UPDATE because it changes the TTL",CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETEX_Args,.reply_schema=&GETEX_ReplySchema},
+{"getrange","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,GETRANGE_History,GETRANGE_tips,getrangeCommand,4,CMD_READONLY,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETRANGE_Args,.reply_schema=&GETRANGE_ReplySchema},
+{"getset","Set the string value of a key and return its old value","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`SET` with the `!GET` argument","6.2.0",COMMAND_GROUP_STRING,GETSET_History,GETSET_tips,getsetCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETSET_Args,.reply_schema=&GETSET_ReplySchema},
 {"incr","Increment the integer value of a key by one","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,INCR_History,INCR_tips,incrCommand,2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=INCR_Args,.reply_schema=&INCR_ReplySchema},
-{"incrby","Increment the integer value of a key by the given amount","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,INCRBY_History,INCRBY_tips,incrbyCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=INCRBY_Args},
-{"incrbyfloat","Increment the float value of a key by the given amount","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,INCRBYFLOAT_History,INCRBYFLOAT_tips,incrbyfloatCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=INCRBYFLOAT_Args},
-{"lcs","Find longest common substring","O(N*M) where N and M are the lengths of s1 and s2, respectively","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,LCS_History,LCS_tips,lcsCommand,-3,CMD_READONLY,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={1,1,0}}},.args=LCS_Args},
-{"mget","Get the values of all the given keys","O(N) where N is the number of keys to retrieve.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,MGET_History,MGET_tips,mgetCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=MGET_Args},
-{"mset","Set multiple keys to multiple values","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,MSET_History,MSET_tips,msetCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}},.args=MSET_Args},
-{"msetnx","Set multiple keys to multiple values, only if none of the keys exist","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,MSETNX_History,MSETNX_tips,msetnxCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}},.args=MSETNX_Args},
+{"incrby","Increment the integer value of a key by the given amount","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,INCRBY_History,INCRBY_tips,incrbyCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=INCRBY_Args,.reply_schema=&INCRBY_ReplySchema},
+{"incrbyfloat","Increment the float value of a key by the given amount","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,INCRBYFLOAT_History,INCRBYFLOAT_tips,incrbyfloatCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=INCRBYFLOAT_Args,.reply_schema=&INCRBYFLOAT_ReplySchema},
+{"lcs","Find longest common substring","O(N*M) where N and M are the lengths of s1 and s2, respectively","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,LCS_History,LCS_tips,lcsCommand,-3,CMD_READONLY,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={1,1,0}}},.args=LCS_Args,.reply_schema=&LCS_ReplySchema},
+{"mget","Get the values of all the given keys","O(N) where N is the number of keys to retrieve.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,MGET_History,MGET_tips,mgetCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=MGET_Args,.reply_schema=&MGET_ReplySchema},
+{"mset","Set multiple keys to multiple values","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,MSET_History,MSET_tips,msetCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}},.args=MSET_Args,.reply_schema=&MSET_ReplySchema},
+{"msetnx","Set multiple keys to multiple values, only if none of the keys exist","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,MSETNX_History,MSETNX_tips,msetnxCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}},.args=MSETNX_Args,.reply_schema=&MSETNX_ReplySchema},
 {"psetex","Set the value and expiration in milliseconds of a key","O(1)","2.6.0",CMD_DOC_DEPRECATED,"`SET` with the `PX` argument","2.6.12",COMMAND_GROUP_STRING,PSETEX_History,PSETEX_tips,psetexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PSETEX_Args},
 {"set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SET_History,SET_tips,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{"RW and ACCESS due to the optional `GET` argument",CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE|CMD_KEY_VARIABLE_FLAGS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},setGetKeys,.args=SET_Args,.reply_schema=&SET_ReplySchema},
-{"setex","Set the value and expiration of a key","O(1)","2.0.0",CMD_DOC_DEPRECATED,"`SET` with the `EX` argument","2.6.12",COMMAND_GROUP_STRING,SETEX_History,SETEX_tips,setexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETEX_Args},
-{"setnx","Set the value of a key, only if the key does not exist","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`SET` with the `NX` argument","2.6.12",COMMAND_GROUP_STRING,SETNX_History,SETNX_tips,setnxCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETNX_Args},
-{"setrange","Overwrite part of a string at key starting at the specified offset","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SETRANGE_History,SETRANGE_tips,setrangeCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETRANGE_Args},
-{"strlen","Get the length of the value stored in a key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,STRLEN_History,STRLEN_tips,strlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=STRLEN_Args},
-{"substr","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","1.0.0",CMD_DOC_DEPRECATED,"`GETRANGE`","2.0.0",COMMAND_GROUP_STRING,SUBSTR_History,SUBSTR_tips,getrangeCommand,4,CMD_READONLY,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SUBSTR_Args},
+{"setex","Set the value and expiration of a key","O(1)","2.0.0",CMD_DOC_DEPRECATED,"`SET` with the `EX` argument","2.6.12",COMMAND_GROUP_STRING,SETEX_History,SETEX_tips,setexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETEX_Args,.reply_schema=&SETEX_ReplySchema},
+{"setnx","Set the value of a key, only if the key does not exist","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`SET` with the `NX` argument","2.6.12",COMMAND_GROUP_STRING,SETNX_History,SETNX_tips,setnxCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETNX_Args,.reply_schema=&SETNX_ReplySchema},
+{"setrange","Overwrite part of a string at key starting at the specified offset","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SETRANGE_History,SETRANGE_tips,setrangeCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETRANGE_Args,.reply_schema=&SETRANGE_ReplySchema},
+{"strlen","Get the length of the value stored in a key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,STRLEN_History,STRLEN_tips,strlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=STRLEN_Args,.reply_schema=&STRLEN_ReplySchema},
+{"substr","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","1.0.0",CMD_DOC_DEPRECATED,"`GETRANGE`","2.0.0",COMMAND_GROUP_STRING,SUBSTR_History,SUBSTR_tips,getrangeCommand,4,CMD_READONLY,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SUBSTR_Args,.reply_schema=&SUBSTR_ReplySchema},
 /* transactions */
 {"discard","Discard all commands issued after MULTI","O(N), when N is the number of queued commands","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,DISCARD_History,DISCARD_tips,discardCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,.reply_schema=&DISCARD_ReplySchema},
 {"exec","Execute all commands issued after MULTI","Depends on commands in the transaction","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,EXEC_History,EXEC_tips,execCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SKIP_SLOWLOG,ACL_CATEGORY_TRANSACTION,.reply_schema=&EXEC_ReplySchema},
-{"multi","Mark the start of a transaction block","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,MULTI_History,MULTI_tips,multiCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION},
+{"multi","Mark the start of a transaction block","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,MULTI_History,MULTI_tips,multiCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,.reply_schema=&MULTI_ReplySchema},
 {"unwatch","Forget about all watched keys","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,UNWATCH_History,UNWATCH_tips,unwatchCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,.reply_schema=&UNWATCH_ReplySchema},
-{"watch","Watch the given keys to determine execution of the MULTI/EXEC block","O(1) for every key.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,WATCH_History,WATCH_tips,watchCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=WATCH_Args},
+{"watch","Watch the given keys to determine execution of the MULTI/EXEC block","O(1) for every key.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,WATCH_History,WATCH_tips,watchCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=WATCH_Args,.reply_schema=&WATCH_ReplySchema},
 {0}
 };
