@@ -15,7 +15,6 @@ source ../support/util.tcl
 source ../support/aofmanifest.tcl
 source ../support/server.tcl
 source ../support/test.tcl
-source ../support/response_transformers.tcl
 
 set ::verbose 0
 set ::valgrind 0
@@ -38,8 +37,6 @@ set ::dirs {} ; # We remove all the temp dirs at exit
 set ::run_matching {} ; # If non empty, only tests matching pattern are run.
 set ::stop_on_failure 0
 set ::loop 0
-set ::log_req_res 0
-set ::force_resp3 0
 
 if {[catch {cd tmp}]} {
     puts "tmp directory not found."
