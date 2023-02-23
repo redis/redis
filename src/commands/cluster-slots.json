@@ -27,6 +27,61 @@
         ],
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT"
-        ]
+        ],
+        "reply_schema": {
+            "description": "nested list of slot ranges with networking information",
+            "type": "array",
+            "items": {
+                "type": "array",
+                "prefixItems": [
+                    {
+                        "description": "start slot number",
+                        "type": "integer"
+                    },
+                    {
+                        "description": "end slot number",
+                        "type": "integer"
+                    },
+                    {
+                        "type": "array",
+                        "items": [
+                            {
+                                "description": "endpoint description",
+                                "oneOf": [
+                                    {
+                                        "description": "hostname or ip",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "description": "unknown type",
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            {
+                                "description": "port",
+                                "type": "integer"
+                            },
+                            {
+                                "description": "node name",
+                                "type": "string"
+                            },
+                            {
+                                "description": "array of node descriptions",
+                                "type": "object",
+                                "properties": {
+                                    "hostname": {
+                                        "type": "string"
+                                    },
+                                    "ip": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
     }
 }

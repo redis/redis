@@ -17,6 +17,9 @@
                 "name": "node-id",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }
