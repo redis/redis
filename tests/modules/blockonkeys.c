@@ -435,6 +435,10 @@ int blockonkeys_blpopn_reply_callback(RedisModuleCtx *ctx, RedisModuleString **a
         result = REDISMODULE_OK;
     } else if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_LIST ||
                RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
+        const char *module_cmd = RedisModule_StringPtrLen(argv[0], NULL);
+        if (!strcasecmp(module_cmd, "blockonkeys.blpopn_or_unblock"))
+            RedisModule_UnblockClient(RedisModule_GetBlockedClientHandle(ctx), NULL);
+
         /* continue blocking */
         result = REDISMODULE_ERR;
     } else {
@@ -536,5 +540,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, "blockonkeys.blpopn_or_unblock", blockonkeys_blpopn,
+                                      "write", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
     return REDISMODULE_OK;
 }
