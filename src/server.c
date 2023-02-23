@@ -209,24 +209,20 @@ mstime_t mstime(void) {
  * reflect the same time.
  * More details can be found in the comments below. */
 mstime_t commandTimeSnapshot(void) {
-    /* If we are in the context of a Lua script, we pretend that time is
-     * blocked to when the Lua script started. This way a key can expire
-     * only the first time it is accessed and not in the middle of the
-     * script execution, making propagation to slaves / AOF consistent.
-     * See issue #1525 on Github for more information. */
-    if (server.script_caller) {
-        return scriptTimeSnapshot();
-    }
-    /* If we are in the middle of a command execution, we still want to use
-     * a reference time that does not change: in that case we just use the
+    /* When we are in the middle of a command execution, we want to use a
+     * reference time that does not change: in that case we just use the
      * cached time, that we update before each call in the call() function.
      * This way we avoid that commands such as RPOPLPUSH or similar, that
      * may re-open the same key multiple times, can invalidate an already
      * open object in a next call, if the next call will see the key expired,
-     * while the first did not. */
-    else {
-        return server.mstime;
-    }
+     * while the first did not.
+     * This is specificlally important in the context of scripts, where we
+     * pretend that time freezes. This way a key can expire only the first time
+     * it is accessed and not in the middle of the script execution, making
+     * propagation to slaves / AOF consistent. See issue #1525 for more info.
+     * Note that we cannot use the cached server.mstime because it can change
+     * in processEventsWhileBlocked etc. */
+    return server.cmd_time_snapshot;
 }
 
 /* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
@@ -448,7 +444,8 @@ dictType setDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     dictSdsDestructor,         /* key destructor */
-    NULL                       /* val destructor */
+    .no_value = 1,             /* no values in this dict */
+    .keys_are_odd = 1          /* an SDS string is always an odd pointer */
 };
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
@@ -471,9 +468,9 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
-    dbDictEntryMetadataSize,    /* size of entry metadata in bytes */
-    dbDictMetadataSize,         /* size of dict metadata in bytes */
-    dbDictAfterReplaceEntry     /* notify entry moved/reallocated */
+    .dictEntryMetadataBytes = dbDictEntryMetadataSize,
+    .dictMetadataBytes = dbDictMetadataSize,
+    .afterReplaceEntry = dbDictAfterReplaceEntry
 };
 
 /* Db->expires */
@@ -738,7 +735,7 @@ int clientsCronResizeQueryBuffer(client *c) {
         /* There are two conditions to resize the query buffer: */
         if (idletime > 2) {
             /* 1) Query is idle for a long time. */
-            c->querybuf = sdsRemoveFreeSpace(c->querybuf);
+            c->querybuf = sdsRemoveFreeSpace(c->querybuf, 1);
         } else if (querybuf_size > PROTO_RESIZE_THRESHOLD && querybuf_size/2 > c->querybuf_peak) {
             /* 2) Query buffer is too big for latest peak and is larger than
              *    resize threshold. Trim excess space but only up to a limit,
@@ -748,7 +745,7 @@ int clientsCronResizeQueryBuffer(client *c) {
             size_t resize = sdslen(c->querybuf);
             if (resize < c->querybuf_peak) resize = c->querybuf_peak;
             if (c->bulklen != -1 && resize < (size_t)c->bulklen) resize = c->bulklen;
-            c->querybuf = sdsResize(c->querybuf, resize);
+            c->querybuf = sdsResize(c->querybuf, resize, 1);
         }
     }
 
@@ -1386,7 +1383,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                     sp->changes, (int)sp->seconds);
                 rdbSaveInfo rsi, *rsiptr;
                 rsiptr = rdbPopulateSaveInfo(&rsi);
-                rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
+                rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE);
                 break;
             }
         }
@@ -1481,7 +1478,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     {
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK)
+        if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE) == C_OK)
             server.rdb_bgsave_scheduled = 0;
     }
 
@@ -1721,8 +1718,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * releasing the GIL. Redis main thread will not touch anything at this
      * time. */
     if (moduleCount()) moduleReleaseGIL();
-
-    /* Do NOT add anything below moduleReleaseGIL !!! */
+    /********************* WARNING ********************
+     * Do NOT add anything below moduleReleaseGIL !!! *
+     ***************************** ********************/
 }
 
 /* This function is called immediately after the event loop multiplexing
@@ -1730,14 +1728,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
  * the different events callbacks. */
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
-
-    /* Update the time cache. */
-    updateCachedTime(1);
-
-    /* Do NOT add anything above moduleAcquireGIL !!! */
-
-    /* Acquire the modules GIL so that their threads won't touch anything. */
+    /********************* WARNING ********************
+     * Do NOT add anything above moduleAcquireGIL !!! *
+     ***************************** ********************/
     if (!ProcessingEventsWhileBlocked) {
+        /* Acquire the modules GIL so that their threads won't touch anything. */
         if (moduleCount()) {
             mstime_t latency;
             latencyStartMonitor(latency);
@@ -1749,6 +1744,16 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
         }
+    }
+
+    /* Update the time cache. */
+    updateCachedTime(1);
+
+    /* Update command time snapshot in case it'll be required without a command
+     * e.g. somehow used by module timers. Don't update it while yielding to a
+     * blocked command, call() will handle that and restore the original time. */
+    if (!ProcessingEventsWhileBlocked) {
+        server.cmd_time_snapshot = server.mstime;
     }
 }
 
@@ -1944,6 +1949,7 @@ void initServerConfig(void) {
 
     initConfigValues();
     updateCachedTime(1);
+    server.cmd_time_snapshot = server.mstime;
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
@@ -3303,21 +3309,27 @@ static void propagatePendingCommands() {
 
     int j;
     redisOp *rop;
-    int multi_emitted = 0;
 
-    /* Wrap the commands in server.also_propagate array,
-     * but don't wrap it if we are already in MULTI context,
-     * in case the nested MULTI/EXEC.
-     *
-     * And if the array contains only one command, no need to
-     * wrap it, since the single command is atomic. */
-    if (server.also_propagate.numops > 1) {
+    /* If we got here it means we have finished an execution-unit.
+     * If that unit has caused propagation of multiple commands, they
+     * should be propagated as a transaction */
+    int transaction = server.also_propagate.numops > 1;
+
+    /* In case a command that may modify random keys was run *directly*
+     * (i.e. not from within a script, MULTI/EXEC, RM_Call, etc.) we want
+     * to avoid using a transaction (much like active-expire) */
+    if (server.current_client &&
+        server.current_client->cmd &&
+        server.current_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS)
+    {
+        transaction = 0;
+    }
+
+    if (transaction) {
         /* We use dbid=-1 to indicate we do not want to replicate SELECT.
          * It'll be inserted together with the next command (inside the MULTI) */
         propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
-        multi_emitted = 1;
     }
-
 
     for (j = 0; j < server.also_propagate.numops; j++) {
         rop = &server.also_propagate.ops[j];
@@ -3325,7 +3337,7 @@ static void propagatePendingCommands() {
         propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
     }
 
-    if (multi_emitted) {
+    if (transaction) {
         /* We use dbid=-1 to indicate we do not want to replicate select */
         propagateNow(-1,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
     }
@@ -3428,6 +3440,9 @@ void call(client *c, int flags) {
     long long dirty;
     uint64_t client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->realcmd;
+    client *prev_client = server.executing_client;
+    server.executing_client = c;
+
     /* When call() is issued during loading the AOF we don't want commands called
      * from module, exec or LUA to go into the slowlog or to populate statistics. */
     int update_command_stats = !isAOFLoadingContext();
@@ -3459,6 +3474,7 @@ void call(client *c, int flags) {
      * in case we have nested calls we want to update only on the first call */
     if (server.execution_nesting++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
+        server.cmd_time_snapshot = server.mstime;
         c->flags |= CLIENT_EXECUTING_COMMAND;
     }
 
@@ -3502,16 +3518,6 @@ void call(client *c, int flags) {
     if (c->flags & CLIENT_CLOSE_AFTER_COMMAND) {
         c->flags &= ~CLIENT_CLOSE_AFTER_COMMAND;
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
-    }
-
-    /* If the caller is Lua, we want to force the EVAL caller to propagate
-     * the script if the command flag or client flag are forcing the
-     * propagation. */
-    if (c->flags & CLIENT_SCRIPT && server.script_caller) {
-        if (c->flags & CLIENT_FORCE_REPL)
-            server.script_caller->flags |= CLIENT_FORCE_REPL;
-        if (c->flags & CLIENT_FORCE_AOF)
-            server.script_caller->flags |= CLIENT_FORCE_AOF;
     }
 
     /* Note: the code below uses the real command that was executed
@@ -3600,18 +3606,19 @@ void call(client *c, int flags) {
         (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
     /* If the client has keys tracking enabled for client side caching,
-     * make sure to remember the keys it fetched via this command. Scripting
-     * works a bit differently, where if the scripts executes any read command, it
-     * remembers all of the declared keys from the script. */
+     * make sure to remember the keys it fetched via this command. For read-only
+     * scripts, don't process the script, only the commands it executes. */
     if ((c->cmd->flags & CMD_READONLY) && (c->cmd->proc != evalRoCommand)
         && (c->cmd->proc != evalShaRoCommand) && (c->cmd->proc != fcallroCommand))
     {
-        client *caller = (c->flags & CLIENT_SCRIPT && server.script_caller) ?
-                            server.script_caller : c;
-        if (caller->flags & CLIENT_TRACKING &&
-            !(caller->flags & CLIENT_TRACKING_BCAST))
+        /* We use the tracking flag of the original external client that
+         * triggered the command, but we take the keys from the actual command
+         * being executed. */
+        if (server.current_client &&
+            (server.current_client->flags & CLIENT_TRACKING) &&
+            !(server.current_client->flags & CLIENT_TRACKING_BCAST))
         {
-            trackingRememberKeys(caller);
+            trackingRememberKeys(server.current_client, c);
         }
     }
 
@@ -3632,6 +3639,8 @@ void call(client *c, int flags) {
     if (!server.in_exec && server.client_pause_in_transaction) {
         server.client_pause_in_transaction = 0;
     }
+
+    server.executing_client = prev_client;
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
@@ -4166,7 +4175,7 @@ int prepareForShutdown(int flags) {
 
     server.shutdown_flags = flags;
 
-    serverLog(LL_WARNING,"User requested shutdown...");
+    serverLog(LL_NOTICE,"User requested shutdown...");
     if (server.supervised_mode == SUPERVISED_SYSTEMD)
         redisCommunicateSystemd("STOPPING=1\n");
 
@@ -4254,7 +4263,7 @@ int finishShutdown(void) {
             num_lagging_replicas++;
             long lag = replica->replstate == SLAVE_STATE_ONLINE ?
                 time(NULL) - replica->repl_ack_time : 0;
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                       "Lagging replica %s reported offset %lld behind master, lag=%ld, state=%s.",
                       replicationGetSlaveName(replica),
                       server.master_repl_offset - replica->repl_ack_off,
@@ -4328,7 +4337,8 @@ int finishShutdown(void) {
         /* Snapshotting. Perform a SYNC SAVE and exit */
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) != C_OK) {
+        /* Keep the page cache since it's likely to restart soon */
+        if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_KEEP_CACHE) != C_OK) {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
              * in the next cron() Redis will be notified that the background
@@ -4513,6 +4523,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_NO_MULTI,          "no_multi"},
         {CMD_MOVABLE_KEYS,      "movablekeys"},
         {CMD_ALLOW_BUSY,        "allow_busy"},
+        /* {CMD_TOUCHES_ARBITRARY_KEYS,  "TOUCHES_ARBITRARY_KEYS"}, Hidden on purpose */
         {0,NULL}
     };
     addReplyCommandFlags(c, cmd->flags, flagNames);
@@ -6944,6 +6955,7 @@ int main(int argc, char **argv) {
             char *arg = argv[j];
             if (!strcasecmp(arg, "--accurate")) flags |= REDIS_TEST_ACCURATE;
             else if (!strcasecmp(arg, "--large-memory")) flags |= REDIS_TEST_LARGE_MEMORY;
+            else if (!strcasecmp(arg, "--valgrind")) flags |= REDIS_TEST_VALGRIND;
         }
 
         if (!strcasecmp(argv[2], "all")) {
@@ -7152,8 +7164,8 @@ int main(int argc, char **argv) {
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
 
-    serverLog(LL_WARNING, "oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo");
-    serverLog(LL_WARNING,
+    serverLog(LL_NOTICE, "oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo");
+    serverLog(LL_NOTICE,
         "Redis version=%s, bits=%d, commit=%s, modified=%d, pid=%d, just started",
             REDIS_VERSION,
             (sizeof(long) == 8) ? 64 : 32,
@@ -7164,7 +7176,7 @@ int main(int argc, char **argv) {
     if (argc == 1) {
         serverLog(LL_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/redis.conf", argv[0]);
     } else {
-        serverLog(LL_WARNING, "Configuration loaded");
+        serverLog(LL_NOTICE, "Configuration loaded");
     }
 
     initServer();
@@ -7188,7 +7200,7 @@ int main(int argc, char **argv) {
 
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
-        serverLog(LL_WARNING,"Server initialized");
+        serverLog(LL_NOTICE,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
         sds err_msg = NULL;

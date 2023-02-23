@@ -424,5 +424,6 @@ void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
 sds clusterGenNodesDescription(int filter, int use_pport);
 sds genClusterInfoString();
+void freeClusterLink(clusterLink *link);
 
 #endif /* __CLUSTER_H */

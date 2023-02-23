@@ -4154,6 +4154,8 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withscores)
                     addReplyDouble(c, *(double*)dictGetVal(de));
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
         } else if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
             listpackEntry *keys, *vals = NULL;
@@ -4167,6 +4169,8 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 count -= sample_count;
                 lpRandomPairs(zsetobj->ptr, sample_count, keys, vals);
                 zrandmemberReplyWithListpack(c, sample_count, keys, vals);
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
             zfree(keys);
             zfree(vals);
@@ -4317,8 +4321,13 @@ void zrandmemberCommand(client *c) {
         if (c->argc > 4 || (c->argc == 4 && strcasecmp(c->argv[3]->ptr,"withscores"))) {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
-        } else if (c->argc == 4)
+        } else if (c->argc == 4) {
             withscores = 1;
+            if (l < LONG_MIN/2 || l > LONG_MAX/2) {
+                addReplyError(c,"value is out of range");
+                return;
+            }
+        }
         zrandmemberWithCountCommand(c, l, withscores);
         return;
     }

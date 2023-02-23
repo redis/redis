@@ -238,46 +238,26 @@ void activeDefragZsetEntry(zset *zs, dictEntry *de) {
 #define DEFRAG_SDS_DICT_VAL_VOID_PTR 3
 #define DEFRAG_SDS_DICT_VAL_LUA_SCRIPT 4
 
-typedef struct {
-    dict *dict;
-    int val_type;
-} activeDefragSdsDictData;
-
-void activeDefragSdsDictCallback(void *privdata, const dictEntry *_de) {
-    dictEntry *de = (dictEntry*)_de;
-    activeDefragSdsDictData *data = privdata;
-    dict *d = data->dict;
-    int val_type = data->val_type;
-    sds sdsele = dictGetKey(de), newsds;
-    if ((newsds = activeDefragSds(sdsele)))
-        dictSetKey(d, de, newsds);
-    /* defrag the value */
-    if (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS) {
-        sdsele = dictGetVal(de);
-        if ((newsds = activeDefragSds(sdsele)))
-            dictSetVal(d, de, newsds);
-    } else if (val_type == DEFRAG_SDS_DICT_VAL_IS_STROB) {
-        robj *newele, *ele = dictGetVal(de);
-        if ((newele = activeDefragStringOb(ele)))
-            dictSetVal(d, de, newele);
-    } else if (val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
-        void *newptr, *ptr = dictGetVal(de);
-        if ((newptr = activeDefragAlloc(ptr)))
-            dictSetVal(d, de, newptr);
-    } else if (val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT) {
-        void *newptr, *ptr = dictGetVal(de);
-        if ((newptr = activeDefragLuaScript(ptr)))
-            dictSetVal(d, de, newptr);
-    }
+void activeDefragSdsDictCallback(void *privdata, const dictEntry *de) {
+    UNUSED(privdata);
+    UNUSED(de);
 }
 
 /* Defrag a dict with sds key and optional value (either ptr, sds or robj string) */
 void activeDefragSdsDict(dict* d, int val_type) {
-    activeDefragSdsDictData data = {d, val_type};
     unsigned long cursor = 0;
+    dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragVal = (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
+                      val_type == DEFRAG_SDS_DICT_VAL_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
+                      val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR ? (dictDefragAllocFunction *)activeDefragAlloc :
+                      val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ? (dictDefragAllocFunction *)activeDefragLuaScript :
+                      NULL)
+    };
     do {
         cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
-                                activeDefragAlloc, &data);
+                                &defragfns, NULL);
     } while (cursor != 0);
 }
 
@@ -407,19 +387,14 @@ void scanLaterZset(robj *ob, unsigned long *cursor) {
     zset *zs = (zset*)ob->ptr;
     dict *d = zs->dict;
     scanLaterZsetData data = {zs};
-    *cursor = dictScanDefrag(d, *cursor, scanLaterZsetCallback, activeDefragAlloc, &data);
+    dictDefragFunctions defragfns = {.defragAlloc = activeDefragAlloc};
+    *cursor = dictScanDefrag(d, *cursor, scanLaterZsetCallback, &defragfns, &data);
 }
 
-typedef struct {
-    dict *dict;
-} scanLaterDictData;
-
-void scanLaterSetCallback(void *privdata, const dictEntry *_de) {
-    dictEntry *de = (dictEntry*)_de;
-    scanLaterDictData *data = privdata;
-    sds sdsele = dictGetKey(de), newsds;
-    if ((newsds = activeDefragSds(sdsele)))
-        dictSetKey(data->dict, de, newsds);
+/* Used as scan callback when all the work is done in the dictDefragFunctions. */
+void scanCallbackCountScanned(void *privdata, const dictEntry *de) {
+    UNUSED(privdata);
+    UNUSED(de);
     server.stat_active_defrag_scanned++;
 }
 
@@ -427,28 +402,23 @@ void scanLaterSet(robj *ob, unsigned long *cursor) {
     if (ob->type != OBJ_SET || ob->encoding != OBJ_ENCODING_HT)
         return;
     dict *d = ob->ptr;
-    scanLaterDictData data = {d};
-    *cursor = dictScanDefrag(d, *cursor, scanLaterSetCallback, activeDefragAlloc, &data);
-}
-
-void scanLaterHashCallback(void *privdata, const dictEntry *_de) {
-    dictEntry *de = (dictEntry*)_de;
-    scanLaterDictData *data = privdata;
-    sds sdsele = dictGetKey(de), newsds;
-    if ((newsds = activeDefragSds(sdsele)))
-        dictSetKey(data->dict, de, newsds);
-    sdsele = dictGetVal(de);
-    if ((newsds = activeDefragSds(sdsele)))
-        dictSetVal(data->dict, de, newsds);
-    server.stat_active_defrag_scanned++;
+    dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds
+    };
+    *cursor = dictScanDefrag(d, *cursor, scanCallbackCountScanned, &defragfns, NULL);
 }
 
 void scanLaterHash(robj *ob, unsigned long *cursor) {
     if (ob->type != OBJ_HASH || ob->encoding != OBJ_ENCODING_HT)
         return;
     dict *d = ob->ptr;
-    scanLaterDictData data = {d};
-    *cursor = dictScanDefrag(d, *cursor, scanLaterHashCallback, activeDefragAlloc, &data);
+    dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragVal = (dictDefragAllocFunction *)activeDefragSds
+    };
+    *cursor = dictScanDefrag(d, *cursor, scanCallbackCountScanned, &defragfns, NULL);
 }
 
 void defragQuicklist(redisDb *db, dictEntry *kde) {
@@ -788,14 +758,6 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
     server.stat_active_defrag_scanned++;
 }
 
-/* Dummy scan callback used when defragging the expire dictionary. We only
- * defrag the entries, which is done per bucket. */
-void defragExpireScanCallback(void *privdata, const dictEntry *de) {
-    UNUSED(privdata);
-    UNUSED(de);
-    server.stat_active_defrag_scanned++;
-}
-
 /* Utility function to get the fragmentation ratio from jemalloc.
  * It is critical to do that by comparing only heap maps that belong to
  * jemalloc, and skip ones the jemalloc keeps as spare. Since we use this
@@ -1003,6 +965,7 @@ void activeDefragCycle(void) {
     endtime = start + timelimit;
     latencyStartMonitor(latency);
 
+    dictDefragFunctions defragfns = {.defragAlloc = activeDefragAlloc};
     do {
         /* if we're not continuing a scan from the last call or loop, start a new one */
         if (!cursor && !expires_cursor) {
@@ -1055,13 +1018,13 @@ void activeDefragCycle(void) {
             /* Scan the keyspace dict unless we're scanning the expire dict. */
             if (!expires_cursor)
                 cursor = dictScanDefrag(db->dict, cursor, defragScanCallback,
-                                        activeDefragAlloc, db);
+                                        &defragfns, db);
 
             /* When done scanning the keyspace dict, we scan the expire dict. */
             if (!cursor)
                 expires_cursor = dictScanDefrag(db->expires, expires_cursor,
-                                                defragExpireScanCallback,
-                                                activeDefragAlloc, NULL);
+                                                scanCallbackCountScanned,
+                                                &defragfns, NULL);
 
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
              * (if we have a lot of pointers in one hash bucket or rehashing),

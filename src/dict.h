@@ -56,6 +56,19 @@ typedef struct dictType {
     void (*keyDestructor)(dict *d, void *key);
     void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
+    /* Flags */
+    /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
+     * dict is a set. When this flag is set, it's not possible to access the
+     * value of a dictEntry and it's also impossible to use dictSetKey(). Entry
+     * metadata can also not be used. */
+    unsigned int no_value:1;
+    /* If no_value = 1 and all keys are odd (LSB=1), setting keys_are_odd = 1
+     * enables one more optimization: to store a key without an allocated
+     * dictEntry. */
+    unsigned int keys_are_odd:1;
+    /* TODO: Add a 'keys_are_even' flag and use a similar optimization if that
+     * flag is set. */
+
     /* Allow each dict and dictEntry to carry extra caller-defined metadata. The
      * extra memory is initialized to 0 when allocated. */
     size_t (*dictEntryMetadataBytes)(dict *d);
@@ -100,6 +113,11 @@ typedef struct dictIterator {
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 typedef void *(dictDefragAllocFunction)(void *ptr);
+typedef struct {
+    dictDefragAllocFunction *defragAlloc; /* Used for entries etc. */
+    dictDefragAllocFunction *defragKey;   /* Defrag-realloc keys (optional) */
+    dictDefragAllocFunction *defragVal;   /* Defrag-realloc values (optional) */
+} dictDefragFunctions;
 
 /* This is the initial size of every hash table */
 #define DICT_HT_INITIAL_EXP      2
@@ -152,6 +170,8 @@ int dictTryExpand(dict *d, unsigned long size);
 void *dictMetadata(dict *d);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
+void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing);
+dictEntry *dictInsertAtPosition(dict *d, void *key, void *position);
 dictEntry *dictAddOrFind(dict *d, void *key);
 int dictReplace(dict *d, void *key, void *val);
 int dictDelete(dict *d, const void *key);
@@ -200,7 +220,7 @@ int dictRehashMilliseconds(dict *d, int ms);
 void dictSetHashFunctionSeed(uint8_t *seed);
 uint8_t *dictGetHashFunctionSeed(void);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *privdata);
-unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dictDefragAllocFunction *allocfn, void *privdata);
+unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
 uint64_t dictGetHash(dict *d, const void *key);
 dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 

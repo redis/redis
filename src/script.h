@@ -74,7 +74,6 @@ struct scriptRunCtx {
     int flags;
     int repl_flags;
     monotime start_time;
-    mstime_t snapshot_time;
 };
 
 /* Scripts flags */
@@ -107,7 +106,6 @@ int scriptIsEval();
 int scriptIsTimedout();
 client* scriptGetClient();
 client* scriptGetCaller();
-mstime_t scriptTimeSnapshot();
 long long scriptRunDuration();
 
 #endif /* __SCRIPT_H_ */

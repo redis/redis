@@ -212,7 +212,6 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
     client *script_client = run_ctx->c;
     client *curr_client = run_ctx->original_client;
-    server.script_caller = curr_client;
 
     /* Select the right DB in the context of the Lua client */
     selectDb(script_client, curr_client->db->id);
@@ -224,7 +223,6 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     }
 
     run_ctx->start_time = getMonotonicUs();
-    run_ctx->snapshot_time = mstime();
 
     run_ctx->flags = 0;
     run_ctx->repl_flags = PROPAGATE_AOF | PROPAGATE_REPL;
@@ -256,8 +254,6 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
 
     /* After the script done, remove the MULTI state. */
     run_ctx->c->flags &= ~CLIENT_MULTI;
-
-    server.script_caller = NULL;
 
     if (scriptIsTimedout()) {
         exitScriptTimedoutMode(run_ctx);
@@ -573,12 +569,6 @@ void scriptCall(scriptRunCtx *run_ctx, sds *err) {
 error:
     afterErrorReply(c, *err, sdslen(*err), 0);
     incrCommandStatsOnError(cmd, ERROR_COMMAND_REJECTED);
-}
-
-/* Returns the time when the script invocation started */
-mstime_t scriptTimeSnapshot() {
-    serverAssert(curr_run_ctx);
-    return curr_run_ctx->snapshot_time;
 }
 
 long long scriptRunDuration() {

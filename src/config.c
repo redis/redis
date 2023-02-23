@@ -702,7 +702,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 
     /* Append content from stdin */
     if (config_from_stdin) {
-        serverLog(LL_WARNING,"Reading config from stdin");
+        serverLog(LL_NOTICE,"Reading config from stdin");
         fp = stdin;
         while(fgets(buf,CONFIG_READ_LEN+1,fp) != NULL)
             config = sdscat(config,buf);
@@ -3366,7 +3366,7 @@ void configRewriteCommand(client *c) {
         serverLog(LL_WARNING,"CONFIG REWRITE failed: %s", strerror(err));
         addReplyErrorFormat(c,"Rewriting config file: %s", strerror(err));
     } else {
-        serverLog(LL_WARNING,"CONFIG REWRITE executed with success.");
+        serverLog(LL_NOTICE,"CONFIG REWRITE executed with success.");
         addReply(c,shared.ok);
     }
 }
