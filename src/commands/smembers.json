@@ -35,6 +35,13 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "array",
+            "description": "All elements of the set.",
+            "items": {
+                "type": "string"
+            }
+        },
         "arguments": [
             {
                 "name": "key",

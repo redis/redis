@@ -43,6 +43,26 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "null",
+                    "description": "The key does not exist."
+                },
+                {
+                    "type": "string",
+                    "description": "The removed member when 'COUNT' is not given."
+                },
+                {
+                    "type": "array",
+                    "description": "List to the removed members when 'COUNT' is given.",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",
