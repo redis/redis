@@ -353,6 +353,7 @@ start_server {} {
         $rr3 get k
         $rr3 flush
         exec kill -SIGCONT $server_pid
+        r ping ;# make sure a full event loop cycle is processed before issuing CLIENT LIST
 
         # Validate obuf-clients were disconnected (because of obuf limit)
         catch {client_field obuf-client1 name} e
