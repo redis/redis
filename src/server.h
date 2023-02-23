@@ -2847,9 +2847,9 @@ typedef enum {
 } AuthResult;
 
 int ACLCheckUserCredentials(robj *username, robj *password);
-int ACLAuthenticateUser(client *c, robj *username, robj *password, const char **err);
-int checkModuleAuthentication(client *c, robj *username, robj *password, const char **err);
-void addAuthErrReply(client *c, const char *err);
+int ACLAuthenticateUser(client *c, robj *username, robj *password, robj **err);
+int checkModuleAuthentication(client *c, robj *username, robj *password, robj **err);
+void addAuthErrReply(client *c, robj *err);
 unsigned long ACLGetCommandID(sds cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);

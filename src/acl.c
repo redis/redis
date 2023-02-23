@@ -1406,13 +1406,13 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
 
 /* If `err` is provided, this is added as an error reply to the client.
  * Otherwise, the standard Auth error is added as a reply. */
-void addAuthErrReply(client *c, const char *err) {
+void addAuthErrReply(client *c, robj *err) {
     if (clientHasPendingReplies(c)) return;
     if (!err) {
         addReplyError(c, "-WRONGPASS invalid username-password pair or user is disabled.");
         return;
     }
-    addReplyError(c, err);
+    addReplyError(c, err->ptr);
 }
 
 /* This is like ACLCheckUserCredentials(), however if the user/pass
@@ -1439,7 +1439,7 @@ int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
  * AUTH_ERR - Indicates that authentication failed.
  * AUTH_BLOCKED - Indicates module authentication is in progress through a blocking implementation.
  */
-int ACLAuthenticateUser(client *c, robj *username, robj *password, const char **err) {
+int ACLAuthenticateUser(client *c, robj *username, robj *password, robj **err) {
     int result = checkModuleAuthentication(c, username, password, err);
     /* If authentication was not handled by any Module, attempt normal password based auth. */
     if (result == AUTH_NOT_HANDLED) {
@@ -3058,13 +3058,14 @@ void authCommand(client *c) {
         redactClientCommandArgument(c, 2);
     }
 
-    const char *err = NULL;
+    robj *err = NULL;
     int result = ACLAuthenticateUser(c, username, password, &err);
     if (result == AUTH_OK) {
         addReply(c, shared.ok);
     } else if (result == AUTH_ERR) {
         addAuthErrReply(c, err);
     }
+    if (err) decrRefCount(err);
 }
 
 /* Set the password for the "default" ACL user. This implements supports for

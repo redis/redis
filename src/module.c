@@ -7528,7 +7528,7 @@ int isCustomAuthInProgress() {
 
 /* Search for & attempt next custom auth callback after skipping the ones already attempted.
  * Returns the result of the custom auth callback. */
-int attemptNextCustomAuthCb(client *c, robj *username, robj *password, const char **err) {
+int attemptNextCustomAuthCb(client *c, robj *username, robj *password, robj **err) {
     int skipped_prev_callbacks = c->custom_auth_ctx == NULL;
     RedisModuleCustomAuthCtx *cur_auth_ctx = NULL;
     listNode *ln;
@@ -7544,13 +7544,8 @@ int attemptNextCustomAuthCb(client *c, robj *username, robj *password, const cha
             moduleCreateContext(&ctx, cur_auth_ctx->module, REDISMODULE_CTX_NONE);
             ctx.client = c;
             *err = NULL;
-            RedisModuleString *err_string = NULL;
             c->custom_auth_ctx = cur_auth_ctx;
-            result = cur_auth_ctx->auth_cb(&ctx, username, password, &err_string);
-            if (err_string) {
-                *err = err_string->ptr;
-                decrRefCount(err_string);
-            }
+            result = cur_auth_ctx->auth_cb(&ctx, username, password, err);
             moduleFreeContext(&ctx);
             /* If the client is blocked, we are still in the auth chain. Set the auth_ctx. */
             if (c->flags & CLIENT_BLOCKED) {
@@ -7573,7 +7568,7 @@ int attemptNextCustomAuthCb(client *c, robj *username, robj *password, const cha
  * auth operation.
  * Otherwise, we attempt the auth reply callback & the free priv data callback, update fields and
  * return the result of the reply callback. */
-int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, const char **err) {
+int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, robj **err) {
     int result = REDISMODULE_AUTH_NOT_HANDLED;
     if (!c->module_blocked_client) return result;
     RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *) c->module_blocked_client;
@@ -7585,12 +7580,7 @@ int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, c
         ctx.blocked_ready_key = NULL;
         ctx.client = bc->client;
         ctx.blocked_client = bc;
-        RedisModuleString *err_string = NULL;
-        result = bc->auth_reply_cb(&ctx, username, password, &err_string);
-        if (err_string) {
-            *err = err_string->ptr;
-            decrRefCount(err_string);
-        }
+        result = bc->auth_reply_cb(&ctx, username, password, err);
         moduleFreeContext(&ctx);
     }
     moduleInvokeFreePrivDataCallback(c, bc);
@@ -7611,7 +7601,7 @@ int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, c
  * normal password based authentication can be attempted next.
  * AUTH_BLOCKED - Indicates module authentication is in progress through a blocking implementation.
  * In this case, authentication is handled here again after the client is unblocked / reprocessed. */
-int checkModuleAuthentication(client *c, robj *username, robj *password, const char **err) {
+int checkModuleAuthentication(client *c, robj *username, robj *password, robj **err) {
     if (!listLength(moduleCustomAuthCallbacks)) return AUTH_NOT_HANDLED;
     int result = attemptBlockedAuthReplyCallback(c, username, password, err);
     if (result == REDISMODULE_AUTH_NOT_HANDLED) {

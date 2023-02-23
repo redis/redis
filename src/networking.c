@@ -3460,14 +3460,14 @@ void helloCommand(client *c) {
     }
 
     if (username && password) {
-        const char *err = NULL;
+        robj *err = NULL;
         int auth_result = ACLAuthenticateUser(c, username, password, &err);
         if (auth_result == AUTH_ERR) {
             addAuthErrReply(c, err);
-            return;
         }
+        if (err) decrRefCount(err);
         /* In case of blocking module auth, we reply to the client/setname later upon unblocking. */
-        if (auth_result == AUTH_BLOCKED) {
+        if (auth_result == AUTH_ERR || auth_result == AUTH_BLOCKED) {
             return;
         }
     }
