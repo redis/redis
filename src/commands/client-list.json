@@ -17,20 +17,8 @@
                 "Added optional `TYPE` filter."
             ],
             [
-                "6.0.0",
-                "Added `user` field."
-            ],
-            [
                 "6.2.0",
-                "Added `argv-mem`, `tot-mem`, `laddr` and `redir` fields and the optional `ID` filter."
-            ],
-            [
-                "7.0.0",
-                "Added `resp`, `multi-mem`, `rbs` and `rbp` fields."
-            ],
-            [
-                "7.0.3",
-                "Added `ssub` field."
+                "Added `laddr` field and the optional `ID` filter."
             ]
         ],
         "command_flags": [
@@ -46,6 +34,10 @@
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT"
         ],
+        "reply_schema": {
+            "type": "string",
+            "description": "Information and statistics about client connections"
+        },
         "arguments": [
             {
                 "token": "TYPE",
