@@ -2776,7 +2776,9 @@ void sentinelInfoReplyCallback(redisAsyncContext *c, void *reply, void *privdata
     link->pending_commands--;
     r = reply;
 
-    if (r->type == REDIS_REPLY_STRING)
+    /* INFO reply type is verbatim in resp3. Normally, sentinel will not use
+     * resp3 but this is required for testing (see logreqres.c). */
+    if (r->type == REDIS_REPLY_STRING || r->type == REDIS_REPLY_VERB)
         sentinelRefreshInstanceInfo(ri,r->str);
 }
 
@@ -2987,8 +2989,10 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
     ri->link->pc_last_activity = mstime();
 
     /* Sanity check in the reply we expect, so that the code that follows
-     * can avoid to check for details. */
-    if (r->type != REDIS_REPLY_ARRAY ||
+     * can avoid to check for details.
+     * Note: Reply type is PUSH in resp3. Normally, sentinel will not use
+     * resp3 but this is required for testing (see logreqres.c). */
+    if ((r->type != REDIS_REPLY_ARRAY && r->type != REDIS_REPLY_PUSH) ||
         r->elements != 3 ||
         r->element[0]->type != REDIS_REPLY_STRING ||
         r->element[1]->type != REDIS_REPLY_STRING ||
