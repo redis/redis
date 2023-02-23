@@ -1420,7 +1420,7 @@ void addAuthErrReply(client *c, const char *err) {
  * connection user reference is populated.
  *
  * The return value is AUTH_OK on success (valid username / password pair) & AUTH_ERR otherwise. */
-int passwordBasedAuth(client *c, robj *username, robj *password) {
+int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
         c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
@@ -1443,7 +1443,7 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password, const char **
     int result = checkModuleAuthentication(c, username, password, err);
     /* If authentication was not handled by any Module, attempt normal password based auth. */
     if (result == AUTH_NOT_HANDLED) {
-        result = passwordBasedAuth(c, username, password);
+        result = checkPasswordBasedAuth(c, username, password);
     }
     return result;
 }
