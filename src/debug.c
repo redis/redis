@@ -575,7 +575,7 @@ NULL
             addReplyError(c,"Error trying to load the RDB dump, check server logs.");
             return;
         }
-        serverLog(LL_WARNING,"DB reloaded by DEBUG RELOAD");
+        serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
@@ -591,7 +591,7 @@ NULL
             return;
         }
         server.dirty = 0; /* Prevent AOF / replication */
-        serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
+        serverLog(LL_NOTICE,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"drop-cluster-packet-filter") && c->argc == 3) {
         long packet_type;
@@ -933,7 +933,7 @@ NULL
             addReplyVerbatim(c,buf,strlen(buf),"txt");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
-        serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
+        serverLog(LL_NOTICE,"Changing replication IDs after receiving DEBUG change-repl-id");
         changeReplicationId();
         clearReplicationId2();
         addReply(c,shared.ok);
@@ -1826,7 +1826,7 @@ void logServerInfo(void) {
     decrRefCount(argv[0]);
 }
 
-/* Log certain config values, which can be used for debuggin */
+/* Log certain config values, which can be used for debugging */
 void logConfigDebugInfo(void) {
     sds configstring;
     configstring = getConfigDebugInfo();

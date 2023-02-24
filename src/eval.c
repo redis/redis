@@ -790,7 +790,7 @@ int ldbStartSession(client *c) {
             /* Log the creation of the child and close the listening
              * socket to make sure if the parent crashes a reset is sent
              * to the clients. */
-            serverLog(LL_WARNING,"Redis forked for debugging eval");
+            serverLog(LL_NOTICE,"Redis forked for debugging eval");
         } else {
             /* Parent */
             listAddNodeTail(ldb.children,(void*)(unsigned long)cp);
@@ -798,7 +798,7 @@ int ldbStartSession(client *c) {
             return 0;
         }
     } else {
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "Redis synchronous debugging eval session started");
     }
 
@@ -832,10 +832,10 @@ void ldbEndSession(client *c) {
     /* If it's a fork()ed session, we just exit. */
     if (ldb.forked) {
         writeToClient(c,0);
-        serverLog(LL_WARNING,"Lua debugging session child exiting");
+        serverLog(LL_NOTICE,"Lua debugging session child exiting");
         exitFromChild(0);
     } else {
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "Redis synchronous debugging eval session ended");
     }
 
@@ -879,7 +879,7 @@ void ldbKillForkedSessions(void) {
     listRewind(ldb.children,&li);
     while((ln = listNext(&li))) {
         pid_t pid = (unsigned long) ln->value;
-        serverLog(LL_WARNING,"Killing debugging session %ld",(long)pid);
+        serverLog(LL_NOTICE,"Killing debugging session %ld",(long)pid);
         kill(pid,SIGKILL);
     }
     listRelease(ldb.children);
