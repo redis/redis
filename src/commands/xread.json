@@ -71,7 +71,7 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "destiprion": "A map of key-value elements when each element composed of key name and the entries reported for that key",
+                    "description": "A map of key-value elements when each element composed of key name and the entries reported for that key",
                     "type": "object",
                     "additionalProperties": {
                         "description": "The entries reported for that key",

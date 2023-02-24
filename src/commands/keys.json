@@ -24,7 +24,7 @@
             }
         ],
         "reply_schema": {
-            "description": "list of keys mattaching pattern",
+            "description": "list of keys matching pattern",
             "type": "array",
             "items": {
                 "type": "string"

@@ -35,9 +35,6 @@
                 }
             }
         ],
-        "reply_schema": {
-            "type": "string"
-        },
         "arguments": [
             {
                 "name": "key",

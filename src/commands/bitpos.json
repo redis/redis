@@ -97,7 +97,7 @@
                     "minimum": 0
                 },
                 {
-                    "description": "In case the `bit` argument is 1 and the string is empty or composed of just zero bytest",
+                    "description": "In case the `bit` argument is 1 and the string is empty or composed of just zero bytes",
                     "const": -1
                 }
             ]

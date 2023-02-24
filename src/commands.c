@@ -285,7 +285,7 @@ struct jsonObject BITPOS_ReplySchema_oneOf_0 = {BITPOS_ReplySchema_oneOf_0_eleme
 
 /* BITPOS_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement BITPOS_ReplySchema_oneOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="In case the `bit` argument is 1 and the string is empty or composed of just zero bytest"},
+{JSON_TYPE_STRING,"description",.value.string="In case the `bit` argument is 1 and the string is empty or composed of just zero bytes"},
 {JSON_TYPE_INTEGER,"const",.value.integer=-1},
 };
 
@@ -1979,7 +1979,7 @@ struct redisCommandArg CLIENT_TRACKING_Args[] = {
 
 /* CLIENT_TRACKING_ReplySchema reply schema */
 struct jsonObjectElement CLIENT_TRACKING_ReplySchema_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="if the cliet was successfully put into or taken out of tracking mode"},
+{JSON_TYPE_STRING,"description",.value.string="if the client was successfully put into or taken out of tracking mode"},
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
@@ -2701,7 +2701,7 @@ struct jsonObject KEYS_ReplySchema_items = {KEYS_ReplySchema_items_elements,.len
 
 /* KEYS_ReplySchema reply schema */
 struct jsonObjectElement KEYS_ReplySchema_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="list of keys mattaching pattern"},
+{JSON_TYPE_STRING,"description",.value.string="list of keys matching pattern"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&KEYS_ReplySchema_items},
 };
@@ -16412,7 +16412,7 @@ struct jsonObject XREAD_ReplySchema_oneOf_0_additionalProperties = {XREAD_ReplyS
 
 /* XREAD_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement XREAD_ReplySchema_oneOf_0_elements[] = {
-{JSON_TYPE_STRING,"destiprion",.value.string="A map of key-value elements when each element composed of key name and the entries reported for that key"},
+{JSON_TYPE_STRING,"description",.value.string="A map of key-value elements when each element composed of key name and the entries reported for that key"},
 {JSON_TYPE_STRING,"type",.value.string="object"},
 {JSON_TYPE_OBJECT,"additionalProperties",.value.object=&XREAD_ReplySchema_oneOf_0_additionalProperties},
 };
