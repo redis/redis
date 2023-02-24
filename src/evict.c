@@ -167,7 +167,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, redisDb *db, struct evicti
 
         /* Calculate the idle time according to the policy. This is called
          * idle just because the code initially handled LRU, but is in fact
-         * just a score where an higher score means better candidate. */
+         * just a score where a higher score means better candidate. */
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
             idle = estimateObjectIdleTime(o);
         } else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
@@ -569,6 +569,12 @@ int performEvictions(void) {
 
     /* Try to smoke-out bugs (server.also_propagate should be empty here) */
     serverAssert(server.also_propagate.numops == 0);
+    /* Evictions are performed on random keys that have nothing to do with the current command slot. */
+    int client_slot = -1;
+    if (server.current_client) {
+        client_slot = server.current_client->slot;
+        server.current_client->slot = -1;
+    }
 
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
@@ -592,12 +598,18 @@ int performEvictions(void) {
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
-                    dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
-                           getRandomDict(db) : db->expires;
-                    if ((keys = dictSize(dict)) != 0) {
-                        evictionPoolPopulate(i, dict, db, pool);
-                        total_keys += keys;
-                    }
+                    do {
+                        dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
+                               getRandomDict(db) : db->expires;
+                        if ((keys = dictSize(dict)) != 0) {
+                            evictionPoolPopulate(i, dict, db, pool);
+                            total_keys += keys;
+                        }
+                    /* Since keys are distributed across smaller slot-specific dictionaries in cluster mode, we may need to
+                     * visit more than one dictionary when the number of keys is small. */
+                    } while (keys != 0 && db->dict_count > 1 && server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS &&
+                        total_keys < (unsigned long) server.maxmemory_samples
+                    );
                 }
                 if (!total_keys) break; /* No keys to evict. */
 
@@ -716,6 +728,7 @@ int performEvictions(void) {
             goto cant_free; /* nothing to free... */
         }
     }
+    if (client_slot != -1) server.current_client->slot = client_slot; /* Restore client slot for further command processing. */
     /* at this point, the memory is OK, or we have reached the time limit */
     result = (isEvictionProcRunning) ? EVICT_RUNNING : EVICT_OK;
 

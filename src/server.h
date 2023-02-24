@@ -138,6 +138,7 @@ typedef struct redisObject robj;
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
 #define INCREMENTAL_REHASHING_MAX_QUEUE_SIZE (1024*16)
 #define INCREMENTAL_REHASHING_THRESHOLD_MS 1
+#define MAX_RANDOM_DICT_PROBE_ATTEMTPS 10
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -874,7 +875,7 @@ struct RedisModuleDigest {
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
-#define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
+#define LRU_CLOCK_RESOLUTION 1 /* LRU clock resolution in ms */
 
 #define OBJ_SHARED_REFCOUNT INT_MAX     /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
@@ -3024,6 +3025,7 @@ void dismissMemoryInChild(void);
 int restartServer(int flags, mstime_t delay);
 unsigned long long int dbSize(redisDb *db);
 dict *getDict(redisDb *db, sds key);
+dict *getFairRandomDict(redisDb *db);
 dict *getRandomDict(redisDb *db);
 unsigned long dbSlots(redisDb *db);
 void expandDb(const redisDb *db, uint64_t db_size);

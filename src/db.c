@@ -354,7 +354,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
     int maxtries = 100;
-    dict *randomDict = getRandomDict(db);
+    dict *randomDict = getFairRandomDict(db);
 
     while(1) {
         sds key;
@@ -387,7 +387,7 @@ robj *dbRandomKey(redisDb *db) {
 }
 
 /* Return random non-empty dictionary from this DB. */
-dict *getRandomDict(redisDb *db) {
+dict *getFairRandomDict(redisDb *db) {
     if (db->dict_count == 1) return db->dict[0];
     unsigned long target = randomULong();
     unsigned long long int key_count = dbSize(db);
@@ -405,6 +405,25 @@ dict *getRandomDict(redisDb *db) {
         target -= ds;
     }
     serverPanic("Bug in random dict selection, iteration completed without finding a slot for the target element.");
+}
+
+/* Return random non-empty dictionary from this DB by probing random slots.
+ * This function can be worse than getFairRandomDict in two cases:
+ * - Dictionary is almost empty, which could result in too much probing.
+ * - Slot sizes are significantly imbalanced, which could result in unfairness.
+ * First case is resolved by falling back to getFairRandomDict after certain number of probing attempts.
+ * Second issue is ignored, meaning that all slots have same probability of being selected. */
+dict *getRandomDict(redisDb *db) {
+    if (db->dict_count == 1 || dbSize(db) == 0) return db->dict[0];
+
+    for (int i = 0; i < MAX_RANDOM_DICT_PROBE_ATTEMTPS; i++) {
+        int candidate = rand() % db->dict_count;
+        if (dictSize(db->dict[candidate]) > 0) {
+            return db->dict[candidate];
+        }
+    }
+    /* If we can't find non-empty dict by probing a few random slots, then we'll fall back to slower iterative approach. */
+    return getFairRandomDict(db);
 }
 
 /* Helper for sync and async delete. */
