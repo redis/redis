@@ -366,7 +366,7 @@ void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo
         }
         sdsfree(connInfo->hostip);
         connInfo->hostip = sdsnewlen(curr, host - curr + 1);
-    }  
+    }
     curr = path ? path + 1 : end;
     if (curr == end) return;
 
