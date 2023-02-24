@@ -1,4 +1,4 @@
-# This unit has the potnetial to create huge .reqres files, causing log-req-res-validator.py to run for a very long time.
+# This unit has the potnetial to create huge .reqres files, causing log-req-res-validator.py to run for a very long time...
 # Since this unit doesn't do anything worth validating, reply_schema-wise, we decided to skip it
 start_server {tags {"aofrw external:skip logreqres:skip"}} {
     # Enable the AOF
