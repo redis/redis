@@ -454,6 +454,12 @@ int blockonkeys_blpopn_timeout_callback(RedisModuleCtx *ctx, RedisModuleString *
     return RedisModule_ReplyWithError(ctx, "ERR Timeout");
 }
 
+int blockonkeys_blpopn_abort_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithSimpleString(ctx, "Action aborted");
+}
+
 /* BLOCKONKEYS.BLPOPN key N
  *
  * Blocks until key has N elements and then pops them or fails after 3 seconds.
@@ -461,11 +467,16 @@ int blockonkeys_blpopn_timeout_callback(RedisModuleCtx *ctx, RedisModuleString *
 int blockonkeys_blpopn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3) return RedisModule_WrongArity(ctx);
 
-    long long n;
+    long long n, timeout = 3000LL;
     if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK) {
         return RedisModule_ReplyWithError(ctx, "ERR Invalid N");
     }
 
+    if (argc > 3 ) {
+        if (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK) {
+            return RedisModule_ReplyWithError(ctx, "ERR Invalid timeout value");
+        }
+    }
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
     int keytype = RedisModule_KeyType(key);
     if (keytype != REDISMODULE_KEYTYPE_EMPTY &&
@@ -481,8 +492,8 @@ int blockonkeys_blpopn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         }
     } else {
         RedisModule_BlockClientOnKeys(ctx, blockonkeys_blpopn_reply_callback,
-                                      blockonkeys_blpopn_timeout_callback,
-                                      NULL, 3000, &argv[1], 1, NULL);
+                                      timeout ? blockonkeys_blpopn_timeout_callback : blockonkeys_blpopn_abort_callback,
+                                      NULL, timeout, &argv[1], 1, NULL);
     }
     RedisModule_CloseKey(key);
     return REDISMODULE_OK;

@@ -289,14 +289,18 @@ start_server {tags {"modules"}} {
     
     test {Module explicit unblock when blocked on keys} {
         r del k
+        r set somekey someval
         # Module client blocks to pop 5 elements from list
         set rd [redis_deferring_client]
-        $rd blockonkeys.blpopn_or_unblock k 5
+        $rd blockonkeys.blpopn_or_unblock k 5 0
         wait_for_blocked_clients_count 1
         # will now cause the module to trigger pop but instead will unblock the client from the reply_callback
         r lpush k dd
         # we should still get unblocked as the command should not reprocess
         wait_for_blocked_clients_count 0
+        assert_equal {Action aborted} [$rd read]
+        $rd get somekey
+        assert_equal {someval} [$rd read]
         $rd close
     }
 }
