@@ -11,6 +11,27 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
+
+================================================================================
+Redis 6.0.18 Released Tue Feb 28 12:00:00 IST 2023
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues.
+
+Security Fixes:
+* (CVE-2023-25155) Specially crafted SRANDMEMBER, ZRANDMEMBER, and HRANDFIELD
+  commands can trigger an integer overflow, resulting in a runtime assertion
+  and termination of the Redis server process.
+* (CVE-2022-36021) String matching commands (like SCAN or KEYS) with a specially
+  crafted pattern to trigger a denial-of-service attack on Redis, causing it to
+  hang and consume 100% CPU time.
+
+Bug Fixes
+=========
+
+* Make sure that fork child doesn't do incremental rehashing (#11692)
+* Fix cluster inbound link keepalive time (#11785)
+
 ================================================================================
 Redis 6.0.17 Released Tue Jan 17 12:00:00 IDT 2023
 ================================================================================
