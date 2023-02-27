@@ -154,7 +154,7 @@
                                         "type": "string"
                                     }
                                 },
-                                "patternProperties": {
+                                "additionalProperties": {
                                     "display_text": {
                                         "type": "string"
                                     },
