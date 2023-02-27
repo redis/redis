@@ -39,6 +39,10 @@
 
 #include <arpa/inet.h>
 #include <signal.h>
+
+#ifdef __CYGWIN__
+#define __GNU_VISIBLE   1
+#endif
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <sys/mman.h>
