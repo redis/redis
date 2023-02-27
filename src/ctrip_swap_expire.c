@@ -220,7 +220,7 @@ void startMetaScan4ScanExpire(client *c) {
     getKeyRequestsAppendSubkeyResult(&result,REQUEST_LEVEL_KEY,key,0,NULL,
             SWAP_IN,SWAP_METASCAN_EXPIRE,c->db->id);
     c->keyrequests_count++;
-    submitClientKeyRequests(c,&result,metaScan4ScanExpireRequestFinished,NULL);
+    submitDeferredClientKeyRequests(c,&result,metaScan4ScanExpireRequestFinished,NULL);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
 }

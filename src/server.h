@@ -1718,7 +1718,8 @@ struct redisServer {
     struct rocksdbUtilTaskManager* util_task_manager;
     /* swap threads */
     int swap_threads_num;
-    int extra_swap_thread_idx;
+    int swap_defer_thread_idx;
+    int swap_util_thread_idx;
     int total_swap_threads_num; /* swap_threads_num + extra_swap_threads_num */
     struct swapThread *swap_threads;
     /* async */

@@ -69,8 +69,9 @@ void *swapThreadMain (void *arg) {
 
 int swapThreadsInit() {
     int i;
-    server.extra_swap_thread_idx = server.swap_threads_num;
-    server.total_swap_threads_num = server.swap_threads_num + 1;
+    server.swap_defer_thread_idx = server.swap_threads_num;
+    server.swap_util_thread_idx = server.swap_threads_num + 1;
+    server.total_swap_threads_num = server.swap_threads_num + 2;
     server.swap_threads = zcalloc(sizeof(swapThread)*server.total_swap_threads_num);
     for (i = 0; i < server.total_swap_threads_num; i++) {
         swapThread *thread = server.swap_threads+i;
@@ -116,7 +117,7 @@ void swapThreadsDispatch(swapRequest *req, int idx) {
     if (idx == -1) {
         idx = swapThreadsDistNext() % server.swap_threads_num;
     } else {
-        serverAssert(idx <= server.swap_threads_num);
+        serverAssert(idx < server.total_swap_threads_num);
     }
     if (server.swap_debug_trace_latency) elapsedStart(&req->swap_queue_timer);
     if (req->trace) swapTraceDispatch(req->trace);
@@ -262,15 +263,15 @@ int submitUtilTask(int type, void* pd, sds* error) {
     switch (type) {
         case COMPACT_RANGE_TASK:
             submitSwapDataRequest(SWAP_MODE_ASYNC,SWAP_UTILS,0,NULL,
-                    NULL,NULL,NULL,compactRangeDone,pd,NULL,server.extra_swap_thread_idx);
+                    NULL,NULL,NULL,compactRangeDone,pd,NULL,server.swap_util_thread_idx);
             break;
         case GET_ROCKSDB_STATS_TASK:
             submitSwapDataRequest(SWAP_MODE_ASYNC, SWAP_UTILS,1,NULL,
-                    NULL,NULL,NULL,getRocksdbStatsDone,pd,NULL,server.extra_swap_thread_idx);
+                    NULL,NULL,NULL,getRocksdbStatsDone,pd,NULL,server.swap_util_thread_idx);
             break;
         case CREATE_CHECKPOINT:
             submitSwapDataRequest(SWAP_MODE_ASYNC, SWAP_UTILS, CREATE_CHECKPOINT, NULL,
-                                  NULL, NULL, NULL, createCheckpointDone, pd, NULL, server.extra_swap_thread_idx);
+                                  NULL, NULL, NULL, createCheckpointDone, pd, NULL, server.swap_util_thread_idx);
             break;
         default:
             if (error != NULL) *error = sdscatprintf(sdsempty(), "unknown util type %d.", type);

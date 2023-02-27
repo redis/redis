@@ -74,6 +74,7 @@ void copyKeyRequest(keyRequest *dst, keyRequest *src) {
     dst->dbid = src->dbid;
     dst->type = src->type;
     dst->swap_cmd = src->swap_cmd;
+    dst->deferred = src->deferred;
     dst->trace = src->trace;
 
     switch (src->type) {
@@ -117,6 +118,7 @@ void moveKeyRequest(keyRequest *dst, keyRequest *src) {
     dst->type = src->type;
     dst->swap_cmd = src->swap_cmd;
     dst->trace = src->trace;
+    dst->deferred = src->deferred;
 
     switch (src->type) {
     case KEYREQUEST_TYPE_KEY:
@@ -231,6 +233,8 @@ keyRequest *getKeyRequestsAppendCommonResult(getKeyRequestsResult *result,
     key_request->cmd_intention = cmd_intention;
     key_request->cmd_intention_flags = cmd_intention_flags;
     key_request->dbid = dbid;
+    key_request->trace = NULL;
+    key_request->deferred = 0;
     argRewriteRequestInit(key_request->list_arg_rewrite+0);
     argRewriteRequestInit(key_request->list_arg_rewrite+1);
     return key_request;
@@ -250,6 +254,8 @@ void getKeyRequestsAppendScoreResult(getKeyRequestsResult *result, int level,
     key_request->cmd_intention = cmd_intention;
     key_request->cmd_intention_flags = cmd_intention_flags;
     key_request->dbid = dbid;
+    key_request->trace = NULL;
+    key_request->deferred = 0;
 }
 
 /* Note that key&subkeys ownership moved */
@@ -264,6 +270,7 @@ void getKeyRequestsAppendSubkeyResult(getKeyRequestsResult *result, int level,
     key_request->b.subkeys = subkeys;
     key_request->swap_cmd = NULL;
     key_request->trace = NULL;
+    key_request->deferred = 0;
 }
 
 inline void getKeyRequestsAttachSwapTrace(getKeyRequestsResult * result, swapCmdTrace *swap_cmd,

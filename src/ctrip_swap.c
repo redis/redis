@@ -340,6 +340,7 @@ void keyRequestProceed(void *lock, redisDb *db, robj *key,
     uint32_t swap_intention_flags;
     long long expire;
     uint32_t cmd_intention_flags = ctx->key_request->cmd_intention_flags;
+    int thread_idx = ctx->key_request->deferred ? server.swap_defer_thread_idx : -1;
     UNUSED(reason);
 
 #ifdef SWAP_DEBUG
@@ -386,7 +387,7 @@ void keyRequestProceed(void *lock, redisDb *db, robj *key,
 
     if (value == NULL) {
         submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
-                ctx,data,datactx,ctx->key_request->trace,keyRequestSwapFinished,ctx,msgs,-1);
+                ctx,data,datactx,ctx->key_request->trace,keyRequestSwapFinished,ctx,msgs,thread_idx);
         return;
     }
 
@@ -428,7 +429,7 @@ allset:
             swapIntentionName(swap_intention));
 
     submitSwapDataRequest(SWAP_MODE_ASYNC,swap_intention,swap_intention_flags,
-            ctx,data,datactx,ctx->key_request->trace,keyRequestSwapFinished,ctx,msgs,-1);
+            ctx,data,datactx,ctx->key_request->trace,keyRequestSwapFinished,ctx,msgs,thread_idx);
 
     return;
 
@@ -447,8 +448,8 @@ noswap:
     return;
 }
 
-void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
-        clientKeyRequestFinished cb, void* ctx_pd) {
+void _submitClientKeyRequests(client *c, getKeyRequestsResult *result,
+        clientKeyRequestFinished cb, void* ctx_pd, int deferred) {
     int64_t txid = server.swap_txid++;
 
     if (pauseClientKeyRequestsIfNeeded(c,result,cb))
@@ -460,6 +461,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
     for (int i = 0; i < result->num; i++) {
         void *msgs = NULL;
         keyRequest *key_request = result->key_requests + i;
+        key_request->deferred = deferred;
         redisDb *db = key_request->level == REQUEST_LEVEL_SVR ?
             NULL : server.db + key_request->dbid;
         robj *key = key_request->key;
@@ -475,6 +477,16 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         lockLock(txid,db,key,keyRequestProceed,c,ctx,
                 (freefunc)swapCtxFree,msgs);
     }
+}
+
+void submitDeferredClientKeyRequests(client *c, getKeyRequestsResult *result,
+                                     clientKeyRequestFinished cb, void* ctx_pd) {
+    _submitClientKeyRequests(c, result, cb, ctx_pd, 1);
+}
+
+void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
+                             clientKeyRequestFinished cb, void* ctx_pd) {
+    _submitClientKeyRequests(c, result, cb, ctx_pd, 0);
 }
 
 /* Returns submited keyrequest count, if any keyrequest submitted, command
@@ -658,27 +670,27 @@ int clearTestRedisServer() {
 }
 int swapTest(int argc, char **argv, int accurate) {
   int result = 0;
-  /* result += swapLockTest(argc, argv, accurate); */
-  /* result += swapLockReentrantTest(argc, argv, accurate); */
-  /* result += swapLockProceedTest(argc, argv, accurate); */
-  /* result += swapCmdTest(argc, argv, accurate); */
-  /* result += swapExecTest(argc, argv, accurate); */
-  /* result += swapDataTest(argc, argv, accurate); */
-  /* result += swapDataWholeKeyTest(argc, argv, accurate); */
-  /* result += swapObjectTest(argc, argv, accurate); */
-  /* result += swapRdbTest(argc, argv, accurate); */
-  /* result += swapIterTest(argc, argv, accurate); */
-  /* result += swapDataHashTest(argc, argv, accurate); */
-  /* result += swapDataSetTest(argc, argv, accurate); */
-  /* result += swapDataZsetTest(argc, argv, accurate); */
+  result += swapLockTest(argc, argv, accurate);
+  result += swapLockReentrantTest(argc, argv, accurate);
+  result += swapLockProceedTest(argc, argv, accurate);
+  result += swapCmdTest(argc, argv, accurate);
+  result += swapExecTest(argc, argv, accurate);
+  result += swapDataTest(argc, argv, accurate);
+  result += swapDataWholeKeyTest(argc, argv, accurate);
+  result += swapObjectTest(argc, argv, accurate);
+  result += swapRdbTest(argc, argv, accurate);
+  result += swapIterTest(argc, argv, accurate);
+  result += swapDataHashTest(argc, argv, accurate);
+  result += swapDataSetTest(argc, argv, accurate);
+  result += swapDataZsetTest(argc, argv, accurate);
   result += metaScanTest(argc, argv, accurate);
-  /* result += swapExpireTest(argc, argv, accurate); */
-  /* result += swapUtilTest(argc, argv, accurate); */
-  /* result += swapFilterTest(argc, argv, accurate); */
-  /* result += swapListMetaTest(argc, argv, accurate); */
-  /* result += swapListDataTest(argc, argv, accurate); */
-  /* result += swapListUtilsTest(argc, argv, accurate); */
-  /* result += swapHoldTest(argc, argv, accurate); */
+  result += swapExpireTest(argc, argv, accurate);
+  result += swapUtilTest(argc, argv, accurate);
+  result += swapFilterTest(argc, argv, accurate);
+  result += swapListMetaTest(argc, argv, accurate);
+  result += swapListDataTest(argc, argv, accurate);
+  result += swapListUtilsTest(argc, argv, accurate);
+  result += swapHoldTest(argc, argv, accurate);
   return result;
 }
 #endif
