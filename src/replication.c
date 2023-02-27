@@ -524,6 +524,10 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 void showLatestBacklog(void) {
     if (server.repl_backlog == NULL) return;
     if (listLength(server.repl_buffer_blocks) == 0) return;
+    if (server.hide_client_log) {
+        serverLog(LL_NOTICE,"hide-client-log is on, skip logging backlog content to avid spilling PII.");
+        return;
+    }
 
     size_t dumplen = 256;
     if (server.repl_backlog->histlen < (long long)dumplen)
@@ -556,11 +560,13 @@ void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
     /* Debugging: this is handy to see the stream sent from master
      * to slaves. Disabled with if(0). */
     if (0) {
-        printf("%zu:",buflen);
-        for (size_t j = 0; j < buflen; j++) {
-            printf("%c", isprint(buf[j]) ? buf[j] : '.');
+        if (!server.hide_client_log) {
+            printf("%zu:",buflen);
+            for (size_t j = 0; j < buflen; j++) {
+                printf("%c", isprint(buf[j]) ? buf[j] : '.');
+            }
+            printf("\n");
         }
-        printf("\n");
     }
 
     /* There must be replication backlog if having attached slaves. */
@@ -1164,7 +1170,7 @@ void syncCommand(client *c) {
  * result in an empty RDB. */
 void replconfCommand(client *c) {
     int j;
-
+    
     if ((c->argc % 2) == 0) {
         /* Number of arguments must be odd to make sure that every
          * option has a corresponding value. */

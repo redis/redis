@@ -1067,6 +1067,11 @@ void _serverAssert(const char *estr, const char *file, int line) {
     bugReportEnd(0, 0);
 }
 
+/* Returns the amount of client's command arguments we allow logging */
+int clientArgsToLog(const client *c) {
+    return server.hide_client_log ? 1 : c->argc;
+}
+
 void _serverAssertPrintClientInfo(const client *c) {
     int j;
     char conninfo[CONN_INFO_LEN];
@@ -1077,6 +1082,10 @@ void _serverAssertPrintClientInfo(const client *c) {
     serverLog(LL_WARNING,"client->conn = %s", connGetInfo(c->conn, conninfo, sizeof(conninfo)));
     serverLog(LL_WARNING,"client->argc = %d", c->argc);
     for (j=0; j < c->argc; j++) {
+        if (j >= clientArgsToLog(c)){
+            serverLog(LL_WARNING|LL_RAW,"client->argv[%d]: *redacted*\n", j);
+            continue;
+        }
         char buf[128];
         char *arg;
 
@@ -1268,6 +1277,10 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
 
 REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
+    if (server.hide_client_log) {
+        serverLog(LL_NOTICE,"hide-client-log is on, skip logging stack content to avid spilling PII.");
+        return;
+    }
     int i;
     for (i = 15; i >= 0; i--) {
         unsigned long addr = (unsigned long) sp+i;
@@ -1917,6 +1930,10 @@ void logCurrentClient(client *cc, const char *title) {
     sdsfree(client);
     serverLog(LL_WARNING|LL_RAW,"argc: '%d'\n", cc->argc);
     for (j = 0; j < cc->argc; j++) {
+        if (j >= clientArgsToLog(cc)){
+            serverLog(LL_WARNING|LL_RAW,"client->argv[%d]: *redacted*\n", j);
+            continue;
+        }
         robj *decoded;
         decoded = getDecodedObject(cc->argv[j]);
         sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
