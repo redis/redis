@@ -161,6 +161,11 @@
 /* DNS lookup */
 #define NET_IP_STR_LEN 46       /* INET6_ADDRSTRLEN is 46 */
 
+/* cluster node sort */
+#define CLUSTER_NODE_SORT_NONE 0
+#define CLUSTER_NODE_SORT_ASC 1
+#define CLUSTER_NODE_SORT_DESC -1
+
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
 int spectrum_palette_color[] = {0,233,234,235,237,239,241,243,245,247,144,143,142,184,226,214,208,202,196};
@@ -209,6 +214,7 @@ typedef struct clusterManagerCommand {
     char *from_user;
     char *from_pass;
     int from_askpass;
+    int sort;
 } clusterManagerCommand;
 
 static int createClusterManagerCommand(char *cmdname, int argc, char **argv);
@@ -2116,6 +2122,16 @@ static int parseOptions(int argc, char **argv) {
                     CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY;
         } else if (!strcmp(argv[i],"--cluster-replicas") && !lastarg) {
             config.cluster_manager_command.replicas = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--cluster-sort") && !lastarg) {
+            char *sort = argv[++i];
+            if (!strcasecmp(sort, "desc")) {
+                config.cluster_manager_command.sort = CLUSTER_NODE_SORT_DESC;
+            } else if (!strcasecmp(sort, "asc")) {
+                config.cluster_manager_command.sort = CLUSTER_NODE_SORT_ASC;
+            } else if (strcasecmp(sort, "no")) {
+                fprintf(stderr, "Invalid quoted string specified for --cluster-sort [desc|asc|no](default:no)");
+                exit(1);
+            }
         } else if (!strcmp(argv[i],"--cluster-master-id") && !lastarg) {
             config.cluster_manager_command.master_id = argv[++i];
         } else if (!strcmp(argv[i],"--cluster-from") && !lastarg) {
@@ -6125,9 +6141,25 @@ static void clusterManagerMode(clusterManagerCommandProc *proc) {
     exit(success ? 0 : 1);
 }
 
+void sort(int length, char **pString, int order) {
+    int i, k;
+    char *w;
+    for (i = 0; i < length - 1; i++) {
+        for (k = 0; k < length - i - 1; k++) {
+            if (strcmp(pString[k], pString[k + 1]) * order > 0) {
+                w = pString[k];
+                pString[k] = pString[k + 1];
+                pString[k + 1] = w;
+            }
+        }
+    }
+}
 /* Cluster Manager Commands */
 
 static int clusterManagerCommandCreate(int argc, char **argv) {
+    if (config.cluster_manager_command.sort) {
+        sort(argc, argv, config.cluster_manager_command.sort);
+    }
     int i, j, success = 1;
     cluster_manager.nodes = listCreate();
     for (i = 0; i < argc; i++) {
