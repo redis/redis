@@ -438,9 +438,8 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
                 }
                 client *c = wk->client;
                 c->flags |= CLIENT_DIRTY_CAS;
-                /* As the client is marked as dirty, there is no point in getting here
-                 * again for others keys (or keep the memory overhead till EXEC). */
-                unwatchAllKeys(c);
+                /* We can't call here unwatchAllKeys(c) because it may invalidate the dict iterator.
+                 * Instead, we just mark the client as dirty, and we will unwatch all its keys later. */
             }
         }
     }
