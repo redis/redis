@@ -113,7 +113,7 @@
                                                             {
                                                                 "description": "unknown type, empty map",
                                                                 "type": "object",
-                                                                "additionalProperties": "false"
+                                                                "additionalProperties": false
                                                             },
                                                             {
                                                                 "description": "index type",

@@ -40,17 +40,16 @@
                                 "command": {
                                     "description": "the command and arguments used for invoking the function.",
                                     "type": "array",
-                                    "items": [
-                                        {
-                                            "type": "string"
-                                        }
-                                    ]
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 },
                                 "duration_ms": {
                                     "description": "the function's runtime duration in milliseconds.",
                                     "type": "integer"
                                 }
-                            }
+                            },
+                            "additionalProperties": false
                         }
                     ]
                 },
@@ -70,11 +69,13 @@
                                     "dedscription": "number of functions",
                                     "type": "integer"
                                 }
-                            }
+                            },
+                            "additionalProperties": false
                         }
                     }
                 }
-            }
+            },
+            "additionalProperties": false
         }
     }
 }

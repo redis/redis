@@ -18,58 +18,56 @@
         ],
         "reply_schama": {
             "type": "array",
-            "items": [
-                {
-                    "type": "object",
-                    "properties": {
-                        "library_name": {
-                            "desctipion": " the name of the library",
-                            "type": "string"
-                        },
-                        "engine": {
-                            "description": "the engine of the library",
-                            "type": "string"
-                        },
-                        "functions": {
-                            "description": "the list of functions in the library",
-                            "type": "array",
-                            "items": [
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {
-                                            "description": "the name of the function",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "library_name": {
+                        "description": " the name of the library",
+                        "type": "string"
+                    },
+                    "engine": {
+                        "description": "the engine of the library",
+                        "type": "string"
+                    },
+                    "functions": {
+                        "description": "the list of functions in the library",
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "description": "the name of the function",
+                                    "type": "string"
+                                },
+                                "description": {
+                                    "description": "the function's description",
+                                    "oneOf": [
+                                        {
+                                            "type": "null"
+                                        },
+                                        {
                                             "type": "string"
-                                        },
-                                        "description": {
-                                            "description": "the function's description",
-                                            "oneOf": [
-                                                {
-                                                    "type": "null"
-                                                },
-                                                {
-                                                    "type": "string"
-                                                }
-                                            ]
-                                        },
-                                        "flags": {
-                                            "description": "an array of function flags",
-                                            "type": "array",
-                                            "items": {
-                                                "type": "string"
-                                            }
                                         }
+                                    ]
+                                },
+                                "flags": {
+                                    "description": "an array of function flags",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
                                     }
                                 }
-                            ]
-                        },
-                        "library_code": {
-                            "description": "he library's source code (when given the WITHCODE modifier).",
-                            "type": "string"
+                            },
+                            "additionalProperties": false
                         }
+                    },
+                    "library_code": {
+                        "description": "he library's source code (when given the WITHCODE modifier).",
+                        "type": "string"
                     }
-                }
-            ]
+                },
+                "additionalProperties": false
+            }
         },
         "arguments": [
             {

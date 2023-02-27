@@ -19,7 +19,7 @@
             "NONDETERMINISTIC_OUTPUT_ORDER"
         ],
         "reply_scema": {
-            "description": "A map where each key is a command name, and each value",
+            "description": "A map where each key is a command name, and each value is the documentary information",
             "type": "object",
             "patternProperties": {
                 "^.*$": {
@@ -102,20 +102,18 @@
                         "doc_flags": {
                             "description": "an array of documentation flags",
                             "type": "array",
-                            "items": [
-                                {
-                                    "oneOf": [
-                                        {
-                                            "description": "the command is deprecated.",
-                                            "const": "deprecated"
-                                        },
-                                        {
-                                            "description": "a system command that isn't meant to be called by users.",
-                                            "const": "syscmd"
-                                        }
-                                    ]
-                                }
-                            ]
+                            "items": {
+                                "oneOf": [
+                                    {
+                                        "description": "the command is deprecated.",
+                                        "const": "deprecated"
+                                    },
+                                    {
+                                        "description": "a system command that isn't meant to be called by users.",
+                                        "const": "syscmd"
+                                    }
+                                ]
+                            }
                         },
                         "deprecated_since": {
                             "description": "the Redis version that deprecated the command (or for module commands, the module version)",
@@ -129,76 +127,76 @@
                             "description": "an array of historical notes describing changes to the command's behavior or arguments.",
                             "type": "array",
                             "uniqueItems": true,
-                            "items": [
-                                {
-                                    "type": "array",
-                                    "items": [
-                                        {
-                                            "type": "string",
-                                            "description": "The Redis version that the entry applies to."
-                                        },
-                                        {
-                                            "type": "string",
-                                            "description": "The description of the change."
-                                        }
-                                    ]
-                                }
-                            ]
+                            "items": {
+                                "type": "array",
+                                "items": [
+                                    {
+                                        "type": "string",
+                                        "description": "The Redis version that the entry applies to."
+                                    },
+                                    {
+                                        "type": "string",
+                                        "description": "The description of the change."
+                                    }
+                                ]
+                            }
                         },
                         "arguments": {
                             "description": "an array of maps that describe the command's arguments.",
                             "type": "array",
-                            "items": [
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {
-                                            "type": "string"
-                                        },
-                                        "type": {
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "type": "string"
+                                    }
+                                },
+                                "patternProperties": {
+                                    "display_text": {
+                                        "type": "string"
+                                    },
+                                    "key_spec_index": {
+                                        "type": "integer"
+                                    },
+                                    "token": {
+                                        "type": "string"
+                                    },
+                                    "summary": {
+                                        "type": "string"
+                                    },
+                                    "since": {
+                                        "type": "string"
+                                    },
+                                    "deprecated_since": {
+                                        "type": "string"
+                                    },
+                                    "flags": {
+                                        "type": "array",
+                                        "items": {
                                             "type": "string"
                                         }
                                     },
-                                    "patternProperties": {
-                                        "display_text": {
-                                            "type": "string"
-                                        },
-                                        "key_spec_index": {
-                                            "type": "integer"
-                                        },
-                                        "token": {
-                                            "type": "string"
-                                        },
-                                        "summary": {
-                                            "type": "string"
-                                        },
-                                        "since": {
-                                            "type": "string"
-                                        },
-                                        "deprecated_since": {
-                                            "type": "string"
-                                        },
-                                        "flags": {
-                                            "type": "array",
-                                            "items": [
-                                                {
-                                                    "type": "string"
-                                                }
-                                            ]
-                                        },
-                                        "arguments": {
-                                            "type": "array"
-                                        }
+                                    "arguments": {
+                                        "type": "array"
                                     }
                                 }
-                            ]
+                            }
                         },
                         "subcommands": {
                             "type": "string"
+                        },
+                        "reply_schema": {
+                            "description": "command reply schema",
+                            "type":  "object"
                         }
-                    }
+                    },
+                    "additionalProperties": false
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "arguments": [
             {
