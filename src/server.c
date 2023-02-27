@@ -3874,7 +3874,7 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-   /* If cluster is enabled perform the cluster redirection here.
+    /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
      * 2) The command has no key arguments. */
