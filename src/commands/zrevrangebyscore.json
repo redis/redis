@@ -56,7 +56,6 @@
                     {
                         "type": "array",
                         "description": "Element and its score when 'WITHSCORES' is used.",
-                        "additionalItems": false,
                         "items": [
                             {
                                 "type": "string"

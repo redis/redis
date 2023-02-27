@@ -39,7 +39,7 @@
                 {
                     "type": "array",
                     "description": "List of popped elements and scores when 'COUNT' isn't specified.",
-                    "additionalItems": false,
+                    "uniqueItems": true,
                     "items": [
                         {
                             "type": "string",
@@ -57,7 +57,6 @@
                     "items": {
                         "type": "array",
                         "uniqueItems": true,
-                        "additionalItems": false,
                         "items": [
                             {
                                 "type": "string",

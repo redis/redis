@@ -33,7 +33,7 @@
             "type": "array",
             "items": {
                 "type": "array",
-                "prefixItems": [
+                "items": [
                     {
                         "description": "start slot number",
                         "type": "integer"
@@ -69,6 +69,7 @@
                             {
                                 "description": "array of node descriptions",
                                 "type": "object",
+                                "additionalProperties": false,
                                 "properties": {
                                     "hostname": {
                                         "type": "string"

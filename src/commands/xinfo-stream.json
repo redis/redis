@@ -205,6 +205,7 @@
                             "type": "array",
                             "items": {
                                 "type": "object",
+                                "additionalProperties": false,
                                 "properties": {
                                     "name": {
                                         "description": "group name",
@@ -274,6 +275,7 @@
                                         "type": "array",
                                         "items": {
                                             "type": "object",
+                                            "additionalProperties": false,
                                             "properties": {
                                                 "name": {
                                                     "description": "consumer name",

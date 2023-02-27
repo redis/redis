@@ -39,6 +39,8 @@ struct redisCommandArg BITCOUNT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* BITCOUNT_ReplySchema reply schema */
 struct jsonObjectElement BITCOUNT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The number of bits set to 1."},
@@ -47,6 +49,12 @@ struct jsonObjectElement BITCOUNT_ReplySchema_elements[] = {
 };
 
 struct jsonObject BITCOUNT_ReplySchema = {BITCOUNT_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject BITCOUNT_ReplySchema = {0};
+
+#endif
 
 /********** BITFIELD ********************/
 
@@ -115,6 +123,8 @@ struct redisCommandArg BITFIELD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* BITFIELD_ReplySchema_items_0_oneOf_0 reply schema */
 struct jsonObjectElement BITFIELD_ReplySchema_items_0_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The result of the subcommand at the same position"},
@@ -157,6 +167,12 @@ struct jsonObjectElement BITFIELD_ReplySchema_elements[] = {
 
 struct jsonObject BITFIELD_ReplySchema = {BITFIELD_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject BITFIELD_ReplySchema = {0};
+
+#endif
+
 /********** BITFIELD_RO ********************/
 
 /* BITFIELD_RO history */
@@ -179,6 +195,8 @@ struct redisCommandArg BITFIELD_RO_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* BITFIELD_RO_ReplySchema_items_0 reply schema */
 struct jsonObjectElement BITFIELD_RO_ReplySchema_items_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The result of the subcommand at the same position"},
@@ -199,6 +217,12 @@ struct jsonObjectElement BITFIELD_RO_ReplySchema_elements[] = {
 };
 
 struct jsonObject BITFIELD_RO_ReplySchema = {BITFIELD_RO_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject BITFIELD_RO_ReplySchema = {0};
+
+#endif
 
 /********** BITOP ********************/
 
@@ -225,6 +249,8 @@ struct redisCommandArg BITOP_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* BITOP_ReplySchema reply schema */
 struct jsonObjectElement BITOP_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the size of the string stored in the destination key, that is equal to the size of the longest input string"},
@@ -233,6 +259,12 @@ struct jsonObjectElement BITOP_ReplySchema_elements[] = {
 };
 
 struct jsonObject BITOP_ReplySchema = {BITOP_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject BITOP_ReplySchema = {0};
+
+#endif
 
 /********** BITPOS ********************/
 
@@ -274,6 +306,8 @@ struct redisCommandArg BITPOS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* BITPOS_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BITPOS_ReplySchema_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the position of the first bit set to 1 or 0 according to the request"},
@@ -304,6 +338,12 @@ struct jsonObjectElement BITPOS_ReplySchema_elements[] = {
 
 struct jsonObject BITPOS_ReplySchema = {BITPOS_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject BITPOS_ReplySchema = {0};
+
+#endif
+
 /********** GETBIT ********************/
 
 /* GETBIT history */
@@ -318,6 +358,8 @@ struct redisCommandArg GETBIT_Args[] = {
 {"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GETBIT_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement GETBIT_ReplySchema_oneOf_0_elements[] = {
@@ -347,6 +389,12 @@ struct jsonObjectElement GETBIT_ReplySchema_elements[] = {
 
 struct jsonObject GETBIT_ReplySchema = {GETBIT_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject GETBIT_ReplySchema = {0};
+
+#endif
+
 /********** SETBIT ********************/
 
 /* SETBIT history */
@@ -362,6 +410,8 @@ struct redisCommandArg SETBIT_Args[] = {
 {"value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SETBIT_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement SETBIT_ReplySchema_oneOf_0_elements[] = {
@@ -391,6 +441,12 @@ struct jsonObjectElement SETBIT_ReplySchema_elements[] = {
 
 struct jsonObject SETBIT_ReplySchema = {SETBIT_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject SETBIT_ReplySchema = {0};
+
+#endif
+
 /********** ASKING ********************/
 
 /* ASKING history */
@@ -399,12 +455,20 @@ struct jsonObject SETBIT_ReplySchema = {SETBIT_ReplySchema_elements,.length=2};
 /* ASKING tips */
 #define ASKING_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* ASKING_ReplySchema reply schema */
 struct jsonObjectElement ASKING_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject ASKING_ReplySchema = {ASKING_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject ASKING_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER ADDSLOTS ********************/
 
@@ -420,12 +484,20 @@ struct redisCommandArg CLUSTER_ADDSLOTS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_ADDSLOTS_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_ADDSLOTS_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_ADDSLOTS_ReplySchema = {CLUSTER_ADDSLOTS_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_ADDSLOTS_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER ADDSLOTSRANGE ********************/
 
@@ -448,12 +520,20 @@ struct redisCommandArg CLUSTER_ADDSLOTSRANGE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_ADDSLOTSRANGE_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_ADDSLOTSRANGE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_ADDSLOTSRANGE_ReplySchema = {CLUSTER_ADDSLOTSRANGE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_ADDSLOTSRANGE_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER BUMPEPOCH ********************/
 
@@ -465,6 +545,8 @@ const char *CLUSTER_BUMPEPOCH_tips[] = {
 "nondeterministic_output",
 NULL
 };
+
+#ifdef LOG_REQ_RES
 
 /* CLUSTER_BUMPEPOCH_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement CLUSTER_BUMPEPOCH_ReplySchema_oneOf_0_elements[] = {
@@ -495,6 +577,12 @@ struct jsonObjectElement CLUSTER_BUMPEPOCH_ReplySchema_elements[] = {
 
 struct jsonObject CLUSTER_BUMPEPOCH_ReplySchema = {CLUSTER_BUMPEPOCH_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject CLUSTER_BUMPEPOCH_ReplySchema = {0};
+
+#endif
+
 /********** CLUSTER COUNT_FAILURE_REPORTS ********************/
 
 /* CLUSTER COUNT_FAILURE_REPORTS history */
@@ -512,6 +600,8 @@ struct redisCommandArg CLUSTER_COUNT_FAILURE_REPORTS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_COUNT_FAILURE_REPORTS_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_COUNT_FAILURE_REPORTS_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the number of active failure reports for the node"},
@@ -520,6 +610,12 @@ struct jsonObjectElement CLUSTER_COUNT_FAILURE_REPORTS_ReplySchema_elements[] = 
 };
 
 struct jsonObject CLUSTER_COUNT_FAILURE_REPORTS_ReplySchema = {CLUSTER_COUNT_FAILURE_REPORTS_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject CLUSTER_COUNT_FAILURE_REPORTS_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER COUNTKEYSINSLOT ********************/
 
@@ -535,6 +631,8 @@ struct redisCommandArg CLUSTER_COUNTKEYSINSLOT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_COUNTKEYSINSLOT_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_COUNTKEYSINSLOT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The number of keys in the specified hash slot"},
@@ -543,6 +641,12 @@ struct jsonObjectElement CLUSTER_COUNTKEYSINSLOT_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLUSTER_COUNTKEYSINSLOT_ReplySchema = {CLUSTER_COUNTKEYSINSLOT_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject CLUSTER_COUNTKEYSINSLOT_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER DELSLOTS ********************/
 
@@ -558,12 +662,20 @@ struct redisCommandArg CLUSTER_DELSLOTS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_DELSLOTS_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_DELSLOTS_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_DELSLOTS_ReplySchema = {CLUSTER_DELSLOTS_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_DELSLOTS_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER DELSLOTSRANGE ********************/
 
@@ -586,12 +698,20 @@ struct redisCommandArg CLUSTER_DELSLOTSRANGE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_DELSLOTSRANGE_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_DELSLOTSRANGE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_DELSLOTSRANGE_ReplySchema = {CLUSTER_DELSLOTSRANGE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_DELSLOTSRANGE_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER FAILOVER ********************/
 
@@ -614,12 +734,20 @@ struct redisCommandArg CLUSTER_FAILOVER_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_FAILOVER_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_FAILOVER_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_FAILOVER_ReplySchema = {CLUSTER_FAILOVER_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_FAILOVER_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER FLUSHSLOTS ********************/
 
@@ -629,12 +757,20 @@ struct jsonObject CLUSTER_FAILOVER_ReplySchema = {CLUSTER_FAILOVER_ReplySchema_e
 /* CLUSTER FLUSHSLOTS tips */
 #define CLUSTER_FLUSHSLOTS_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_FLUSHSLOTS_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_FLUSHSLOTS_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_FLUSHSLOTS_ReplySchema = {CLUSTER_FLUSHSLOTS_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_FLUSHSLOTS_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER FORGET ********************/
 
@@ -650,12 +786,20 @@ struct redisCommandArg CLUSTER_FORGET_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_FORGET_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_FORGET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_FORGET_ReplySchema = {CLUSTER_FORGET_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_FORGET_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER GETKEYSINSLOT ********************/
 
@@ -675,6 +819,8 @@ struct redisCommandArg CLUSTER_GETKEYSINSLOT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_GETKEYSINSLOT_ReplySchema_items reply schema */
 struct jsonObjectElement CLUSTER_GETKEYSINSLOT_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="key name"},
@@ -692,6 +838,12 @@ struct jsonObjectElement CLUSTER_GETKEYSINSLOT_ReplySchema_elements[] = {
 
 struct jsonObject CLUSTER_GETKEYSINSLOT_ReplySchema = {CLUSTER_GETKEYSINSLOT_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject CLUSTER_GETKEYSINSLOT_ReplySchema = {0};
+
+#endif
+
 /********** CLUSTER HELP ********************/
 
 /* CLUSTER HELP history */
@@ -699,6 +851,8 @@ struct jsonObject CLUSTER_GETKEYSINSLOT_ReplySchema = {CLUSTER_GETKEYSINSLOT_Rep
 
 /* CLUSTER HELP tips */
 #define CLUSTER_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* CLUSTER_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement CLUSTER_HELP_ReplySchema_items_elements[] = {
@@ -716,6 +870,12 @@ struct jsonObjectElement CLUSTER_HELP_ReplySchema_elements[] = {
 
 struct jsonObject CLUSTER_HELP_ReplySchema = {CLUSTER_HELP_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject CLUSTER_HELP_ReplySchema = {0};
+
+#endif
+
 /********** CLUSTER INFO ********************/
 
 /* CLUSTER INFO history */
@@ -727,6 +887,8 @@ const char *CLUSTER_INFO_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_INFO_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_INFO_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="A map between named fields and values in the form of <field>:<value> lines separated by newlines composed by the two bytes CRLF"},
@@ -734,6 +896,12 @@ struct jsonObjectElement CLUSTER_INFO_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLUSTER_INFO_ReplySchema = {CLUSTER_INFO_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject CLUSTER_INFO_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER KEYSLOT ********************/
 
@@ -749,6 +917,8 @@ struct redisCommandArg CLUSTER_KEYSLOT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_KEYSLOT_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_KEYSLOT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The hash slot number for the specified key"},
@@ -757,6 +927,12 @@ struct jsonObjectElement CLUSTER_KEYSLOT_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLUSTER_KEYSLOT_ReplySchema = {CLUSTER_KEYSLOT_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject CLUSTER_KEYSLOT_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER LINKS ********************/
 
@@ -768,6 +944,8 @@ const char *CLUSTER_LINKS_tips[] = {
 "nondeterministic_output",
 NULL
 };
+
+#ifdef LOG_REQ_RES
 
 /* CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_0 reply schema */
 struct jsonObjectElement CLUSTER_LINKS_ReplySchema_items_properties_direction_oneOf_0_elements[] = {
@@ -867,6 +1045,12 @@ struct jsonObjectElement CLUSTER_LINKS_ReplySchema_elements[] = {
 
 struct jsonObject CLUSTER_LINKS_ReplySchema = {CLUSTER_LINKS_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject CLUSTER_LINKS_ReplySchema = {0};
+
+#endif
+
 /********** CLUSTER MEET ********************/
 
 /* CLUSTER MEET history */
@@ -886,12 +1070,20 @@ struct redisCommandArg CLUSTER_MEET_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_MEET_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_MEET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_MEET_ReplySchema = {CLUSTER_MEET_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_MEET_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER MYID ********************/
 
@@ -901,6 +1093,8 @@ struct jsonObject CLUSTER_MEET_ReplySchema = {CLUSTER_MEET_ReplySchema_elements,
 /* CLUSTER MYID tips */
 #define CLUSTER_MYID_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_MYID_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_MYID_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the node id"},
@@ -908,6 +1102,12 @@ struct jsonObjectElement CLUSTER_MYID_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLUSTER_MYID_ReplySchema = {CLUSTER_MYID_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject CLUSTER_MYID_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER MYSHARDID ********************/
 
@@ -920,6 +1120,8 @@ const char *CLUSTER_MYSHARDID_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_MYSHARDID_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_MYSHARDID_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the node's shard id"},
@@ -927,6 +1129,12 @@ struct jsonObjectElement CLUSTER_MYSHARDID_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLUSTER_MYSHARDID_ReplySchema = {CLUSTER_MYSHARDID_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject CLUSTER_MYSHARDID_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER NODES ********************/
 
@@ -939,6 +1147,8 @@ const char *CLUSTER_NODES_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_NODES_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_NODES_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the serialized cluster configuration"},
@@ -946,6 +1156,12 @@ struct jsonObjectElement CLUSTER_NODES_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLUSTER_NODES_ReplySchema = {CLUSTER_NODES_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject CLUSTER_NODES_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER REPLICAS ********************/
 
@@ -964,6 +1180,8 @@ struct redisCommandArg CLUSTER_REPLICAS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_REPLICAS_ReplySchema_items reply schema */
 struct jsonObjectElement CLUSTER_REPLICAS_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -981,6 +1199,12 @@ struct jsonObjectElement CLUSTER_REPLICAS_ReplySchema_elements[] = {
 
 struct jsonObject CLUSTER_REPLICAS_ReplySchema = {CLUSTER_REPLICAS_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject CLUSTER_REPLICAS_ReplySchema = {0};
+
+#endif
+
 /********** CLUSTER REPLICATE ********************/
 
 /* CLUSTER REPLICATE history */
@@ -995,12 +1219,20 @@ struct redisCommandArg CLUSTER_REPLICATE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_REPLICATE_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_REPLICATE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_REPLICATE_ReplySchema = {CLUSTER_REPLICATE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_REPLICATE_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER RESET ********************/
 
@@ -1023,12 +1255,20 @@ struct redisCommandArg CLUSTER_RESET_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_RESET_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_RESET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_RESET_ReplySchema = {CLUSTER_RESET_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_RESET_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER SAVECONFIG ********************/
 
@@ -1038,12 +1278,20 @@ struct jsonObject CLUSTER_RESET_ReplySchema = {CLUSTER_RESET_ReplySchema_element
 /* CLUSTER SAVECONFIG tips */
 #define CLUSTER_SAVECONFIG_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_SAVECONFIG_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_SAVECONFIG_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_SAVECONFIG_ReplySchema = {CLUSTER_SAVECONFIG_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_SAVECONFIG_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER SET_CONFIG_EPOCH ********************/
 
@@ -1059,12 +1307,20 @@ struct redisCommandArg CLUSTER_SET_CONFIG_EPOCH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_SET_CONFIG_EPOCH_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_SET_CONFIG_EPOCH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_SET_CONFIG_EPOCH_ReplySchema = {CLUSTER_SET_CONFIG_EPOCH_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_SET_CONFIG_EPOCH_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER SETSLOT ********************/
 
@@ -1090,12 +1346,20 @@ struct redisCommandArg CLUSTER_SETSLOT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_SETSLOT_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_SETSLOT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLUSTER_SETSLOT_ReplySchema = {CLUSTER_SETSLOT_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLUSTER_SETSLOT_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER SHARDS ********************/
 
@@ -1107,6 +1371,8 @@ const char *CLUSTER_SHARDS_tips[] = {
 "nondeterministic_output",
 NULL
 };
+
+#ifdef LOG_REQ_RES
 
 /* CLUSTER_SHARDS_ReplySchema_items_properties_slots_items reply schema */
 struct jsonObjectElement CLUSTER_SHARDS_ReplySchema_items_properties_slots_items_elements[] = {
@@ -1253,10 +1519,11 @@ struct jsonObject CLUSTER_SHARDS_ReplySchema_items_properties_nodes_items_proper
 /* CLUSTER_SHARDS_ReplySchema_items_properties_nodes_items reply schema */
 struct jsonObjectElement CLUSTER_SHARDS_ReplySchema_items_properties_nodes_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"properties",.value.object=&CLUSTER_SHARDS_ReplySchema_items_properties_nodes_items_properties},
 };
 
-struct jsonObject CLUSTER_SHARDS_ReplySchema_items_properties_nodes_items = {CLUSTER_SHARDS_ReplySchema_items_properties_nodes_items_elements,.length=2};
+struct jsonObject CLUSTER_SHARDS_ReplySchema_items_properties_nodes_items = {CLUSTER_SHARDS_ReplySchema_items_properties_nodes_items_elements,.length=3};
 
 /* CLUSTER_SHARDS_ReplySchema_items_properties_nodes reply schema */
 struct jsonObjectElement CLUSTER_SHARDS_ReplySchema_items_properties_nodes_elements[] = {
@@ -1278,8 +1545,8 @@ struct jsonObject CLUSTER_SHARDS_ReplySchema_items_properties = {CLUSTER_SHARDS_
 /* CLUSTER_SHARDS_ReplySchema_items reply schema */
 struct jsonObjectElement CLUSTER_SHARDS_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
-{JSON_TYPE_OBJECT,"properties",.value.object=&CLUSTER_SHARDS_ReplySchema_items_properties},
 {JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&CLUSTER_SHARDS_ReplySchema_items_properties},
 };
 
 struct jsonObject CLUSTER_SHARDS_ReplySchema_items = {CLUSTER_SHARDS_ReplySchema_items_elements,.length=3};
@@ -1292,6 +1559,12 @@ struct jsonObjectElement CLUSTER_SHARDS_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLUSTER_SHARDS_ReplySchema = {CLUSTER_SHARDS_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject CLUSTER_SHARDS_ReplySchema = {0};
+
+#endif
 
 /********** CLUSTER SLAVES ********************/
 
@@ -1310,6 +1583,8 @@ struct redisCommandArg CLUSTER_SLAVES_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLUSTER_SLAVES_ReplySchema_items reply schema */
 struct jsonObjectElement CLUSTER_SLAVES_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -1327,6 +1602,12 @@ struct jsonObjectElement CLUSTER_SLAVES_ReplySchema_elements[] = {
 
 struct jsonObject CLUSTER_SLAVES_ReplySchema = {CLUSTER_SLAVES_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject CLUSTER_SLAVES_ReplySchema = {0};
+
+#endif
+
 /********** CLUSTER SLOTS ********************/
 
 /* CLUSTER SLOTS history */
@@ -1342,126 +1623,129 @@ const char *CLUSTER_SLOTS_tips[] = {
 NULL
 };
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_0 reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_0_elements[] = {
+#ifdef LOG_REQ_RES
+
+/* CLUSTER_SLOTS_ReplySchema_items_items_0 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="start slot number"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_0 = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_0_elements,.length=2};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_0 = {CLUSTER_SLOTS_ReplySchema_items_items_0_elements,.length=2};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_1 reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_1_elements[] = {
+/* CLUSTER_SLOTS_ReplySchema_items_items_1 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_1_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="end slot number"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_1 = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_1_elements,.length=2};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_1 = {CLUSTER_SLOTS_ReplySchema_items_items_1_elements,.length=2};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf_0 reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf_0_elements[] = {
+/* CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf_0 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="hostname or ip"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf_0 = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf_0_elements,.length=2};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf_0 = {CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf_0_elements,.length=2};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf_1 reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf_1_elements[] = {
+/* CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf_1 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf_1_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="unknown type"},
 {JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf_1 = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf_1_elements,.length=2};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf_1 = {CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf_1_elements,.length=2};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf array reply schema */
-struct jsonObject *CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf[] = {
-&CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf_0,
-&CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf_1,
+/* CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf array reply schema */
+struct jsonObject *CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf[] = {
+&CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf_0,
+&CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf_1,
 };
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0 reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_elements[] = {
+/* CLUSTER_SLOTS_ReplySchema_items_items_2_items_0 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="endpoint description"},
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_oneOf,.length=2}},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0 = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0_elements,.length=2};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2_items_0 = {CLUSTER_SLOTS_ReplySchema_items_items_2_items_0_elements,.length=2};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_1 reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_1_elements[] = {
+/* CLUSTER_SLOTS_ReplySchema_items_items_2_items_1 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_2_items_1_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="port"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_1 = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_1_elements,.length=2};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2_items_1 = {CLUSTER_SLOTS_ReplySchema_items_items_2_items_1_elements,.length=2};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_2 reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_2_elements[] = {
+/* CLUSTER_SLOTS_ReplySchema_items_items_2_items_2 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_2_items_2_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="node name"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_2 = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_2_elements,.length=2};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2_items_2 = {CLUSTER_SLOTS_ReplySchema_items_items_2_items_2_elements,.length=2};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_hostname reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_hostname_elements[] = {
+/* CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_hostname reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_hostname_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_hostname = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_hostname_elements,.length=1};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_hostname = {CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_hostname_elements,.length=1};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_ip reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_ip_elements[] = {
+/* CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_ip reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_ip_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_ip = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_ip_elements,.length=1};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_ip = {CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_ip_elements,.length=1};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_elements[] = {
-{JSON_TYPE_OBJECT,"hostname",.value.object=&CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_hostname},
-{JSON_TYPE_OBJECT,"ip",.value.object=&CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_ip},
+/* CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_elements[] = {
+{JSON_TYPE_OBJECT,"hostname",.value.object=&CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_hostname},
+{JSON_TYPE_OBJECT,"ip",.value.object=&CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_ip},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties_elements,.length=2};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties = {CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties_elements,.length=2};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3 reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_elements[] = {
+/* CLUSTER_SLOTS_ReplySchema_items_items_2_items_3 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="array of node descriptions"},
 {JSON_TYPE_STRING,"type",.value.string="object"},
-{JSON_TYPE_OBJECT,"properties",.value.object=&CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_properties},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_properties},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3 = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3_elements,.length=3};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2_items_3 = {CLUSTER_SLOTS_ReplySchema_items_items_2_items_3_elements,.length=4};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items array reply schema */
-struct jsonObject *CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items[] = {
-&CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_0,
-&CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_1,
-&CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_2,
-&CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items_3,
+/* CLUSTER_SLOTS_ReplySchema_items_items_2_items array reply schema */
+struct jsonObject *CLUSTER_SLOTS_ReplySchema_items_items_2_items[] = {
+&CLUSTER_SLOTS_ReplySchema_items_items_2_items_0,
+&CLUSTER_SLOTS_ReplySchema_items_items_2_items_1,
+&CLUSTER_SLOTS_ReplySchema_items_items_2_items_2,
+&CLUSTER_SLOTS_ReplySchema_items_items_2_items_3,
 };
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems_2 reply schema */
-struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_elements[] = {
+/* CLUSTER_SLOTS_ReplySchema_items_items_2 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_2_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_items,.length=4}},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_items_2_items,.length=4}},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_prefixItems_2 = {CLUSTER_SLOTS_ReplySchema_items_prefixItems_2_elements,.length=2};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2 = {CLUSTER_SLOTS_ReplySchema_items_items_2_elements,.length=2};
 
-/* CLUSTER_SLOTS_ReplySchema_items_prefixItems array reply schema */
-struct jsonObject *CLUSTER_SLOTS_ReplySchema_items_prefixItems[] = {
-&CLUSTER_SLOTS_ReplySchema_items_prefixItems_0,
-&CLUSTER_SLOTS_ReplySchema_items_prefixItems_1,
-&CLUSTER_SLOTS_ReplySchema_items_prefixItems_2,
+/* CLUSTER_SLOTS_ReplySchema_items_items array reply schema */
+struct jsonObject *CLUSTER_SLOTS_ReplySchema_items_items[] = {
+&CLUSTER_SLOTS_ReplySchema_items_items_0,
+&CLUSTER_SLOTS_ReplySchema_items_items_1,
+&CLUSTER_SLOTS_ReplySchema_items_items_2,
 };
 
 /* CLUSTER_SLOTS_ReplySchema_items reply schema */
 struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_ARRAY,"prefixItems",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_prefixItems,.length=3}},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_items,.length=3}},
 };
 
 struct jsonObject CLUSTER_SLOTS_ReplySchema_items = {CLUSTER_SLOTS_ReplySchema_items_elements,.length=2};
@@ -1474,6 +1758,12 @@ struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLUSTER_SLOTS_ReplySchema = {CLUSTER_SLOTS_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject CLUSTER_SLOTS_ReplySchema = {0};
+
+#endif
 
 /* CLUSTER command table */
 struct redisCommand CLUSTER_Subcommands[] = {
@@ -1524,12 +1814,20 @@ struct redisCommand CLUSTER_Subcommands[] = {
 /* READONLY tips */
 #define READONLY_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* READONLY_ReplySchema reply schema */
 struct jsonObjectElement READONLY_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject READONLY_ReplySchema = {READONLY_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject READONLY_ReplySchema = {0};
+
+#endif
 
 /********** READWRITE ********************/
 
@@ -1539,12 +1837,20 @@ struct jsonObject READONLY_ReplySchema = {READONLY_ReplySchema_elements,.length=
 /* READWRITE tips */
 #define READWRITE_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* READWRITE_ReplySchema reply schema */
 struct jsonObjectElement READWRITE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject READWRITE_ReplySchema = {READWRITE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject READWRITE_ReplySchema = {0};
+
+#endif
 
 /********** AUTH ********************/
 
@@ -1564,12 +1870,20 @@ struct redisCommandArg AUTH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* AUTH_ReplySchema reply schema */
 struct jsonObjectElement AUTH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject AUTH_ReplySchema = {AUTH_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject AUTH_ReplySchema = {0};
+
+#endif
 
 /********** CLIENT CACHING ********************/
 
@@ -1592,12 +1906,20 @@ struct redisCommandArg CLIENT_CACHING_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_CACHING_ReplySchema reply schema */
 struct jsonObjectElement CLIENT_CACHING_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLIENT_CACHING_ReplySchema = {CLIENT_CACHING_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLIENT_CACHING_ReplySchema = {0};
+
+#endif
 
 /********** CLIENT GETNAME ********************/
 
@@ -1614,6 +1936,8 @@ struct jsonObject CLIENT_CACHING_ReplySchema = {CLIENT_CACHING_ReplySchema_eleme
 
 /* CLIENT GETREDIR tips */
 #define CLIENT_GETREDIR_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* CLIENT_GETREDIR_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement CLIENT_GETREDIR_ReplySchema_oneOf_0_elements[] = {
@@ -1654,6 +1978,12 @@ struct jsonObjectElement CLIENT_GETREDIR_ReplySchema_elements[] = {
 
 struct jsonObject CLIENT_GETREDIR_ReplySchema = {CLIENT_GETREDIR_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject CLIENT_GETREDIR_ReplySchema = {0};
+
+#endif
+
 /********** CLIENT HELP ********************/
 
 /* CLIENT HELP history */
@@ -1661,6 +1991,8 @@ struct jsonObject CLIENT_GETREDIR_ReplySchema = {CLIENT_GETREDIR_ReplySchema_ele
 
 /* CLIENT HELP tips */
 #define CLIENT_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* CLIENT_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement CLIENT_HELP_ReplySchema_items_elements[] = {
@@ -1678,6 +2010,12 @@ struct jsonObjectElement CLIENT_HELP_ReplySchema_elements[] = {
 
 struct jsonObject CLIENT_HELP_ReplySchema = {CLIENT_HELP_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject CLIENT_HELP_ReplySchema = {0};
+
+#endif
+
 /********** CLIENT ID ********************/
 
 /* CLIENT ID history */
@@ -1686,6 +2024,8 @@ struct jsonObject CLIENT_HELP_ReplySchema = {CLIENT_HELP_ReplySchema_elements,.l
 /* CLIENT ID tips */
 #define CLIENT_ID_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_ID_ReplySchema reply schema */
 struct jsonObjectElement CLIENT_ID_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -1693,6 +2033,12 @@ struct jsonObjectElement CLIENT_ID_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLIENT_ID_ReplySchema = {CLIENT_ID_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject CLIENT_ID_ReplySchema = {0};
+
+#endif
 
 /********** CLIENT INFO ********************/
 
@@ -1705,6 +2051,8 @@ const char *CLIENT_INFO_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_INFO_ReplySchema reply schema */
 struct jsonObjectElement CLIENT_INFO_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="a unique string, as described at the CLIENT LIST page, for the current client"},
@@ -1712,6 +2060,12 @@ struct jsonObjectElement CLIENT_INFO_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLIENT_INFO_ReplySchema = {CLIENT_INFO_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject CLIENT_INFO_ReplySchema = {0};
+
+#endif
 
 /********** CLIENT KILL ********************/
 
@@ -1769,6 +2123,8 @@ struct redisCommandArg CLIENT_KILL_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_KILL_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement CLIENT_KILL_ReplySchema_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="when called in 3 argument format"},
@@ -1798,6 +2154,12 @@ struct jsonObjectElement CLIENT_KILL_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLIENT_KILL_ReplySchema = {CLIENT_KILL_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLIENT_KILL_ReplySchema = {0};
+
+#endif
 
 /********** CLIENT LIST ********************/
 
@@ -1831,6 +2193,8 @@ struct redisCommandArg CLIENT_LIST_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_LIST_ReplySchema reply schema */
 struct jsonObjectElement CLIENT_LIST_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -1838,6 +2202,12 @@ struct jsonObjectElement CLIENT_LIST_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLIENT_LIST_ReplySchema = {CLIENT_LIST_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject CLIENT_LIST_ReplySchema = {0};
+
+#endif
 
 /********** CLIENT NO_EVICT ********************/
 
@@ -1860,12 +2230,20 @@ struct redisCommandArg CLIENT_NO_EVICT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_NO_EVICT_ReplySchema reply schema */
 struct jsonObjectElement CLIENT_NO_EVICT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLIENT_NO_EVICT_ReplySchema = {CLIENT_NO_EVICT_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLIENT_NO_EVICT_ReplySchema = {0};
+
+#endif
 
 /********** CLIENT NO_TOUCH ********************/
 
@@ -1913,12 +2291,20 @@ struct redisCommandArg CLIENT_PAUSE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_PAUSE_ReplySchema reply schema */
 struct jsonObjectElement CLIENT_PAUSE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLIENT_PAUSE_ReplySchema = {CLIENT_PAUSE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLIENT_PAUSE_ReplySchema = {0};
+
+#endif
 
 /********** CLIENT REPLY ********************/
 
@@ -1942,6 +2328,8 @@ struct redisCommandArg CLIENT_REPLY_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_REPLY_ReplySchema reply schema */
 struct jsonObjectElement CLIENT_REPLY_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
@@ -1949,6 +2337,12 @@ struct jsonObjectElement CLIENT_REPLY_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLIENT_REPLY_ReplySchema = {CLIENT_REPLY_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject CLIENT_REPLY_ReplySchema = {0};
+
+#endif
 
 /********** CLIENT SETNAME ********************/
 
@@ -1964,12 +2358,20 @@ struct redisCommandArg CLIENT_SETNAME_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_SETNAME_ReplySchema reply schema */
 struct jsonObjectElement CLIENT_SETNAME_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLIENT_SETNAME_ReplySchema = {CLIENT_SETNAME_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLIENT_SETNAME_ReplySchema = {0};
+
+#endif
 
 /********** CLIENT TRACKING ********************/
 
@@ -1998,6 +2400,8 @@ struct redisCommandArg CLIENT_TRACKING_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_TRACKING_ReplySchema reply schema */
 struct jsonObjectElement CLIENT_TRACKING_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="if the client was successfully put into or taken out of tracking mode"},
@@ -2005,6 +2409,12 @@ struct jsonObjectElement CLIENT_TRACKING_ReplySchema_elements[] = {
 };
 
 struct jsonObject CLIENT_TRACKING_ReplySchema = {CLIENT_TRACKING_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject CLIENT_TRACKING_ReplySchema = {0};
+
+#endif
 
 /********** CLIENT TRACKINGINFO ********************/
 
@@ -2036,6 +2446,8 @@ struct redisCommandArg CLIENT_UNBLOCK_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_UNBLOCK_ReplySchema_oneof_0 reply schema */
 struct jsonObjectElement CLIENT_UNBLOCK_ReplySchema_oneof_0_elements[] = {
 {JSON_TYPE_INTEGER,"const",.value.integer=0},
@@ -2065,6 +2477,12 @@ struct jsonObjectElement CLIENT_UNBLOCK_ReplySchema_elements[] = {
 
 struct jsonObject CLIENT_UNBLOCK_ReplySchema = {CLIENT_UNBLOCK_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject CLIENT_UNBLOCK_ReplySchema = {0};
+
+#endif
+
 /********** CLIENT UNPAUSE ********************/
 
 /* CLIENT UNPAUSE history */
@@ -2073,12 +2491,20 @@ struct jsonObject CLIENT_UNBLOCK_ReplySchema = {CLIENT_UNBLOCK_ReplySchema_eleme
 /* CLIENT UNPAUSE tips */
 #define CLIENT_UNPAUSE_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* CLIENT_UNPAUSE_ReplySchema reply schema */
 struct jsonObjectElement CLIENT_UNPAUSE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CLIENT_UNPAUSE_ReplySchema = {CLIENT_UNPAUSE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLIENT_UNPAUSE_ReplySchema = {0};
+
+#endif
 
 /* CLIENT command table */
 struct redisCommand CLIENT_Subcommands[] = {
@@ -2155,6 +2581,8 @@ struct redisCommandArg HELLO_Args[] = {
 {"arguments",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HELLO_arguments_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* HELLO_ReplySchema_properties_server reply schema */
 struct jsonObjectElement HELLO_ReplySchema_properties_server_elements[] = {
@@ -2283,6 +2711,12 @@ struct jsonObjectElement HELLO_ReplySchema_elements[] = {
 
 struct jsonObject HELLO_ReplySchema = {HELLO_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject HELLO_ReplySchema = {0};
+
+#endif
+
 /********** PING ********************/
 
 /* PING history */
@@ -2300,6 +2734,8 @@ struct redisCommandArg PING_Args[] = {
 {"message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* PING_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement PING_ReplySchema_anyOf_0_elements[] = {
@@ -2330,6 +2766,12 @@ struct jsonObjectElement PING_ReplySchema_elements[] = {
 
 struct jsonObject PING_ReplySchema = {PING_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject PING_ReplySchema = {0};
+
+#endif
+
 /********** QUIT ********************/
 
 /* QUIT history */
@@ -2338,12 +2780,20 @@ struct jsonObject PING_ReplySchema = {PING_ReplySchema_elements,.length=1};
 /* QUIT tips */
 #define QUIT_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* QUIT_ReplySchema reply schema */
 struct jsonObjectElement QUIT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject QUIT_ReplySchema = {QUIT_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject QUIT_ReplySchema = {0};
+
+#endif
 
 /********** RESET ********************/
 
@@ -2353,12 +2803,20 @@ struct jsonObject QUIT_ReplySchema = {QUIT_ReplySchema_elements,.length=1};
 /* RESET tips */
 #define RESET_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* RESET_ReplySchema reply schema */
 struct jsonObjectElement RESET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="RESET"},
 };
 
 struct jsonObject RESET_ReplySchema = {RESET_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject RESET_ReplySchema = {0};
+
+#endif
 
 /********** SELECT ********************/
 
@@ -2374,12 +2832,20 @@ struct redisCommandArg SELECT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SELECT_ReplySchema reply schema */
 struct jsonObjectElement SELECT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SELECT_ReplySchema = {SELECT_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject SELECT_ReplySchema = {0};
+
+#endif
 
 /********** COPY ********************/
 
@@ -2397,6 +2863,8 @@ struct redisCommandArg COPY_Args[] = {
 {"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* COPY_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement COPY_ReplySchema_oneOf_0_elements[] = {
@@ -2427,6 +2895,12 @@ struct jsonObjectElement COPY_ReplySchema_elements[] = {
 
 struct jsonObject COPY_ReplySchema = {COPY_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject COPY_ReplySchema = {0};
+
+#endif
+
 /********** DEL ********************/
 
 /* DEL history */
@@ -2445,6 +2919,8 @@ struct redisCommandArg DEL_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* DEL_ReplySchema reply schema */
 struct jsonObjectElement DEL_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the number of keys that were removed"},
@@ -2453,6 +2929,12 @@ struct jsonObjectElement DEL_ReplySchema_elements[] = {
 };
 
 struct jsonObject DEL_ReplySchema = {DEL_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject DEL_ReplySchema = {0};
+
+#endif
 
 /********** DUMP ********************/
 
@@ -2470,6 +2952,8 @@ struct redisCommandArg DUMP_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* DUMP_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement DUMP_ReplySchema_oneOf_0_elements[] = {
@@ -2500,6 +2984,12 @@ struct jsonObjectElement DUMP_ReplySchema_elements[] = {
 
 struct jsonObject DUMP_ReplySchema = {DUMP_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject DUMP_ReplySchema = {0};
+
+#endif
+
 /********** EXISTS ********************/
 
 /* EXISTS history */
@@ -2521,6 +3011,8 @@ struct redisCommandArg EXISTS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* EXISTS_ReplySchema reply schema */
 struct jsonObjectElement EXISTS_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Number of keys that exist from those specified as arguments."},
@@ -2528,6 +3020,12 @@ struct jsonObjectElement EXISTS_ReplySchema_elements[] = {
 };
 
 struct jsonObject EXISTS_ReplySchema = {EXISTS_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject EXISTS_ReplySchema = {0};
+
+#endif
 
 /********** EXPIRE ********************/
 
@@ -2556,6 +3054,8 @@ struct redisCommandArg EXPIRE_Args[] = {
 {"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=EXPIRE_condition_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* EXPIRE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement EXPIRE_ReplySchema_oneOf_0_elements[] = {
@@ -2586,6 +3086,12 @@ struct jsonObjectElement EXPIRE_ReplySchema_elements[] = {
 
 struct jsonObject EXPIRE_ReplySchema = {EXPIRE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject EXPIRE_ReplySchema = {0};
+
+#endif
+
 /********** EXPIREAT ********************/
 
 /* EXPIREAT history */
@@ -2613,6 +3119,8 @@ struct redisCommandArg EXPIREAT_Args[] = {
 {"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=EXPIREAT_condition_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* EXPIREAT_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement EXPIREAT_ReplySchema_oneOf_0_elements[] = {
@@ -2643,6 +3151,12 @@ struct jsonObjectElement EXPIREAT_ReplySchema_elements[] = {
 
 struct jsonObject EXPIREAT_ReplySchema = {EXPIREAT_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject EXPIREAT_ReplySchema = {0};
+
+#endif
+
 /********** EXPIRETIME ********************/
 
 /* EXPIRETIME history */
@@ -2656,6 +3170,8 @@ struct redisCommandArg EXPIRETIME_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* EXPIRETIME_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement EXPIRETIME_ReplySchema_oneOf_0_elements[] = {
@@ -2696,6 +3212,12 @@ struct jsonObjectElement EXPIRETIME_ReplySchema_elements[] = {
 
 struct jsonObject EXPIRETIME_ReplySchema = {EXPIRETIME_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject EXPIRETIME_ReplySchema = {0};
+
+#endif
+
 /********** KEYS ********************/
 
 /* KEYS history */
@@ -2714,6 +3236,8 @@ struct redisCommandArg KEYS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* KEYS_ReplySchema_items reply schema */
 struct jsonObjectElement KEYS_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -2729,6 +3253,12 @@ struct jsonObjectElement KEYS_ReplySchema_elements[] = {
 };
 
 struct jsonObject KEYS_ReplySchema = {KEYS_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject KEYS_ReplySchema = {0};
+
+#endif
 
 /********** MIGRATE ********************/
 
@@ -2782,6 +3312,8 @@ struct redisCommandArg MIGRATE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* MIGRATE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement MIGRATE_ReplySchema_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
@@ -2811,6 +3343,12 @@ struct jsonObjectElement MIGRATE_ReplySchema_elements[] = {
 
 struct jsonObject MIGRATE_ReplySchema = {MIGRATE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject MIGRATE_ReplySchema = {0};
+
+#endif
+
 /********** MOVE ********************/
 
 /* MOVE history */
@@ -2825,6 +3363,8 @@ struct redisCommandArg MOVE_Args[] = {
 {"db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* MOVE_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement MOVE_ReplySchema_anyOf_0_elements[] = {
@@ -2855,6 +3395,12 @@ struct jsonObjectElement MOVE_ReplySchema_elements[] = {
 
 struct jsonObject MOVE_ReplySchema = {MOVE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject MOVE_ReplySchema = {0};
+
+#endif
+
 /********** OBJECT ENCODING ********************/
 
 /* OBJECT ENCODING history */
@@ -2871,6 +3417,8 @@ struct redisCommandArg OBJECT_ENCODING_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* OBJECT_ENCODING_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement OBJECT_ENCODING_ReplySchema_anyOf_0_elements[] = {
@@ -2901,6 +3449,12 @@ struct jsonObjectElement OBJECT_ENCODING_ReplySchema_elements[] = {
 
 struct jsonObject OBJECT_ENCODING_ReplySchema = {OBJECT_ENCODING_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject OBJECT_ENCODING_ReplySchema = {0};
+
+#endif
+
 /********** OBJECT FREQ ********************/
 
 /* OBJECT FREQ history */
@@ -2918,6 +3472,8 @@ struct redisCommandArg OBJECT_FREQ_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* OBJECT_FREQ_ReplySchema reply schema */
 struct jsonObjectElement OBJECT_FREQ_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the counter's value"},
@@ -2926,6 +3482,12 @@ struct jsonObjectElement OBJECT_FREQ_ReplySchema_elements[] = {
 
 struct jsonObject OBJECT_FREQ_ReplySchema = {OBJECT_FREQ_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject OBJECT_FREQ_ReplySchema = {0};
+
+#endif
+
 /********** OBJECT HELP ********************/
 
 /* OBJECT HELP history */
@@ -2933,6 +3495,8 @@ struct jsonObject OBJECT_FREQ_ReplySchema = {OBJECT_FREQ_ReplySchema_elements,.l
 
 /* OBJECT HELP tips */
 #define OBJECT_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* OBJECT_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement OBJECT_HELP_ReplySchema_items_elements[] = {
@@ -2949,6 +3513,12 @@ struct jsonObjectElement OBJECT_HELP_ReplySchema_elements[] = {
 };
 
 struct jsonObject OBJECT_HELP_ReplySchema = {OBJECT_HELP_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject OBJECT_HELP_ReplySchema = {0};
+
+#endif
 
 /********** OBJECT IDLETIME ********************/
 
@@ -2967,6 +3537,8 @@ struct redisCommandArg OBJECT_IDLETIME_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* OBJECT_IDLETIME_ReplySchema reply schema */
 struct jsonObjectElement OBJECT_IDLETIME_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the idle time in seconds"},
@@ -2974,6 +3546,12 @@ struct jsonObjectElement OBJECT_IDLETIME_ReplySchema_elements[] = {
 };
 
 struct jsonObject OBJECT_IDLETIME_ReplySchema = {OBJECT_IDLETIME_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject OBJECT_IDLETIME_ReplySchema = {0};
+
+#endif
 
 /********** OBJECT REFCOUNT ********************/
 
@@ -2992,6 +3570,8 @@ struct redisCommandArg OBJECT_REFCOUNT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* OBJECT_REFCOUNT_ReplySchema reply schema */
 struct jsonObjectElement OBJECT_REFCOUNT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the number of references"},
@@ -2999,6 +3579,12 @@ struct jsonObjectElement OBJECT_REFCOUNT_ReplySchema_elements[] = {
 };
 
 struct jsonObject OBJECT_REFCOUNT_ReplySchema = {OBJECT_REFCOUNT_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject OBJECT_REFCOUNT_ReplySchema = {0};
+
+#endif
 
 /* OBJECT command table */
 struct redisCommand OBJECT_Subcommands[] = {
@@ -3032,6 +3618,8 @@ struct redisCommandArg PERSIST_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* PERSIST_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement PERSIST_ReplySchema_oneOf_0_elements[] = {
 {JSON_TYPE_INTEGER,"const",.value.integer=0},
@@ -3061,6 +3649,12 @@ struct jsonObjectElement PERSIST_ReplySchema_elements[] = {
 
 struct jsonObject PERSIST_ReplySchema = {PERSIST_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject PERSIST_ReplySchema = {0};
+
+#endif
+
 /********** PEXPIRE ********************/
 
 /* PEXPIRE history */
@@ -3088,6 +3682,8 @@ struct redisCommandArg PEXPIRE_Args[] = {
 {"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=PEXPIRE_condition_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* PEXPIRE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement PEXPIRE_ReplySchema_oneOf_0_elements[] = {
@@ -3118,6 +3714,12 @@ struct jsonObjectElement PEXPIRE_ReplySchema_elements[] = {
 
 struct jsonObject PEXPIRE_ReplySchema = {PEXPIRE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject PEXPIRE_ReplySchema = {0};
+
+#endif
+
 /********** PEXPIREAT ********************/
 
 /* PEXPIREAT history */
@@ -3145,6 +3747,8 @@ struct redisCommandArg PEXPIREAT_Args[] = {
 {"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=PEXPIREAT_condition_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* PEXPIREAT_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement PEXPIREAT_ReplySchema_oneOf_0_elements[] = {
@@ -3175,6 +3779,12 @@ struct jsonObjectElement PEXPIREAT_ReplySchema_elements[] = {
 
 struct jsonObject PEXPIREAT_ReplySchema = {PEXPIREAT_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject PEXPIREAT_ReplySchema = {0};
+
+#endif
+
 /********** PEXPIRETIME ********************/
 
 /* PEXPIRETIME history */
@@ -3188,6 +3798,8 @@ struct redisCommandArg PEXPIRETIME_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* PEXPIRETIME_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement PEXPIRETIME_ReplySchema_oneOf_0_elements[] = {
@@ -3228,6 +3840,12 @@ struct jsonObjectElement PEXPIRETIME_ReplySchema_elements[] = {
 
 struct jsonObject PEXPIRETIME_ReplySchema = {PEXPIRETIME_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject PEXPIRETIME_ReplySchema = {0};
+
+#endif
+
 /********** PTTL ********************/
 
 /* PTTL history */
@@ -3247,6 +3865,8 @@ struct redisCommandArg PTTL_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* PTTL_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement PTTL_ReplySchema_oneOf_0_elements[] = {
@@ -3287,6 +3907,12 @@ struct jsonObjectElement PTTL_ReplySchema_elements[] = {
 
 struct jsonObject PTTL_ReplySchema = {PTTL_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject PTTL_ReplySchema = {0};
+
+#endif
+
 /********** RANDOMKEY ********************/
 
 /* RANDOMKEY history */
@@ -3298,6 +3924,8 @@ const char *RANDOMKEY_tips[] = {
 "nondeterministic_output",
 NULL
 };
+
+#ifdef LOG_REQ_RES
 
 /* RANDOMKEY_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement RANDOMKEY_ReplySchema_anyOf_0_elements[] = {
@@ -3328,6 +3956,12 @@ struct jsonObjectElement RANDOMKEY_ReplySchema_elements[] = {
 
 struct jsonObject RANDOMKEY_ReplySchema = {RANDOMKEY_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject RANDOMKEY_ReplySchema = {0};
+
+#endif
+
 /********** RENAME ********************/
 
 /* RENAME history */
@@ -3343,12 +3977,20 @@ struct redisCommandArg RENAME_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* RENAME_ReplySchema reply schema */
 struct jsonObjectElement RENAME_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject RENAME_ReplySchema = {RENAME_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject RENAME_ReplySchema = {0};
+
+#endif
 
 /********** RENAMENX ********************/
 
@@ -3367,6 +4009,8 @@ struct redisCommandArg RENAMENX_Args[] = {
 {"newkey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* RENAMENX_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement RENAMENX_ReplySchema_anyOf_0_elements[] = {
@@ -3397,6 +4041,12 @@ struct jsonObjectElement RENAMENX_ReplySchema_elements[] = {
 
 struct jsonObject RENAMENX_ReplySchema = {RENAMENX_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject RENAMENX_ReplySchema = {0};
+
+#endif
+
 /********** RESTORE ********************/
 
 /* RESTORE history */
@@ -3422,12 +4072,20 @@ struct redisCommandArg RESTORE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* RESTORE_ReplySchema reply schema */
 struct jsonObjectElement RESTORE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject RESTORE_ReplySchema = {RESTORE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject RESTORE_ReplySchema = {0};
+
+#endif
 
 /********** SCAN ********************/
 
@@ -3452,6 +4110,8 @@ struct redisCommandArg SCAN_Args[] = {
 {"type",ARG_TYPE_STRING,-1,"TYPE",NULL,"6.0.0",CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SCAN_ReplySchema_items_0 reply schema */
 struct jsonObjectElement SCAN_ReplySchema_items_0_elements[] = {
@@ -3492,6 +4152,12 @@ struct jsonObjectElement SCAN_ReplySchema_elements[] = {
 
 struct jsonObject SCAN_ReplySchema = {SCAN_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject SCAN_ReplySchema = {0};
+
+#endif
+
 /********** SORT ********************/
 
 /* SORT history */
@@ -3525,6 +4191,8 @@ struct redisCommandArg SORT_Args[] = {
 {"destination",ARG_TYPE_KEY,2,"STORE",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SORT_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement SORT_ReplySchema_oneOf_0_elements[] = {
@@ -3585,6 +4253,12 @@ struct jsonObjectElement SORT_ReplySchema_elements[] = {
 
 struct jsonObject SORT_ReplySchema = {SORT_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject SORT_ReplySchema = {0};
+
+#endif
+
 /********** SORT_RO ********************/
 
 /* SORT_RO history */
@@ -3618,6 +4292,8 @@ struct redisCommandArg SORT_RO_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SORT_RO_ReplySchema_items reply schema */
 struct jsonObjectElement SORT_RO_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -3633,6 +4309,12 @@ struct jsonObjectElement SORT_RO_ReplySchema_elements[] = {
 };
 
 struct jsonObject SORT_RO_ReplySchema = {SORT_RO_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SORT_RO_ReplySchema = {0};
+
+#endif
 
 /********** TOUCH ********************/
 
@@ -3652,6 +4334,8 @@ struct redisCommandArg TOUCH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* TOUCH_ReplySchema reply schema */
 struct jsonObjectElement TOUCH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the number of touched keys"},
@@ -3660,6 +4344,12 @@ struct jsonObjectElement TOUCH_ReplySchema_elements[] = {
 };
 
 struct jsonObject TOUCH_ReplySchema = {TOUCH_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject TOUCH_ReplySchema = {0};
+
+#endif
 
 /********** TTL ********************/
 
@@ -3680,6 +4370,8 @@ struct redisCommandArg TTL_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* TTL_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement TTL_ReplySchema_oneOf_0_elements[] = {
@@ -3720,6 +4412,12 @@ struct jsonObjectElement TTL_ReplySchema_elements[] = {
 
 struct jsonObject TTL_ReplySchema = {TTL_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject TTL_ReplySchema = {0};
+
+#endif
+
 /********** TYPE ********************/
 
 /* TYPE history */
@@ -3733,6 +4431,8 @@ struct redisCommandArg TYPE_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* TYPE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement TYPE_ReplySchema_oneOf_0_elements[] = {
@@ -3763,6 +4463,12 @@ struct jsonObjectElement TYPE_ReplySchema_elements[] = {
 
 struct jsonObject TYPE_ReplySchema = {TYPE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject TYPE_ReplySchema = {0};
+
+#endif
+
 /********** UNLINK ********************/
 
 /* UNLINK history */
@@ -3781,6 +4487,8 @@ struct redisCommandArg UNLINK_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* UNLINK_ReplySchema reply schema */
 struct jsonObjectElement UNLINK_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the number of keys that were unlinked"},
@@ -3789,6 +4497,12 @@ struct jsonObjectElement UNLINK_ReplySchema_elements[] = {
 };
 
 struct jsonObject UNLINK_ReplySchema = {UNLINK_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject UNLINK_ReplySchema = {0};
+
+#endif
 
 /********** WAIT ********************/
 
@@ -3809,6 +4523,8 @@ struct redisCommandArg WAIT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* WAIT_ReplySchema reply schema */
 struct jsonObjectElement WAIT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -3817,6 +4533,12 @@ struct jsonObjectElement WAIT_ReplySchema_elements[] = {
 };
 
 struct jsonObject WAIT_ReplySchema = {WAIT_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject WAIT_ReplySchema = {0};
+
+#endif
 
 /********** GEOADD ********************/
 
@@ -3853,6 +4575,8 @@ struct redisCommandArg GEOADD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* GEOADD_ReplySchema reply schema */
 struct jsonObjectElement GEOADD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="When used without optional arguments, the number of elements added to the sorted set (excluding score updates).  If the CH option is specified, the number of elements that were changed (added or updated)."},
@@ -3860,6 +4584,12 @@ struct jsonObjectElement GEOADD_ReplySchema_elements[] = {
 };
 
 struct jsonObject GEOADD_ReplySchema = {GEOADD_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject GEOADD_ReplySchema = {0};
+
+#endif
 
 /********** GEODIST ********************/
 
@@ -3886,6 +4616,8 @@ struct redisCommandArg GEODIST_Args[] = {
 {"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEODIST_unit_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GEODIST_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement GEODIST_ReplySchema_oneOf_0_elements[] = {
@@ -3917,6 +4649,12 @@ struct jsonObjectElement GEODIST_ReplySchema_elements[] = {
 
 struct jsonObject GEODIST_ReplySchema = {GEODIST_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject GEODIST_ReplySchema = {0};
+
+#endif
+
 /********** GEOHASH ********************/
 
 /* GEOHASH history */
@@ -3931,6 +4669,8 @@ struct redisCommandArg GEOHASH_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GEOHASH_ReplySchema_items reply schema */
 struct jsonObjectElement GEOHASH_ReplySchema_items_elements[] = {
@@ -3948,6 +4688,12 @@ struct jsonObjectElement GEOHASH_ReplySchema_elements[] = {
 
 struct jsonObject GEOHASH_ReplySchema = {GEOHASH_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject GEOHASH_ReplySchema = {0};
+
+#endif
+
 /********** GEOPOS ********************/
 
 /* GEOPOS history */
@@ -3962,6 +4708,8 @@ struct redisCommandArg GEOPOS_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GEOPOS_ReplySchema_items_oneOf_0 reply schema */
 struct jsonObjectElement GEOPOS_ReplySchema_items_oneOf_0_elements[] = {
@@ -4025,6 +4773,12 @@ struct jsonObjectElement GEOPOS_ReplySchema_elements[] = {
 
 struct jsonObject GEOPOS_ReplySchema = {GEOPOS_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject GEOPOS_ReplySchema = {0};
+
+#endif
+
 /********** GEORADIUS ********************/
 
 /* GEORADIUS history */
@@ -4076,6 +4830,8 @@ struct redisCommandArg GEORADIUS_Args[] = {
 {"storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="key"},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GEORADIUS_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_0_items_elements[] = {
@@ -4203,6 +4959,12 @@ struct jsonObjectElement GEORADIUS_ReplySchema_elements[] = {
 
 struct jsonObject GEORADIUS_ReplySchema = {GEORADIUS_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject GEORADIUS_ReplySchema = {0};
+
+#endif
+
 /********** GEORADIUSBYMEMBER ********************/
 
 /* GEORADIUSBYMEMBER history */
@@ -4252,6 +5014,8 @@ struct redisCommandArg GEORADIUSBYMEMBER_Args[] = {
 {"storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,.display_text="key"},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GEORADIUSBYMEMBER_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_0_items_elements[] = {
@@ -4379,6 +5143,12 @@ struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_elements[] = {
 
 struct jsonObject GEORADIUSBYMEMBER_ReplySchema = {GEORADIUSBYMEMBER_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema = {0};
+
+#endif
+
 /********** GEORADIUSBYMEMBER_RO ********************/
 
 /* GEORADIUSBYMEMBER_RO history */
@@ -4423,6 +5193,8 @@ struct redisCommandArg GEORADIUSBYMEMBER_RO_Args[] = {
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUSBYMEMBER_RO_order_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_0_items_elements[] = {
@@ -4541,6 +5313,12 @@ struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_elements[] = {
 
 struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema = {GEORADIUSBYMEMBER_RO_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema = {0};
+
+#endif
+
 /********** GEORADIUS_RO ********************/
 
 /* GEORADIUS_RO history */
@@ -4589,6 +5367,8 @@ struct redisCommandArg GEORADIUS_RO_Args[] = {
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUS_RO_order_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GEORADIUS_RO_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_0_items_elements[] = {
@@ -4707,6 +5487,12 @@ struct jsonObjectElement GEORADIUS_RO_ReplySchema_elements[] = {
 
 struct jsonObject GEORADIUS_RO_ReplySchema = {GEORADIUS_RO_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject GEORADIUS_RO_ReplySchema = {0};
+
+#endif
+
 /********** GEOSEARCH ********************/
 
 /* GEOSEARCH history */
@@ -4798,6 +5584,8 @@ struct redisCommandArg GEOSEARCH_Args[] = {
 {"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GEOSEARCH_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_0_items_elements[] = {
@@ -4916,6 +5704,12 @@ struct jsonObjectElement GEOSEARCH_ReplySchema_elements[] = {
 
 struct jsonObject GEOSEARCH_ReplySchema = {GEOSEARCH_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject GEOSEARCH_ReplySchema = {0};
+
+#endif
+
 /********** GEOSEARCHSTORE ********************/
 
 /* GEOSEARCHSTORE history */
@@ -5007,6 +5801,8 @@ struct redisCommandArg GEOSEARCHSTORE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* GEOSEARCHSTORE_ReplySchema reply schema */
 struct jsonObjectElement GEOSEARCHSTORE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the number of elements in the resulting set"},
@@ -5014,6 +5810,12 @@ struct jsonObjectElement GEOSEARCHSTORE_ReplySchema_elements[] = {
 };
 
 struct jsonObject GEOSEARCHSTORE_ReplySchema = {GEOSEARCHSTORE_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject GEOSEARCHSTORE_ReplySchema = {0};
+
+#endif
 
 /********** HDEL ********************/
 
@@ -5033,6 +5835,8 @@ struct redisCommandArg HDEL_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* HDEL_ReplySchema reply schema */
 struct jsonObjectElement HDEL_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -5040,6 +5844,12 @@ struct jsonObjectElement HDEL_ReplySchema_elements[] = {
 };
 
 struct jsonObject HDEL_ReplySchema = {HDEL_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject HDEL_ReplySchema = {0};
+
+#endif
 
 /********** HEXISTS ********************/
 
@@ -5055,6 +5865,8 @@ struct redisCommandArg HEXISTS_Args[] = {
 {"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* HEXISTS_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement HEXISTS_ReplySchema_oneOf_0_elements[] = {
@@ -5085,6 +5897,12 @@ struct jsonObjectElement HEXISTS_ReplySchema_elements[] = {
 
 struct jsonObject HEXISTS_ReplySchema = {HEXISTS_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject HEXISTS_ReplySchema = {0};
+
+#endif
+
 /********** HGET ********************/
 
 /* HGET history */
@@ -5099,6 +5917,8 @@ struct redisCommandArg HGET_Args[] = {
 {"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* HGET_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement HGET_ReplySchema_oneOf_0_elements[] = {
@@ -5129,6 +5949,12 @@ struct jsonObjectElement HGET_ReplySchema_elements[] = {
 
 struct jsonObject HGET_ReplySchema = {HGET_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject HGET_ReplySchema = {0};
+
+#endif
+
 /********** HGETALL ********************/
 
 /* HGETALL history */
@@ -5145,6 +5971,8 @@ struct redisCommandArg HGETALL_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* HGETALL_ReplySchema_additionalProperties reply schema */
 struct jsonObjectElement HGETALL_ReplySchema_additionalProperties_elements[] = {
@@ -5163,6 +5991,12 @@ struct jsonObjectElement HGETALL_ReplySchema_elements[] = {
 
 struct jsonObject HGETALL_ReplySchema = {HGETALL_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject HGETALL_ReplySchema = {0};
+
+#endif
+
 /********** HINCRBY ********************/
 
 /* HINCRBY history */
@@ -5179,6 +6013,8 @@ struct redisCommandArg HINCRBY_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* HINCRBY_ReplySchema reply schema */
 struct jsonObjectElement HINCRBY_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -5186,6 +6022,12 @@ struct jsonObjectElement HINCRBY_ReplySchema_elements[] = {
 };
 
 struct jsonObject HINCRBY_ReplySchema = {HINCRBY_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject HINCRBY_ReplySchema = {0};
+
+#endif
 
 /********** HINCRBYFLOAT ********************/
 
@@ -5203,6 +6045,8 @@ struct redisCommandArg HINCRBYFLOAT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* HINCRBYFLOAT_ReplySchema reply schema */
 struct jsonObjectElement HINCRBYFLOAT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -5210,6 +6054,12 @@ struct jsonObjectElement HINCRBYFLOAT_ReplySchema_elements[] = {
 };
 
 struct jsonObject HINCRBYFLOAT_ReplySchema = {HINCRBYFLOAT_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject HINCRBYFLOAT_ReplySchema = {0};
+
+#endif
 
 /********** HKEYS ********************/
 
@@ -5228,6 +6078,8 @@ struct redisCommandArg HKEYS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* HKEYS_ReplySchema_items reply schema */
 struct jsonObjectElement HKEYS_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -5245,6 +6097,12 @@ struct jsonObjectElement HKEYS_ReplySchema_elements[] = {
 
 struct jsonObject HKEYS_ReplySchema = {HKEYS_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject HKEYS_ReplySchema = {0};
+
+#endif
+
 /********** HLEN ********************/
 
 /* HLEN history */
@@ -5259,6 +6117,8 @@ struct redisCommandArg HLEN_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* HLEN_ReplySchema reply schema */
 struct jsonObjectElement HLEN_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -5266,6 +6126,12 @@ struct jsonObjectElement HLEN_ReplySchema_elements[] = {
 };
 
 struct jsonObject HLEN_ReplySchema = {HLEN_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject HLEN_ReplySchema = {0};
+
+#endif
 
 /********** HMGET ********************/
 
@@ -5281,6 +6147,8 @@ struct redisCommandArg HMGET_Args[] = {
 {"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* HMGET_ReplySchema_items_oneOf_0 reply schema */
 struct jsonObjectElement HMGET_ReplySchema_items_oneOf_0_elements[] = {
@@ -5319,6 +6187,12 @@ struct jsonObjectElement HMGET_ReplySchema_elements[] = {
 
 struct jsonObject HMGET_ReplySchema = {HMGET_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject HMGET_ReplySchema = {0};
+
+#endif
+
 /********** HMSET ********************/
 
 /* HMSET history */
@@ -5341,12 +6215,20 @@ struct redisCommandArg HMSET_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* HMSET_ReplySchema reply schema */
 struct jsonObjectElement HMSET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject HMSET_ReplySchema = {HMSET_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject HMSET_ReplySchema = {0};
+
+#endif
 
 /********** HRANDFIELD ********************/
 
@@ -5372,6 +6254,8 @@ struct redisCommandArg HRANDFIELD_Args[] = {
 {"options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HRANDFIELD_options_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* HRANDFIELD_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement HRANDFIELD_ReplySchema_anyOf_0_elements[] = {
@@ -5462,6 +6346,12 @@ struct jsonObjectElement HRANDFIELD_ReplySchema_elements[] = {
 
 struct jsonObject HRANDFIELD_ReplySchema = {HRANDFIELD_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject HRANDFIELD_ReplySchema = {0};
+
+#endif
+
 /********** HSCAN ********************/
 
 /* HSCAN history */
@@ -5481,6 +6371,8 @@ struct redisCommandArg HSCAN_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* HSCAN_ReplySchema_items_0 reply schema */
 struct jsonObjectElement HSCAN_ReplySchema_items_0_elements[] = {
@@ -5521,6 +6413,12 @@ struct jsonObjectElement HSCAN_ReplySchema_elements[] = {
 
 struct jsonObject HSCAN_ReplySchema = {HSCAN_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject HSCAN_ReplySchema = {0};
+
+#endif
+
 /********** HSET ********************/
 
 /* HSET history */
@@ -5546,12 +6444,20 @@ struct redisCommandArg HSET_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* HSET_ReplySchema reply schema */
 struct jsonObjectElement HSET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject HSET_ReplySchema = {HSET_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject HSET_ReplySchema = {0};
+
+#endif
 
 /********** HSETNX ********************/
 
@@ -5568,6 +6474,8 @@ struct redisCommandArg HSETNX_Args[] = {
 {"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* HSETNX_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement HSETNX_ReplySchema_oneOf_0_elements[] = {
@@ -5598,6 +6506,12 @@ struct jsonObjectElement HSETNX_ReplySchema_elements[] = {
 
 struct jsonObject HSETNX_ReplySchema = {HSETNX_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject HSETNX_ReplySchema = {0};
+
+#endif
+
 /********** HSTRLEN ********************/
 
 /* HSTRLEN history */
@@ -5613,6 +6527,8 @@ struct redisCommandArg HSTRLEN_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* HSTRLEN_ReplySchema reply schema */
 struct jsonObjectElement HSTRLEN_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -5621,6 +6537,12 @@ struct jsonObjectElement HSTRLEN_ReplySchema_elements[] = {
 };
 
 struct jsonObject HSTRLEN_ReplySchema = {HSTRLEN_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject HSTRLEN_ReplySchema = {0};
+
+#endif
 
 /********** HVALS ********************/
 
@@ -5639,6 +6561,8 @@ struct redisCommandArg HVALS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* HVALS_ReplySchema_items reply schema */
 struct jsonObjectElement HVALS_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -5655,6 +6579,12 @@ struct jsonObjectElement HVALS_ReplySchema_elements[] = {
 
 struct jsonObject HVALS_ReplySchema = {HVALS_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject HVALS_ReplySchema = {0};
+
+#endif
+
 /********** PFADD ********************/
 
 /* PFADD history */
@@ -5669,6 +6599,8 @@ struct redisCommandArg PFADD_Args[] = {
 {"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* PFADD_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement PFADD_ReplySchema_anyOf_0_elements[] = {
@@ -5699,6 +6631,12 @@ struct jsonObjectElement PFADD_ReplySchema_elements[] = {
 
 struct jsonObject PFADD_ReplySchema = {PFADD_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject PFADD_ReplySchema = {0};
+
+#endif
+
 /********** PFCOUNT ********************/
 
 /* PFCOUNT history */
@@ -5713,6 +6651,8 @@ struct redisCommandArg PFCOUNT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* PFCOUNT_ReplySchema reply schema */
 struct jsonObjectElement PFCOUNT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The approximated number of unique elements observed via PFADD"},
@@ -5720,6 +6660,12 @@ struct jsonObjectElement PFCOUNT_ReplySchema_elements[] = {
 };
 
 struct jsonObject PFCOUNT_ReplySchema = {PFCOUNT_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject PFCOUNT_ReplySchema = {0};
+
+#endif
 
 /********** PFDEBUG ********************/
 
@@ -5751,12 +6697,20 @@ struct redisCommandArg PFMERGE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* PFMERGE_ReplySchema reply schema */
 struct jsonObjectElement PFMERGE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject PFMERGE_ReplySchema = {PFMERGE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject PFMERGE_ReplySchema = {0};
+
+#endif
 
 /********** PFSELFTEST ********************/
 
@@ -5766,12 +6720,20 @@ struct jsonObject PFMERGE_ReplySchema = {PFMERGE_ReplySchema_elements,.length=1}
 /* PFSELFTEST tips */
 #define PFSELFTEST_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* PFSELFTEST_ReplySchema reply schema */
 struct jsonObjectElement PFSELFTEST_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject PFSELFTEST_ReplySchema = {PFSELFTEST_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject PFSELFTEST_ReplySchema = {0};
+
+#endif
 
 /********** BLMOVE ********************/
 
@@ -5805,6 +6767,8 @@ struct redisCommandArg BLMOVE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* BLMOVE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BLMOVE_ReplySchema_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The popped element."},
@@ -5834,6 +6798,12 @@ struct jsonObjectElement BLMOVE_ReplySchema_elements[] = {
 
 struct jsonObject BLMOVE_ReplySchema = {BLMOVE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject BLMOVE_ReplySchema = {0};
+
+#endif
+
 /********** BLMPOP ********************/
 
 /* BLMPOP history */
@@ -5858,6 +6828,8 @@ struct redisCommandArg BLMPOP_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* BLMPOP_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BLMPOP_ReplySchema_oneOf_0_elements[] = {
@@ -5922,6 +6894,12 @@ struct jsonObjectElement BLMPOP_ReplySchema_elements[] = {
 
 struct jsonObject BLMPOP_ReplySchema = {BLMPOP_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject BLMPOP_ReplySchema = {0};
+
+#endif
+
 /********** BLPOP ********************/
 
 /* BLPOP history */
@@ -5939,6 +6917,8 @@ struct redisCommandArg BLPOP_Args[] = {
 {"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* BLPOP_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BLPOP_ReplySchema_oneOf_0_elements[] = {
@@ -5992,6 +6972,12 @@ struct jsonObjectElement BLPOP_ReplySchema_elements[] = {
 
 struct jsonObject BLPOP_ReplySchema = {BLPOP_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject BLPOP_ReplySchema = {0};
+
+#endif
+
 /********** BRPOP ********************/
 
 /* BRPOP history */
@@ -6009,6 +6995,8 @@ struct redisCommandArg BRPOP_Args[] = {
 {"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* BRPOP_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BRPOP_ReplySchema_oneOf_0_elements[] = {
@@ -6063,6 +7051,12 @@ struct jsonObjectElement BRPOP_ReplySchema_elements[] = {
 
 struct jsonObject BRPOP_ReplySchema = {BRPOP_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject BRPOP_ReplySchema = {0};
+
+#endif
+
 /********** BRPOPLPUSH ********************/
 
 /* BRPOPLPUSH history */
@@ -6081,6 +7075,8 @@ struct redisCommandArg BRPOPLPUSH_Args[] = {
 {"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* BRPOPLPUSH_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BRPOPLPUSH_ReplySchema_oneOf_0_elements[] = {
@@ -6111,6 +7107,12 @@ struct jsonObjectElement BRPOPLPUSH_ReplySchema_elements[] = {
 
 struct jsonObject BRPOPLPUSH_ReplySchema = {BRPOPLPUSH_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject BRPOPLPUSH_ReplySchema = {0};
+
+#endif
+
 /********** LINDEX ********************/
 
 /* LINDEX history */
@@ -6125,6 +7127,8 @@ struct redisCommandArg LINDEX_Args[] = {
 {"index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* LINDEX_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement LINDEX_ReplySchema_oneOf_0_elements[] = {
@@ -6155,6 +7159,12 @@ struct jsonObjectElement LINDEX_ReplySchema_elements[] = {
 
 struct jsonObject LINDEX_ReplySchema = {LINDEX_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject LINDEX_ReplySchema = {0};
+
+#endif
+
 /********** LINSERT ********************/
 
 /* LINSERT history */
@@ -6178,6 +7188,8 @@ struct redisCommandArg LINSERT_Args[] = {
 {"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* LINSERT_ReplySchema_oneof_0 reply schema */
 struct jsonObjectElement LINSERT_ReplySchema_oneof_0_elements[] = {
@@ -6218,6 +7230,12 @@ struct jsonObjectElement LINSERT_ReplySchema_elements[] = {
 
 struct jsonObject LINSERT_ReplySchema = {LINSERT_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject LINSERT_ReplySchema = {0};
+
+#endif
+
 /********** LLEN ********************/
 
 /* LLEN history */
@@ -6232,6 +7250,8 @@ struct redisCommandArg LLEN_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* LLEN_ReplySchema reply schema */
 struct jsonObjectElement LLEN_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="List length."},
@@ -6240,6 +7260,12 @@ struct jsonObjectElement LLEN_ReplySchema_elements[] = {
 };
 
 struct jsonObject LLEN_ReplySchema = {LLEN_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject LLEN_ReplySchema = {0};
+
+#endif
 
 /********** LMOVE ********************/
 
@@ -6272,6 +7298,8 @@ struct redisCommandArg LMOVE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* LMOVE_ReplySchema reply schema */
 struct jsonObjectElement LMOVE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The element being popped and pushed."},
@@ -6279,6 +7307,12 @@ struct jsonObjectElement LMOVE_ReplySchema_elements[] = {
 };
 
 struct jsonObject LMOVE_ReplySchema = {LMOVE_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject LMOVE_ReplySchema = {0};
+
+#endif
 
 /********** LMPOP ********************/
 
@@ -6303,6 +7337,8 @@ struct redisCommandArg LMPOP_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* LMPOP_ReplySchema_oneof_0 reply schema */
 struct jsonObjectElement LMPOP_ReplySchema_oneof_0_elements[] = {
@@ -6364,6 +7400,12 @@ struct jsonObjectElement LMPOP_ReplySchema_elements[] = {
 
 struct jsonObject LMPOP_ReplySchema = {LMPOP_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject LMPOP_ReplySchema = {0};
+
+#endif
+
 /********** LPOP ********************/
 
 /* LPOP history */
@@ -6381,6 +7423,8 @@ struct redisCommandArg LPOP_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* LPOP_ReplySchema_oneof_0_oneof_0 reply schema */
 struct jsonObjectElement LPOP_ReplySchema_oneof_0_oneof_0_elements[] = {
@@ -6461,6 +7505,12 @@ struct jsonObjectElement LPOP_ReplySchema_elements[] = {
 
 struct jsonObject LPOP_ReplySchema = {LPOP_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject LPOP_ReplySchema = {0};
+
+#endif
+
 /********** LPOS ********************/
 
 /* LPOS history */
@@ -6478,6 +7528,8 @@ struct redisCommandArg LPOS_Args[] = {
 {"len",ARG_TYPE_INTEGER,-1,"MAXLEN",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* LPOS_ReplySchema_oneof_0_oneof_0 reply schema */
 struct jsonObjectElement LPOS_ReplySchema_oneof_0_oneof_0_elements[] = {
@@ -6538,6 +7590,12 @@ struct jsonObjectElement LPOS_ReplySchema_elements[] = {
 
 struct jsonObject LPOS_ReplySchema = {LPOS_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject LPOS_ReplySchema = {0};
+
+#endif
+
 /********** LPUSH ********************/
 
 /* LPUSH history */
@@ -6556,6 +7614,8 @@ struct redisCommandArg LPUSH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* LPUSH_ReplySchema reply schema */
 struct jsonObjectElement LPUSH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Length of the list after the push operations."},
@@ -6563,6 +7623,12 @@ struct jsonObjectElement LPUSH_ReplySchema_elements[] = {
 };
 
 struct jsonObject LPUSH_ReplySchema = {LPUSH_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject LPUSH_ReplySchema = {0};
+
+#endif
 
 /********** LPUSHX ********************/
 
@@ -6582,6 +7648,8 @@ struct redisCommandArg LPUSHX_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* LPUSHX_ReplySchema reply schema */
 struct jsonObjectElement LPUSHX_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -6590,6 +7658,12 @@ struct jsonObjectElement LPUSHX_ReplySchema_elements[] = {
 };
 
 struct jsonObject LPUSHX_ReplySchema = {LPUSHX_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject LPUSHX_ReplySchema = {0};
+
+#endif
 
 /********** LRANGE ********************/
 
@@ -6607,6 +7681,8 @@ struct redisCommandArg LRANGE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* LRANGE_ReplySchema_items reply schema */
 struct jsonObjectElement LRANGE_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -6622,6 +7698,12 @@ struct jsonObjectElement LRANGE_ReplySchema_elements[] = {
 };
 
 struct jsonObject LRANGE_ReplySchema = {LRANGE_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject LRANGE_ReplySchema = {0};
+
+#endif
 
 /********** LREM ********************/
 
@@ -6639,6 +7721,8 @@ struct redisCommandArg LREM_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* LREM_ReplySchema reply schema */
 struct jsonObjectElement LREM_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The number of removed elements."},
@@ -6647,6 +7731,12 @@ struct jsonObjectElement LREM_ReplySchema_elements[] = {
 };
 
 struct jsonObject LREM_ReplySchema = {LREM_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject LREM_ReplySchema = {0};
+
+#endif
 
 /********** LSET ********************/
 
@@ -6664,12 +7754,20 @@ struct redisCommandArg LSET_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* LSET_ReplySchema reply schema */
 struct jsonObjectElement LSET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject LSET_ReplySchema = {LSET_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject LSET_ReplySchema = {0};
+
+#endif
 
 /********** LTRIM ********************/
 
@@ -6687,12 +7785,20 @@ struct redisCommandArg LTRIM_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* LTRIM_ReplySchema reply schema */
 struct jsonObjectElement LTRIM_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject LTRIM_ReplySchema = {LTRIM_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject LTRIM_ReplySchema = {0};
+
+#endif
 
 /********** RPOP ********************/
 
@@ -6711,6 +7817,8 @@ struct redisCommandArg RPOP_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* RPOP_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement RPOP_ReplySchema_oneOf_0_elements[] = {
@@ -6758,6 +7866,12 @@ struct jsonObjectElement RPOP_ReplySchema_elements[] = {
 
 struct jsonObject RPOP_ReplySchema = {RPOP_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject RPOP_ReplySchema = {0};
+
+#endif
+
 /********** RPOPLPUSH ********************/
 
 /* RPOPLPUSH history */
@@ -6772,6 +7886,8 @@ struct redisCommandArg RPOPLPUSH_Args[] = {
 {"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* RPOPLPUSH_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement RPOPLPUSH_ReplySchema_oneOf_0_elements[] = {
@@ -6802,6 +7918,12 @@ struct jsonObjectElement RPOPLPUSH_ReplySchema_elements[] = {
 
 struct jsonObject RPOPLPUSH_ReplySchema = {RPOPLPUSH_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject RPOPLPUSH_ReplySchema = {0};
+
+#endif
+
 /********** RPUSH ********************/
 
 /* RPUSH history */
@@ -6820,6 +7942,8 @@ struct redisCommandArg RPUSH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* RPUSH_ReplySchema reply schema */
 struct jsonObjectElement RPUSH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Length of the list after the push operations."},
@@ -6828,6 +7952,12 @@ struct jsonObjectElement RPUSH_ReplySchema_elements[] = {
 };
 
 struct jsonObject RPUSH_ReplySchema = {RPUSH_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject RPUSH_ReplySchema = {0};
+
+#endif
 
 /********** RPUSHX ********************/
 
@@ -6847,6 +7977,8 @@ struct redisCommandArg RPUSHX_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* RPUSHX_ReplySchema reply schema */
 struct jsonObjectElement RPUSHX_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -6855,6 +7987,12 @@ struct jsonObjectElement RPUSHX_ReplySchema_elements[] = {
 };
 
 struct jsonObject RPUSHX_ReplySchema = {RPUSHX_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject RPUSHX_ReplySchema = {0};
+
+#endif
 
 /********** PSUBSCRIBE ********************/
 
@@ -6885,6 +8023,8 @@ struct redisCommandArg PUBLISH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* PUBLISH_ReplySchema reply schema */
 struct jsonObjectElement PUBLISH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the number of clients that received the message. Note that in a Redis Cluster, only clients that are connected to the same node as the publishing client are included in the count"},
@@ -6893,6 +8033,12 @@ struct jsonObjectElement PUBLISH_ReplySchema_elements[] = {
 };
 
 struct jsonObject PUBLISH_ReplySchema = {PUBLISH_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject PUBLISH_ReplySchema = {0};
+
+#endif
 
 /********** PUBSUB CHANNELS ********************/
 
@@ -6907,6 +8053,8 @@ struct redisCommandArg PUBSUB_CHANNELS_Args[] = {
 {"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* PUBSUB_CHANNELS_ReplySchema_items reply schema */
 struct jsonObjectElement PUBSUB_CHANNELS_ReplySchema_items_elements[] = {
@@ -6925,6 +8073,12 @@ struct jsonObjectElement PUBSUB_CHANNELS_ReplySchema_elements[] = {
 
 struct jsonObject PUBSUB_CHANNELS_ReplySchema = {PUBSUB_CHANNELS_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject PUBSUB_CHANNELS_ReplySchema = {0};
+
+#endif
+
 /********** PUBSUB HELP ********************/
 
 /* PUBSUB HELP history */
@@ -6932,6 +8086,8 @@ struct jsonObject PUBSUB_CHANNELS_ReplySchema = {PUBSUB_CHANNELS_ReplySchema_ele
 
 /* PUBSUB HELP tips */
 #define PUBSUB_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* PUBSUB_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement PUBSUB_HELP_ReplySchema_items_elements[] = {
@@ -6949,6 +8105,12 @@ struct jsonObjectElement PUBSUB_HELP_ReplySchema_elements[] = {
 
 struct jsonObject PUBSUB_HELP_ReplySchema = {PUBSUB_HELP_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject PUBSUB_HELP_ReplySchema = {0};
+
+#endif
+
 /********** PUBSUB NUMPAT ********************/
 
 /* PUBSUB NUMPAT history */
@@ -6956,6 +8118,8 @@ struct jsonObject PUBSUB_HELP_ReplySchema = {PUBSUB_HELP_ReplySchema_elements,.l
 
 /* PUBSUB NUMPAT tips */
 #define PUBSUB_NUMPAT_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* PUBSUB_NUMPAT_ReplySchema reply schema */
 struct jsonObjectElement PUBSUB_NUMPAT_ReplySchema_elements[] = {
@@ -6965,6 +8129,12 @@ struct jsonObjectElement PUBSUB_NUMPAT_ReplySchema_elements[] = {
 };
 
 struct jsonObject PUBSUB_NUMPAT_ReplySchema = {PUBSUB_NUMPAT_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject PUBSUB_NUMPAT_ReplySchema = {0};
+
+#endif
 
 /********** PUBSUB NUMSUB ********************/
 
@@ -6980,6 +8150,8 @@ struct redisCommandArg PUBSUB_NUMSUB_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* PUBSUB_NUMSUB_ReplySchema reply schema */
 struct jsonObjectElement PUBSUB_NUMSUB_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the number of subscribers per channel, each even element (including 0th) is channel name, each odd element is the number of subscribers"},
@@ -6987,6 +8159,12 @@ struct jsonObjectElement PUBSUB_NUMSUB_ReplySchema_elements[] = {
 };
 
 struct jsonObject PUBSUB_NUMSUB_ReplySchema = {PUBSUB_NUMSUB_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject PUBSUB_NUMSUB_ReplySchema = {0};
+
+#endif
 
 /********** PUBSUB SHARDCHANNELS ********************/
 
@@ -7001,6 +8179,8 @@ struct redisCommandArg PUBSUB_SHARDCHANNELS_Args[] = {
 {"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* PUBSUB_SHARDCHANNELS_ReplySchema_items reply schema */
 struct jsonObjectElement PUBSUB_SHARDCHANNELS_ReplySchema_items_elements[] = {
@@ -7019,6 +8199,12 @@ struct jsonObjectElement PUBSUB_SHARDCHANNELS_ReplySchema_elements[] = {
 
 struct jsonObject PUBSUB_SHARDCHANNELS_ReplySchema = {PUBSUB_SHARDCHANNELS_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject PUBSUB_SHARDCHANNELS_ReplySchema = {0};
+
+#endif
+
 /********** PUBSUB SHARDNUMSUB ********************/
 
 /* PUBSUB SHARDNUMSUB history */
@@ -7033,6 +8219,8 @@ struct redisCommandArg PUBSUB_SHARDNUMSUB_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* PUBSUB_SHARDNUMSUB_ReplySchema reply schema */
 struct jsonObjectElement PUBSUB_SHARDNUMSUB_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the number of subscribers per shard channel, each even element (including 0th) is channel name, each odd element is the number of subscribers"},
@@ -7040,6 +8228,12 @@ struct jsonObjectElement PUBSUB_SHARDNUMSUB_ReplySchema_elements[] = {
 };
 
 struct jsonObject PUBSUB_SHARDNUMSUB_ReplySchema = {PUBSUB_SHARDNUMSUB_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject PUBSUB_SHARDNUMSUB_ReplySchema = {0};
+
+#endif
 
 /* PUBSUB command table */
 struct redisCommand PUBSUB_Subcommands[] = {
@@ -7089,6 +8283,8 @@ struct redisCommandArg SPUBLISH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SPUBLISH_ReplySchema reply schema */
 struct jsonObjectElement SPUBLISH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the number of clients that received the message. Note that in a Redis Cluster, only clients that are connected to the same node as the publishing client are included in the count"},
@@ -7097,6 +8293,12 @@ struct jsonObjectElement SPUBLISH_ReplySchema_elements[] = {
 };
 
 struct jsonObject SPUBLISH_ReplySchema = {SPUBLISH_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SPUBLISH_ReplySchema = {0};
+
+#endif
 
 /********** SSUBSCRIBE ********************/
 
@@ -7171,12 +8373,20 @@ struct redisCommandArg EVAL_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* EVAL_ReplySchema reply schema */
 struct jsonObjectElement EVAL_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Return value depends on the script that is executed"},
 };
 
 struct jsonObject EVAL_ReplySchema = {EVAL_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject EVAL_ReplySchema = {0};
+
+#endif
 
 /********** EVALSHA ********************/
 
@@ -7195,12 +8405,20 @@ struct redisCommandArg EVALSHA_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* EVALSHA_ReplySchema reply schema */
 struct jsonObjectElement EVALSHA_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Return value depends on the script that is executed"},
 };
 
 struct jsonObject EVALSHA_ReplySchema = {EVALSHA_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject EVALSHA_ReplySchema = {0};
+
+#endif
 
 /********** EVALSHA_RO ********************/
 
@@ -7219,12 +8437,20 @@ struct redisCommandArg EVALSHA_RO_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* EVALSHA_RO_ReplySchema reply schema */
 struct jsonObjectElement EVALSHA_RO_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Return value depends on the script that is executed"},
 };
 
 struct jsonObject EVALSHA_RO_ReplySchema = {EVALSHA_RO_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject EVALSHA_RO_ReplySchema = {0};
+
+#endif
 
 /********** EVAL_RO ********************/
 
@@ -7243,12 +8469,20 @@ struct redisCommandArg EVAL_RO_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* EVAL_RO_ReplySchema reply schema */
 struct jsonObjectElement EVAL_RO_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Return value depends on the script that is executed"},
 };
 
 struct jsonObject EVAL_RO_ReplySchema = {EVAL_RO_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject EVAL_RO_ReplySchema = {0};
+
+#endif
 
 /********** FCALL ********************/
 
@@ -7267,12 +8501,20 @@ struct redisCommandArg FCALL_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* FCALL_ReplySchema reply schema */
 struct jsonObjectElement FCALL_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Return value depends on the function that is executed"},
 };
 
 struct jsonObject FCALL_ReplySchema = {FCALL_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject FCALL_ReplySchema = {0};
+
+#endif
 
 /********** FCALL_RO ********************/
 
@@ -7291,12 +8533,20 @@ struct redisCommandArg FCALL_RO_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* FCALL_RO_ReplySchema reply schema */
 struct jsonObjectElement FCALL_RO_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Return value depends on the function that is executed"},
 };
 
 struct jsonObject FCALL_RO_ReplySchema = {FCALL_RO_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject FCALL_RO_ReplySchema = {0};
+
+#endif
 
 /********** FUNCTION DELETE ********************/
 
@@ -7316,12 +8566,20 @@ struct redisCommandArg FUNCTION_DELETE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* FUNCTION_DELETE_ReplySchema reply schema */
 struct jsonObjectElement FUNCTION_DELETE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject FUNCTION_DELETE_ReplySchema = {FUNCTION_DELETE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject FUNCTION_DELETE_ReplySchema = {0};
+
+#endif
 
 /********** FUNCTION DUMP ********************/
 
@@ -7331,6 +8589,8 @@ struct jsonObject FUNCTION_DELETE_ReplySchema = {FUNCTION_DELETE_ReplySchema_ele
 /* FUNCTION DUMP tips */
 #define FUNCTION_DUMP_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* FUNCTION_DUMP_ReplySchema reply schema */
 struct jsonObjectElement FUNCTION_DUMP_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="the serialized payload"},
@@ -7338,6 +8598,12 @@ struct jsonObjectElement FUNCTION_DUMP_ReplySchema_elements[] = {
 };
 
 struct jsonObject FUNCTION_DUMP_ReplySchema = {FUNCTION_DUMP_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject FUNCTION_DUMP_ReplySchema = {0};
+
+#endif
 
 /********** FUNCTION FLUSH ********************/
 
@@ -7364,12 +8630,20 @@ struct redisCommandArg FUNCTION_FLUSH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* FUNCTION_FLUSH_ReplySchema reply schema */
 struct jsonObjectElement FUNCTION_FLUSH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject FUNCTION_FLUSH_ReplySchema = {FUNCTION_FLUSH_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject FUNCTION_FLUSH_ReplySchema = {0};
+
+#endif
 
 /********** FUNCTION HELP ********************/
 
@@ -7378,6 +8652,8 @@ struct jsonObject FUNCTION_FLUSH_ReplySchema = {FUNCTION_FLUSH_ReplySchema_eleme
 
 /* FUNCTION HELP tips */
 #define FUNCTION_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* FUNCTION_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement FUNCTION_HELP_ReplySchema_items_elements[] = {
@@ -7395,6 +8671,12 @@ struct jsonObjectElement FUNCTION_HELP_ReplySchema_elements[] = {
 
 struct jsonObject FUNCTION_HELP_ReplySchema = {FUNCTION_HELP_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject FUNCTION_HELP_ReplySchema = {0};
+
+#endif
+
 /********** FUNCTION KILL ********************/
 
 /* FUNCTION KILL history */
@@ -7407,12 +8689,20 @@ const char *FUNCTION_KILL_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* FUNCTION_KILL_ReplySchema reply schema */
 struct jsonObjectElement FUNCTION_KILL_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject FUNCTION_KILL_ReplySchema = {FUNCTION_KILL_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject FUNCTION_KILL_ReplySchema = {0};
+
+#endif
 
 /********** FUNCTION LIST ********************/
 
@@ -7451,6 +8741,8 @@ struct redisCommandArg FUNCTION_LOAD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* FUNCTION_LOAD_ReplySchema reply schema */
 struct jsonObjectElement FUNCTION_LOAD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The library name that was loaded"},
@@ -7458,6 +8750,12 @@ struct jsonObjectElement FUNCTION_LOAD_ReplySchema_elements[] = {
 };
 
 struct jsonObject FUNCTION_LOAD_ReplySchema = {FUNCTION_LOAD_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject FUNCTION_LOAD_ReplySchema = {0};
+
+#endif
 
 /********** FUNCTION RESTORE ********************/
 
@@ -7486,12 +8784,20 @@ struct redisCommandArg FUNCTION_RESTORE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* FUNCTION_RESTORE_ReplySchema reply schema */
 struct jsonObjectElement FUNCTION_RESTORE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject FUNCTION_RESTORE_ReplySchema = {FUNCTION_RESTORE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject FUNCTION_RESTORE_ReplySchema = {0};
+
+#endif
 
 /********** FUNCTION STATS ********************/
 
@@ -7550,12 +8856,20 @@ struct redisCommandArg SCRIPT_DEBUG_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SCRIPT_DEBUG_ReplySchema reply schema */
 struct jsonObjectElement SCRIPT_DEBUG_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SCRIPT_DEBUG_ReplySchema = {SCRIPT_DEBUG_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject SCRIPT_DEBUG_ReplySchema = {0};
+
+#endif
 
 /********** SCRIPT EXISTS ********************/
 
@@ -7574,6 +8888,8 @@ struct redisCommandArg SCRIPT_EXISTS_Args[] = {
 {"sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SCRIPT_EXISTS_ReplySchema_items_anyOf_0 reply schema */
 struct jsonObjectElement SCRIPT_EXISTS_ReplySchema_items_anyOf_0_elements[] = {
@@ -7613,6 +8929,12 @@ struct jsonObjectElement SCRIPT_EXISTS_ReplySchema_elements[] = {
 
 struct jsonObject SCRIPT_EXISTS_ReplySchema = {SCRIPT_EXISTS_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject SCRIPT_EXISTS_ReplySchema = {0};
+
+#endif
+
 /********** SCRIPT FLUSH ********************/
 
 /* SCRIPT FLUSH history */
@@ -7641,12 +8963,20 @@ struct redisCommandArg SCRIPT_FLUSH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SCRIPT_FLUSH_ReplySchema reply schema */
 struct jsonObjectElement SCRIPT_FLUSH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SCRIPT_FLUSH_ReplySchema = {SCRIPT_FLUSH_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject SCRIPT_FLUSH_ReplySchema = {0};
+
+#endif
 
 /********** SCRIPT HELP ********************/
 
@@ -7655,6 +8985,8 @@ struct jsonObject SCRIPT_FLUSH_ReplySchema = {SCRIPT_FLUSH_ReplySchema_elements,
 
 /* SCRIPT HELP tips */
 #define SCRIPT_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* SCRIPT_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement SCRIPT_HELP_ReplySchema_items_elements[] = {
@@ -7672,6 +9004,12 @@ struct jsonObjectElement SCRIPT_HELP_ReplySchema_elements[] = {
 
 struct jsonObject SCRIPT_HELP_ReplySchema = {SCRIPT_HELP_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject SCRIPT_HELP_ReplySchema = {0};
+
+#endif
+
 /********** SCRIPT KILL ********************/
 
 /* SCRIPT KILL history */
@@ -7684,12 +9022,20 @@ const char *SCRIPT_KILL_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* SCRIPT_KILL_ReplySchema reply schema */
 struct jsonObjectElement SCRIPT_KILL_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SCRIPT_KILL_ReplySchema = {SCRIPT_KILL_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject SCRIPT_KILL_ReplySchema = {0};
+
+#endif
 
 /********** SCRIPT LOAD ********************/
 
@@ -7709,6 +9055,8 @@ struct redisCommandArg SCRIPT_LOAD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SCRIPT_LOAD_ReplySchema reply schema */
 struct jsonObjectElement SCRIPT_LOAD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The SHA1 digest of the script added into the script cache"},
@@ -7716,6 +9064,12 @@ struct jsonObjectElement SCRIPT_LOAD_ReplySchema_elements[] = {
 };
 
 struct jsonObject SCRIPT_LOAD_ReplySchema = {SCRIPT_LOAD_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject SCRIPT_LOAD_ReplySchema = {0};
+
+#endif
 
 /* SCRIPT command table */
 struct redisCommand SCRIPT_Subcommands[] = {
@@ -7750,6 +9104,8 @@ struct redisCommandArg SENTINEL_CKQUORUM_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SENTINEL_CKQUORUM_ReplySchema reply schema */
 struct jsonObjectElement SENTINEL_CKQUORUM_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -7758,6 +9114,12 @@ struct jsonObjectElement SENTINEL_CKQUORUM_ReplySchema_elements[] = {
 };
 
 struct jsonObject SENTINEL_CKQUORUM_ReplySchema = {SENTINEL_CKQUORUM_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SENTINEL_CKQUORUM_ReplySchema = {0};
+
+#endif
 
 /********** SENTINEL CONFIG ********************/
 
@@ -7786,6 +9148,8 @@ struct redisCommandArg SENTINEL_CONFIG_Args[] = {
 {"action",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=SENTINEL_CONFIG_action_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_0 reply schema */
 struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_resolve_hostnames_oneOf_0_elements[] = {
@@ -7964,6 +9328,12 @@ struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_elements[] = {
 
 struct jsonObject SENTINEL_CONFIG_ReplySchema = {SENTINEL_CONFIG_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema = {0};
+
+#endif
+
 /********** SENTINEL DEBUG ********************/
 
 /* SENTINEL DEBUG history */
@@ -7999,6 +9369,8 @@ struct redisCommandArg SENTINEL_FAILOVER_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SENTINEL_FAILOVER_ReplySchema reply schema */
 struct jsonObjectElement SENTINEL_FAILOVER_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
@@ -8006,6 +9378,12 @@ struct jsonObjectElement SENTINEL_FAILOVER_ReplySchema_elements[] = {
 };
 
 struct jsonObject SENTINEL_FAILOVER_ReplySchema = {SENTINEL_FAILOVER_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject SENTINEL_FAILOVER_ReplySchema = {0};
+
+#endif
 
 /********** SENTINEL FLUSHCONFIG ********************/
 
@@ -8015,6 +9393,8 @@ struct jsonObject SENTINEL_FAILOVER_ReplySchema = {SENTINEL_FAILOVER_ReplySchema
 /* SENTINEL FLUSHCONFIG tips */
 #define SENTINEL_FLUSHCONFIG_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* SENTINEL_FLUSHCONFIG_ReplySchema reply schema */
 struct jsonObjectElement SENTINEL_FLUSHCONFIG_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
@@ -8022,6 +9402,12 @@ struct jsonObjectElement SENTINEL_FLUSHCONFIG_ReplySchema_elements[] = {
 };
 
 struct jsonObject SENTINEL_FLUSHCONFIG_ReplySchema = {SENTINEL_FLUSHCONFIG_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject SENTINEL_FLUSHCONFIG_ReplySchema = {0};
+
+#endif
 
 /********** SENTINEL GET_MASTER_ADDR_BY_NAME ********************/
 
@@ -8036,6 +9422,8 @@ struct redisCommandArg SENTINEL_GET_MASTER_ADDR_BY_NAME_Args[] = {
 {"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0 reply schema */
 struct jsonObjectElement SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_items_0_elements[] = {
@@ -8071,6 +9459,12 @@ struct jsonObjectElement SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_elements[]
 
 struct jsonObject SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema = {SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema_elements,.length=5};
 
+#else
+
+struct jsonObject SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema = {0};
+
+#endif
+
 /********** SENTINEL HELP ********************/
 
 /* SENTINEL HELP history */
@@ -8078,6 +9472,8 @@ struct jsonObject SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema = {SENTINEL_GET_M
 
 /* SENTINEL HELP tips */
 #define SENTINEL_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* SENTINEL_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement SENTINEL_HELP_ReplySchema_items_elements[] = {
@@ -8094,6 +9490,12 @@ struct jsonObjectElement SENTINEL_HELP_ReplySchema_elements[] = {
 };
 
 struct jsonObject SENTINEL_HELP_ReplySchema = {SENTINEL_HELP_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SENTINEL_HELP_ReplySchema = {0};
+
+#endif
 
 /********** SENTINEL INFO_CACHE ********************/
 
@@ -8125,6 +9527,8 @@ struct redisCommandArg SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args[] = {
 {"runid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0 reply schema */
 struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_0_oneOf_0_elements[] = {
@@ -8190,6 +9594,12 @@ struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_elements[] 
 
 struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_elements,.length=5};
 
+#else
+
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema = {0};
+
+#endif
+
 /********** SENTINEL MASTER ********************/
 
 /* SENTINEL MASTER history */
@@ -8203,6 +9613,8 @@ struct redisCommandArg SENTINEL_MASTER_Args[] = {
 {"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SENTINEL_MASTER_ReplySchema_additionalProperties reply schema */
 struct jsonObjectElement SENTINEL_MASTER_ReplySchema_additionalProperties_elements[] = {
@@ -8219,6 +9631,12 @@ struct jsonObjectElement SENTINEL_MASTER_ReplySchema_elements[] = {
 };
 
 struct jsonObject SENTINEL_MASTER_ReplySchema = {SENTINEL_MASTER_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SENTINEL_MASTER_ReplySchema = {0};
+
+#endif
 
 /********** SENTINEL MASTERS ********************/
 
@@ -8245,12 +9663,20 @@ struct redisCommandArg SENTINEL_MONITOR_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SENTINEL_MONITOR_ReplySchema reply schema */
 struct jsonObjectElement SENTINEL_MONITOR_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SENTINEL_MONITOR_ReplySchema = {SENTINEL_MONITOR_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject SENTINEL_MONITOR_ReplySchema = {0};
+
+#endif
 
 /********** SENTINEL MYID ********************/
 
@@ -8282,12 +9708,20 @@ struct redisCommandArg SENTINEL_REMOVE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SENTINEL_REMOVE_ReplySchema reply schema */
 struct jsonObjectElement SENTINEL_REMOVE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SENTINEL_REMOVE_ReplySchema = {SENTINEL_REMOVE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject SENTINEL_REMOVE_ReplySchema = {0};
+
+#endif
 
 /********** SENTINEL REPLICAS ********************/
 
@@ -8302,6 +9736,8 @@ struct redisCommandArg SENTINEL_REPLICAS_Args[] = {
 {"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SENTINEL_REPLICAS_ReplySchema_items_additionalProperties reply schema */
 struct jsonObjectElement SENTINEL_REPLICAS_ReplySchema_items_additionalProperties_elements[] = {
@@ -8326,6 +9762,12 @@ struct jsonObjectElement SENTINEL_REPLICAS_ReplySchema_elements[] = {
 };
 
 struct jsonObject SENTINEL_REPLICAS_ReplySchema = {SENTINEL_REPLICAS_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SENTINEL_REPLICAS_ReplySchema = {0};
+
+#endif
 
 /********** SENTINEL RESET ********************/
 
@@ -8377,12 +9819,20 @@ struct redisCommandArg SENTINEL_SET_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SENTINEL_SET_ReplySchema reply schema */
 struct jsonObjectElement SENTINEL_SET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SENTINEL_SET_ReplySchema = {SENTINEL_SET_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject SENTINEL_SET_ReplySchema = {0};
+
+#endif
 
 /********** SENTINEL SIMULATE_FAILURE ********************/
 
@@ -8468,6 +9918,8 @@ struct redisCommandArg ACL_CAT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ACL_CAT_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement ACL_CAT_ReplySchema_anyOf_0_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -8513,6 +9965,12 @@ struct jsonObjectElement ACL_CAT_ReplySchema_elements[] = {
 
 struct jsonObject ACL_CAT_ReplySchema = {ACL_CAT_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ACL_CAT_ReplySchema = {0};
+
+#endif
+
 /********** ACL DELUSER ********************/
 
 /* ACL DELUSER history */
@@ -8527,6 +9985,8 @@ struct redisCommandArg ACL_DELUSER_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ACL_DELUSER_ReplySchema reply schema */
 struct jsonObjectElement ACL_DELUSER_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -8534,6 +9994,12 @@ struct jsonObjectElement ACL_DELUSER_ReplySchema_elements[] = {
 };
 
 struct jsonObject ACL_DELUSER_ReplySchema = {ACL_DELUSER_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ACL_DELUSER_ReplySchema = {0};
+
+#endif
 
 /********** ACL DRYRUN ********************/
 
@@ -8550,6 +10016,8 @@ struct redisCommandArg ACL_DRYRUN_Args[] = {
 {"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ACL_DRYRUN_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement ACL_DRYRUN_ReplySchema_anyOf_0_elements[] = {
@@ -8580,6 +10048,12 @@ struct jsonObjectElement ACL_DRYRUN_ReplySchema_elements[] = {
 
 struct jsonObject ACL_DRYRUN_ReplySchema = {ACL_DRYRUN_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ACL_DRYRUN_ReplySchema = {0};
+
+#endif
+
 /********** ACL GENPASS ********************/
 
 /* ACL GENPASS history */
@@ -8594,6 +10068,8 @@ struct redisCommandArg ACL_GENPASS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ACL_GENPASS_ReplySchema reply schema */
 struct jsonObjectElement ACL_GENPASS_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -8601,6 +10077,12 @@ struct jsonObjectElement ACL_GENPASS_ReplySchema_elements[] = {
 };
 
 struct jsonObject ACL_GENPASS_ReplySchema = {ACL_GENPASS_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ACL_GENPASS_ReplySchema = {0};
+
+#endif
 
 /********** ACL GETUSER ********************/
 
@@ -8619,6 +10101,8 @@ struct redisCommandArg ACL_GETUSER_Args[] = {
 {"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ACL_GETUSER_ReplySchema_oneOf_0_properties_flags_items reply schema */
 struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_flags_items_elements[] = {
@@ -8707,10 +10191,11 @@ struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_pro
 /* ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items reply schema */
 struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"properties",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_properties},
 };
 
-struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items = {ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_elements,.length=2};
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items = {ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_items_elements,.length=3};
 
 /* ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors reply schema */
 struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_properties_selectors_elements[] = {
@@ -8736,10 +10221,11 @@ struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0_properties = {ACL_GETUSER_Repl
 struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="a set of ACL rule definitions for the user"},
 {JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"properties",.value.object=&ACL_GETUSER_ReplySchema_oneOf_0_properties},
 };
 
-struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0 = {ACL_GETUSER_ReplySchema_oneOf_0_elements,.length=3};
+struct jsonObject ACL_GETUSER_ReplySchema_oneOf_0 = {ACL_GETUSER_ReplySchema_oneOf_0_elements,.length=4};
 
 /* ACL_GETUSER_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement ACL_GETUSER_ReplySchema_oneOf_1_elements[] = {
@@ -8762,6 +10248,12 @@ struct jsonObjectElement ACL_GETUSER_ReplySchema_elements[] = {
 
 struct jsonObject ACL_GETUSER_ReplySchema = {ACL_GETUSER_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ACL_GETUSER_ReplySchema = {0};
+
+#endif
+
 /********** ACL HELP ********************/
 
 /* ACL HELP history */
@@ -8769,6 +10261,8 @@ struct jsonObject ACL_GETUSER_ReplySchema = {ACL_GETUSER_ReplySchema_elements,.l
 
 /* ACL HELP tips */
 #define ACL_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* ACL_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement ACL_HELP_ReplySchema_items_elements[] = {
@@ -8786,6 +10280,12 @@ struct jsonObjectElement ACL_HELP_ReplySchema_elements[] = {
 
 struct jsonObject ACL_HELP_ReplySchema = {ACL_HELP_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject ACL_HELP_ReplySchema = {0};
+
+#endif
+
 /********** ACL LIST ********************/
 
 /* ACL LIST history */
@@ -8793,6 +10293,8 @@ struct jsonObject ACL_HELP_ReplySchema = {ACL_HELP_ReplySchema_elements,.length=
 
 /* ACL LIST tips */
 #define ACL_LIST_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* ACL_LIST_ReplySchema_items reply schema */
 struct jsonObjectElement ACL_LIST_ReplySchema_items_elements[] = {
@@ -8810,6 +10312,12 @@ struct jsonObjectElement ACL_LIST_ReplySchema_elements[] = {
 
 struct jsonObject ACL_LIST_ReplySchema = {ACL_LIST_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject ACL_LIST_ReplySchema = {0};
+
+#endif
+
 /********** ACL LOAD ********************/
 
 /* ACL LOAD history */
@@ -8818,12 +10326,20 @@ struct jsonObject ACL_LIST_ReplySchema = {ACL_LIST_ReplySchema_elements,.length=
 /* ACL LOAD tips */
 #define ACL_LOAD_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* ACL_LOAD_ReplySchema reply schema */
 struct jsonObjectElement ACL_LOAD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject ACL_LOAD_ReplySchema = {ACL_LOAD_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject ACL_LOAD_ReplySchema = {0};
+
+#endif
 
 /********** ACL LOG ********************/
 
@@ -8848,6 +10364,8 @@ struct redisCommandArg ACL_LOG_Args[] = {
 {"operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ACL_LOG_operation_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ACL_LOG_ReplySchema_oneOf_0_items_properties_count reply schema */
 struct jsonObjectElement ACL_LOG_ReplySchema_oneOf_0_items_properties_count_elements[] = {
@@ -8974,6 +10492,12 @@ struct jsonObjectElement ACL_LOG_ReplySchema_elements[] = {
 
 struct jsonObject ACL_LOG_ReplySchema = {ACL_LOG_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ACL_LOG_ReplySchema = {0};
+
+#endif
+
 /********** ACL SAVE ********************/
 
 /* ACL SAVE history */
@@ -8982,12 +10506,20 @@ struct jsonObject ACL_LOG_ReplySchema = {ACL_LOG_ReplySchema_elements,.length=1}
 /* ACL SAVE tips */
 #define ACL_SAVE_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* ACL_SAVE_ReplySchema reply schema */
 struct jsonObjectElement ACL_SAVE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject ACL_SAVE_ReplySchema = {ACL_SAVE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject ACL_SAVE_ReplySchema = {0};
+
+#endif
 
 /********** ACL SETUSER ********************/
 
@@ -9008,12 +10540,20 @@ struct redisCommandArg ACL_SETUSER_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ACL_SETUSER_ReplySchema reply schema */
 struct jsonObjectElement ACL_SETUSER_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject ACL_SETUSER_ReplySchema = {ACL_SETUSER_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject ACL_SETUSER_ReplySchema = {0};
+
+#endif
 
 /********** ACL USERS ********************/
 
@@ -9022,6 +10562,8 @@ struct jsonObject ACL_SETUSER_ReplySchema = {ACL_SETUSER_ReplySchema_elements,.l
 
 /* ACL USERS tips */
 #define ACL_USERS_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* ACL_USERS_ReplySchema_items reply schema */
 struct jsonObjectElement ACL_USERS_ReplySchema_items_elements[] = {
@@ -9039,6 +10581,12 @@ struct jsonObjectElement ACL_USERS_ReplySchema_elements[] = {
 
 struct jsonObject ACL_USERS_ReplySchema = {ACL_USERS_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject ACL_USERS_ReplySchema = {0};
+
+#endif
+
 /********** ACL WHOAMI ********************/
 
 /* ACL WHOAMI history */
@@ -9047,6 +10595,8 @@ struct jsonObject ACL_USERS_ReplySchema = {ACL_USERS_ReplySchema_elements,.lengt
 /* ACL WHOAMI tips */
 #define ACL_WHOAMI_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* ACL_WHOAMI_ReplySchema reply schema */
 struct jsonObjectElement ACL_WHOAMI_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -9054,6 +10604,12 @@ struct jsonObjectElement ACL_WHOAMI_ReplySchema_elements[] = {
 };
 
 struct jsonObject ACL_WHOAMI_ReplySchema = {ACL_WHOAMI_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ACL_WHOAMI_ReplySchema = {0};
+
+#endif
 
 /* ACL command table */
 struct redisCommand ACL_Subcommands[] = {
@@ -9089,6 +10645,8 @@ struct redisCommand ACL_Subcommands[] = {
 /* BGREWRITEAOF tips */
 #define BGREWRITEAOF_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* BGREWRITEAOF_ReplySchema reply schema */
 struct jsonObjectElement BGREWRITEAOF_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="A simple string reply indicating that the rewriting started or is about to start ASAP"},
@@ -9096,6 +10654,12 @@ struct jsonObjectElement BGREWRITEAOF_ReplySchema_elements[] = {
 };
 
 struct jsonObject BGREWRITEAOF_ReplySchema = {BGREWRITEAOF_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject BGREWRITEAOF_ReplySchema = {0};
+
+#endif
 
 /********** BGSAVE ********************/
 
@@ -9113,6 +10677,8 @@ struct redisCommandArg BGSAVE_Args[] = {
 {"schedule",ARG_TYPE_PURE_TOKEN,-1,"SCHEDULE",NULL,"3.2.2",CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* BGSAVE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BGSAVE_ReplySchema_oneOf_0_elements[] = {
@@ -9140,6 +10706,12 @@ struct jsonObjectElement BGSAVE_ReplySchema_elements[] = {
 };
 
 struct jsonObject BGSAVE_ReplySchema = {BGSAVE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject BGSAVE_ReplySchema = {0};
+
+#endif
 
 /********** COMMAND COUNT ********************/
 
@@ -9204,6 +10776,8 @@ struct redisCommandArg COMMAND_GETKEYSANDFLAGS_Args[] = {
 /* COMMAND HELP tips */
 #define COMMAND_HELP_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* COMMAND_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement COMMAND_HELP_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -9219,6 +10793,12 @@ struct jsonObjectElement COMMAND_HELP_ReplySchema_elements[] = {
 };
 
 struct jsonObject COMMAND_HELP_ReplySchema = {COMMAND_HELP_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject COMMAND_HELP_ReplySchema = {0};
+
+#endif
 
 /********** COMMAND INFO ********************/
 
@@ -9239,6 +10819,8 @@ struct redisCommandArg COMMAND_INFO_Args[] = {
 {"command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* COMMAND_INFO_ReplySchema_items_oneOf_0 reply schema */
 struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_0_elements[] = {
@@ -9364,7 +10946,7 @@ struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_propertie
 struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="unknown type, empty map"},
 {JSON_TYPE_STRING,"type",.value.string="object"},
-{JSON_TYPE_STRING,"additionalProperties",.value.string="false"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 };
 
 struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_0 = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties_spec_oneOf_0_elements,.length=3};
@@ -9450,10 +11032,11 @@ struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_propertie
 /* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search reply schema */
 struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_properties},
 };
 
-struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_elements,.length=2};
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_begin_search_elements,.length=3};
 
 /* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_0 reply schema */
 struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties_spec_oneOf_0_elements[] = {
@@ -9568,8 +11151,8 @@ struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_propertie
 /* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys reply schema */
 struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
-{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties},
 {JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_properties},
 };
 
 struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties_flags_find_keys_elements,.length=3};
@@ -9595,10 +11178,11 @@ struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_propertie
 /* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items reply schema */
 struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_properties},
 };
 
-struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_elements,.length=2};
+struct jsonObject COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items = {COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_items_elements,.length=3};
 
 /* COMMAND_INFO_ReplySchema_items_oneOf_1_items_8 reply schema */
 struct jsonObjectElement COMMAND_INFO_ReplySchema_items_oneOf_1_items_8_elements[] = {
@@ -9652,6 +11236,12 @@ struct jsonObjectElement COMMAND_INFO_ReplySchema_elements[] = {
 
 struct jsonObject COMMAND_INFO_ReplySchema = {COMMAND_INFO_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject COMMAND_INFO_ReplySchema = {0};
+
+#endif
+
 /********** COMMAND LIST ********************/
 
 /* COMMAND LIST history */
@@ -9677,6 +11267,8 @@ struct redisCommandArg COMMAND_LIST_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* COMMAND_LIST_ReplySchema_items reply schema */
 struct jsonObjectElement COMMAND_LIST_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="command name"},
@@ -9693,6 +11285,12 @@ struct jsonObjectElement COMMAND_LIST_ReplySchema_elements[] = {
 };
 
 struct jsonObject COMMAND_LIST_ReplySchema = {COMMAND_LIST_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject COMMAND_LIST_ReplySchema = {0};
+
+#endif
 
 /* COMMAND command table */
 struct redisCommand COMMAND_Subcommands[] = {
@@ -9734,6 +11332,8 @@ struct redisCommandArg CONFIG_GET_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CONFIG_GET_ReplySchema_additionalProperties reply schema */
 struct jsonObjectElement CONFIG_GET_ReplySchema_additionalProperties_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -9749,6 +11349,12 @@ struct jsonObjectElement CONFIG_GET_ReplySchema_elements[] = {
 
 struct jsonObject CONFIG_GET_ReplySchema = {CONFIG_GET_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject CONFIG_GET_ReplySchema = {0};
+
+#endif
+
 /********** CONFIG HELP ********************/
 
 /* CONFIG HELP history */
@@ -9756,6 +11362,8 @@ struct jsonObject CONFIG_GET_ReplySchema = {CONFIG_GET_ReplySchema_elements,.len
 
 /* CONFIG HELP tips */
 #define CONFIG_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* CONFIG_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement CONFIG_HELP_ReplySchema_items_elements[] = {
@@ -9773,6 +11381,12 @@ struct jsonObjectElement CONFIG_HELP_ReplySchema_elements[] = {
 
 struct jsonObject CONFIG_HELP_ReplySchema = {CONFIG_HELP_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject CONFIG_HELP_ReplySchema = {0};
+
+#endif
+
 /********** CONFIG RESETSTAT ********************/
 
 /* CONFIG RESETSTAT history */
@@ -9781,12 +11395,20 @@ struct jsonObject CONFIG_HELP_ReplySchema = {CONFIG_HELP_ReplySchema_elements,.l
 /* CONFIG RESETSTAT tips */
 #define CONFIG_RESETSTAT_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* CONFIG_RESETSTAT_ReplySchema reply schema */
 struct jsonObjectElement CONFIG_RESETSTAT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CONFIG_RESETSTAT_ReplySchema = {CONFIG_RESETSTAT_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CONFIG_RESETSTAT_ReplySchema = {0};
+
+#endif
 
 /********** CONFIG REWRITE ********************/
 
@@ -9796,12 +11418,20 @@ struct jsonObject CONFIG_RESETSTAT_ReplySchema = {CONFIG_RESETSTAT_ReplySchema_e
 /* CONFIG REWRITE tips */
 #define CONFIG_REWRITE_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* CONFIG_REWRITE_ReplySchema reply schema */
 struct jsonObjectElement CONFIG_REWRITE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CONFIG_REWRITE_ReplySchema = {CONFIG_REWRITE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CONFIG_REWRITE_ReplySchema = {0};
+
+#endif
 
 /********** CONFIG SET ********************/
 
@@ -9831,12 +11461,20 @@ struct redisCommandArg CONFIG_SET_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* CONFIG_SET_ReplySchema reply schema */
 struct jsonObjectElement CONFIG_SET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject CONFIG_SET_ReplySchema = {CONFIG_SET_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CONFIG_SET_ReplySchema = {0};
+
+#endif
 
 /* CONFIG command table */
 struct redisCommand CONFIG_Subcommands[] = {
@@ -9868,6 +11506,8 @@ const char *DBSIZE_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* DBSIZE_ReplySchema reply schema */
 struct jsonObjectElement DBSIZE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -9875,6 +11515,12 @@ struct jsonObjectElement DBSIZE_ReplySchema_elements[] = {
 };
 
 struct jsonObject DBSIZE_ReplySchema = {DBSIZE_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject DBSIZE_ReplySchema = {0};
+
+#endif
 
 /********** DEBUG ********************/
 
@@ -9908,12 +11554,20 @@ struct redisCommandArg FAILOVER_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* FAILOVER_ReplySchema reply schema */
 struct jsonObjectElement FAILOVER_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject FAILOVER_ReplySchema = {FAILOVER_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject FAILOVER_ReplySchema = {0};
+
+#endif
 
 /********** FLUSHALL ********************/
 
@@ -9944,12 +11598,20 @@ struct redisCommandArg FLUSHALL_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* FLUSHALL_ReplySchema reply schema */
 struct jsonObjectElement FLUSHALL_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject FLUSHALL_ReplySchema = {FLUSHALL_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject FLUSHALL_ReplySchema = {0};
+
+#endif
 
 /********** FLUSHDB ********************/
 
@@ -9980,12 +11642,20 @@ struct redisCommandArg FLUSHDB_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* FLUSHDB_ReplySchema reply schema */
 struct jsonObjectElement FLUSHDB_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject FLUSHDB_ReplySchema = {FLUSHDB_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject FLUSHDB_ReplySchema = {0};
+
+#endif
 
 /********** INFO ********************/
 
@@ -10009,12 +11679,20 @@ struct redisCommandArg INFO_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* INFO_ReplySchema reply schema */
 struct jsonObjectElement INFO_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject INFO_ReplySchema = {INFO_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject INFO_ReplySchema = {0};
+
+#endif
 
 /********** LASTSAVE ********************/
 
@@ -10027,6 +11705,8 @@ const char *LASTSAVE_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* LASTSAVE_ReplySchema reply schema */
 struct jsonObjectElement LASTSAVE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -10034,6 +11714,12 @@ struct jsonObjectElement LASTSAVE_ReplySchema_elements[] = {
 };
 
 struct jsonObject LASTSAVE_ReplySchema = {LASTSAVE_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject LASTSAVE_ReplySchema = {0};
+
+#endif
 
 /********** LATENCY DOCTOR ********************/
 
@@ -10048,6 +11734,8 @@ const char *LATENCY_DOCTOR_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* LATENCY_DOCTOR_ReplySchema reply schema */
 struct jsonObjectElement LATENCY_DOCTOR_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -10055,6 +11743,12 @@ struct jsonObjectElement LATENCY_DOCTOR_ReplySchema_elements[] = {
 };
 
 struct jsonObject LATENCY_DOCTOR_ReplySchema = {LATENCY_DOCTOR_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject LATENCY_DOCTOR_ReplySchema = {0};
+
+#endif
 
 /********** LATENCY GRAPH ********************/
 
@@ -10083,6 +11777,8 @@ struct redisCommandArg LATENCY_GRAPH_Args[] = {
 /* LATENCY HELP tips */
 #define LATENCY_HELP_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* LATENCY_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement LATENCY_HELP_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -10098,6 +11794,12 @@ struct jsonObjectElement LATENCY_HELP_ReplySchema_elements[] = {
 };
 
 struct jsonObject LATENCY_HELP_ReplySchema = {LATENCY_HELP_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject LATENCY_HELP_ReplySchema = {0};
+
+#endif
 
 /********** LATENCY HISTOGRAM ********************/
 
@@ -10117,6 +11819,8 @@ struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
 {"command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_calls reply schema */
 struct jsonObjectElement LATENCY_HISTOGRAM_ReplySchema_patternProperties______properties_calls_elements[] = {
@@ -10176,6 +11880,12 @@ struct jsonObjectElement LATENCY_HISTOGRAM_ReplySchema_elements[] = {
 
 struct jsonObject LATENCY_HISTOGRAM_ReplySchema = {LATENCY_HISTOGRAM_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject LATENCY_HISTOGRAM_ReplySchema = {0};
+
+#endif
+
 /********** LATENCY HISTORY ********************/
 
 /* LATENCY HISTORY history */
@@ -10194,6 +11904,8 @@ struct redisCommandArg LATENCY_HISTORY_Args[] = {
 {"event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* LATENCY_HISTORY_ReplySchema_items_items_0 reply schema */
 struct jsonObjectElement LATENCY_HISTORY_ReplySchema_items_items_0_elements[] = {
@@ -10237,6 +11949,12 @@ struct jsonObjectElement LATENCY_HISTORY_ReplySchema_elements[] = {
 
 struct jsonObject LATENCY_HISTORY_ReplySchema = {LATENCY_HISTORY_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject LATENCY_HISTORY_ReplySchema = {0};
+
+#endif
+
 /********** LATENCY LATEST ********************/
 
 /* LATENCY LATEST history */
@@ -10249,6 +11967,8 @@ const char *LATENCY_LATEST_tips[] = {
 "response_policy:special",
 NULL
 };
+
+#ifdef LOG_REQ_RES
 
 /* LATENCY_LATEST_ReplySchema_items_items_0 reply schema */
 struct jsonObjectElement LATENCY_LATEST_ReplySchema_items_items_0_elements[] = {
@@ -10308,6 +12028,12 @@ struct jsonObjectElement LATENCY_LATEST_ReplySchema_elements[] = {
 
 struct jsonObject LATENCY_LATEST_ReplySchema = {LATENCY_LATEST_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject LATENCY_LATEST_ReplySchema = {0};
+
+#endif
+
 /********** LATENCY RESET ********************/
 
 /* LATENCY RESET history */
@@ -10326,6 +12052,8 @@ struct redisCommandArg LATENCY_RESET_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* LATENCY_RESET_ReplySchema reply schema */
 struct jsonObjectElement LATENCY_RESET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -10333,6 +12061,12 @@ struct jsonObjectElement LATENCY_RESET_ReplySchema_elements[] = {
 };
 
 struct jsonObject LATENCY_RESET_ReplySchema = {LATENCY_RESET_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject LATENCY_RESET_ReplySchema = {0};
+
+#endif
 
 /* LATENCY command table */
 struct redisCommand LATENCY_Subcommands[] = {
@@ -10368,6 +12102,8 @@ struct redisCommandArg LOLWUT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* LOLWUT_ReplySchema reply schema */
 struct jsonObjectElement LOLWUT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -10375,6 +12111,12 @@ struct jsonObjectElement LOLWUT_ReplySchema_elements[] = {
 };
 
 struct jsonObject LOLWUT_ReplySchema = {LOLWUT_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject LOLWUT_ReplySchema = {0};
+
+#endif
 
 /********** MEMORY DOCTOR ********************/
 
@@ -10389,6 +12131,8 @@ const char *MEMORY_DOCTOR_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* MEMORY_DOCTOR_ReplySchema reply schema */
 struct jsonObjectElement MEMORY_DOCTOR_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="memory problems report"},
@@ -10397,6 +12141,12 @@ struct jsonObjectElement MEMORY_DOCTOR_ReplySchema_elements[] = {
 
 struct jsonObject MEMORY_DOCTOR_ReplySchema = {MEMORY_DOCTOR_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject MEMORY_DOCTOR_ReplySchema = {0};
+
+#endif
+
 /********** MEMORY HELP ********************/
 
 /* MEMORY HELP history */
@@ -10404,6 +12154,8 @@ struct jsonObject MEMORY_DOCTOR_ReplySchema = {MEMORY_DOCTOR_ReplySchema_element
 
 /* MEMORY HELP tips */
 #define MEMORY_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* MEMORY_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement MEMORY_HELP_ReplySchema_items_elements[] = {
@@ -10421,6 +12173,12 @@ struct jsonObjectElement MEMORY_HELP_ReplySchema_elements[] = {
 
 struct jsonObject MEMORY_HELP_ReplySchema = {MEMORY_HELP_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject MEMORY_HELP_ReplySchema = {0};
+
+#endif
+
 /********** MEMORY MALLOC_STATS ********************/
 
 /* MEMORY MALLOC_STATS history */
@@ -10434,6 +12192,8 @@ const char *MEMORY_MALLOC_STATS_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* MEMORY_MALLOC_STATS_ReplySchema reply schema */
 struct jsonObjectElement MEMORY_MALLOC_STATS_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -10441,6 +12201,12 @@ struct jsonObjectElement MEMORY_MALLOC_STATS_ReplySchema_elements[] = {
 };
 
 struct jsonObject MEMORY_MALLOC_STATS_ReplySchema = {MEMORY_MALLOC_STATS_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject MEMORY_MALLOC_STATS_ReplySchema = {0};
+
+#endif
 
 /********** MEMORY PURGE ********************/
 
@@ -10454,12 +12220,20 @@ const char *MEMORY_PURGE_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* MEMORY_PURGE_ReplySchema reply schema */
 struct jsonObjectElement MEMORY_PURGE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject MEMORY_PURGE_ReplySchema = {MEMORY_PURGE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject MEMORY_PURGE_ReplySchema = {0};
+
+#endif
 
 /********** MEMORY STATS ********************/
 
@@ -10473,6 +12247,8 @@ const char *MEMORY_STATS_tips[] = {
 "response_policy:special",
 NULL
 };
+
+#ifdef LOG_REQ_RES
 
 /* MEMORY_STATS_ReplySchema_properties_peak_allocated reply schema */
 struct jsonObjectElement MEMORY_STATS_ReplySchema_properties_peak_allocated_elements[] = {
@@ -10746,11 +12522,18 @@ struct jsonObject MEMORY_STATS_ReplySchema_patternProperties = {MEMORY_STATS_Rep
 struct jsonObjectElement MEMORY_STATS_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="memory usage details"},
 {JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"properties",.value.object=&MEMORY_STATS_ReplySchema_properties},
 {JSON_TYPE_OBJECT,"patternProperties",.value.object=&MEMORY_STATS_ReplySchema_patternProperties},
 };
 
-struct jsonObject MEMORY_STATS_ReplySchema = {MEMORY_STATS_ReplySchema_elements,.length=4};
+struct jsonObject MEMORY_STATS_ReplySchema = {MEMORY_STATS_ReplySchema_elements,.length=5};
+
+#else
+
+struct jsonObject MEMORY_STATS_ReplySchema = {0};
+
+#endif
 
 /********** MEMORY USAGE ********************/
 
@@ -10766,6 +12549,8 @@ struct redisCommandArg MEMORY_USAGE_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"SAMPLES",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* MEMORY_USAGE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement MEMORY_USAGE_ReplySchema_oneOf_0_elements[] = {
@@ -10796,6 +12581,12 @@ struct jsonObjectElement MEMORY_USAGE_ReplySchema_elements[] = {
 
 struct jsonObject MEMORY_USAGE_ReplySchema = {MEMORY_USAGE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject MEMORY_USAGE_ReplySchema = {0};
+
+#endif
+
 /* MEMORY command table */
 struct redisCommand MEMORY_Subcommands[] = {
 {"doctor","Outputs memory problems report","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_DOCTOR_History,MEMORY_DOCTOR_tips,memoryCommand,2,0,0,.reply_schema=&MEMORY_DOCTOR_ReplySchema},
@@ -10823,6 +12614,8 @@ struct redisCommand MEMORY_Subcommands[] = {
 /* MODULE HELP tips */
 #define MODULE_HELP_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* MODULE_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement MODULE_HELP_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -10839,6 +12632,12 @@ struct jsonObjectElement MODULE_HELP_ReplySchema_elements[] = {
 
 struct jsonObject MODULE_HELP_ReplySchema = {MODULE_HELP_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject MODULE_HELP_ReplySchema = {0};
+
+#endif
+
 /********** MODULE LIST ********************/
 
 /* MODULE LIST history */
@@ -10849,6 +12648,8 @@ const char *MODULE_LIST_tips[] = {
 "nondeterministic_output_order",
 NULL
 };
+
+#ifdef LOG_REQ_RES
 
 /* MODULE_LIST_ReplySchema_items_properties_name reply schema */
 struct jsonObjectElement MODULE_LIST_ReplySchema_items_properties_name_elements[] = {
@@ -10903,10 +12704,11 @@ struct jsonObject MODULE_LIST_ReplySchema_items_properties = {MODULE_LIST_ReplyS
 /* MODULE_LIST_ReplySchema_items reply schema */
 struct jsonObjectElement MODULE_LIST_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"properties",.value.object=&MODULE_LIST_ReplySchema_items_properties},
 };
 
-struct jsonObject MODULE_LIST_ReplySchema_items = {MODULE_LIST_ReplySchema_items_elements,.length=2};
+struct jsonObject MODULE_LIST_ReplySchema_items = {MODULE_LIST_ReplySchema_items_elements,.length=3};
 
 /* MODULE_LIST_ReplySchema reply schema */
 struct jsonObjectElement MODULE_LIST_ReplySchema_elements[] = {
@@ -10916,6 +12718,12 @@ struct jsonObjectElement MODULE_LIST_ReplySchema_elements[] = {
 };
 
 struct jsonObject MODULE_LIST_ReplySchema = {MODULE_LIST_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject MODULE_LIST_ReplySchema = {0};
+
+#endif
 
 /********** MODULE LOAD ********************/
 
@@ -10932,12 +12740,20 @@ struct redisCommandArg MODULE_LOAD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* MODULE_LOAD_ReplySchema reply schema */
 struct jsonObjectElement MODULE_LOAD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject MODULE_LOAD_ReplySchema = {MODULE_LOAD_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject MODULE_LOAD_ReplySchema = {0};
+
+#endif
 
 /********** MODULE LOADEX ********************/
 
@@ -10962,12 +12778,20 @@ struct redisCommandArg MODULE_LOADEX_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* MODULE_LOADEX_ReplySchema reply schema */
 struct jsonObjectElement MODULE_LOADEX_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject MODULE_LOADEX_ReplySchema = {MODULE_LOADEX_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject MODULE_LOADEX_ReplySchema = {0};
+
+#endif
 
 /********** MODULE UNLOAD ********************/
 
@@ -10983,12 +12807,20 @@ struct redisCommandArg MODULE_UNLOAD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* MODULE_UNLOAD_ReplySchema reply schema */
 struct jsonObjectElement MODULE_UNLOAD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject MODULE_UNLOAD_ReplySchema = {MODULE_UNLOAD_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject MODULE_UNLOAD_ReplySchema = {0};
+
+#endif
 
 /* MODULE command table */
 struct redisCommand MODULE_Subcommands[] = {
@@ -11039,12 +12871,20 @@ struct redisCommandArg PSYNC_Args[] = {
 /* REPLCONF tips */
 #define REPLCONF_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* REPLCONF_ReplySchema reply schema */
 struct jsonObjectElement REPLCONF_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject REPLCONF_ReplySchema = {REPLCONF_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject REPLCONF_ReplySchema = {0};
+
+#endif
 
 /********** REPLICAOF ********************/
 
@@ -11061,6 +12901,8 @@ struct redisCommandArg REPLICAOF_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* REPLICAOF_ReplySchema reply schema */
 struct jsonObjectElement REPLICAOF_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="replicaOf status"},
@@ -11069,6 +12911,12 @@ struct jsonObjectElement REPLICAOF_ReplySchema_elements[] = {
 };
 
 struct jsonObject REPLICAOF_ReplySchema = {REPLICAOF_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject REPLICAOF_ReplySchema = {0};
+
+#endif
 
 /********** RESTORE_ASKING ********************/
 
@@ -11095,12 +12943,20 @@ struct redisCommandArg RESTORE_ASKING_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* RESTORE_ASKING_ReplySchema reply schema */
 struct jsonObjectElement RESTORE_ASKING_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject RESTORE_ASKING_ReplySchema = {RESTORE_ASKING_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject RESTORE_ASKING_ReplySchema = {0};
+
+#endif
 
 /********** ROLE ********************/
 
@@ -11109,6 +12965,8 @@ struct jsonObject RESTORE_ASKING_ReplySchema = {RESTORE_ASKING_ReplySchema_eleme
 
 /* ROLE tips */
 #define ROLE_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* ROLE_ReplySchema_oneOf_0_items_0 reply schema */
 struct jsonObjectElement ROLE_ReplySchema_oneOf_0_items_0_elements[] = {
@@ -11362,6 +13220,12 @@ struct jsonObjectElement ROLE_ReplySchema_elements[] = {
 
 struct jsonObject ROLE_ReplySchema = {ROLE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ROLE_ReplySchema = {0};
+
+#endif
+
 /********** SAVE ********************/
 
 /* SAVE history */
@@ -11370,12 +13234,20 @@ struct jsonObject ROLE_ReplySchema = {ROLE_ReplySchema_elements,.length=1};
 /* SAVE tips */
 #define SAVE_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* SAVE_ReplySchema reply schema */
 struct jsonObjectElement SAVE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SAVE_ReplySchema = {SAVE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject SAVE_ReplySchema = {0};
+
+#endif
 
 /********** SHUTDOWN ********************/
 
@@ -11404,6 +13276,8 @@ struct redisCommandArg SHUTDOWN_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SHUTDOWN_ReplySchema reply schema */
 struct jsonObjectElement SHUTDOWN_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="OK if ABORT was specified and shutdown was aborted. On successful shutdown, nothing is returned since the server quits and the connection is closed. On failure, an error is returned."},
@@ -11411,6 +13285,12 @@ struct jsonObjectElement SHUTDOWN_ReplySchema_elements[] = {
 };
 
 struct jsonObject SHUTDOWN_ReplySchema = {SHUTDOWN_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject SHUTDOWN_ReplySchema = {0};
+
+#endif
 
 /********** SLAVEOF ********************/
 
@@ -11427,6 +13307,8 @@ struct redisCommandArg SLAVEOF_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SLAVEOF_ReplySchema reply schema */
 struct jsonObjectElement SLAVEOF_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="slaveOf status"},
@@ -11435,6 +13317,12 @@ struct jsonObjectElement SLAVEOF_ReplySchema_elements[] = {
 };
 
 struct jsonObject SLAVEOF_ReplySchema = {SLAVEOF_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SLAVEOF_ReplySchema = {0};
+
+#endif
 
 /********** SLOWLOG GET ********************/
 
@@ -11456,6 +13344,8 @@ struct redisCommandArg SLOWLOG_GET_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SLOWLOG_GET_ReplySchema_items_items_0 reply schema */
 struct jsonObjectElement SLOWLOG_GET_ReplySchema_items_items_0_elements[] = {
@@ -11544,6 +13434,12 @@ struct jsonObjectElement SLOWLOG_GET_ReplySchema_elements[] = {
 
 struct jsonObject SLOWLOG_GET_ReplySchema = {SLOWLOG_GET_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject SLOWLOG_GET_ReplySchema = {0};
+
+#endif
+
 /********** SLOWLOG HELP ********************/
 
 /* SLOWLOG HELP history */
@@ -11551,6 +13447,8 @@ struct jsonObject SLOWLOG_GET_ReplySchema = {SLOWLOG_GET_ReplySchema_elements,.l
 
 /* SLOWLOG HELP tips */
 #define SLOWLOG_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* SLOWLOG_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement SLOWLOG_HELP_ReplySchema_items_elements[] = {
@@ -11568,6 +13466,12 @@ struct jsonObjectElement SLOWLOG_HELP_ReplySchema_elements[] = {
 
 struct jsonObject SLOWLOG_HELP_ReplySchema = {SLOWLOG_HELP_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject SLOWLOG_HELP_ReplySchema = {0};
+
+#endif
+
 /********** SLOWLOG LEN ********************/
 
 /* SLOWLOG LEN history */
@@ -11581,6 +13485,8 @@ const char *SLOWLOG_LEN_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* SLOWLOG_LEN_ReplySchema reply schema */
 struct jsonObjectElement SLOWLOG_LEN_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -11589,6 +13495,12 @@ struct jsonObjectElement SLOWLOG_LEN_ReplySchema_elements[] = {
 };
 
 struct jsonObject SLOWLOG_LEN_ReplySchema = {SLOWLOG_LEN_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SLOWLOG_LEN_ReplySchema = {0};
+
+#endif
 
 /********** SLOWLOG RESET ********************/
 
@@ -11602,12 +13514,20 @@ const char *SLOWLOG_RESET_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* SLOWLOG_RESET_ReplySchema reply schema */
 struct jsonObjectElement SLOWLOG_RESET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SLOWLOG_RESET_ReplySchema = {SLOWLOG_RESET_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject SLOWLOG_RESET_ReplySchema = {0};
+
+#endif
 
 /* SLOWLOG command table */
 struct redisCommand SLOWLOG_Subcommands[] = {
@@ -11641,12 +13561,20 @@ struct redisCommandArg SWAPDB_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SWAPDB_ReplySchema reply schema */
 struct jsonObjectElement SWAPDB_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SWAPDB_ReplySchema = {SWAPDB_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject SWAPDB_ReplySchema = {0};
+
+#endif
 
 /********** SYNC ********************/
 
@@ -11667,6 +13595,8 @@ const char *TIME_tips[] = {
 NULL
 };
 
+#ifdef LOG_REQ_RES
+
 /* TIME_ReplySchema_items reply schema */
 struct jsonObjectElement TIME_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -11686,6 +13616,12 @@ struct jsonObjectElement TIME_ReplySchema_elements[] = {
 
 struct jsonObject TIME_ReplySchema = {TIME_ReplySchema_elements,.length=5};
 
+#else
+
+struct jsonObject TIME_ReplySchema = {0};
+
+#endif
+
 /********** SADD ********************/
 
 /* SADD history */
@@ -11704,6 +13640,8 @@ struct redisCommandArg SADD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SADD_ReplySchema reply schema */
 struct jsonObjectElement SADD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Number of elements that were added to the set, not including all the elements already present in the set."},
@@ -11711,6 +13649,12 @@ struct jsonObjectElement SADD_ReplySchema_elements[] = {
 };
 
 struct jsonObject SADD_ReplySchema = {SADD_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject SADD_ReplySchema = {0};
+
+#endif
 
 /********** SCARD ********************/
 
@@ -11726,6 +13670,8 @@ struct redisCommandArg SCARD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SCARD_ReplySchema reply schema */
 struct jsonObjectElement SCARD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The cardinality (number of elements) of the set, or 0 if key does not exist."},
@@ -11734,6 +13680,12 @@ struct jsonObjectElement SCARD_ReplySchema_elements[] = {
 };
 
 struct jsonObject SCARD_ReplySchema = {SCARD_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SCARD_ReplySchema = {0};
+
+#endif
 
 /********** SDIFF ********************/
 
@@ -11752,6 +13704,8 @@ struct redisCommandArg SDIFF_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SDIFF_ReplySchema_items reply schema */
 struct jsonObjectElement SDIFF_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -11769,6 +13723,12 @@ struct jsonObjectElement SDIFF_ReplySchema_elements[] = {
 
 struct jsonObject SDIFF_ReplySchema = {SDIFF_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject SDIFF_ReplySchema = {0};
+
+#endif
+
 /********** SDIFFSTORE ********************/
 
 /* SDIFFSTORE history */
@@ -11784,6 +13744,8 @@ struct redisCommandArg SDIFFSTORE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SDIFFSTORE_ReplySchema reply schema */
 struct jsonObjectElement SDIFFSTORE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Number of the elements in the resulting set."},
@@ -11792,6 +13754,12 @@ struct jsonObjectElement SDIFFSTORE_ReplySchema_elements[] = {
 };
 
 struct jsonObject SDIFFSTORE_ReplySchema = {SDIFFSTORE_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SDIFFSTORE_ReplySchema = {0};
+
+#endif
 
 /********** SINTER ********************/
 
@@ -11810,6 +13778,8 @@ struct redisCommandArg SINTER_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SINTER_ReplySchema_items reply schema */
 struct jsonObjectElement SINTER_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -11827,6 +13797,12 @@ struct jsonObjectElement SINTER_ReplySchema_elements[] = {
 
 struct jsonObject SINTER_ReplySchema = {SINTER_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject SINTER_ReplySchema = {0};
+
+#endif
+
 /********** SINTERCARD ********************/
 
 /* SINTERCARD history */
@@ -11843,6 +13819,8 @@ struct redisCommandArg SINTERCARD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SINTERCARD_ReplySchema reply schema */
 struct jsonObjectElement SINTERCARD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Number of the elements in the resulting intersection."},
@@ -11851,6 +13829,12 @@ struct jsonObjectElement SINTERCARD_ReplySchema_elements[] = {
 };
 
 struct jsonObject SINTERCARD_ReplySchema = {SINTERCARD_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SINTERCARD_ReplySchema = {0};
+
+#endif
 
 /********** SINTERSTORE ********************/
 
@@ -11867,6 +13851,8 @@ struct redisCommandArg SINTERSTORE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SINTERSTORE_ReplySchema reply schema */
 struct jsonObjectElement SINTERSTORE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Number of the elements in the result set."},
@@ -11875,6 +13861,12 @@ struct jsonObjectElement SINTERSTORE_ReplySchema_elements[] = {
 };
 
 struct jsonObject SINTERSTORE_ReplySchema = {SINTERSTORE_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SINTERSTORE_ReplySchema = {0};
+
+#endif
 
 /********** SISMEMBER ********************/
 
@@ -11890,6 +13882,8 @@ struct redisCommandArg SISMEMBER_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SISMEMBER_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement SISMEMBER_ReplySchema_oneOf_0_elements[] = {
@@ -11920,6 +13914,12 @@ struct jsonObjectElement SISMEMBER_ReplySchema_elements[] = {
 
 struct jsonObject SISMEMBER_ReplySchema = {SISMEMBER_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject SISMEMBER_ReplySchema = {0};
+
+#endif
+
 /********** SMEMBERS ********************/
 
 /* SMEMBERS history */
@@ -11937,6 +13937,8 @@ struct redisCommandArg SMEMBERS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SMEMBERS_ReplySchema_items reply schema */
 struct jsonObjectElement SMEMBERS_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -11953,6 +13955,12 @@ struct jsonObjectElement SMEMBERS_ReplySchema_elements[] = {
 
 struct jsonObject SMEMBERS_ReplySchema = {SMEMBERS_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject SMEMBERS_ReplySchema = {0};
+
+#endif
+
 /********** SMISMEMBER ********************/
 
 /* SMISMEMBER history */
@@ -11967,6 +13975,8 @@ struct redisCommandArg SMISMEMBER_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SMISMEMBER_ReplySchema_items_oneOf_0 reply schema */
 struct jsonObjectElement SMISMEMBER_ReplySchema_items_oneOf_0_elements[] = {
@@ -12007,6 +14017,12 @@ struct jsonObjectElement SMISMEMBER_ReplySchema_elements[] = {
 
 struct jsonObject SMISMEMBER_ReplySchema = {SMISMEMBER_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject SMISMEMBER_ReplySchema = {0};
+
+#endif
+
 /********** SMOVE ********************/
 
 /* SMOVE history */
@@ -12022,6 +14038,8 @@ struct redisCommandArg SMOVE_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SMOVE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement SMOVE_ReplySchema_oneOf_0_elements[] = {
@@ -12052,6 +14070,12 @@ struct jsonObjectElement SMOVE_ReplySchema_elements[] = {
 
 struct jsonObject SMOVE_ReplySchema = {SMOVE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject SMOVE_ReplySchema = {0};
+
+#endif
+
 /********** SPOP ********************/
 
 /* SPOP history */
@@ -12072,6 +14096,8 @@ struct redisCommandArg SPOP_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"3.2.0",CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SPOP_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement SPOP_ReplySchema_oneOf_0_elements[] = {
@@ -12120,6 +14146,12 @@ struct jsonObjectElement SPOP_ReplySchema_elements[] = {
 
 struct jsonObject SPOP_ReplySchema = {SPOP_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject SPOP_ReplySchema = {0};
+
+#endif
+
 /********** SRANDMEMBER ********************/
 
 /* SRANDMEMBER history */
@@ -12140,6 +14172,8 @@ struct redisCommandArg SRANDMEMBER_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"2.6.0",CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SRANDMEMBER_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement SRANDMEMBER_ReplySchema_oneOf_0_elements[] = {
@@ -12198,6 +14232,12 @@ struct jsonObjectElement SRANDMEMBER_ReplySchema_elements[] = {
 
 struct jsonObject SRANDMEMBER_ReplySchema = {SRANDMEMBER_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject SRANDMEMBER_ReplySchema = {0};
+
+#endif
+
 /********** SREM ********************/
 
 /* SREM history */
@@ -12216,6 +14256,8 @@ struct redisCommandArg SREM_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SREM_ReplySchema reply schema */
 struct jsonObjectElement SREM_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Number of members that were removed from the set, not including non existing members."},
@@ -12224,6 +14266,12 @@ struct jsonObjectElement SREM_ReplySchema_elements[] = {
 };
 
 struct jsonObject SREM_ReplySchema = {SREM_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SREM_ReplySchema = {0};
+
+#endif
 
 /********** SSCAN ********************/
 
@@ -12244,6 +14292,8 @@ struct redisCommandArg SSCAN_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SSCAN_ReplySchema_items_0 reply schema */
 struct jsonObjectElement SSCAN_ReplySchema_items_0_elements[] = {
@@ -12284,6 +14334,12 @@ struct jsonObjectElement SSCAN_ReplySchema_elements[] = {
 
 struct jsonObject SSCAN_ReplySchema = {SSCAN_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject SSCAN_ReplySchema = {0};
+
+#endif
+
 /********** SUNION ********************/
 
 /* SUNION history */
@@ -12300,6 +14356,8 @@ struct redisCommandArg SUNION_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SUNION_ReplySchema_items reply schema */
 struct jsonObjectElement SUNION_ReplySchema_items_elements[] = {
@@ -12318,6 +14376,12 @@ struct jsonObjectElement SUNION_ReplySchema_elements[] = {
 
 struct jsonObject SUNION_ReplySchema = {SUNION_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject SUNION_ReplySchema = {0};
+
+#endif
+
 /********** SUNIONSTORE ********************/
 
 /* SUNIONSTORE history */
@@ -12333,6 +14397,8 @@ struct redisCommandArg SUNIONSTORE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SUNIONSTORE_ReplySchema reply schema */
 struct jsonObjectElement SUNIONSTORE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -12341,6 +14407,12 @@ struct jsonObjectElement SUNIONSTORE_ReplySchema_elements[] = {
 };
 
 struct jsonObject SUNIONSTORE_ReplySchema = {SUNIONSTORE_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SUNIONSTORE_ReplySchema = {0};
+
+#endif
 
 /********** BZMPOP ********************/
 
@@ -12366,6 +14438,8 @@ struct redisCommandArg BZMPOP_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* BZMPOP_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BZMPOP_ReplySchema_oneOf_0_elements[] = {
@@ -12455,6 +14529,12 @@ struct jsonObjectElement BZMPOP_ReplySchema_elements[] = {
 
 struct jsonObject BZMPOP_ReplySchema = {BZMPOP_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject BZMPOP_ReplySchema = {0};
+
+#endif
+
 /********** BZPOPMAX ********************/
 
 /* BZPOPMAX history */
@@ -12472,6 +14552,8 @@ struct redisCommandArg BZPOPMAX_Args[] = {
 {"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* BZPOPMAX_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BZPOPMAX_ReplySchema_oneOf_0_elements[] = {
@@ -12536,6 +14618,12 @@ struct jsonObjectElement BZPOPMAX_ReplySchema_elements[] = {
 
 struct jsonObject BZPOPMAX_ReplySchema = {BZPOPMAX_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject BZPOPMAX_ReplySchema = {0};
+
+#endif
+
 /********** BZPOPMIN ********************/
 
 /* BZPOPMIN history */
@@ -12553,6 +14641,8 @@ struct redisCommandArg BZPOPMIN_Args[] = {
 {"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* BZPOPMIN_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement BZPOPMIN_ReplySchema_oneOf_0_elements[] = {
@@ -12617,6 +14707,12 @@ struct jsonObjectElement BZPOPMIN_ReplySchema_elements[] = {
 
 struct jsonObject BZPOPMIN_ReplySchema = {BZPOPMIN_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject BZPOPMIN_ReplySchema = {0};
+
+#endif
+
 /********** ZADD ********************/
 
 /* ZADD history */
@@ -12661,6 +14757,8 @@ struct redisCommandArg ZADD_Args[] = {
 {"data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=ZADD_data_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZADD_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement ZADD_ReplySchema_anyOf_0_elements[] = {
@@ -12709,6 +14807,12 @@ struct jsonObjectElement ZADD_ReplySchema_elements[] = {
 
 struct jsonObject ZADD_ReplySchema = {ZADD_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZADD_ReplySchema = {0};
+
+#endif
+
 /********** ZCARD ********************/
 
 /* ZCARD history */
@@ -12723,6 +14827,8 @@ struct redisCommandArg ZCARD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZCARD_ReplySchema reply schema */
 struct jsonObjectElement ZCARD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The cardinality (number of elements) of the sorted set, or 0 if key does not exist"},
@@ -12730,6 +14836,12 @@ struct jsonObjectElement ZCARD_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZCARD_ReplySchema = {ZCARD_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ZCARD_ReplySchema = {0};
+
+#endif
 
 /********** ZCOUNT ********************/
 
@@ -12747,6 +14859,8 @@ struct redisCommandArg ZCOUNT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZCOUNT_ReplySchema reply schema */
 struct jsonObjectElement ZCOUNT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The number of elements in the specified score range"},
@@ -12754,6 +14868,12 @@ struct jsonObjectElement ZCOUNT_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZCOUNT_ReplySchema = {ZCOUNT_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ZCOUNT_ReplySchema = {0};
+
+#endif
 
 /********** ZDIFF ********************/
 
@@ -12770,6 +14890,8 @@ struct redisCommandArg ZDIFF_Args[] = {
 {"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZDIFF_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement ZDIFF_ReplySchema_anyOf_0_items_elements[] = {
@@ -12842,6 +14964,12 @@ struct jsonObjectElement ZDIFF_ReplySchema_elements[] = {
 
 struct jsonObject ZDIFF_ReplySchema = {ZDIFF_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZDIFF_ReplySchema = {0};
+
+#endif
+
 /********** ZDIFFSTORE ********************/
 
 /* ZDIFFSTORE history */
@@ -12858,6 +14986,8 @@ struct redisCommandArg ZDIFFSTORE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZDIFFSTORE_ReplySchema reply schema */
 struct jsonObjectElement ZDIFFSTORE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Number of elements in the resulting sorted set at `destination`"},
@@ -12865,6 +14995,12 @@ struct jsonObjectElement ZDIFFSTORE_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZDIFFSTORE_ReplySchema = {ZDIFFSTORE_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ZDIFFSTORE_ReplySchema = {0};
+
+#endif
 
 /********** ZINCRBY ********************/
 
@@ -12882,6 +15018,8 @@ struct redisCommandArg ZINCRBY_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZINCRBY_ReplySchema reply schema */
 struct jsonObjectElement ZINCRBY_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The new score of `member`"},
@@ -12889,6 +15027,12 @@ struct jsonObjectElement ZINCRBY_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZINCRBY_ReplySchema = {ZINCRBY_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ZINCRBY_ReplySchema = {0};
+
+#endif
 
 /********** ZINTER ********************/
 
@@ -12915,6 +15059,8 @@ struct redisCommandArg ZINTER_Args[] = {
 {"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZINTER_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement ZINTER_ReplySchema_anyOf_0_items_elements[] = {
@@ -12987,6 +15133,12 @@ struct jsonObjectElement ZINTER_ReplySchema_elements[] = {
 
 struct jsonObject ZINTER_ReplySchema = {ZINTER_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZINTER_ReplySchema = {0};
+
+#endif
+
 /********** ZINTERCARD ********************/
 
 /* ZINTERCARD history */
@@ -13003,6 +15155,8 @@ struct redisCommandArg ZINTERCARD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZINTERCARD_ReplySchema reply schema */
 struct jsonObjectElement ZINTERCARD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Number of elements in the resulting intersection."},
@@ -13011,6 +15165,12 @@ struct jsonObjectElement ZINTERCARD_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZINTERCARD_ReplySchema = {ZINTERCARD_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject ZINTERCARD_ReplySchema = {0};
+
+#endif
 
 /********** ZINTERSTORE ********************/
 
@@ -13038,6 +15198,8 @@ struct redisCommandArg ZINTERSTORE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZINTERSTORE_ReplySchema reply schema */
 struct jsonObjectElement ZINTERSTORE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Number of elements in the resulting sorted set."},
@@ -13046,6 +15208,12 @@ struct jsonObjectElement ZINTERSTORE_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZINTERSTORE_ReplySchema = {ZINTERSTORE_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject ZINTERSTORE_ReplySchema = {0};
+
+#endif
 
 /********** ZLEXCOUNT ********************/
 
@@ -13063,6 +15231,8 @@ struct redisCommandArg ZLEXCOUNT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZLEXCOUNT_ReplySchema reply schema */
 struct jsonObjectElement ZLEXCOUNT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Number of elements in the specified score range."},
@@ -13071,6 +15241,12 @@ struct jsonObjectElement ZLEXCOUNT_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZLEXCOUNT_ReplySchema = {ZLEXCOUNT_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject ZLEXCOUNT_ReplySchema = {0};
+
+#endif
 
 /********** ZMPOP ********************/
 
@@ -13095,6 +15271,8 @@ struct redisCommandArg ZMPOP_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZMPOP_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement ZMPOP_ReplySchema_oneOf_0_elements[] = {
@@ -13183,6 +15361,12 @@ struct jsonObjectElement ZMPOP_ReplySchema_elements[] = {
 
 struct jsonObject ZMPOP_ReplySchema = {ZMPOP_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZMPOP_ReplySchema = {0};
+
+#endif
+
 /********** ZMSCORE ********************/
 
 /* ZMSCORE history */
@@ -13197,6 +15381,8 @@ struct redisCommandArg ZMSCORE_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZMSCORE_ReplySchema_items_oneOf_0 reply schema */
 struct jsonObjectElement ZMSCORE_ReplySchema_items_oneOf_0_elements[] = {
@@ -13237,6 +15423,12 @@ struct jsonObjectElement ZMSCORE_ReplySchema_elements[] = {
 
 struct jsonObject ZMSCORE_ReplySchema = {ZMSCORE_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject ZMSCORE_ReplySchema = {0};
+
+#endif
+
 /********** ZPOPMAX ********************/
 
 /* ZPOPMAX history */
@@ -13251,6 +15443,8 @@ struct redisCommandArg ZPOPMAX_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZPOPMAX_ReplySchema_anyOf_0_items_0 reply schema */
 struct jsonObjectElement ZPOPMAX_ReplySchema_anyOf_0_items_0_elements[] = {
@@ -13338,6 +15532,12 @@ struct jsonObjectElement ZPOPMAX_ReplySchema_elements[] = {
 
 struct jsonObject ZPOPMAX_ReplySchema = {ZPOPMAX_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZPOPMAX_ReplySchema = {0};
+
+#endif
+
 /********** ZPOPMIN ********************/
 
 /* ZPOPMIN history */
@@ -13352,6 +15552,8 @@ struct redisCommandArg ZPOPMIN_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZPOPMIN_ReplySchema_anyOf_0_items_0 reply schema */
 struct jsonObjectElement ZPOPMIN_ReplySchema_anyOf_0_items_0_elements[] = {
@@ -13439,6 +15641,12 @@ struct jsonObjectElement ZPOPMIN_ReplySchema_elements[] = {
 
 struct jsonObject ZPOPMIN_ReplySchema = {ZPOPMIN_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZPOPMIN_ReplySchema = {0};
+
+#endif
+
 /********** ZRANDMEMBER ********************/
 
 /* ZRANDMEMBER history */
@@ -13463,6 +15671,8 @@ struct redisCommandArg ZRANDMEMBER_Args[] = {
 {"options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANDMEMBER_options_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZRANDMEMBER_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement ZRANDMEMBER_ReplySchema_anyOf_0_elements[] = {
@@ -13551,6 +15761,12 @@ struct jsonObjectElement ZRANDMEMBER_ReplySchema_elements[] = {
 
 struct jsonObject ZRANDMEMBER_ReplySchema = {ZRANDMEMBER_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZRANDMEMBER_ReplySchema = {0};
+
+#endif
+
 /********** ZRANGE ********************/
 
 /* ZRANGE history */
@@ -13587,6 +15803,8 @@ struct redisCommandArg ZRANGE_Args[] = {
 {"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZRANGE_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement ZRANGE_ReplySchema_anyOf_0_items_elements[] = {
@@ -13661,6 +15879,12 @@ struct jsonObjectElement ZRANGE_ReplySchema_elements[] = {
 
 struct jsonObject ZRANGE_ReplySchema = {ZRANGE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZRANGE_ReplySchema = {0};
+
+#endif
+
 /********** ZRANGEBYLEX ********************/
 
 /* ZRANGEBYLEX history */
@@ -13685,6 +15909,8 @@ struct redisCommandArg ZRANGEBYLEX_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZRANGEBYLEX_ReplySchema_items reply schema */
 struct jsonObjectElement ZRANGEBYLEX_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -13701,6 +15927,12 @@ struct jsonObjectElement ZRANGEBYLEX_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZRANGEBYLEX_ReplySchema = {ZRANGEBYLEX_ReplySchema_elements,.length=4};
+
+#else
+
+struct jsonObject ZRANGEBYLEX_ReplySchema = {0};
+
+#endif
 
 /********** ZRANGEBYSCORE ********************/
 
@@ -13729,6 +15961,8 @@ struct redisCommandArg ZRANGEBYSCORE_Args[] = {
 {"limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGEBYSCORE_limit_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZRANGEBYSCORE_ReplySchema_items_oneOf_0 reply schema */
 struct jsonObjectElement ZRANGEBYSCORE_ReplySchema_items_oneOf_0_elements[] = {
@@ -13792,6 +16026,12 @@ struct jsonObjectElement ZRANGEBYSCORE_ReplySchema_elements[] = {
 
 struct jsonObject ZRANGEBYSCORE_ReplySchema = {ZRANGEBYSCORE_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject ZRANGEBYSCORE_ReplySchema = {0};
+
+#endif
+
 /********** ZRANGESTORE ********************/
 
 /* ZRANGESTORE history */
@@ -13826,6 +16066,8 @@ struct redisCommandArg ZRANGESTORE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZRANGESTORE_ReplySchema reply schema */
 struct jsonObjectElement ZRANGESTORE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -13833,6 +16075,12 @@ struct jsonObjectElement ZRANGESTORE_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZRANGESTORE_ReplySchema = {ZRANGESTORE_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ZRANGESTORE_ReplySchema = {0};
+
+#endif
 
 /********** ZRANK ********************/
 
@@ -13852,6 +16100,8 @@ struct redisCommandArg ZRANK_Args[] = {
 {"withscore",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORE",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZRANK_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement ZRANK_ReplySchema_oneOf_0_elements[] = {
@@ -13915,6 +16165,12 @@ struct jsonObjectElement ZRANK_ReplySchema_elements[] = {
 
 struct jsonObject ZRANK_ReplySchema = {ZRANK_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZRANK_ReplySchema = {0};
+
+#endif
+
 /********** ZREM ********************/
 
 /* ZREM history */
@@ -13933,6 +16189,8 @@ struct redisCommandArg ZREM_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZREM_ReplySchema reply schema */
 struct jsonObjectElement ZREM_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The number of members removed from the sorted set, not including non existing members."},
@@ -13941,6 +16199,12 @@ struct jsonObjectElement ZREM_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZREM_ReplySchema = {ZREM_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject ZREM_ReplySchema = {0};
+
+#endif
 
 /********** ZREMRANGEBYLEX ********************/
 
@@ -13958,6 +16222,8 @@ struct redisCommandArg ZREMRANGEBYLEX_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZREMRANGEBYLEX_ReplySchema reply schema */
 struct jsonObjectElement ZREMRANGEBYLEX_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -13965,6 +16231,12 @@ struct jsonObjectElement ZREMRANGEBYLEX_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZREMRANGEBYLEX_ReplySchema = {ZREMRANGEBYLEX_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ZREMRANGEBYLEX_ReplySchema = {0};
+
+#endif
 
 /********** ZREMRANGEBYRANK ********************/
 
@@ -13982,6 +16254,8 @@ struct redisCommandArg ZREMRANGEBYRANK_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZREMRANGEBYRANK_ReplySchema reply schema */
 struct jsonObjectElement ZREMRANGEBYRANK_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -13989,6 +16263,12 @@ struct jsonObjectElement ZREMRANGEBYRANK_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZREMRANGEBYRANK_ReplySchema = {ZREMRANGEBYRANK_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ZREMRANGEBYRANK_ReplySchema = {0};
+
+#endif
 
 /********** ZREMRANGEBYSCORE ********************/
 
@@ -14006,6 +16286,8 @@ struct redisCommandArg ZREMRANGEBYSCORE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZREMRANGEBYSCORE_ReplySchema reply schema */
 struct jsonObjectElement ZREMRANGEBYSCORE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -14013,6 +16295,12 @@ struct jsonObjectElement ZREMRANGEBYSCORE_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZREMRANGEBYSCORE_ReplySchema = {ZREMRANGEBYSCORE_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ZREMRANGEBYSCORE_ReplySchema = {0};
+
+#endif
 
 /********** ZREVRANGE ********************/
 
@@ -14030,6 +16318,8 @@ struct redisCommandArg ZREVRANGE_Args[] = {
 {"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZREVRANGE_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement ZREVRANGE_ReplySchema_anyOf_0_items_elements[] = {
@@ -14104,6 +16394,12 @@ struct jsonObjectElement ZREVRANGE_ReplySchema_elements[] = {
 
 struct jsonObject ZREVRANGE_ReplySchema = {ZREVRANGE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZREVRANGE_ReplySchema = {0};
+
+#endif
+
 /********** ZREVRANGEBYLEX ********************/
 
 /* ZREVRANGEBYLEX history */
@@ -14128,6 +16424,8 @@ struct redisCommandArg ZREVRANGEBYLEX_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZREVRANGEBYLEX_ReplySchema_items reply schema */
 struct jsonObjectElement ZREVRANGEBYLEX_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -14144,6 +16442,12 @@ struct jsonObjectElement ZREVRANGEBYLEX_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZREVRANGEBYLEX_ReplySchema = {ZREVRANGEBYLEX_ReplySchema_elements,.length=4};
+
+#else
+
+struct jsonObject ZREVRANGEBYLEX_ReplySchema = {0};
+
+#endif
 
 /********** ZREVRANGEBYSCORE ********************/
 
@@ -14172,6 +16476,8 @@ struct redisCommandArg ZREVRANGEBYSCORE_Args[] = {
 {"limit",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZREVRANGEBYSCORE_limit_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZREVRANGEBYSCORE_ReplySchema_items_oneOf_0 reply schema */
 struct jsonObjectElement ZREVRANGEBYSCORE_ReplySchema_items_oneOf_0_elements[] = {
@@ -14234,6 +16540,12 @@ struct jsonObjectElement ZREVRANGEBYSCORE_ReplySchema_elements[] = {
 
 struct jsonObject ZREVRANGEBYSCORE_ReplySchema = {ZREVRANGEBYSCORE_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject ZREVRANGEBYSCORE_ReplySchema = {0};
+
+#endif
+
 /********** ZREVRANK ********************/
 
 /* ZREVRANK history */
@@ -14252,6 +16564,8 @@ struct redisCommandArg ZREVRANK_Args[] = {
 {"withscore",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORE",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZREVRANK_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement ZREVRANK_ReplySchema_oneOf_0_elements[] = {
@@ -14315,6 +16629,12 @@ struct jsonObjectElement ZREVRANK_ReplySchema_elements[] = {
 
 struct jsonObject ZREVRANK_ReplySchema = {ZREVRANK_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZREVRANK_ReplySchema = {0};
+
+#endif
+
 /********** ZSCAN ********************/
 
 /* ZSCAN history */
@@ -14334,6 +16654,8 @@ struct redisCommandArg ZSCAN_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZSCAN_ReplySchema_items_0 reply schema */
 struct jsonObjectElement ZSCAN_ReplySchema_items_0_elements[] = {
@@ -14374,6 +16696,12 @@ struct jsonObjectElement ZSCAN_ReplySchema_elements[] = {
 
 struct jsonObject ZSCAN_ReplySchema = {ZSCAN_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject ZSCAN_ReplySchema = {0};
+
+#endif
+
 /********** ZSCORE ********************/
 
 /* ZSCORE history */
@@ -14388,6 +16716,8 @@ struct redisCommandArg ZSCORE_Args[] = {
 {"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZSCORE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement ZSCORE_ReplySchema_oneOf_0_elements[] = {
@@ -14419,6 +16749,12 @@ struct jsonObjectElement ZSCORE_ReplySchema_elements[] = {
 
 struct jsonObject ZSCORE_ReplySchema = {ZSCORE_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject ZSCORE_ReplySchema = {0};
+
+#endif
+
 /********** ZUNION ********************/
 
 /* ZUNION history */
@@ -14444,6 +16780,8 @@ struct redisCommandArg ZUNION_Args[] = {
 {"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* ZUNION_ReplySchema_items_oneOf_0 reply schema */
 struct jsonObjectElement ZUNION_ReplySchema_items_oneOf_0_elements[] = {
@@ -14507,6 +16845,12 @@ struct jsonObjectElement ZUNION_ReplySchema_elements[] = {
 
 struct jsonObject ZUNION_ReplySchema = {ZUNION_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject ZUNION_ReplySchema = {0};
+
+#endif
+
 /********** ZUNIONSTORE ********************/
 
 /* ZUNIONSTORE history */
@@ -14533,6 +16877,8 @@ struct redisCommandArg ZUNIONSTORE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* ZUNIONSTORE_ReplySchema reply schema */
 struct jsonObjectElement ZUNIONSTORE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The number of elements in the resulting sorted set."},
@@ -14540,6 +16886,12 @@ struct jsonObjectElement ZUNIONSTORE_ReplySchema_elements[] = {
 };
 
 struct jsonObject ZUNIONSTORE_ReplySchema = {ZUNIONSTORE_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject ZUNIONSTORE_ReplySchema = {0};
+
+#endif
 
 /********** XACK ********************/
 
@@ -14557,6 +16909,8 @@ struct redisCommandArg XACK_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* XACK_ReplySchema reply schema */
 struct jsonObjectElement XACK_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The command returns the number of messages successfully acknowledged. Certain message IDs may no longer be part of the PEL (for example because they have already been acknowledged), and XACK will not count them as successfully acknowledged."},
@@ -14565,6 +16919,12 @@ struct jsonObjectElement XACK_ReplySchema_elements[] = {
 };
 
 struct jsonObject XACK_ReplySchema = {XACK_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject XACK_ReplySchema = {0};
+
+#endif
 
 /********** XADD ********************/
 
@@ -14628,6 +16988,8 @@ struct redisCommandArg XADD_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* XADD_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement XADD_ReplySchema_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The ID of the added entry. The ID is the one auto-generated if * is passed as ID argument, otherwise the command just returns the same ID specified by the user during insertion."},
@@ -14658,6 +17020,12 @@ struct jsonObjectElement XADD_ReplySchema_elements[] = {
 
 struct jsonObject XADD_ReplySchema = {XADD_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject XADD_ReplySchema = {0};
+
+#endif
+
 /********** XAUTOCLAIM ********************/
 
 /* XAUTOCLAIM history */
@@ -14683,6 +17051,8 @@ struct redisCommandArg XAUTOCLAIM_Args[] = {
 {"justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* XAUTOCLAIM_ReplySchema_items_0 reply schema */
 struct jsonObjectElement XAUTOCLAIM_ReplySchema_items_0_elements[] = {
@@ -14809,6 +17179,12 @@ struct jsonObjectElement XAUTOCLAIM_ReplySchema_elements[] = {
 
 struct jsonObject XAUTOCLAIM_ReplySchema = {XAUTOCLAIM_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject XAUTOCLAIM_ReplySchema = {0};
+
+#endif
+
 /********** XCLAIM ********************/
 
 /* XCLAIM history */
@@ -14835,6 +17211,8 @@ struct redisCommandArg XCLAIM_Args[] = {
 {"lastid",ARG_TYPE_STRING,-1,"LASTID",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* XCLAIM_ReplySchema_anyOf_0_items reply schema */
 struct jsonObjectElement XCLAIM_ReplySchema_anyOf_0_items_elements[] = {
@@ -14919,6 +17297,12 @@ struct jsonObjectElement XCLAIM_ReplySchema_elements[] = {
 
 struct jsonObject XCLAIM_ReplySchema = {XCLAIM_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject XCLAIM_ReplySchema = {0};
+
+#endif
+
 /********** XDEL ********************/
 
 /* XDEL history */
@@ -14934,6 +17318,8 @@ struct redisCommandArg XDEL_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* XDEL_ReplySchema reply schema */
 struct jsonObjectElement XDEL_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The number of entries actually deleted"},
@@ -14942,6 +17328,12 @@ struct jsonObjectElement XDEL_ReplySchema_elements[] = {
 };
 
 struct jsonObject XDEL_ReplySchema = {XDEL_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject XDEL_ReplySchema = {0};
+
+#endif
 
 /********** XGROUP CREATE ********************/
 
@@ -14971,12 +17363,20 @@ struct redisCommandArg XGROUP_CREATE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* XGROUP_CREATE_ReplySchema reply schema */
 struct jsonObjectElement XGROUP_CREATE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject XGROUP_CREATE_ReplySchema = {XGROUP_CREATE_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject XGROUP_CREATE_ReplySchema = {0};
+
+#endif
 
 /********** XGROUP CREATECONSUMER ********************/
 
@@ -14993,6 +17393,8 @@ struct redisCommandArg XGROUP_CREATECONSUMER_Args[] = {
 {"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* XGROUP_CREATECONSUMER_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement XGROUP_CREATECONSUMER_ReplySchema_oneOf_0_elements[] = {
@@ -15022,6 +17424,12 @@ struct jsonObjectElement XGROUP_CREATECONSUMER_ReplySchema_elements[] = {
 
 struct jsonObject XGROUP_CREATECONSUMER_ReplySchema = {XGROUP_CREATECONSUMER_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject XGROUP_CREATECONSUMER_ReplySchema = {0};
+
+#endif
+
 /********** XGROUP DELCONSUMER ********************/
 
 /* XGROUP DELCONSUMER history */
@@ -15038,6 +17446,8 @@ struct redisCommandArg XGROUP_DELCONSUMER_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* XGROUP_DELCONSUMER_ReplySchema reply schema */
 struct jsonObjectElement XGROUP_DELCONSUMER_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The number of pending messages that were yet associated with such a consumer"},
@@ -15046,6 +17456,12 @@ struct jsonObjectElement XGROUP_DELCONSUMER_ReplySchema_elements[] = {
 };
 
 struct jsonObject XGROUP_DELCONSUMER_ReplySchema = {XGROUP_DELCONSUMER_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject XGROUP_DELCONSUMER_ReplySchema = {0};
+
+#endif
 
 /********** XGROUP DESTROY ********************/
 
@@ -15061,6 +17477,8 @@ struct redisCommandArg XGROUP_DESTROY_Args[] = {
 {"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* XGROUP_DESTROY_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement XGROUP_DESTROY_ReplySchema_oneOf_0_elements[] = {
@@ -15090,6 +17508,12 @@ struct jsonObjectElement XGROUP_DESTROY_ReplySchema_elements[] = {
 
 struct jsonObject XGROUP_DESTROY_ReplySchema = {XGROUP_DESTROY_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject XGROUP_DESTROY_ReplySchema = {0};
+
+#endif
+
 /********** XGROUP HELP ********************/
 
 /* XGROUP HELP history */
@@ -15097,6 +17521,8 @@ struct jsonObject XGROUP_DESTROY_ReplySchema = {XGROUP_DESTROY_ReplySchema_eleme
 
 /* XGROUP HELP tips */
 #define XGROUP_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* XGROUP_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement XGROUP_HELP_ReplySchema_items_elements[] = {
@@ -15113,6 +17539,12 @@ struct jsonObjectElement XGROUP_HELP_ReplySchema_elements[] = {
 };
 
 struct jsonObject XGROUP_HELP_ReplySchema = {XGROUP_HELP_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject XGROUP_HELP_ReplySchema = {0};
+
+#endif
 
 /********** XGROUP SETID ********************/
 
@@ -15141,12 +17573,20 @@ struct redisCommandArg XGROUP_SETID_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* XGROUP_SETID_ReplySchema reply schema */
 struct jsonObjectElement XGROUP_SETID_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject XGROUP_SETID_ReplySchema = {XGROUP_SETID_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject XGROUP_SETID_ReplySchema = {0};
+
+#endif
 
 /* XGROUP command table */
 struct redisCommand XGROUP_Subcommands[] = {
@@ -15184,6 +17624,8 @@ struct redisCommandArg XINFO_CONSUMERS_Args[] = {
 {"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* XINFO_CONSUMERS_ReplySchema_items_properties_name reply schema */
 struct jsonObjectElement XINFO_CONSUMERS_ReplySchema_items_properties_name_elements[] = {
@@ -15226,10 +17668,11 @@ struct jsonObject XINFO_CONSUMERS_ReplySchema_items_properties = {XINFO_CONSUMER
 /* XINFO_CONSUMERS_ReplySchema_items reply schema */
 struct jsonObjectElement XINFO_CONSUMERS_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"properties",.value.object=&XINFO_CONSUMERS_ReplySchema_items_properties},
 };
 
-struct jsonObject XINFO_CONSUMERS_ReplySchema_items = {XINFO_CONSUMERS_ReplySchema_items_elements,.length=2};
+struct jsonObject XINFO_CONSUMERS_ReplySchema_items = {XINFO_CONSUMERS_ReplySchema_items_elements,.length=3};
 
 /* XINFO_CONSUMERS_ReplySchema reply schema */
 struct jsonObjectElement XINFO_CONSUMERS_ReplySchema_elements[] = {
@@ -15240,6 +17683,12 @@ struct jsonObjectElement XINFO_CONSUMERS_ReplySchema_elements[] = {
 };
 
 struct jsonObject XINFO_CONSUMERS_ReplySchema = {XINFO_CONSUMERS_ReplySchema_elements,.length=4};
+
+#else
+
+struct jsonObject XINFO_CONSUMERS_ReplySchema = {0};
+
+#endif
 
 /********** XINFO GROUPS ********************/
 
@@ -15257,6 +17706,8 @@ struct redisCommandArg XINFO_GROUPS_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* XINFO_GROUPS_ReplySchema_items_properties_name reply schema */
 struct jsonObjectElement XINFO_GROUPS_ReplySchema_items_properties_name_elements[] = {
@@ -15370,6 +17821,12 @@ struct jsonObjectElement XINFO_GROUPS_ReplySchema_elements[] = {
 
 struct jsonObject XINFO_GROUPS_ReplySchema = {XINFO_GROUPS_ReplySchema_elements,.length=2};
 
+#else
+
+struct jsonObject XINFO_GROUPS_ReplySchema = {0};
+
+#endif
+
 /********** XINFO HELP ********************/
 
 /* XINFO HELP history */
@@ -15377,6 +17834,8 @@ struct jsonObject XINFO_GROUPS_ReplySchema = {XINFO_GROUPS_ReplySchema_elements,
 
 /* XINFO HELP tips */
 #define XINFO_HELP_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* XINFO_HELP_ReplySchema_items reply schema */
 struct jsonObjectElement XINFO_HELP_ReplySchema_items_elements[] = {
@@ -15393,6 +17852,12 @@ struct jsonObjectElement XINFO_HELP_ReplySchema_elements[] = {
 };
 
 struct jsonObject XINFO_HELP_ReplySchema = {XINFO_HELP_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject XINFO_HELP_ReplySchema = {0};
+
+#endif
 
 /********** XINFO STREAM ********************/
 
@@ -15419,6 +17884,8 @@ struct redisCommandArg XINFO_STREAM_Args[] = {
 {"full-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XINFO_STREAM_full_block_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* XINFO_STREAM_ReplySchema_oneOf_0_properties_length reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_0_properties_length_elements[] = {
@@ -15976,10 +18443,11 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_prope
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"properties",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_properties},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_items_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties_consumers_elements[] = {
@@ -16006,10 +18474,11 @@ struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_prope
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"properties",.value.object=&XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_properties},
 };
 
-struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_elements,.length=2};
+struct jsonObject XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items = {XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_items_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_properties_groups reply schema */
 struct jsonObjectElement XINFO_STREAM_ReplySchema_oneOf_1_properties_groups_elements[] = {
@@ -16057,6 +18526,12 @@ struct jsonObjectElement XINFO_STREAM_ReplySchema_elements[] = {
 
 struct jsonObject XINFO_STREAM_ReplySchema = {XINFO_STREAM_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject XINFO_STREAM_ReplySchema = {0};
+
+#endif
+
 /* XINFO command table */
 struct redisCommand XINFO_Subcommands[] = {
 {"consumers","List the consumers in a consumer group","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_CONSUMERS_History,XINFO_CONSUMERS_tips,xinfoCommand,4,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_CONSUMERS_Args,.reply_schema=&XINFO_CONSUMERS_ReplySchema},
@@ -16088,6 +18563,8 @@ struct redisCommandArg XLEN_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* XLEN_ReplySchema reply schema */
 struct jsonObjectElement XLEN_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The number of entries of the stream at key"},
@@ -16096,6 +18573,12 @@ struct jsonObjectElement XLEN_ReplySchema_elements[] = {
 };
 
 struct jsonObject XLEN_ReplySchema = {XLEN_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject XLEN_ReplySchema = {0};
+
+#endif
 
 /********** XPENDING ********************/
 
@@ -16128,6 +18611,8 @@ struct redisCommandArg XPENDING_Args[] = {
 {"filters",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XPENDING_filters_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* XPENDING_ReplySchema_oneOf_0_items_items_0 reply schema */
 struct jsonObjectElement XPENDING_ReplySchema_oneOf_0_items_items_0_elements[] = {
@@ -16288,6 +18773,12 @@ struct jsonObjectElement XPENDING_ReplySchema_elements[] = {
 
 struct jsonObject XPENDING_ReplySchema = {XPENDING_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject XPENDING_ReplySchema = {0};
+
+#endif
+
 /********** XRANGE ********************/
 
 /* XRANGE history */
@@ -16307,6 +18798,8 @@ struct redisCommandArg XRANGE_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* XRANGE_ReplySchema_items_items_0 reply schema */
 struct jsonObjectElement XRANGE_ReplySchema_items_items_0_elements[] = {
@@ -16359,6 +18852,12 @@ struct jsonObjectElement XRANGE_ReplySchema_elements[] = {
 
 struct jsonObject XRANGE_ReplySchema = {XRANGE_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject XRANGE_ReplySchema = {0};
+
+#endif
+
 /********** XREAD ********************/
 
 /* XREAD history */
@@ -16382,61 +18881,70 @@ struct redisCommandArg XREAD_Args[] = {
 {0}
 };
 
-/* XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_0 reply schema */
-struct jsonObjectElement XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Steam id"},
+#ifdef LOG_REQ_RES
+
+/* XREAD_ReplySchema_oneOf_0_patternProperties______items_items_0 reply schema */
+struct jsonObjectElement XREAD_ReplySchema_oneOf_0_patternProperties______items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="entry id"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="[0-9]+-[0-9]+"},
 };
 
-struct jsonObject XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_0 = {XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_0_elements,.length=3};
+struct jsonObject XREAD_ReplySchema_oneOf_0_patternProperties______items_items_0 = {XREAD_ReplySchema_oneOf_0_patternProperties______items_items_0_elements,.length=3};
 
-/* XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_1_items reply schema */
-struct jsonObjectElement XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_1_items_elements[] = {
+/* XREAD_ReplySchema_oneOf_0_patternProperties______items_items_1_items reply schema */
+struct jsonObjectElement XREAD_ReplySchema_oneOf_0_patternProperties______items_items_1_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_1_items = {XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_1_items_elements,.length=1};
+struct jsonObject XREAD_ReplySchema_oneOf_0_patternProperties______items_items_1_items = {XREAD_ReplySchema_oneOf_0_patternProperties______items_items_1_items_elements,.length=1};
 
-/* XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_1 reply schema */
-struct jsonObjectElement XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Array of field-value pairs"},
+/* XREAD_ReplySchema_oneOf_0_patternProperties______items_items_1 reply schema */
+struct jsonObjectElement XREAD_ReplySchema_oneOf_0_patternProperties______items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="array of field-value pairs"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_OBJECT,"items",.value.object=&XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_1_items},
+{JSON_TYPE_OBJECT,"items",.value.object=&XREAD_ReplySchema_oneOf_0_patternProperties______items_items_1_items},
 };
 
-struct jsonObject XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_1 = {XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_1_elements,.length=3};
+struct jsonObject XREAD_ReplySchema_oneOf_0_patternProperties______items_items_1 = {XREAD_ReplySchema_oneOf_0_patternProperties______items_items_1_elements,.length=3};
 
-/* XREAD_ReplySchema_oneOf_0_additionalProperties_items_items array reply schema */
-struct jsonObject *XREAD_ReplySchema_oneOf_0_additionalProperties_items_items[] = {
-&XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_0,
-&XREAD_ReplySchema_oneOf_0_additionalProperties_items_items_1,
+/* XREAD_ReplySchema_oneOf_0_patternProperties______items_items array reply schema */
+struct jsonObject *XREAD_ReplySchema_oneOf_0_patternProperties______items_items[] = {
+&XREAD_ReplySchema_oneOf_0_patternProperties______items_items_0,
+&XREAD_ReplySchema_oneOf_0_patternProperties______items_items_1,
 };
 
-/* XREAD_ReplySchema_oneOf_0_additionalProperties_items reply schema */
-struct jsonObjectElement XREAD_ReplySchema_oneOf_0_additionalProperties_items_elements[] = {
+/* XREAD_ReplySchema_oneOf_0_patternProperties______items reply schema */
+struct jsonObjectElement XREAD_ReplySchema_oneOf_0_patternProperties______items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_INTEGER,"minItems",.value.integer=2},
 {JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=XREAD_ReplySchema_oneOf_0_additionalProperties_items_items,.length=2}},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=XREAD_ReplySchema_oneOf_0_patternProperties______items_items,.length=2}},
 };
 
-struct jsonObject XREAD_ReplySchema_oneOf_0_additionalProperties_items = {XREAD_ReplySchema_oneOf_0_additionalProperties_items_elements,.length=4};
+struct jsonObject XREAD_ReplySchema_oneOf_0_patternProperties______items = {XREAD_ReplySchema_oneOf_0_patternProperties______items_elements,.length=4};
 
-/* XREAD_ReplySchema_oneOf_0_additionalProperties reply schema */
-struct jsonObjectElement XREAD_ReplySchema_oneOf_0_additionalProperties_elements[] = {
+/* XREAD_ReplySchema_oneOf_0_patternProperties_____ reply schema */
+struct jsonObjectElement XREAD_ReplySchema_oneOf_0_patternProperties______elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The entries reported for that key"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_OBJECT,"items",.value.object=&XREAD_ReplySchema_oneOf_0_additionalProperties_items},
+{JSON_TYPE_OBJECT,"items",.value.object=&XREAD_ReplySchema_oneOf_0_patternProperties______items},
 };
 
-struct jsonObject XREAD_ReplySchema_oneOf_0_additionalProperties = {XREAD_ReplySchema_oneOf_0_additionalProperties_elements,.length=3};
+struct jsonObject XREAD_ReplySchema_oneOf_0_patternProperties_____ = {XREAD_ReplySchema_oneOf_0_patternProperties______elements,.length=3};
+
+/* XREAD_ReplySchema_oneOf_0_patternProperties reply schema */
+struct jsonObjectElement XREAD_ReplySchema_oneOf_0_patternProperties_elements[] = {
+{JSON_TYPE_OBJECT,"^.*$",.value.object=&XREAD_ReplySchema_oneOf_0_patternProperties_____},
+};
+
+struct jsonObject XREAD_ReplySchema_oneOf_0_patternProperties = {XREAD_ReplySchema_oneOf_0_patternProperties_elements,.length=1};
 
 /* XREAD_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement XREAD_ReplySchema_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="A map of key-value elements when each element composed of key name and the entries reported for that key"},
 {JSON_TYPE_STRING,"type",.value.string="object"},
-{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&XREAD_ReplySchema_oneOf_0_additionalProperties},
+{JSON_TYPE_OBJECT,"patternProperties",.value.object=&XREAD_ReplySchema_oneOf_0_patternProperties},
 };
 
 struct jsonObject XREAD_ReplySchema_oneOf_0 = {XREAD_ReplySchema_oneOf_0_elements,.length=3};
@@ -16461,6 +18969,12 @@ struct jsonObjectElement XREAD_ReplySchema_elements[] = {
 };
 
 struct jsonObject XREAD_ReplySchema = {XREAD_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject XREAD_ReplySchema = {0};
+
+#endif
 
 /********** XREADGROUP ********************/
 
@@ -16493,6 +19007,8 @@ struct redisCommandArg XREADGROUP_Args[] = {
 {"streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,.subargs=XREADGROUP_streams_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* XREADGROUP_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement XREADGROUP_ReplySchema_oneOf_0_elements[] = {
@@ -16594,6 +19110,12 @@ struct jsonObjectElement XREADGROUP_ReplySchema_elements[] = {
 
 struct jsonObject XREADGROUP_ReplySchema = {XREADGROUP_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject XREADGROUP_ReplySchema = {0};
+
+#endif
+
 /********** XREVRANGE ********************/
 
 /* XREVRANGE history */
@@ -16613,6 +19135,8 @@ struct redisCommandArg XREVRANGE_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* XREVRANGE_ReplySchema_items_items_0 reply schema */
 struct jsonObjectElement XREVRANGE_ReplySchema_items_items_0_elements[] = {
@@ -16664,6 +19188,12 @@ struct jsonObjectElement XREVRANGE_ReplySchema_elements[] = {
 
 struct jsonObject XREVRANGE_ReplySchema = {XREVRANGE_ReplySchema_elements,.length=3};
 
+#else
+
+struct jsonObject XREVRANGE_ReplySchema = {0};
+
+#endif
+
 /********** XSETID ********************/
 
 /* XSETID history */
@@ -16684,12 +19214,20 @@ struct redisCommandArg XSETID_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* XSETID_ReplySchema reply schema */
 struct jsonObjectElement XSETID_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject XSETID_ReplySchema = {XSETID_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject XSETID_ReplySchema = {0};
+
+#endif
 
 /********** XTRIM ********************/
 
@@ -16735,6 +19273,8 @@ struct redisCommandArg XTRIM_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* XTRIM_ReplySchema reply schema */
 struct jsonObjectElement XTRIM_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The number of entries deleted from the stream."},
@@ -16743,6 +19283,12 @@ struct jsonObjectElement XTRIM_ReplySchema_elements[] = {
 };
 
 struct jsonObject XTRIM_ReplySchema = {XTRIM_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject XTRIM_ReplySchema = {0};
+
+#endif
 
 /********** APPEND ********************/
 
@@ -16759,6 +19305,8 @@ struct redisCommandArg APPEND_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* APPEND_ReplySchema reply schema */
 struct jsonObjectElement APPEND_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -16766,6 +19314,12 @@ struct jsonObjectElement APPEND_ReplySchema_elements[] = {
 };
 
 struct jsonObject APPEND_ReplySchema = {APPEND_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject APPEND_ReplySchema = {0};
+
+#endif
 
 /********** DECR ********************/
 
@@ -16796,6 +19350,8 @@ struct redisCommandArg DECRBY_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* DECRBY_ReplySchema reply schema */
 struct jsonObjectElement DECRBY_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -16803,6 +19359,12 @@ struct jsonObjectElement DECRBY_ReplySchema_elements[] = {
 };
 
 struct jsonObject DECRBY_ReplySchema = {DECRBY_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject DECRBY_ReplySchema = {0};
+
+#endif
 
 /********** GET ********************/
 
@@ -16817,6 +19379,8 @@ struct redisCommandArg GET_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GET_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement GET_ReplySchema_oneOf_0_elements[] = {
@@ -16847,6 +19411,12 @@ struct jsonObjectElement GET_ReplySchema_elements[] = {
 
 struct jsonObject GET_ReplySchema = {GET_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject GET_ReplySchema = {0};
+
+#endif
+
 /********** GETDEL ********************/
 
 /* GETDEL history */
@@ -16860,6 +19430,8 @@ struct redisCommandArg GETDEL_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GETDEL_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement GETDEL_ReplySchema_oneOf_0_elements[] = {
@@ -16890,6 +19462,12 @@ struct jsonObjectElement GETDEL_ReplySchema_elements[] = {
 
 struct jsonObject GETDEL_ReplySchema = {GETDEL_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject GETDEL_ReplySchema = {0};
+
+#endif
+
 /********** GETEX ********************/
 
 /* GETEX history */
@@ -16914,6 +19492,8 @@ struct redisCommandArg GETEX_Args[] = {
 {"expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GETEX_expiration_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GETEX_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement GETEX_ReplySchema_oneOf_0_elements[] = {
@@ -16944,6 +19524,12 @@ struct jsonObjectElement GETEX_ReplySchema_elements[] = {
 
 struct jsonObject GETEX_ReplySchema = {GETEX_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject GETEX_ReplySchema = {0};
+
+#endif
+
 /********** GETRANGE ********************/
 
 /* GETRANGE history */
@@ -16960,6 +19546,8 @@ struct redisCommandArg GETRANGE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* GETRANGE_ReplySchema reply schema */
 struct jsonObjectElement GETRANGE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -16967,6 +19555,12 @@ struct jsonObjectElement GETRANGE_ReplySchema_elements[] = {
 };
 
 struct jsonObject GETRANGE_ReplySchema = {GETRANGE_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject GETRANGE_ReplySchema = {0};
+
+#endif
 
 /********** GETSET ********************/
 
@@ -16982,6 +19576,8 @@ struct redisCommandArg GETSET_Args[] = {
 {"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* GETSET_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement GETSET_ReplySchema_oneOf_0_elements[] = {
@@ -17012,6 +19608,12 @@ struct jsonObjectElement GETSET_ReplySchema_elements[] = {
 
 struct jsonObject GETSET_ReplySchema = {GETSET_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject GETSET_ReplySchema = {0};
+
+#endif
+
 /********** INCR ********************/
 
 /* INCR history */
@@ -17026,6 +19628,8 @@ struct redisCommandArg INCR_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* INCR_ReplySchema reply schema */
 struct jsonObjectElement INCR_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The value of key after the increment"},
@@ -17033,6 +19637,12 @@ struct jsonObjectElement INCR_ReplySchema_elements[] = {
 };
 
 struct jsonObject INCR_ReplySchema = {INCR_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject INCR_ReplySchema = {0};
+
+#endif
 
 /********** INCRBY ********************/
 
@@ -17049,6 +19659,8 @@ struct redisCommandArg INCRBY_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* INCRBY_ReplySchema reply schema */
 struct jsonObjectElement INCRBY_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
@@ -17056,6 +19668,12 @@ struct jsonObjectElement INCRBY_ReplySchema_elements[] = {
 };
 
 struct jsonObject INCRBY_ReplySchema = {INCRBY_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject INCRBY_ReplySchema = {0};
+
+#endif
 
 /********** INCRBYFLOAT ********************/
 
@@ -17072,6 +19690,8 @@ struct redisCommandArg INCRBYFLOAT_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* INCRBYFLOAT_ReplySchema reply schema */
 struct jsonObjectElement INCRBYFLOAT_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -17079,6 +19699,12 @@ struct jsonObjectElement INCRBYFLOAT_ReplySchema_elements[] = {
 };
 
 struct jsonObject INCRBYFLOAT_ReplySchema = {INCRBYFLOAT_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject INCRBYFLOAT_ReplySchema = {0};
+
+#endif
 
 /********** LCS ********************/
 
@@ -17098,6 +19724,8 @@ struct redisCommandArg LCS_Args[] = {
 {"withmatchlen",ARG_TYPE_PURE_TOKEN,-1,"WITHMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* LCS_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement LCS_ReplySchema_oneOf_0_elements[] = {
@@ -17216,6 +19844,12 @@ struct jsonObjectElement LCS_ReplySchema_elements[] = {
 
 struct jsonObject LCS_ReplySchema = {LCS_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject LCS_ReplySchema = {0};
+
+#endif
+
 /********** MGET ********************/
 
 /* MGET history */
@@ -17232,6 +19866,8 @@ struct redisCommandArg MGET_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* MGET_ReplySchema_items_oneOf_0 reply schema */
 struct jsonObjectElement MGET_ReplySchema_items_oneOf_0_elements[] = {
@@ -17270,6 +19906,12 @@ struct jsonObjectElement MGET_ReplySchema_elements[] = {
 
 struct jsonObject MGET_ReplySchema = {MGET_ReplySchema_elements,.length=4};
 
+#else
+
+struct jsonObject MGET_ReplySchema = {0};
+
+#endif
+
 /********** MSET ********************/
 
 /* MSET history */
@@ -17295,12 +19937,20 @@ struct redisCommandArg MSET_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* MSET_ReplySchema reply schema */
 struct jsonObjectElement MSET_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject MSET_ReplySchema = {MSET_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject MSET_ReplySchema = {0};
+
+#endif
 
 /********** MSETNX ********************/
 
@@ -17326,6 +19976,8 @@ struct redisCommandArg MSETNX_Args[] = {
 {"data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=MSETNX_data_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* MSETNX_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement MSETNX_ReplySchema_oneOf_0_elements[] = {
@@ -17356,6 +20008,12 @@ struct jsonObjectElement MSETNX_ReplySchema_elements[] = {
 
 struct jsonObject MSETNX_ReplySchema = {MSETNX_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject MSETNX_ReplySchema = {0};
+
+#endif
+
 /********** PSETEX ********************/
 
 /* PSETEX history */
@@ -17372,12 +20030,20 @@ struct redisCommandArg PSETEX_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* PSETEX_ReplySchema reply schema */
 struct jsonObjectElement PSETEX_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject PSETEX_ReplySchema = {PSETEX_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject PSETEX_ReplySchema = {0};
+
+#endif
 
 /********** SET ********************/
 
@@ -17419,6 +20085,8 @@ struct redisCommandArg SET_Args[] = {
 {"expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SET_expiration_Subargs},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SET_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement SET_ReplySchema_anyOf_0_elements[] = {
@@ -17467,6 +20135,12 @@ struct jsonObjectElement SET_ReplySchema_elements[] = {
 
 struct jsonObject SET_ReplySchema = {SET_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject SET_ReplySchema = {0};
+
+#endif
+
 /********** SETEX ********************/
 
 /* SETEX history */
@@ -17483,12 +20157,20 @@ struct redisCommandArg SETEX_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SETEX_ReplySchema reply schema */
 struct jsonObjectElement SETEX_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject SETEX_ReplySchema = {SETEX_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject SETEX_ReplySchema = {0};
+
+#endif
 
 /********** SETNX ********************/
 
@@ -17504,6 +20186,8 @@ struct redisCommandArg SETNX_Args[] = {
 {"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+#ifdef LOG_REQ_RES
 
 /* SETNX_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement SETNX_ReplySchema_oneOf_0_elements[] = {
@@ -17534,6 +20218,12 @@ struct jsonObjectElement SETNX_ReplySchema_elements[] = {
 
 struct jsonObject SETNX_ReplySchema = {SETNX_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject SETNX_ReplySchema = {0};
+
+#endif
+
 /********** SETRANGE ********************/
 
 /* SETRANGE history */
@@ -17550,6 +20240,8 @@ struct redisCommandArg SETRANGE_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SETRANGE_ReplySchema reply schema */
 struct jsonObjectElement SETRANGE_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Length of the string after it was modified by the command."},
@@ -17558,6 +20250,12 @@ struct jsonObjectElement SETRANGE_ReplySchema_elements[] = {
 };
 
 struct jsonObject SETRANGE_ReplySchema = {SETRANGE_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject SETRANGE_ReplySchema = {0};
+
+#endif
 
 /********** STRLEN ********************/
 
@@ -17573,6 +20271,8 @@ struct redisCommandArg STRLEN_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* STRLEN_ReplySchema reply schema */
 struct jsonObjectElement STRLEN_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="The length of the string value stored at key, or 0 when key does not exist."},
@@ -17581,6 +20281,12 @@ struct jsonObjectElement STRLEN_ReplySchema_elements[] = {
 };
 
 struct jsonObject STRLEN_ReplySchema = {STRLEN_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject STRLEN_ReplySchema = {0};
+
+#endif
 
 /********** SUBSTR ********************/
 
@@ -17598,6 +20304,8 @@ struct redisCommandArg SUBSTR_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* SUBSTR_ReplySchema reply schema */
 struct jsonObjectElement SUBSTR_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
@@ -17605,6 +20313,12 @@ struct jsonObjectElement SUBSTR_ReplySchema_elements[] = {
 };
 
 struct jsonObject SUBSTR_ReplySchema = {SUBSTR_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject SUBSTR_ReplySchema = {0};
+
+#endif
 
 /********** DISCARD ********************/
 
@@ -17614,12 +20328,20 @@ struct jsonObject SUBSTR_ReplySchema = {SUBSTR_ReplySchema_elements,.length=2};
 /* DISCARD tips */
 #define DISCARD_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* DISCARD_ReplySchema reply schema */
 struct jsonObjectElement DISCARD_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject DISCARD_ReplySchema = {DISCARD_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject DISCARD_ReplySchema = {0};
+
+#endif
 
 /********** EXEC ********************/
 
@@ -17628,6 +20350,8 @@ struct jsonObject DISCARD_ReplySchema = {DISCARD_ReplySchema_elements,.length=1}
 
 /* EXEC tips */
 #define EXEC_tips NULL
+
+#ifdef LOG_REQ_RES
 
 /* EXEC_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement EXEC_ReplySchema_oneOf_0_elements[] = {
@@ -17658,6 +20382,12 @@ struct jsonObjectElement EXEC_ReplySchema_elements[] = {
 
 struct jsonObject EXEC_ReplySchema = {EXEC_ReplySchema_elements,.length=1};
 
+#else
+
+struct jsonObject EXEC_ReplySchema = {0};
+
+#endif
+
 /********** MULTI ********************/
 
 /* MULTI history */
@@ -17666,12 +20396,20 @@ struct jsonObject EXEC_ReplySchema = {EXEC_ReplySchema_elements,.length=1};
 /* MULTI tips */
 #define MULTI_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* MULTI_ReplySchema reply schema */
 struct jsonObjectElement MULTI_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject MULTI_ReplySchema = {MULTI_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject MULTI_ReplySchema = {0};
+
+#endif
 
 /********** UNWATCH ********************/
 
@@ -17681,12 +20419,20 @@ struct jsonObject MULTI_ReplySchema = {MULTI_ReplySchema_elements,.length=1};
 /* UNWATCH tips */
 #define UNWATCH_tips NULL
 
+#ifdef LOG_REQ_RES
+
 /* UNWATCH_ReplySchema reply schema */
 struct jsonObjectElement UNWATCH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject UNWATCH_ReplySchema = {UNWATCH_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject UNWATCH_ReplySchema = {0};
+
+#endif
 
 /********** WATCH ********************/
 
@@ -17702,12 +20448,20 @@ struct redisCommandArg WATCH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
 /* WATCH_ReplySchema reply schema */
 struct jsonObjectElement WATCH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"const",.value.string="OK"},
 };
 
 struct jsonObject WATCH_ReplySchema = {WATCH_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject WATCH_ReplySchema = {0};
+
+#endif
 
 /* Main command table */
 struct redisCommand redisCommandTable[] = {

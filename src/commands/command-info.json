@@ -93,6 +93,7 @@
                                 "type": "array",
                                 "items": {
                                     "type": "object",
+                                    "additionalProperties": false,
                                     "properties": {
                                         "notes": {
                                             "type": "string"
@@ -104,6 +105,7 @@
                                             },
                                             "begin_search": {
                                                 "type": "object",
+                                                "additionalProperties": false,
                                                 "properties": {
                                                     "type": {
                                                         "type": "string"
@@ -144,6 +146,7 @@
                                             },
                                             "find_keys": {
                                                 "type": "object",
+                                                "additionalProperties": false,
                                                 "properties": {
                                                     "spec": {
                                                         "oneOf": [
@@ -186,8 +189,7 @@
                                                             }
                                                         ]
                                                     }
-                                                },
-                                                "additionalProperties": false
+                                                }
                                             }
                                         }
                                     }
