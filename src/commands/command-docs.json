@@ -25,6 +25,7 @@
             "patternProperties": {
                 "^.*$": {
                     "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "summary": {
                             "description": "short command description",
@@ -147,15 +148,14 @@
                             "type": "array",
                             "items": {
                                 "type": "object",
+                                "additionalProperties": false,
                                 "properties": {
                                     "name": {
                                         "type": "string"
                                     },
                                     "type": {
                                         "type": "string"
-                                    }
-                                },
-                                "additionalProperties": {
+                                    },
                                     "display_text": {
                                         "type": "string"
                                     },
@@ -193,8 +193,7 @@
                             "description": "command reply schema",
                             "type":  "object"
                         }
-                    },
-                    "additionalProperties": false
+                    }
                 }
             }
         },
