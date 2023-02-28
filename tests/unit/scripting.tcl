@@ -1995,5 +1995,30 @@ start_server {tags {"scripting"}} {
             } 0
         ] {asdf}
     }
-}
 
+    test "LUA test trim string as expected" {
+        # this test may fail if we use different memory allocator than jemalloc, as libc for example may keep the old size on realloc.
+        if {[string match {*jemalloc*} [s mem_allocator]]} {
+            # test that when using LUA cache mechanism, if there is free space in the argv array, the string is trimmed.
+            r set foo [string repeat "a" 45]
+            set expected_memory [r memory usage foo]
+
+            # Jemalloc will allocate for the requested 63 bytes, 80 bytes.
+            # We can't test for larger sizes because LUA_CMD_OBJCACHE_MAX_LEN is 64.
+            # This value will be recycled to be used in the next argument.
+            # We use SETNX to avoid saving the string which will prevent us to reuse it in the next command.
+            r eval {
+                return redis.call("SETNX", "foo", string.rep("a", 63))
+            } 0
+
+            # Jemalloc will allocate for the request 45 bytes, 56 bytes.
+            # we can't test for smaller sizes because OBJ_ENCODING_EMBSTR_SIZE_LIMIT is 44 where no trim is done.
+            r eval {
+                return redis.call("SET", "foo", string.rep("a", 45))
+            } 0
+
+            # Assert the string has been trimmed and the 80 bytes from the previous alloc were not kept.
+            assert { [r memory usage foo] <= $expected_memory};
+        }
+    }
+}

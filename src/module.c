@@ -846,7 +846,7 @@ void RedisModuleCommandDispatcher(client *c) {
         /* Only do the work if the module took ownership of the object:
          * in that case the refcount is no longer 1. */
         if (c->argv[i]->refcount > 1)
-            trimStringObjectIfNeeded(c->argv[i]);
+            trimStringObjectIfNeeded(c->argv[i], 0);
     }
 }
 
@@ -2738,7 +2738,7 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
  */
 void RM_TrimStringAllocation(RedisModuleString *str) {
     if (!str) return;
-    trimStringObjectIfNeeded(str);
+    trimStringObjectIfNeeded(str, 1);
 }
 
 /* --------------------------------------------------------------------------

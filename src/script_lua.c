@@ -790,8 +790,6 @@ static robj **lua_argv = NULL;
 static int lua_argv_size = 0;
 
 /* Cache of recently used small arguments to avoid malloc calls. */
-#define LUA_CMD_OBJCACHE_SIZE 32
-#define LUA_CMD_OBJCACHE_MAX_LEN 64
 static robj *lua_args_cached_objects[LUA_CMD_OBJCACHE_SIZE];
 static size_t lua_args_cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
 

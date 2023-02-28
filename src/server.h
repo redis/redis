@@ -2709,7 +2709,7 @@ int compareStringObjects(const robj *a, const robj *b);
 int collateStringObjects(const robj *a, const robj *b);
 int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
-void trimStringObjectIfNeeded(robj *o);
+void trimStringObjectIfNeeded(robj *o, int trim_small_values);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
 /* Synchronous I/O with timeout */
@@ -3279,6 +3279,9 @@ typedef struct luaScript {
     uint64_t flags;
     robj *body;
 } luaScript;
+/* Cache of recently used small arguments to avoid malloc calls. */
+#define LUA_CMD_OBJCACHE_SIZE 32
+#define LUA_CMD_OBJCACHE_MAX_LEN 64
 
 /* Blocked clients API */
 void processUnblockedClients(void);
