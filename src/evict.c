@@ -161,7 +161,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, redisDb *db, struct evicti
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS)) de = dictFind(getDict(db, key), key);
+            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS)) de = dictFind(db->dict[getKeySlot(key)], key);
             o = dictGetVal(de);
         }
 
@@ -619,8 +619,8 @@ int performEvictions(void) {
                     bestdbid = pool[k].dbid;
 
                     if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                        de = dictFind(getDict(&server.db[bestdbid], pool[k].key),
-                            pool[k].key);
+                        de = dictFind(server.db[bestdbid].dict[getKeySlot(pool[k].key)],
+                                      pool[k].key);
                     } else {
                         de = dictFind(server.db[bestdbid].expires,
                             pool[k].key);

@@ -1536,7 +1536,7 @@ NULL
                 return;
             }
         }
-        if ((de = dictFind(getDict(c->db, c->argv[2]->ptr),c->argv[2]->ptr)) == NULL) {
+        if ((de = dictFind(c->db->dict[getKeySlot(c->argv[2]->ptr)], c->argv[2]->ptr)) == NULL) {
             addReplyNull(c);
             return;
         }

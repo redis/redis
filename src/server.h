@@ -90,6 +90,7 @@ typedef struct redisObject robj;
 #include "sha1.h"
 #include "endianconv.h"
 #include "crc64.h"
+#include "intset.h"
 
 /* helpers */
 #define numElements(x) (sizeof(x)/sizeof((x)[0]))
@@ -138,7 +139,6 @@ typedef struct redisObject robj;
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
 #define INCREMENTAL_REHASHING_MAX_QUEUE_SIZE (1024*16)
 #define INCREMENTAL_REHASHING_THRESHOLD_MS 1
-#define MAX_RANDOM_DICT_PROBE_ATTEMTPS 10
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -961,6 +961,7 @@ typedef struct redisDb {
     list *rehashing;            /* List of dictionaries in this DB that are currently rehashing. */
     int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
     unsigned long long key_count; /* Total number of keys in this DB. */
+    intset *owned_slots;          /* Set of owned non-empty slots. */
 } redisDb;
 
 /* forward declaration for functions ctx */
@@ -3024,8 +3025,7 @@ void dismissMemoryInChild(void);
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
 int restartServer(int flags, mstime_t delay);
 unsigned long long int dbSize(redisDb *db);
-dict *getDict(redisDb *db, sds key);
-dict *getFairRandomDict(redisDb *db);
+int getKeySlot(sds key);
 dict *getRandomDict(redisDb *db);
 unsigned long dbSlots(redisDb *db);
 void expandDb(const redisDb *db, uint64_t db_size);

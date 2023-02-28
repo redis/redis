@@ -679,12 +679,12 @@ void defragKey(redisDb *db, dictEntry *de) {
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
     if (newsds) {
-        dictSetKey(getDict(db, newsds), de, newsds);
+        dictSetKey(db->dict[getKeySlot(newsds)], de, newsds);
         if (dictSize(db->expires)) {
             /* We can't search in db->expires for that key after we've released
              * the pointer it holds, since it won't be able to do the string
              * compare, but we can find the entry using key hash and pointer. */
-            uint64_t hash = dictGetHash(getDict(db, newsds), newsds);
+            uint64_t hash = dictGetHash(db->dict[getKeySlot(newsds)], newsds);
             dictEntry *expire_de = dictFindEntryByPtrAndHash(db->expires, keysds, hash);
             if (expire_de) dictSetKey(db->expires, expire_de, newsds);
         }
@@ -693,7 +693,7 @@ void defragKey(redisDb *db, dictEntry *de) {
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
     if ((newob = activeDefragStringOb(ob))) {
-        dictSetVal(getDict(db, newsds), de, newob);
+        dictSetVal(db->dict[getKeySlot(newsds)], de, newob);
         ob = newob;
     }
 
@@ -851,7 +851,7 @@ int defragLaterStep(redisDb *db, long long endtime) {
         }
 
         /* each time we enter this function we need to fetch the key from the dict again (if it still exists) */
-        dictEntry *de = dictFind(getDict(db, defrag_later_current_key), defrag_later_current_key);
+        dictEntry *de = dictFind(db->dict[getKeySlot(defrag_later_current_key)], defrag_later_current_key);
         key_defragged = server.stat_active_defrag_hits;
         do {
             int quit = 0;

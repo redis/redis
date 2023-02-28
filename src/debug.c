@@ -611,7 +611,7 @@ NULL
         robj *val;
         char *strenc;
 
-        if ((de = dictFind(getDict(c->db, c->argv[2]->ptr),c->argv[2]->ptr)) == NULL) {
+        if ((de = dictFind(c->db->dict[getKeySlot(c->argv[2]->ptr)], c->argv[2]->ptr)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -663,7 +663,7 @@ NULL
         robj *val;
         sds key;
 
-        if ((de = dictFind(getDict(c->db, c->argv[2]->ptr), c->argv[2]->ptr)) == NULL) {
+        if ((de = dictFind(c->db->dict[getKeySlot(c->argv[2]->ptr)], c->argv[2]->ptr)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -764,7 +764,7 @@ NULL
             /* We don't use lookupKey because a debug command should
              * work on logically expired keys */
             dictEntry *de;
-            robj *o = ((de = dictFind(getDict(c->db, c->argv[j]->ptr),c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
+            robj *o = ((de = dictFind(c->db->dict[getKeySlot(c->argv[j]->ptr)], c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
             if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
 
             sds d = sdsempty();
@@ -1878,7 +1878,7 @@ void logCurrentClient(client *cc, const char *title) {
         dictEntry *de;
 
         key = getDecodedObject(cc->argv[1]);
-        de = dictFind(getDict(cc->db, key->ptr), key->ptr);
+        de = dictFind(cc->db->dict[getKeySlot(key->ptr)], key->ptr);
         if (de) {
             val = dictGetVal(de);
             serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);
