@@ -20,6 +20,7 @@
             "type": "array",
             "items": {
                 "type": "object",
+                "additionalProperties": false,
                 "properties": {
                     "library_name": {
                         "description": " the name of the library",
@@ -34,6 +35,7 @@
                         "type": "array",
                         "items": {
                             "type": "object",
+                            "additionalProperties": false,
                             "properties": {
                                 "name": {
                                     "description": "the name of the function",
@@ -57,16 +59,14 @@
                                         "type": "string"
                                     }
                                 }
-                            },
-                            "additionalProperties": false
+                            }
                         }
                     },
                     "library_code": {
                         "description": "he library's source code (when given the WITHCODE modifier).",
                         "type": "string"
                     }
-                },
-                "additionalProperties": false
+                }
             }
         },
         "arguments": [

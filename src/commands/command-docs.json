@@ -21,6 +21,7 @@
         "reply_scema": {
             "description": "A map where each key is a command name, and each value is the documentary information",
             "type": "object",
+            "additionalProperties": false,
             "patternProperties": {
                 "^.*$": {
                     "type": "object",
@@ -195,8 +196,7 @@
                     },
                     "additionalProperties": false
                 }
-            },
-            "additionalProperties": false
+            }
         },
         "arguments": [
             {

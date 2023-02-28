@@ -21,6 +21,7 @@
         ],
         "reply_schema": {
             "type": "object",
+            "additionalProperties": false,
             "properties": {
                 "running_script": {
                     "description": "information about the running script.",
@@ -32,6 +33,7 @@
                         {
                             "description": "a map with the information about the running script",
                             "type": "object",
+                            "additionalProperties": false,
                             "properties": {
                                 "name": {
                                     "description": "the name of the function.",
@@ -48,8 +50,7 @@
                                     "description": "the function's runtime duration in milliseconds.",
                                     "type": "integer"
                                 }
-                            },
-                            "additionalProperties": false
+                            }
                         }
                     ]
                 },
@@ -60,6 +61,7 @@
                         "^.*$": {
                             "description": "Engine map contains statistics about the engine",
                             "type": "object",
+                            "additionalProperties": false,
                             "properties": {
                                 "libraries_count": {
                                     "description": "number of libraries",
@@ -69,13 +71,11 @@
                                     "dedscription": "number of functions",
                                     "type": "integer"
                                 }
-                            },
-                            "additionalProperties": false
+                            }
                         }
                     }
                 }
-            },
-            "additionalProperties": false
+            }
         }
     }
 }
