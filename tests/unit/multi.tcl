@@ -894,6 +894,24 @@ start_server {tags {"multi"}} {
         r readraw 1
         set _ $res
     } {*CONFIG SET failed*}
+    
+    test "Flushall while watching serveral keys by one client" {
+        r flushall
+        r mset a a b b
+        r watch b a
+        r flushall
+        
+        if {!$::external} {
+            # check valgrind and asan report for invalid reads after execute
+            # command so that we have a report that is easier to reproduce
+            set valgrind_errors [find_valgrind_errors [srv 0 stderr] false]
+            set asan_errors [sanitizer_errors_from_file [srv 0 stderr]]
+            if {$valgrind_errors != "" || $asan_errors != ""} {
+                puts "valgrind or asan found an issue"
+                set print_commands true
+            }
+        }
+     }
 }
 
 start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
