@@ -894,6 +894,14 @@ start_server {tags {"multi"}} {
         r readraw 1
         set _ $res
     } {*CONFIG SET failed*}
+    
+    test "Flushall while watching several keys by one client" {
+        r flushall
+        r mset a a b b
+        r watch b a
+        r flushall
+        r ping
+     }
 }
 
 start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
