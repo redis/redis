@@ -224,6 +224,7 @@
                         "items": {
                             "anyOf": [
                                 {
+
                                     "description": "If WITHDIST option is specified, the distance from the center as a floating point number, in the same unit specified in the radius",
                                     "type": "number"
                                 },
