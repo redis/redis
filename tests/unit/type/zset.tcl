@@ -2325,6 +2325,8 @@ start_server {tags {"zset"}} {
     test "ZRANDMEMBER count overflow" {
         r zadd myzset 0 a
         assert_error {*value is out of range*} {r zrandmember myzset -9223372036854770000 withscores}
+        assert_error {*value is out of range*} {r zrandmember myzset -9223372036854775808 withscores}
+        assert_error {*value is out of range*} {r zrandmember myzset -9223372036854775808}
     } {}
 
     # Make sure we can distinguish between an empty array and a null response
