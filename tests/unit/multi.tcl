@@ -895,7 +895,7 @@ start_server {tags {"multi"}} {
         set _ $res
     } {*CONFIG SET failed*}
     
-    test "Flushall while watching serveral keys by one client" {
+    test "Flushall while watching several keys by one client" {
         r flushall
         r mset a a b b
         r watch b a
