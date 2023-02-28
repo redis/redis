@@ -900,17 +900,7 @@ start_server {tags {"multi"}} {
         r mset a a b b
         r watch b a
         r flushall
-        
-        if {!$::external} {
-            # check valgrind and asan report for invalid reads after execute
-            # command so that we have a report that is easier to reproduce
-            set valgrind_errors [find_valgrind_errors [srv 0 stderr] false]
-            set asan_errors [sanitizer_errors_from_file [srv 0 stderr]]
-            if {$valgrind_errors != "" || $asan_errors != ""} {
-                puts "valgrind or asan found an issue"
-                set print_commands true
-            }
-        }
+        r ping
      }
 }
 
