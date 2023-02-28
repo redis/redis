@@ -610,18 +610,17 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 
 /* Optimize the SDS string inside the string object to require little space,
  * in case there is more than 10% of free space at the end of the SDS. */
-void trimStringObjectIfNeeded(robj *o) {
-    size_t len = sdslen(o->ptr);
-     /* A string may have free space in the following cases:
+void trimStringObjectIfNeeded(robj *o, int trim_small_values) {
+    if (o->encoding != OBJ_ENCODING_RAW) return;
+    /* A string may have free space in the following cases:
      * 1. When an arg len is greater than PROTO_MBULK_BIG_ARG the query buffer may be used directly as the SDS string.
-     * 2. When utilizing the argument caching mechanism in Lua.
-     * 3. When the function is called from a module that has allocated a larger buffer than needed. */
+     * 2. When utilizing the argument caching mechanism in Lua. 
+     * 3. When calling from RM_TrimStringAllocation (trim_small_values is true). */
+    size_t len = sdslen(o->ptr);
     if (len >= PROTO_MBULK_BIG_ARG ||
-        (server.executing_client &&
-         (server.executing_client->flags & CLIENT_MODULE ||
-          (server.executing_client->flags & CLIENT_SCRIPT && len < LUA_CMD_OBJCACHE_MAX_LEN))))
-    {        
-        if (o->encoding == OBJ_ENCODING_RAW && sdsavail(o->ptr) > len/10) {
+        trim_small_values||
+        (server.executing_client && server.executing_client->flags & CLIENT_SCRIPT && len < LUA_CMD_OBJCACHE_MAX_LEN)) {
+        if (sdsavail(o->ptr) > len/10) {
             o->ptr = sdsRemoveFreeSpace(o->ptr, 0);
         }
     }
@@ -693,7 +692,7 @@ robj *tryObjectEncoding(robj *o) {
 
     /* We can't encode the object...
      * Do the last try, and at least optimize the SDS string inside */
-    trimStringObjectIfNeeded(o);
+    trimStringObjectIfNeeded(o, 0);
 
     /* Return the original object. */
     return o;
