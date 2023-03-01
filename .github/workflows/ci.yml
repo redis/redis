@@ -94,4 +94,4 @@ jobs:
         with:
           path: "./utils/req-res-validator/requirements.txt"
       - name: validator
-        run: ./utils/req-res-log-valiadtor.py --verbose --fail-commands-not-all-hit --fail-missing-reply-schemas
+        run: ./utils/req-res-log-valiadtor.py --verbose true --fail-commands-not-all-hit true --fail-missing-reply-schemas true
