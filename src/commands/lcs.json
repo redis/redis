@@ -57,7 +57,7 @@
                                 "items": [
                                     {
                                         "type": "array",
-                                        "description": "Ranges in the first string.",
+                                        "description": "Matched range in the first string.",
                                         "minItems": 2,
                                         "maxItems": 2,
                                         "items": {
@@ -66,7 +66,7 @@
                                     },
                                     {
                                         "type": "array",
-                                        "description": "Ranges in the second string.",
+                                        "description": "Matched range in the second string.",
                                         "minItems": 2,
                                         "maxItems": 2,
                                         "items": {
