@@ -43,6 +43,8 @@
                     {
                         "description": "command info array output",
                         "type": "array",
+                        "minItems": 10,
+                        "maxItems": 10,
                         "items": [
                             {
                                 "description": "command name",
@@ -194,6 +196,10 @@
                                         }
                                     }
                                 }
+                            },
+                            {
+                                "type": "array",
+                                "description": "subcommands"
                             }
                         ]
                     }

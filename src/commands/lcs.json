@@ -50,28 +50,26 @@
                     "properties": {
                         "matches": {
                             "type": "array",
-                            "items": [
-                                {
-                                    "type": "array",
-                                    "items": {
-                                        "oneOf": [
-                                            {
-                                                "type": "array",
-                                                "description": "Ranges.",
-                                                "minItems": 2,
-                                                "maxItems": 2,
-                                                "items": {
-                                                    "type": "integer"
-                                                }
-                                            },
-                                            {
-                                                "type": "integer",
-                                                "description": "The length of the match when 'WITHMATCHLEN' is given."
+                            "items": {
+                                "type": "array",
+                                "items": {
+                                    "oneOf": [
+                                        {
+                                            "type": "array",
+                                            "description": "Ranges.",
+                                            "minItems": 2,
+                                            "maxItems": 2,
+                                            "items": {
+                                                "type": "integer"
                                             }
-                                        ]
-                                    }
+                                        },
+                                        {
+                                            "type": "integer",
+                                            "description": "The length of the match when 'WITHMATCHLEN' is given."
+                                        }
+                                    ]
                                 }
-                            ]
+                            }
                         },
                         "len": {
                             "type": "integer",

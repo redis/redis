@@ -23,6 +23,8 @@
             "description": "An array where each element is a two elements array representing the timestamp and the latency of the event.",
             "items": {
                 "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
                 "items": [
                     {
                         "description": "timestamp of the event",
