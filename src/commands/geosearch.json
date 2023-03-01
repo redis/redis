@@ -225,15 +225,17 @@
                         "type": "array",
                         "minItems": 1,
                         "maxItems": 4,
-                        "items": {
-                            "anyOf": [
-                                {
-                                    "description": "Matched member name",
-                                    "type": "string"
-                                },
+                        "items": [
+                            {
+                                "description": "Matched member name",
+                                "type": "string"
+                            }
+                        ],
+                        "additionalItems": {
+                            "oneOf": [
                                 {
                                     "description": "If WITHDIST option is specified, the distance from the center as a floating point number, in the same unit specified in the radius",
-                                    "type": "number"
+                                    "type": "string"
                                 },
                                 {
                                     "description": "If WITHHASH option is specified, the geohash integer",
