@@ -577,7 +577,39 @@ char* nextSpace(char* start, int n) {
 } while (0) 
 
 #define default(a, b) (a == NULL? b: a)
+double str2k(char* str, int size) {
+    //G -> k
+    char* end;
+    double result = 0.0;
+    end = strstr(str, "G");
+    if ( end != NULL && (end - str) < size) {
+        if (string2d(str, end - str, &result) == 1) {
+            result *= 1000000;
+            return result;
+        }  
+    }
 
+    //M -> k 
+    end = strstr(str, "M");
+    if ( end != NULL && (end - str) < size) {
+        if (string2d(str, end - str, &result) == 1) {
+            result *= 1000;
+            return result;
+        }
+    }
+    // k 
+    end = strstr(str, "K");
+    if ( end != NULL && (end - str) < size) {
+        if (string2d(str, end - str, &result) == 1) {
+            return result;
+        }
+    }
+    //
+    if (string2d(str, size, &result) == 1) {
+        return result/1000;
+    }
+    return -1.0;
+}
 sds compactLevelInfo(sds info, int level , char* rocksdb_stats) {
     sds totalFiles = NULL;
     sds compacting_files = NULL;
@@ -598,6 +630,8 @@ sds compactLevelInfo(sds info, int level , char* rocksdb_stats) {
     sds avg_sec = NULL;
     sds keyin = NULL;
     sds keydrop = NULL;
+    double keyin_k = 0;
+    double keydrop_k = 0;
     /**
      * @brief 
      * @example
@@ -681,8 +715,10 @@ sds compactLevelInfo(sds info, int level , char* rocksdb_stats) {
     readNextSds(avg_sec);
     //KeyIn 
     readNextSds(keyin);
+    keyin_k = str2k(keyin, sdslen(keyin));
     //KeyDrop 
     readNextSds(keydrop);
+    keydrop_k = str2k(keydrop, sdslen(keydrop));
     //Rblob(GB) Wblob(GB)
 
 
@@ -706,8 +742,8 @@ sds compactLevelInfo(sds info, int level , char* rocksdb_stats) {
         "CompMergeCPU(sec):%s\r\n"
         "Comp(cnt):%s\r\n"
         "Avg(sec):%s\r\n"
-        "KeyIn(K):%s\r\n"
-        "KeyDrop(K):%s\r\n",
+        "KeyIn(K):%.3f\r\n"
+        "KeyDrop(K):%.3f\r\n",
         level,
         default(totalFiles, "0"),
         default(compacting_files, "0"),
@@ -726,8 +762,8 @@ sds compactLevelInfo(sds info, int level , char* rocksdb_stats) {
         default(comp_merge_cpu, "0"),
         default(comp_cnt, "0"),
         default(avg_sec, "0"),
-        default(keyin, "0"),
-        default(keydrop, "0"));
+        keyin_k,
+        keydrop_k);
     sdsfree(totalFiles);
     sdsfree(compacting_files);
     sdsfree(score);
@@ -758,39 +794,7 @@ sds compactLevelsInfo(sds info, char* rocksdb_stats) {
 
 
 
-double str2k(char* str, int size) {
-    //G -> k
-    char* end;
-    double result = 0.0;
-    end = strstr(str, "G");
-    if ( end != NULL && (end - str) < size) {
-        if (string2d(str, end - str, &result) == 1) {
-            result *= 1000000;
-            return result;
-        }  
-    }
 
-    //M -> k 
-    end = strstr(str, "M");
-    if ( end != NULL && (end - str) < size) {
-        if (string2d(str, end - str, &result) == 1) {
-            result *= 1000;
-            return result;
-        }
-    }
-    // k 
-    end = strstr(str, "K");
-    if ( end != NULL && (end - str) < size) {
-        if (string2d(str, end - str, &result) == 1) {
-            return result;
-        }
-    }
-    //
-    if (string2d(str, size, &result) == 1) {
-        return result/1000;
-    }
-    return -1.0;
-}
 
 sds rocksdbStatsInfo(sds info, char* type, char* rocksdb_stats) {
     double writes_num_k = 0;
