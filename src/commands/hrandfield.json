@@ -83,7 +83,7 @@
                 "key_spec_index": 0
             },
             {
-                "name": "options",b
+                "name": "options",
                 "type": "block",
                 "optional": true,
                 "arguments": [
