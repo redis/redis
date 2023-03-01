@@ -11841,6 +11841,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             moduleUnregisterSharedAPI(ctx.module);
             moduleUnregisterUsedAPI(ctx.module);
             moduleRemoveConfigs(ctx.module);
+            moduleSearchOrUnregisterCustomAuthCBs(ctx.module, 1);
             moduleFreeModuleStructure(ctx.module);
         }
         moduleFreeContext(&ctx);
@@ -11863,15 +11864,20 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
 
+    int post_load_err = 0;
     if (listLength(ctx.module->module_configs) && !ctx.module->configs_initialized) {
         serverLogRaw(LL_WARNING, "Module Configurations were not set, likely a missing LoadConfigs call. Unloading the module.");
-        moduleUnload(ctx.module->name, NULL);
-        moduleFreeContext(&ctx);
-        return C_ERR;
+        post_load_err = 1;
     }
 
     if (is_loadex && dictSize(server.module_configs_queue)) {
         serverLogRaw(LL_WARNING, "Loadex configurations were not applied, likely due to invalid arguments. Unloading the module.");
+        post_load_err = 1;
+    }
+
+    if (post_load_err) {
+        /* Unregister custom auth callbacks (if any exist) that this Module registered onload. */
+        moduleSearchOrUnregisterCustomAuthCBs(ctx.module, 1);
         moduleUnload(ctx.module->name, NULL);
         moduleFreeContext(&ctx);
         return C_ERR;
