@@ -20122,52 +20122,66 @@ struct jsonObjectElement LCS_ReplySchema_oneOf_1_elements[] = {
 
 struct jsonObject LCS_ReplySchema_oneOf_1 = {LCS_ReplySchema_oneOf_1_elements,.length=2};
 
-/* LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_0_items reply schema */
-struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_0_items_elements[] = {
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_items_0_items reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_items_0_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_0_items = {LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_0_items_elements,.length=1};
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_items_0_items = {LCS_ReplySchema_oneOf_2_properties_matches_items_items_0_items_elements,.length=1};
 
-/* LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_0 reply schema */
-struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_0_elements[] = {
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_items_0 reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_items_0_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_STRING,"description",.value.string="Ranges."},
+{JSON_TYPE_STRING,"description",.value.string="Ranges in the first string."},
 {JSON_TYPE_INTEGER,"minItems",.value.integer=2},
 {JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
-{JSON_TYPE_OBJECT,"items",.value.object=&LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_0_items},
+{JSON_TYPE_OBJECT,"items",.value.object=&LCS_ReplySchema_oneOf_2_properties_matches_items_items_0_items},
 };
 
-struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_0 = {LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_0_elements,.length=5};
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_items_0 = {LCS_ReplySchema_oneOf_2_properties_matches_items_items_0_elements,.length=5};
 
-/* LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_1 reply schema */
-struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_1_elements[] = {
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_items_1_items reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_items_1_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_items_1_items = {LCS_ReplySchema_oneOf_2_properties_matches_items_items_1_items_elements,.length=1};
+
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_items_1 reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Ranges in the second string."},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_OBJECT,"items",.value.object=&LCS_ReplySchema_oneOf_2_properties_matches_items_items_1_items},
+};
+
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_items_1 = {LCS_ReplySchema_oneOf_2_properties_matches_items_items_1_elements,.length=5};
+
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_items array reply schema */
+struct jsonObject *LCS_ReplySchema_oneOf_2_properties_matches_items_items[] = {
+&LCS_ReplySchema_oneOf_2_properties_matches_items_items_0,
+&LCS_ReplySchema_oneOf_2_properties_matches_items_items_1,
+};
+
+/* LCS_ReplySchema_oneOf_2_properties_matches_items_additionalItems reply schema */
+struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_additionalItems_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 {JSON_TYPE_STRING,"description",.value.string="The length of the match when 'WITHMATCHLEN' is given."},
 };
 
-struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_1 = {LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_1_elements,.length=2};
-
-/* LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf array reply schema */
-struct jsonObject *LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf[] = {
-&LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_0,
-&LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf_1,
-};
-
-/* LCS_ReplySchema_oneOf_2_properties_matches_items_items reply schema */
-struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_items_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=LCS_ReplySchema_oneOf_2_properties_matches_items_items_oneOf,.length=2}},
-};
-
-struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_items = {LCS_ReplySchema_oneOf_2_properties_matches_items_items_elements,.length=1};
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items_additionalItems = {LCS_ReplySchema_oneOf_2_properties_matches_items_additionalItems_elements,.length=2};
 
 /* LCS_ReplySchema_oneOf_2_properties_matches_items reply schema */
 struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_OBJECT,"items",.value.object=&LCS_ReplySchema_oneOf_2_properties_matches_items_items},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=3},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=LCS_ReplySchema_oneOf_2_properties_matches_items_items,.length=2}},
+{JSON_TYPE_OBJECT,"additionalItems",.value.object=&LCS_ReplySchema_oneOf_2_properties_matches_items_additionalItems},
 };
 
-struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items = {LCS_ReplySchema_oneOf_2_properties_matches_items_elements,.length=2};
+struct jsonObject LCS_ReplySchema_oneOf_2_properties_matches_items = {LCS_ReplySchema_oneOf_2_properties_matches_items_elements,.length=5};
 
 /* LCS_ReplySchema_oneOf_2_properties_matches reply schema */
 struct jsonObjectElement LCS_ReplySchema_oneOf_2_properties_matches_elements[] = {
