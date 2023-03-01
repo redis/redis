@@ -33,9 +33,9 @@
             }
         ],
         "reply_schema": {
-            "oneof": [
+            "oneOf": [
                 {
-                    "oneof": [
+                    "oneOf": [
                         {
                             "description": "An integer representing the matching element",
                             "type": "integer"

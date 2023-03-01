@@ -18,7 +18,7 @@
             "CONNECTION"
         ],
         "reply_schema": {
-            "oneof": [
+            "oneOf": [
                 {
                     "const": 0,
                     "description": "if the client was unblocked successfully"

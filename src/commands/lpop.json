@@ -41,9 +41,9 @@
             }
         ],
         "reply_schema": {
-            "oneof": [
+            "oneOf": [
                 {
-                    "oneof": [
+                    "oneOf": [
                         {
                             "description": "In case `count` argument was not given, the value of the first element.",
                             "type": "string"
@@ -55,7 +55,7 @@
                     ]
                 },
                 {
-                    "oneof": [
+                    "oneOf": [
                         {
                             "description": "In case `count` argument was given, a list of popped elements",
                             "type": "array",

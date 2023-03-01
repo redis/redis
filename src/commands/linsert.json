@@ -34,7 +34,7 @@
             }
         ],
         "reply_schema": {
-            "oneof": [
+            "oneOf": [
                 {
                     "description": "List length after a successful insert operation.",
                     "type": "integer",
