@@ -478,7 +478,7 @@ gcov:
 	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
 
 noopt:
-	$(MAKE) OPTIMIZATION="-O0"
+	$(MAKE) OPTIMIZATION="-O0" LUA_DEBUG="yes"
 
 valgrind:
 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc"
