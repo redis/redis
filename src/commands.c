@@ -11301,6 +11301,905 @@ struct redisCommandArg COMMAND_DOCS_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_summary reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_summary_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="short command description"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_summary = {COMMAND_DOCS_ReplySchema_patternProperties______properties_summary_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_since reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_since_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the Redis version that added the command (or for module commands, the module version)."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_since = {COMMAND_DOCS_ReplySchema_patternProperties______properties_since_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_0 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="bitmap"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_0 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_0_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_1 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="cluster"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_1 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_1_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_2 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="connection"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_2 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_2_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_3 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_3_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="generic"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_3 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_3_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_4 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_4_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="geo"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_4 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_4_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_5 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_5_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="hash"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_5 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_5_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_6 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_6_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="hyperloglog"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_6 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_6_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_7 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_7_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="list"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_7 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_7_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_8 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_8_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="module"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_8 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_8_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_9 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_9_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="pubsub"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_9 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_9_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_10 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_10_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="scripting"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_10 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_10_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_11 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_11_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="sentinel"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_11 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_11_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_12 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_12_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="server"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_12 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_12_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_13 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_13_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="set"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_13 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_13_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_14 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_14_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="sorted-set"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_14 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_14_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_15 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_15_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="stream"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_15 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_15_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_16 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_16_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_16 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_16_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_17 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_17_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="transactions"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_17 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_17_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf array reply schema */
+struct jsonObject *COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf[] = {
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_0,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_1,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_2,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_3,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_4,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_5,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_6,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_7,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_8,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_9,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_10,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_11,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_12,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_13,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_14,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_15,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_16,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf_17,
+};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_group reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_group_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the functional group to which the command belongs"},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=COMMAND_DOCS_ReplySchema_patternProperties______properties_group_oneOf,.length=18}},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_group = {COMMAND_DOCS_ReplySchema_patternProperties______properties_group_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_complexity reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_complexity_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="a short explanation about the command's time complexity."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_complexity = {COMMAND_DOCS_ReplySchema_patternProperties______properties_complexity_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_module reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_module_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_module = {COMMAND_DOCS_ReplySchema_patternProperties______properties_module_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf_0 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the command is deprecated."},
+{JSON_TYPE_STRING,"const",.value.string="deprecated"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf_0 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf_0_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf_1 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="a system command that isn't meant to be called by users."},
+{JSON_TYPE_STRING,"const",.value.string="syscmd"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf_1 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf_1_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf array reply schema */
+struct jsonObject *COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf[] = {
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf_0,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf_1,
+};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_oneOf,.length=2}},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items = {COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="an array of documentation flags"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_items},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags = {COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags_elements,.length=3};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_deprecated_since reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_deprecated_since_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the Redis version that deprecated the command (or for module commands, the module version)"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_deprecated_since = {COMMAND_DOCS_ReplySchema_patternProperties______properties_deprecated_since_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_replaced_by reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_replaced_by_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the alternative for a deprecated command."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_replaced_by = {COMMAND_DOCS_ReplySchema_patternProperties______properties_replaced_by_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items_0 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The Redis version that the entry applies to."},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items_0 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items_0_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items_1 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The description of the change."},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items_1 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items_1_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items array reply schema */
+struct jsonObject *COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items[] = {
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items_0,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items_1,
+};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_items,.length=2}},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items = {COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items_elements,.length=4};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_history reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_history_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="an array of historical notes describing changes to the command's behavior or arguments."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_history_items},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_history = {COMMAND_DOCS_ReplySchema_patternProperties______properties_history_elements,.length=3};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_name reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_name_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_name = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_name_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_type reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_type_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_type = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_type_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_display_text reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_display_text_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_display_text = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_display_text_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_key_spec_index reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_key_spec_index_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_key_spec_index = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_key_spec_index_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_token reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_token_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_token = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_token_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_summary reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_summary_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_summary = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_summary_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_since reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_since_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_since = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_since_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_deprecated_since reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_deprecated_since_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_deprecated_since = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_deprecated_since_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_flags_items reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_flags_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_flags_items = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_flags_items_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_flags reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_flags_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_flags_items},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_flags = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_flags_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_arguments reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_arguments_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_arguments = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_arguments_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_elements[] = {
+{JSON_TYPE_OBJECT,"name",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_name},
+{JSON_TYPE_OBJECT,"type",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_type},
+{JSON_TYPE_OBJECT,"display_text",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_display_text},
+{JSON_TYPE_OBJECT,"key_spec_index",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_key_spec_index},
+{JSON_TYPE_OBJECT,"token",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_token},
+{JSON_TYPE_OBJECT,"summary",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_summary},
+{JSON_TYPE_OBJECT,"since",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_since},
+{JSON_TYPE_OBJECT,"deprecated_since",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_deprecated_since},
+{JSON_TYPE_OBJECT,"flags",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_flags},
+{JSON_TYPE_OBJECT,"arguments",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_arguments},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties_elements,.length=10};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_properties},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items_elements,.length=3};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="an array of maps that describe the command's arguments."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_items},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments = {COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments_elements,.length=3};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_reply_schema reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_reply_schema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command reply schema"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_reply_schema = {COMMAND_DOCS_ReplySchema_patternProperties______properties_reply_schema_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_summary reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_summary_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="short command description"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_summary = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_summary_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_since reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_since_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the Redis version that added the command (or for module commands, the module version)."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_since = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_since_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_0 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="bitmap"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_0 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_0_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_1 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="cluster"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_1 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_1_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_2 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="connection"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_2 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_2_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_3 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_3_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="generic"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_3 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_3_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_4 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_4_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="geo"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_4 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_4_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_5 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_5_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="hash"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_5 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_5_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_6 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_6_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="hyperloglog"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_6 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_6_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_7 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_7_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="list"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_7 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_7_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_8 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_8_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="module"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_8 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_8_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_9 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_9_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="pubsub"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_9 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_9_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_10 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_10_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="scripting"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_10 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_10_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_11 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_11_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="sentinel"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_11 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_11_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_12 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_12_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="server"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_12 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_12_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_13 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_13_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="set"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_13 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_13_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_14 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_14_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="sorted-set"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_14 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_14_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_15 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_15_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="stream"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_15 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_15_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_16 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_16_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_16 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_16_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_17 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_17_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="transactions"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_17 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_17_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf array reply schema */
+struct jsonObject *COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf[] = {
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_0,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_1,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_2,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_3,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_4,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_5,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_6,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_7,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_8,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_9,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_10,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_11,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_12,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_13,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_14,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_15,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_16,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf_17,
+};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the functional group to which the command belongs"},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_oneOf,.length=18}},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_complexity reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_complexity_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="a short explanation about the command's time complexity."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_complexity = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_complexity_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_module reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_module_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_module = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_module_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf_0 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the command is deprecated."},
+{JSON_TYPE_STRING,"const",.value.string="deprecated"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf_0 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf_0_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf_1 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="a system command that isn't meant to be called by users."},
+{JSON_TYPE_STRING,"const",.value.string="syscmd"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf_1 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf_1_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf array reply schema */
+struct jsonObject *COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf[] = {
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf_0,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf_1,
+};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_oneOf,.length=2}},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="an array of documentation flags"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_items},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags_elements,.length=3};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_deprecated_since reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_deprecated_since_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the Redis version that deprecated the command (or for module commands, the module version)"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_deprecated_since = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_deprecated_since_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_replaced_by reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_replaced_by_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the alternative for a deprecated command."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_replaced_by = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_replaced_by_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items_0 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The Redis version that the entry applies to."},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items_0 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items_0_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items_1 reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The description of the change."},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items_1 = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items_1_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items array reply schema */
+struct jsonObject *COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items[] = {
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items_0,
+&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items_1,
+};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_items,.length=2}},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items_elements,.length=4};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="an array of historical notes describing changes to the command's behavior or arguments."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_items},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history_elements,.length=3};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_name reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_name_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_name = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_name_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_type reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_type_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_type = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_type_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_display_text reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_display_text_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_display_text = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_display_text_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_key_spec_index reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_key_spec_index_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_key_spec_index = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_key_spec_index_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_token reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_token_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_token = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_token_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_summary reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_summary_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_summary = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_summary_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_since reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_since_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_since = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_since_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_deprecated_since reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_deprecated_since_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_deprecated_since = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_deprecated_since_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_flags_items reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_flags_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_flags_items = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_flags_items_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_flags reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_flags_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_flags_items},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_flags = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_flags_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_arguments reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_arguments_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_arguments = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_arguments_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_elements[] = {
+{JSON_TYPE_OBJECT,"name",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_name},
+{JSON_TYPE_OBJECT,"type",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_type},
+{JSON_TYPE_OBJECT,"display_text",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_display_text},
+{JSON_TYPE_OBJECT,"key_spec_index",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_key_spec_index},
+{JSON_TYPE_OBJECT,"token",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_token},
+{JSON_TYPE_OBJECT,"summary",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_summary},
+{JSON_TYPE_OBJECT,"since",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_since},
+{JSON_TYPE_OBJECT,"deprecated_since",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_deprecated_since},
+{JSON_TYPE_OBJECT,"flags",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_flags},
+{JSON_TYPE_OBJECT,"arguments",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_arguments},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties_elements,.length=10};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_properties},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items_elements,.length=3};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="an array of maps that describe the command's arguments."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_items},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments_elements,.length=3};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_reply_schema reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_reply_schema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="command reply schema"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_reply_schema = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_reply_schema_elements,.length=2};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_elements[] = {
+{JSON_TYPE_OBJECT,"summary",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_summary},
+{JSON_TYPE_OBJECT,"since",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_since},
+{JSON_TYPE_OBJECT,"group",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_group},
+{JSON_TYPE_OBJECT,"complexity",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_complexity},
+{JSON_TYPE_OBJECT,"module",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_module},
+{JSON_TYPE_OBJECT,"doc_flags",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_doc_flags},
+{JSON_TYPE_OBJECT,"deprecated_since",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_deprecated_since},
+{JSON_TYPE_OBJECT,"replaced_by",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_replaced_by},
+{JSON_TYPE_OBJECT,"history",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_history},
+{JSON_TYPE_OBJECT,"arguments",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_arguments},
+{JSON_TYPE_OBJECT,"reply_schema",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_reply_schema},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties_elements,.length=11};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties_____ reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______properties},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties_____ = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties______elements,.length=3};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties_elements[] = {
+{JSON_TYPE_OBJECT,"^.*$",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties_____},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="A map where each key is a command name, and each value is the documentary information"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"patternProperties",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands = {COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_elements,.length=4};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties______properties reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_elements[] = {
+{JSON_TYPE_OBJECT,"summary",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_summary},
+{JSON_TYPE_OBJECT,"since",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_since},
+{JSON_TYPE_OBJECT,"group",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_group},
+{JSON_TYPE_OBJECT,"complexity",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_complexity},
+{JSON_TYPE_OBJECT,"module",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_module},
+{JSON_TYPE_OBJECT,"doc_flags",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_doc_flags},
+{JSON_TYPE_OBJECT,"deprecated_since",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_deprecated_since},
+{JSON_TYPE_OBJECT,"replaced_by",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_replaced_by},
+{JSON_TYPE_OBJECT,"history",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_history},
+{JSON_TYPE_OBJECT,"arguments",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_arguments},
+{JSON_TYPE_OBJECT,"reply_schema",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_reply_schema},
+{JSON_TYPE_OBJECT,"subcommands",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties = {COMMAND_DOCS_ReplySchema_patternProperties______properties_elements,.length=12};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties_____ reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties_____ = {COMMAND_DOCS_ReplySchema_patternProperties______elements,.length=3};
+
+/* COMMAND_DOCS_ReplySchema_patternProperties reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties_elements[] = {
+{JSON_TYPE_OBJECT,"^.*$",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties_____},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties = {COMMAND_DOCS_ReplySchema_patternProperties_elements,.length=1};
+
+/* COMMAND_DOCS_ReplySchema reply schema */
+struct jsonObjectElement COMMAND_DOCS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="A map where each key is a command name, and each value is the documentary information"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"patternProperties",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties},
+};
+
+struct jsonObject COMMAND_DOCS_ReplySchema = {COMMAND_DOCS_ReplySchema_elements,.length=4};
+
+#else
+
+struct jsonObject COMMAND_DOCS_ReplySchema = {0};
+
+#endif
+
 /********** COMMAND GETKEYS ********************/
 
 /* COMMAND GETKEYS history */
@@ -11961,7 +12860,7 @@ struct jsonObject COMMAND_LIST_ReplySchema = {0};
 /* COMMAND command table */
 struct redisCommand COMMAND_Subcommands[] = {
 {"count","Get total number of Redis commands","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_COUNT_History,COMMAND_COUNT_tips,commandCountCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.reply_schema=&COMMAND_COUNT_ReplySchema},
-{"docs","Get array of specific Redis command documentation","O(N) where N is the number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_DOCS_History,COMMAND_DOCS_tips,commandDocsCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_DOCS_Args},
+{"docs","Get array of specific Redis command documentation","O(N) where N is the number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_DOCS_History,COMMAND_DOCS_tips,commandDocsCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_DOCS_Args,.reply_schema=&COMMAND_DOCS_ReplySchema},
 {"getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYS_History,COMMAND_GETKEYS_tips,commandGetKeysCommand,-3,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_GETKEYS_Args,.reply_schema=&COMMAND_GETKEYS_ReplySchema},
 {"getkeysandflags","Extract keys and access flags given a full Redis command","O(N) where N is the number of arguments to the command","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYSANDFLAGS_History,COMMAND_GETKEYSANDFLAGS_tips,commandGetKeysAndFlagsCommand,-3,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=COMMAND_GETKEYSANDFLAGS_Args,.reply_schema=&COMMAND_GETKEYSANDFLAGS_ReplySchema},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_History,COMMAND_HELP_tips,commandHelpCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.reply_schema=&COMMAND_HELP_ReplySchema},
