@@ -7788,81 +7788,48 @@ struct redisCommandArg LPOP_Args[] = {
 
 #ifdef LOG_REQ_RES
 
-/* LPOP_ReplySchema_oneOf_0_oneOf_0 reply schema */
-struct jsonObjectElement LPOP_ReplySchema_oneOf_0_oneOf_0_elements[] = {
+/* LPOP_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement LPOP_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Key does not exist."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject LPOP_ReplySchema_oneOf_0 = {LPOP_ReplySchema_oneOf_0_elements,.length=2};
+
+/* LPOP_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement LPOP_ReplySchema_oneOf_1_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="In case `count` argument was not given, the value of the first element."},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject LPOP_ReplySchema_oneOf_0_oneOf_0 = {LPOP_ReplySchema_oneOf_0_oneOf_0_elements,.length=2};
+struct jsonObject LPOP_ReplySchema_oneOf_1 = {LPOP_ReplySchema_oneOf_1_elements,.length=2};
 
-/* LPOP_ReplySchema_oneOf_0_oneOf_1 reply schema */
-struct jsonObjectElement LPOP_ReplySchema_oneOf_0_oneOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="In case `count` argument was not given, and key does not exist."},
-{JSON_TYPE_STRING,"type",.value.string="null"},
-};
-
-struct jsonObject LPOP_ReplySchema_oneOf_0_oneOf_1 = {LPOP_ReplySchema_oneOf_0_oneOf_1_elements,.length=2};
-
-/* LPOP_ReplySchema_oneOf_0_oneOf array reply schema */
-struct jsonObject *LPOP_ReplySchema_oneOf_0_oneOf[] = {
-&LPOP_ReplySchema_oneOf_0_oneOf_0,
-&LPOP_ReplySchema_oneOf_0_oneOf_1,
-};
-
-/* LPOP_ReplySchema_oneOf_0 reply schema */
-struct jsonObjectElement LPOP_ReplySchema_oneOf_0_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=LPOP_ReplySchema_oneOf_0_oneOf,.length=2}},
-};
-
-struct jsonObject LPOP_ReplySchema_oneOf_0 = {LPOP_ReplySchema_oneOf_0_elements,.length=1};
-
-/* LPOP_ReplySchema_oneOf_1_oneOf_0_items reply schema */
-struct jsonObjectElement LPOP_ReplySchema_oneOf_1_oneOf_0_items_elements[] = {
+/* LPOP_ReplySchema_oneOf_2_items reply schema */
+struct jsonObjectElement LPOP_ReplySchema_oneOf_2_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject LPOP_ReplySchema_oneOf_1_oneOf_0_items = {LPOP_ReplySchema_oneOf_1_oneOf_0_items_elements,.length=1};
+struct jsonObject LPOP_ReplySchema_oneOf_2_items = {LPOP_ReplySchema_oneOf_2_items_elements,.length=1};
 
-/* LPOP_ReplySchema_oneOf_1_oneOf_0 reply schema */
-struct jsonObjectElement LPOP_ReplySchema_oneOf_1_oneOf_0_elements[] = {
+/* LPOP_ReplySchema_oneOf_2 reply schema */
+struct jsonObjectElement LPOP_ReplySchema_oneOf_2_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="In case `count` argument was given, a list of popped elements"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_OBJECT,"items",.value.object=&LPOP_ReplySchema_oneOf_1_oneOf_0_items},
+{JSON_TYPE_OBJECT,"items",.value.object=&LPOP_ReplySchema_oneOf_2_items},
 };
 
-struct jsonObject LPOP_ReplySchema_oneOf_1_oneOf_0 = {LPOP_ReplySchema_oneOf_1_oneOf_0_elements,.length=3};
-
-/* LPOP_ReplySchema_oneOf_1_oneOf_1 reply schema */
-struct jsonObjectElement LPOP_ReplySchema_oneOf_1_oneOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="In case `count` argument was given, and key does not exist."},
-{JSON_TYPE_STRING,"type",.value.string="null"},
-};
-
-struct jsonObject LPOP_ReplySchema_oneOf_1_oneOf_1 = {LPOP_ReplySchema_oneOf_1_oneOf_1_elements,.length=2};
-
-/* LPOP_ReplySchema_oneOf_1_oneOf array reply schema */
-struct jsonObject *LPOP_ReplySchema_oneOf_1_oneOf[] = {
-&LPOP_ReplySchema_oneOf_1_oneOf_0,
-&LPOP_ReplySchema_oneOf_1_oneOf_1,
-};
-
-/* LPOP_ReplySchema_oneOf_1 reply schema */
-struct jsonObjectElement LPOP_ReplySchema_oneOf_1_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=LPOP_ReplySchema_oneOf_1_oneOf,.length=2}},
-};
-
-struct jsonObject LPOP_ReplySchema_oneOf_1 = {LPOP_ReplySchema_oneOf_1_elements,.length=1};
+struct jsonObject LPOP_ReplySchema_oneOf_2 = {LPOP_ReplySchema_oneOf_2_elements,.length=3};
 
 /* LPOP_ReplySchema_oneOf array reply schema */
 struct jsonObject *LPOP_ReplySchema_oneOf[] = {
 &LPOP_ReplySchema_oneOf_0,
 &LPOP_ReplySchema_oneOf_1,
+&LPOP_ReplySchema_oneOf_2,
 };
 
 /* LPOP_ReplySchema reply schema */
 struct jsonObjectElement LPOP_ReplySchema_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=LPOP_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=LPOP_ReplySchema_oneOf,.length=3}},
 };
 
 struct jsonObject LPOP_ReplySchema = {LPOP_ReplySchema_elements,.length=1};
