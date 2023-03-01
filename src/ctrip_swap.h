@@ -374,7 +374,8 @@ typedef struct swapData {
   unsigned propagate_expire:1;
   unsigned set_dirty:1;
   unsigned del_meta:1;
-  unsigned reserved:29;
+  unsigned persistence_deleted:1;
+  unsigned reserved:28;
   sds nextseek; /* own, moved from exec */
   void *extends[2];
 } swapData;

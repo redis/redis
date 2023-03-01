@@ -1008,6 +1008,7 @@ static void executeSwapInRequest(swapRequest *req) {
 
         if (is_hot) {
             req->data->del_meta = 1;
+            req->data->persistence_deleted = 1;
             errcode = doSwapDelMeta(data);
             if (data->object_type != OBJ_STRING) {
                 /* String is not versioned */

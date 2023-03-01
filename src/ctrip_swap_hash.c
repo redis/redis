@@ -348,6 +348,9 @@ int hashSwapIn(swapData *data, void *result, void *datactx) {
     if (swapDataIsCold(data) && result != NULL /* may be empty */) {
         /* cold key swapped in result (may be empty). */
         robj *swapin = createSwapInObject(result);
+        /* mark persistent after data swap in without
+         * persistence deleted, or mark non-persistent else */
+        swapin->persistent = !data->persistence_deleted;
         dbAdd(data->db,data->key,swapin);
         /* expire will be swapped in later by swap framework. */
         if (data->cold_meta) {
@@ -356,6 +359,7 @@ int hashSwapIn(swapData *data, void *result, void *datactx) {
         }
     } else {
         if (result) decrRefCount(result);
+        if (data->value) data->value->persistent = !data->persistence_deleted;
     }
 
     return 0;
@@ -385,6 +389,7 @@ int hashSwapOut(swapData *data, void *datactx, int *totally_out) {
         if (data->new_meta) {
             dbAddMeta(data->db,data->key,data->new_meta);
             data->new_meta = NULL; /* moved to db.meta */
+            data->value->persistent = 1; /* loss pure hot and persistent data exist. */
         }
         if (totally_out) *totally_out = 0;
     }
@@ -914,6 +919,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         hashSwapOut((swapData*)data, hash1_ctx, NULL);
         test_assert((m =lookupMeta(db,key1)) != NULL && m->len == 2);
         test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) != NULL);
+        test_assert(lookupKey(db, key1, LOOKUP_NOTOUCH)->persistent);
 
         hashTypeDelete(hash1,f3);
         hashTypeDelete(hash1,f4);
@@ -933,6 +939,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         test_assert((m = lookupMeta(db,key1)) != NULL && m->len == 2);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL);
         test_assert(hashTypeLength(h) == 2);
+        test_assert(lookupKey(db, key1, LOOKUP_NOTOUCH)->persistent);
 
         decoded = createHashObject();
         hashTypeSet(decoded,f3,int1,HASH_SET_COPY);
@@ -944,6 +951,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         test_assert((m = lookupMeta(db,key1)) != NULL);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL);
         test_assert(hashTypeLength(h) == 4);
+        test_assert(lookupKey(db, key1, LOOKUP_NOTOUCH)->persistent);
 
         /* hot => cold */
         hash1 = h;
@@ -970,6 +978,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         test_assert((m = lookupMeta(db,key1)) != NULL);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL);
         test_assert(hashTypeLength(h) == 4);
+        test_assert(lookupKey(db, key1, LOOKUP_NOTOUCH)->persistent);
     }
 
     TEST("hash - rdbLoad & rdbSave") {

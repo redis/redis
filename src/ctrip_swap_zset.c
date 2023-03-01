@@ -545,6 +545,9 @@ int zsetSwapIn(swapData *data_, void *result_, void *datactx_) {
     if (swapDataIsCold(data_) && result != NULL) {
         /* cold key swapped in result (may be empty). */
         robj *swapin = createSwapInObject(result);
+        /* mark persistent after data swap in without
+         * persistence deleted, or mark non-persistent else */
+        swapin->persistent = !data->sd.persistence_deleted;
         dbAdd(data->sd.db,data->sd.key,swapin);
         /* expire will be swapped in later by swap framework. */
         if (data->sd.cold_meta) {
@@ -553,6 +556,7 @@ int zsetSwapIn(swapData *data_, void *result_, void *datactx_) {
         }
     } else {
        if (result) decrRefCount(result);
+       if (data->sd.value) data->sd.value->persistent = !data->sd.persistence_deleted;
     }
     return 0;
 }
@@ -581,6 +585,7 @@ int zsetSwapOut(swapData *data, void *datactx, int *totally_out) {
         if (data->new_meta) {
             dbAddMeta(data->db,data->key,data->new_meta);
             data->new_meta = NULL; /* moved to db.meta */
+            data->value->persistent = 1; /* loss pure hot and persistent data exist. */
         }
         if (totally_out) *totally_out = 0;
     }

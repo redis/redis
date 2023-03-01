@@ -97,6 +97,12 @@ int swapDataAna(swapData *d, struct keyRequest *key_request,
         key_request->cmd_intention_flags = 0;
     }
 
+    if (key_request->cmd_intention == SWAP_DEL && d->value && !d->value->persistent) {
+        // no persistent data, skip del
+        key_request->cmd_intention = SWAP_NOP;
+        key_request->cmd_intention_flags = 0;
+    }
+
     if (d->type->swapAna) {
         retval = d->type->swapAna(d,key_request,intention,
                 intention_flags,datactx);

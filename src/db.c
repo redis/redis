@@ -233,6 +233,11 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
+    if (server.swap_mode != SWAP_MODE_MEMORY) {
+        /* new val inherit flag_persistent from old val,
+         * since rocksdb persist data for the same key */
+        val->persistent = old->persistent;
+    }
     /* Although the key is not really deleted from the database, we regard 
     overwrite as two steps of unlink+add, so we still need to call the unlink 
     callback of the module. */

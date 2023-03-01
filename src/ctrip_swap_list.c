@@ -1601,6 +1601,9 @@ int listSwapIn(swapData *data, MOVE void *result_, void *datactx) {
          * - list is created and moved to db.dict
          * - contents in result will be swapped or copied to meta & list */
         metaListMerge(&main,result);
+        /* mark persistent after data swap in without
+         * persistence deleted, or mark non-persistent else */
+        main.list->persistent = !data->persistence_deleted;
         /* cold key swapped in result (may be empty). */
         dbAdd(data->db,data->key,main.list);
         /* expire will be swapped in later by swap framework. */
@@ -1610,6 +1613,7 @@ int listSwapIn(swapData *data, MOVE void *result_, void *datactx) {
         metaListDestroy(result);
     } else {
         if (result) metaListDestroy(result);
+        if (data->value) data->value->persistent = !data->persistence_deleted;
     }
 
     return 0;
@@ -1664,6 +1668,7 @@ int listSwapOut(swapData *data, void *datactx, int *totally_out) {
         if (data->new_meta) {
             dbAddMeta(data->db,data->key,data->new_meta);
             data->new_meta = NULL; /* moved to db.meta */
+            data->value->persistent = 1; /* loss pure hot and persistent data exist. */
         }
         if (totally_out) *totally_out = 0;
     }

@@ -63,3 +63,52 @@ start_server {tags "del"} {
     }
 }
 
+start_server {tags {"skip_unnecessary_rocksdb_del"}} {
+    proc scan_all_keys {r} {
+        set keys {}
+        set cursor 0
+        while {1} {
+            set res [$r scan $cursor]
+            set cursor [lindex $res 0]
+            lappend keys {*}[split [lindex $res 1] " "]
+            if {$cursor == 0} {
+                break
+            }
+        }
+        set _ $keys
+    }
+
+    r config set swap-debug-evict-keys 0
+    test {delete keys and keys deleted completed} {
+        set load_handle0 [start_bg_complex_data [srv 0 host] [srv 0 port] 0 1000000]
+        after 10000
+        stop_bg_complex_data $load_handle0
+        wait_load_handlers_disconnected
+        set keys [scan_all_keys r]
+        foreach key $keys {
+            r del {*}$key
+            assert_match [r get $key] {}
+        }
+        assert_equal 0 [r dbsize]
+    }
+
+    test {expire keys and keys deleted completed} {
+        set load_handle0 [start_bg_complex_data [srv 0 host] [srv 0 port] 0 1000000]
+        after 10000
+        stop_bg_complex_data $load_handle0
+        wait_load_handlers_disconnected
+        set keys [scan_all_keys r]
+        foreach key $keys {
+            r pexpire {*}$key 1
+        }
+        wait_for_condition 50 100 {
+            [r dbsize] == 0
+        } else {
+            fail "key wasn't expired"
+        }
+        foreach key $keys {
+            assert_match [r get $key] {}
+        }
+    }
+}
+

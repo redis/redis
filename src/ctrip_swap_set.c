@@ -322,6 +322,9 @@ int setSwapIn(swapData *data, void *result_, void *datactx) {
     if (swapDataIsCold(data) && result != NULL /* may be empty */) {
         /* cold key swapped in result (may be empty). */
         robj *swapin = createSwapInObject(result);
+        /* mark persistent after data swap in without
+         * persistence deleted, or mark non-persistent else */
+        swapin->persistent = !data->persistence_deleted;
         dbAdd(data->db,data->key,swapin);
         /* expire will be swapped in later by swap framework. */
         if (data->cold_meta) {
@@ -330,6 +333,7 @@ int setSwapIn(swapData *data, void *result_, void *datactx) {
         }
     } else {
         if (result) decrRefCount(result);
+        if (data->value) data->value->persistent = !data->persistence_deleted;
     }
 
     return 0;
@@ -359,6 +363,7 @@ int setSwapOut(swapData *data, void *datactx, int *totally_out) {
         if (data->new_meta) {
             dbAddMeta(data->db,data->key,data->new_meta);
             data->new_meta = NULL; /* moved to db.meta */
+            data->value->persistent = 1; /* loss pure hot and persistent data exist. */
         }
         if (totally_out) *totally_out = 0;
     }
