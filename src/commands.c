@@ -12142,7 +12142,7 @@ struct jsonObject COMMAND_DOCS_ReplySchema_patternProperties______properties_sub
 
 /* COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands reply schema */
 struct jsonObjectElement COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="A map where each key is a command name, and each value is the documentary information"},
+{JSON_TYPE_STRING,"description",.value.string="A map where each key is a subcommand, and each value is the documentary information"},
 {JSON_TYPE_STRING,"type",.value.string="object"},
 {JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"patternProperties",.value.object=&COMMAND_DOCS_ReplySchema_patternProperties______properties_subcommands_patternProperties},
@@ -13334,6 +13334,22 @@ struct redisCommandArg LATENCY_GRAPH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
+/* LATENCY_GRAPH_ReplySchema reply schema */
+struct jsonObjectElement LATENCY_GRAPH_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Latency graph"},
+};
+
+struct jsonObject LATENCY_GRAPH_ReplySchema = {LATENCY_GRAPH_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject LATENCY_GRAPH_ReplySchema = {0};
+
+#endif
+
 /********** LATENCY HELP ********************/
 
 /* LATENCY HELP history */
@@ -13638,7 +13654,7 @@ struct jsonObject LATENCY_RESET_ReplySchema = {0};
 /* LATENCY command table */
 struct redisCommand LATENCY_Subcommands[] = {
 {"doctor","Return a human readable latency analysis report.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_DOCTOR_History,LATENCY_DOCTOR_tips,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.reply_schema=&LATENCY_DOCTOR_ReplySchema},
-{"graph","Return a latency graph for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_GRAPH_History,LATENCY_GRAPH_tips,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_GRAPH_Args},
+{"graph","Return a latency graph for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_GRAPH_History,LATENCY_GRAPH_tips,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_GRAPH_Args,.reply_schema=&LATENCY_GRAPH_ReplySchema},
 {"help","Show helpful text about the different subcommands.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HELP_History,LATENCY_HELP_tips,latencyCommand,2,CMD_LOADING|CMD_STALE,0,.reply_schema=&LATENCY_HELP_ReplySchema},
 {"histogram","Return the cumulative distribution of latencies of a subset of commands or all.","O(N) where N is the number of commands with latency information being retrieved.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTOGRAM_History,LATENCY_HISTOGRAM_tips,latencyCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTOGRAM_Args,.reply_schema=&LATENCY_HISTOGRAM_ReplySchema},
 {"history","Return timestamp-latency samples for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTORY_History,LATENCY_HISTORY_tips,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTORY_Args,.reply_schema=&LATENCY_HISTORY_ReplySchema},
