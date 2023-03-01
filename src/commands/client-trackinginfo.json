@@ -15,6 +15,66 @@
         ],
         "acl_categories": [
             "CONNECTION"
-        ]
+        ],
+        "reply_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "flags": {
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "const": "off",
+                                "description": "The connection isn't using server assisted client side caching."
+                            },
+                            {
+                                "const": "on",
+                                "description": "Server assisted client side caching is enabled for the connection."
+                            },
+                            {
+                                "const": "bcast",
+                                "description": "The client uses broadcasting mode."
+                            },
+                            {
+                                "const": "optin",
+                                "description": "The client does not cache keys by default."
+                            },
+                            {
+                                "const": "optout",
+                                "description": "The client caches keys by default."
+                            },
+                            {
+                                "const": "caching-yes",
+                                "description": "The next command will cache keys (exists only together with optin)."
+                            },
+                            {
+                                "const": "caching-no",
+                                "description": "The next command won't cache keys (exists only together with optout)."
+                            },
+                            {
+                                "const": "noloop",
+                                "description": "The client isn't notified about keys modified by itself."
+                            },
+                            {
+                                "const": "broken_redirect",
+                                "description": "The client ID used for redirection isn't valid anymore."
+                            }
+                        ]
+                    }
+                },
+                "redirect": {
+                    "type": "integer",
+                    "description": "The client ID used for notifications redirection, or -1 when none."
+                },
+                "prefixes": {
+                    "type": "array",
+                    "description": "List of key prefixes for which notifications are sent to the client.",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        }
     }
 }

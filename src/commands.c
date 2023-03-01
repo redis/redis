@@ -2297,6 +2297,21 @@ struct redisCommandArg CLIENT_NO_TOUCH_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
+/* CLIENT_NO_TOUCH_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_NO_TOUCH_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject CLIENT_NO_TOUCH_ReplySchema = {CLIENT_NO_TOUCH_ReplySchema_elements,.length=1};
+
+#else
+
+struct jsonObject CLIENT_NO_TOUCH_ReplySchema = {0};
+
+#endif
+
 /********** CLIENT PAUSE ********************/
 
 /* CLIENT PAUSE history */
@@ -2455,6 +2470,156 @@ struct jsonObject CLIENT_TRACKING_ReplySchema = {0};
 /* CLIENT TRACKINGINFO tips */
 #define CLIENT_TRACKINGINFO_tips NULL
 
+#ifdef LOG_REQ_RES
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_0 reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="off"},
+{JSON_TYPE_STRING,"description",.value.string="The connection isn't using server assisted client side caching."},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_0 = {CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_0_elements,.length=2};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_1 reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="on"},
+{JSON_TYPE_STRING,"description",.value.string="Server assisted client side caching is enabled for the connection."},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_1 = {CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_1_elements,.length=2};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_2 reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_2_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="bcast"},
+{JSON_TYPE_STRING,"description",.value.string="The client uses broadcasting mode."},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_2 = {CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_2_elements,.length=2};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_3 reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_3_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="optin"},
+{JSON_TYPE_STRING,"description",.value.string="The client does not cache keys by default."},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_3 = {CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_3_elements,.length=2};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_4 reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_4_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="optout"},
+{JSON_TYPE_STRING,"description",.value.string="The client caches keys by default."},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_4 = {CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_4_elements,.length=2};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_5 reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_5_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="caching-yes"},
+{JSON_TYPE_STRING,"description",.value.string="The next command will cache keys (exists only together with optin)."},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_5 = {CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_5_elements,.length=2};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_6 reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_6_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="caching-no"},
+{JSON_TYPE_STRING,"description",.value.string="The next command won't cache keys (exists only together with optout)."},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_6 = {CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_6_elements,.length=2};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_7 reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_7_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="noloop"},
+{JSON_TYPE_STRING,"description",.value.string="The client isn't notified about keys modified by itself."},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_7 = {CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_7_elements,.length=2};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_8 reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_8_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="broken_redirect"},
+{JSON_TYPE_STRING,"description",.value.string="The client ID used for redirection isn't valid anymore."},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_8 = {CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_8_elements,.length=2};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf array reply schema */
+struct jsonObject *CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf[] = {
+&CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_0,
+&CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_1,
+&CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_2,
+&CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_3,
+&CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_4,
+&CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_5,
+&CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_6,
+&CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_7,
+&CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf_8,
+};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_oneOf,.length=9}},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items = {CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items_elements,.length=1};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_flags reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_flags_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&CLIENT_TRACKINGINFO_ReplySchema_properties_flags_items},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_flags = {CLIENT_TRACKINGINFO_ReplySchema_properties_flags_elements,.length=2};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_redirect reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_redirect_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The client ID used for notifications redirection, or -1 when none."},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_redirect = {CLIENT_TRACKINGINFO_ReplySchema_properties_redirect_elements,.length=2};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_prefixes_items reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_prefixes_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_prefixes_items = {CLIENT_TRACKINGINFO_ReplySchema_properties_prefixes_items_elements,.length=1};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties_prefixes reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_prefixes_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of key prefixes for which notifications are sent to the client."},
+{JSON_TYPE_OBJECT,"items",.value.object=&CLIENT_TRACKINGINFO_ReplySchema_properties_prefixes_items},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties_prefixes = {CLIENT_TRACKINGINFO_ReplySchema_properties_prefixes_elements,.length=3};
+
+/* CLIENT_TRACKINGINFO_ReplySchema_properties reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_properties_elements[] = {
+{JSON_TYPE_OBJECT,"flags",.value.object=&CLIENT_TRACKINGINFO_ReplySchema_properties_flags},
+{JSON_TYPE_OBJECT,"redirect",.value.object=&CLIENT_TRACKINGINFO_ReplySchema_properties_redirect},
+{JSON_TYPE_OBJECT,"prefixes",.value.object=&CLIENT_TRACKINGINFO_ReplySchema_properties_prefixes},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema_properties = {CLIENT_TRACKINGINFO_ReplySchema_properties_elements,.length=3};
+
+/* CLIENT_TRACKINGINFO_ReplySchema reply schema */
+struct jsonObjectElement CLIENT_TRACKINGINFO_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&CLIENT_TRACKINGINFO_ReplySchema_properties},
+};
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema = {CLIENT_TRACKINGINFO_ReplySchema_elements,.length=3};
+
+#else
+
+struct jsonObject CLIENT_TRACKINGINFO_ReplySchema = {0};
+
+#endif
+
 /********** CLIENT UNBLOCK ********************/
 
 /* CLIENT UNBLOCK history */
@@ -2548,12 +2713,12 @@ struct redisCommand CLIENT_Subcommands[] = {
 {"kill","Kill the connection of a client","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_KILL_History,CLIENT_KILL_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_KILL_Args,.reply_schema=&CLIENT_KILL_ReplySchema},
 {"list","Get the list of client connections","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_LIST_History,CLIENT_LIST_tips,clientCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_LIST_Args,.reply_schema=&CLIENT_LIST_ReplySchema},
 {"no-evict","Set client eviction mode for the current connection","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_NO_EVICT_History,CLIENT_NO_EVICT_tips,clientCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_NO_EVICT_Args,.reply_schema=&CLIENT_NO_EVICT_ReplySchema},
-{"no-touch","Controls whether commands sent by the client will alter the LRU/LFU of the keys they access.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_NO_TOUCH_History,CLIENT_NO_TOUCH_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_NO_TOUCH_Args},
+{"no-touch","Controls whether commands sent by the client will alter the LRU/LFU of the keys they access.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_NO_TOUCH_History,CLIENT_NO_TOUCH_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_NO_TOUCH_Args,.reply_schema=&CLIENT_NO_TOUCH_ReplySchema},
 {"pause","Stop processing commands from clients for some time","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,CLIENT_PAUSE_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_PAUSE_Args,.reply_schema=&CLIENT_PAUSE_ReplySchema},
 {"reply","Instruct the server whether to reply to commands","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,CLIENT_REPLY_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_REPLY_Args,.reply_schema=&CLIENT_REPLY_ReplySchema},
 {"setname","Set the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,CLIENT_SETNAME_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETNAME_Args,.reply_schema=&CLIENT_SETNAME_ReplySchema},
 {"tracking","Enable or disable server assisted client side caching support","O(1). Some options may introduce additional complexity.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_History,CLIENT_TRACKING_tips,clientCommand,-3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_TRACKING_Args,.reply_schema=&CLIENT_TRACKING_ReplySchema},
-{"trackinginfo","Return information about server assisted client side caching for the current connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_History,CLIENT_TRACKINGINFO_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
+{"trackinginfo","Return information about server assisted client side caching for the current connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_History,CLIENT_TRACKINGINFO_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.reply_schema=&CLIENT_TRACKINGINFO_ReplySchema},
 {"unblock","Unblock a client blocked in a blocking command from a different connection","O(log N) where N is the number of client connections","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_UNBLOCK_History,CLIENT_UNBLOCK_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_UNBLOCK_Args,.reply_schema=&CLIENT_UNBLOCK_ReplySchema},
 {"unpause","Resume processing of clients that were paused","O(N) Where N is the number of paused clients","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_UNPAUSE_History,CLIENT_UNPAUSE_tips,clientCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.reply_schema=&CLIENT_UNPAUSE_ReplySchema},
 {0}
@@ -8820,6 +8985,144 @@ struct redisCommandArg FUNCTION_LIST_Args[] = {
 {0}
 };
 
+#ifdef LOG_REQ_RES
+
+/* FUNCTION_LIST_ReplySchema_items_properties_library_name reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_library_name_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string=" the name of the library"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_library_name = {FUNCTION_LIST_ReplySchema_items_properties_library_name_elements,.length=2};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_engine reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_engine_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the engine of the library"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_engine = {FUNCTION_LIST_ReplySchema_items_properties_engine_elements,.length=2};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_name reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_name_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the name of the function"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_name = {FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_name_elements,.length=2};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf_0 reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf_0 = {FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf_0_elements,.length=1};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf_1 reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf_1 = {FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf_1_elements,.length=1};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf array reply schema */
+struct jsonObject *FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf[] = {
+&FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf_0,
+&FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf_1,
+};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the function's description"},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_oneOf,.length=2}},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description = {FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description_elements,.length=2};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_flags_items reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_flags_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_flags_items = {FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_flags_items_elements,.length=1};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_flags reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_flags_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="an array of function flags"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_flags_items},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_flags = {FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_flags_elements,.length=3};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_elements[] = {
+{JSON_TYPE_OBJECT,"name",.value.object=&FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_name},
+{JSON_TYPE_OBJECT,"description",.value.object=&FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_description},
+{JSON_TYPE_OBJECT,"flags",.value.object=&FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_flags},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties = {FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties_elements,.length=3};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_functions_items reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_functions_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&FUNCTION_LIST_ReplySchema_items_properties_functions_items_properties},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_functions_items = {FUNCTION_LIST_ReplySchema_items_properties_functions_items_elements,.length=3};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_functions reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_functions_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="the list of functions in the library"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&FUNCTION_LIST_ReplySchema_items_properties_functions_items},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_functions = {FUNCTION_LIST_ReplySchema_items_properties_functions_elements,.length=3};
+
+/* FUNCTION_LIST_ReplySchema_items_properties_library_code reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_library_code_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="he library's source code (when given the WITHCODE modifier)."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties_library_code = {FUNCTION_LIST_ReplySchema_items_properties_library_code_elements,.length=2};
+
+/* FUNCTION_LIST_ReplySchema_items_properties reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_properties_elements[] = {
+{JSON_TYPE_OBJECT,"library_name",.value.object=&FUNCTION_LIST_ReplySchema_items_properties_library_name},
+{JSON_TYPE_OBJECT,"engine",.value.object=&FUNCTION_LIST_ReplySchema_items_properties_engine},
+{JSON_TYPE_OBJECT,"functions",.value.object=&FUNCTION_LIST_ReplySchema_items_properties_functions},
+{JSON_TYPE_OBJECT,"library_code",.value.object=&FUNCTION_LIST_ReplySchema_items_properties_library_code},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items_properties = {FUNCTION_LIST_ReplySchema_items_properties_elements,.length=4};
+
+/* FUNCTION_LIST_ReplySchema_items reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&FUNCTION_LIST_ReplySchema_items_properties},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema_items = {FUNCTION_LIST_ReplySchema_items_elements,.length=3};
+
+/* FUNCTION_LIST_ReplySchema reply schema */
+struct jsonObjectElement FUNCTION_LIST_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&FUNCTION_LIST_ReplySchema_items},
+};
+
+struct jsonObject FUNCTION_LIST_ReplySchema = {FUNCTION_LIST_ReplySchema_elements,.length=2};
+
+#else
+
+struct jsonObject FUNCTION_LIST_ReplySchema = {0};
+
+#endif
+
 /********** FUNCTION LOAD ********************/
 
 /* FUNCTION LOAD history */
@@ -9065,7 +9368,7 @@ struct redisCommand FUNCTION_Subcommands[] = {
 {"flush","Deleting all functions","O(N) where N is the number of functions deleted","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_FLUSH_History,FUNCTION_FLUSH_tips,functionFlushCommand,-2,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_FLUSH_Args,.reply_schema=&FUNCTION_FLUSH_ReplySchema},
 {"help","Show helpful text about the different subcommands","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_HELP_History,FUNCTION_HELP_tips,functionHelpCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_SCRIPTING,.reply_schema=&FUNCTION_HELP_ReplySchema},
 {"kill","Kill the function currently in execution.","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_KILL_History,FUNCTION_KILL_tips,functionKillCommand,2,CMD_NOSCRIPT|CMD_ALLOW_BUSY,ACL_CATEGORY_SCRIPTING,.reply_schema=&FUNCTION_KILL_ReplySchema},
-{"list","List information about all the functions","O(N) where N is the number of functions","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LIST_History,FUNCTION_LIST_tips,functionListCommand,-2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_LIST_Args},
+{"list","List information about all the functions","O(N) where N is the number of functions","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LIST_History,FUNCTION_LIST_tips,functionListCommand,-2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_LIST_Args,.reply_schema=&FUNCTION_LIST_ReplySchema},
 {"load","Create a function with the given arguments (name, code, description)","O(1) (considering compilation time is redundant)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LOAD_History,FUNCTION_LOAD_tips,functionLoadCommand,-3,CMD_NOSCRIPT|CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_LOAD_Args,.reply_schema=&FUNCTION_LOAD_ReplySchema},
 {"restore","Restore all the functions on the given payload","O(N) where N is the number of functions on the payload","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_RESTORE_History,FUNCTION_RESTORE_tips,functionRestoreCommand,-3,CMD_NOSCRIPT|CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_RESTORE_Args,.reply_schema=&FUNCTION_RESTORE_ReplySchema},
 {"stats","Return information about the function currently running (name, description, duration)","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_STATS_History,FUNCTION_STATS_tips,functionStatsCommand,2,CMD_NOSCRIPT|CMD_ALLOW_BUSY,ACL_CATEGORY_SCRIPTING,.reply_schema=&FUNCTION_STATS_ReplySchema},
