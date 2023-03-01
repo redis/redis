@@ -46,7 +46,7 @@
             }
         ],
         "reply_schema": {
-            "anyOf": [
+            "oneOf": [
                 {
                     "description": "key was moved",
                     "const": 1

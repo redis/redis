@@ -36,7 +36,7 @@
             }
         ],
         "reply_schema": {
-            "anyOf": [
+            "oneOf": [
                 {
                     "description": "Key doesn't exist",
                     "type": "null"
@@ -50,7 +50,8 @@
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "minItems": 1
                 },
                 {
                     "description": "Fields and their values. Returned in case `COUNT` and `WITHVALUES` were used.",
@@ -70,7 +71,8 @@
                                 "type": "string"
                             }
                         ]
-                    }
+                    },
+                    "minItems": 1
                 }
             ]
         },
@@ -81,7 +83,7 @@
                 "key_spec_index": 0
             },
             {
-                "name": "options",
+                "name": "options",b
                 "type": "block",
                 "optional": true,
                 "arguments": [

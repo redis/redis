@@ -28,7 +28,7 @@
             "description": "An array of integers that correspond to the specified SHA1 digest arguments.",
             "type": "array",
             "items": {
-                "anyOf": [
+                "oneOf": [
                     {
                         "description": "sha1 hash exists in script cache",
                         "const": 1

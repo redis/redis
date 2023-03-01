@@ -34,13 +34,20 @@
             }
         ],
         "reply_schema": {
-            "anyOf": [
+            "oneOf": [
+                {
+                    "description": "when there is no difference between the sets",
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 0
+                },
                 {
                     "description": "A list of members. Returned in case `WITHSCORES` was not used.",
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "minItems": 1
                 },
                 {
                     "description": "Members and their scores. Returned in case `WITHSCORES` was used.",
@@ -60,7 +67,8 @@
                                 "type": "number"
                             }
                         ]
-                    }
+                    },
+                    "minItems": 1
                 }
             ]
         },

@@ -71,7 +71,7 @@
             }
         ],
         "reply_schema": {
-            "anyOf": [
+            "oneOf": [
                 {
                     "description": "key was renamed to newkey",
                     "const": 1

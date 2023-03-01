@@ -39,14 +39,21 @@
             }
         ],
         "reply_schema": {
-            "anyOf": [
+            "oneOf": [
+                {
+                    "description": "empty array when key does not exist",
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 0
+                },
                 {
                     "description": "A list of member elements",
                     "type": "array",
                     "uniqueItems": true,
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "minItems": 1
                 },
                 {
                     "description": "Members and their scores. Returned in case `WITHSCORES` was used.",
@@ -67,7 +74,8 @@
                                 "type": "number"
                             }
                         ]
-                    }
+                    },
+                    "minItems": 1
                 }
             ]
         },

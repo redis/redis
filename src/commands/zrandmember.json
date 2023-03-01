@@ -36,7 +36,7 @@
             }
         ],
         "reply_schema": {
-            "anyOf": [
+            "oneOf": [
                 {
                     "type": "null",
                     "description": "Key does not exist."
@@ -47,10 +47,17 @@
                 },
                 {
                     "type": "array",
+                    "description": "empty array when count is used and key does not exist",
+                    "minItems": 0,
+                    "maxItems": 0
+                },
+                {
+                    "type": "array",
                     "description": "Randomly selected elements when 'COUNT' is used.",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "minItems": 1
                 },
                 {
                     "type": "array",
@@ -68,7 +75,8 @@
                                 "description": "Score."
                             }
                         ]
-                    }
+                    },
+                    "minItems": 1
                 }
             ]
         },

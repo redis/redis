@@ -34,17 +34,27 @@
             }
         ],
         "reply_schema": {
-            "type": "array",
-            "uniqueItems": true,
-            "items": {
-                "oneOf": [
-                    {
-                        "type": "string",
-                        "description": "The result of union when 'WITHSCORES' is not used."
-                    },
-                    {
+            "oneOf": [
+                {
+                    "description": "the empty array union when both sets do not exist",
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 0
+                },
+                {
+                    "description": "The result of union when 'WITHSCORES' is not used.",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                {
+                    "description": "The result of union when 'WITHSCORES' is used.",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
                         "type": "array",
-                        "description": "The result of union when 'WITHSCORES' is used.",
                         "minItems": 2,
                         "maxItems": 2,
                         "additionalItems": false,
@@ -57,8 +67,8 @@
                             }
                         ]
                     }
-                ]
-            }
+                }
+            ]
         },
         "arguments": [
             {
