@@ -363,19 +363,19 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
     int maxtries = 100;
-    dict *randomDict = getRandomDict(db);
+    int allvolatile = dbSize(db) == dictSize(db->expires);
 
     while(1) {
         sds key;
         robj *keyobj;
-
+        dict *randomDict = getRandomDict(db);
         de = dictGetFairRandomKey(randomDict);
         if (de == NULL) return NULL; // TODO consider other non-empty slot buckets.
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
         if (dictFind(db->expires,key)) {
-            if (server.masterhost && --maxtries == 0) {
+            if (allvolatile && server.masterhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
                  * expired in the slave, so the function cannot stop because
