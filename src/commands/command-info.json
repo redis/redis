@@ -104,93 +104,96 @@
                                             "type": "array",
                                             "items": {
                                                 "type": "string"
-                                            },
-                                            "begin_search": {
-                                                "type": "object",
-                                                "additionalProperties": false,
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string"
-                                                    },
-                                                    "spec": {
-                                                        "oneOf": [
-                                                            {
-                                                                "description": "unknown type, empty map",
-                                                                "type": "object",
-                                                                "additionalProperties": false
-                                                            },
-                                                            {
-                                                                "description": "index type",
-                                                                "type": "object",
-                                                                "properties": {
-                                                                    "index": {
-                                                                        "type":  "integer"
-                                                                    }
-                                                                },
-                                                                "additionalProperties": false
-                                                            },
-                                                            {
-                                                                "description": "keyword type",
-                                                                "type": "object",
-                                                                "properties": {
-                                                                    "keyword": {
-                                                                        "type": "string"
-                                                                    },
-                                                                    "startsfrom": {
-                                                                        "type": "integer"
-                                                                    }
-                                                                },
-                                                                "additionalProperties": false
+                                            }
+                                        },
+                                        "begin_search": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "type": {
+                                                    "type": "string"
+                                                },
+                                                "spec": {
+                                                    "anyOf": [
+                                                        {
+                                                            "description": "unknown type, empty map",
+                                                            "type": "object",
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "description": "index type",
+                                                            "type": "object",
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "index": {
+                                                                    "type": "integer"
+                                                                }
                                                             }
-                                                        ]
-                                                    }
+                                                        },
+                                                        {
+                                                            "description": "keyword type",
+                                                            "type": "object",
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "keyword": {
+                                                                    "type": "string"
+                                                                },
+                                                                "startfrom": {
+                                                                    "type": "integer"
+                                                                }
+                                                            }
+                                                        }
+                                                    ]
                                                 }
-                                            },
-                                            "find_keys": {
-                                                "type": "object",
-                                                "additionalProperties": false,
-                                                "properties": {
-                                                    "spec": {
-                                                        "oneOf": [
-                                                            {
-                                                                "description": "unknown type",
-                                                                "type": "object",
-                                                                "additionalProperties": false
-                                                            },
-                                                            {
-                                                                "description": "range type",
-                                                                "type": "object",
-                                                                "properties": {
-                                                                    "lastkey": {
-                                                                        "type": "integer"
-                                                                    },
-                                                                    "keystep": {
-                                                                        "type": "integer"
-                                                                    },
-                                                                    "limit": {
-                                                                        "type": "integer"
-                                                                    }
+                                            }
+                                        },
+                                        "find_keys": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "type": {
+                                                    "type": "string"
+                                                },
+                                                "spec": {
+                                                    "anyOf": [
+                                                        {
+                                                            "description": "unknown type",
+                                                            "type": "object",
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "description": "range type",
+                                                            "type": "object",
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "lastkey": {
+                                                                    "type": "integer"
                                                                 },
-                                                                "additionalProperties": false
-                                                            },
-                                                            {
-                                                                "description": "keynum type",
-                                                                "type": "object",
-                                                                "properties": {
-                                                                    "keynumidx": {
-                                                                        "type": "integer"
-                                                                    },
-                                                                    "firstkey": {
-                                                                        "type": "integer"
-                                                                    },
-                                                                    "keystep": {
-                                                                        "type": "integer"
-                                                                    }
+                                                                "keystep": {
+                                                                    "type": "integer"
                                                                 },
-                                                                "additionalProperties": false
+                                                                "limit": {
+                                                                    "type": "integer"
+                                                                }
                                                             }
-                                                        ]
-                                                    }
+                                                        },
+                                                        {
+                                                            "description": "keynum type",
+                                                            "type": "object",
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "keynumidx": {
+                                                                    "type": "integer"
+                                                                },
+                                                                "firstkey": {
+                                                                    "type": "integer"
+                                                                },
+                                                                "keystep": {
+                                                                    "type": "integer"
+                                                                }
+                                                            }
+                                                        }
+                                                    ]
                                                 }
                                             }
                                         }
