@@ -1720,12 +1720,13 @@ struct jsonObject *CLUSTER_SLOTS_ReplySchema_items_items_2_items[] = {
 /* CLUSTER_SLOTS_ReplySchema_items_items_2 reply schema */
 struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_items_2_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Master node for the slot range"},
 {JSON_TYPE_INTEGER,"minItems",.value.integer=4},
 {JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
 {JSON_TYPE_ARRAY,"items",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_items_2_items,.length=4}},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2 = {CLUSTER_SLOTS_ReplySchema_items_items_2_elements,.length=4};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_items_2 = {CLUSTER_SLOTS_ReplySchema_items_items_2_elements,.length=5};
 
 /* CLUSTER_SLOTS_ReplySchema_items_items array reply schema */
 struct jsonObject *CLUSTER_SLOTS_ReplySchema_items_items[] = {
@@ -1734,15 +1735,113 @@ struct jsonObject *CLUSTER_SLOTS_ReplySchema_items_items[] = {
 &CLUSTER_SLOTS_ReplySchema_items_items_2,
 };
 
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf_0 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="hostname or ip"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf_0 = {CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf_0_elements,.length=2};
+
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf_1 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="unknown type"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf_1 = {CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf_1_elements,.length=2};
+
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf array reply schema */
+struct jsonObject *CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf[] = {
+&CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf_0,
+&CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf_1,
+};
+
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="endpoint description"},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_oneOf,.length=2}},
+};
+
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0 = {CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0_elements,.length=2};
+
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_1 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="port"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_1 = {CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_1_elements,.length=2};
+
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_2 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="node name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_2 = {CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_2_elements,.length=2};
+
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_hostname reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_hostname_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_hostname = {CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_hostname_elements,.length=1};
+
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_ip reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_ip_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_ip = {CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_ip_elements,.length=1};
+
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_elements[] = {
+{JSON_TYPE_OBJECT,"hostname",.value.object=&CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_hostname},
+{JSON_TYPE_OBJECT,"ip",.value.object=&CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_ip},
+};
+
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties = {CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties_elements,.length=2};
+
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3 reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="array of node descriptions"},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_properties},
+};
+
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3 = {CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3_elements,.length=4};
+
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems_items array reply schema */
+struct jsonObject *CLUSTER_SLOTS_ReplySchema_items_additionalItems_items[] = {
+&CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_0,
+&CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_1,
+&CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_2,
+&CLUSTER_SLOTS_ReplySchema_items_additionalItems_items_3,
+};
+
+/* CLUSTER_SLOTS_ReplySchema_items_additionalItems reply schema */
+struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_additionalItems_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Replica node for the slot range"},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=4},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_additionalItems_items,.length=4}},
+};
+
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems = {CLUSTER_SLOTS_ReplySchema_items_additionalItems_elements,.length=5};
+
 /* CLUSTER_SLOTS_ReplySchema_items reply schema */
 struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_INTEGER,"minItems",.value.integer=3},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=3},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
 {JSON_TYPE_ARRAY,"items",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_items,.length=3}},
+{JSON_TYPE_OBJECT,"additionalItems",.value.object=&CLUSTER_SLOTS_ReplySchema_items_additionalItems},
 };
 
-struct jsonObject CLUSTER_SLOTS_ReplySchema_items = {CLUSTER_SLOTS_ReplySchema_items_elements,.length=4};
+struct jsonObject CLUSTER_SLOTS_ReplySchema_items = {CLUSTER_SLOTS_ReplySchema_items_elements,.length=5};
 
 /* CLUSTER_SLOTS_ReplySchema reply schema */
 struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_elements[] = {
