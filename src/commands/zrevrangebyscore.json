@@ -46,7 +46,7 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "description": "empty response when no elements are returned",
+                    "description": "Empty response when no elements are returned",
                     "type": "array",
                     "minItems": 0,
                     "maxItems": 0

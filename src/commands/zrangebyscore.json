@@ -46,6 +46,12 @@
         "reply_schema": {
             "oneOf": [
                 {
+                    "description": "Empty response when no elements are returned",
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 0
+                },
+                {
                     "type": "array",
                     "description": "List of the elements in the specified score range, as not WITHSCORES",
                     "uniqueItems": true,
