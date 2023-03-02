@@ -47,7 +47,8 @@
                     "uniqueItems": true,
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "minItems": 1
                 },
                 {
                     "description": "The result of union when 'WITHSCORES' is used.",
@@ -66,7 +67,8 @@
                                 "type": "number"
                             }
                         ]
-                    }
+                    },
+                    "minItems": 1
                 }
             ]
         },
