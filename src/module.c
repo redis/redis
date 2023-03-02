@@ -7966,9 +7966,8 @@ void moduleHandleBlockedClients(void) {
          * when the client is reprocessed. */
         if (c && clientHasModuleAuthInProgress(c)) {
             c->module_blocked_client = bc;
-        }
-        /* Free privdata if any. */
-        else {
+        } else {
+            /* Free privdata if any. */
             moduleInvokeFreePrivDataCallback(c, bc);
         }
 
