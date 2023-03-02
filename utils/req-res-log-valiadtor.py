@@ -44,6 +44,20 @@ Future validations:
 1. Fail the script if one or more of the branches of the reply schema (e.g. oneOf, anyOf) was not hit.
 """
 
+IGNORED_COMMANDS = [
+    "sync",
+    "psync",
+    "monitor",
+    "subscribe",
+    "unsubscribe",
+    "ssubscribe",
+    "sunsubscribe",
+    "psubscribe",
+    "punsubscribe",
+    "debug",
+    "pfdebug"
+]
+
 
 class Request(object):
     """
@@ -260,9 +274,9 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=6534)
     parser.add_argument('--cli', type=str, default='%s/redis-cli' % srcdir)
     parser.add_argument('--module', type=str, action='append', default=[])
-    parser.add_argument('--verbose', type=bool, default=False)
-    parser.add_argument('--fail-commands-not-all-hit', type=bool, default=False)
-    parser.add_argument('--fail-missing-reply-schemas', type=bool, default=False)
+    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--fail-commands-not-all-hit', action='store_true')
+    parser.add_argument('--fail-missing-reply-schemas', action='store_true')
     args = parser.parse_args()
 
     docs = dict()
@@ -275,7 +289,8 @@ if __name__ == '__main__':
 
     fetch_schemas(args.cli, args.port, redis_args, docs)
 
-    missing_schema = [k for k, v in docs.items() if "reply_schema" not in v]
+    missing_schema = [k for k, v in docs.items()
+                      if "reply_schema" not in v and k not in IGNORED_COMMANDS ]
     if missing_schema:
         print("WARNING! The following commands are missing a reply_schema:")
         for k in sorted(missing_schema):

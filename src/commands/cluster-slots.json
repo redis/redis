@@ -33,6 +33,8 @@
             "type": "array",
             "items": {
                 "type": "array",
+                "minItems": 3,
+                "maxItems": 4294967295,
                 "items": [
                     {
                         "description": "start slot number",
@@ -44,6 +46,9 @@
                     },
                     {
                         "type": "array",
+                        "description": "Master node for the slot range",
+                        "minItems": 4,
+                        "maxItems": 4,
                         "items": [
                             {
                                 "description": "endpoint description",
@@ -81,7 +86,49 @@
                             }
                         ]
                     }
-                ]
+                ],
+                "additionalItems": {
+                    "type": "array",
+                    "description": "Replica node for the slot range",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": [
+                        {
+                            "description": "endpoint description",
+                            "oneOf": [
+                                {
+                                    "description": "hostname or ip",
+                                    "type": "string"
+                                },
+                                {
+                                    "description": "unknown type",
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        {
+                            "description": "port",
+                            "type": "integer"
+                        },
+                        {
+                            "description": "node name",
+                            "type": "string"
+                        },
+                        {
+                            "description": "array of node descriptions",
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "hostname": {
+                                    "type": "string"
+                                },
+                                "ip": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    ]
+                }
             }
         }
     }

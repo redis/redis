@@ -35,13 +35,15 @@
             }
         ],
         "reply_schema": {
-            "oneof": [
+            "anyOf": [
                 {
                     "description": "If no element could be popped.",
                     "type": "null"
                 },
                 {
                     "description": "List key from which elements were popped.",
+                    "minItems": 2,
+                    "maxItems": 2,
                     "items": [
                         {
                             "description": "Name of the key from which elements were popped.",

@@ -55,6 +55,8 @@
                             "items": {
                                 "type": "array",
                                 "uniqueItems": true,
+                                "minItems": 2,
+                                "maxItems": 2,
                                 "items": [
                                     {
                                         "type": "string",

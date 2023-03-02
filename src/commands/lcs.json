@@ -44,34 +44,41 @@
                 },
                 {
                     "type": "object",
-                    "description":  "Array with the LCS length and all the ranges in both the strings when 'IDX' is given.",
+                    "description": "Array with the LCS length and all the ranges in both the strings when 'IDX' is given.",
                     "notes": "In RESP2 this is returned as a flat array",
                     "additionalProperties": false,
                     "properties": {
                         "matches": {
                             "type": "array",
-                            "items": [
-                                {
-                                    "type": "array",
-                                    "items": {
-                                        "oneOf": [
-                                            {
-                                                "type": "array",
-                                                "description": "Ranges.",
-                                                "minItems": 2,
-                                                "maxItems": 2,
-                                                "items": {
-                                                    "type": "integer"
-                                                }
-                                            },
-                                            {
-                                                "type": "integer",
-                                                "description": "The length of the match when 'WITHMATCHLEN' is given."
-                                            }
-                                        ]
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 3,
+                                "items": [
+                                    {
+                                        "type": "array",
+                                        "description": "Matched range in the first string.",
+                                        "minItems": 2,
+                                        "maxItems": 2,
+                                        "items": {
+                                            "type": "integer"
+                                        }
+                                    },
+                                    {
+                                        "type": "array",
+                                        "description": "Matched range in the second string.",
+                                        "minItems": 2,
+                                        "maxItems": 2,
+                                        "items": {
+                                            "type": "integer"
+                                        }
                                     }
+                                ],
+                                "additionalItems": {
+                                    "type": "integer",
+                                    "description": "The length of the match when 'WITHMATCHLEN' is given."
                                 }
-                            ]
+                            }
                         },
                         "len": {
                             "type": "integer",

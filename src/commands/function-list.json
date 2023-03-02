@@ -16,7 +16,7 @@
         "acl_categories": [
             "SCRIPTING"
         ],
-        "reply_schama": {
+        "reply_schema": {
             "type": "array",
             "items": {
                 "type": "object",
