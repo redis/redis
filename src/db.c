@@ -594,7 +594,7 @@ void signalFlushedDb(int dbid, int async) {
         startdb = enddb = dbid;
     }
     if (async)
-        msgobj = createStringObject("async",sizeof("async")-1);
+        msgobj = createStringObject("async",strlen("async"));
     else
         msgobj  = createStringObject("sync",sizeof("sync")-1);
 
