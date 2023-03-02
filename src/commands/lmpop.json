@@ -35,7 +35,7 @@
             }
         ],
         "reply_schema": {
-            "oneOf": [
+            "anyOf": [
                 {
                     "description": "If no element could be popped.",
                     "type": "null"
