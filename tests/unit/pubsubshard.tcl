@@ -40,7 +40,7 @@ start_server {tags {"pubsubshard external:skip"}} {
         $rd2 close
     }
 
-    test "PUBLISH/SUBSCRIBE after UNSUBSCRIBE without arguments" {
+    test "SPUBLISH/SSUBSCRIBE after UNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
         assert_equal {1} [ssubscribe $rd1 {chan1}]
         assert_equal {2} [ssubscribe $rd1 {chan2}]
@@ -54,7 +54,7 @@ start_server {tags {"pubsubshard external:skip"}} {
         $rd1 close
     }
 
-    test "SUBSCRIBE to one channel more than once" {
+    test "SSUBSCRIBE to one channel more than once" {
         set rd1 [redis_deferring_client]
         assert_equal {1 1 1} [ssubscribe $rd1 {chan1 chan1 chan1}]
         assert_equal 1 [r SPUBLISH chan1 hello]
@@ -64,7 +64,7 @@ start_server {tags {"pubsubshard external:skip"}} {
         $rd1 close
     }
 
-    test "UNSUBSCRIBE from non-subscribed channels" {
+    test "SUNSUBSCRIBE from non-subscribed channels" {
         set rd1 [redis_deferring_client]
         assert_equal {0} [sunsubscribe $rd1 {foo}]
         assert_equal {0} [sunsubscribe $rd1 {bar}]
@@ -105,6 +105,30 @@ start_server {tags {"pubsubshard external:skip"}} {
         assert_equal "chan1 1" [r pubsub numsub chan1]
         assert_equal "chan1" [r pubsub shardchannels]
         assert_equal "chan1" [r pubsub channels]
+
+        $rd1 close
+        $rd2 close
+    }
+
+    foreach type {OFF SKIP} {
+        test "SPUBLISH/SSUBSCRIBE with CLIENT REPLY $type" {
+            set rd [redis_deferring_client]
+            $rd hello 3
+            $rd read ;# Discard the hello reply
+
+            assert_equal {1} [ssubscribe $rd channel]
+            $rd client reply $type
+            assert_equal 1 [r spublish channel hello]
+            assert_equal {smessage channel hello} [$rd read]
+
+            if {$type == "SKIP"} {
+                $rd ping pong1
+                $rd ping pong2
+                assert_equal {pong2} [$rd read]
+            }
+
+            $rd close
+        }
     }
 }
 

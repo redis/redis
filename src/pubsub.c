@@ -464,7 +464,19 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
         listRewind(list,&li);
         while ((ln = listNext(&li)) != NULL) {
             client *c = ln->value;
+            uint64_t old_flags = c->flags;
+
+            /* We do not want to disable the reply in Pub/Sub messages. */
+            c->flags &= ~(CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP);
+
             addReplyPubsubMessage(c,channel,message,*type.messageBulk);
+
+            /* Restore the old CLIENT_REPLY_* flags. */
+            if (old_flags & CLIENT_REPLY_OFF)
+                c->flags |= CLIENT_REPLY_OFF;
+            if (old_flags & CLIENT_REPLY_SKIP)
+                c->flags |= CLIENT_REPLY_SKIP;
+
             updateClientMemUsageAndBucket(c);
             receivers++;
         }

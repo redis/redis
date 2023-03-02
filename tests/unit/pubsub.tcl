@@ -146,6 +146,27 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
+    foreach type {OFF SKIP} {
+        test "PUBLISH/SUBSCRIBE with CLIENT REPLY $type" {
+            set rd [redis_deferring_client]
+            $rd hello 3
+            $rd read ;# Discard the hello reply
+
+            assert_equal {1} [subscribe $rd channel]
+            $rd client reply $type
+            assert_equal 1 [r publish channel hello]
+            assert_equal {message channel hello} [$rd read]
+
+            if {$type == "SKIP"} {
+                $rd ping pong1
+                $rd ping pong2
+                assert_equal {pong2} [$rd read]
+            }
+
+            $rd close
+        }
+    }
+
     test "PUNSUBSCRIBE from non-subscribed channels" {
         set rd1 [redis_deferring_client]
         assert_equal {0 0 0} [punsubscribe $rd1 {foo.* bar.* quux.*}]
