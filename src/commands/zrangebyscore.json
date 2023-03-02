@@ -58,7 +58,8 @@
                     "items": {
                         "type": "string",
                         "description": "Element when 'WITHSCORES' is not used."
-                    }
+                    },
+                    "minItems": 1
                 },
                 {
                     "type": "array",
@@ -76,7 +77,8 @@
                                 "type": "number"
                             }
                         ]
-                    }
+                    },
+                    "minItems": 1
                 }
             ]
         },
