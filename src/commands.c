@@ -1836,7 +1836,7 @@ struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems = {CLUSTER_SLO
 struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_INTEGER,"minItems",.value.integer=3},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=100000},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=4294967295},
 {JSON_TYPE_ARRAY,"items",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_items,.length=3}},
 {JSON_TYPE_OBJECT,"additionalItems",.value.object=&CLUSTER_SLOTS_ReplySchema_items_additionalItems},
 };
@@ -7702,64 +7702,64 @@ struct redisCommandArg LMPOP_Args[] = {
 
 #ifdef LOG_REQ_RES
 
-/* LMPOP_ReplySchema_oneOf_0 reply schema */
-struct jsonObjectElement LMPOP_ReplySchema_oneOf_0_elements[] = {
+/* LMPOP_ReplySchema_anyOf_0 reply schema */
+struct jsonObjectElement LMPOP_ReplySchema_anyOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="If no element could be popped."},
 {JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
-struct jsonObject LMPOP_ReplySchema_oneOf_0 = {LMPOP_ReplySchema_oneOf_0_elements,.length=2};
+struct jsonObject LMPOP_ReplySchema_anyOf_0 = {LMPOP_ReplySchema_anyOf_0_elements,.length=2};
 
-/* LMPOP_ReplySchema_oneOf_1_items_0 reply schema */
-struct jsonObjectElement LMPOP_ReplySchema_oneOf_1_items_0_elements[] = {
+/* LMPOP_ReplySchema_anyOf_1_items_0 reply schema */
+struct jsonObjectElement LMPOP_ReplySchema_anyOf_1_items_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Name of the key from which elements were popped."},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject LMPOP_ReplySchema_oneOf_1_items_0 = {LMPOP_ReplySchema_oneOf_1_items_0_elements,.length=2};
+struct jsonObject LMPOP_ReplySchema_anyOf_1_items_0 = {LMPOP_ReplySchema_anyOf_1_items_0_elements,.length=2};
 
-/* LMPOP_ReplySchema_oneOf_1_items_1_items reply schema */
-struct jsonObjectElement LMPOP_ReplySchema_oneOf_1_items_1_items_elements[] = {
+/* LMPOP_ReplySchema_anyOf_1_items_1_items reply schema */
+struct jsonObjectElement LMPOP_ReplySchema_anyOf_1_items_1_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject LMPOP_ReplySchema_oneOf_1_items_1_items = {LMPOP_ReplySchema_oneOf_1_items_1_items_elements,.length=1};
+struct jsonObject LMPOP_ReplySchema_anyOf_1_items_1_items = {LMPOP_ReplySchema_anyOf_1_items_1_items_elements,.length=1};
 
-/* LMPOP_ReplySchema_oneOf_1_items_1 reply schema */
-struct jsonObjectElement LMPOP_ReplySchema_oneOf_1_items_1_elements[] = {
+/* LMPOP_ReplySchema_anyOf_1_items_1 reply schema */
+struct jsonObjectElement LMPOP_ReplySchema_anyOf_1_items_1_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Array of popped elements."},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_INTEGER,"minItems",.value.integer=1},
-{JSON_TYPE_OBJECT,"items",.value.object=&LMPOP_ReplySchema_oneOf_1_items_1_items},
+{JSON_TYPE_OBJECT,"items",.value.object=&LMPOP_ReplySchema_anyOf_1_items_1_items},
 };
 
-struct jsonObject LMPOP_ReplySchema_oneOf_1_items_1 = {LMPOP_ReplySchema_oneOf_1_items_1_elements,.length=4};
+struct jsonObject LMPOP_ReplySchema_anyOf_1_items_1 = {LMPOP_ReplySchema_anyOf_1_items_1_elements,.length=4};
 
-/* LMPOP_ReplySchema_oneOf_1_items array reply schema */
-struct jsonObject *LMPOP_ReplySchema_oneOf_1_items[] = {
-&LMPOP_ReplySchema_oneOf_1_items_0,
-&LMPOP_ReplySchema_oneOf_1_items_1,
+/* LMPOP_ReplySchema_anyOf_1_items array reply schema */
+struct jsonObject *LMPOP_ReplySchema_anyOf_1_items[] = {
+&LMPOP_ReplySchema_anyOf_1_items_0,
+&LMPOP_ReplySchema_anyOf_1_items_1,
 };
 
-/* LMPOP_ReplySchema_oneOf_1 reply schema */
-struct jsonObjectElement LMPOP_ReplySchema_oneOf_1_elements[] = {
+/* LMPOP_ReplySchema_anyOf_1 reply schema */
+struct jsonObjectElement LMPOP_ReplySchema_anyOf_1_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="List key from which elements were popped."},
 {JSON_TYPE_INTEGER,"minItems",.value.integer=2},
 {JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=LMPOP_ReplySchema_oneOf_1_items,.length=2}},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=LMPOP_ReplySchema_anyOf_1_items,.length=2}},
 };
 
-struct jsonObject LMPOP_ReplySchema_oneOf_1 = {LMPOP_ReplySchema_oneOf_1_elements,.length=4};
+struct jsonObject LMPOP_ReplySchema_anyOf_1 = {LMPOP_ReplySchema_anyOf_1_elements,.length=4};
 
-/* LMPOP_ReplySchema_oneOf array reply schema */
-struct jsonObject *LMPOP_ReplySchema_oneOf[] = {
-&LMPOP_ReplySchema_oneOf_0,
-&LMPOP_ReplySchema_oneOf_1,
+/* LMPOP_ReplySchema_anyOf array reply schema */
+struct jsonObject *LMPOP_ReplySchema_anyOf[] = {
+&LMPOP_ReplySchema_anyOf_0,
+&LMPOP_ReplySchema_anyOf_1,
 };
 
 /* LMPOP_ReplySchema reply schema */
 struct jsonObjectElement LMPOP_ReplySchema_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=LMPOP_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=LMPOP_ReplySchema_anyOf,.length=2}},
 };
 
 struct jsonObject LMPOP_ReplySchema = {LMPOP_ReplySchema_elements,.length=1};
