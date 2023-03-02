@@ -596,7 +596,7 @@ void signalFlushedDb(int dbid, int async) {
     if (async)
         msgobj = createStringObject("async",strlen("async"));
     else
-        msgobj  = createStringObject("sync",sizeof("sync")-1);
+        msgobj = createStringObject("sync",strlen("sync"));
 
     for (int j = startdb; j <= enddb; j++) {
         scanDatabaseForDeletedKeys(&server.db[j], NULL);
