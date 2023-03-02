@@ -46,7 +46,7 @@
                     "type": "string"
                 },
                 {
-                    "descrption": "Empty array when using COUNT of 0",
+                    "description": "Empty array when using COUNT of 0",
                     "type": "array",
                     "minItems": 0,
                     "maxItems": 0
