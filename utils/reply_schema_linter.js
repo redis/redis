@@ -24,8 +24,8 @@ var files = fs.readdirSync(schema_directory_path);
 jsonFiles = files.filter(el => path.extname(el) === '.json')
 var error_status = false
 jsonFiles.forEach(function(file){
-    validate_schema(file)
-    error_status = true
+    if (validate_schema(file))
+        error_status = true
 })
 if (error_status)
     process.exit(1)
