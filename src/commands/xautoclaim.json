@@ -43,7 +43,7 @@
             }
         ],
         "reply_schema": {
-            "oneOf": [
+            "anyOf": [
                 {
                     "description": "Claimed stream entries (with data, if `JUSTID` was not given).",
                     "type": "array",
