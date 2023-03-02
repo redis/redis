@@ -7447,7 +7447,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
 /* This API registers a callback to execute in addition to normal password based authentication.
  * Multiple callbacks can be registered across different modules. When a Module is unloaded, all the
  * auth callbacks registered by it are unregistered.
- * The callbacks are attempted, in the order they were registered, when the AUTH/HELLO
+ * The callbacks are attempted (in the order of most recently registered first) when the AUTH/HELLO
  * (with AUTH field is provided) commands are called.
  * The callbacks will be called with a module context along with a username and a password, and are
  * expected to take one of the following actions:
@@ -7504,7 +7504,7 @@ void RM_RegisterCustomAuthCallback(RedisModuleCtx *ctx, RedisModuleCustomAuthCal
     RedisModuleCustomAuthCtx *auth_ctx = zmalloc(sizeof(RedisModuleCustomAuthCtx));
     auth_ctx->module = ctx->module;
     auth_ctx->auth_cb = cb;
-    listAddNodeTail(moduleCustomAuthCallbacks, auth_ctx);
+    listAddNodeHead(moduleCustomAuthCallbacks, auth_ctx);
 }
 
 /* Helper function to invoke the free private data callback of a Module blocked client. */

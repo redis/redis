@@ -14,9 +14,9 @@ start_server {tags {"modules"}} {
     set hello3_response [r HELLO 3]
 
     test {test registering custom auth callbacks} {
-        assert_equal {OK} [r testmoduleone.rm_register_auth_cb]
-        assert_equal {OK} [r testmoduletwo.rm_register_auth_cb]
         assert_equal {OK} [r testmoduleone.rm_register_blocking_auth_cb]
+        assert_equal {OK} [r testmoduletwo.rm_register_auth_cb]
+        assert_equal {OK} [r testmoduleone.rm_register_auth_cb]
     }
 
     test {test custom AUTH for non existing / disabled users} {
@@ -156,8 +156,8 @@ start_server {tags {"modules"}} {
         r config resetstat
 
         # Register two more callbacks from the same module.
-        assert_equal {OK} [r testmoduleone.rm_register_auth_cb]
         assert_equal {OK} [r testmoduleone.rm_register_blocking_auth_cb]
+        assert_equal {OK} [r testmoduleone.rm_register_auth_cb]
 
         # Register another custom auth callback from the second module.
         assert_equal {OK} [r testmoduletwo.rm_register_auth_cb]
@@ -310,8 +310,8 @@ start_server {tags {"modules"}} {
 
         # Validate that we allow modules to register custom auth cbs while custom auth is already
         # in progress.
-        assert_equal {OK} [r testmoduletwo.rm_register_auth_cb]
         assert_equal {OK} [r testmoduleone.rm_register_blocking_auth_cb]
+        assert_equal {OK} [r testmoduletwo.rm_register_auth_cb]
 
         # Validate that blocking custom auth succeeds.
         wait_for_blocked_clients_count 0 500 10
