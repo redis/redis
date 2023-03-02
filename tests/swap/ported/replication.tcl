@@ -349,6 +349,7 @@ start_server {tags {"repl"}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
+    $master config set repl-backlog-size 10mb
     start_server {} {
         test "Master stream is correctly processed while the replica has a script in -BUSY state" {
             set load_handle0 [start_write_load $master_host $master_port 3]

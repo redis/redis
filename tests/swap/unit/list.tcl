@@ -135,6 +135,7 @@ start_server {tags {"target"}} {
 
 start_server {tags {"repl"}} {
     r config set swap-debug-evict-keys 0
+    r config set swap-debug-rio-delay-micro 100000
     test " lpush + (swap start) + del + (swap end) + lpush " {
         r rpush target a 
         set rd1 [redis_deferring_client]
@@ -144,6 +145,7 @@ start_server {tags {"repl"}} {
         } else {
             fail "swap.evict target fail"
         }
+        wait_key_cold r target
         set rd2 [redis_deferring_client]
         $rd2 lpush src b 
         r del src 
@@ -160,6 +162,7 @@ start_server {tags {"repl"}} {
         } else {
             fail "swap.evict target fail"
         }
+        wait_key_cold r target
         set rd2 [redis_deferring_client]
         $rd2 lpush src b 
         r del src 
