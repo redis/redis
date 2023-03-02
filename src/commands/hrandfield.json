@@ -57,6 +57,7 @@
                     "items": {
                         "type": "string"
                     },
+                    "minItems": 1
                 },
                 {
                     "description": "Fields and their values. Returned in case `COUNT` and `WITHVALUES` were used.",
