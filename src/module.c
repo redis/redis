@@ -7558,7 +7558,7 @@ int isCustomAuthInProgress() {
 /* Search for & attempt next custom auth callback after skipping the ones already attempted.
  * Returns the result of the custom auth callback. */
 int attemptNextCustomAuthCb(client *c, robj *username, robj *password, robj **err) {
-    int skipped_prev_callbacks = c->custom_auth_ctx == NULL;
+    int handle_next_callback = c->custom_auth_ctx == NULL;
     RedisModuleCustomAuthCtx *cur_auth_ctx = NULL;
     listNode *ln;
     listIter li;
@@ -7566,28 +7566,27 @@ int attemptNextCustomAuthCb(client *c, robj *username, robj *password, robj **er
     int result = REDISMODULE_AUTH_NOT_HANDLED;
     while((ln = listNext(&li))) {
         cur_auth_ctx = listNodeValue(ln);
-        if (skipped_prev_callbacks) {
-            /* Remove the custom auth complete flag before we attempt the next cb. */
-            c->flags &= ~CLIENT_CUSTOM_AUTH_HAS_RESULT;
-            RedisModuleCtx ctx;
-            moduleCreateContext(&ctx, cur_auth_ctx->module, REDISMODULE_CTX_NONE);
-            ctx.client = c;
-            *err = NULL;
-            c->custom_auth_ctx = cur_auth_ctx;
-            result = cur_auth_ctx->auth_cb(&ctx, username, password, err);
-            moduleFreeContext(&ctx);
-            /* If the client is blocked, we are still in the auth chain. Set the auth_ctx. */
-            if (c->flags & CLIENT_BLOCKED) {
-                RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
-                bc->auth_ctx = cur_auth_ctx;
-            }
-            /* If Auth has not succeeded or failed AND if a blocking auth is not in progress, we try
-             * the next custom auth callback. */
-            if (result == REDISMODULE_AUTH_HANDLED) break;
+        /* Skip over the previously attempted auth contexts. */
+        if (!handle_next_callback) {
+            handle_next_callback = cur_auth_ctx == c->custom_auth_ctx;
+            continue;
         }
-        if (cur_auth_ctx == c->custom_auth_ctx) {
-            skipped_prev_callbacks = 1;
+        /* Remove the custom auth complete flag before we attempt the next cb. */
+        c->flags &= ~CLIENT_CUSTOM_AUTH_HAS_RESULT;
+        RedisModuleCtx ctx;
+        moduleCreateContext(&ctx, cur_auth_ctx->module, REDISMODULE_CTX_NONE);
+        ctx.client = c;
+        *err = NULL;
+        c->custom_auth_ctx = cur_auth_ctx;
+        result = cur_auth_ctx->auth_cb(&ctx, username, password, err);
+        moduleFreeContext(&ctx);
+        /* If the client is blocked, we are still in the auth chain. Set the auth_ctx. */
+        if (c->flags & CLIENT_BLOCKED) {
+            RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+            bc->auth_ctx = cur_auth_ctx;
         }
+        if (result == REDISMODULE_AUTH_HANDLED) break;
+        /* If Auth was not handled (allowed/denied/blocked) by the Module, try the next auth cb. */
     }
     return result;
 }
