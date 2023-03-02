@@ -106,7 +106,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
                 if {!$::no_latency} {
-                    assert {$max_latency <= 30}
+                    assert {$max_latency <= 40}
                 }
             }
             # verify the data isn't corrupted or changed
@@ -151,7 +151,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 # since the AOF contains simple (fast) SET commands (and the cron during loading runs every 1000 commands),
                 # it'll still not block the loading for long periods of time.
                 if {!$::no_latency} {
-                    assert {$max_latency <= 30}
+                    assert {$max_latency <= 40}
                 }
             }
         }
@@ -360,7 +360,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
                 if {!$::no_latency} {
-                    assert {$max_latency <= 30}
+                    assert {$max_latency <= 40}
                 }
             }
             # verify the data isn't corrupted or changed
@@ -457,7 +457,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
                 if {!$::no_latency} {
-                    assert {$max_latency <= 30}
+                    assert {$max_latency <= 40}
                 }
 
                 # in extreme cases of stagnation, we see over 20m misses before the tests aborts with "defrag didn't stop",
