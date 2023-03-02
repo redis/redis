@@ -7426,8 +7426,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
         addReplyError(c, islua ?
             "Blocking module command called from Lua script" :
             "Blocking module command called from transaction");
-    }
-    else if (ctx->flags & REDISMODULE_CTX_BLOCKED_REPLY) {
+    } else if (ctx->flags & REDISMODULE_CTX_BLOCKED_REPLY) {
         c->bstate.module_blocked_handle = NULL;
         addReplyError(c, "Blocking module command called from a Reply callback context");
     }
@@ -11915,8 +11914,7 @@ int moduleUnload(sds name, const char **errmsg) {
         *errmsg = "the module holds timer that is not fired. "
                   "Please stop the timer or wait until it fires.";
         return C_ERR;
-    }
-    else if (moduleSearchOrUnregisterCustomAuthCBs(module, 0) && isCustomAuthInProgress()) {
+    } else if (moduleSearchOrUnregisterCustomAuthCBs(module, 0) && isCustomAuthInProgress()) {
         *errmsg = "A client is blocked on module based custom authentication. "
                   "Please wait for this to finish and try again.";
         return C_ERR;
