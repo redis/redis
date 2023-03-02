@@ -106,7 +106,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
                 if {!$::no_latency} {
-                    assert {$max_latency <= 40}
+                    assert {$max_latency <= 30}
                 }
             }
             # verify the data isn't corrupted or changed
@@ -116,6 +116,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
 
             # if defrag is supported, test AOF loading too
             if {[r config get activedefrag] eq "activedefrag yes"} {
+            test "Active defrag - AOF loading" {
                 # reset stats and load the AOF file
                 r config resetstat
                 r config set key-load-delay -25 ;# sleep on average 1/25 usec
@@ -154,6 +155,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                     assert {$max_latency <= 40}
                 }
             }
+            } ;# Active defrag - AOF loading
         }
         r config set appendonly no
         r config set key-load-delay 0
@@ -360,7 +362,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
                 if {!$::no_latency} {
-                    assert {$max_latency <= 40}
+                    assert {$max_latency <= 30}
                 }
             }
             # verify the data isn't corrupted or changed
@@ -457,7 +459,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
                 if {!$::no_latency} {
-                    assert {$max_latency <= 40}
+                    assert {$max_latency <= 30}
                 }
 
                 # in extreme cases of stagnation, we see over 20m misses before the tests aborts with "defrag didn't stop",
