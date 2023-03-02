@@ -12301,8 +12301,6 @@ void RM_RdbStreamFree(RedisModuleRdbStream *stream) {
  *     RedisModule_RdbStreamFree(s);
  */
 int RM_RdbLoad(RedisModuleRdbStream *stream, int flags) {
-    errno = 0;
-
     if (!stream || flags != 0) {
         errno = EINVAL;
         return REDISMODULE_ERR;
@@ -12358,8 +12356,6 @@ int RM_RdbLoad(RedisModuleRdbStream *stream, int flags) {
  *     RedisModule_RdbStreamFree(s);
  */
 int RM_RdbSave(RedisModuleRdbStream *stream, int flags) {
-    errno = 0;
-
     if (!stream || flags != 0) {
         errno = EINVAL;
         return REDISMODULE_ERR;
