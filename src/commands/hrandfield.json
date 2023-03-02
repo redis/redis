@@ -53,8 +53,7 @@
                     }
                 },
                 {
-                    "description": "Fields and their values. Returned in case `COUNT` and `WITHVALUES` were used.",
-                    "notes": "In RESP2 this is returned as a flat array",
+                    "description": "Fields and their values. Returned in case `COUNT` and `WITHVALUES` were used. In RESP2 this is returned as a flat array.",
                     "type": "array",
                     "items": {
                         "type": "array",

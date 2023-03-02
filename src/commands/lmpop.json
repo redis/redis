@@ -42,6 +42,7 @@
                 },
                 {
                     "description": "List key from which elements were popped.",
+                    "type": "array",
                     "minItems": 2,
                     "maxItems": 2,
                     "items": [

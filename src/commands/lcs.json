@@ -44,8 +44,7 @@
                 },
                 {
                     "type": "object",
-                    "description": "Array with the LCS length and all the ranges in both the strings when 'IDX' is given.",
-                    "notes": "In RESP2 this is returned as a flat array",
+                    "description": "Array with the LCS length and all the ranges in both the strings when 'IDX' is given. In RESP2 this is returned as a flat array",
                     "additionalProperties": false,
                     "properties": {
                         "matches": {

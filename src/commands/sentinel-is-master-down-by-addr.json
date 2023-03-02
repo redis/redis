@@ -35,8 +35,7 @@
                 },
                 {
                     "type": "integer",
-                    "description": "Port.",
-                    "pattern": "[0-9]+"
+                    "description": "Port."
                 }
             ]
         },
