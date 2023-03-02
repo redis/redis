@@ -52,7 +52,6 @@
                 {
                     "type": "array",
                     "description": "The rank and score of the member when 'WITHSCORES' is used.",
-                    "additionalItems": false,
                     "minItems": 2,
                     "maxItems": 2,
                     "items": [

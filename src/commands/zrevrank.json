@@ -54,7 +54,6 @@
                     "description": "The rank and score of the member when 'WITHSCORES' is used.",
                     "minItems": 2,
                     "maxItems": 2,
-                    "additionalItems": false,
                     "items": [
                         {
                             "type": "integer"

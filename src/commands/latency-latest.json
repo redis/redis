@@ -23,6 +23,8 @@
             "description": "An array where each element is a four elements array representing the event's name, timestamp, latest and all-time latency measurements.",
             "items": {
                 "type": "array",
+                "minItems": 4,
+                "maxItems": 4,
                 "items": [
                     {
                         "type": "string",
@@ -40,8 +42,7 @@
                         "type": "integer",
                         "description": "Max latency in milliseconds."
                     }
-                ],
-                "additionalItems": false
+                ]
             }
         }
     }

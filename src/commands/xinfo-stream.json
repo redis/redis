@@ -205,6 +205,7 @@
                             "type": "array",
                             "items": {
                                 "type": "object",
+                                "additionalProperties": false,
                                 "properties": {
                                     "name": {
                                         "description": "group name",
@@ -274,7 +275,13 @@
                                         "type": "array",
                                         "items": {
                                             "type": "object",
+                                            "additionalProperties": false,
                                             "properties": {
+                                                "active-time": {
+                                                    "type": "integer",
+                                                    "description": "Last time this consumer was active (successful reading/claiming).",
+                                                    "minimum": 0
+                                                },
                                                 "name": {
                                                     "description": "consumer name",
                                                     "type": "string"

@@ -15,6 +15,7 @@
         "reply_schema": {
             "description": "memory usage details",
             "type": "object",
+            "additionalProperties": false,
             "properties": {
                 "peak.allocated": {
                     "type": "integer"

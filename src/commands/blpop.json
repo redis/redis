@@ -50,6 +50,8 @@
                 {
                     "description": "The key from which the element was popped and the value of the popped element",
                     "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
                     "items": [
                         {
                             "description": "List key from which the element was popped.",

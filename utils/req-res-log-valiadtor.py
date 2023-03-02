@@ -34,7 +34,29 @@ In order to use this file you must run the redis testsuite with the following fl
 
 And then:
 ./utils/req-res-log-validator.py
+
+The script will fail only if:
+1. One or more of the replies doesn't comply with its schema.
+2. One or more of the commands in COMMANDS DOCS doesn't have the reply_schema field (with --fail-missing-reply-schemas)
+3. The testsuite didn't execute all of the commands (with --fail-commands-not-all-hit)
+
+Future validations:
+1. Fail the script if one or more of the branches of the reply schema (e.g. oneOf, anyOf) was not hit.
 """
+
+IGNORED_COMMANDS = [
+    "sync",
+    "psync",
+    "monitor",
+    "subscribe",
+    "unsubscribe",
+    "ssubscribe",
+    "sunsubscribe",
+    "psubscribe",
+    "punsubscribe",
+    "debug",
+    "pfdebug"
+]
 
 
 class Request(object):
@@ -161,7 +183,6 @@ def process_file(docs, path):
     """
     line_counter = [0]  # A list with one integer: to force python to pass it by reference
     command_counter = dict()
-    missing_schema = set()
 
     print(f"Processing {path} ...")
 
@@ -198,10 +219,6 @@ def process_file(docs, path):
             if req.command == "pfdebug" or req.command == 'debug' or req.command == 'sentinel|debug':
                 continue
 
-            if not req.schema:
-                missing_schema.add(req.command)
-                continue
-
             try:
                 jsonschema.validate(instance=res.json, schema=req.schema, cls=schema_validator)
             except (jsonschema.ValidationError, jsonschema.exceptions.SchemaError) as err:
@@ -215,7 +232,7 @@ def process_file(docs, path):
                 print(traceback.format_exc())
                 raise
 
-    return command_counter, missing_schema
+    return command_counter
 
 
 def fetch_schemas(cli, port, args, docs):
@@ -257,8 +274,9 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=6534)
     parser.add_argument('--cli', type=str, default='%s/redis-cli' % srcdir)
     parser.add_argument('--module', type=str, action='append', default=[])
-    parser.add_argument('--verbose', type=bool, default=False)
-    parser.add_argument('--fail-commands-not-all-hit', type=bool, default=False)
+    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--fail-commands-not-all-hit', action='store_true')
+    parser.add_argument('--fail-missing-reply-schemas', action='store_true')
     args = parser.parse_args()
 
     docs = dict()
@@ -270,6 +288,16 @@ if __name__ == '__main__':
         redis_args += ['--loadmodule', 'tests/modules/%s.so' % module]
 
     fetch_schemas(args.cli, args.port, redis_args, docs)
+
+    missing_schema = [k for k, v in docs.items()
+                      if "reply_schema" not in v and k not in IGNORED_COMMANDS ]
+    if missing_schema:
+        print("WARNING! The following commands are missing a reply_schema:")
+        for k in sorted(missing_schema):
+            print(f"  {k}")
+        if args.fail_missing_reply_schemas:
+            print("ERROR! at least one command does not have a reply_schema")
+            sys.exit(1)
 
     # Fetch schemas from a sentinel
     print('Starting Redis sentinel')
@@ -296,15 +324,12 @@ if __name__ == '__main__':
         paths.append(path)
 
     counter = collections.Counter()
-    missing_schema = set()
-
     # Spin several processes to handle the files in parallel
     with multiprocessing.Pool(multiprocessing.cpu_count()) as pool:
         func = partial(process_file, docs)
         # pool.map blocks until all the files have been processed
         for result in pool.map(func, paths):
-            counter.update(result[0])
-            missing_schema.update(result[1])
+            counter.update(result)
     command_counter = dict(counter)
 
     elapsed = time.time() - start
@@ -312,10 +337,6 @@ if __name__ == '__main__':
     print("Hits per command:")
     for k, v in sorted(command_counter.items()):
         print(f"  {k}: {v}")
-    if missing_schema:
-        print("WARNING! The following commands are missing a reply_schema:")
-        for k in sorted(missing_schema):
-            print(f"  {k}")
     not_hit = set(docs.keys()) - set(command_counter.keys())
     if not_hit:
         if args.verbose:

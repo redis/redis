@@ -44,31 +44,35 @@
             }
         ],
         "reply_schema": {
-            "type": "array",
-            "description": "List of the elements in the specified score range.",
-            "uniqueItems": true,
-            "items": {
-                "oneOf": [
-                    {
+            "anyOf": [
+                {
+                    "type": "array",
+                    "description": "Elements when 'WITHSCORES' is not used.",
+                    "items": {
                         "type": "string",
-                        "description": "Element when 'WITHSCORES' is not used."
-                    },
-                    {
+                        "description": "element"
+                    }
+                },
+                {
+                    "type": "array",
+                    "description": "Array of element and its score when 'WITHSCORES' is used.",
+                    "items": {
                         "type": "array",
-                        "description": "Element and its score when 'WITHSCORES' is used.",
-                        "uniqueItems": true,
-                        "additionalItems": false,
+                        "minItems": 2,
+                        "maxItems": 2,
                         "items": [
                             {
-                                "type": "string"
+                                "type": "string",
+                                "description": "element"
                             },
                             {
-                                "type": "number"
+                                "type": "number",
+                                "description": "score"
                             }
                         ]
                     }
-                ]
-            }
+                }
+            ]
         },
         "arguments": [
             {

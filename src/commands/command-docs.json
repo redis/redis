@@ -18,7 +18,7 @@
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT_ORDER"
         ],
-        "reply_scema": {
+        "reply_schema": {
             "description": "A map where each key is a command name, and each value is the documentary information",
             "type": "object",
             "additionalProperties": false,
@@ -128,9 +128,10 @@
                         "history": {
                             "description": "an array of historical notes describing changes to the command's behavior or arguments.",
                             "type": "array",
-                            "uniqueItems": true,
                             "items": {
                                 "type": "array",
+                                "minItems": 2,
+                                "maxItems": 2,
                                 "items": [
                                     {
                                         "type": "string",
@@ -186,12 +187,13 @@
                                 }
                             }
                         },
-                        "subcommands": {
-                            "type": "string"
-                        },
                         "reply_schema": {
                             "description": "command reply schema",
-                            "type":  "object"
+                            "type": "object"
+                        },
+                        "subcommands": {
+                            "description": "A map where each key is a subcommand, and each value is the documentary information",
+                            "$ref": "#"
                         }
                     }
                 }

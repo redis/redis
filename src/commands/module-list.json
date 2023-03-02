@@ -19,6 +19,7 @@
             "description": "Returns information about the modules loaded to the server.",
             "items": {
                 "type": "object",
+                "additionalProperties": false,
                 "properties": {
                     "name": {
                         "type": "string",

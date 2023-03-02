@@ -42,7 +42,6 @@
                 },
                 {
                     "type": "array",
-                    "additionalItems": false,
                     "minItems": 2,
                     "maxItems": 2,
                     "items": [
@@ -55,8 +54,9 @@
                             "description": "Popped elements.",
                             "items": {
                                 "type": "array",
-                                "additionalItems": false,
                                 "uniqueItems": true,
+                                "minItems": 2,
+                                "maxItems": 2,
                                 "items": [
                                     {
                                         "type": "string",

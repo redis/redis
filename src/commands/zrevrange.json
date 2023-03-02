@@ -55,14 +55,13 @@
                         "type": "array",
                         "minItems": 2,
                         "maxItems": 2,
-                        "additionalItems": false,
                         "items": [
                             {
-                                "description": "Member.",
+                                "description": "member",
                                 "type": "string"
                             },
                             {
-                                "description": "Score.",
+                                "description": "score",
                                 "type": "number"
                             }
                         ]
