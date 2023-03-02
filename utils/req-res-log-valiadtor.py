@@ -274,9 +274,9 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=6534)
     parser.add_argument('--cli', type=str, default='%s/redis-cli' % srcdir)
     parser.add_argument('--module', type=str, action='append', default=[])
-    parser.add_argument('--verbose', type=bool, default=False)
-    parser.add_argument('--fail-commands-not-all-hit', type=bool, default=False)
-    parser.add_argument('--fail-missing-reply-schemas', type=bool, default=False)
+    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--fail-commands-not-all-hit', action='store_true')
+    parser.add_argument('--fail-missing-reply-schemas', action='store_true')
     args = parser.parse_args()
 
     docs = dict()
