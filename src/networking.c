@@ -2790,8 +2790,9 @@ sds getAllClientsInfoString(int type) {
     return o;
 }
 
-/* Returns C_OK if the name is valid or C_ERR otherwise. */
-int validateClientName(robj *name) {
+/* Returns C_OK if the name is valid. Returns C_ERR & sets `err` (when provided) otherwise. */
+int validateClientName(robj *name, const char **err) {
+    const char *err_msg = "Client names cannot contain spaces, newlines or special characters.";
     int len = (name != NULL) ? sdslen(name->ptr) : 0;
     /* We allow setting the client name to an empty string. */
     if (len == 0)
@@ -2802,6 +2803,7 @@ int validateClientName(robj *name) {
     char *p = name->ptr;
     for (int j = 0; j < len; j++) {
         if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
+            if (err) *err = err_msg;
             return C_ERR;
         }
     }
@@ -2809,8 +2811,8 @@ int validateClientName(robj *name) {
 }
 
 /* Returns C_OK if the name has been set or C_ERR if the name is invalid. */
-int clientSetName(client *c, robj *name) {
-    if (validateClientName(name) == C_ERR) {
+int clientSetName(client *c, robj *name, const char **err) {
+    if (validateClientName(name, err) == C_ERR) {
         return C_ERR;
     }
     int len = (name != NULL) ? sdslen(name->ptr) : 0;
@@ -2837,11 +2839,10 @@ int clientSetName(client *c, robj *name) {
  *
  * This function is also used to implement the HELLO SETNAME option. */
 int clientSetNameOrReply(client *c, robj *name) {
-    int result = clientSetName(c, name);
+    const char *err = NULL;
+    int result = clientSetName(c, name, &err);
     if (result == C_ERR) {
-        addReplyError(c,
-                      "Client names cannot contain spaces, "
-                      "newlines or special characters.");
+        addReplyError(c, err);
     }
     return result;
 }
@@ -3439,10 +3440,9 @@ void helloCommand(client *c) {
             j += 2;
         } else if (!strcasecmp(opt,"SETNAME") && moreargs) {
             clientname = c->argv[j+1];
-            if (validateClientName(clientname) == C_ERR) {
-                addReplyError(c,
-                    "Client names cannot contain spaces, "
-                    "newlines or special characters.");
+            const char *err = NULL;
+            if (validateClientName(clientname, &err) == C_ERR) {
+                addReplyError(c, err);
                 return;
             }
             j++;
@@ -3476,7 +3476,7 @@ void helloCommand(client *c) {
     }
 
     /* Now that we're authenticated, set the client name. */
-    if (clientname) clientSetName(c, clientname);
+    if (clientname) clientSetName(c, clientname, NULL);
 
     /* Let's switch to the specified RESP mode. */
     if (ver) c->resp = ver;

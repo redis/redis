@@ -3537,7 +3537,7 @@ int RM_SetClientNameById(uint64_t id, RedisModuleString *name) {
         errno = ENOENT;
         return REDISMODULE_ERR;
     }
-    if (clientSetName(client, name) == C_ERR) {
+    if (clientSetName(client, name, NULL) == C_ERR) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
