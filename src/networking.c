@@ -3459,7 +3459,8 @@ void helloCommand(client *c) {
             addAuthErrReply(c, err);
         }
         if (err) decrRefCount(err);
-        /* In case of blocking module auth, we reply to the client/setname later upon unblocking. */
+        /* In case of auth errors, return early since we already replied with an ERR.
+         * In case of blocking module auth, we reply to the client/setname later upon unblocking. */
         if (auth_result == AUTH_ERR || auth_result == AUTH_BLOCKED) {
             return;
         }
