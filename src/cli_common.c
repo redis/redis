@@ -355,7 +355,9 @@ void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo
         if (*curr == '[') {
             curr += 1;
             if ((port = strchr(curr, ']'))) {
-                connInfo->hostport = atoi(port + 2);
+                if (*(port+1) == ':') {
+                    connInfo->hostport = atoi(port + 2);
+                }
                 host = port - 1;
             }
         } else {
