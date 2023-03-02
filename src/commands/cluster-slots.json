@@ -34,7 +34,7 @@
             "items": {
                 "type": "array",
                 "minItems": 3,
-                "maxItems": 4,
+                "maxItems": 100000,
                 "items": [
                     {
                         "description": "start slot number",

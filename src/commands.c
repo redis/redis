@@ -1836,7 +1836,7 @@ struct jsonObject CLUSTER_SLOTS_ReplySchema_items_additionalItems = {CLUSTER_SLO
 struct jsonObjectElement CLUSTER_SLOTS_ReplySchema_items_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_INTEGER,"minItems",.value.integer=3},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=100000},
 {JSON_TYPE_ARRAY,"items",.value.array={.objects=CLUSTER_SLOTS_ReplySchema_items_items,.length=3}},
 {JSON_TYPE_OBJECT,"additionalItems",.value.object=&CLUSTER_SLOTS_ReplySchema_items_additionalItems},
 };
@@ -7744,10 +7744,12 @@ struct jsonObject *LMPOP_ReplySchema_oneOf_1_items[] = {
 /* LMPOP_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement LMPOP_ReplySchema_oneOf_1_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="List key from which elements were popped."},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
 {JSON_TYPE_ARRAY,"items",.value.array={.objects=LMPOP_ReplySchema_oneOf_1_items,.length=2}},
 };
 
-struct jsonObject LMPOP_ReplySchema_oneOf_1 = {LMPOP_ReplySchema_oneOf_1_elements,.length=2};
+struct jsonObject LMPOP_ReplySchema_oneOf_1 = {LMPOP_ReplySchema_oneOf_1_elements,.length=4};
 
 /* LMPOP_ReplySchema_oneOf array reply schema */
 struct jsonObject *LMPOP_ReplySchema_oneOf[] = {
@@ -7860,61 +7862,49 @@ struct redisCommandArg LPOS_Args[] = {
 
 #ifdef LOG_REQ_RES
 
-/* LPOS_ReplySchema_oneOf_0_oneOf_0 reply schema */
-struct jsonObjectElement LPOS_ReplySchema_oneOf_0_oneOf_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="An integer representing the matching element"},
-{JSON_TYPE_STRING,"type",.value.string="integer"},
-};
-
-struct jsonObject LPOS_ReplySchema_oneOf_0_oneOf_0 = {LPOS_ReplySchema_oneOf_0_oneOf_0_elements,.length=2};
-
-/* LPOS_ReplySchema_oneOf_0_oneOf_1 reply schema */
-struct jsonObjectElement LPOS_ReplySchema_oneOf_0_oneOf_1_elements[] = {
+/* LPOS_ReplySchema_anyOf_0 reply schema */
+struct jsonObjectElement LPOS_ReplySchema_anyOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="In case there is no matching element"},
 {JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
-struct jsonObject LPOS_ReplySchema_oneOf_0_oneOf_1 = {LPOS_ReplySchema_oneOf_0_oneOf_1_elements,.length=2};
+struct jsonObject LPOS_ReplySchema_anyOf_0 = {LPOS_ReplySchema_anyOf_0_elements,.length=2};
 
-/* LPOS_ReplySchema_oneOf_0_oneOf array reply schema */
-struct jsonObject *LPOS_ReplySchema_oneOf_0_oneOf[] = {
-&LPOS_ReplySchema_oneOf_0_oneOf_0,
-&LPOS_ReplySchema_oneOf_0_oneOf_1,
-};
-
-/* LPOS_ReplySchema_oneOf_0 reply schema */
-struct jsonObjectElement LPOS_ReplySchema_oneOf_0_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=LPOS_ReplySchema_oneOf_0_oneOf,.length=2}},
-};
-
-struct jsonObject LPOS_ReplySchema_oneOf_0 = {LPOS_ReplySchema_oneOf_0_elements,.length=1};
-
-/* LPOS_ReplySchema_oneOf_1_items reply schema */
-struct jsonObjectElement LPOS_ReplySchema_oneOf_1_items_elements[] = {
+/* LPOS_ReplySchema_anyOf_1 reply schema */
+struct jsonObjectElement LPOS_ReplySchema_anyOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="An integer representing the matching element"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject LPOS_ReplySchema_oneOf_1_items = {LPOS_ReplySchema_oneOf_1_items_elements,.length=1};
+struct jsonObject LPOS_ReplySchema_anyOf_1 = {LPOS_ReplySchema_anyOf_1_elements,.length=2};
 
-/* LPOS_ReplySchema_oneOf_1 reply schema */
-struct jsonObjectElement LPOS_ReplySchema_oneOf_1_elements[] = {
+/* LPOS_ReplySchema_anyOf_2_items reply schema */
+struct jsonObjectElement LPOS_ReplySchema_anyOf_2_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject LPOS_ReplySchema_anyOf_2_items = {LPOS_ReplySchema_anyOf_2_items_elements,.length=1};
+
+/* LPOS_ReplySchema_anyOf_2 reply schema */
+struct jsonObjectElement LPOS_ReplySchema_anyOf_2_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="If the COUNT option is given, an array of integers representing the matching elements (empty if there are no matches)"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
-{JSON_TYPE_OBJECT,"items",.value.object=&LPOS_ReplySchema_oneOf_1_items},
+{JSON_TYPE_OBJECT,"items",.value.object=&LPOS_ReplySchema_anyOf_2_items},
 };
 
-struct jsonObject LPOS_ReplySchema_oneOf_1 = {LPOS_ReplySchema_oneOf_1_elements,.length=4};
+struct jsonObject LPOS_ReplySchema_anyOf_2 = {LPOS_ReplySchema_anyOf_2_elements,.length=4};
 
-/* LPOS_ReplySchema_oneOf array reply schema */
-struct jsonObject *LPOS_ReplySchema_oneOf[] = {
-&LPOS_ReplySchema_oneOf_0,
-&LPOS_ReplySchema_oneOf_1,
+/* LPOS_ReplySchema_anyOf array reply schema */
+struct jsonObject *LPOS_ReplySchema_anyOf[] = {
+&LPOS_ReplySchema_anyOf_0,
+&LPOS_ReplySchema_anyOf_1,
+&LPOS_ReplySchema_anyOf_2,
 };
 
 /* LPOS_ReplySchema reply schema */
 struct jsonObjectElement LPOS_ReplySchema_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=LPOS_ReplySchema_oneOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=LPOS_ReplySchema_anyOf,.length=3}},
 };
 
 struct jsonObject LPOS_ReplySchema = {LPOS_ReplySchema_elements,.length=1};
