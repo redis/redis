@@ -267,6 +267,7 @@ static struct config {
     int eval_ldb_end;   /* Lua debugging session ended. */
     int enable_ldb_on_eval; /* Handle manual SCRIPT DEBUG + EVAL commands. */
     int last_cmd_type;
+    redisReply *last_reply;
     int verbose;
     int set_errcode;
     clusterManagerCommand cluster_manager_command;
@@ -334,6 +335,9 @@ static void cliRefreshPrompt(void) {
     /* Add TX if in transaction state*/
     if (config.in_multi)  
         prompt = sdscatlen(prompt,"(TX)",4);
+
+    if (config.pubsub_mode)
+        prompt = sdscatfmt(prompt,"(subscribed mode)");
 
     /* Copy the prompt in the static buffer. */
     prompt = sdscatlen(prompt,"> ",2);
@@ -1192,6 +1196,11 @@ static void cliPrintContextError(void) {
     fprintf(stderr,"Error: %s\n",context->errstr);
 }
 
+static void cliPrintPubsubReadingMessages(void) {
+    if (config.output != OUTPUT_RAW)
+        printf("Reading messages... (press Ctrl-C to quit or enter to type command)\n");
+}
+
 static int isInvalidateReply(redisReply *reply) {
     return reply->type == REDIS_REPLY_PUSH && reply->elements == 2 &&
         reply->element[0]->type == REDIS_REPLY_STRING &&
@@ -1349,6 +1358,24 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
         exit(1);
     }
     return out;
+}
+
+/* Returns 1 if the reply is a pubsub pushed reply. */
+int isPubsubPush(redisReply *r) {
+    if (r->type != (config.resp3 ? REDIS_REPLY_PUSH : REDIS_REPLY_ARRAY) ||
+        r->elements < 3 ||
+        r->element[0]->type != REDIS_REPLY_STRING)
+    {
+        return 0;
+    }
+    char *str = r->element[0]->str;
+    size_t len = r->element[0]->len;
+    /* Check if it is [p|s][un]subscribe or [p|s]message, but even simpler, we
+     * just check that it ends with "message" or "subscribe". */
+    return ((len >= strlen("message") &&
+             !strcmp(str + len - strlen("message"), "message")) ||
+            (len >= strlen("subscribe") &&
+             !strcmp(str + len - strlen("subscribe"), "subscribe")));
 }
 
 int isColorTerm(void) {
@@ -1656,6 +1683,11 @@ static int cliReadReply(int output_raw_strings) {
     sds out = NULL;
     int output = 1;
 
+    if (config.last_reply) {
+        freeReplyObject(config.last_reply);
+        config.last_reply = NULL;
+    }
+
     if (redisGetReply(context,&_reply) != REDIS_OK) {
         if (config.blocking_state_aborted) {
             config.blocking_state_aborted = 0;
@@ -1682,7 +1714,7 @@ static int cliReadReply(int output_raw_strings) {
         return REDIS_ERR; /* avoid compiler warning */
     }
 
-    reply = (redisReply*)_reply;
+    config.last_reply = reply = (redisReply*)_reply;
 
     config.last_cmd_type = reply->type;
 
@@ -1731,8 +1763,56 @@ static int cliReadReply(int output_raw_strings) {
         fflush(stdout);
         sdsfree(out);
     }
-    freeReplyObject(reply);
     return REDIS_OK;
+}
+
+/* Simultaneously wait for pubsub messages from redis and input on stdin. */
+static void cliWaitForMessagesOrStdin() {
+    while (config.pubsub_mode) {
+        /* First check if there are any buffered replies. */
+        redisReply *reply;
+        do {
+            if (redisGetReplyFromReader(context, (void **)&reply) != REDIS_OK) {
+                cliPrintContextError();
+                exit(1);
+            }
+            if (reply) {
+                sds out = cliFormatReply(reply, config.output, 0);
+                fwrite(out,sdslen(out),1,stdout);
+                fflush(stdout);
+                sdsfree(out);
+            }
+        } while(reply);
+
+        /* Wait for input, either on the Redis socket or on stdin. */
+        struct timeval tv;
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(context->fd, &readfds);
+        FD_SET(STDIN_FILENO, &readfds);
+        tv.tv_sec = 5;
+        tv.tv_usec = 0;
+        select(context->fd + 1, &readfds, NULL, NULL, &tv);
+        if (config.blocking_state_aborted) {
+            /* Ctrl-C pressed */
+            config.blocking_state_aborted = 0;
+            config.pubsub_mode = 0;
+            if (cliConnect(CC_FORCE) != REDIS_OK) {
+                cliPrintContextError();
+                exit(1);
+            }
+            break;
+        } else if (FD_ISSET(context->fd, &readfds)) {
+            /* Message from Redis */
+            if (cliReadReply(0) != REDIS_OK) {
+                cliPrintContextError();
+                exit(1);
+            }
+            fflush(stdout);
+        } else if (FD_ISSET(STDIN_FILENO, &readfds)) {
+            break; /* User pressed enter */
+        }
+    }
 }
 
 static int cliSendCommand(int argc, char **argv, long repeat) {
@@ -1774,9 +1854,12 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
 
     if (!strcasecmp(command,"shutdown")) config.shutdown = 1;
     if (!strcasecmp(command,"monitor")) config.monitor_mode = 1;
-    if (!strcasecmp(command,"subscribe") ||
-        !strcasecmp(command,"psubscribe") ||
-        !strcasecmp(command,"ssubscribe")) config.pubsub_mode = 1;
+    int is_subscribe = (!strcasecmp(command, "subscribe") ||
+                        !strcasecmp(command, "psubscribe") ||
+                        !strcasecmp(command, "ssubscribe"));
+    int is_unsubscribe = (!strcasecmp(command, "unsubscribe") ||
+                          !strcasecmp(command, "punsubscribe") ||
+                          !strcasecmp(command, "sunsubscribe"));
     if (!strcasecmp(command,"sync") ||
         !strcasecmp(command,"psync")) config.slave_mode = 1;
 
@@ -1823,27 +1906,20 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             return REDIS_OK;
         }
 
-        if (config.pubsub_mode) {
-            if (config.output != OUTPUT_RAW)
-                printf("Reading messages... (press Ctrl-C to quit)\n");
-
+        int num_expected_pubsub_push = 0;
+        if (is_subscribe || is_unsubscribe) {
+            /* When a push callback is set, redisGetReply (hiredis) loops until
+             * an in-band message is received, but these commands are confirmed
+             * using push replies only. There is one push reply per channel if
+             * channels are specified, otherwise at least one. */
+            num_expected_pubsub_push = argc > 1 ? argc - 1 : 1;
             /* Unset our default PUSH handler so this works in RESP2/RESP3 */
             redisSetPushCallback(context, NULL);
-
-            while (config.pubsub_mode) {
-                if (cliReadReply(output_raw) != REDIS_OK) {
-                    cliPrintContextError();
-                    exit(1);
-                }
-                fflush(stdout); /* Make it grep friendly */
-                if (!config.pubsub_mode || config.last_cmd_type == REDIS_REPLY_ERROR) {
-                    if (config.push_output) {
-                        redisSetPushCallback(context, cliPushHandler);
-                    }
-                    config.pubsub_mode = 0;
-                }
-            }
-            continue;
+        }
+        if ((is_subscribe && argc > 1) || (is_unsubscribe && config.pubsub_mode)) {
+            /* These commands have no regular in-band reply so we print this
+             * info before reading pushes replies. */
+            cliPrintPubsubReadingMessages();
         }
 
         if (config.slave_mode) {
@@ -1854,10 +1930,35 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             return REDIS_ERR;  /* Error = slaveMode lost connection to master */
         }
 
-        if (cliReadReply(output_raw) != REDIS_OK) {
-            zfree(argvlen);
-            return REDIS_ERR;
-        } else {
+        /* Read response, possibly skipping pubsub/push messages. */
+        while (1) {
+            if (cliReadReply(output_raw) != REDIS_OK) {
+                zfree(argvlen);
+                return REDIS_ERR;
+            }
+            fflush(stdout);
+            if (config.pubsub_mode || num_expected_pubsub_push > 0) {
+                if (isPubsubPush(config.last_reply)) {
+                    if (num_expected_pubsub_push > 0 &&
+                        !strcasecmp(config.last_reply->element[0]->str, command))
+                    {
+                        /* This pushed message confirms the
+                         * [p|s][un]subscribe command. */
+                        if (is_subscribe && !config.pubsub_mode) {
+                            config.pubsub_mode = 1;
+                            cliRefreshPrompt();
+                        }
+                        if (--num_expected_pubsub_push > 0) {
+                            continue; /* We need more of these. */
+                        }
+                    } else {
+                        continue; /* Skip this pubsub message. */
+                    }
+                } else if (config.last_reply->type == REDIS_REPLY_PUSH) {
+                    continue; /* Skip other push message. */
+                }
+            }
+
             /* Store database number when SELECT was successfully executed. */
             if (!strcasecmp(command,"select") && argc == 2 && 
                 config.last_cmd_type != REDIS_REPLY_ERROR) 
@@ -1892,8 +1993,23 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 config.dbnum = 0;
                 config.conn_info.input_dbnum = 0;
                 config.resp3 = 0;
+                if (config.pubsub_mode && config.push_output) {
+                    redisSetPushCallback(context, cliPushHandler);
+                }
+                config.pubsub_mode = 0;
                 cliRefreshPrompt();
+            } else if (!strcasecmp(command,"hello")) {
+                if (config.last_cmd_type == REDIS_REPLY_MAP)
+                    config.resp3 = 2;
+                else if (config.last_cmd_type == REDIS_REPLY_ARRAY)
+                    config.resp3 = 0;
+            } else if ((is_subscribe || is_unsubscribe) && !config.pubsub_mode) {
+                /* We didn't enter pubsub mode. Restore push callback. */
+                if (config.push_output)
+                    redisSetPushCallback(context, cliPushHandler);
             }
+
+            break;
         }
         if (config.cluster_reissue_command){
             /* If we need to reissue the command, break to prevent a
@@ -2741,6 +2857,12 @@ static void repl(void) {
         }
         /* linenoise() returns malloc-ed lines like readline() */
         linenoiseFree(line);
+
+        if (config.pubsub_mode) {
+            if (!isPubsubPush(config.last_reply))
+                cliPrintPubsubReadingMessages();
+            cliWaitForMessagesOrStdin();
+        }
     }
     exit(0);
 }
@@ -2779,6 +2901,13 @@ static int noninteractive(int argc, char **argv) {
 
     retval = issueCommand(argc, sds_args);
     sdsfreesplitres(sds_args, argc);
+    while (config.pubsub_mode) {
+        if (cliReadReply(0) != REDIS_OK) {
+            cliPrintContextError();
+            exit(1);
+        }
+        fflush(stdout);
+    }
     return retval == REDIS_OK ? 0 : 1;
 }
 
@@ -8991,6 +9120,7 @@ int main(int argc, char **argv) {
     config.eval_ldb_sync = 0;
     config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
+    config.last_reply = NULL;
     config.verbose = 0;
     config.set_errcode = 0;
     config.no_auth_warning = 0;
