@@ -9385,7 +9385,8 @@ int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, 
     return REDISMODULE_OK;
 }
 
-/* Adds a new entry in the ACL log.
+/* Adds a new entry in the ACL log. When NULL is provided as the `object`, the client's ongoing
+ * command's name is logged in this new entry.
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
  *
  * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
