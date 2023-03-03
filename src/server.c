@@ -4100,7 +4100,6 @@ int processCommand(client *c) {
         blockPostponeClient(c);
         return C_OK;       
     }
-    /* Set current dictionary for the command, this optimization helps avoid redundant CRC hash calculations to determine key slot. */
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand &&
