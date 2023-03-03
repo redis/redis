@@ -7519,39 +7519,18 @@ void moduleInvokeFreePrivDataCallback(client *c, RedisModuleBlockedClient *bc) {
     }
 }
 
-/* Returns 1 if the module has any custom auth callbacks registered. If `should_unregister` is
- * non-zero, all the module's custom auth cbs are unregistered.
- * Returns 0 otherwise - if the Module has no custom auth cb registered. */
-int moduleSearchOrUnregisterCustomAuthCBs(RedisModule *module, int should_unregister) {
-    int callback_found = 0;
+/* Unregisters all the custom auth callbacks that have been registered by this Module. */
+void moduleUnregisterCustomAuthCBs(RedisModule *module) {
     listIter li;
     listNode *ln;
     listRewind(moduleCustomAuthCallbacks, &li);
     while ((ln = listNext(&li))) {
         RedisModuleCustomAuthCtx *ctx = listNodeValue(ln);
         if (ctx->module == module) {
-            callback_found = 1;
-            if (!should_unregister) return callback_found;
             listDelNode(moduleCustomAuthCallbacks, ln);
             zfree(ctx);
         }
     }
-    return callback_found;
-}
-
-/* Returns 1 if custom module based auth is in progress on any client. Returns 0 otherwise. */
-int isCustomAuthInProgress() {
-    if (!listLength(moduleCustomAuthCallbacks)) return 0;
-    listIter li;
-    listNode *ln;
-    listRewind(server.clients,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        client *c = listNodeValue(ln);
-        if (clientHasModuleAuthInProgress(c)) {
-            return 1;
-        }
-    }
-    return 0;
 }
 
 /* Search for & attempt next custom auth callback after skipping the ones already attempted.
@@ -11839,7 +11818,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             moduleUnregisterSharedAPI(ctx.module);
             moduleUnregisterUsedAPI(ctx.module);
             moduleRemoveConfigs(ctx.module);
-            moduleSearchOrUnregisterCustomAuthCBs(ctx.module, 1);
+            moduleUnregisterCustomAuthCBs(ctx.module);
             moduleFreeModuleStructure(ctx.module);
         }
         moduleFreeContext(&ctx);
@@ -11875,7 +11854,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 
     if (post_load_err) {
         /* Unregister custom auth callbacks (if any exist) that this Module registered onload. */
-        moduleSearchOrUnregisterCustomAuthCBs(ctx.module, 1);
+        moduleUnregisterCustomAuthCBs(ctx.module);
         moduleUnload(ctx.module->name, NULL);
         moduleFreeContext(&ctx);
         return C_ERR;
@@ -11915,10 +11894,6 @@ int moduleUnload(sds name, const char **errmsg) {
         *errmsg = "the module holds timer that is not fired. "
                   "Please stop the timer or wait until it fires.";
         return C_ERR;
-    } else if (moduleSearchOrUnregisterCustomAuthCBs(module, 0) && isCustomAuthInProgress()) {
-        *errmsg = "A client is blocked on module based custom authentication. "
-                  "Please wait for this to finish and try again.";
-        return C_ERR;
     }
 
     /* Give module a chance to clean up. */
@@ -11942,7 +11917,7 @@ int moduleUnload(sds name, const char **errmsg) {
     moduleUnregisterSharedAPI(module);
     moduleUnregisterUsedAPI(module);
     moduleUnregisterFilters(module);
-    moduleSearchOrUnregisterCustomAuthCBs(module, 1);
+    moduleUnregisterCustomAuthCBs(module);
     moduleRemoveConfigs(module);
 
     /* Remove any notification subscribers this module might have */

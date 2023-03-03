@@ -340,8 +340,8 @@ start_server {tags {"modules"}} {
         # ongoing, they cannot be unloaded.
         catch {r module unload testacl} e
         assert_match {*the module has blocked clients*} $e
-        catch {r module unload customauthtwo} e
-        assert_match {*A client is blocked on module based custom auth*} $e
+        # The customauthtwo module can be unregistered because no client is blocked on it.
+        assert_equal "OK" [r module unload customauthtwo]
 
         # The misc module does not have custom auth cbs registered, so it can be unloaded even when
         # blocking custom auth is ongoing.
@@ -353,16 +353,17 @@ start_server {tags {"modules"}} {
         assert_equal [$rd read] "OK"
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat auth]
 
-        # Validate that modules can be unloaded since blocking custom auth is done.
-        r module unload testacl
-        # Validate that unloading the first module does not unregister custom auth cbs of the second
-        # module - custom auth should succeed.
-        assert_equal {OK} [r AUTH foo allow_two]
-        r module unload customauthtwo
+        # Validate that unloading the customauthtwo module does not unregister custom auth cbs of
+        # of the testacl module. Module based auth should succeed.
+        assert_equal {OK} [r AUTH foo allow]
 
-        # Validate that since custom auth cbs are unregistered, custom auth attempts fail.
+        # Validate that the testacl module can be unloaded since blocking custom auth is done.
+        r module unload testacl
+
+        # Validate that since all custom auth cbs are unregistered, custom auth attempts fail.
         assert_error {*WRONGPASS*} {r AUTH foo block_allow}
         assert_error {*WRONGPASS*} {r AUTH foo allow_two}
-        assert_match {*calls=4,*,rejected_calls=0,failed_calls=2} [cmdstat auth]
+        assert_error {*WRONGPASS*} {r AUTH foo allow}
+        assert_match {*calls=5,*,rejected_calls=0,failed_calls=3} [cmdstat auth]
     }
 }
