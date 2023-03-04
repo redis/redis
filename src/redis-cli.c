@@ -45,6 +45,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
+#include <termios.h>
 
 #include <hiredis.h>
 #ifdef USE_OPENSSL
@@ -171,6 +172,9 @@ int spectrum_palette_mono[] = {0,233,234,235,237,239,241,243,245,247,249,251,253
 /* The actual palette in use. */
 int *spectrum_palette;
 int spectrum_palette_size;
+
+static int orig_termios_saved = 0;
+static struct termios orig_termios; /* To restore terminal at exit.*/
 
 /* Dict Helpers */
 static uint64_t dictSdsHash(const void *key);
@@ -1021,6 +1025,29 @@ static void freeHintsCallback(void *ptr) {
 }
 
 /*------------------------------------------------------------------------------
+ * TTY manipulation
+ *--------------------------------------------------------------------------- */
+
+/* Put the terminal in "press any key" mode */
+static void cliPressAnyKeyTTY(void) {
+    if (!isatty(STDIN_FILENO)) return;
+    if (!orig_termios_saved) {
+        if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) return;
+        atexit(cliRestoreTTY);
+        orig_termios_saved = 1;
+    }
+    struct termios mode = orig_termios;
+    mode.c_lflag &= ~(ECHO | ICANON); /* echoing off, canonical off */
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &mode);
+}
+
+/* Restore terminal if we've changed it. */
+void cliRestoreTTY(void) {
+    if (orig_termios_saved)
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+}
+
+/*------------------------------------------------------------------------------
  * Networking / parsing
  *--------------------------------------------------------------------------- */
 
@@ -1196,11 +1223,6 @@ static void cliPrintContextError(void) {
     fprintf(stderr,"Error: %s\n",context->errstr);
 }
 
-static void cliPrintPubsubReadingMessages(void) {
-    if (config.output != OUTPUT_RAW)
-        printf("Reading messages... (press Ctrl-C to quit or enter to type command)\n");
-}
-
 static int isInvalidateReply(redisReply *reply) {
     return reply->type == REDIS_REPLY_PUSH && reply->elements == 2 &&
         reply->element[0]->type == REDIS_REPLY_STRING &&
@@ -1362,7 +1384,8 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
 
 /* Returns 1 if the reply is a pubsub pushed reply. */
 int isPubsubPush(redisReply *r) {
-    if (r->type != (config.resp3 ? REDIS_REPLY_PUSH : REDIS_REPLY_ARRAY) ||
+    if (r == NULL ||
+        r->type != (config.resp3 ? REDIS_REPLY_PUSH : REDIS_REPLY_ARRAY) ||
         r->elements < 3 ||
         r->element[0]->type != REDIS_REPLY_STRING)
     {
@@ -1768,6 +1791,10 @@ static int cliReadReply(int output_raw_strings) {
 
 /* Simultaneously wait for pubsub messages from redis and input on stdin. */
 static void cliWaitForMessagesOrStdin() {
+    int show_info = config.output != OUTPUT_RAW && (isatty(STDOUT_FILENO) ||
+                                                    getenv("FAKETTY"));
+    int use_color = show_info && isColorTerm();
+    cliPressAnyKeyTTY();
     while (config.pubsub_mode) {
         /* First check if there are any buffered replies. */
         redisReply *reply;
@@ -1792,7 +1819,17 @@ static void cliWaitForMessagesOrStdin() {
         FD_SET(STDIN_FILENO, &readfds);
         tv.tv_sec = 5;
         tv.tv_usec = 0;
+        if (show_info) {
+            if (use_color) printf("\033[1;90m"); /* Bold, bright color. */
+            printf("Reading messages... (press Ctrl-C to quit or any key to type command)\r");
+            if (use_color) printf("\033[0m"); /* Reset color. */
+            fflush(stdout);
+        }
         select(context->fd + 1, &readfds, NULL, NULL, &tv);
+        if (show_info) {
+            printf("\033[K"); /* Erase current line */
+            fflush(stdout);
+        }
         if (config.blocking_state_aborted) {
             /* Ctrl-C pressed */
             config.blocking_state_aborted = 0;
@@ -1810,9 +1847,11 @@ static void cliWaitForMessagesOrStdin() {
             }
             fflush(stdout);
         } else if (FD_ISSET(STDIN_FILENO, &readfds)) {
-            break; /* User pressed enter */
+            /* Any key pressed */
+            break;
         }
     }
+    cliRestoreTTY();
 }
 
 static int cliSendCommand(int argc, char **argv, long repeat) {
@@ -1915,11 +1954,6 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             num_expected_pubsub_push = argc > 1 ? argc - 1 : 1;
             /* Unset our default PUSH handler so this works in RESP2/RESP3 */
             redisSetPushCallback(context, NULL);
-        }
-        if ((is_subscribe && argc > 1) || (is_unsubscribe && config.pubsub_mode)) {
-            /* These commands have no regular in-band reply so we print this
-             * info before reading pushes replies. */
-            cliPrintPubsubReadingMessages();
         }
 
         if (config.slave_mode) {
@@ -2760,8 +2794,17 @@ static void repl(void) {
     }
 
     cliRefreshPrompt();
-    while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
-        if (line[0] != '\0') {
+    while(1) {
+        line = linenoise(context ? config.prompt : "not connected> ");
+        if (line == NULL) {
+            /* ^C, ^D or similar. */
+            if (config.pubsub_mode) {
+                config.pubsub_mode = 0;
+                if (cliConnect(CC_FORCE) == REDIS_OK)
+                    continue;
+            }
+            break;
+        } else if (line[0] != '\0') {
             long repeat = 1;
             int skipargs = 0;
             char *endptr = NULL;
@@ -2855,14 +2898,13 @@ static void repl(void) {
             /* Free the argument vector */
             sdsfreesplitres(argv,argc);
         }
-        /* linenoise() returns malloc-ed lines like readline() */
-        linenoiseFree(line);
 
         if (config.pubsub_mode) {
-            if (!isPubsubPush(config.last_reply))
-                cliPrintPubsubReadingMessages();
             cliWaitForMessagesOrStdin();
         }
+
+        /* linenoise() returns malloc-ed lines like readline() */
+        linenoiseFree(line);
     }
     exit(0);
 }
