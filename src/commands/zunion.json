@@ -34,21 +34,14 @@
             }
         ],
         "reply_schema": {
-            "oneOf": [
-                {
-                    "description": "the empty array union when both sets do not exist",
-                    "type": "array",
-                    "minItems": 0,
-                    "maxItems": 0
-                },
+            "anyOf": [
                 {
                     "description": "The result of union when 'WITHSCORES' is not used.",
                     "type": "array",
                     "uniqueItems": true,
                     "items": {
                         "type": "string"
-                    },
-                    "minItems": 1
+                    }
                 },
                 {
                     "description": "The result of union when 'WITHSCORES' is used.",
@@ -66,8 +59,7 @@
                                 "type": "number"
                             }
                         ]
-                    },
-                    "minItems": 1
+                    }
                 }
             ]
         },

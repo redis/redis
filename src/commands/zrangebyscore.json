@@ -61,7 +61,6 @@
                     "items": {
                         "type": "array",
                         "description": "Tuple of element and its score",
-                        "additionalItems": false,
                         "minItems": 2,
                         "maxItems": 2,
                         "items": [

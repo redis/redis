@@ -36,7 +36,7 @@
             }
         ],
         "reply_schema": {
-            "oneOf": [
+            "anyOf": [
                 {
                     "description": "Key doesn't exist",
                     "type": "null"
@@ -46,18 +46,11 @@
                     "type": "string"
                 },
                 {
-                    "description": "Empty array when using COUNT of 0",
-                    "type": "array",
-                    "minItems": 0,
-                    "maxItems": 0
-                },
-                {
                     "description": "A list of fields. Returned in case `COUNT` was used.",
                     "type": "array",
                     "items": {
                         "type": "string"
-                    },
-                    "minItems": 1
+                    }
                 },
                 {
                     "description": "Fields and their values. Returned in case `COUNT` and `WITHVALUES` were used. In RESP2 this is returned as a flat array.",
@@ -76,8 +69,7 @@
                                 "type": "string"
                             }
                         ]
-                    },
-                    "minItems": 1
+                    }
                 }
             ]
         },

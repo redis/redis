@@ -37,7 +37,7 @@
                 "notes": "RW and ACCESS due to the optional `GET` argument",
                 "flags": [
                     "RW",
-                        "ACCESS",
+                    "ACCESS",
                     "UPDATE",
                     "VARIABLE_FLAGS"
                 ],

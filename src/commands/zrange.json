@@ -39,21 +39,14 @@
             }
         ],
         "reply_schema": {
-            "oneOf": [
-                {
-                    "description": "empty array when key does not exist",
-                    "type": "array",
-                    "minItems": 0,
-                    "maxItems": 0
-                },
+            "anyOf": [
                 {
                     "description": "A list of member elements",
                     "type": "array",
                     "uniqueItems": true,
                     "items": {
                         "type": "string"
-                    },
-                    "minItems": 1
+                    }
                 },
                 {
                     "description": "Members and their scores. Returned in case `WITHSCORES` was used. In RESP2 this is returned as a flat array",
@@ -73,8 +66,7 @@
                                 "type": "number"
                             }
                         ]
-                    },
-                    "minItems": 1
+                    }
                 }
             ]
         },

@@ -35,13 +35,7 @@
             }
         ],
         "reply_schema": {
-            "oneOf": [
-                {
-                    "description": "when there are no items to pop in the set",
-                    "type": "array",
-                    "minItems": 0,
-                    "maxItems": 0
-                },
+            "anyOf": [
                 {
                     "type": "array",
                     "description": "List of popped elements and scores when 'COUNT' isn't specified.",
@@ -56,8 +50,7 @@
                             "type": "number",
                             "description": "Score."
                         }
-                    ],
-                    "minItems": 1
+                    ]
                 },
                 {
                     "type": "array",
@@ -75,10 +68,8 @@
                                 "type": "number",
                                 "description": "Score."
                             }
-                        ],
-                        "minItems": 1
-                    },
-                    "minItems": 1
+                        ]
+                    }
                 }
             ]
         },
