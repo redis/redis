@@ -61,6 +61,8 @@
         "reply_schema": {
             "description": "cursor and scan response in array form",
             "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
             "items": [
                 {
                     "description": "cursor",

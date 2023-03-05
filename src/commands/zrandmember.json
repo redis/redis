@@ -64,7 +64,8 @@
                     "description": "Randomly selected elements when 'COUNT' and 'WITHSCORES' modifiers are used.",
                     "items": {
                         "type": "array",
-                        "additionalItems": false,
+                        "minItems": 2,
+                        "maxItems": 2,
                         "items": [
                             {
                                 "type": "string",

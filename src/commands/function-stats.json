@@ -68,7 +68,7 @@
                                     "type": "integer"
                                 },
                                 "functions_count": {
-                                    "dedscription": "number of functions",
+                                    "description": "number of functions",
                                     "type": "integer"
                                 }
                             }

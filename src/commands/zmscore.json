@@ -40,8 +40,7 @@
                 "oneOf": [
                     {
                         "type": "number",
-                        "notes": "In RESP2, this is returned as string.",
-                        "description": "The score of the member (a double precision floating point number)."
+                        "description": "The score of the member (a double precision floating point number). In RESP2, this is returned as string."
                     },
                     {
                         "type": "null",

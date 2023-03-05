@@ -14,7 +14,6 @@
         ],
         "reply_schema": {
             "type": "array",
-            "additionalItems": false,
             "minItems": 2,
             "maxItems": 2,
             "items": [

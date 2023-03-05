@@ -21,6 +21,8 @@
             "oneOf": [
                 {
                     "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
                     "items": [
                         {
                             "const": "master"
@@ -34,6 +36,8 @@
                             "type": "array",
                             "items": {
                                 "type": "array",
+                                "minItems": 3,
+                                "maxItems": 3,
                                 "items": [
                                     {
                                         "description": "replica ip",
@@ -54,6 +58,8 @@
                 },
                 {
                     "type": "array",
+                    "minItems": 5,
+                    "maxItems": 5,
                     "items": [
                         {
                             "const": "slave"
@@ -107,6 +113,8 @@
                 },
                 {
                     "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
                     "items": [
                         {
                             "const": "sentinel"

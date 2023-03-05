@@ -19,6 +19,7 @@
             "type": "array",
             "items": {
                 "type": "object",
+                "additionalProperties": false,
                 "properties": {
                     "slots": {
                         "description": "an even number element array specifying the start and end slot numbers for slot ranges owned by this shard",
@@ -32,6 +33,7 @@
                         "type": "array",
                         "items": {
                             "type": "object",
+                            "additionalProperties": false,
                             "properties": {
                                 "id": {
                                     "type": "string"
@@ -80,8 +82,7 @@
                             }
                         }
                     }
-                },
-                "additionalProperties": false
+                }
             }
         }
     }

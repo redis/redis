@@ -28,7 +28,8 @@
             "uniqueItems": true,
             "items": {
                 "type": "array",
-                "additionalItems": false,
+                "minItems": 6,
+                "maxItems": 6,
                 "items": [
                     {
                         "type": "integer",

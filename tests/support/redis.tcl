@@ -28,6 +28,8 @@
 package require Tcl 8.5
 package provide redis 0.1
 
+source [file join [file dirname [info script]] "response_transformers.tcl"]
+
 namespace eval redis {}
 set ::redis::id 0
 array set ::redis::fd {}
@@ -45,6 +47,7 @@ array set ::redis::curr_argv {} ;# Remember the current argv, to be used in resp
 array set ::redis::testing_resp3 {} ;# Indicating if the current client is using RESP3 (only if the test is trying to test RESP3 specific behavior. It won't be on in case of force_resp3)
 
 set ::force_resp3 0
+set ::log_req_res 0
 
 proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {readraw 0}} {
     if {$tls} {
@@ -321,6 +324,9 @@ proc ::redis::redis_read_bool fd {
 
 proc ::redis::redis_read_double {id fd} {
     set v [redis_read_line $fd]
+    # unlike many other DTs, there is a textual difference between double and a string with the same value,
+    # so we need to transform to double if we are testing RESP3 (i.e. some tests check that a
+    # double reply is "1.0" and not "1")
     if {[should_transform_to_resp2 $id]} {
         return $v
     } else {
@@ -374,7 +380,7 @@ proc ::redis::redis_read_reply_logic {id fd} {
 
 proc ::redis::redis_read_reply {id fd} {
     set response [redis_read_reply_logic $id $fd]
-    transform_response_if_needed $id $::redis::curr_argv($id) $response
+    ::response_transformers::transform_response_if_needed $id $::redis::curr_argv($id) $response
 }
 
 proc ::redis::redis_reset_state id {
@@ -458,97 +464,3 @@ proc ::redis::redis_readable {fd id} {
 proc ::redis::should_transform_to_resp2 {id} {
     return [expr {$::force_resp3 && !$::redis::testing_resp3($id)}]
 }
-
-################################################################################
-# Response transformers code
-################################################################################
-
-# Transform a map response into an array of tuples (tuple = array with 2 elements)
-# Used for XREAD[GROUP]
-proc transfrom_map_to_tupple_array {argv response} {
-    set tuparray {}
-    foreach {key val} $response {
-        set tmp {}
-        lappend tmp $key
-        lappend tmp $val
-        lappend tuparray $tmp
-    }
-    return $tuparray
-}
-
-# Transform an array of tuples to a flat array
-proc transfrom_tuple_array_to_flat_array {argv response} {
-    set flatarray {}
-    foreach pair $response {
-        lappend flatarray {*}$pair
-    }
-    return $flatarray
-}
-
-# With HRANDFIELD, we only need to transform the response if the request had WITHVALUES
-# (otherwise the returned response is a flat array in both RESPs)
-proc transfrom_hrandfield_command {argv response} {
-    foreach ele $argv {
-        if {[string compare -nocase $ele "WITHVALUES"] == 0} {
-            return [transfrom_tuple_array_to_flat_array $argv $response]
-        }
-    }
-    return $response
-}
-
-# With some zset commands, we only need to transform the response if the request had WITHSCORES
-# (otherwise the returned response is a flat array in both RESPs)
-proc transfrom_zset_withscores_command {argv response} {
-    foreach ele $argv {
-        if {[string compare -nocase $ele "WITHSCORES"] == 0} {
-            return [transfrom_tuple_array_to_flat_array $argv $response]
-        }
-    }
-    return $response
-}
-
-# With ZPOPMIN/ZPOPMAX, we only need to transform the response if the request had COUNT (3rd arg)
-# (otherwise the returned response is a flat array in both RESPs)
-proc transfrom_zpopmin_zpopmax {argv response} {
-    if {[llength $argv] == 3} {
-        return [transfrom_tuple_array_to_flat_array $argv $response]
-    }
-    return $response
-}
-
-set ::trasformer_funcs {
-    XREAD transfrom_map_to_tupple_array
-    XREADGROUP transfrom_map_to_tupple_array
-    HRANDFIELD transfrom_hrandfield_command
-    ZRANDMEMBER transfrom_zset_withscores_command
-    ZRANGE transfrom_zset_withscores_command
-    ZRANGEBYSCORE transfrom_zset_withscores_command
-    ZRANGEBYLEX transfrom_zset_withscores_command
-    ZREVRANGE transfrom_zset_withscores_command
-    ZREVRANGEBYSCORE transfrom_zset_withscores_command
-    ZREVRANGEBYLEX transfrom_zset_withscores_command
-    ZUNION transfrom_zset_withscores_command
-    ZDIFF transfrom_zset_withscores_command
-    ZINTER transfrom_zset_withscores_command
-    ZPOPMIN transfrom_zpopmin_zpopmax
-    ZPOPMAX transfrom_zpopmin_zpopmax
-}
-
-proc transform_response_if_needed {id argv response} {
-    if {![::redis::should_transform_to_resp2 $id] || $::redis::readraw($id)} {
-        return $response
-    }
-
-    set key [string toupper [lindex $argv 0]]
-    if {![dict exists $::trasformer_funcs $key]} {
-        return $response
-    }
-
-    set transform [dict get $::trasformer_funcs $key]
-
-    return [$transform $argv $response]
-}
-
-################################################################################
-# End of response transformers code
-################################################################################

@@ -56,8 +56,7 @@
                     "minItems": 1
                 },
                 {
-                    "description": "Members and their scores. Returned in case `WITHSCORES` was used.",
-                    "notes": "In RESP2 this is returned as a flat array",
+                    "description": "Members and their scores. Returned in case `WITHSCORES` was used. In RESP2 this is returned as a flat array",
                     "type": "array",
                     "uniqueItems": true,
                     "items": {

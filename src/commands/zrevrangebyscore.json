@@ -44,22 +44,15 @@
             }
         ],
         "reply_schema": {
-            "oneOf": [
-                {
-                    "description": "Empty response when no elements are returned",
-                    "type": "array",
-                    "minItems": 0,
-                    "maxItems": 0
-                },
+            "anyOf": [
                 {
                     "type": "array",
                     "description": "List of the elements in the specified score range, as not WITHSCORES",
                     "uniqueItems": true,
                     "items": {
                         "type": "string",
-                        "description": "Element when 'WITHSCORES' is not used."
-                    },
-                    "minItems": 1
+                        "description": "Element"
+                    }
                 },
                 {
                     "type": "array",
@@ -67,18 +60,21 @@
                     "uniqueItems": true,
                     "items": {
                         "type": "array",
-                        "description": "Element and its score when 'WITHSCORES' is used.",
+                        "description": "Tuple of element and its score",
                         "additionalItems": false,
+                        "minItems": 2,
+                        "maxItems": 2,
                         "items": [
                             {
-                                "type": "string"
+                                "type": "string",
+                                "description": "element"
                             },
                             {
-                                "type": "number"
+                                "type": "number",
+                                "description": "score"
                             }
                         ]
-                    },
-                    "minItems": 1
+                    }
                 }
             ]
         },

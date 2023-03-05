@@ -50,8 +50,7 @@
                     "minItems": 1
                 },
                 {
-                    "description": "Result of intersection, containing members and their scores. Returned in case `WITHSCORES` was used.",
-                    "notes": "In RESP2 this is returned as a flat array",
+                    "description": "Result of intersection, containing members and their scores. Returned in case `WITHSCORES` was used. In RESP2 this is returned as a flat array",
                     "type": "array",
                     "items": {
                         "type": "array",
