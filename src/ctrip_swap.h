@@ -1023,7 +1023,7 @@ int parallelSyncSwapRequestSubmit(swapRequest *req, int idx);
 /* Lock */
 #define LOCK_LINKS_BUF_SIZE 2
 
-typedef void (*lockProceedCallback)(void *lock, redisDb *db, robj *key, client *c, void *pd);
+typedef void (*lockProceedCallback)(void *lock, int flush, redisDb *db, robj *key, client *c, void *pd);
 
 typedef struct lockLinkTarget {
   int signaled;
@@ -1115,7 +1115,7 @@ typedef struct swapLock {
 void swapLockCreate(void);
 void swapLockDestroy(void);
 int lockWouldBlock(int64_t txid, redisDb *db, robj *key);
-void lockLock(int64_t txid, redisDb *db, robj *key, lockProceedCallback cb, client *c, void *pd, freefunc pdfree, void *msgs);
+int lockLock(int64_t txid, redisDb *db, robj *key, lockProceedCallback cb, client *c, void *pd, freefunc pdfree, void *msgs);
 void lockProceeded(void *lock);
 void lockUnlock(void *lock);
 
