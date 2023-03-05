@@ -35,6 +35,7 @@
                 {
                     "description": "a set of ACL rule definitions for the user",
                     "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "flags": {
                             "type": "array",
@@ -64,6 +65,7 @@
                             "type": "array",
                             "items": {
                                 "type": "object",
+                                "additionalProperties": false,
                                 "properties": {
                                     "commands": {
                                         "type": "string"

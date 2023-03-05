@@ -16,7 +16,6 @@
             "type": "array",
             "minItems": 3,
             "maxItems": 3,
-            "additionalItems": false,
             "items": [
                 {
                     "oneOf": [
@@ -36,8 +35,7 @@
                 },
                 {
                     "type": "integer",
-                    "description": "Port.",
-                    "pattern": "[0-9]+"
+                    "description": "Port."
                 }
             ]
         },

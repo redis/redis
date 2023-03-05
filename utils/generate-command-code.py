@@ -249,6 +249,14 @@ class ReplySchema(object):
     def __init__(self, name, desc):
         self.name = to_c_name(name)
         self.schema = {}
+        if desc.get("type") == "object":
+            if desc.get("properties") and desc.get("additionalProperties") is None:
+                print(f"{self.name}: Any object that has properties should have the additionalProperties field")
+                exit(1)
+        elif desc.get("type") == "array":
+            if desc.get("items") and isinstance(desc["items"], list) and any([desc.get(k) is None for k in ["minItems", "maxItems"]]):
+                print(f"{self.name}: Any array that has items should have the minItems and maxItems fields")
+                exit(1)
         for k, v in desc.items():
             if isinstance(v, dict):
                 self.schema[k] = ReplySchema("%s_%s" % (self.name, k), v)
@@ -469,7 +477,11 @@ class Command(object):
             f.write("};\n\n")
 
         if self.reply_schema:
+            f.write("#ifdef LOG_REQ_RES\n\n")
             self.reply_schema.write(f)
+            f.write("#else\n\n")
+            f.write("struct jsonObject %s = {0};\n\n" % (self.reply_schema_name()))
+            f.write("#endif\n\n")
 
 
 class Subcommand(Command):

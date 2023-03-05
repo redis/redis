@@ -35,6 +35,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "The value of the key after decrementing it."
+        },
         "arguments": [
             {
                 "name": "key",
