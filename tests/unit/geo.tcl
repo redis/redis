@@ -267,6 +267,12 @@ start_server {tags {"geo"}} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 3
     } {{central park n/q/r} 4545 {union square}}
 
+    test {GEORADIUS with multiple WITH* tokens} {
+        assert_equal {{{central park n/q/r} 1791875761332224 {-73.97334784269332886 40.76480639569881959}} {4545 1791875796750882 {-73.95641237497329712 40.74809751381645384}}} [r georadius nyc -73.9798091 40.7598464 10 km WITHCOORD WITHHASH COUNT 2]
+        assert_equal {{{central park n/q/r} 1791875761332224 {-73.97334784269332886 40.76480639569881959}} {4545 1791875796750882 {-73.95641237497329712 40.74809751381645384}}} [r georadius nyc -73.9798091 40.7598464 10 km WITHHASH WITHCOORD COUNT 2]
+        assert_equal {{{central park n/q/r} 0.7750 1791875761332224 {-73.97334784269332886 40.76480639569881959}} {4545 2.3651 1791875796750882 {-73.95641237497329712 40.74809751381645384}}} [r georadius nyc -73.9798091 40.7598464 10 km WITHDIST WITHHASH WITHCOORD COUNT 2]
+    }
+
     test {GEORADIUS with ANY not sorted by default} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 3 ANY
     } {{wtc one} {union square} {central park n/q/r}}

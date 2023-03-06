@@ -26,9 +26,9 @@ start_server {tags {"other"}} {
 
     test {MEMORY PURGE basic} {
         if {[string match {*jemalloc*} [s mem_allocator]]} {
-            r memory purge
+            assert_equal {OK} [r memory purge]
         }
-    } {OK}
+    }
 
     test {SAVE - make sure there are all the types as values} {
         # Wait for a background saving in progress to terminate
