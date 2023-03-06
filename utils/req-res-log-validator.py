@@ -337,7 +337,7 @@ if __name__ == '__main__':
     print("Hits per command:")
     for k, v in sorted(command_counter.items()):
         print(f"  {k}: {v}")
-    not_hit = set(docs.keys()) - set(command_counter.keys())
+    not_hit = set(docs.keys()) - set(command_counter.keys()) - set(IGNORED_COMMANDS)
     if not_hit:
         if args.verbose:
             print("WARNING! The following commands were not hit at all:")
