@@ -287,8 +287,12 @@ int prepareClientToWrite(client *c) {
     /* If CLIENT_CLOSE_ASAP flag is set, we need not write anything. */
     if (c->flags & CLIENT_CLOSE_ASAP) return C_ERR;
 
-    /* CLIENT REPLY OFF / SKIP handling: don't send replies. */
-    if (c->flags & (CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP)) return C_ERR;
+    if (c->flags & CLIENT_PUSHING) {
+        /* PUSH messages are not really a reply, and should not be skipped. */
+    } else {
+        /* CLIENT REPLY OFF / SKIP handling: don't send replies. */
+        if (c->flags & (CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP)) return C_ERR;
+    }
 
     /* Masters don't receive replies, unless CLIENT_MASTER_FORCE_REPLY flag
      * is set. */
@@ -306,6 +310,12 @@ int prepareClientToWrite(client *c) {
      */
     if (!clientHasPendingReplies(c) && io_threads_op == IO_THREADS_OP_IDLE)
         putClientInPendingWriteQueue(c);
+
+    /* Make sure that any call to prepareClientToWrite when that client is
+     * not the executing_client, is done with the PUSHING flag set. */
+    if (server.executing_client != c) {
+        // serverAssertWithInfo(c, NULL, c->flags & CLIENT_PUSHING);
+    }
 
     /* Authorize the caller to queue in the output buffer of this client. */
     return C_OK;

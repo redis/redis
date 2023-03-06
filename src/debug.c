@@ -807,6 +807,7 @@ NULL
                 addReplyError(c,"RESP2 is not supported by this command");
                 return;
 	    }
+            c->flags |= CLIENT_PUSHING;
             addReplyPushLen(c,2);
             addReplyBulkCString(c,"server-cpu-usage");
             addReplyLongLong(c,42);
@@ -814,6 +815,7 @@ NULL
              * normal reply in order for blocking clients just discarding the
              * push reply, to actually consume the reply and continue. */
             addReplyBulkCString(c,"Some real reply following the push reply");
+            c->flags &= ~CLIENT_PUSHING;
         } else if (!strcasecmp(name,"true")) {
             addReplyBool(c,1);
         } else if (!strcasecmp(name,"false")) {
