@@ -55,7 +55,9 @@ IGNORED_COMMANDS = [
     "psubscribe",
     "punsubscribe",
     "debug",
-    "pfdebug"
+    "pfdebug",
+    "lolwut",
+    "sentinel|debug",
 ]
 
 
@@ -216,9 +218,6 @@ def process_file(docs, path):
             if res.error or res.queued:
                 continue
 
-            if req.command == "pfdebug" or req.command == 'debug' or req.command == 'sentinel|debug':
-                continue
-
             try:
                 jsonschema.validate(instance=res.json, schema=req.schema, cls=schema_validator)
             except (jsonschema.ValidationError, jsonschema.exceptions.SchemaError) as err:
@@ -290,7 +289,7 @@ if __name__ == '__main__':
     fetch_schemas(args.cli, args.port, redis_args, docs)
 
     missing_schema = [k for k, v in docs.items()
-                      if "reply_schema" not in v and k not in IGNORED_COMMANDS ]
+                      if "reply_schema" not in v and k not in IGNORED_COMMANDS]
     if missing_schema:
         print("WARNING! The following commands are missing a reply_schema:")
         for k in sorted(missing_schema):

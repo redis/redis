@@ -222,6 +222,10 @@ start_server {tags {"geo"}} {
         r georadius nyc -73.9798091 40.7598464 3 km asc
     } {{central park n/q/r} 4545 {union square}}
 
+    test {GEORADIUS_RO simple (sorted)} {
+        r georadius_ro nyc -73.9798091 40.7598464 3 km asc
+    } {{central park n/q/r} 4545 {union square}}
+
     test {GEOSEARCH simple (sorted)} {
         r geosearch nyc fromlonlat -73.9798091 40.7598464 bybox 6 6 km asc
     } {{central park n/q/r} 4545 {union square} {lic market}}
@@ -292,6 +296,10 @@ start_server {tags {"geo"}} {
 
     test {GEORADIUSBYMEMBER simple (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km
+    } {{wtc one} {union square} {central park n/q/r} 4545 {lic market}}
+
+    test {GEORADIUSBYMEMBER_RO simple (sorted)} {
+        r georadiusbymember_ro nyc "wtc one" 7 km
     } {{wtc one} {union square} {central park n/q/r} 4545 {lic market}}
     
     test {GEORADIUSBYMEMBER search areas contain satisfied points in oblique direction} {
