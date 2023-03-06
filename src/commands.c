@@ -541,18 +541,20 @@ NULL
 /* CLUSTER_BUMPEPOCH_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement CLUSTER_BUMPEPOCH_ReplySchema_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="if the epoch was incremented"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="^BUMPED [0-9]*$"},
 };
 
-struct jsonObject CLUSTER_BUMPEPOCH_ReplySchema_oneOf_0 = {CLUSTER_BUMPEPOCH_ReplySchema_oneOf_0_elements,.length=2};
+struct jsonObject CLUSTER_BUMPEPOCH_ReplySchema_oneOf_0 = {CLUSTER_BUMPEPOCH_ReplySchema_oneOf_0_elements,.length=3};
 
 /* CLUSTER_BUMPEPOCH_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement CLUSTER_BUMPEPOCH_ReplySchema_oneOf_1_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="if the node already has the greatest config epoch in the cluster"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 {JSON_TYPE_STRING,"pattern",.value.string="^STILL [0-9]*$"},
 };
 
-struct jsonObject CLUSTER_BUMPEPOCH_ReplySchema_oneOf_1 = {CLUSTER_BUMPEPOCH_ReplySchema_oneOf_1_elements,.length=2};
+struct jsonObject CLUSTER_BUMPEPOCH_ReplySchema_oneOf_1 = {CLUSTER_BUMPEPOCH_ReplySchema_oneOf_1_elements,.length=3};
 
 /* CLUSTER_BUMPEPOCH_ReplySchema_oneOf array reply schema */
 struct jsonObject *CLUSTER_BUMPEPOCH_ReplySchema_oneOf[] = {
@@ -5156,7 +5158,7 @@ struct jsonObject GEORADIUS_ReplySchema_anyOf_0_items = {GEORADIUS_ReplySchema_a
 
 /* GEORADIUS_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If no WITH option is specified, array of matched members names"},
+{JSON_TYPE_STRING,"description",.value.string="If no WITH option is specified, an array of matched members names"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUS_ReplySchema_anyOf_0_items},
 };
@@ -5165,87 +5167,33 @@ struct jsonObject GEORADIUS_ReplySchema_anyOf_0 = {GEORADIUS_ReplySchema_anyOf_0
 
 /* GEORADIUS_ReplySchema_anyOf_1_items_items_0 reply schema */
 struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_1_items_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Matched member name"},
+{JSON_TYPE_STRING,"description",.value.string="name"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject GEORADIUS_ReplySchema_anyOf_1_items_items_0 = {GEORADIUS_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
 
-/* GEORADIUS_ReplySchema_anyOf_1_items_items array reply schema */
-struct jsonObject *GEORADIUS_ReplySchema_anyOf_1_items_items[] = {
-&GEORADIUS_ReplySchema_anyOf_1_items_items_0,
-};
-
-/* GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_0 reply schema */
-struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHDIST option is specified, the distance from the center as a floating point number, in the same unit specified in the radius"},
+/* GEORADIUS_ReplySchema_anyOf_1_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_1_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="distance"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_0 = {GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_0_elements,.length=2};
+struct jsonObject GEORADIUS_ReplySchema_anyOf_1_items_items_1 = {GEORADIUS_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
 
-/* GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_1 reply schema */
-struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHHASH option is specified, the geohash integer"},
-{JSON_TYPE_STRING,"type",.value.string="integer"},
+/* GEORADIUS_ReplySchema_anyOf_1_items_items array reply schema */
+struct jsonObject *GEORADIUS_ReplySchema_anyOf_1_items_items[] = {
+&GEORADIUS_ReplySchema_anyOf_1_items_items_0,
+&GEORADIUS_ReplySchema_anyOf_1_items_items_1,
 };
-
-struct jsonObject GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_1 = {GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_1_elements,.length=2};
-
-/* GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0 reply schema */
-struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="latitude (x)"},
-{JSON_TYPE_STRING,"type",.value.string="number"},
-};
-
-struct jsonObject GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0 = {GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0_elements,.length=2};
-
-/* GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1 reply schema */
-struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="longitude (y)"},
-{JSON_TYPE_STRING,"type",.value.string="number"},
-};
-
-struct jsonObject GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1 = {GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1_elements,.length=2};
-
-/* GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items array reply schema */
-struct jsonObject *GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items[] = {
-&GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0,
-&GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1,
-};
-
-/* GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2 reply schema */
-struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHCOORD option is specified, the coordinates as a two items x,y array (longitude,latitude)"},
-{JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items,.length=2}},
-};
-
-struct jsonObject GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2 = {GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_elements,.length=5};
-
-/* GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf array reply schema */
-struct jsonObject *GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf[] = {
-&GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_0,
-&GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_1,
-&GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf_2,
-};
-
-/* GEORADIUS_ReplySchema_anyOf_1_items_additionalItems reply schema */
-struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_oneOf,.length=3}},
-};
-
-struct jsonObject GEORADIUS_ReplySchema_anyOf_1_items_additionalItems = {GEORADIUS_ReplySchema_anyOf_1_items_additionalItems_elements,.length=1};
 
 /* GEORADIUS_ReplySchema_anyOf_1_items reply schema */
 struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_1_items_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHDIST option is specified, an array of name and distance tuples from the center as a floating point number, in the same unit specified in the radius"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_ReplySchema_anyOf_1_items_items,.length=1}},
-{JSON_TYPE_OBJECT,"additionalItems",.value.object=&GEORADIUS_ReplySchema_anyOf_1_items_additionalItems},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_ReplySchema_anyOf_1_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
 };
 
 struct jsonObject GEORADIUS_ReplySchema_anyOf_1_items = {GEORADIUS_ReplySchema_anyOf_1_items_elements,.length=5};
@@ -5258,25 +5206,133 @@ struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_1_elements[] = {
 
 struct jsonObject GEORADIUS_ReplySchema_anyOf_1 = {GEORADIUS_ReplySchema_anyOf_1_elements,.length=2};
 
+/* GEORADIUS_ReplySchema_anyOf_2_items_items_0 reply schema */
+struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_2_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GEORADIUS_ReplySchema_anyOf_2_items_items_0 = {GEORADIUS_ReplySchema_anyOf_2_items_items_0_elements,.length=2};
+
+/* GEORADIUS_ReplySchema_anyOf_2_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_2_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="geohash"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject GEORADIUS_ReplySchema_anyOf_2_items_items_1 = {GEORADIUS_ReplySchema_anyOf_2_items_items_1_elements,.length=2};
+
+/* GEORADIUS_ReplySchema_anyOf_2_items_items array reply schema */
+struct jsonObject *GEORADIUS_ReplySchema_anyOf_2_items_items[] = {
+&GEORADIUS_ReplySchema_anyOf_2_items_items_0,
+&GEORADIUS_ReplySchema_anyOf_2_items_items_1,
+};
+
+/* GEORADIUS_ReplySchema_anyOf_2_items reply schema */
+struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_2_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_ReplySchema_anyOf_2_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUS_ReplySchema_anyOf_2_items = {GEORADIUS_ReplySchema_anyOf_2_items_elements,.length=4};
+
 /* GEORADIUS_ReplySchema_anyOf_2 reply schema */
 struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHHASH option is specified, an array of name and geohash tuples"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUS_ReplySchema_anyOf_2_items},
+};
+
+struct jsonObject GEORADIUS_ReplySchema_anyOf_2 = {GEORADIUS_ReplySchema_anyOf_2_elements,.length=3};
+
+/* GEORADIUS_ReplySchema_anyOf_3_items_items_0 reply schema */
+struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_3_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GEORADIUS_ReplySchema_anyOf_3_items_items_0 = {GEORADIUS_ReplySchema_anyOf_3_items_items_0_elements,.length=2};
+
+/* GEORADIUS_ReplySchema_anyOf_3_items_items_1_items_0 reply schema */
+struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_3_items_items_1_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="latitude (x)"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject GEORADIUS_ReplySchema_anyOf_3_items_items_1_items_0 = {GEORADIUS_ReplySchema_anyOf_3_items_items_1_items_0_elements,.length=2};
+
+/* GEORADIUS_ReplySchema_anyOf_3_items_items_1_items_1 reply schema */
+struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_3_items_items_1_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="longitude (y)"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject GEORADIUS_ReplySchema_anyOf_3_items_items_1_items_1 = {GEORADIUS_ReplySchema_anyOf_3_items_items_1_items_1_elements,.length=2};
+
+/* GEORADIUS_ReplySchema_anyOf_3_items_items_1_items array reply schema */
+struct jsonObject *GEORADIUS_ReplySchema_anyOf_3_items_items_1_items[] = {
+&GEORADIUS_ReplySchema_anyOf_3_items_items_1_items_0,
+&GEORADIUS_ReplySchema_anyOf_3_items_items_1_items_1,
+};
+
+/* GEORADIUS_ReplySchema_anyOf_3_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_3_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_ReplySchema_anyOf_3_items_items_1_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUS_ReplySchema_anyOf_3_items_items_1 = {GEORADIUS_ReplySchema_anyOf_3_items_items_1_elements,.length=4};
+
+/* GEORADIUS_ReplySchema_anyOf_3_items_items array reply schema */
+struct jsonObject *GEORADIUS_ReplySchema_anyOf_3_items_items[] = {
+&GEORADIUS_ReplySchema_anyOf_3_items_items_0,
+&GEORADIUS_ReplySchema_anyOf_3_items_items_1,
+};
+
+/* GEORADIUS_ReplySchema_anyOf_3_items reply schema */
+struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_3_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_ReplySchema_anyOf_3_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUS_ReplySchema_anyOf_3_items = {GEORADIUS_ReplySchema_anyOf_3_items_elements,.length=4};
+
+/* GEORADIUS_ReplySchema_anyOf_3 reply schema */
+struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_3_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHCOORD option is specified, an array of name, coordinate tuple, where coordinates ai a two items x,y array (longitude,latitude)"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUS_ReplySchema_anyOf_3_items},
+};
+
+struct jsonObject GEORADIUS_ReplySchema_anyOf_3 = {GEORADIUS_ReplySchema_anyOf_3_elements,.length=3};
+
+/* GEORADIUS_ReplySchema_anyOf_4 reply schema */
+struct jsonObjectElement GEORADIUS_ReplySchema_anyOf_4_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="number of items stored in key"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject GEORADIUS_ReplySchema_anyOf_2 = {GEORADIUS_ReplySchema_anyOf_2_elements,.length=2};
+struct jsonObject GEORADIUS_ReplySchema_anyOf_4 = {GEORADIUS_ReplySchema_anyOf_4_elements,.length=2};
 
 /* GEORADIUS_ReplySchema_anyOf array reply schema */
 struct jsonObject *GEORADIUS_ReplySchema_anyOf[] = {
 &GEORADIUS_ReplySchema_anyOf_0,
 &GEORADIUS_ReplySchema_anyOf_1,
 &GEORADIUS_ReplySchema_anyOf_2,
+&GEORADIUS_ReplySchema_anyOf_3,
+&GEORADIUS_ReplySchema_anyOf_4,
 };
 
 /* GEORADIUS_ReplySchema reply schema */
 struct jsonObjectElement GEORADIUS_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Array of matched members information"},
-{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=GEORADIUS_ReplySchema_anyOf,.length=3}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=GEORADIUS_ReplySchema_anyOf,.length=5}},
 };
 
 struct jsonObject GEORADIUS_ReplySchema = {GEORADIUS_ReplySchema_elements,.length=2};
@@ -5349,7 +5405,7 @@ struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_0_items = {GEORADIUSBYMEMB
 
 /* GEORADIUSBYMEMBER_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If no WITH option is specified, array of matched members names"},
+{JSON_TYPE_STRING,"description",.value.string="If no WITH option is specified, an array of matched members names"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUSBYMEMBER_ReplySchema_anyOf_0_items},
 };
@@ -5358,87 +5414,33 @@ struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_0 = {GEORADIUSBYMEMBER_Rep
 
 /* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items_0 reply schema */
 struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Matched member name"},
+{JSON_TYPE_STRING,"description",.value.string="name"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items_0 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
 
-/* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items array reply schema */
-struct jsonObject *GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items[] = {
-&GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items_0,
-};
-
-/* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_0 reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHDIST option is specified, the distance from the center as a floating point number, in the same unit specified in the radius"},
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="distance"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_0 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_0_elements,.length=2};
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items_1 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
 
-/* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_1 reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHHASH option is specified, the geohash integer"},
-{JSON_TYPE_STRING,"type",.value.string="integer"},
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items array reply schema */
+struct jsonObject *GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items[] = {
+&GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items_0,
+&GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items_1,
 };
-
-struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_1 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_1_elements,.length=2};
-
-/* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0 reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="latitude (x)"},
-{JSON_TYPE_STRING,"type",.value.string="number"},
-};
-
-struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0_elements,.length=2};
-
-/* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1 reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="longitude (y)"},
-{JSON_TYPE_STRING,"type",.value.string="number"},
-};
-
-struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1_elements,.length=2};
-
-/* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items array reply schema */
-struct jsonObject *GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items[] = {
-&GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0,
-&GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1,
-};
-
-/* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2 reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHCOORD option is specified, the coordinates as a two items x,y array (longitude,latitude)"},
-{JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items,.length=2}},
-};
-
-struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_elements,.length=5};
-
-/* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf array reply schema */
-struct jsonObject *GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf[] = {
-&GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_0,
-&GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_1,
-&GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf_2,
-};
-
-/* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_oneOf,.length=3}},
-};
-
-struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems = {GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems_elements,.length=1};
 
 /* GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items reply schema */
 struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHDIST option is specified, an array of name and distance tuples from the center as a floating point number, in the same unit specified in the radius"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items,.length=1}},
-{JSON_TYPE_OBJECT,"additionalItems",.value.object=&GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_additionalItems},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
 };
 
 struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items = {GEORADIUSBYMEMBER_ReplySchema_anyOf_1_items_elements,.length=5};
@@ -5451,25 +5453,133 @@ struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_1_elements[] = {
 
 struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_1 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_1_elements,.length=2};
 
-/* GEORADIUSBYMEMBER_ReplySchema_anyOf_2 reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_2_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="number of items stored in key"},
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items_0 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items_0 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items_0_elements,.length=2};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="geohash"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_2 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_2_elements,.length=2};
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items_1 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items_1_elements,.length=2};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items array reply schema */
+struct jsonObject *GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items[] = {
+&GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items_0,
+&GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items_1,
+};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items = {GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items_elements,.length=4};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_2 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHHASH option is specified, an array of name and geohash tuples"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUSBYMEMBER_ReplySchema_anyOf_2_items},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_2 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_2_elements,.length=3};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_0 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_0 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_0_elements,.length=2};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items_0 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="latitude (x)"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items_0 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items_0_elements,.length=2};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items_1 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="longitude (y)"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items_1 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items_1_elements,.length=2};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items array reply schema */
+struct jsonObject *GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items[] = {
+&GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items_0,
+&GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items_1,
+};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1_elements,.length=4};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items array reply schema */
+struct jsonObject *GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items[] = {
+&GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_0,
+&GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items_1,
+};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items = {GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items_elements,.length=4};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_3 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_3_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHCOORD option is specified, an array of name, coordinate tuple, where coordinates ai a two items x,y array (longitude,latitude)"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUSBYMEMBER_ReplySchema_anyOf_3_items},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_3 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_3_elements,.length=3};
+
+/* GEORADIUSBYMEMBER_ReplySchema_anyOf_4 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_anyOf_4_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="number of items stored in key if a write operation"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_ReplySchema_anyOf_4 = {GEORADIUSBYMEMBER_ReplySchema_anyOf_4_elements,.length=2};
 
 /* GEORADIUSBYMEMBER_ReplySchema_anyOf array reply schema */
 struct jsonObject *GEORADIUSBYMEMBER_ReplySchema_anyOf[] = {
 &GEORADIUSBYMEMBER_ReplySchema_anyOf_0,
 &GEORADIUSBYMEMBER_ReplySchema_anyOf_1,
 &GEORADIUSBYMEMBER_ReplySchema_anyOf_2,
+&GEORADIUSBYMEMBER_ReplySchema_anyOf_3,
+&GEORADIUSBYMEMBER_ReplySchema_anyOf_4,
 };
 
 /* GEORADIUSBYMEMBER_ReplySchema reply schema */
 struct jsonObjectElement GEORADIUSBYMEMBER_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Array of matched members information"},
-{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=GEORADIUSBYMEMBER_ReplySchema_anyOf,.length=3}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=GEORADIUSBYMEMBER_ReplySchema_anyOf,.length=5}},
 };
 
 struct jsonObject GEORADIUSBYMEMBER_ReplySchema = {GEORADIUSBYMEMBER_ReplySchema_elements,.length=2};
@@ -5537,7 +5647,7 @@ struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_0_items = {GEORADIUSBYM
 
 /* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If no WITH option is specified, array of matched members names"},
+{JSON_TYPE_STRING,"description",.value.string="If no WITH option is specified, just an array of matched members names"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_0_items},
 };
@@ -5546,87 +5656,33 @@ struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_0 = {GEORADIUSBYMEMBER_
 
 /* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items_0 reply schema */
 struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Matched member name"},
+{JSON_TYPE_STRING,"description",.value.string="name"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items_0 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
 
-/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items array reply schema */
-struct jsonObject *GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items[] = {
-&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items_0,
-};
-
-/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_0 reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHDIST option is specified, the distance from the center as a floating point number, in the same unit specified in the radius"},
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="distance"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_0 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_0_elements,.length=2};
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items_1 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
 
-/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_1 reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHHASH option is specified, the geohash integer"},
-{JSON_TYPE_STRING,"type",.value.string="integer"},
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items array reply schema */
+struct jsonObject *GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items[] = {
+&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items_0,
+&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items_1,
 };
-
-struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_1 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_1_elements,.length=2};
-
-/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0 reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="latitude (x)"},
-{JSON_TYPE_STRING,"type",.value.string="number"},
-};
-
-struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0_elements,.length=2};
-
-/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1 reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="longitude (y)"},
-{JSON_TYPE_STRING,"type",.value.string="number"},
-};
-
-struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1_elements,.length=2};
-
-/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items array reply schema */
-struct jsonObject *GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items[] = {
-&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0,
-&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1,
-};
-
-/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2 reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHCOORD option is specified, the coordinates as a two items x,y array (longitude,latitude)"},
-{JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items,.length=2}},
-};
-
-struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_elements,.length=5};
-
-/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf array reply schema */
-struct jsonObject *GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf[] = {
-&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_0,
-&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_1,
-&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2,
-};
-
-/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems reply schema */
-struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf,.length=3}},
-};
-
-struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems_elements,.length=1};
 
 /* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items reply schema */
 struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHDIST option is specified, an array of name and distance tuples from the center as a floating point number, in the same unit specified in the radius"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items,.length=1}},
-{JSON_TYPE_OBJECT,"additionalItems",.value.object=&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_additionalItems},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
 };
 
 struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_items_elements,.length=5};
@@ -5639,16 +5695,124 @@ struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_elements[] = {
 
 struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1_elements,.length=2};
 
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items_0 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items_0 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items_0_elements,.length=2};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="geohash"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items_1 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items_1_elements,.length=2};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items array reply schema */
+struct jsonObject *GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items[] = {
+&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items_0,
+&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items_1,
+};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items_elements,.length=4};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHHASH option is specified, an array of name and geohash tuples"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_items},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2_elements,.length=3};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_0 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_0 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_0_elements,.length=2};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items_0 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="latitude (x)"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items_0 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items_0_elements,.length=2};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items_1 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="longitude (y)"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items_1 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items_1_elements,.length=2};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items array reply schema */
+struct jsonObject *GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items[] = {
+&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items_0,
+&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items_1,
+};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1_elements,.length=4};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items array reply schema */
+struct jsonObject *GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items[] = {
+&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_0,
+&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items_1,
+};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items_elements,.length=4};
+
+/* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3 reply schema */
+struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHCOORD option is specified, an array of name, coordinate tuple, where coordinates ai a two items x,y array (longitude,latitude)"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_items},
+};
+
+struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3 = {GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3_elements,.length=3};
+
 /* GEORADIUSBYMEMBER_RO_ReplySchema_anyOf array reply schema */
 struct jsonObject *GEORADIUSBYMEMBER_RO_ReplySchema_anyOf[] = {
 &GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_0,
 &GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_1,
+&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_2,
+&GEORADIUSBYMEMBER_RO_ReplySchema_anyOf_3,
 };
 
 /* GEORADIUSBYMEMBER_RO_ReplySchema reply schema */
 struct jsonObjectElement GEORADIUSBYMEMBER_RO_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Array of matched members information"},
-{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=GEORADIUSBYMEMBER_RO_ReplySchema_anyOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=GEORADIUSBYMEMBER_RO_ReplySchema_anyOf,.length=4}},
 };
 
 struct jsonObject GEORADIUSBYMEMBER_RO_ReplySchema = {GEORADIUSBYMEMBER_RO_ReplySchema_elements,.length=2};
@@ -5720,7 +5884,7 @@ struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_0_items = {GEORADIUS_RO_ReplySc
 
 /* GEORADIUS_RO_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If no WITH option is specified, array of matched members names"},
+{JSON_TYPE_STRING,"description",.value.string="If no WITH option is specified, an array of matched members names"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUS_RO_ReplySchema_anyOf_0_items},
 };
@@ -5729,87 +5893,33 @@ struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_0 = {GEORADIUS_RO_ReplySchema_a
 
 /* GEORADIUS_RO_ReplySchema_anyOf_1_items_items_0 reply schema */
 struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_1_items_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Matched member name"},
+{JSON_TYPE_STRING,"description",.value.string="name"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_1_items_items_0 = {GEORADIUS_RO_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
 
-/* GEORADIUS_RO_ReplySchema_anyOf_1_items_items array reply schema */
-struct jsonObject *GEORADIUS_RO_ReplySchema_anyOf_1_items_items[] = {
-&GEORADIUS_RO_ReplySchema_anyOf_1_items_items_0,
-};
-
-/* GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_0 reply schema */
-struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHDIST option is specified, the distance from the center as a floating point number, in the same unit specified in the radius"},
+/* GEORADIUS_RO_ReplySchema_anyOf_1_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_1_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="distance"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_0 = {GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_0_elements,.length=2};
+struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_1_items_items_1 = {GEORADIUS_RO_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
 
-/* GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_1 reply schema */
-struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHHASH option is specified, the geohash integer"},
-{JSON_TYPE_STRING,"type",.value.string="integer"},
+/* GEORADIUS_RO_ReplySchema_anyOf_1_items_items array reply schema */
+struct jsonObject *GEORADIUS_RO_ReplySchema_anyOf_1_items_items[] = {
+&GEORADIUS_RO_ReplySchema_anyOf_1_items_items_0,
+&GEORADIUS_RO_ReplySchema_anyOf_1_items_items_1,
 };
-
-struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_1 = {GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_1_elements,.length=2};
-
-/* GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0 reply schema */
-struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="latitude (x)"},
-{JSON_TYPE_STRING,"type",.value.string="number"},
-};
-
-struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0 = {GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0_elements,.length=2};
-
-/* GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1 reply schema */
-struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="longitude (y)"},
-{JSON_TYPE_STRING,"type",.value.string="number"},
-};
-
-struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1 = {GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1_elements,.length=2};
-
-/* GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items array reply schema */
-struct jsonObject *GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items[] = {
-&GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0,
-&GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1,
-};
-
-/* GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2 reply schema */
-struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHCOORD option is specified, the coordinates as a two items x,y array (longitude,latitude)"},
-{JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items,.length=2}},
-};
-
-struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2 = {GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_elements,.length=5};
-
-/* GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf array reply schema */
-struct jsonObject *GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf[] = {
-&GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_0,
-&GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_1,
-&GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf_2,
-};
-
-/* GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems reply schema */
-struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_oneOf,.length=3}},
-};
-
-struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems = {GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems_elements,.length=1};
 
 /* GEORADIUS_RO_ReplySchema_anyOf_1_items reply schema */
 struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_1_items_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHDIST option is specified, an array of name and distance tuples from the center as a floating point number, in the same unit specified in the radius"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_RO_ReplySchema_anyOf_1_items_items,.length=1}},
-{JSON_TYPE_OBJECT,"additionalItems",.value.object=&GEORADIUS_RO_ReplySchema_anyOf_1_items_additionalItems},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_RO_ReplySchema_anyOf_1_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
 };
 
 struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_1_items = {GEORADIUS_RO_ReplySchema_anyOf_1_items_elements,.length=5};
@@ -5822,16 +5932,124 @@ struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_1_elements[] = {
 
 struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_1 = {GEORADIUS_RO_ReplySchema_anyOf_1_elements,.length=2};
 
+/* GEORADIUS_RO_ReplySchema_anyOf_2_items_items_0 reply schema */
+struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_2_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_2_items_items_0 = {GEORADIUS_RO_ReplySchema_anyOf_2_items_items_0_elements,.length=2};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_2_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_2_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="geohash"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_2_items_items_1 = {GEORADIUS_RO_ReplySchema_anyOf_2_items_items_1_elements,.length=2};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_2_items_items array reply schema */
+struct jsonObject *GEORADIUS_RO_ReplySchema_anyOf_2_items_items[] = {
+&GEORADIUS_RO_ReplySchema_anyOf_2_items_items_0,
+&GEORADIUS_RO_ReplySchema_anyOf_2_items_items_1,
+};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_2_items reply schema */
+struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_2_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_RO_ReplySchema_anyOf_2_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_2_items = {GEORADIUS_RO_ReplySchema_anyOf_2_items_elements,.length=4};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_2 reply schema */
+struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHHASH option is specified, an array of name and geohash tuples"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUS_RO_ReplySchema_anyOf_2_items},
+};
+
+struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_2 = {GEORADIUS_RO_ReplySchema_anyOf_2_elements,.length=3};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_3_items_items_0 reply schema */
+struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_3_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_3_items_items_0 = {GEORADIUS_RO_ReplySchema_anyOf_3_items_items_0_elements,.length=2};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items_0 reply schema */
+struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="latitude (x)"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items_0 = {GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items_0_elements,.length=2};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items_1 reply schema */
+struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="longitude (y)"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items_1 = {GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items_1_elements,.length=2};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items array reply schema */
+struct jsonObject *GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items[] = {
+&GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items_0,
+&GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items_1,
+};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1 reply schema */
+struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1 = {GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1_elements,.length=4};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_3_items_items array reply schema */
+struct jsonObject *GEORADIUS_RO_ReplySchema_anyOf_3_items_items[] = {
+&GEORADIUS_RO_ReplySchema_anyOf_3_items_items_0,
+&GEORADIUS_RO_ReplySchema_anyOf_3_items_items_1,
+};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_3_items reply schema */
+struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_3_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEORADIUS_RO_ReplySchema_anyOf_3_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_3_items = {GEORADIUS_RO_ReplySchema_anyOf_3_items_elements,.length=4};
+
+/* GEORADIUS_RO_ReplySchema_anyOf_3 reply schema */
+struct jsonObjectElement GEORADIUS_RO_ReplySchema_anyOf_3_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHCOORD option is specified, an array of name, coordinate tuple, where coordinates ai a two items x,y array (longitude,latitude)"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&GEORADIUS_RO_ReplySchema_anyOf_3_items},
+};
+
+struct jsonObject GEORADIUS_RO_ReplySchema_anyOf_3 = {GEORADIUS_RO_ReplySchema_anyOf_3_elements,.length=3};
+
 /* GEORADIUS_RO_ReplySchema_anyOf array reply schema */
 struct jsonObject *GEORADIUS_RO_ReplySchema_anyOf[] = {
 &GEORADIUS_RO_ReplySchema_anyOf_0,
 &GEORADIUS_RO_ReplySchema_anyOf_1,
+&GEORADIUS_RO_ReplySchema_anyOf_2,
+&GEORADIUS_RO_ReplySchema_anyOf_3,
 };
 
 /* GEORADIUS_RO_ReplySchema reply schema */
 struct jsonObjectElement GEORADIUS_RO_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Array of matched members information"},
-{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=GEORADIUS_RO_ReplySchema_anyOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=GEORADIUS_RO_ReplySchema_anyOf,.length=4}},
 };
 
 struct jsonObject GEORADIUS_RO_ReplySchema = {GEORADIUS_RO_ReplySchema_elements,.length=2};
@@ -5946,7 +6164,7 @@ struct jsonObject GEOSEARCH_ReplySchema_anyOf_0_items = {GEOSEARCH_ReplySchema_a
 
 /* GEOSEARCH_ReplySchema_anyOf_0 reply schema */
 struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If no WITH option is specified, array of matched members names"},
+{JSON_TYPE_STRING,"description",.value.string="If no WITH option is specified, an array of matched members names"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&GEOSEARCH_ReplySchema_anyOf_0_items},
 };
@@ -5955,87 +6173,33 @@ struct jsonObject GEOSEARCH_ReplySchema_anyOf_0 = {GEOSEARCH_ReplySchema_anyOf_0
 
 /* GEOSEARCH_ReplySchema_anyOf_1_items_items_0 reply schema */
 struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_1_items_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Matched member name"},
+{JSON_TYPE_STRING,"description",.value.string="name"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject GEOSEARCH_ReplySchema_anyOf_1_items_items_0 = {GEOSEARCH_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
 
-/* GEOSEARCH_ReplySchema_anyOf_1_items_items array reply schema */
-struct jsonObject *GEOSEARCH_ReplySchema_anyOf_1_items_items[] = {
-&GEOSEARCH_ReplySchema_anyOf_1_items_items_0,
-};
-
-/* GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_0 reply schema */
-struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHDIST option is specified, the distance from the center as a floating point number, in the same unit specified in the radius"},
+/* GEOSEARCH_ReplySchema_anyOf_1_items_items_1 reply schema */
+struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_1_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="distance"},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_0 = {GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_0_elements,.length=2};
+struct jsonObject GEOSEARCH_ReplySchema_anyOf_1_items_items_1 = {GEOSEARCH_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
 
-/* GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_1 reply schema */
-struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHHASH option is specified, the geohash integer"},
-{JSON_TYPE_STRING,"type",.value.string="integer"},
+/* GEOSEARCH_ReplySchema_anyOf_1_items_items array reply schema */
+struct jsonObject *GEOSEARCH_ReplySchema_anyOf_1_items_items[] = {
+&GEOSEARCH_ReplySchema_anyOf_1_items_items_0,
+&GEOSEARCH_ReplySchema_anyOf_1_items_items_1,
 };
-
-struct jsonObject GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_1 = {GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_1_elements,.length=2};
-
-/* GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0 reply schema */
-struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="latitude (x)"},
-{JSON_TYPE_STRING,"type",.value.string="number"},
-};
-
-struct jsonObject GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0 = {GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0_elements,.length=2};
-
-/* GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1 reply schema */
-struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="longitude (y)"},
-{JSON_TYPE_STRING,"type",.value.string="number"},
-};
-
-struct jsonObject GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1 = {GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1_elements,.length=2};
-
-/* GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items array reply schema */
-struct jsonObject *GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items[] = {
-&GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_0,
-&GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items_1,
-};
-
-/* GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2 reply schema */
-struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="If WITHCOORD option is specified, the coordinates as a two items x,y array (longitude,latitude)"},
-{JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_items,.length=2}},
-};
-
-struct jsonObject GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2 = {GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2_elements,.length=5};
-
-/* GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf array reply schema */
-struct jsonObject *GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf[] = {
-&GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_0,
-&GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_1,
-&GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf_2,
-};
-
-/* GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems reply schema */
-struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_oneOf,.length=3}},
-};
-
-struct jsonObject GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems = {GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems_elements,.length=1};
 
 /* GEOSEARCH_ReplySchema_anyOf_1_items reply schema */
 struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_1_items_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHDIST option is specified, an array of name and distance tuples from the center as a floating point number, in the same unit specified in the radius"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_INTEGER,"minItems",.value.integer=1},
-{JSON_TYPE_INTEGER,"maxItems",.value.integer=4},
-{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEOSEARCH_ReplySchema_anyOf_1_items_items,.length=1}},
-{JSON_TYPE_OBJECT,"additionalItems",.value.object=&GEOSEARCH_ReplySchema_anyOf_1_items_additionalItems},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEOSEARCH_ReplySchema_anyOf_1_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
 };
 
 struct jsonObject GEOSEARCH_ReplySchema_anyOf_1_items = {GEOSEARCH_ReplySchema_anyOf_1_items_elements,.length=5};
@@ -6048,16 +6212,124 @@ struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_1_elements[] = {
 
 struct jsonObject GEOSEARCH_ReplySchema_anyOf_1 = {GEOSEARCH_ReplySchema_anyOf_1_elements,.length=2};
 
+/* GEOSEARCH_ReplySchema_anyOf_2_items_items_0 reply schema */
+struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_2_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GEOSEARCH_ReplySchema_anyOf_2_items_items_0 = {GEOSEARCH_ReplySchema_anyOf_2_items_items_0_elements,.length=2};
+
+/* GEOSEARCH_ReplySchema_anyOf_2_items_items_1 reply schema */
+struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_2_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="geohash"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject GEOSEARCH_ReplySchema_anyOf_2_items_items_1 = {GEOSEARCH_ReplySchema_anyOf_2_items_items_1_elements,.length=2};
+
+/* GEOSEARCH_ReplySchema_anyOf_2_items_items array reply schema */
+struct jsonObject *GEOSEARCH_ReplySchema_anyOf_2_items_items[] = {
+&GEOSEARCH_ReplySchema_anyOf_2_items_items_0,
+&GEOSEARCH_ReplySchema_anyOf_2_items_items_1,
+};
+
+/* GEOSEARCH_ReplySchema_anyOf_2_items reply schema */
+struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_2_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEOSEARCH_ReplySchema_anyOf_2_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEOSEARCH_ReplySchema_anyOf_2_items = {GEOSEARCH_ReplySchema_anyOf_2_items_elements,.length=4};
+
+/* GEOSEARCH_ReplySchema_anyOf_2 reply schema */
+struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_2_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHHASH option is specified, an array of name and geohash tuples"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&GEOSEARCH_ReplySchema_anyOf_2_items},
+};
+
+struct jsonObject GEOSEARCH_ReplySchema_anyOf_2 = {GEOSEARCH_ReplySchema_anyOf_2_elements,.length=3};
+
+/* GEOSEARCH_ReplySchema_anyOf_3_items_items_0 reply schema */
+struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_3_items_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="name"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject GEOSEARCH_ReplySchema_anyOf_3_items_items_0 = {GEOSEARCH_ReplySchema_anyOf_3_items_items_0_elements,.length=2};
+
+/* GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items_0 reply schema */
+struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="latitude (x)"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items_0 = {GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items_0_elements,.length=2};
+
+/* GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items_1 reply schema */
+struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="longitude (y)"},
+{JSON_TYPE_STRING,"type",.value.string="number"},
+};
+
+struct jsonObject GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items_1 = {GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items_1_elements,.length=2};
+
+/* GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items array reply schema */
+struct jsonObject *GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items[] = {
+&GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items_0,
+&GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items_1,
+};
+
+/* GEOSEARCH_ReplySchema_anyOf_3_items_items_1 reply schema */
+struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_3_items_items_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEOSEARCH_ReplySchema_anyOf_3_items_items_1_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEOSEARCH_ReplySchema_anyOf_3_items_items_1 = {GEOSEARCH_ReplySchema_anyOf_3_items_items_1_elements,.length=4};
+
+/* GEOSEARCH_ReplySchema_anyOf_3_items_items array reply schema */
+struct jsonObject *GEOSEARCH_ReplySchema_anyOf_3_items_items[] = {
+&GEOSEARCH_ReplySchema_anyOf_3_items_items_0,
+&GEOSEARCH_ReplySchema_anyOf_3_items_items_1,
+};
+
+/* GEOSEARCH_ReplySchema_anyOf_3_items reply schema */
+struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_3_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=GEOSEARCH_ReplySchema_anyOf_3_items_items,.length=2}},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+};
+
+struct jsonObject GEOSEARCH_ReplySchema_anyOf_3_items = {GEOSEARCH_ReplySchema_anyOf_3_items_elements,.length=4};
+
+/* GEOSEARCH_ReplySchema_anyOf_3 reply schema */
+struct jsonObjectElement GEOSEARCH_ReplySchema_anyOf_3_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="If WITHCOORD option is specified, an array of name, coordinate tuple, where coordinates ai a two items x,y array (longitude,latitude)"},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&GEOSEARCH_ReplySchema_anyOf_3_items},
+};
+
+struct jsonObject GEOSEARCH_ReplySchema_anyOf_3 = {GEOSEARCH_ReplySchema_anyOf_3_elements,.length=3};
+
 /* GEOSEARCH_ReplySchema_anyOf array reply schema */
 struct jsonObject *GEOSEARCH_ReplySchema_anyOf[] = {
 &GEOSEARCH_ReplySchema_anyOf_0,
 &GEOSEARCH_ReplySchema_anyOf_1,
+&GEOSEARCH_ReplySchema_anyOf_2,
+&GEOSEARCH_ReplySchema_anyOf_3,
 };
 
 /* GEOSEARCH_ReplySchema reply schema */
 struct jsonObjectElement GEOSEARCH_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="Array of matched members information"},
-{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=GEOSEARCH_ReplySchema_anyOf,.length=2}},
+{JSON_TYPE_ARRAY,"anyOf",.value.array={.objects=GEOSEARCH_ReplySchema_anyOf,.length=4}},
 };
 
 struct jsonObject GEOSEARCH_ReplySchema = {GEOSEARCH_ReplySchema_elements,.length=2};
@@ -6342,12 +6614,11 @@ struct jsonObject HGETALL_ReplySchema_additionalProperties = {HGETALL_ReplySchem
 /* HGETALL_ReplySchema reply schema */
 struct jsonObjectElement HGETALL_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
-{JSON_TYPE_STRING,"description",.value.string="Map of fields and their values stored in the hash, or an empty list when key does not exist."},
-{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_STRING,"description",.value.string="Map of fields and their values stored in the hash, or an empty list when key does not exist. In RESP2 this is returned as a flat array."},
 {JSON_TYPE_OBJECT,"additionalProperties",.value.object=&HGETALL_ReplySchema_additionalProperties},
 };
 
-struct jsonObject HGETALL_ReplySchema = {HGETALL_ReplySchema_elements,.length=4};
+struct jsonObject HGETALL_ReplySchema = {HGETALL_ReplySchema_elements,.length=3};
 
 #else
 
@@ -6681,13 +6952,12 @@ struct jsonObject HRANDFIELD_ReplySchema_anyOf_3_items = {HRANDFIELD_ReplySchema
 
 /* HRANDFIELD_ReplySchema_anyOf_3 reply schema */
 struct jsonObjectElement HRANDFIELD_ReplySchema_anyOf_3_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Fields and their values. Returned in case `COUNT` and `WITHVALUES` were used."},
-{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_STRING,"description",.value.string="Fields and their values. Returned in case `COUNT` and `WITHVALUES` were used. In RESP2 this is returned as a flat array."},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&HRANDFIELD_ReplySchema_anyOf_3_items},
 };
 
-struct jsonObject HRANDFIELD_ReplySchema_anyOf_3 = {HRANDFIELD_ReplySchema_anyOf_3_elements,.length=4};
+struct jsonObject HRANDFIELD_ReplySchema_anyOf_3 = {HRANDFIELD_ReplySchema_anyOf_3_elements,.length=3};
 
 /* HRANDFIELD_ReplySchema_anyOf array reply schema */
 struct jsonObject *HRANDFIELD_ReplySchema_anyOf[] = {
@@ -7744,12 +8014,13 @@ struct jsonObject *LMPOP_ReplySchema_anyOf_1_items[] = {
 /* LMPOP_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement LMPOP_ReplySchema_anyOf_1_elements[] = {
 {JSON_TYPE_STRING,"description",.value.string="List key from which elements were popped."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_INTEGER,"minItems",.value.integer=2},
 {JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
 {JSON_TYPE_ARRAY,"items",.value.array={.objects=LMPOP_ReplySchema_anyOf_1_items,.length=2}},
 };
 
-struct jsonObject LMPOP_ReplySchema_anyOf_1 = {LMPOP_ReplySchema_anyOf_1_elements,.length=4};
+struct jsonObject LMPOP_ReplySchema_anyOf_1 = {LMPOP_ReplySchema_anyOf_1_elements,.length=5};
 
 /* LMPOP_ReplySchema_anyOf array reply schema */
 struct jsonObject *LMPOP_ReplySchema_anyOf[] = {
@@ -9354,7 +9625,7 @@ struct jsonObject FUNCTION_STATS_ReplySchema_properties_engines_patternPropertie
 
 /* FUNCTION_STATS_ReplySchema_properties_engines_patternProperties______properties_functions_count reply schema */
 struct jsonObjectElement FUNCTION_STATS_ReplySchema_properties_engines_patternProperties______properties_functions_count_elements[] = {
-{JSON_TYPE_STRING,"dedscription",.value.string="number of functions"},
+{JSON_TYPE_STRING,"description",.value.string="number of functions"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
@@ -10175,10 +10446,9 @@ struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_1 = {SENTINE
 struct jsonObjectElement SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 {JSON_TYPE_STRING,"description",.value.string="Port."},
-{JSON_TYPE_STRING,"pattern",.value.string="[0-9]+"},
 };
 
-struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2_elements,.length=3};
+struct jsonObject SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2 = {SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items_2_elements,.length=2};
 
 /* SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items array reply schema */
 struct jsonObject *SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema_items[] = {
@@ -16156,13 +16426,12 @@ struct jsonObject ZDIFF_ReplySchema_anyOf_1_items = {ZDIFF_ReplySchema_anyOf_1_i
 
 /* ZDIFF_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement ZDIFF_ReplySchema_anyOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Members and their scores. Returned in case `WITHSCORES` was used."},
-{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_STRING,"description",.value.string="Members and their scores. Returned in case `WITHSCORES` was used. In RESP2 this is returned as a flat array"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&ZDIFF_ReplySchema_anyOf_1_items},
 };
 
-struct jsonObject ZDIFF_ReplySchema_anyOf_1 = {ZDIFF_ReplySchema_anyOf_1_elements,.length=4};
+struct jsonObject ZDIFF_ReplySchema_anyOf_1 = {ZDIFF_ReplySchema_anyOf_1_elements,.length=3};
 
 /* ZDIFF_ReplySchema_anyOf array reply schema */
 struct jsonObject *ZDIFF_ReplySchema_anyOf[] = {
@@ -16325,13 +16594,12 @@ struct jsonObject ZINTER_ReplySchema_anyOf_1_items = {ZINTER_ReplySchema_anyOf_1
 
 /* ZINTER_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement ZINTER_ReplySchema_anyOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Result of intersection, containing members and their scores. Returned in case `WITHSCORES` was used."},
-{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_STRING,"description",.value.string="Result of intersection, containing members and their scores. Returned in case `WITHSCORES` was used. In RESP2 this is returned as a flat array"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_OBJECT,"items",.value.object=&ZINTER_ReplySchema_anyOf_1_items},
 };
 
-struct jsonObject ZINTER_ReplySchema_anyOf_1 = {ZINTER_ReplySchema_anyOf_1_elements,.length=4};
+struct jsonObject ZINTER_ReplySchema_anyOf_1 = {ZINTER_ReplySchema_anyOf_1_elements,.length=3};
 
 /* ZINTER_ReplySchema_anyOf array reply schema */
 struct jsonObject *ZINTER_ReplySchema_anyOf[] = {
@@ -16600,11 +16868,10 @@ struct redisCommandArg ZMSCORE_Args[] = {
 /* ZMSCORE_ReplySchema_items_oneOf_0 reply schema */
 struct jsonObjectElement ZMSCORE_ReplySchema_items_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="number"},
-{JSON_TYPE_STRING,"notes",.value.string="In RESP2, this is returned as string."},
-{JSON_TYPE_STRING,"description",.value.string="The score of the member (a double precision floating point number)."},
+{JSON_TYPE_STRING,"description",.value.string="The score of the member (a double precision floating point number). In RESP2, this is returned as string."},
 };
 
-struct jsonObject ZMSCORE_ReplySchema_items_oneOf_0 = {ZMSCORE_ReplySchema_items_oneOf_0_elements,.length=3};
+struct jsonObject ZMSCORE_ReplySchema_items_oneOf_0 = {ZMSCORE_ReplySchema_items_oneOf_0_elements,.length=2};
 
 /* ZMSCORE_ReplySchema_items_oneOf_1 reply schema */
 struct jsonObjectElement ZMSCORE_ReplySchema_items_oneOf_1_elements[] = {
@@ -17073,14 +17340,13 @@ struct jsonObject ZRANGE_ReplySchema_anyOf_1_items = {ZRANGE_ReplySchema_anyOf_1
 
 /* ZRANGE_ReplySchema_anyOf_1 reply schema */
 struct jsonObjectElement ZRANGE_ReplySchema_anyOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="Members and their scores. Returned in case `WITHSCORES` was used."},
-{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_STRING,"description",.value.string="Members and their scores. Returned in case `WITHSCORES` was used. In RESP2 this is returned as a flat array"},
 {JSON_TYPE_STRING,"type",.value.string="array"},
 {JSON_TYPE_BOOLEAN,"uniqueItems",.value.boolean=1},
 {JSON_TYPE_OBJECT,"items",.value.object=&ZRANGE_ReplySchema_anyOf_1_items},
 };
 
-struct jsonObject ZRANGE_ReplySchema_anyOf_1 = {ZRANGE_ReplySchema_anyOf_1_elements,.length=5};
+struct jsonObject ZRANGE_ReplySchema_anyOf_1 = {ZRANGE_ReplySchema_anyOf_1_elements,.length=4};
 
 /* ZRANGE_ReplySchema_anyOf array reply schema */
 struct jsonObject *ZRANGE_ReplySchema_anyOf[] = {
@@ -17956,11 +18222,10 @@ struct redisCommandArg ZSCORE_Args[] = {
 /* ZSCORE_ReplySchema_oneOf_0 reply schema */
 struct jsonObjectElement ZSCORE_ReplySchema_oneOf_0_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="number"},
-{JSON_TYPE_STRING,"notes",.value.string="In RESP2, this is returned as string."},
-{JSON_TYPE_STRING,"description",.value.string="The score of the member (a double precision floating point number)."},
+{JSON_TYPE_STRING,"description",.value.string="The score of the member (a double precision floating point number). In RESP2, this is returned as string."},
 };
 
-struct jsonObject ZSCORE_ReplySchema_oneOf_0 = {ZSCORE_ReplySchema_oneOf_0_elements,.length=3};
+struct jsonObject ZSCORE_ReplySchema_oneOf_0 = {ZSCORE_ReplySchema_oneOf_0_elements,.length=2};
 
 /* ZSCORE_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement ZSCORE_ReplySchema_oneOf_1_elements[] = {
@@ -21090,13 +21355,12 @@ struct jsonObject LCS_ReplySchema_oneOf_2_properties = {LCS_ReplySchema_oneOf_2_
 /* LCS_ReplySchema_oneOf_2 reply schema */
 struct jsonObjectElement LCS_ReplySchema_oneOf_2_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="object"},
-{JSON_TYPE_STRING,"description",.value.string="Array with the LCS length and all the ranges in both the strings when 'IDX' is given."},
-{JSON_TYPE_STRING,"notes",.value.string="In RESP2 this is returned as a flat array"},
+{JSON_TYPE_STRING,"description",.value.string="Array with the LCS length and all the ranges in both the strings when 'IDX' is given. In RESP2 this is returned as a flat array"},
 {JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
 {JSON_TYPE_OBJECT,"properties",.value.object=&LCS_ReplySchema_oneOf_2_properties},
 };
 
-struct jsonObject LCS_ReplySchema_oneOf_2 = {LCS_ReplySchema_oneOf_2_elements,.length=5};
+struct jsonObject LCS_ReplySchema_oneOf_2 = {LCS_ReplySchema_oneOf_2_elements,.length=4};
 
 /* LCS_ReplySchema_oneOf array reply schema */
 struct jsonObject *LCS_ReplySchema_oneOf[] = {
