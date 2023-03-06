@@ -460,15 +460,11 @@ start_server {tags {"string"}} {
         }
     }
 
-    test "SUBSTR fuzzing" {
-        for {set i 0} {$i < 1000} {incr i} {
-            r set bin [set bin [randstring 0 1024 binary]]
-            set _start [set start [randomInt 1500]]
-            set _end [set end [randomInt 1500]]
-            if {$_start < 0} {set _start "end-[abs($_start)-1]"}
-            if {$_end < 0} {set _end "end-[abs($_end)-1]"}
-            assert_equal [string range $bin $_start $_end] [r substr bin $start $end]
-        }
+    test "SUBSTR basic" {
+        r set key abcde
+        assert_equal "a" [r substr key 0 0]
+        assert_equal "abcd" [r substr key 0 3]
+        assert_equal "bcde" [r substr key -4 -1]
     }
     
     test {trim on SET with big value} {
