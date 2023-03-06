@@ -469,7 +469,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         # asset the value was trimmed
         assert {[r memory usage key] < 42000}; # 42K to count for Jemalloc's additional memory overhead. 
     }
-} ;# if
+} ;# if jemalloc
 
     test {Extended SET can detect syntax errors} {
         set e {}
