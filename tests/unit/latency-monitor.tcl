@@ -20,12 +20,6 @@ start_server {tags {"latency-monitor needs:latency"}} {
         assert_match {calls 1 histogram_usec *} [dict get $histo "config|resetstat"]
     }
 
-    test {LATENCY GRAPH command} {
-        r config resetstat
-        r debug sleep .2
-        assert_match {*command*} [r LATENCY GRAPH command]
-    } {} {needs:debug}
-
     test {LATENCY HISTOGRAM sub commands} {
         r config resetstat
         r client id
@@ -151,4 +145,10 @@ start_server {tags {"latency-monitor needs:latency"}} {
         catch {r LATENCY help xxx} e
         assert_match "*wrong number of arguments for 'latency|help' command" $e
     }
+
+    test {LATENCY GRAPH command} {
+        r config resetstat
+        r debug sleep .2
+        assert_match {*command*} [r LATENCY GRAPH command]
+    } {} {needs:debug}
 }
