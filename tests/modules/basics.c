@@ -417,7 +417,13 @@ int TestTrimString(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     size_t string_len = RedisModule_MallocSizeString(s);
     RedisModule_TrimStringAllocation(s);
     size_t len_after_trim = RedisModule_MallocSizeString(s);
-    if (len_after_trim < string_len) {
+#if defined(USE_JEMALLOC)
+    if (len_after_trim < string_len)
+#else
+    /* Non-jemalloc memory allocators may keep the old size on realloc. */
+    if (len_after_trim <= string_len)
+#endif
+    {
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
         RedisModule_ReplyWithError(ctx, "String was not trimmed as expected.");
