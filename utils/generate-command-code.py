@@ -428,7 +428,7 @@ class Command(object):
             s += ".args=%s," % self.arg_table_name()
 
         if self.reply_schema:
-            s += ".reply_schema=&%s," % self.reply_schema_name()
+            s += "REPLY_SCHEMA(%s)," % self.reply_schema_name()
 
         return s[:-1]
 
@@ -479,8 +479,6 @@ class Command(object):
         if self.reply_schema:
             f.write("#ifdef LOG_REQ_RES\n\n")
             self.reply_schema.write(f)
-            f.write("#else\n\n")
-            f.write("struct jsonObject %s = {0};\n\n" % (self.reply_schema_name()))
             f.write("#endif\n\n")
 
 
@@ -550,6 +548,12 @@ with open("%s/commands.c" % srcdir, "w") as f:
 /* We have fabulous commands from
  * the fantastic
  * Redis Command Table! */\n
+
+#ifdef LOG_REQ_RES
+#define REPLY_SCHEMA(name) .reply_schema=&name
+#else
+#define REPLY_SCHEMA(name)
+#endif\n
 """
     )
 

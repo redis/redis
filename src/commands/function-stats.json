@@ -61,7 +61,7 @@
                         "^.*$": {
                             "description": "Engine map contains statistics about the engine",
                             "type": "object",
-                            "additionalProperties": false,
+                            "additionalProperties": true,
                             "properties": {
                                 "libraries_count": {
                                     "description": "number of libraries",

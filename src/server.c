@@ -4642,6 +4642,8 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
     }
 }
 
+#ifdef LOG_REQ_RES
+
 void addReplyJson(client *c, struct jsonObject *rs) {
     addReplyMapLen(c, rs->length);
 
@@ -4673,6 +4675,8 @@ void addReplyJson(client *c, struct jsonObject *rs) {
         }
     }
 }
+
+#endif
 
 void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     addReplySetLen(c, cmd->num_history);

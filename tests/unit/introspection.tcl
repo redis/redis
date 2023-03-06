@@ -250,6 +250,10 @@ start_server {tags {"introspection"}} {
         r CLIENT TRACKINGINFO
     } {flags off redirect -1 prefixes {}}
 
+    test {Coverage: Basic CLIENT GETREDIR} {
+        r CLIENT GETREDIR
+    } {-1}
+
     test {CLIENT SETNAME does not accept spaces} {
         catch {r client setname "foo bar"} e
         set e

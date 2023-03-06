@@ -15,7 +15,7 @@
         "reply_schema": {
             "description": "memory usage details",
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "properties": {
                 "peak.allocated": {
                     "type": "integer"
@@ -113,7 +113,7 @@
                             "type": "integer"
                         }
                     },
-                    "additionalProperties": false
+                    "additionalProperties": true
                 }
             }
         }
