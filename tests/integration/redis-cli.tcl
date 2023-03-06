@@ -76,6 +76,12 @@ start_server {tags {"cli"}} {
         unset ::env(FAKETTY)
     }
 
+    proc test_interactive_nontty_cli {name code} {
+        set fd [open_cli]
+        test "Interactive non-TTY CLI: $name" $code
+        close_cli $fd
+    }
+
     # Helpers to run tests where stdout is not a tty
     proc write_tmpfile {contents} {
         set tmp [tmpfile "cli"]
@@ -216,6 +222,40 @@ start_server {tags {"cli"}} {
         # Command allowed in subscribed mode.
         set pong "1) \"pong\"\n2) \"\"\n"
         assert_equal $erase$pong$reading [run_command $fd "ping"]
+
+        # Reset exits subscribed mode.
+        assert_equal ${erase}RESET [run_command $fd "reset"]
+        assert_equal PONG [run_command $fd "ping"]
+    }
+
+    test_interactive_nontty_cli "Subscribed mode" {
+        # Raw output and no "Reading messages..." info message.
+        # Use RESP3 in this test case.
+        assert_match {*proto 3*} [run_command $fd "hello 3"]
+
+        # Subscribe to some channels.
+        set sub1 "subscribe\nch1\n1"
+        set sub2 "subscribe\nch2\n2"
+        assert_equal $sub1\n$sub2 \
+            [run_command $fd "subscribe ch1 ch2"]
+
+        assert_equal OK [run_command $fd "client tracking on"]
+        assert_equal OK [run_command $fd "set k 42"]
+        assert_equal 42 [run_command $fd "get k"]
+
+        # Interleaving invalidate and pubsub messages.
+        r publish ch1 hello
+        r del k
+        r publish ch2 world
+        set message1 "message\nch1\nhello"
+        set invalidate "invalidate\nk"
+        set message2 "message\nch2\nworld"
+        assert_equal $message1\n$invalidate\n$message2\n [read_cli $fd]
+
+        # Unsubscribe all.
+        set unsub1 "unsubscribe\nch1\n1"
+        set unsub2 "unsubscribe\nch2\n0"
+        assert_equal $unsub1\n$unsub2 [run_command $fd "unsubscribe ch1 ch2"]
     }
 
     test_tty_cli "Status reply" {
