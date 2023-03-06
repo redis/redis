@@ -1,14 +1,6 @@
 set testmodule [file normalize tests/modules/rdbloadsave.so]
 
 start_server {tags {"modules"}} {
-    proc format_command {args} {
-        set cmd "*[llength $args]\r\n"
-        foreach a $args {
-            append cmd "$[string length $a]\r\n$a\r\n"
-        }
-        set _ $cmd
-    }
-
     r module load $testmodule
 
     test "Module rdbloadsave sanity" {
@@ -28,6 +20,7 @@ start_server {tags {"modules"}} {
     test "Module rdbloadsave test with pipelining" {
         r config set save ""
         r config set loading-process-events-interval-bytes 1024
+        r config set key-load-delay 50
         r flushdb
 
         populate 50000 a 128
@@ -44,15 +37,21 @@ start_server {tags {"modules"}} {
         # cause a problem.
         # e.g. Redis won't try to process next message of the current client
         # while it is in the command callback for that client   .
-        r write [format_command test.rdbload blabla.rdb]
-        r flush
-        r write [format_command get x]
-        r write [format_command dbsize]
-        r flush
+        set rd1 [redis_deferring_client]
+        $rd1 test.rdbload blabla.rdb
 
-        assert_equal OK [r read]
-        assert_equal 111 [r read]
-        assert_equal 50001 [r read]
+        wait_for_condition 50 100 {
+            [s loading] eq 1
+        } else {
+            fail "Redis did not start loading or loaded RDB too fast"
+        }
+
+        $rd1 get x
+        $rd1 dbsize
+
+        assert_equal OK [$rd1 read]
+        assert_equal 111 [$rd1 read]
+        assert_equal 50001 [$rd1 read]
     }
 
     test "Module rdbloadsave with aof" {
