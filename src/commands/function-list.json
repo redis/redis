@@ -20,7 +20,7 @@
             "type": "array",
             "items": {
                 "type": "object",
-                "additionalProperties": false,
+                "additionalProperties": true,
                 "properties": {
                     "library_name": {
                         "description": " the name of the library",
@@ -63,7 +63,7 @@
                         }
                     },
                     "library_code": {
-                        "description": "he library's source code (when given the WITHCODE modifier).",
+                        "description": "the library's source code (when given the WITHCODE modifier)",
                         "type": "string"
                     }
                 }

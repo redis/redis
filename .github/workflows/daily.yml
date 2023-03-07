@@ -904,7 +904,9 @@ jobs:
     steps:
       - name: make
         # Fail build if there are warnings
-        run: make REDIS_CFLAGS='-Werror -DLOG_REQ_RES'
+        run: |
+          ./utils/generate-command-code.py --with-reply-schema
+          make REDIS_CFLAGS='-Werror -DLOG_REQ_RES'
       - name: test
         run: |
           sudo apt-get install tcl8.6 tclx

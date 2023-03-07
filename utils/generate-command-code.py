@@ -2,6 +2,7 @@
 import glob
 import json
 import os
+import argparse
 
 ARG_TYPES = {
     "string": "ARG_TYPE_STRING",
@@ -427,8 +428,8 @@ class Command(object):
         if self.args:
             s += ".args=%s," % self.arg_table_name()
 
-        if self.reply_schema:
-            s += "REPLY_SCHEMA(%s)," % self.reply_schema_name()
+        if self.reply_schema and args.with_reply_schema:
+            s += ".reply_schema=&%s," % self.reply_schema_name()
 
         return s[:-1]
 
@@ -476,10 +477,8 @@ class Command(object):
             f.write("{0}\n")
             f.write("};\n\n")
 
-        if self.reply_schema:
-            f.write("#ifdef LOG_REQ_RES\n\n")
+        if self.reply_schema and args.with_reply_schema:
             self.reply_schema.write(f)
-            f.write("#endif\n\n")
 
 
 class Subcommand(Command):
@@ -504,6 +503,10 @@ def create_command(name, desc):
 
 # Figure out where the sources are
 srcdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../src")
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--with-reply-schema', action='store_true')
+args = parser.parse_args()
 
 # Create all command objects
 print("Processing json files...")
@@ -548,12 +551,6 @@ with open("%s/commands.c" % srcdir, "w") as f:
 /* We have fabulous commands from
  * the fantastic
  * Redis Command Table! */\n
-
-#ifdef LOG_REQ_RES
-#define REPLY_SCHEMA(name) .reply_schema=&name
-#else
-#define REPLY_SCHEMA(name)
-#endif\n
 """
     )
 
