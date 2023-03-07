@@ -3215,7 +3215,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
              * continue loading. */
             if (error == RDB_LOAD_ERR_EMPTY_KEY) {
                 if(empty_keys_skipped++ < 10)
-                    serverLog(LL_WARNING, "rdbLoadObject skipping empty key: %s", key);
+                    serverLog(LL_NOTICE, "rdbLoadObject skipping empty key: %s", key);
                 sdsfree(key);
             } else {
                 sdsfree(key);
@@ -3292,7 +3292,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         if (server.rdb_checksum && !server.skip_checksum_validation) {
             memrev64ifbe(&cksum);
             if (cksum == 0) {
-                serverLog(LL_WARNING,"RDB file was saved with checksum disabled: no check performed.");
+                serverLog(LL_NOTICE,"RDB file was saved with checksum disabled: no check performed.");
             } else if (cksum != expected) {
                 serverLog(LL_WARNING,"Wrong RDB checksum expected: (%llx) but "
                     "got (%llx). Aborting now.",
@@ -3305,7 +3305,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     }
 
     if (empty_keys_skipped) {
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "Done loading RDB, keys loaded: %lld, keys expired: %lld, empty keys skipped: %lld.",
                 server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired, empty_keys_skipped);
     } else {
