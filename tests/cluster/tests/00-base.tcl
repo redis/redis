@@ -78,3 +78,7 @@ test "CLUSTER RESET SOFT test" {
 test "test CLUSTER HELP" {
     assert_match "*CLUSTER <subcommand> *" [R 0 CLUSTER HELP]
 }
+
+test "test ASKING" {
+    assert_equal {OK} [R 0 ASKING]
+}

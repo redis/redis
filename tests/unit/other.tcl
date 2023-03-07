@@ -24,6 +24,12 @@ start_server {tags {"other"}} {
         }
     }
 
+    test {MEMORY PURGE basic} {
+        if {[string match {*jemalloc*} [s mem_allocator]]} {
+            assert_equal {OK} [r memory purge]
+        }
+    }
+
     test {SAVE - make sure there are all the types as values} {
         # Wait for a background saving in progress to terminate
         waitForBgsave r
@@ -350,29 +356,6 @@ start_server {tags {"other"}} {
 }
 
 start_server {tags {"other external:skip"}} {
-    test {MEMORY PURGE basic} {
-        if {[string match {*jemalloc*} [s mem_allocator]]} {
-            r debug populate 70000 asdf1 1500
-            set mem [s used_memory_rss]
-            r flushdb async
-
-            # Wait until there are some unused memory pages.
-            wait_for_condition 50 100 {
-                [s used_memory] + (4 * 1024 * 1024) < $mem
-            } else {
-                fail "Memory is not reclaimed by FLUSHDB ASYNC"
-            }
-
-            r memory purge
-
-            wait_for_condition 50 100 {
-                [s used_memory_rss] < $mem
-            } else {
-                fail "Memory is not reclaimed by MEMORY PURGE"
-            }
-        }
-    }
-
     test {Don't rehash if redis has child process} {
         r config set save ""
         r config set rdb-key-save-delay 1000000

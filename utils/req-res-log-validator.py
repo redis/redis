@@ -55,7 +55,8 @@ IGNORED_COMMANDS = [
     "psubscribe",
     "punsubscribe",
     "debug",
-    "pfdebug"
+    "pfdebug",
+    "lolwut",
 ]
 
 
@@ -216,9 +217,6 @@ def process_file(docs, path):
             if res.error or res.queued:
                 continue
 
-            if req.command == "pfdebug" or req.command == 'debug' or req.command == 'sentinel|debug':
-                continue
-
             try:
                 jsonschema.validate(instance=res.json, schema=req.schema, cls=schema_validator)
             except (jsonschema.ValidationError, jsonschema.exceptions.SchemaError) as err:
@@ -290,7 +288,7 @@ if __name__ == '__main__':
     fetch_schemas(args.cli, args.port, redis_args, docs)
 
     missing_schema = [k for k, v in docs.items()
-                      if "reply_schema" not in v and k not in IGNORED_COMMANDS ]
+                      if "reply_schema" not in v and k not in IGNORED_COMMANDS]
     if missing_schema:
         print("WARNING! The following commands are missing a reply_schema:")
         for k in sorted(missing_schema):
@@ -337,7 +335,9 @@ if __name__ == '__main__':
     print("Hits per command:")
     for k, v in sorted(command_counter.items()):
         print(f"  {k}: {v}")
-    not_hit = set(docs.keys()) - set(command_counter.keys()) - set(IGNORED_COMMANDS)
+    # We don't care about SENTINEL commands
+    not_hit = set(filter(lambda x: not x.startswith("sentinel"),
+                  set(docs.keys()) - set(command_counter.keys()) - set(IGNORED_COMMANDS)))
     if not_hit:
         if args.verbose:
             print("WARNING! The following commands were not hit at all:")

@@ -2139,6 +2139,8 @@ typedef struct redisCommandArg {
     int num_args;
 } redisCommandArg;
 
+#ifdef LOG_REQ_RES
+
 /* Must be synced with generate-command-code.py */
 typedef enum {
     JSON_TYPE_STRING,
@@ -2167,6 +2169,8 @@ typedef struct jsonObject {
     struct jsonObjectElement *elements;
     int length;
 } jsonObject;
+
+#endif
 
 /* WARNING! This struct must match RedisModuleCommandHistoryEntry */
 typedef struct {
@@ -2317,8 +2321,10 @@ struct redisCommand {
     struct redisCommand *subcommands;
     /* Array of arguments (may be NULL) */
     struct redisCommandArg *args;
+#ifdef LOG_REQ_RES
     /* Reply schema */
     struct jsonObject *reply_schema;
+#endif
 
     /* Runtime populated data */
     long long microseconds, calls, rejected_calls, failed_calls;
