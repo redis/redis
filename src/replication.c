@@ -362,7 +362,7 @@ void feedReplicationBuffer(char *s, size_t len) {
             /* Avoid creating nodes smaller than PROTO_REPLY_CHUNK_BYTES, so that we can append more data into them,
              * and also avoid creating nodes bigger than repl_backlog_size / 16, so that we won't have huge nodes that can't
              * trim when we only still need to hold a small portion from them. */
-            size_t size = min(max(len, PROTO_REPLY_CHUNK_BYTES), server.repl_backlog_size / 16);
+            size_t size = min(max(len, (size_t)PROTO_REPLY_CHUNK_BYTES), (size_t)server.repl_backlog_size / 16);
             tail = zmalloc_usable(size + sizeof(replBufBlock), &usable_size);
             /* Take over the allocation's internal fragmentation */
             tail->size = usable_size - sizeof(replBufBlock);
