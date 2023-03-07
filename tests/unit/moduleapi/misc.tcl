@@ -525,6 +525,7 @@ start_server {tags {"modules"}} {
         assert_equal {0} [r test.get_n_events]
     }
 
+if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {test RM_Call with large arg for SET command} {
         # set a big value to trigger increasing the query buf
         r set foo [string repeat A 100000]
@@ -533,6 +534,7 @@ start_server {tags {"modules"}} {
         # asset the value was trimmed
         assert {[r memory usage bar] < 42000}; # 42K to count for Jemalloc's additional memory overhead.
     }
+} ;# if jemalloc
 
     test "Unload the module - misc" {
         assert_equal {OK} [r module unload misc]
