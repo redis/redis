@@ -592,7 +592,7 @@ void llenCommand(client *c) {
 
 /* LINDEX <key> <index> */
 void lindexCommand(client *c) {
-    robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
+    robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nokeyerr);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
 
@@ -613,7 +613,7 @@ void lindexCommand(client *c) {
             addReplyBulkLongLong(c, lval);
         }
     } else {
-        addReplyNull(c);
+        addReplyErrorObject(c,shared.outofrangeerr);
     }
 
     listTypeReleaseIterator(iter);
