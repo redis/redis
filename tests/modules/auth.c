@@ -90,7 +90,9 @@ int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString 
     else if (!strcmp(user,"foo") && !strcmp(pwd,"deny")) {
         RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(username);
         if (user) {
-            RedisModule_ACLAddLogEntry(ctx, user, NULL, REDISMODULE_ACL_LOG_AUTH);
+            RedisModuleString *log = RedisModule_CreateString(ctx, "Module Auth", 11);
+            RedisModule_ACLAddLogEntry(ctx, user, log, REDISMODULE_ACL_LOG_AUTH);
+            RedisModule_FreeString(ctx, log);
             RedisModule_FreeModuleUser(user);
         }
         const char *err_msg = "Auth denied by Misc Module.";
@@ -163,7 +165,9 @@ int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModul
     else if (result == 0) {
         RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(username);
         if (user) {
-            RedisModule_ACLAddLogEntry(ctx, user, NULL, REDISMODULE_ACL_LOG_AUTH);
+            RedisModuleString *log = RedisModule_CreateString(ctx, "Module Auth", 11);
+            RedisModule_ACLAddLogEntry(ctx, user, log, REDISMODULE_ACL_LOG_AUTH);
+            RedisModule_FreeString(ctx, log);
             RedisModule_FreeModuleUser(user);
         }
         const char *err_msg = "Auth denied by Misc Module.";

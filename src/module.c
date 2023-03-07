@@ -7480,7 +7480,9 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
  *           else if (!strcmp(user,"foo") && !strcmp(pwd,"wrong_password")) {
  *               RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(username);
  *               if (user) {
- *                   RedisModule_ACLAddLogEntry(ctx, user, NULL, REDISMODULE_ACL_LOG_AUTH);
+ *                   RedisModuleString *log = RedisModule_CreateString(ctx, "Module Auth", 11);
+ *                   RedisModule_ACLAddLogEntry(ctx, user, log, REDISMODULE_ACL_LOG_AUTH);
+ *                   RedisModule_FreeString(ctx, log);
  *                   RedisModule_FreeModuleUser(user);
  *               }
  *               const char *err_msg = "Authentication denied by Module.";
@@ -9364,8 +9366,7 @@ int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, 
     return REDISMODULE_OK;
 }
 
-/* Adds a new entry in the ACL log. When NULL is provided as the `object`, the client's ongoing
- * command's name is logged in this new entry.
+/* Adds a new entry in the ACL log.
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
  *
  * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
@@ -9379,8 +9380,7 @@ int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleStr
         default: return REDISMODULE_ERR;
     }
 
-    sds obj = object ? sdsdup(object->ptr) : NULL;
-    addACLLogEntry(ctx->client, acl_reason, ACL_LOG_CTX_MODULE, -1, user->user->name, obj);
+    addACLLogEntry(ctx->client, acl_reason, ACL_LOG_CTX_MODULE, -1, user->user->name, sdsdup(object->ptr));
     return REDISMODULE_OK;
 }
 
