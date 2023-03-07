@@ -1094,7 +1094,8 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
         size_t lpsize = 0, samples = 0;
         while(samples < sample_size && raxNext(&ri)) {
             unsigned char *lp = ri.data;
-            lpsize += lpBytes(lp);
+            /* Use the allocated size, since we overprovision the node initially. */
+            lpsize += zmalloc_size(lp);
             samples++;
         }
         if (s->rax->numele <= samples) {
@@ -1106,7 +1107,8 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
              * if there are a few elements in the radix tree. */
             raxSeek(&ri,"$",NULL,0);
             raxNext(&ri);
-            asize += lpBytes(ri.data);
+            /* Use the allocated size, since we overprovision the node initially. */
+            asize += zmalloc_size(ri.data);
         }
         raxStop(&ri);
 
