@@ -5979,6 +5979,7 @@ fmterr:
  *              * Calling additional Redis commands using RM_Call
  *              * Open keys using RM_OpenKey
  *              * Replicate data to the replica or AOF
+ *
  *              Specifically, it is not allowed to call any Redis module API which are client related such as:
  *              * RM_Reply* API's
  *              * RM_BlockClient
