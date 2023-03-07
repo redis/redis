@@ -285,8 +285,11 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
             if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
             return;
         }
+        if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
         c = redir;
         using_redirection = 1;
+        old_flags = c->flags;
+        c->flags |= CLIENT_PUSHING;
     }
 
     /* Only send such info for clients in RESP version 3 or more. However
