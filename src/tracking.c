@@ -309,12 +309,14 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
     }
 
     /* Send the "value" part, which is the array of keys. */
+    c->flags |= CLIENT_PUSHING;
     if (proto) {
         addReplyProto(c,keyname,keylen);
     } else {
         addReplyArrayLen(c,1);
         addReplyBulkCBuffer(c,keyname,keylen);
     }
+    c->flags &= ~CLIENT_PUSHING;
     updateClientMemUsageAndBucket(c);
 }
 
