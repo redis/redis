@@ -5975,8 +5975,8 @@ fmterr:
  *              Notice that on unblocking, the only promise is that the unblock handler will be called,
  *              If the blocking RM_Call caused the module to also block some real client (using RM_BlockClient),
  *              it is the module responsibility to unblock this client on the unblock handler.
- *              On the unblock handler it is only allow to perform the following:
- *              * Calling more Redis commands using RM_Call
+ *              On the unblock handler it is only allowed to perform the following:
+ *              * Calling additional Redis commands using RM_Call
  *              * Open keys using RM_OpenKey
  *              * Replicate data to the replica or AOF
  *              Specifically, it is not allowed to call any Redis module API which are client related such as:
