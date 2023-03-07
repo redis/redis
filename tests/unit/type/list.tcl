@@ -512,7 +512,7 @@ foreach {type large} [array get largevalue] {
         assert_equal $large [r lindex mylist1 0]
         assert_equal b [r lindex mylist1 1]
         assert_equal c [r lindex mylist1 2]
-        assert_equal {} [r lindex mylist1 3]
+        assert_error ERR* {r lindex mylist1 3}
         assert_equal c [r rpop mylist1]
         assert_equal $large [r lpop mylist1]
 
@@ -526,7 +526,7 @@ foreach {type large} [array get largevalue] {
         assert_equal c [r lindex mylist2 0]
         assert_equal b [r lindex mylist2 1]
         assert_equal $large [r lindex mylist2 2]
-        assert_equal {} [r lindex mylist2 3]
+        assert_error ERR* {r lindex mylist2 3}
         assert_equal $large [r rpop mylist2]
         assert_equal c [r lpop mylist2]
     }
@@ -1479,7 +1479,7 @@ foreach type {listpack quicklist} {
     }
 
     test {LINDEX against non existing key} {
-        assert_equal "" [r lindex not-a-key 10]
+        assert_error ERR* {r lindex not-a-key 10}
     }
 
     test {LPUSH against non-list value error} {
