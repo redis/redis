@@ -146,7 +146,7 @@
             "description": "Array of matched members information",
             "anyOf": [
                 {
-                    "description": "If no WITH option is specified, array of matched members names",
+                    "description": "If no WITH* option is specified, array of matched members names",
                     "type": "array",
                     "items": {
                         "description": "name",
