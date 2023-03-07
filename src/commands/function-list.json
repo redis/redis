@@ -20,7 +20,7 @@
             "type": "array",
             "items": {
                 "type": "object",
-                "additionalProperties": true,
+                "additionalProperties": false,
                 "properties": {
                     "library_name": {
                         "description": " the name of the library",

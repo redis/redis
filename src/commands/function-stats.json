@@ -21,7 +21,7 @@
         ],
         "reply_schema": {
             "type": "object",
-            "additionalProperties": true,
+            "additionalProperties": false,
             "properties": {
                 "running_script": {
                     "description": "information about the running script.",
@@ -61,7 +61,7 @@
                         "^.*$": {
                             "description": "Engine map contains statistics about the engine",
                             "type": "object",
-                            "additionalProperties": true,
+                            "additionalProperties": false,
                             "properties": {
                                 "libraries_count": {
                                     "description": "number of libraries",
