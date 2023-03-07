@@ -311,12 +311,6 @@ int prepareClientToWrite(client *c) {
     if (!clientHasPendingReplies(c) && io_threads_op == IO_THREADS_OP_IDLE)
         putClientInPendingWriteQueue(c);
 
-    /* Make sure that any call to prepareClientToWrite when that client is
-     * not the executing_client, is done with the PUSHING flag set. */
-    if (server.executing_client != c) {
-        // serverAssertWithInfo(c, NULL, c->flags & CLIENT_PUSHING);
-    }
-
     /* Authorize the caller to queue in the output buffer of this client. */
     return C_OK;
 }
@@ -973,6 +967,7 @@ void addReplyAttributeLen(client *c, long length) {
 
 void addReplyPushLen(client *c, long length) {
     serverAssert(c->resp >= 3);
+    serverAssertWithInfo(c, NULL, c->flags & CLIENT_PUSHING);
     addReplyAggregateLen(c,length,'>');
 }
 
