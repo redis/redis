@@ -287,12 +287,10 @@ int prepareClientToWrite(client *c) {
     /* If CLIENT_CLOSE_ASAP flag is set, we need not write anything. */
     if (c->flags & CLIENT_CLOSE_ASAP) return C_ERR;
 
-    if (c->flags & CLIENT_PUSHING) {
-        /* PUSH messages are not really a reply, and should not be skipped. */
-    } else {
-        /* CLIENT REPLY OFF / SKIP handling: don't send replies. */
-        if (c->flags & (CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP)) return C_ERR;
-    }
+    /* CLIENT REPLY OFF / SKIP handling: don't send replies.
+     * CLIENT_PUSHING handling: disables the reply silencing flags. */
+    if ((c->flags & (CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP)) &&
+        !(c->flags & CLIENT_PUSHING)) return C_ERR;
 
     /* Masters don't receive replies, unless CLIENT_MASTER_FORCE_REPLY flag
      * is set. */

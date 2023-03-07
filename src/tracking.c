@@ -266,6 +266,9 @@ void trackingRememberKeys(client *tracking, client *executing) {
  * - Following a flush command, to send a single RESP NULL to indicate
  *   that all keys are now invalid. */
 void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
+    uint64_t old_flags = c->flags;
+    c->flags |= CLIENT_PUSHING;
+
     int using_redirection = 0;
     if (c->client_tracking_redirection) {
         client *redir = lookupClientByID(c->client_tracking_redirection);
@@ -275,12 +278,11 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
              * are unable to send invalidation messages to the redirected
              * connection, because the client no longer exist. */
             if (c->resp > 2) {
-                c->flags |= CLIENT_PUSHING;
                 addReplyPushLen(c,2);
                 addReplyBulkCBuffer(c,"tracking-redir-broken",21);
                 addReplyLongLong(c,c->client_tracking_redirection);
-                c->flags &= ~CLIENT_PUSHING;
             }
+            if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
             return;
         }
         c = redir;
@@ -292,10 +294,8 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
      * in Pub/Sub mode, we can support the feature with RESP 2 as well,
      * by sending Pub/Sub messages in the __redis__:invalidate channel. */
     if (c->resp > 2) {
-        c->flags |= CLIENT_PUSHING;
         addReplyPushLen(c,2);
         addReplyBulkCBuffer(c,"invalidate",10);
-        c->flags &= ~CLIENT_PUSHING;
     } else if (using_redirection && c->flags & CLIENT_PUBSUB) {
         /* We use a static object to speedup things, however we assume
          * that addReplyPubsubMessage() will not take a reference. */
@@ -305,19 +305,19 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
          * redirecting to another client. We can't send anything to
          * it since RESP2 does not support push messages in the same
          * connection. */
+        if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
         return;
     }
 
     /* Send the "value" part, which is the array of keys. */
-    c->flags |= CLIENT_PUSHING;
     if (proto) {
         addReplyProto(c,keyname,keylen);
     } else {
         addReplyArrayLen(c,1);
         addReplyBulkCBuffer(c,keyname,keylen);
     }
-    c->flags &= ~CLIENT_PUSHING;
     updateClientMemUsageAndBucket(c);
+    if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
 }
 
 /* This function is called when a key is modified in Redis and in the case
