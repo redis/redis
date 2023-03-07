@@ -1690,6 +1690,11 @@ void logInvalidUseAndFreeClientAsync(client *c, const char *fmt, ...) {
  * The input client argument: c, may be NULL in case the previous client was
  * freed before the call. */
 int beforeNextClient(client *c) {
+    /* Notice, this code is also called from 'processUnblockedClients'.
+     * But in case of a module blocked client (see RM_Call 'K' flag) we do not reach this code path.
+     * So whenever we change the code here we need to consider if we need this change on module
+     * blocked client as well */
+
     /* Skip the client processing if we're in an IO thread, in that case we'll perform
        this operation later (this function is called again) in the fan-in stage of the threading mechanism */
     if (io_threads_op != IO_THREADS_OP_IDLE)
@@ -2419,6 +2424,10 @@ int processCommandAndResetClient(client *c) {
  * the client. Returns C_ERR if the client is no longer valid after executing
  * the command, and C_OK for all other cases. */
 int processPendingCommandAndInputBuffer(client *c) {
+    /* Notice, this code is also called from 'processUnblockedClients'.
+     * But in case of a module blocked client (see RM_Call 'K' flag) we do not reach this code path.
+     * So whenever we change the code here we need to consider if we need this change on module
+     * blocked client as well */
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
         if (processCommandAndResetClient(c) == C_ERR) {

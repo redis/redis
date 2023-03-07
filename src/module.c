@@ -5972,6 +5972,18 @@ fmterr:
  *              after the command invocation (without releasing the Redis lock in between).
  *              The module should not keep the promise call reply after the Redis lock has been released.
  *              The module should not free the promise call reply.
+ *              Notice that on unblocking, the only promise is that the unblock handler will be called,
+ *              If the blocking RM_Call caused the module to also block some real client (using RM_BlockClient),
+ *              it is the module responsibility to unblock this client on the unblock handler.
+ *              On the unblock handler it is only allow to perform the following:
+ *              * Calling more Redis commands using RM_Call
+ *              * Open keys using RM_OpenKey
+ *              * Replicate data to the replica or AOF
+ *              Specifically, it is not allowed to call any Redis module API which are client related such as:
+ *              * RM_Reply* API's
+ *              * RM_BlockClient
+ *              * RM_GetCurrentUserName
+ *
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
