@@ -118,6 +118,27 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
 
     eventobj = createStringObject(event,strlen(event));
 
+    /* __keynotification@<db>__:<event>:<key> <event>:<key> notifications. */
+    if (server.notification_event_type == NOTIFICATION_TYPE_COMPOSITE) {
+        chan = sdsnewlen("__keynotification@",18);
+        len = ll2string(buf,sizeof(buf),dbid);
+        chan = sdscatlen(chan, buf, len);
+        chan = sdscatlen(chan, "__:", 3);
+        chan = sdscatsds(chan, eventobj->ptr);
+        chan = sdscatlen(chan, ":", 1);
+        chan = sdscatsds(chan, key->ptr);
+        chanobj = createObject(OBJ_STRING, chan);
+        sds msg = sdsnewlen(event, strlen(event));
+        msg = sdscatlen(msg, ":", 1);
+        msg = sdscatlen(msg, key->ptr, strlen(key->ptr));
+        robj *messageobj = createObject(OBJ_STRING, msg);
+        pubsubPublishMessage(chanobj, messageobj, 0);
+        decrRefCount(chanobj);
+        decrRefCount(eventobj);
+        decrRefCount(messageobj);
+        return;
+    }
+
     /* __keyspace@<db>__:<key> <event> notifications. */
     if (server.notify_keyspace_events & NOTIFY_KEYSPACE) {
         chan = sdsnewlen("__keyspace@",11);
