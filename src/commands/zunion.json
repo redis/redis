@@ -34,17 +34,21 @@
             }
         ],
         "reply_schema": {
-            "type": "array",
-            "uniqueItems": true,
-            "items": {
-                "oneOf": [
-                    {
-                        "type": "string",
-                        "description": "The result of union when 'WITHSCORES' is not used."
-                    },
-                    {
+            "anyOf": [
+                {
+                    "description": "The result of union when 'WITHSCORES' is not used.",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                {
+                    "description": "The result of union when 'WITHSCORES' is used.",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
                         "type": "array",
-                        "description": "The result of union when 'WITHSCORES' is used.",
                         "minItems": 2,
                         "maxItems": 2,
                         "items": [
@@ -56,8 +60,8 @@
                             }
                         ]
                     }
-                ]
-            }
+                }
+            ]
         },
         "arguments": [
             {

@@ -51,7 +51,7 @@
             "items": {
                 "oneOf": [
                     {
-                        "description": "No element is exist",
+                        "description": "Element does not exist",
                         "type": "null"
                     },
                     {

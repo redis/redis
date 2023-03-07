@@ -18,7 +18,7 @@
             "NONDETERMINISTIC_OUTPUT"
         ],
         "reply_schema": {
-            "anyOf": [
+            "oneOf": [
                 {
                     "description": "when the database is empty",
                     "type": "null"

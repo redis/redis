@@ -43,7 +43,7 @@
             }
         ],
         "reply_schema": {
-            "anyOf": [
+            "oneOf": [
                 {
                     "description": "key doesn't exist",
                     "type": "null"

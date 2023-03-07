@@ -23,9 +23,11 @@
                         "description": "This link is established by the local node _to_ the peer, or accepted by the local node _from_ the peer.",
                         "oneOf": [
                             {
+                                "description": "connection initiated from peer",
                                 "const": "from"
                             },
                             {
+                                "description": "connection initiated to peer",
                                 "const": "to"
                             }
                         ]

@@ -48,7 +48,7 @@
             }
         ],
         "reply_schema": {
-            "anyOf": [
+            "oneOf": [
                 {
                     "description": "if at least 1 HyperLogLog internal register was altered",
                     "const": 1
