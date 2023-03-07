@@ -233,6 +233,11 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
+    if {$::force_resp3 && [lsearch $tags "force_resp3:skip"] >= 0} {
+        set err "Not supported in resp3 mode"
+        return 0
+    }
+
     if {!$::large_memory && [lsearch $tags "large-memory"] >= 0} {
         set err "large memory flag not provided"
         return 0
