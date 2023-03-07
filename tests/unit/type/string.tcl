@@ -458,6 +458,7 @@ start_server {tags {"string"}} {
         }
     }
     
+if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {trim on SET with big value} {
         # set a big value to trigger increasing the query buf
         r set key [string repeat A 100000] 
@@ -466,6 +467,7 @@ start_server {tags {"string"}} {
         # asset the value was trimmed
         assert {[r memory usage key] < 42000}; # 42K to count for Jemalloc's additional memory overhead. 
     }
+} ;# if jemalloc
 
     test {Extended SET can detect syntax errors} {
         set e {}
