@@ -36,7 +36,7 @@
  * Global state for ACLs
  * ==========================================================================*/
 
-rax *Users; /* Table mapping usernames to user structures. */
+rax *Users;; /* Table mapping usernames to user structures. */
 
 user *DefaultUser;  /* Global reference to the default user.
                        Every new connection is associated to it, if no

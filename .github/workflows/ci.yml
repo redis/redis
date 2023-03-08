@@ -76,12 +76,17 @@ jobs:
         yum -y install gcc make
         make REDIS_CFLAGS='-Werror'
 
-  schema-validator:
+
+name: Reply-schemas linter
+
+on:
+  push:
+    paths:
+      - 'src/commands/*.json'
+
+jobs:
+  reply-schemas-linter:
     runs-on: ubuntu-latest
-    on:
-      push:
-        paths:
-          - 'src/commands/*.json'
     steps:
       - uses: actions/checkout@v3
       - name: Setup nodejs

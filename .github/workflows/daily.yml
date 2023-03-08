@@ -899,14 +899,12 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
-  schema-validator:
+  reply-schemas-validator:
     runs-on: ubuntu-latest
     steps:
       - name: make
         # Fail build if there are warnings
-        run: |
-          ./utils/generate-command-code.py --with-reply-schema
-          make REDIS_CFLAGS='-Werror -DLOG_REQ_RES'
+        run: make REDIS_CFLAGS='-Werror -DLOG_REQ_RES'
       - name: test
         run: |
           sudo apt-get install tcl8.6 tclx
