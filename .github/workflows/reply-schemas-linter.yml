@@ -1,9 +1,12 @@
 name: Reply-schemas linter
 
-on: [push, pull_request]:
-
-paths:
-  - 'src/commands/*.json'
+on:
+  push:
+    paths:
+      - 'src/commands/*.json'
+  pull_request:
+    paths:
+      - 'src/commands/*.json'
 
 jobs:
   reply-schemas-linter:
