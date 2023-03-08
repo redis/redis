@@ -75,10 +75,10 @@ test "CLUSTER RESET SOFT test" {
     assert {[get_info_field [R 1 cluster info] cluster_current_epoch] eq $last_epoch_node1}
 }
 
-test "test CLUSTER HELP" {
+test "Coverage: CLUSTER HELP" {
     assert_match "*CLUSTER <subcommand> *" [R 0 CLUSTER HELP]
 }
 
-test "test ASKING" {
+test "Coverage: ASKING" {
     assert_equal {OK} [R 0 ASKING]
 }

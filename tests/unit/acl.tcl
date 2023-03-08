@@ -7,7 +7,7 @@ start_server {tags {"acl external:skip"}} {
         r ACL setuser newuser
     }
 
-    test {Basic ACL USERS} {
+    test {Coverage: ACL USERS} {
         r ACL USERS
     } {default newuser}
 

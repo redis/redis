@@ -460,7 +460,7 @@ start_server {tags {"string"}} {
         }
     }
 
-    test "SUBSTR basic" {
+    test "Coverage: SUBSTR" {
         r set key abcde
         assert_equal "a" [r substr key 0 0]
         assert_equal "abcd" [r substr key 0 3]
