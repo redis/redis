@@ -817,9 +817,6 @@ start_server {tags {"tracking network"}} {
         $rd_redir hello 3
         $rd_redir read
 
-        $rd_redir subscribe __redis__:invalidate
-        $rd_redir read
-
         $rd_redir client id
         set rd_redir_id [$rd_redir read]
 
