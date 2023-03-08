@@ -2205,7 +2205,7 @@ void xreadCommand(client *c) {
             streams_arg = i+1;
             streams_count = (c->argc-streams_arg);
             if ((streams_count % 2) != 0) {
-                addReplyErrorFormat(c,"Unbalanced %s list of streams: "
+                addReplyErrorFormat(c,"Unbalanced '%s' list of streams: "
                                       "for each stream key an ID or '>' must be "
                                       "specified.", c->cmd->fullname);
                 return;
