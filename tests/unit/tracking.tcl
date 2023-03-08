@@ -799,7 +799,7 @@ start_server {tags {"tracking network"}} {
 
             if {$resp == 3} {
                 assert_equal {invalidate foo} [$rd read]
-            }
+            } elseif {$resp == 2} { } ;# Just coverage
         }
     }
 
