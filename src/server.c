@@ -590,8 +590,8 @@ int htNeedsResize(dict *dict) {
 void tryResizeHashTables(int dbid) {
     dict *d;
     dbIterator dbit;
-    dbInitIterator(&dbit, &server.db[dbid]);
-    while ((d = dbNextDict(&dbit))) {
+    dbIteratorInit(&dbit, &server.db[dbid]);
+    while ((d = dbIteratorNextDict(&dbit))) {
         if (htNeedsResize(d))
             dictResize(d);
     }

@@ -2243,8 +2243,8 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         redisDb *db = server.db + j;
         dict *d;
         dbIterator dbit;
-        dbInitIterator(&dbit, db);
-        while ((d = dbNextDict(&dbit))) {
+        dbIteratorInit(&dbit, db);
+        while ((d = dbIteratorNextDict(&dbit))) {
             if (dictSize(d) == 0) continue;
             di = dictGetSafeIterator(d);
             /* Iterate this DB writing every entry */

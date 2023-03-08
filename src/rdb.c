@@ -1323,9 +1323,21 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
 
     dict *d;
     dbIterator dbit;
-    dbInitIterator(&dbit, db);
-    while ((d = dbNextDict(&dbit))) {
+    dbIteratorInit(&dbit, db);
+    while ((d = dbIteratorNextDict(&dbit))) {
         if (!dictSize(d)) continue;
+
+        /* Save slot info. */
+        if (server.cluster_enabled) {
+            serverAssert(dbit.cur_slot >= 0 && dbit.cur_slot < CLUSTER_SLOTS);
+            if ((res = rdbSaveType(rdb, RDB_OPCODE_SLOT_INFO)) < 0) goto werr;
+            written += res;
+            if ((res = rdbSaveLen(rdb, dbit.cur_slot)) < 0) goto werr;
+            written += res;
+            if ((res = rdbSaveLen(rdb, dictSize(d))) < 0) goto werr;
+            written += res;
+        }
+
         di = dictGetSafeIterator(d);
         /* Iterate this DB writing every entry */
         while ((de = dictNext(di)) != NULL) {
@@ -3070,8 +3082,23 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            expandDb(db, db_size);
+            /* In cluster mode we don't resize whole DB, instead we rely on RDB_OPCODE_SLOT_INFO for resizing slots. */
+            if (!server.cluster_enabled) {
+                expandDb(db, db_size);
+            }
             dictExpand(db->expires,expires_size);
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_SLOT_INFO) {
+            if (!server.cluster_enabled) {
+                continue; /* Ignore gracefully. */
+            }
+            uint64_t slot_id, slot_size;
+            if ((slot_id = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
+                goto eoferr;
+            if ((slot_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
+                goto eoferr;
+            /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
+            dictExpand(db->dict[slot_id], slot_size);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
             /* AUX: generic string-string fields. Use to add state to RDB

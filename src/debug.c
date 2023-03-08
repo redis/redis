@@ -289,8 +289,8 @@ void computeDatasetDigest(unsigned char *final) {
         int hasEntries = 0;
         dict *d;
         dbIterator dbit;
-        dbInitIterator(&dbit, db);
-        while ((d = dbNextDict(&dbit))) {
+        dbIteratorInit(&dbit, db);
+        while ((d = dbIteratorNextDict(&dbit))) {
             if (dictSize(d) == 0) continue;
             hasEntries = 1;
             di = dictGetSafeIterator(d);
