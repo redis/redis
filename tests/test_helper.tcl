@@ -858,18 +858,21 @@ proc read_from_replication_stream {s} {
 
 proc assert_replication_stream {s patterns} {
     set errors 0
-    set values {}
+    set values_list {}
+    set patterns_list {}
     for {set j 0} {$j < [llength $patterns]} {incr j} {
         set pattern [lindex $patterns $j]
+        lappend patterns_list $pattern
         set value [read_from_replication_stream $s]
-        lappend values $value
+        lappend values_list $value
         if {![string match $pattern $value]} { incr errors }
     }
 
     if {$errors == 0} { return }
 
+    set context [info frame -1]
     close_replication_stream $s ;# for fast exit
-    assert_match $patterns $values
+    assert_match $patterns_list $values_list "" $context
 }
 
 proc close_replication_stream {s} {
