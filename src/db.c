@@ -1854,12 +1854,11 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
  * this node owns. */
 void expandDb(const redisDb *db, uint64_t db_size) {
     if (server.cluster_enabled) {
-        dict *d;
-        dbIterator dbit;
-        dbIteratorInit(&dbit, (redisDb *) db);
-        while ((d = dbIteratorNextDict(&dbit))) {
-            /* We don't exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */
-            dictExpand(d, (db_size / server.cluster->myself->numslots));
+        for (int i = 0; i < CLUSTER_SLOTS; i++) {
+            if (clusterNodeGetSlotBit(server.cluster->myself, i)) {
+                /* We don't know exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */
+                dictExpand(db->dict[i], (db_size / server.cluster->myself->numslots));
+            }
         }
     } else {
         dictExpand(db->dict[0], db_size);

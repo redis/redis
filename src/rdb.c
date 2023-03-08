@@ -3002,6 +3002,8 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
     uint64_t dbid = 0;
     int type, rdbver;
+    uint64_t db_size = 0;
+    int no_slot_info = 1;
     redisDb *db = rdb_loading_ctx->dbarray+0;
     char buf[1024];
     int error;
@@ -3077,15 +3079,12 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
              * selected data base, in order to avoid useless rehashing. */
-            uint64_t db_size, expires_size;
+            uint64_t expires_size;
             if ((db_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            /* In cluster mode we don't resize whole DB, instead we rely on RDB_OPCODE_SLOT_INFO for resizing slots. */
-            if (!server.cluster_enabled) {
-                expandDb(db, db_size);
-            }
+            /* Main dictionary will be resized after reading OPCODE set. Resizing only expires here. */
             dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_SLOT_INFO) {
@@ -3099,6 +3098,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
             dictExpand(db->dict[slot_id], slot_size);
+            no_slot_info = 0;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
             /* AUX: generic string-string fields. Use to add state to RDB
@@ -3226,6 +3226,12 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             }
             continue;
+        }
+
+        /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
+         * In this case we want to estimate number of keys per slot and resize accordingly. */
+        if (no_slot_info) {
+            expandDb(db, db_size);
         }
 
         /* Read key */
