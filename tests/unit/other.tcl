@@ -6,7 +6,7 @@ start_server {tags {"other"}} {
         } {ok}
     }
 
-    test {test HELP commands} {
+    test {Coverage: HELP commands} {
         assert_match "*OBJECT <subcommand> *" [r OBJECT HELP]
         assert_match "*MEMORY <subcommand> *" [r MEMORY HELP]
         assert_match "*PUBSUB <subcommand> *" [r PUBSUB HELP]
@@ -18,13 +18,13 @@ start_server {tags {"other"}} {
         assert_match "*MODULE <subcommand> *" [r MODULE HELP]
     }
 
-    test {MEMORY MALLOC-STATS basic} {
+    test {Coverage: MEMORY MALLOC-STATS} {
         if {[string match {*jemalloc*} [s mem_allocator]]} {
             assert_match "*jemalloc*" [r memory malloc-stats]
         }
     }
 
-    test {MEMORY PURGE basic} {
+    test {Coverage: MEMORY PURGE} {
         if {[string match {*jemalloc*} [s mem_allocator]]} {
             assert_equal {OK} [r memory purge]
         }

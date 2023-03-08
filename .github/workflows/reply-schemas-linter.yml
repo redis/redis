@@ -1,0 +1,22 @@
+name: Reply-schemas linter
+
+on:
+  push:
+    paths:
+      - 'src/commands/*.json'
+  pull_request:
+    paths:
+      - 'src/commands/*.json'
+
+jobs:
+  reply-schemas-linter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup nodejs
+        uses: actions/setup-node@v3
+      - name: Install packages
+        run: npm install ajv
+      - name: linter
+        run: node ./utils/reply_schema_linter.js
+
