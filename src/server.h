@@ -961,7 +961,7 @@ typedef struct redisDb {
     list *rehashing;            /* List of dictionaries in this DB that are currently rehashing. */
     int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
     unsigned long long key_count; /* Total number of keys in this DB. */
-    intset *owned_slots;          /* Set of owned non-empty slots. */
+    intset *non_empty_dicts;     /* Set of non-empty dictionaries. */
 } redisDb;
 
 /* forward declaration for functions ctx */

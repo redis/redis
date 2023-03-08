@@ -51,12 +51,14 @@ int keyIsExpired(redisDb *db, robj *key);
 /* Returns next dictionary from the iterator, or NULL if iteration is complete. */
 dict *dbIteratorNextDict(dbIterator *dbit) {
     int64_t slot;
-    if (intsetGet(dbit->db->owned_slots, dbit->index++, &slot)){
+    dbit->cur_slot = -1;
+    if (!server.cluster_enabled) {
+        dbit->cur_slot = dbit->index++ ? -1 : 0;
+    } else if (intsetGet(dbit->db->non_empty_dicts, dbit->index++, &slot)){
         dbit->cur_slot = (int) slot;
         return dbit->db->dict[slot];
     }
-    dbit->cur_slot = -1;
-    return NULL;
+    return dbit->cur_slot >= 0 ? dbit->db->dict[dbit->cur_slot] : NULL;
 }
 
 /* Returns DB iterator that can be used to iterate through sub-dictionaries.
@@ -225,15 +227,15 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     int slot = getKeySlot(key->ptr);
     dict *d = db->dict[slot];
-    int was_empty = dictIsEmpty(d);
+    int new_dict = server.cluster_enabled && dictIsEmpty(d);
     dictEntry *de = dictAddRaw(d, copy, NULL);
     serverAssertWithInfo(NULL, key, de != NULL);
     dictSetVal(d, de, val);
     db->key_count++;
-    /* If dict transitioned from empty to non-empty, we should add it to the list of owned slots. */
-    if (was_empty) {
+    /* If dict transitioned from empty to non-empty, we should add it to the list of owned slots. Cluster mode only. */
+    if (new_dict) {
         uint8_t success = 0;
-        db->owned_slots = intsetAdd(db->owned_slots, slot, &success);
+        db->non_empty_dicts = intsetAdd(db->non_empty_dicts, slot, &success);
         serverAssert(success);
     }
     signalKeyAsReady(db, key, val->type);
@@ -265,15 +267,15 @@ int getKeySlot(sds key) {
 int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     int slot = getKeySlot(key);
     dict *d = db->dict[slot];
-    int was_empty = dictIsEmpty(d);
+    int new_dict = server.cluster_enabled && dictIsEmpty(d);
     dictEntry *de = dictAddRaw(d, key, NULL);
     if (de == NULL) return 0;
     dictSetVal(d, de, val);
     db->key_count++;
     /* If dict transitioned from empty to non-empty, we should add it to the list of owned slots. */
-    if (was_empty) {
+    if (new_dict) {
         uint8_t success = 0;
-        db->owned_slots = intsetAdd(db->owned_slots, slot, &success);
+        db->non_empty_dicts = intsetAdd(db->non_empty_dicts, slot, &success);
         serverAssert(success);
     }
     return 1;
@@ -401,7 +403,7 @@ robj *dbRandomKey(redisDb *db) {
 /* Return random non-empty dictionary from this DB. */
 dict *getRandomDict(redisDb *db) {
     if (db->dict_count == 1 || dbSize(db) == 0) return db->dict[0];
-    int64_t slot = intsetRandom(db->owned_slots);
+    int64_t slot = intsetRandom(db->non_empty_dicts);
     return db->dict[slot];
 }
 
@@ -434,9 +436,9 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
         dictTwoPhaseUnlinkFree(d,de,plink,table);
         /* If we've removed last entry from the dict, then we need to also remove it from the list of owned non-empty slots. */
-        if (dictIsEmpty(d)) {
+        if (server.cluster_enabled && dictIsEmpty(d)) {
             int success = 0;
-            db->owned_slots = intsetRemove(db->owned_slots, slot, &success);
+            db->non_empty_dicts = intsetRemove(db->non_empty_dicts, slot, &success);
             serverAssert(success);
         }
         db->key_count--;
@@ -534,8 +536,8 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         dbarray[j].avg_ttl = 0;
         dbarray[j].expires_cursor = 0;
         dbarray[j].key_count = 0;
-        zfree(dbarray[j].owned_slots);
-        dbarray[j].owned_slots = intsetNew();
+        zfree(dbarray[j].non_empty_dicts);
+        dbarray[j].non_empty_dicts = intsetNew();
     }
 
     return removed;
@@ -603,7 +605,7 @@ redisDb *initTempDb(void) {
         tempDb[i].dict_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
         tempDb[i].dict = dictCreateMultiple(&dbDictType, tempDb[i].dict_count);
         tempDb[i].expires = dictCreate(&dbExpiresDictType);
-        tempDb[i].owned_slots = intsetNew();
+        tempDb[i].non_empty_dicts = intsetNew();
     }
 
     return tempDb;
@@ -621,7 +623,7 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
         }
         zfree(tempDb[i].dict);
         dictRelease(tempDb[i].expires);
-        zfree(tempDb[i].owned_slots);
+        zfree(tempDb[i].non_empty_dicts);
     }
 
     zfree(tempDb);
@@ -1568,7 +1570,7 @@ int dbSwapDatabases(int id1, int id2) {
     db1->expires_cursor = db2->expires_cursor;
     db1->dict_count = db2->dict_count;
     db1->key_count = db2->key_count;
-    db1->owned_slots = db2->owned_slots;
+    db1->non_empty_dicts = db2->non_empty_dicts;
 
     db2->dict = aux.dict;
     db2->expires = aux.expires;
@@ -1576,7 +1578,7 @@ int dbSwapDatabases(int id1, int id2) {
     db2->expires_cursor = aux.expires_cursor;
     db2->dict_count = aux.dict_count;
     db2->key_count = aux.key_count;
-    db2->owned_slots = aux.owned_slots;
+    db2->non_empty_dicts = aux.non_empty_dicts;
 
     /* Now we need to handle clients blocked on lists: as an effect
      * of swapping the two DBs, a client that was waiting for list
@@ -1616,7 +1618,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->expires_cursor = newdb->expires_cursor;
         activedb->dict_count = newdb->dict_count;
         activedb->key_count = newdb->key_count;
-        activedb->owned_slots = newdb->owned_slots;
+        activedb->non_empty_dicts = newdb->non_empty_dicts;
 
         newdb->dict = aux.dict;
         newdb->expires = aux.expires;
@@ -1624,7 +1626,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         newdb->expires_cursor = aux.expires_cursor;
         newdb->dict_count = aux.dict_count;
         newdb->key_count = aux.key_count;
-        newdb->owned_slots = aux.owned_slots;
+        newdb->non_empty_dicts = aux.non_empty_dicts;
 
         /* Now we need to handle clients blocked on lists: as an effect
          * of swapping the two DBs, a client that was waiting for list
