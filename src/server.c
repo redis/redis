@@ -789,6 +789,8 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
         server.stat_reply_buffer_expands++;
     }
 
+    serverAssertWithInfo(c, NULL, (!new_buffer_size) || (new_buffer_size >= (size_t)c->bufpos));
+
     /* reset the peak value each server.reply_buffer_peak_reset_time seconds. in case the client will be idle
      * it will start to shrink.
      */
