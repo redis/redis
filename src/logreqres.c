@@ -229,7 +229,8 @@ size_t reqresAppendResponse(client *c) {
     if (!c->reqres.argv_logged) /* Example: UNSUBSCRIBE */
         return 0;
 
-    serverAssert(c->reqres.offset.saved);
+    if (!c->reqres.offset.saved) /* Example: module client blocked on keys + CLIENT KILL */
+        return 0;
 
     /* First append the static reply buffer */
     if (c->bufpos > c->reqres.offset.bufpos) {

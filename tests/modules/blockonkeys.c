@@ -89,6 +89,7 @@ int get_fsl(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode, int creat
                 create = 0; /* No need to create, key exists in its basic state */
             } else {
                 RedisModule_DeleteKey(key);
+                *fsl = NULL;
             }
         } else {
             /* Key exists, and has elements in it - no need to create anything */
