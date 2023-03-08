@@ -868,13 +868,8 @@ proc assert_replication_stream {s patterns} {
 
     if {$errors == 0} { return }
 
-    puts "replication stream start:"
-    foreach value $values { puts "$value" }
-    puts "replication stream end."
-
     close_replication_stream $s ;# for fast exit
-    set context "(context: [info frame -1])"
-    assert_equal $errors 0 $context
+    assert_match $patterns $values
 }
 
 proc close_replication_stream {s} {
