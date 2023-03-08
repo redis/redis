@@ -131,7 +131,7 @@ start_server {tags {"introspection"}} {
         assert_equal {OK} [$rd read] ;# OK from CLIENT REPLY ON command
 
         $rd ping
-        assert_equal {pong} [$rd read]
+        assert_equal {PONG} [$rd read]
 
         $rd close
     }
