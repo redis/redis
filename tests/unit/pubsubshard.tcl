@@ -110,34 +110,28 @@ start_server {tags {"pubsubshard external:skip"}} {
         $rd2 close
     }
 
-    foreach type {OFF SKIP} {
-        test "PubSubShard with CLIENT REPLY $type" {
-            set rd [redis_deferring_client]
-            $rd hello 3
-            $rd read ;# Discard the hello reply
+    test "PubSubShard with CLIENT REPLY OFF" {
+        set rd [redis_deferring_client]
+        $rd hello 3
+        $rd read ;# Discard the hello reply
 
-            # Test that the ssubscribe notification is ok
-            $rd client reply $type
-            assert_equal {1} [ssubscribe $rd channel]
+        # Test that the ssubscribe notification is ok
+        $rd client reply off
+        $rd ping
+        assert_equal {1} [ssubscribe $rd channel]
 
-            # Test that the spublish notification is ok
-            $rd client reply $type
-            assert_equal 1 [r spublish channel hello]
-            assert_equal {smessage channel hello} [$rd read]
+        # Test that the spublish notification is ok
+        $rd client reply off
+        $rd ping
+        assert_equal 1 [r spublish channel hello]
+        assert_equal {smessage channel hello} [$rd read]
 
-            # Test that sunsubscribe notification is ok
-            $rd client reply $type
-            assert_equal {0} [sunsubscribe $rd channel]
+        # Test that sunsubscribe notification is ok
+        $rd client reply off
+        $rd ping
+        assert_equal {0} [sunsubscribe $rd channel]
 
-            if {$type == "SKIP"} {
-                $rd client reply $type
-                $rd ping pong1
-                $rd ping pong2
-                assert_equal {pong2} [$rd read]
-            }
-
-            $rd close
-        }
+        $rd close
     }
 }
 

@@ -146,37 +146,28 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
-    foreach type {OFF SKIP} {
-        test "PubSub messages with CLIENT REPLY $type" {
-            set rd [redis_deferring_client]
-            $rd hello 3
-            $rd read ;# Discard the hello reply
+    test "PubSub messages with CLIENT REPLY OFF" {
+        set rd [redis_deferring_client]
+        $rd hello 3
+        $rd read ;# Discard the hello reply
 
-            # Test that the subscribe/psubscribe notification is ok
-            $rd client reply $type
-            assert_equal {1} [subscribe $rd channel]
-            assert_equal {2} [psubscribe $rd ch*]
+        # Test that the subscribe/psubscribe notification is ok
+        $rd client reply off
+        assert_equal {1} [subscribe $rd channel]
+        assert_equal {2} [psubscribe $rd ch*]
 
-            # Test that the publish notification is ok
-            $rd client reply $type
-            assert_equal 2 [r publish channel hello]
-            assert_equal {message channel hello} [$rd read]
-            assert_equal {pmessage ch* channel hello} [$rd read]
+        # Test that the publish notification is ok
+        $rd client reply off
+        assert_equal 2 [r publish channel hello]
+        assert_equal {message channel hello} [$rd read]
+        assert_equal {pmessage ch* channel hello} [$rd read]
 
-            # Test that the unsubscribe/punsubscribe notification is ok
-            $rd client reply $type
-            assert_equal {1} [unsubscribe $rd channel]
-            assert_equal {0} [punsubscribe $rd ch*]
+        # Test that the unsubscribe/punsubscribe notification is ok
+        $rd client reply off
+        assert_equal {1} [unsubscribe $rd channel]
+        assert_equal {0} [punsubscribe $rd ch*]
 
-            if {$type == "SKIP"} {
-                $rd client reply $type
-                $rd ping pong1
-                $rd ping pong2
-                assert_equal {pong2} [$rd read]
-            }
-
-            $rd close
-        }
+        $rd close
     }
 
     test "PUNSUBSCRIBE from non-subscribed channels" {
