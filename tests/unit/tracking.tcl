@@ -782,6 +782,7 @@ start_server {tags {"tracking network"}} {
 
     foreach resp {3 2} {
         test "RESP$resp based basic invalidation with client reply off" {
+            # This entire test is mostly irrelevant for RESP2, but we run it anyway just for some extra coverage.
             clean_all
 
             $rd hello $resp
@@ -800,6 +801,12 @@ start_server {tags {"tracking network"}} {
             if {$resp == 3} {
                 assert_equal {invalidate foo} [$rd read]
             } elseif {$resp == 2} { } ;# Just coverage
+
+            # Verify things didn't get messed up and no unexpected reply was pushed to the client.
+            $rd client reply on
+            assert_equal {OK} [$rd read]
+            $rd ping
+            assert_equal {PONG} [$rd read]
         }
     }
 
@@ -828,6 +835,12 @@ start_server {tags {"tracking network"}} {
         $rd_sg set foo bar2
         assert_equal {invalidate foo} [$rd_redir read]
 
+        # Verify things didn't get messed up and no unexpected reply was pushed to the client.
+        $rd_redir client reply on
+        assert_equal {OK} [$rd_redir read]
+        $rd_redir ping
+        assert_equal {PONG} [$rd_redir read]
+
         $rd_redir close
     }
 
@@ -852,6 +865,12 @@ start_server {tags {"tracking network"}} {
 
         set res [lsearch -exact [$rd read] "tracking-redir-broken"]
         assert_morethan_equal $res 0
+
+        # Verify things didn't get messed up and no unexpected reply was pushed to the client.
+        $rd client reply on
+        assert_equal {OK} [$rd read]
+        $rd ping
+        assert_equal {PONG} [$rd read]
     }
 
     $rd_redirection close
