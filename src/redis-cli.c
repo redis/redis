@@ -1813,7 +1813,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 fflush(stdout);
             } while(--argc);
             zfree(argvlen);
-            return REDIS_OK;
+            continue;
         }
 
         if (config.monitor_mode) {
