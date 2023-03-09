@@ -635,6 +635,7 @@ typedef struct {
 typedef enum {
     CLUSTER_ENDPOINT_TYPE_IP = 0,          /* Show IP address */
     CLUSTER_ENDPOINT_TYPE_HOSTNAME,        /* Show hostname */
+    CLUSTER_ENDPOINT_TYPE_NODENAME,        /* Show nodename */
     CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT /* Show NULL or empty */
 } cluster_endpoint_type;
 

@@ -43,6 +43,7 @@ test "Cluster nodes hard reset" {
         R $id config set key-load-delay 0
         R $id config set repl-diskless-load disabled
         R $id config set cluster-announce-hostname ""
+	R $id config set cluster-announce-human-nodename ""
         R $id DEBUG DROP-CLUSTER-PACKET-FILTER -1
         R $id config rewrite
     }

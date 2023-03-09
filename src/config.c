@@ -152,6 +152,7 @@ configEnum protected_action_enum[] = {
 configEnum cluster_preferred_endpoint_type_enum[] = {
     {"ip", CLUSTER_ENDPOINT_TYPE_IP},
     {"hostname", CLUSTER_ENDPOINT_TYPE_HOSTNAME},
+    {"nodename", CLUSTER_ENDPOINT_TYPE_NODENAME},
     {"unknown-endpoint", CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT},
     {NULL, 0}
 };
