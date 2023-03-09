@@ -10,7 +10,7 @@ static const char retained_command_name[] = "commandfilter.retained";
 static const char unregister_command_name[] = "commandfilter.unregister";
 static int in_log_command = 0;
 
-static RedisModuleCommandFilter *filter;
+static RedisModuleCommandFilter *filter, *filter1;
 static RedisModuleString *retained;
 
 int CommandFilter_UnregisterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -193,7 +193,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                     noself ? REDISMODULE_CMDFILTER_NOSELF : 0))
             == NULL) return REDISMODULE_ERR;
 
-    if ((filter = RedisModule_RegisterCommandFilter(ctx, CommandFilter_BlpopFilter, 0)) == NULL)
+    if ((filter1 = RedisModule_RegisterCommandFilter(ctx, CommandFilter_BlpopFilter, 0)) == NULL)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
