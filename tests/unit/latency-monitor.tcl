@@ -111,7 +111,7 @@ tags {"needs:debug"} {
         set res [r latency graph command]
         assert_match {*command*high*low*} $res
 
-        # TThese number are taken from the "Test latency events logging" test.
+        # These numbers are taken from the "Test latency events logging" test.
         # (debug sleep 0.3) and (debug sleep 0.5), increase it by 100 to prevent timing issue.
         regexp "command - high (.*?) ms, low (.*?) ms" $res -> high low
         assert_range $high 500 600
