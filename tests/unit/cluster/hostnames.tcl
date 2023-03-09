@@ -240,5 +240,4 @@ test "Test hostname validation" {
     # Note this isn't a valid hostname, but it passes our internal validation
     R 0 config set cluster-announce-hostname "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-."
 }
-
 }
