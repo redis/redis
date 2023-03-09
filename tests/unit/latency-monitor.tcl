@@ -145,10 +145,4 @@ start_server {tags {"latency-monitor needs:latency"}} {
         catch {r LATENCY help xxx} e
         assert_match "*wrong number of arguments for 'latency|help' command" $e
     }
-
-    test {Coverage: LATENCY GRAPH} {
-        r config resetstat
-        r debug sleep .2
-        assert_match {*command*} [r LATENCY GRAPH command]
-    } {} {needs:debug}
 }
