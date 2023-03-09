@@ -89,6 +89,29 @@ int CommandFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
+static int brpoplpush_count = 0;
+
+/* Filter to protect against Bug #11894 reappearing */
+void CommandFilter_BlpopFilter(RedisModuleCommandFilterCtx *filter)
+{
+    if (RedisModule_CommandFilterArgsCount(filter) != 3)
+        return;
+
+    const RedisModuleString *arg = RedisModule_CommandFilterArgGet(filter, 0);
+    size_t arg_len;
+    const char *arg_str = RedisModule_StringPtrLen(arg, &arg_len);
+
+    if (arg_len != 10 || memcmp(arg_str, "brpoplpush", 10))
+        return;
+
+    brpoplpush_count++;
+
+    if (brpoplpush_count % 2 != 0)
+        return;
+
+    RedisModule_CommandFilterArgInsert(filter, 0, RedisModule_CreateString(NULL, "--inserted-before--", 19));
+}
+
 void CommandFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
 {
     if (in_log_command) return;  /* don't process our own RM_Call() from CommandFilter_LogCommand() */
@@ -169,6 +192,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if ((filter = RedisModule_RegisterCommandFilter(ctx, CommandFilter_CommandFilter, 
                     noself ? REDISMODULE_CMDFILTER_NOSELF : 0))
             == NULL) return REDISMODULE_ERR;
+
+    if ((filter = RedisModule_RegisterCommandFilter(ctx, CommandFilter_BlpopFilter, 0)) == NULL)
+        return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
 }

@@ -116,3 +116,17 @@ test {RM_CommandFilterArgInsert and script argv caching} {
     }
 }
 
+test {Blocking Commands don't run through command filter when reprocessed} {
+    start_server {tags {"modules"}} {
+        r module load $testmodule log-key 0
+
+        r del list1{t}
+        r del list2{t}
+
+        set rd [redis_deferring_client]
+        $rd brpoplpush list1{t} list2{t} 0
+        wait_for_blocked_client
+        r lpush list1{t} a
+        assert_equal [$rd read] a
+    }
+}
