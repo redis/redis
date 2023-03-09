@@ -868,12 +868,10 @@ void clusterUpdateMyselfHostname(void) {
     updateAnnouncedHostname(myself, server.cluster_announce_hostname);
 }
 
-
 void clusterUpdateMyselfHumanNodename(void) {
     if (!myself) return;
     updateAnnouncedHumanNodename(myself, server.cluster_announce_human_nodename);
 }
-
 
 void clusterInit(void) {
     int saveconf = 0;
@@ -1735,13 +1733,6 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
     server.cluster->currentEpoch++;
     myself->configEpoch = server.cluster->currentEpoch;
     clusterSaveConfigOrDie(1);
-    /* nodename feature
-    serverLog(LL_VERBOSE,
-        "WARNING: configEpoch collision with node %.40s (%s)."
-        " configEpoch set to %llu",
-        sender->name,sender->nodename,
-        (unsigned long long) myself->configEpoch);
-    */
     serverLog(LL_VERBOSE,
         "WARNING: configEpoch collision with node %.40s."
         " configEpoch set to %llu",
@@ -1860,10 +1851,6 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
     if (nodeIsMaster(myself)) failures++;
     if (failures < needed_quorum) return; /* No weak agreement from masters. */
 
-    /* nodename feature
-    severLog(LL_NOTICE,
-        "Marking node %.40s (%s) as failing (quorum reached).", node->name, node->nodename);
-    */
     serverLog(LL_NOTICE,
         "Marking node %.40s as failing (quorum reached).", node->name);
 
@@ -2029,11 +2016,6 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
             if (sender && nodeIsMaster(sender) && node != myself) {
                 if (flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) {
                     if (clusterNodeAddFailureReport(node,sender)) {
-                        /* nodename feature
-                        serverLog(LL_VERBOSE,
-                            "Node %.40s (%s) reported node %.40s (%s)as not reachable.",
-                            sender->name, sender->nodename, node->name, node->nodename);
-                        */
                         serverLog(LL_VERBOSE,
                             "Node %.40s reported node %.40s as not reachable.",
                             sender->name, node->name);
@@ -2041,11 +2023,6 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                     markNodeAsFailingIfNeeded(node);
                 } else {
                     if (clusterNodeDelFailureReport(node,sender)) {
-                        /* nodename feature
-                        serverLog(LL_VERBOSE,
-                            "Node %.40s (%s) reported node %.40s (%s) is back online.",
-                            sender->name, sender->nodename, node->name, node->nodename);
-                        */
                         serverLog(LL_VERBOSE,
                             "Node %.40s reported node %.40s is back online.",
                             sender->name, node->name);
@@ -2784,11 +2761,6 @@ int clusterProcessPacket(clusterLink *link) {
                 /* If we already have this node, try to change the
                  * IP/port of the node with the new one. */
                 if (sender) {
-                    /* nodename feature
-                    serverLog(LL_VERBOSE,
-                        "Handshake: we already know node %.40s (%s), "
-                        "updating the address if needed.", sender->name, sender->nodename);
-                    */
                     serverLog(LL_VERBOSE,
                         "Handshake: we already know node %.40s, "
                         "updating the address if needed.", sender->name);
