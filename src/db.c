@@ -55,7 +55,7 @@ dict *dbIteratorNextDict(dbIterator *dbit) {
     if (!server.cluster_enabled) {
         dbit->cur_slot = dbit->index++ ? -1 : 0;
     } else if (intsetGet(dbit->db->non_empty_dicts, dbit->index++, &slot)){
-        dbit->cur_slot = (int) slot;
+            dbit->cur_slot = (int) slot;
         return dbit->db->dict[slot];
     }
     return dbit->cur_slot >= 0 ? dbit->db->dict[dbit->cur_slot] : NULL;
@@ -1141,12 +1141,14 @@ cleanup:
 }
 
 void addSlotIdToCursor(int slot, unsigned long long int *cursor) {
+    if (!server.cluster_enabled) return;
     /* Slot id can be -1 when iteration is over and there are no more slots to visit. */
     if (slot < 0) return;
     *cursor = (*cursor << CLUSTER_SLOT_MASK_BITS) | slot;
 }
 
 int getAndClearSlotIdFromCursor(unsigned long long int *cursor) {
+    if (!server.cluster_enabled) return 0;
     int slot = (int) (*cursor & CLUSTER_SLOT_MASK);
     *cursor = ((*cursor) & ~CLUSTER_SLOT_MASK) >> CLUSTER_SLOT_MASK_BITS;
     return slot;
