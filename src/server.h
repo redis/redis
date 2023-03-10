@@ -115,6 +115,7 @@ typedef struct redisObject robj;
 #define CONFIG_MAX_HZ            500
 #define MAX_CLIENTS_PER_CLOCK_TICK 200          /* HZ is adapted based on that. */
 #define CRON_DBS_PER_CALL 16
+#define CRON_DICTS_PER_CALL 1024 /* Number of dictionaries that can be resized by cron job during one call. */
 #define NET_MAX_WRITES_PER_EVENT (1024*64)
 #define PROTO_SHARED_SELECT_CMDS 10
 #define OBJ_SHARED_INTEGERS 10000
@@ -946,7 +947,7 @@ typedef struct replBufBlock {
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
-    dict **dict;                 /* The keyspace for this DB */
+    dict **dict;                /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
@@ -957,11 +958,12 @@ typedef struct redisDb {
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
+    int resize_cursor;          /* Cron job uses this cursor to gradually resize dictionaries. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
     list *rehashing;            /* List of dictionaries in this DB that are currently rehashing. */
     int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
     unsigned long long key_count; /* Total number of keys in this DB. */
-    intset *non_empty_dicts;     /* Set of non-empty dictionaries. */
+    intset *non_empty_dicts;    /* Set of non-empty dictionaries. */
 } redisDb;
 
 /* forward declaration for functions ctx */

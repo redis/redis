@@ -535,6 +535,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
         dbarray[j].expires_cursor = 0;
+        dbarray[j].resize_cursor = 0;
         dbarray[j].key_count = 0;
         zfree(dbarray[j].non_empty_dicts);
         dbarray[j].non_empty_dicts = intsetNew();
@@ -1568,6 +1569,7 @@ int dbSwapDatabases(int id1, int id2) {
     db1->expires = db2->expires;
     db1->avg_ttl = db2->avg_ttl;
     db1->expires_cursor = db2->expires_cursor;
+    db1->resize_cursor = db2->resize_cursor;
     db1->dict_count = db2->dict_count;
     db1->key_count = db2->key_count;
     db1->non_empty_dicts = db2->non_empty_dicts;
@@ -1576,6 +1578,7 @@ int dbSwapDatabases(int id1, int id2) {
     db2->expires = aux.expires;
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
+    db2->resize_cursor = aux.resize_cursor;
     db2->dict_count = aux.dict_count;
     db2->key_count = aux.key_count;
     db2->non_empty_dicts = aux.non_empty_dicts;
@@ -1616,6 +1619,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->expires = newdb->expires;
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
+        activedb->resize_cursor = newdb->resize_cursor;
         activedb->dict_count = newdb->dict_count;
         activedb->key_count = newdb->key_count;
         activedb->non_empty_dicts = newdb->non_empty_dicts;
@@ -1624,6 +1628,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         newdb->expires = aux.expires;
         newdb->avg_ttl = aux.avg_ttl;
         newdb->expires_cursor = aux.expires_cursor;
+        newdb->resize_cursor = aux.resize_cursor;
         newdb->dict_count = aux.dict_count;
         newdb->key_count = aux.key_count;
         newdb->non_empty_dicts = aux.non_empty_dicts;

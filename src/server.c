@@ -590,13 +590,20 @@ int htNeedsResize(dict *dict) {
 void tryResizeHashTables(int dbid) {
     dict *d;
     dbIterator dbit;
-    dbIteratorInit(&dbit, &server.db[dbid]);
-    while ((d = dbIteratorNextDict(&dbit))) {
+    redisDb *db = &server.db[dbid];
+    dbIteratorInit(&dbit, db);
+    dbit.index = db->resize_cursor;
+    for (int i = 0; i < CRON_DICTS_PER_CALL; i++) {
+        d = dbIteratorNextDict(&dbit);
+        if (d == NULL) break;
         if (htNeedsResize(d))
             dictResize(d);
     }
-    if (htNeedsResize(server.db[dbid].expires))
-        dictResize(server.db[dbid].expires);
+    /* Save current index in the resize cursor, or start over if we've reached the end.*/
+    db->resize_cursor = dbit.cur_slot == -1 ? 0 : dbit.index;
+
+    if (htNeedsResize(db->expires))
+        dictResize(db->expires);
 }
 
 /* Our hash table implementation performs rehashing incrementally while
@@ -2584,6 +2591,7 @@ void initServer(void) {
         server.db[j].dict = dictCreateMultiple(&dbDictType, slotCount);
         server.db[j].expires = dictCreate(&dbExpiresDictType);
         server.db[j].expires_cursor = 0;
+        server.db[j].resize_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
