@@ -803,6 +803,8 @@ struct RedisModule {
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
     RedisModuleDefragFunc defrag_cb;    /* Callback for global data defrag. */
     struct moduleLoadQueueEntry *loadmod; /* Module load arguments for config rewrite. */
+    int num_commands_with_acl_categories; /* Number of commands in this module included in acl categories */
+    int onload;     /* Flag to identify if the call is being made from Onload (0 or 1) */
 };
 typedef struct RedisModule RedisModule;
 

@@ -190,6 +190,23 @@ int module_test_acl_category(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
+int commandBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    int error = 0;
+    int result = RedisModule_CreateCommand(ctx,"command.that.should.fail", module_test_acl_category, "", 0, 0, 0);
+    error |= (result == REDISMODULE_ERR);
+    RedisModuleCommand *parent = RedisModule_GetCommand(ctx,"block.commands.outside.onload");
+    result = RedisModule_CreateSubcommand(parent,"subcommand.that.should.fail",module_test_acl_category,"",0,0,0);
+    error |= (result == REDISMODULE_ERR);
+    if (error) {
+        RedisModule_ReplyWithError(ctx, "NOPERM");
+    } else {
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -198,6 +215,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"aclcheck.set.check.key", set_aclcheck_key,"write",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"block.commands.outside.onload", commandBlockCheck, "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"aclcheck.module.command.aclcategories.write", module_test_acl_category, "write @write", 0, 0, 0) == REDISMODULE_ERR)

@@ -287,11 +287,6 @@ static size_t moduleTempClientCount = 0;    /* Client count in pool */
 static size_t moduleTempClientMinCount = 0; /* Min client count in pool since
                                                the last cron. */
 
-/* Flag to determine if any module commands have ACL categories.
- * Used to recompute the command bits for the existing users to have 
- * access to module commands once the module is loaded. */
-int module_contains_aclcategories_flag = 0;
-
 /* We need a mutex that is unlocked / relocked in beforeSleep() in order to
  * allow thread safe contexts to execute commands at a safe moment. */
 static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
@@ -1040,17 +1035,17 @@ int isCommandNameValid(const char *name) {
 /* Helper for commandFlagsFromString(). Turns a string representing command
  * flags into the ACL Category Flags.
  *
- * Returns 'REDISMODULE_OK' if acl category flag is recognized or
- * returns 'REDISMODULE_ERR' if not recognized  */
+ * Returns '1' if acl category flag is recognized or
+ * returns '0' if not recognized  */
 int matchAclCategoriesFlags(char *flag, int64_t *acl_categories){
     if (flag[0] == '@'){
         uint64_t this_flag = ACLGetCommandCategoryFlagByName(flag + 1);
         if (this_flag) {
             *acl_categories |= (int64_t) this_flag;
-            return REDISMODULE_OK;
+            return 1;
         }
     }
-    return REDISMODULE_ERR; /* Unrecognized */
+    return 0; /* Unrecognized */
 }
 
 /* Helper for RM_CreateCommand(). Turns a string representing command
@@ -1084,9 +1079,8 @@ int64_t commandFlagsFromString(char *s, int64_t *acl_categories) {
         else if (!strcasecmp(t,"getchannels-api")) flags |= CMD_MODULE_GETCHANNELS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
-        else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY;
-        else if (!matchAclCategoriesFlags(t, acl_categories));
-        else {
+        else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY; 
+        else if (!matchAclCategoriesFlags(t, acl_categories)){
             serverLog(LL_WARNING,"Unrecognized command flag %s on module load", t);
             break;
         }
@@ -1103,6 +1097,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * convention.
  *
  * The function returns REDISMODULE_ERR in these cases:
+ * - If creation of module command is called outside the RedisModule_OnLoad.
  * - The specified command is already busy.
  * - The command name contains some chars that are not allowed.
  * - A set of invalid flags were passed.
@@ -1197,6 +1192,8 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * For non-trivial key arguments, you may pass 0,0,0 and use
  * RedisModule_SetCommandInfo to set key specs using a more advanced scheme. */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
+    if (!ctx->module->onload)
+        return REDISMODULE_ERR;
     int64_t acl_categories;
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags, &acl_categories) : 0;
     if (flags == -1) return REDISMODULE_ERR;
@@ -1219,10 +1216,8 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     serverAssert(dictAdd(server.orig_commands, sdsdup(declared_name), cp->rediscmd) == DICT_OK);
     cp->rediscmd->id = ACLGetCommandID(declared_name); /* ID used for ACL. */
     cp->rediscmd->acl_categories = acl_categories; /* ACL categories flags for module command */
-    /* If commands have acl_categories, and if 'module_contains_aclcategories_flag' is already not set to 1,
-     * then set it to 1, to recompute the command bits for the existing users to have access to these
-     * commands once the module is loaded. */ 
-    if (acl_categories && !module_contains_aclcategories_flag) module_contains_aclcategories_flag = 1; 
+    /* If commands have acl_categories, increment num_commands_with_acl_categories */ 
+    if (acl_categories) ctx->module->num_commands_with_acl_categories++; 
     return REDISMODULE_OK;
 }
 
@@ -1322,8 +1317,11 @@ RedisModuleCommand *RM_GetCommand(RedisModuleCtx *ctx, const char *name) {
  * * `parent` is already a subcommand (we do not allow more than one level of command nesting)
  * * `parent` is a command with an implementation (RedisModuleCmdFunc) (A parent command should be a pure container of subcommands)
  * * `parent` already has a subcommand called `name`
+ * * Creating a subcommand is called outside of the RedisModule_OnLoad.
  */
 int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
+    if (!parent->module->onload)
+        return REDISMODULE_ERR;
     int64_t acl_categories;
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags, &acl_categories) : 0;
     if (flags == -1) return REDISMODULE_ERR;
@@ -1355,10 +1353,8 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     cp->rediscmd->arity = -2;
     cp->rediscmd->acl_categories = acl_categories; /* ACL categories flags for module sub-command */
     commandAddSubcommand(parent_cmd, cp->rediscmd, name);
-    /* If commands have acl_categories, and if 'module_contains_aclcategories_flag' is already not set to 1,
-     * then set it to 1, to recompute the command bits for the existing users to have access to these
-     * commands once the module is loaded. */
-    if (acl_categories && !module_contains_aclcategories_flag) module_contains_aclcategories_flag = 1; 
+    /* If commands have acl_categories, increment num_commands_with_acl_categories */
+    if (acl_categories) parent->module->num_commands_with_acl_categories++; 
     return REDISMODULE_OK;
 }
 
@@ -2134,6 +2130,8 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->info_cb = 0;
     module->defrag_cb = 0;
     module->loadmod = NULL;
+    module->num_commands_with_acl_categories = 0;
+    module->onload = 1;
     ctx->module = module;
 }
 
@@ -6526,7 +6524,8 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
  *
- * If there is already a module registering a type with the same name,
+ * If RedisModule_CreateDataType() is called outside of the RedisModule_OnLoad() function,
+ * and if there is already a module registering a type with the same name,
  * and if the module name or encver is invalid, NULL is returned.
  * Otherwise the new type is registered into Redis, and a reference of
  * type RedisModuleType is returned: the caller of the function should store
@@ -6542,6 +6541,8 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *      }
  */
 moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver, void *typemethods_ptr) {
+    if (!ctx->module->onload)
+        return NULL;
     uint64_t id = moduleTypeEncodeId(name,encver);
     if (id == 0) return NULL;
     if (moduleTypeLookupModuleByName(name) != NULL) return NULL;
@@ -11617,12 +11618,11 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 
     /* If module commands have ACL categories, recompute command bits 
      * for all existing users once the modules has been registered. */
-    ACLRecomputeCommandBitsFromCommandRulesAllUsers();
-    if(module_contains_aclcategories_flag) {
+    if(ctx.module->num_commands_with_acl_categories) {
         ACLRecomputeCommandBitsFromCommandRulesAllUsers();
-        module_contains_aclcategories_flag = 0;
     }
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
+    ctx.module->onload = 0;
 
     if (listLength(ctx.module->module_configs) && !ctx.module->configs_initialized) {
         serverLogRaw(LL_WARNING, "Module Configurations were not set, likely a missing LoadConfigs call. Unloading the module.");
@@ -12032,6 +12032,10 @@ ModuleConfig *createModuleConfig(sds name, RedisModuleConfigApplyFunc apply_fn, 
 }
 
 int moduleConfigValidityCheck(RedisModule *module, sds name, unsigned int flags, configType type) {
+    if (!module->onload) {
+        errno = EBUSY;
+        return REDISMODULE_ERR;
+    }
     if (moduleVerifyConfigFlags(flags, type) || moduleVerifyConfigName(name)) {
         errno = EINVAL;
         return REDISMODULE_ERR;
@@ -12138,6 +12142,7 @@ unsigned int maskModuleEnumConfigFlags(unsigned int flags) {
  *
  * If the registration fails, REDISMODULE_ERR is returned and one of the following
  * errno is set:
+ * * EBUSY: Registering the Config outside of RedisModule_OnLoad.
  * * EINVAL: The provided flags are invalid for the registration or the name of the config contains invalid characters.
  * * EALREADY: The provided configuration name is already used. */
 int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, const char *default_val, unsigned int flags, RedisModuleConfigGetStringFunc getfn, RedisModuleConfigSetStringFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
@@ -12254,10 +12259,11 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
 
 /* Applies all pending configurations on the module load. This should be called
  * after all of the configurations have been registered for the module inside of RedisModule_OnLoad.
+ * This will return REDISMODULE_ERR if it is called outside the RedisModule_OnLoad.
  * This API needs to be called when configurations are provided in either `MODULE LOADEX`
  * or provided as startup arguments. */
 int RM_LoadConfigs(RedisModuleCtx *ctx) {
-    if (!ctx || !ctx->module) {
+    if (!ctx || !ctx->module || !ctx->module->onload) {
         return REDISMODULE_ERR;
     }
     RedisModule *module = ctx->module;

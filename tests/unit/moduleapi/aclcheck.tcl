@@ -92,6 +92,10 @@ start_server {tags {"modules acl"}} {
         assert {[dict get $entry reason] eq {command}}
     }
 
+    test {test blocking of Commands outside of OnLoad} {
+        assert_error {NOPERM} {r block.commands.outside.onload}
+    }
+
     test {test users to have access to module commands having acl categories} {
         r acl SETUSER j1 on >password -@all +@WRITE
         r acl SETUSER j2 on >password -@all +@READ
