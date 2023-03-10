@@ -3531,6 +3531,7 @@ void sunsubscribeCommand(client *c);
 void watchCommand(client *c);
 void unwatchCommand(client *c);
 void clusterCommand(client *c);
+void clusterSlotStatsCommand(client *c);
 void restoreCommand(client *c);
 void migrateCommand(client *c);
 void askingCommand(client *c);

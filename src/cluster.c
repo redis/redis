@@ -30,6 +30,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_slot.h"
 #include "endianconv.h"
 
 #include <sys/types.h>
@@ -5269,18 +5270,6 @@ const char *clusterGetMessageTypeString(int type) {
     return "unknown";
 }
 
-int getSlotOrReply(client *c, robj *o) {
-    long long slot;
-
-    if (getLongLongFromObject(o,&slot) != C_OK ||
-        slot < 0 || slot >= CLUSTER_SLOTS)
-    {
-        addReplyError(c,"Invalid or out of range slot");
-        return -1;
-    }
-    return (int) slot;
-}
-
 /* Returns an indication if the replica node is fully available
  * and should be listed in CLUSTER SLOTS response.
  * Returns 1 for available nodes, 0 for nodes that have 
@@ -5688,6 +5677,8 @@ void clusterCommand(client *c) {
 "    Set config epoch of current node.",
 "SETSLOT <slot> (IMPORTING <node-id>|MIGRATING <node-id>|STABLE|NODE <node-id>)",
 "    Set slot state.",
+"SLOT-STATS",
+"    Return array of slot usage statistics for slots assigned to the current node.",
 "REPLICAS <node-id>",
 "    Return <node-id> replicas.",
 "SAVECONFIG",

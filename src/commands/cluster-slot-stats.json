@@ -1,0 +1,77 @@
+{
+    "SLOT-STATS": {
+        "summary": "Return array of slot usage statistics for slots assigned to the current node",
+        "complexity": "O(N) where N is the total number of slots based on arguments. O(N log N) with ORDERBY subcommand",
+        "group": "cluster",
+        "since": "7.2.0",
+        "arity": -2,
+        "container": "CLUSTER",
+        "function": "clusterSlotStatsCommand",
+        "command_flags": [
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "arguments": [
+            {
+                "name": "filter",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "token": "SLOTSRANGE",
+                        "name": "slotsrange",
+                        "type": "block",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "start-slot",
+                                "type": "integer"
+                            },
+                            {
+                                "name": "end-slot",
+                                "type": "integer"
+                            }
+                        ]
+                    },
+                    {
+                        "token": "ORDERBY",
+                        "name": "orderby",
+                        "type": "block",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "column",
+                                "type": "string"
+                            },
+                            {
+                                "token": "LIMIT",
+                                "name": "limit",
+                                "type": "integer",
+                                "optional": true
+                            },
+                            {
+                                "name": "order",
+                                "type": "oneof",
+                                "optional": true,
+                                "arguments": [
+                                    {
+                                        "name": "asc",
+                                        "type": "pure-token",
+                                        "token": "ASC"
+                                    },
+                                    {
+                                        "name": "desc",
+                                        "type": "pure-token",
+                                        "token": "DESC"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}
