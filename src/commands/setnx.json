@@ -39,6 +39,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The key was set.",
+                    "const": 0
+                },
+                {
+                    "description": "The key was not set.",
+                    "const": 1
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

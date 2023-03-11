@@ -11,6 +11,9 @@
             "ADMIN",
             "NOSCRIPT",
             "NO_MULTI"
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

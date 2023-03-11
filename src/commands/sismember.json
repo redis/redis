@@ -32,6 +32,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": 0,
+                    "description": "The element is not a member of the set, or the key does not exist."
+                },
+                {
+                    "const": 1,
+                    "description": "The element is a member of the set."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

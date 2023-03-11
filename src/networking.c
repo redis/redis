@@ -139,7 +139,12 @@ client *createClient(connection *conn) {
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
+#ifdef LOG_REQ_RES
+    reqresReset(c, 0);
+    c->resp = server.client_default_resp;
+#else
     c->resp = 2;
+#endif
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
@@ -389,6 +394,10 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
                                         cmdname ? cmdname : "<unknown>");
         return;
     }
+
+    /* We call it here because this function may affect the reply
+     * buffer offset (see function comment) */
+    reqresSaveClientReplyOffset(c);
 
     size_t reply_len = _addReplyToBuffer(c,s,len);
     if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
@@ -713,6 +722,10 @@ void *addReplyDeferredLen(client *c) {
                                         cmdname ? cmdname : "<unknown>");
         return NULL;
     }
+
+    /* We call it here because this function conceptually affects the reply
+     * buffer offset (see function comment) */
+    reqresSaveClientReplyOffset(c);
 
     trimReplyUnusedTailSpace(c);
     listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
@@ -1575,6 +1588,9 @@ void freeClient(client *c) {
     freeClientOriginalArgv(c);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
+#ifdef LOG_REQ_RES
+    reqresReset(c, 1);
+#endif
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
@@ -2000,6 +2016,9 @@ void resetClient(client *c) {
     c->slot = -1;
     c->duration = 0;
     c->flags &= ~CLIENT_EXECUTING_COMMAND;
+#ifdef LOG_REQ_RES
+    reqresReset(c, 1);
+#endif
 
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
@@ -2357,6 +2376,7 @@ void commandProcessed(client *c) {
      *    since we have not applied the command. */
     if (c->flags & CLIENT_BLOCKED) return;
 
+    reqresAppendResponse(c);
     resetClient(c);
 
     long long prev_offset = c->reploff;

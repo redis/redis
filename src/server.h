@@ -1101,6 +1101,31 @@ typedef struct {
     size_t mem_usage_sum;
 } clientMemUsageBucket;
 
+#ifdef LOG_REQ_RES
+/* Structure used to log client's requests and their
+ * responses (see logreqres.c) */
+typedef struct {
+    /* General */
+    int argv_logged; /* 1 if the command was logged */
+    /* Vars for log buffer */
+    unsigned char *buf; /* Buffer holding the data (request and response) */
+    size_t used;
+    size_t capacity;
+    /* Vars for offsets within the client's reply */
+    struct {
+        /* General */
+        int saved; /* 1 if we already saved the offset (first time we call addReply*) */
+        /* Offset within the static reply buffer */
+        int bufpos;
+        /* Offset within the reply block list */
+        struct {
+            int index;
+            size_t used;
+        } last_node;
+    } offset;
+} clientReqResInfo;
+#endif
+
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
@@ -1212,6 +1237,9 @@ typedef struct client {
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
+#ifdef LOG_REQ_RES
+    clientReqResInfo reqres;
+#endif
 } client;
 
 /* ACL information */
@@ -1539,6 +1567,11 @@ struct redisServer {
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
     client *executing_client;   /* The client executing the current command (possibly script or module). */
+
+#ifdef LOG_REQ_RES
+    char *req_res_logfile; /* Path of log file for logging all requests and their replies. If NULL, no logging will be performed */
+    unsigned int client_default_resp;
+#endif
 
     /* Stuff for client mem eviction */
     clientMemUsageBucket* client_mem_usage_buckets;
@@ -2106,30 +2139,38 @@ typedef struct redisCommandArg {
     int num_args;
 } redisCommandArg;
 
-/* Must be synced with RESP2_TYPE_STR and generate-command-code.py */
-typedef enum {
-    RESP2_SIMPLE_STRING,
-    RESP2_ERROR,
-    RESP2_INTEGER,
-    RESP2_BULK_STRING,
-    RESP2_NULL_BULK_STRING,
-    RESP2_ARRAY,
-    RESP2_NULL_ARRAY,
-} redisCommandRESP2Type;
+#ifdef LOG_REQ_RES
 
-/* Must be synced with RESP3_TYPE_STR and generate-command-code.py */
+/* Must be synced with generate-command-code.py */
 typedef enum {
-    RESP3_SIMPLE_STRING,
-    RESP3_ERROR,
-    RESP3_INTEGER,
-    RESP3_DOUBLE,
-    RESP3_BULK_STRING,
-    RESP3_ARRAY,
-    RESP3_MAP,
-    RESP3_SET,
-    RESP3_BOOL,
-    RESP3_NULL,
-} redisCommandRESP3Type;
+    JSON_TYPE_STRING,
+    JSON_TYPE_INTEGER,
+    JSON_TYPE_BOOLEAN,
+    JSON_TYPE_OBJECT,
+    JSON_TYPE_ARRAY,
+} jsonType;
+
+typedef struct jsonObjectElement {
+    jsonType type;
+    const char *key;
+    union {
+        const char *string;
+        long long integer;
+        int boolean;
+        struct jsonObject *object;
+        struct {
+            struct jsonObject **objects;
+            int length;
+        } array;
+    } value;
+} jsonObjectElement;
+
+typedef struct jsonObject {
+    struct jsonObjectElement *elements;
+    int length;
+} jsonObject;
+
+#endif
 
 /* WARNING! This struct must match RedisModuleCommandHistoryEntry */
 typedef struct {
@@ -2280,6 +2321,10 @@ struct redisCommand {
     struct redisCommand *subcommands;
     /* Array of arguments (may be NULL) */
     struct redisCommandArg *args;
+#ifdef LOG_REQ_RES
+    /* Reply schema */
+    struct jsonObject *reply_schema;
+#endif
 
     /* Runtime populated data */
     long long microseconds, calls, rejected_calls, failed_calls;
@@ -2586,6 +2631,12 @@ void initThreadedIO(void);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
+
+/* logreqres.c - logging of requests and responses */
+void reqresReset(client *c, int free_buf);
+void reqresSaveClientReplyOffset(client *c);
+size_t reqresAppendRequest(client *c);
+size_t reqresAppendResponse(client *c);
 
 #ifdef __GNUC__
 void addReplyErrorFormatEx(client *c, int flags, const char *fmt, ...)

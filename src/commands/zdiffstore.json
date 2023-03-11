@@ -52,6 +52,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "Number of elements in the resulting sorted set at `destination`",
+            "type": "integer"
+        },
         "arguments": [
             {
                 "name": "destination",

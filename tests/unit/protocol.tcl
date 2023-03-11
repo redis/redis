@@ -110,16 +110,21 @@ start_server {tags {"protocol network"}} {
     # raw RESP response tests
     r readraw 1
 
+    set nullres {*-1}
+    if {$::force_resp3} {
+        set nullres {_}
+    }
+
     test "raw protocol response" {
         r srandmember nonexisting_key
-    } {*-1}
+    } "$nullres"
 
     r deferred 1
 
     test "raw protocol response - deferred" {
         r srandmember nonexisting_key
         r read
-    } {*-1}
+    } "$nullres"
 
     test "raw protocol response - multiline" {
         r sadd ss a

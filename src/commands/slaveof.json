@@ -26,6 +26,11 @@
                 "name": "port",
                 "type": "integer"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "slaveOf status",
+            "type": "string",
+            "pattern": "OK*"
+        }
     }
 }

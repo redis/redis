@@ -21,12 +21,17 @@ start_server {tags {"modules"}} {
     }
 
     test {test get resp} {
-        r hello 2
-        set reply [r test.getresp]
-        assert_equal $reply 2
-        r hello 3
-        set reply [r test.getresp]
-        assert_equal $reply 3
+        foreach resp {3 2} {
+            if {[lsearch $::denytags "resp3"] >= 0} {
+                if {$resp == 3} {continue}
+            } elseif {$::force_resp3} {
+                if {$resp == 2} {continue}
+            }
+            r hello $resp
+            set reply [r test.getresp]
+            assert_equal $reply $resp
+            r hello 2
+        }
     }
 
     test "Unload the module - test" {

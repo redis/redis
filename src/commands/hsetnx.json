@@ -34,6 +34,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The field is a new field in the hash and value was set.",
+                    "const": 0
+                },
+                {
+                    "description": "The field already exists in the hash and no operation was performed.",
+                    "const": 1
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

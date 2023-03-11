@@ -11,6 +11,9 @@
             "NOSCRIPT",
             "STALE"
         ],
+        "reply_schema": {
+            "const": "OK"
+        },
         "arguments": [
             {
                 "name": "target",

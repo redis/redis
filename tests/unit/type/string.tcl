@@ -459,6 +459,13 @@ start_server {tags {"string"}} {
             assert_equal [string range $bin $_start $_end] [r getrange bin $start $end]
         }
     }
+
+    test "Coverage: SUBSTR" {
+        r set key abcde
+        assert_equal "a" [r substr key 0 0]
+        assert_equal "abcd" [r substr key 0 3]
+        assert_equal "bcde" [r substr key -4 -1]
+    }
     
 if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {trim on SET with big value} {

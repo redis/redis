@@ -27,6 +27,9 @@
             "REQUEST_POLICY:ALL_SHARDS",
             "RESPONSE_POLICY:ALL_SUCCEEDED"
         ],
+        "reply_schema": {
+            "const": "OK"
+        },
         "arguments": [
             {
                 "name": "flush-type",

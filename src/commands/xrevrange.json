@@ -58,6 +58,29 @@
                 "type": "integer",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "An array of the entries with IDs matching the specified range",
+            "type": "array",
+            "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": [
+                    {
+                        "description": "Stream id",
+                        "type": "string",
+                        "pattern": "[0-9]+-[0-9]+"
+                    },
+                    {
+                        "description": "Array of field-value pairs",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                ]
+            }
+        }
     }
 }

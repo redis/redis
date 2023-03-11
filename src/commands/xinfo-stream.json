@@ -43,6 +43,291 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Summary form, in case `FULL` was not given.",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "length": {
+                            "description": "the number of entries in the stream (see `XLEN`)",
+                            "type": "integer"
+                        },
+                        "radix-tree-keys": {
+                            "description": "the number of keys in the underlying radix data structure",
+                            "type": "integer"
+                        },
+                        "radix-tree-nodes": {
+                            "description": "the number of nodes in the underlying radix data structure",
+                            "type": "integer"
+                        },
+                        "last-generated-id": {
+                            "description": "the ID of the least-recently entry that was added to the stream",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "max-deleted-entry-id": {
+                            "description": "the maximal entry ID that was deleted from the stream",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "recorded-first-entry-id": {
+                            "description": "cached copy of the first entry ID",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "entries-added": {
+                            "description": "the count of all entries added to the stream during its lifetime",
+                            "type": "integer"
+                        },
+                        "groups": {
+                            "description": "the number of consumer groups defined for the stream",
+                            "type": "integer"
+                        },
+                        "first-entry": {
+                            "description": "the first entry of the stream",
+                            "oneOf": [
+                                {
+                                    "type": "null"
+                                },
+                                {
+                                    "type": "array",
+                                    "minItems": 2,
+                                    "maxItems": 2,
+                                    "items": [
+                                        {
+                                            "description": "entry ID",
+                                            "type": "string",
+                                            "pattern": "[0-9]+-[0-9]+"
+                                        },
+                                        {
+                                            "description": "data",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        "last-entry": {
+                            "description": "the last entry of the stream",
+                            "oneOf": [
+                                {
+                                    "type": "null"
+                                },
+                                {
+                                    "type": "array",
+                                    "minItems": 2,
+                                    "maxItems": 2,
+                                    "items": [
+                                        {
+                                            "description": "entry ID",
+                                            "type": "string",
+                                            "pattern": "[0-9]+-[0-9]+"
+                                        },
+                                        {
+                                            "description": "data",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                },
+                {
+                    "description": "Extended form, in case `FULL` was given.",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "length": {
+                            "description": "the number of entries in the stream (see `XLEN`)",
+                            "type": "integer"
+                        },
+                        "radix-tree-keys": {
+                            "description": "the number of keys in the underlying radix data structure",
+                            "type": "integer"
+                        },
+                        "radix-tree-nodes": {
+                            "description": "the number of nodes in the underlying radix data structure",
+                            "type": "integer"
+                        },
+                        "last-generated-id": {
+                            "description": "the ID of the least-recently entry that was added to the stream",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "max-deleted-entry-id": {
+                            "description": "the maximal entry ID that was deleted from the stream",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "recorded-first-entry-id": {
+                            "description": "cached copy of the first entry ID",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        "entries-added": {
+                            "description": "the count of all entries added to the stream during its lifetime",
+                            "type": "integer"
+                        },
+                        "entries": {
+                            "description": "all the entries of the stream",
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "items": [
+                                    {
+                                        "description": "entry ID",
+                                        "type": "string",
+                                        "pattern": "[0-9]+-[0-9]+"
+                                    },
+                                    {
+                                        "description": "data",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        "groups": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "name": {
+                                        "description": "group name",
+                                        "type": "string"
+                                    },
+                                    "last-delivered-id": {
+                                        "description": "last entry ID that was delivered to a consumer",
+                                        "type": "string",
+                                        "pattern": "[0-9]+-[0-9]+"
+                                    },
+                                    "entries-read": {
+                                        "description": "total number of entries ever read by consumers in the group",
+                                        "oneOf": [
+                                            {
+                                                "type": "null"
+                                            },
+                                            {
+                                                "type": "integer"
+                                            }
+                                        ]
+                                    },
+                                    "lag": {
+                                        "description": "number of entries left to be consumed from the stream",
+                                        "oneOf": [
+                                            {
+                                                "type": "null"
+                                            },
+                                            {
+                                                "type": "integer"
+                                            }
+                                        ]
+                                    },
+                                    "pel-count": {
+                                        "description": "total number of unacknowledged entries",
+                                        "type": "integer"
+                                    },
+                                    "pending": {
+                                        "description": "data about all of the unacknowledged entries",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "array",
+                                            "minItems": 4,
+                                            "maxItems": 4,
+                                            "items": [
+                                                {
+                                                    "description": "Entry ID",
+                                                    "type": "string",
+                                                    "pattern": "[0-9]+-[0-9]+"
+                                                },
+                                                {
+                                                    "description": "Consumer name",
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "description": "Delivery timestamp",
+                                                    "type": "integer"
+                                                },
+                                                {
+                                                    "description": "Delivery count",
+                                                    "type": "integer"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "consumers": {
+                                        "description": "data about all of the consumers of the group",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "active-time": {
+                                                    "type": "integer",
+                                                    "description": "Last time this consumer was active (successful reading/claiming).",
+                                                    "minimum": 0
+                                                },
+                                                "name": {
+                                                    "description": "consumer name",
+                                                    "type": "string"
+                                                },
+                                                "seen-time": {
+                                                    "description": "timestamp of the last interaction attempt of the consumer",
+                                                    "type": "integer"
+                                                },
+                                                "pel-count": {
+                                                    "description": "number of unacknowledged entries that belong to the consumer",
+                                                    "type": "integer"
+                                                },
+                                                "pending": {
+                                                    "description": "data about the unacknowledged entries",
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "array",
+                                                        "minItems": 3,
+                                                        "maxItems": 3,
+                                                        "items": [
+                                                            {
+                                                                "description": "Entry ID",
+                                                                "type": "string",
+                                                                "pattern": "[0-9]+-[0-9]+"
+                                                            },
+                                                            {
+                                                                "description": "Delivery timestamp",
+                                                                "type": "integer"
+                                                            },
+                                                            {
+                                                                "description": "Delivery count",
+                                                                "type": "integer"
+                                                            }
+                                                        ]
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

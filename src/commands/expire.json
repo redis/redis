@@ -39,6 +39,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The timeout was not set. e.g. key doesn't exist, or operation skipped due to the provided arguments.",
+                    "const": 0
+                },
+                {
+                    "description": "The timeout was set.",
+                    "const": 1
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

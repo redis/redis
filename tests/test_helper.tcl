@@ -100,6 +100,7 @@ set ::all_tests {
     unit/cluster/hostnames
     unit/cluster/multi-slot-operations
     unit/cluster/slot-ownership
+    unit/cluster/links
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -134,6 +135,7 @@ set ::timeout 1200; # 20 minutes without progresses will quit the test.
 set ::last_progress [clock seconds]
 set ::active_servers {} ; # Pids of active Redis instances.
 set ::dont_clean 0
+set ::dont_pre_clean 0
 set ::wait_server 0
 set ::stop_on_failure 0
 set ::dump_logs 0
@@ -144,6 +146,8 @@ set ::cluster_mode 0
 set ::ignoreencoding 0
 set ::ignoredigest 0
 set ::large_memory 0
+set ::log_req_res 0
+set ::force_resp3 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -319,7 +323,7 @@ proc cleanup {} {
 }
 
 proc test_server_main {} {
-    cleanup
+    if {!$::dont_pre_clean} cleanup
     set tclsh [info nameofexecutable]
     # Open a listening socket, trying different ports in order to find a
     # non busy one.
@@ -650,6 +654,10 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         lappend ::global_overrides $arg
         lappend ::global_overrides $arg2
         incr j 2
+    } elseif {$opt eq {--log-req-res}} {
+        set ::log_req_res 1
+    } elseif {$opt eq {--force-resp3}} {
+        set ::force_resp3 1
     } elseif {$opt eq {--skipfile}} {
         incr j
         set fp [open $arg r]
@@ -724,6 +732,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::durable 1
     } elseif {$opt eq {--dont-clean}} {
         set ::dont_clean 1
+    } elseif {$opt eq {--dont-pre-clean}} {
+        set ::dont_pre_clean 1
     } elseif {$opt eq {--no-latency}} {
         set ::no_latency 1
     } elseif {$opt eq {--wait-server}} {

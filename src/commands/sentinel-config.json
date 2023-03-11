@@ -12,6 +12,72 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "description": "When 'SENTINEL-CONFIG GET' is called, returns a map.",
+                    "properties": {
+                        "resolve-hostnames": {
+                            "oneOf": [
+                                {
+                                    "const": "yes"
+                                },
+                                {
+                                    "const": "no"
+                                }
+                            ]
+                        },
+                        "announce-hostnames": {
+                            "oneOf": [
+                                {
+                                    "const": "yes"
+                                },
+                                {
+                                    "const": "no"
+                                }
+                            ]
+                        },
+                        "announce-ip": {
+                            "type": "string"
+                        },
+                        "announce-port": {
+                            "type": "integer"
+                        },
+                        "sentinel-user": {
+                            "type": "string"
+                        },
+                        "sentinel-pass": {
+                            "type": "string"
+                        },
+                        "loglevel": {
+                            "oneOf": [
+                                {
+                                    "const": "debug"
+                                },
+                                {
+                                    "const": "verbose"
+                                },
+                                {
+                                    "const": "notice"
+                                },
+                                {
+                                    "const": "warning"
+                                },
+                                {
+                                    "const": "unknown"
+                                }
+                            ]
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "const": "OK",
+                    "description": "When 'SENTINEL-CONFIG SET' is called, returns OK on success."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name":"action",
