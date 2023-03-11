@@ -7,8 +7,8 @@
 
 /* Non Blocking Custom Auth callback / implementation. */
 int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
-    const char* user = RedisModule_StringPtrLen(username, NULL);
-    const char* pwd = RedisModule_StringPtrLen(password, NULL);
+    const char *user = RedisModule_StringPtrLen(username, NULL);
+    const char *pwd = RedisModule_StringPtrLen(password, NULL);
     if (!strcmp(user,"foo") && !strcmp(pwd,"allow_two")) {
         RedisModule_AuthenticateClientWithACLUser(ctx, "foo", 3, NULL, NULL, NULL);
         return REDISMODULE_AUTH_HANDLED;

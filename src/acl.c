@@ -1434,7 +1434,7 @@ int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     }
 }
 
-/* Attempt authenticating the user - first through Module based custom authentication,
+/* Attempt authenticating the user - first through module based custom authentication,
  * and then, if needed, with normal password based authentication.
  * Returns one of the following codes:
  * AUTH_OK - Indicates that authentication succeeded.

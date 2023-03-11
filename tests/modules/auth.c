@@ -81,8 +81,8 @@ int Auth_ChangeCount(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 /* Non Blocking Custom Auth callback / implementation. */
 int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
-    const char* user = RedisModule_StringPtrLen(username, NULL);
-    const char* pwd = RedisModule_StringPtrLen(password, NULL);
+    const char *user = RedisModule_StringPtrLen(username, NULL);
+    const char *pwd = RedisModule_StringPtrLen(password, NULL);
     if (!strcmp(user,"foo") && !strcmp(pwd,"allow")) {
         RedisModule_AuthenticateClientWithACLUser(ctx, "foo", 3, NULL, NULL, NULL);
         return REDISMODULE_AUTH_HANDLED;
@@ -121,8 +121,8 @@ void *AuthBlock_ThreadMain(void *arg) {
     void **targ = arg;
     RedisModuleBlockedClient *bc = targ[0];
     int result = 2;
-    const char* user = RedisModule_StringPtrLen(targ[1], NULL);
-    const char* pwd = RedisModule_StringPtrLen(targ[2], NULL);
+    const char *user = RedisModule_StringPtrLen(targ[1], NULL);
+    const char *pwd = RedisModule_StringPtrLen(targ[2], NULL);
     if (!strcmp(user,"foo") && !strcmp(pwd,"block_allow")) {
         result = 1;
     }

@@ -7447,7 +7447,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
  * Multiple callbacks can be registered across different modules. When a Module is unloaded, all the
  * auth callbacks registered by it are unregistered.
  * The callbacks are attempted (in the order of most recently registered first) when the AUTH/HELLO
- * (with AUTH field is provided) commands are called.
+ * (with AUTH field provided) commands are called.
  * The callbacks will be called with a module context along with a username and a password, and are
  * expected to take one of the following actions:
  * (1) Authenticate - Use the RM_AuthenticateClient* API and return REDISMODULE_AUTH_HANDLED.
@@ -7471,8 +7471,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
  * The following is an example of how non-blocking module based authentication can be used:
  *
  *      int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
- *           const char* user = RedisModule_StringPtrLen(username, NULL);
- *           const char* pwd = RedisModule_StringPtrLen(password, NULL);
+ *           const char *user = RedisModule_StringPtrLen(username, NULL);
+ *           const char *pwd = RedisModule_StringPtrLen(password, NULL);
  *           if (!strcmp(user,"foo") && !strcmp(pwd,"valid_password")) {
  *               RedisModule_AuthenticateClientWithACLUser(ctx, "foo", 3, NULL, NULL, NULL);
  *               return REDISMODULE_AUTH_HANDLED;
@@ -7493,8 +7493,6 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
  *       }
  *
  *       int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
- *           REDISMODULE_NOT_USED(argv);
- *           REDISMODULE_NOT_USED(argc);
  *           if (RedisModule_Init(ctx,"authmodule",1,REDISMODULE_APIVER_1)== REDISMODULE_ERR)
  *               return REDISMODULE_ERR;
  *           RedisModule_RegisterCustomAuthCallback(ctx, auth_cb);
