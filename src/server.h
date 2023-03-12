@@ -272,6 +272,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_PROTOCOL_ERROR (1ULL<<39) /* Protocol error chatting with it. */
 #define CLIENT_CLOSE_AFTER_COMMAND (1ULL<<40) /* Close after executing commands
                                                * and writing entire reply. */
+#define CLIENT_PUSHING (1ULL<<41) /* This client is pushing notifications. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
