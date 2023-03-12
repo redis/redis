@@ -180,6 +180,8 @@ start_server {} {
         }
         exec kill -SIGCONT $replica2_pid
     }
+    # speed up termination
+    $master config set shutdown-timeout 0
 }
 }
 }
@@ -227,3 +229,58 @@ test {Partial resynchronization is successful even client-output-buffer-limit is
         }
     }
 }
+
+# This test was added to make sure big keys added to the backlog do not trigger psync loop.
+test {Replica client-output-buffer size is limited to backlog_limit/16 when no replication data is pending} {
+    proc client_field {r type f} {
+        set client [$r client list type $type]
+        if {![regexp $f=(\[a-zA-Z0-9-\]+) $client - res]} {
+            error "field $f not found for in $client"
+        }
+        return $res
+    }
+
+    start_server {tags {"repl external:skip"}} {
+        start_server {} {
+            set replica [srv -1 client]
+            set replica_host [srv -1 host]
+            set replica_port [srv -1 port]
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            $master config set repl-backlog-size 16384
+            $master config set client-output-buffer-limit "replica 32768 32768 60"
+            # Key has has to be larger than replica client-output-buffer limit.
+            set keysize [expr 256*1024]
+
+            $replica replicaof $master_host $master_port
+            wait_for_condition 50 100 {
+                [lindex [$replica role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$replica info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            set _v [prepare_value $keysize]
+            $master set key $_v
+            wait_for_ofs_sync $master $replica
+
+            # Write another key to force the test to wait for another event loop iteration
+            # to give the serverCron a chance to disconnect replicas with COB size exeeeding the limits
+            $master set key1 "1"
+            wait_for_ofs_sync $master $replica
+
+            assert {[status $master connected_slaves] == 1}
+
+            wait_for_condition 50 100 {
+                [client_field $master replica tot-mem] < $keysize
+            } else {
+                fail "replica client-output-buffer usage is higher than expected."
+            }
+
+            assert {[status $master sync_partial_ok] == 0}
+        }
+    }
+}
+
