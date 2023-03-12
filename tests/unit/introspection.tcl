@@ -13,6 +13,48 @@ start_server {tags {"introspection"}} {
         r client info
     } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
 
+    test "CLIENT REPLY OFF/ON: disable all commands reply" {
+        set rd [redis_deferring_client]
+
+        # These replies were silenced.
+        $rd client reply off
+        $rd ping pong
+        $rd ping pong2
+
+        $rd client reply on
+        assert_equal {OK} [$rd read]
+        $rd ping pong3
+        assert_equal {pong3} [$rd read]
+
+        $rd close
+    }
+
+    test "CLIENT REPLY SKIP: skip the next command reply" {
+        set rd [redis_deferring_client]
+
+        # The first pong reply was silenced.
+        $rd client reply skip
+        $rd ping pong
+
+        $rd ping pong2
+        assert_equal {pong2} [$rd read]
+
+        $rd close
+    }
+
+    test "CLIENT REPLY ON: unset SKIP flag" {
+        set rd [redis_deferring_client]
+
+        $rd client reply skip
+        $rd client reply on
+        assert_equal {OK} [$rd read] ;# OK from CLIENT REPLY ON command
+
+        $rd ping
+        assert_equal {PONG} [$rd read]
+
+        $rd close
+    }
+
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
         $rd monitor
