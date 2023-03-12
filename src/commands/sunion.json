@@ -35,6 +35,14 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List with the members of the resulting set.",
+            "uniqueItems": true,
+            "items": {
+                "type": "string"
+            }
+        },
         "arguments": [
             {
                 "name": "key",

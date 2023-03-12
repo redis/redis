@@ -1,4 +1,5 @@
-start_server {tags {"tracking network"}} {
+# logreqres:skip because it seems many of these tests rely heavily on RESP2
+start_server {tags {"tracking network logreqres:skip"}} {
     # Create a deferred client we'll use to redirect invalidation
     # messages to.
     set rd_redirection [redis_deferring_client]
@@ -782,4 +783,29 @@ start_server {tags {"tracking network"}} {
 
     $rd_redirection close
     $rd close
+}
+
+# Just some extra covergae for --log-req-res, because we do not
+# run the full tracking unit in that mode
+start_server {tags {"tracking network"}} {
+    test {Coverage: Basic CLIENT CACHING} {
+        set rd_redirection [redis_deferring_client]
+        $rd_redirection client id
+        set redir_id [$rd_redirection read]
+        assert_equal {OK} [r CLIENT TRACKING on OPTIN REDIRECT $redir_id]
+        assert_equal {OK} [r CLIENT CACHING yes]
+        r CLIENT TRACKING off
+    } {OK}
+
+    test {Coverage: Basic CLIENT REPLY} {
+        r CLIENT REPLY on
+    } {OK}
+
+    test {Coverage: Basic CLIENT TRACKINGINFO} {
+        r CLIENT TRACKINGINFO
+    } {flags off redirect -1 prefixes {}}
+
+    test {Coverage: Basic CLIENT GETREDIR} {
+        r CLIENT GETREDIR
+    } {-1}
 }

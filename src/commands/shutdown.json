@@ -60,6 +60,10 @@
                 "optional": true,
                 "since": "7.0.0"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "OK if ABORT was specified and shutdown was aborted. On successful shutdown, nothing is returned since the server quits and the connection is closed. On failure, an error is returned.",
+            "const": "OK"
+        }
     }
 }

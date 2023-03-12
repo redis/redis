@@ -558,9 +558,10 @@ foreach {type large} [array get largevalue] {
     foreach resp {3 2} {
         if {[lsearch $::denytags "resp3"] >= 0} {
             if {$resp == 3} {continue}
-        } else {
-            r hello $resp
+        } elseif {$::force_resp3} {
+            if {$resp == 2} {continue}
         }
+        r hello $resp
 
         # Make sure we can distinguish between an empty array and a null response
         r readraw 1
@@ -589,6 +590,7 @@ foreach {type large} [array get largevalue] {
         }
 
         r readraw 0
+        r hello 2
     }
 
     test {Variadic RPUSH/LPUSH} {

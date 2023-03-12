@@ -15,6 +15,23 @@
         ],
         "acl_categories": [
             "CONNECTION"
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": 0,
+                    "description": "Not redirecting notifications to any client."
+                },
+                {
+                    "const": -1,
+                    "description": "Client tracking is not enabled."
+                },
+                {
+                    "type": "integer",
+                    "description": "ID of the client we are redirecting the notifications to.",
+                    "minimum": 1
+                }
+            ]
+        }
     }
 }

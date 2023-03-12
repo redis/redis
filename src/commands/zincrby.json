@@ -35,6 +35,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The new score of `member`",
+            "type": "number"
+        },
         "arguments": [
             {
                 "name": "key",

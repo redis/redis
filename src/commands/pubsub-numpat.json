@@ -11,6 +11,11 @@
             "PUBSUB",
             "LOADING",
             "STALE"
-        ]
+        ],
+        "reply_schema": {
+            "description": "the number of patterns all the clients are subscribed to",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

@@ -12,6 +12,10 @@
             "LOADING",
             "STALE",
             "SENTINEL"
-        ]
+        ],
+        "reply_schema": {
+            "type": "string",
+            "description": "The username of the current connection."
+        }
     }
 }

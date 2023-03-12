@@ -89,6 +89,11 @@
                 "key_spec_index": 1,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "the size of the string stored in the destination key, that is equal to the size of the longest input string",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

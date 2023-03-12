@@ -628,6 +628,9 @@ start_server {tags {"expire"}} {
     } {-1} {needs:debug}
 
     test {GETEX propagate as to replica as PERSIST, DEL, or nothing} {
+        # In the above tests, many keys with random expiration times are set, flush
+        # the DBs to avoid active expiry kicking in and messing the replication streams.
+        r flushall
        set repl [attach_to_replication_stream]
        r set foo bar EX 100
        r getex foo PERSIST

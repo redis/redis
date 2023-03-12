@@ -16,6 +16,10 @@
         "acl_categories": [
             "CONNECTION"
         ],
+        "reply_schema": {
+            "const": "OK",
+            "description": "When called with either OFF or SKIP subcommands, no reply is made. When called with ON, reply is OK."
+        },
         "arguments": [
             {
                 "name": "action",

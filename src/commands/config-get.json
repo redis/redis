@@ -19,6 +19,12 @@
             "LOADING",
             "STALE"
         ],
+        "reply_schema": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "string"
+            }
+        },
         "arguments": [
             {
                 "name": "parameter",

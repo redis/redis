@@ -14,6 +14,20 @@
         ],
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT"
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "if the epoch was incremented",
+                    "type": "string",
+                    "pattern": "^BUMPED [0-9]*$"
+                },
+                {
+                    "description": "if the node already has the greatest config epoch in the cluster",
+                    "type": "string",
+                    "pattern": "^STILL [0-9]*$"
+                }
+            ]
+        }
     }
 }

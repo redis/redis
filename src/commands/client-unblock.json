@@ -17,6 +17,18 @@
         "acl_categories": [
             "CONNECTION"
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": 0,
+                    "description": "if the client was unblocked successfully"
+                },
+                {
+                    "const": 1,
+                    "description": "if the client wasn't unblocked"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "client-id",

@@ -44,6 +44,33 @@
                 "multiple": true,
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "An array where each element is a two elements array representing longitude and latitude (x,y) of each member name passed as argument to the command",
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "Element does not exist",
+                        "type": "null"
+                    },
+                    {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "description": "Latitude (x)",
+                                "type": "number"
+                            },
+                            {
+                                "description": "Longitude (y)",
+                                "type": "number"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
     }
 }
