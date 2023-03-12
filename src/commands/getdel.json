@@ -34,6 +34,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The value of the key.",
+                    "type": "string"
+                },
+                {
+                    "description": "The key does not exist.",
+                    "type": "null"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

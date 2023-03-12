@@ -44,6 +44,11 @@
                 "key_spec_index": 0,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "the number of keys that were unlinked",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

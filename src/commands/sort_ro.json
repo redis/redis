@@ -112,6 +112,13 @@
                 "type": "pure-token",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "a list of sorted elements",
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        }
     }
 }

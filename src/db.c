@@ -113,6 +113,9 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
+        if (server.current_client && server.current_client->flags & CLIENT_NO_TOUCH &&
+            server.current_client->cmd->proc != touchCommand)
+            flags |= LOOKUP_NOTOUCH;
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
                 updateLFU(val);
@@ -1622,8 +1625,8 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
  *    because call() handles server.also_propagate(); or
  * 2. Outside of call(): Example: Active-expire, eviction.
  *    In this the caller must remember to call
- *    propagatePendingCommands, preferably at the end of
- *    the deletion batch, so that DELs will be wrapped
+ *    postExecutionUnitOperations, preferably just after a
+ *    single deletion batch, so that DELs will NOT be wrapped
  *    in MULTI/EXEC */
 void propagateDeletion(redisDb *db, robj *key, int lazy) {
     robj *argv[2];

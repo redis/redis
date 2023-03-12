@@ -17,6 +17,9 @@
                 "name": "config-epoch",
                 "type": "integer"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

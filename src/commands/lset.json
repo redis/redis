@@ -33,6 +33,9 @@
                 }
             }
         ],
+        "reply_schema": {
+            "const": "OK"
+        },
         "arguments": [
             {
                 "name": "key",

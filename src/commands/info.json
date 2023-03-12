@@ -25,6 +25,9 @@
             "REQUEST_POLICY:ALL_SHARDS",
             "RESPONSE_POLICY:SPECIAL"
         ],
+        "reply_schema": {
+            "type": "string"
+        },
         "arguments": [
             {
                 "name": "section",

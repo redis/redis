@@ -11,7 +11,7 @@ on:
     inputs:
       skipjobs:
         description: 'jobs to skip (delete the ones you wanna keep, do not leave empty)'
-        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific'
+        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,reply-schema'
       skiptests:
         description: 'tests to skip (delete the ones you wanna keep, do not leave empty)'
         default: 'redis,modules,sentinel,cluster,unittest'
@@ -316,15 +316,17 @@ jobs:
       run: |
         echo "test SAVE doesn't increase cache"
         CACHE0=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
-        ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/master --port 8080 --repl-diskless-sync no --pidfile /tmp/master/redis.pid
-        ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/slave --port 8081 --repl-diskless-load disabled
-        ./src/redis-benchmark -p 8080 -d 102400 -t set -r 100000 -n 10000 > /dev/null
+        echo "$CACHE0"
+        ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/master --port 8080 --repl-diskless-sync no --pidfile /tmp/master/redis.pid --rdbcompression no --enable-debug-command yes
+        ./src/redis-cli -p 8080 debug populate 10000 k 102400
+        ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/slave --port 8081 --repl-diskless-load disabled --rdbcompression no
         ./src/redis-cli -p 8080 save > /dev/null
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
         grep -q "0%" <<< $VMOUT 
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then echo "$CACHE0 $CACHE"; exit 1; fi
+        echo "$CACHE"
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
 
         echo "test replication doesn't increase cache"
         ./src/redis-cli -p 8081 REPLICAOF 127.0.0.1 8080 > /dev/null
@@ -337,7 +339,8 @@ jobs:
         echo $VMOUT
         grep -q "0%" <<< $VMOUT 
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then echo "$CACHE0 $CACHE"; exit 1; fi
+        echo "$CACHE"
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
         
         echo "test reboot doesn't increase cache"
         PID=$(cat /tmp/master/redis.pid)
@@ -350,7 +353,8 @@ jobs:
         echo $VMOUT
         grep -q "0%" <<< $VMOUT
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then echo "$CACHE0 $CACHE"; exit 1; fi
+        echo "$CACHE"
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
 
   test-valgrind-test:
     runs-on: ubuntu-latest
@@ -406,7 +410,7 @@ jobs:
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: |
-        valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all
+        valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all --valgrind
         if grep -q 0x err.txt; then cat err.txt; exit 1; fi
 
   test-valgrind-no-malloc-usable-size-test:
@@ -463,7 +467,7 @@ jobs:
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: |
-        valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all
+        valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all --valgrind
         if grep -q 0x err.txt; then cat err.txt; exit 1; fi
 
   test-sanitizer-address:
@@ -894,3 +898,44 @@ jobs:
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
+
+  reply-schemas-validator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14400
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'reply-schema')
+    steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipping: ${{github.event.inputs.skipjobs}} and ${{github.event.inputs.skiptests}}"
+    - uses: actions/checkout@v3
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: make REDIS_CFLAGS='-Werror -DLOG_REQ_RES'
+    - name: testprep
+      run: sudo apt-get install tcl8.6 tclx
+    - name: test
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      run: ./runtest --log-req-res --dont-clean --force-resp3 --tags -slow --verbose --dump-logs  ${{github.event.inputs.test_args}}
+    - name: module api test
+      if: true && !contains(github.event.inputs.skiptests, 'modules')
+      run: ./runtest-moduleapi --log-req-res --dont-clean --force-resp3 --dont-pre-clean --verbose --dump-logs ${{github.event.inputs.test_args}}
+    - name: sentinel tests
+      if: true && !contains(github.event.inputs.skiptests, 'sentinel')
+      run: ./runtest-sentinel --log-req-res --dont-clean --force-resp3 ${{github.event.inputs.cluster_test_args}}
+    - name: cluster tests
+      if: true && !contains(github.event.inputs.skiptests, 'cluster')
+      run: ./runtest-cluster --log-req-res --dont-clean --force-resp3 ${{github.event.inputs.cluster_test_args}}
+    - name: Install Python dependencies
+      uses: py-actions/py-dependency-install@v4
+      with:
+        path: "./utils/req-res-validator/requirements.txt"
+    - name: validator
+      run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas --fail-commands-not-all-hit
+

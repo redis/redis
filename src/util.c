@@ -53,8 +53,8 @@
 #define UNUSED(x) ((void)(x))
 
 /* Glob-style pattern matching. */
-int stringmatchlen(const char *pattern, int patternLen,
-        const char *string, int stringLen, int nocase)
+static int stringmatchlen_impl(const char *pattern, int patternLen,
+        const char *string, int stringLen, int nocase, int *skipLongerMatches)
 {
     while(patternLen && stringLen) {
         switch(pattern[0]) {
@@ -66,12 +66,25 @@ int stringmatchlen(const char *pattern, int patternLen,
             if (patternLen == 1)
                 return 1; /* match */
             while(stringLen) {
-                if (stringmatchlen(pattern+1, patternLen-1,
-                            string, stringLen, nocase))
+                if (stringmatchlen_impl(pattern+1, patternLen-1,
+                            string, stringLen, nocase, skipLongerMatches))
                     return 1; /* match */
+                if (*skipLongerMatches)
+                    return 0; /* no match */
                 string++;
                 stringLen--;
             }
+            /* There was no match for the rest of the pattern starting
+             * from anywhere in the rest of the string. If there were
+             * any '*' earlier in the pattern, we can terminate the
+             * search early without trying to match them to longer
+             * substrings. This is because a longer match for the
+             * earlier part of the pattern would require the rest of the
+             * pattern to match starting later in the string, and we
+             * have just determined that there is no match for the rest
+             * of the pattern starting from anywhere in the current
+             * string. */
+            *skipLongerMatches = 1;
             return 0; /* no match */
             break;
         case '?':
@@ -171,6 +184,12 @@ int stringmatchlen(const char *pattern, int patternLen,
     if (patternLen == 0 && stringLen == 0)
         return 1;
     return 0;
+}
+
+int stringmatchlen(const char *pattern, int patternLen,
+        const char *string, int stringLen, int nocase) {
+    int skipLongerMatches = 0;
+    return stringmatchlen_impl(pattern,patternLen,string,stringLen,nocase,&skipLongerMatches);
 }
 
 int stringmatch(const char *pattern, const char *string, int nocase) {
@@ -1132,6 +1151,7 @@ int reclaimFilePageCache(int fd, size_t offset, size_t length) {
 #ifdef REDIS_TEST
 #include <assert.h>
 #include <sys/mman.h>
+#include "testhelp.h"
 
 static void test_string2ll(void) {
     char buf[32];
@@ -1399,8 +1419,11 @@ int utilTest(int argc, char **argv, int flags) {
     test_ld2string();
     test_fixedpoint_d2string();
 #if defined(__linux__)
-    test_reclaimFilePageCache();
+    if (!(flags & REDIS_TEST_VALGRIND)) {
+        test_reclaimFilePageCache();
+    }
 #endif
+    printf("Done testing util\n");
     return 0;
 }
 #endif

@@ -41,6 +41,18 @@
                 "type": "key",
                 "key_spec_index": 0
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "key doesn't exist",
+                    "type": "null"
+                },
+                {
+                    "description": "encoding of the object",
+                    "type": "string"
+                }
+            ]
+        }
     }
 }

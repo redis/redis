@@ -534,7 +534,7 @@ void showLatestBacklog(void) {
 
     /* Finally log such bytes: this is vital debugging info to
      * understand what happened. */
-    serverLog(LL_WARNING,"Latest backlog is: '%s'", dump);
+    serverLog(LL_NOTICE,"Latest backlog is: '%s'", dump);
     sdsfree(dump);
 }
 
@@ -931,7 +931,7 @@ void syncCommand(client *c) {
     if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") && 
         !strcasecmp(c->argv[3]->ptr,"failover"))
     {
-        serverLog(LL_WARNING, "Failover request received for replid %s.",
+        serverLog(LL_NOTICE, "Failover request received for replid %s.",
             (unsigned char *)c->argv[1]->ptr);
         if (!server.masterhost) {
             addReplyError(c, "PSYNC FAILOVER can't be sent to a master.");
@@ -1528,7 +1528,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                     continue;
                 stillUp++;
             }
-            serverLog(LL_WARNING,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
+            serverLog(LL_NOTICE,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
             /* Now that the replicas have finished reading, notify the child that it's safe to exit. 
              * When the server detects the child has exited, it can mark the replica as online, and
              * start streaming the replication buffers. */
@@ -1706,7 +1706,7 @@ void shiftReplicationId(void) {
      * byte, and is asking for the new bytes starting at offset 51. */
     server.second_replid_offset = server.master_repl_offset+1;
     changeReplicationId();
-    serverLog(LL_WARNING,"Setting secondary replication ID to %s, valid up to offset: %lld. New replication ID is %s", server.replid2, server.second_replid_offset, server.replid);
+    serverLog(LL_NOTICE,"Setting secondary replication ID to %s, valid up to offset: %lld. New replication ID is %s", server.replid2, server.second_replid_offset, server.replid);
 }
 
 /* ----------------------------------- SLAVE -------------------------------- */
@@ -1807,13 +1807,13 @@ static int useDisklessLoad() {
     if (enabled) {
         /* Check all modules handle read errors, otherwise it's not safe to use diskless load. */
         if (!moduleAllDatatypesHandleErrors()) {
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "Skipping diskless-load because there are modules that don't handle read errors.");
             enabled = 0;
         }
         /* Check all modules handle async replication, otherwise it's not safe to use diskless load. */
         else if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB && !moduleAllModulesHandleReplAsyncLoad()) {
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "Skipping diskless-load because there are modules that are not aware of async replication.");
             enabled = 0;
         }
@@ -2540,7 +2540,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
             if (strcmp(new,server.cached_master->replid)) {
                 /* Master ID changed. */
-                serverLog(LL_WARNING,"Master replication ID changed to %s",new);
+                serverLog(LL_NOTICE,"Master replication ID changed to %s",new);
 
                 /* Set the old ID as our ID2, up to the current offset+1. */
                 memcpy(server.replid2,server.cached_master->replid,
@@ -3624,8 +3624,9 @@ void processClientsWaitingReplicas(void) {
         if (last_offset && last_offset >= c->bstate.reploffset &&
                            last_numreplicas >= c->bstate.numreplicas)
         {
-            unblockClient(c);
+            /* Reply before unblocking, because unblock client calls reqresAppendResponse */
             addReplyLongLong(c,last_numreplicas);
+            unblockClient(c);
         } else {
             int numreplicas = is_wait_aof ?
                 replicationCountAOFAcksByOffset(c->bstate.reploffset) :
@@ -3640,7 +3641,6 @@ void processClientsWaitingReplicas(void) {
                 if (is_wait_aof && numlocal < c->bstate.numlocal)
                     continue;
 
-                unblockClient(c);
                 if (is_wait_aof) {
                     /* WAITAOF has an array reply*/
                     addReplyArrayLen(c,2);
@@ -3649,6 +3649,8 @@ void processClientsWaitingReplicas(void) {
                 } else {
                     addReplyLongLong(c,numreplicas);
                 }
+                /* Reply before unblocking, because unblock client calls reqresAppendResponse */
+                unblockClient(c);
             }
         }
     }
