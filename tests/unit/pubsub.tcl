@@ -166,6 +166,30 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
+    test "PubSub messages with CLIENT REPLY OFF" {
+        set rd [redis_deferring_client]
+        $rd hello 3
+        $rd read ;# Discard the hello reply
+
+        # Test that the subscribe/psubscribe notification is ok
+        $rd client reply off
+        assert_equal {1} [subscribe $rd channel]
+        assert_equal {2} [psubscribe $rd ch*]
+
+        # Test that the publish notification is ok
+        $rd client reply off
+        assert_equal 2 [r publish channel hello]
+        assert_equal {message channel hello} [$rd read]
+        assert_equal {pmessage ch* channel hello} [$rd read]
+
+        # Test that the unsubscribe/punsubscribe notification is ok
+        $rd client reply off
+        assert_equal {1} [unsubscribe $rd channel]
+        assert_equal {0} [punsubscribe $rd ch*]
+
+        $rd close
+    }
+
     test "PUNSUBSCRIBE from non-subscribed channels" {
         set rd1 [redis_deferring_client]
         assert_equal {0 0 0} [punsubscribe $rd1 {foo.* bar.* quux.*}]
@@ -226,6 +250,7 @@ start_server {tags {"pubsub network"}} {
     test "Keyspace notifications: we receive keyspace notifications" {
         r config set notify-keyspace-events KA
         set rd1 [redis_deferring_client]
+        $rd1 CLIENT REPLY OFF ;# Make sure it works even if replies are silenced
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
         assert_equal "pmessage * __keyspace@${db}__:foo set" [$rd1 read]
@@ -235,6 +260,7 @@ start_server {tags {"pubsub network"}} {
     test "Keyspace notifications: we receive keyevent notifications" {
         r config set notify-keyspace-events EA
         set rd1 [redis_deferring_client]
+        $rd1 CLIENT REPLY SKIP ;# Make sure it works even if replies are silenced
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
         assert_equal "pmessage * __keyevent@${db}__:set foo" [$rd1 read]
@@ -244,6 +270,8 @@ start_server {tags {"pubsub network"}} {
     test "Keyspace notifications: we can receive both kind of events" {
         r config set notify-keyspace-events KEA
         set rd1 [redis_deferring_client]
+        $rd1 CLIENT REPLY ON ;# Just coverage
+        assert_equal {OK} [$rd1 read]
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
         assert_equal "pmessage * __keyspace@${db}__:foo set" [$rd1 read]
