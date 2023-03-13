@@ -119,6 +119,10 @@ start_server {tags {"scripting"}} {
         r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey
     } {myval}
 
+    test {EVALSHA_RO - Can we call a SHA1 if already defined?} {
+        r evalsha_ro fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey
+    } {myval}
+
     test {EVALSHA - Can we call a SHA1 in uppercase?} {
         r evalsha FD758D1589D044DD850A6F05D52F2EEFD27F033F 1 mykey
     } {myval}
@@ -703,6 +707,7 @@ start_server {tags {"scripting"}} {
         assert_equal $res $expected_list
     } {} {resp3}
 
+    if {!$::log_req_res} { # this test creates a huge nested array which python can't handle (RecursionError: maximum recursion depth exceeded in comparison)
     test {Script return recursive object} {
         r readraw 1
         set res [run_script {local a = {}; local b = {a}; a[1] = b; return a} 0]
@@ -717,6 +722,7 @@ start_server {tags {"scripting"}} {
         r readraw 0
         # make sure the connection is still valid
         assert_equal [r ping] {PONG}
+    }
     }
 
     test {Script check unpack with massive arguments} {
@@ -1257,9 +1263,10 @@ start_server {tags {"scripting needs:debug"}} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
             if {[lsearch $::denytags "resp3"] >= 0} {
                 if {$client_proto == 3} {continue}
-            } else {
-                r hello $client_proto
+            } elseif {$::force_resp3} {
+                if {$client_proto == 2} {continue}
             }
+            r hello $client_proto
             set extra "RESP$i/$client_proto"
             r readraw 1
 
@@ -1367,6 +1374,7 @@ start_server {tags {"scripting needs:debug"}} {
             }
 
             r readraw 0
+            r hello 2
         }
     }
 

@@ -21,6 +21,9 @@
                 "name": "connection-name",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

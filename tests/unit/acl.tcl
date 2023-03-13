@@ -7,6 +7,10 @@ start_server {tags {"acl external:skip"}} {
         r ACL setuser newuser
     }
 
+    test {Coverage: ACL USERS} {
+        r ACL USERS
+    } {default newuser}
+
     test {Usernames can not contain spaces or null characters} {
         catch {r ACL setuser "a a"} err
         set err

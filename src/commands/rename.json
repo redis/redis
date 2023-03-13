@@ -64,6 +64,9 @@
                 "type": "key",
                 "key_spec_index": 1
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

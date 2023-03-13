@@ -42,6 +42,14 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "items": {
+                "description": "command name",
+                "type": "string"
+            },
+            "uniqueItems": true
+        }
     }
 }

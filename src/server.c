@@ -3782,6 +3782,9 @@ int processCommand(client *c) {
      * this is a reprocessing of this command, so we do not want to perform some of the actions again. */
     int client_reprocessing_command = c->cmd ? 1 : 0;
 
+    if (!client_reprocessing_command)
+        reqresAppendRequest(c);
+
     /* Handle possible security attacks. */
     if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {
         securityWarningCommand(c);
@@ -4641,30 +4644,41 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
     }
 }
 
-/* Must match redisCommandRESP2Type */
-const char *RESP2_TYPE_STR[] = {
-    "simple-string",
-    "error",
-    "integer",
-    "bulk-string",
-    "null-bulk-string",
-    "array",
-    "null-array",
-};
+#ifdef LOG_REQ_RES
 
-/* Must match redisCommandRESP3Type */
-const char *RESP3_TYPE_STR[] = {
-    "simple-string",
-    "error",
-    "integer",
-    "double",
-    "bulk-string",
-    "array",
-    "map",
-    "set",
-    "bool",
-    "null",
-};
+void addReplyJson(client *c, struct jsonObject *rs) {
+    addReplyMapLen(c, rs->length);
+
+    for (int i = 0; i < rs->length; i++) {
+        struct jsonObjectElement *curr = &rs->elements[i];
+        addReplyBulkCString(c, curr->key);
+        switch (curr->type) {
+        case (JSON_TYPE_BOOLEAN):
+            addReplyBool(c, curr->value.boolean);
+            break;
+        case (JSON_TYPE_INTEGER):
+            addReplyLongLong(c, curr->value.integer);
+            break;
+        case (JSON_TYPE_STRING):
+            addReplyBulkCString(c, curr->value.string);
+            break;
+        case (JSON_TYPE_OBJECT):
+            addReplyJson(c, curr->value.object);
+            break;
+        case (JSON_TYPE_ARRAY):
+            addReplyArrayLen(c, curr->value.array.length);
+            for (int k = 0; k < curr->value.array.length; k++) {
+                struct jsonObject *object = curr->value.array.objects[k];
+                addReplyJson(c, object);
+            }
+            break;
+        default:
+            serverPanic("Invalid JSON type %d", curr->type);
+        }
+    }
+}
+
+#endif
 
 void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     addReplySetLen(c, cmd->num_history);
@@ -4862,6 +4876,9 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     if (cmd->deprecated_since) maplen++;
     if (cmd->replaced_by) maplen++;
     if (cmd->history) maplen++;
+#ifdef LOG_REQ_RES
+    if (cmd->reply_schema) maplen++;
+#endif
     if (cmd->args) maplen++;
     if (cmd->subcommands_dict) maplen++;
     addReplyMapLen(c, maplen);
@@ -4903,6 +4920,12 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
         addReplyBulkCString(c, "history");
         addReplyCommandHistory(c, cmd);
     }
+#ifdef LOG_REQ_RES
+    if (cmd->reply_schema) {
+        addReplyBulkCString(c, "reply_schema");
+        addReplyJson(c, cmd->reply_schema);
+    }
+#endif
     if (cmd->args) {
         addReplyBulkCString(c, "arguments");
         addReplyCommandArgList(c, cmd->args, cmd->num_args);

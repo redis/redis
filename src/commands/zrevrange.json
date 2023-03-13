@@ -37,6 +37,38 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "description": "List of member elements.",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                {
+                    "description": "List of the members and their scores. Returned in case `WITHSCORES` was used.",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "description": "member",
+                                "type": "string"
+                            },
+                            {
+                                "description": "score",
+                                "type": "number"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

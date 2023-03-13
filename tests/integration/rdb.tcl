@@ -218,6 +218,7 @@ start_server {} {
     test {Test RDB load info} {
         r debug populate 1000
         r save
+        assert {[r lastsave] <= [lindex [r time] 0]}
         restart_server 0 true false
         wait_done_loading r
         assert {[s rdb_last_load_keys_expired] == 0}

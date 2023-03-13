@@ -1,4 +1,5 @@
-start_server {tags {"tracking network"}} {
+# logreqres:skip because it seems many of these tests rely heavily on RESP2
+start_server {tags {"tracking network logreqres:skip"}} {
     # Create a deferred client we'll use to redirect invalidation
     # messages to.
     set rd_redirection [redis_deferring_client]
@@ -780,6 +781,122 @@ start_server {tags {"tracking network"}} {
         r debug pause-cron 0
     } {OK} {needs:debug}
 
+    foreach resp {3 2} {
+        test "RESP$resp based basic invalidation with client reply off" {
+            # This entire test is mostly irrelevant for RESP2, but we run it anyway just for some extra coverage.
+            clean_all
+
+            $rd hello $resp
+            $rd read
+            $rd client tracking on
+            $rd read
+
+            $rd_sg set foo bar
+            $rd get foo
+            $rd read
+
+            $rd client reply off
+
+            $rd_sg set foo bar2
+
+            if {$resp == 3} {
+                assert_equal {invalidate foo} [$rd read]
+            } elseif {$resp == 2} { } ;# Just coverage
+
+            # Verify things didn't get messed up and no unexpected reply was pushed to the client.
+            $rd client reply on
+            assert_equal {OK} [$rd read]
+            $rd ping
+            assert_equal {PONG} [$rd read]
+        }
+    }
+
+    test {RESP3 based basic redirect invalidation with client reply off} {
+        clean_all
+
+        set rd_redir [redis_deferring_client]
+        $rd_redir hello 3
+        $rd_redir read
+
+        $rd_redir client id
+        set rd_redir_id [$rd_redir read]
+
+        $rd client tracking on redirect $rd_redir_id
+        $rd read
+
+        $rd_sg set foo bar
+        $rd get foo
+        $rd read
+
+        $rd_redir client reply off
+
+        $rd_sg set foo bar2
+        assert_equal {invalidate foo} [$rd_redir read]
+
+        # Verify things didn't get messed up and no unexpected reply was pushed to the client.
+        $rd_redir client reply on
+        assert_equal {OK} [$rd_redir read]
+        $rd_redir ping
+        assert_equal {PONG} [$rd_redir read]
+
+        $rd_redir close
+    }
+
+    test {RESP3 based basic tracking-redir-broken with client reply off} {
+        clean_all
+
+        $rd hello 3
+        $rd read
+        $rd client tracking on redirect $redir_id
+        $rd read
+
+        $rd_sg set foo bar
+        $rd get foo
+        $rd read
+
+        $rd client reply off
+
+        $rd_redirection quit
+        $rd_redirection read
+
+        $rd_sg set foo bar2
+
+        set res [lsearch -exact [$rd read] "tracking-redir-broken"]
+        assert_morethan_equal $res 0
+
+        # Verify things didn't get messed up and no unexpected reply was pushed to the client.
+        $rd client reply on
+        assert_equal {OK} [$rd read]
+        $rd ping
+        assert_equal {PONG} [$rd read]
+    }
+
     $rd_redirection close
+    $rd_sg close
     $rd close
+}
+
+# Just some extra covergae for --log-req-res, because we do not
+# run the full tracking unit in that mode
+start_server {tags {"tracking network"}} {
+    test {Coverage: Basic CLIENT CACHING} {
+        set rd_redirection [redis_deferring_client]
+        $rd_redirection client id
+        set redir_id [$rd_redirection read]
+        assert_equal {OK} [r CLIENT TRACKING on OPTIN REDIRECT $redir_id]
+        assert_equal {OK} [r CLIENT CACHING yes]
+        r CLIENT TRACKING off
+    } {OK}
+
+    test {Coverage: Basic CLIENT REPLY} {
+        r CLIENT REPLY on
+    } {OK}
+
+    test {Coverage: Basic CLIENT TRACKINGINFO} {
+        r CLIENT TRACKINGINFO
+    } {flags off redirect -1 prefixes {}}
+
+    test {Coverage: Basic CLIENT GETREDIR} {
+        r CLIENT GETREDIR
+    } {-1}
 }

@@ -42,6 +42,34 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Timeout reached and no elements were popped.",
+                    "type": "null"
+                },
+                {
+                    "description": "The keyname, popped member, and its score.",
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": [
+                        {
+                            "description": "Keyname",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Member",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Score",
+                            "type": "number"
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

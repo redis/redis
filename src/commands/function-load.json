@@ -30,6 +30,10 @@
                 "name": "function-code",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The library name that was loaded",
+            "type": "string"
+        }
     }
 }

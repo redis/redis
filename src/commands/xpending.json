@@ -41,6 +41,79 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Extended form, in case `start` was given.",
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "items": [
+                            {
+                                "description": "Entry ID",
+                                "type": "string",
+                                "pattern": "[0-9]+-[0-9]+"
+                            },
+                            {
+                                "description": "Consumer name",
+                                "type": "string"
+                            },
+                            {
+                                "description": "Idle time",
+                                "type": "integer"
+                            },
+                            {
+                                "description": "Delivery count",
+                                "type": "integer"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "description": "Summary form, in case `start` was not given.",
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": [
+                        {
+                            "description": "Total number of pending messages",
+                            "type": "integer"
+                        },
+                        {
+                            "description": "Minimal pending entry ID",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        {
+                            "description": "Maximal pending entry ID",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        {
+                            "description": "Consumers with pending messages",
+                            "type": "array",
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "items": [
+                                    {
+                                        "description": "Consumer name",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "description": "Number of pending messages",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

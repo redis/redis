@@ -417,11 +417,22 @@ int TestTrimString(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     size_t string_len = RedisModule_MallocSizeString(s);
     RedisModule_TrimStringAllocation(s);
     size_t len_after_trim = RedisModule_MallocSizeString(s);
-    if (len_after_trim < string_len) {
+
+    /* Determine if using jemalloc memory allocator. */
+    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+    const char *field = RedisModule_ServerInfoGetFieldC(info, "mem_allocator");
+    int use_jemalloc = !strncmp(field, "jemalloc", 8);
+
+    /* Jemalloc will reallocate `s` from 2k to 1k after RedisModule_TrimStringAllocation(),
+     * but non-jemalloc memory allocators may keep the old size. */
+    if ((use_jemalloc && len_after_trim < string_len) ||
+        (!use_jemalloc && len_after_trim <= string_len))
+    {
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
         RedisModule_ReplyWithError(ctx, "String was not trimmed as expected.");
     }
+    RedisModule_FreeServerInfo(ctx, info);
     RedisModule_Free(tmp);
     RedisModule_FreeString(ctx,s);
     return REDISMODULE_OK;

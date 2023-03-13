@@ -95,6 +95,44 @@
                 "type": "string",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "Stream entries with IDs matching the specified range.",
+            "anyOf": [
+                {
+                    "description": "If JUSTID option is specified, return just an array of IDs of messages successfully claimed",
+                    "type": "array",
+                    "items": {
+                        "description": "Entry ID",
+                        "type": "string",
+                        "pattern": "[0-9]+-[0-9]+"
+                    }
+                },
+                {
+                    "description": "array of stream entries that contains each entry as an array of 2 elements, the Entry ID and the entry data itself",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "description": "Entry ID",
+                                "type": "string",
+                                "pattern": "[0-9]+-[0-9]+"
+                            },
+                            {
+                                "description": "Data",
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
     }
 }

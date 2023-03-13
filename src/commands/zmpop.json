@@ -34,6 +34,45 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "No element could be popped.",
+                    "type": "null"
+                },
+                {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "type": "string",
+                            "description": "Name of the key that elements were popped."
+                        },
+                        {
+                            "type": "array",
+                            "description": "Popped elements.",
+                            "items": {
+                                "type": "array",
+                                "uniqueItems": true,
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "items": [
+                                    {
+                                        "type": "string",
+                                        "description": "Name of the member."
+                                    },
+                                    {
+                                        "type": "number",
+                                        "description": "Score."
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "numkeys",

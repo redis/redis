@@ -5,6 +5,11 @@ start_server {tags {"modules"}} {
     
     #   test all with hello 2/3
     for {set proto 2} {$proto <= 3} {incr proto} {
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$proto == 3} {continue}
+        } elseif {$::force_resp3} {
+            if {$proto == 2} {continue}
+        }
         r hello $proto
 
         test "RESP$proto: RM_ReplyWithString: an string reply" {
@@ -120,6 +125,8 @@ start_server {tags {"modules"}} {
             catch {r rw.error} e
             assert_match "An error" $e
         }
+
+        r hello 2
     }
 
     test "Unload the module - replywith" {

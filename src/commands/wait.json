@@ -16,6 +16,11 @@
             "REQUEST_POLICY:ALL_SHARDS",
             "RESPONSE_POLICY:AGG_MIN"
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "The number of replicas reached by all the writes performed in the context of the current connection.",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "numreplicas",

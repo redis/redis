@@ -67,6 +67,43 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "A map of key-value elements when each element composed of key name and the entries reported for that key",
+                    "type": "object",
+                    "patternProperties": {
+                        "^.*$": {
+                            "description": "The entries reported for that key",
+                            "type": "array",
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "items": [
+                                    {
+                                        "description": "entry id",
+                                        "type": "string",
+                                        "pattern": "[0-9]+-[0-9]+"
+                                    },
+                                    {
+                                        "description": "array of field-value pairs",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "description": "If BLOCK option is given, and a timeout occurs, or there is no stream we can serve",
+                    "type": "null"
+                }
+            ]
+        }
     }
 }
