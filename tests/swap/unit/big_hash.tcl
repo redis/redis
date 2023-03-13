@@ -412,6 +412,22 @@ start_server {tags {"hash"}} {
         lsort [r hgetall bighash]
     } [lsort [array get bighash]]
 
+    test {HGETALL - warm hash} {
+        r hmset test_hash f1 v1 f2 v2 f3 v3 f4 v4
+        r swap.evict test_hash
+        wait_key_cold r test_hash
+        r hset test_hash f1 v11
+        set expected [dict create f1 v11 f2 v2 f3 v3 f4 v4]
+        set kvs [r hgetall test_hash]
+        assert_equal [llength $kvs] [expr [dict size $expected]*2]
+        for {set i 0} {$i < [dict size $expected]} {incr i 2} {
+            set k [lindex $kvs $i]
+            set v [lindex $kvs [expr $i+1]]
+            assert_match 1 [dict exists $expected $k]
+            assert_match $v [dict get $expected $k]
+        }
+    }
+
     test {HDEL and return value} {
         set rv {}
         lappend rv [r hdel smallhash nokey]

@@ -485,6 +485,22 @@ start_server {tags {"zset"}} {
                                 0 omega}
             }
 
+            test "ZRANGEBYLEX - warm zset" {
+                r zadd test_zset 0 a 1 b 2 c 3 d
+                r swap.evict test_zset
+                wait_key_cold r test_zset
+                r zadd test_zset 10 a
+                set expected [dict create a 10 b 1 c 2 d 3]
+                set members [r zrange test_zset -inf +inf BYSCORE WITHSCORES]
+                assert_equal [llength $members] [expr [dict size $expected]*2]
+                for {set i 0} {$i < [dict size $expected]} {incr i 2} {
+                    set k [lindex $members $i]
+                    set s [lindex $members [expr $i+1]]
+                    assert_match 1 [dict exists $expected $k]
+                    assert_match $s [dict get $expected $k]
+                }
+            }
+
             test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZLEXCOUNT basics - $encoding" {
                 create_default_lex_zset
 

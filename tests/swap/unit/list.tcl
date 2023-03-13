@@ -131,6 +131,15 @@ start_server {tags {"target"}} {
         r lpush src b
         assert_equal "b a" [r lrange target 0 -1]
     }
+
+    test "lrange - warm list" {
+        r config set swap-debug-evict-keys 0
+        r rpush test_list v1 v2 v3 v4
+        r swap.evict test_list
+        wait_key_cold r test_list
+        r lset test_list 0 v11
+        assert_match [r lrange test_list 0 -1] {v11 v2 v3 v4}
+    }
 }
 
 start_server {tags {"repl"}} {

@@ -434,17 +434,20 @@ void *hashCreateOrMergeObject(swapData *data, void *decoded_, void *datactx) {
         hi = hashTypeInitIterator(decoded);
         while (hashTypeNext(hi) != C_ERR) {
             sds subkey = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+            if (hashTypeExists(data->value, subkey)) {
+                /* field exists in memory and skip. */
+                sdsfree(subkey);
+                continue;
+            }
+
             sds subval = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             initStaticStringObject(subkeyobj,subkey);
             initStaticStringObject(subvalobj,subval);
             argv[0] = &subkeyobj;
             argv[1] = &subvalobj;
             hashTypeTryConversion(data->value,argv,0,1);
-            int updated = hashTypeSet(data->value, subkey, subval,
-                    HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
-            if (!updated) {
-                swapDataObjectMetaModifyLen(data,-1);
-            }
+            hashTypeSet(data->value, subkey, subval, HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
+            swapDataObjectMetaModifyLen(data,-1);
         }
         hashTypeReleaseIterator(hi);
         /* decoded merged, we can release it now. */
