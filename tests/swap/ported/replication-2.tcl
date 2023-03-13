@@ -88,6 +88,7 @@ start_server {tags {"repl"}} {
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
             assert_equal [r dbsize] [r -1 dbsize]
+            swap_data_comp [srv 0 client] [srv -1 client]
         }
     }
 }

@@ -102,6 +102,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl bgsa
                         close $fd
                         fail "Master - Replica inconsistency, Run diff -u against /tmp/repldump*.txt for more info"
                     }
+                    swap_data_comp $master $slave
                 } else {
                     set keyspace_info [$master info keyspace]
                     set try 3
@@ -134,6 +135,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl bgsa
                         close $fd
                         fail "Master - Replica inconsistency, Run diff -u against /tmp/repldump*.txt for more info"
                     }
+                    swap_data_comp $master $slave
                 }
                 assert {[$master dbsize] > 0}
                 eval $cond

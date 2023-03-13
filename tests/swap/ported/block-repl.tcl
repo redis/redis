@@ -46,6 +46,7 @@ start_server {tags {"repl"}} {
                 close $fd
                 fail "Master - Replica inconsistency, Run diff -u against /tmp/repldump*.txt for more info"
             }
+            swap_data_comp $master $slave
         }
     }
 }

@@ -337,6 +337,9 @@ foreach mdl {no yes} {
                             assert {$dbsize==$dbsize0}
                             assert {$dbsize==$dbsize1}
                             assert {$dbsize==$dbsize2}
+                            swap_data_comp $master [lindex $slaves 0]
+                            swap_data_comp $master [lindex $slaves 1]
+                            swap_data_comp $master [lindex $slaves 2]
                         }
                    }
                 }
@@ -386,6 +389,7 @@ start_server {tags {"repl"}} {
                 } else {
                     fail "Different datasets between replica and master"
                 }
+                swap_data_comp $master $slave
             } else {
                 wait_for_condition 500 100 {
                     [$master debug digest] eq [$slave debug digest]
