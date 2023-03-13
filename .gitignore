@@ -40,4 +40,5 @@ Makefile.dep
 .ccls
 .ccls-cache/*
 compile_commands.json
+.cache/*
 redis.code-workspace
