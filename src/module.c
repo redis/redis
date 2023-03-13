@@ -7348,6 +7348,13 @@ void unblockClientFromModule(client *c) {
     bc->client = NULL;
 }
 
+/* The default timeout callback for blocked module client. */
+int moduleBlockedClientDefaultTimeout(RedisModuleCtx *ctx, void **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+    return RM_ReplyWithError(ctx, "ERR blocked module command timed out, but timeout callback is NULL");
+}
+
 /* Block a client in the context of a module: this function implements both
  * RM_BlockClient() and RM_BlockClientOnKeys() depending on the fact the
  * keys are passed or not.
@@ -7388,7 +7395,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->client = (islua || ismulti) ? NULL : c;
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
-    bc->timeout_callback = timeout_callback;
+    bc->timeout_callback = timeout_callback ? timeout_callback : moduleBlockedClientDefaultTimeout;
     bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
     bc->privdata = privdata;
@@ -7796,6 +7803,7 @@ void moduleBlockedClientTimedOut(client *c) {
     ctx.blocked_privdata = bc->privdata;
     long long prev_error_replies = server.stat_total_error_replies;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
+    moduleHandlePropagationAfterCommandCallback(&ctx);
     moduleFreeContext(&ctx);
     updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
 
