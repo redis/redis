@@ -2808,18 +2808,12 @@ sds getAllClientsInfoString(int type) {
     return o;
 }
 
-/* Returns C_OK if the name has been set or C_ERR if the name is invalid. */
-int clientSetName(client *c, robj *name) {
+/* Returns C_OK if the name is valid or C_ERR otherwise. */
+int validateClientName(robj *name) {
     int len = (name != NULL) ? sdslen(name->ptr) : 0;
-
-    /* Setting the client name to an empty string actually removes
-     * the current name. */
-    if (len == 0) {
-        if (c->name) decrRefCount(c->name);
-        c->name = NULL;
+    /* We allow setting the client name to an empty string. */
+    if (len == 0)
         return C_OK;
-    }
-
     /* Otherwise check if the charset is ok. We need to do this otherwise
      * CLIENT LIST format will break. You should always be able to
      * split by space to get the different fields. */
@@ -2828,6 +2822,22 @@ int clientSetName(client *c, robj *name) {
         if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
             return C_ERR;
         }
+    }
+    return C_OK;
+}
+
+/* Returns C_OK if the name has been set or C_ERR if the name is invalid. */
+int clientSetName(client *c, robj *name) {
+    if (validateClientName(name) == C_ERR) {
+        return C_ERR;
+    }
+    int len = (name != NULL) ? sdslen(name->ptr) : 0;
+    /* Setting the client name to an empty string actually removes
+     * the current name. */
+    if (len == 0) {
+        if (c->name) decrRefCount(c->name);
+        c->name = NULL;
+        return C_OK;
     }
     if (c->name) decrRefCount(c->name);
     c->name = name;
@@ -3433,24 +3443,36 @@ void helloCommand(client *c) {
         }
     }
 
+    robj *username = NULL;
+    robj *password = NULL;
+    robj *clientname = NULL;
     for (int j = next_arg; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j;
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
             redactClientCommandArgument(c, j+1);
             redactClientCommandArgument(c, j+2);
-            if (ACLAuthenticateUser(c, c->argv[j+1], c->argv[j+2]) == C_ERR) {
-                addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
-                return;
-            }
+            username = c->argv[j+1];
+            password = c->argv[j+2];
             j += 2;
         } else if (!strcasecmp(opt,"SETNAME") && moreargs) {
-            if (clientSetNameOrReply(c, c->argv[j+1]) == C_ERR) return;
+            clientname = c->argv[j+1];
+            if (validateClientName(clientname) == C_ERR) {
+                addReplyError(c,
+                    "Client names cannot contain spaces, "
+                    "newlines or special characters.");
+                return;
+            }
             j++;
         } else {
             addReplyErrorFormat(c,"Syntax error in HELLO option '%s'",opt);
             return;
         }
+    }
+
+    if (username && password && ACLAuthenticateUser(c, username, password) == C_ERR) {
+        addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
+        return;
     }
 
     /* At this point we need to be authenticated to continue. */
@@ -3460,6 +3482,11 @@ void helloCommand(client *c) {
                         "option can be used to authenticate the client and "
                         "select the RESP protocol version at the same time");
         return;
+    }
+
+    /* Now that we're authenticated, set the client name. */
+    if (clientname) {
+        clientSetName(c, clientname);
     }
 
     /* Let's switch to the specified RESP mode. */
