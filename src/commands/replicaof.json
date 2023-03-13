@@ -21,6 +21,11 @@
                 "name": "port",
                 "type": "integer"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "replicaOf status",
+            "type": "string",
+            "pattern": "OK*"
+        }
     }
 }

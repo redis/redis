@@ -15,6 +15,9 @@
         "command_tips": [
             "REQUEST_POLICY:ALL_NODES",
             "RESPONSE_POLICY:ALL_SUCCEEDED"
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

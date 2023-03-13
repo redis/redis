@@ -32,6 +32,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The cardinality (number of elements) of the set, or 0 if key does not exist.",
+            "type": "integer",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "key",

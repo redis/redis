@@ -54,6 +54,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The popped element.",
+                    "type": "string"
+                },
+                {
+                    "description": "Operation timed-out",
+                    "type": "null"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "source",

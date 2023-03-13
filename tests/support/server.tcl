@@ -207,6 +207,12 @@ proc tags_acceptable {tags err_return} {
         }
     }
 
+    # some units mess with the client output buffer so we can't really use the req-res logging mechanism.
+    if {$::log_req_res && [lsearch $tags "logreqres:skip"] >= 0} {
+        set err "Not supported when running in log-req-res mode"
+        return 0
+    }
+
     if {$::external && [lsearch $tags "external:skip"] >= 0} {
         set err "Not supported on external server"
         return 0
@@ -509,6 +515,14 @@ proc start_server {options {code undefined}} {
     # remove directives that are marked to be omitted
     foreach directive $omit {
         dict unset config $directive
+    }
+
+    if {$::log_req_res} {
+        dict set config "req-res-logfile" "stdout.reqres"
+    }
+
+    if {$::force_resp3} {
+        dict set config "client-default-resp" "3"
     }
 
     # write new configuration to temporary file

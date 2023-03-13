@@ -91,6 +91,11 @@ start_server {tags {"modules"}} {
 
     test {RESP version carries through to blocked client} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
+            if {[lsearch $::denytags "resp3"] >= 0} {
+                if {$client_proto == 3} {continue}
+            } elseif {$::force_resp3} {
+                if {$client_proto == 2} {continue}
+            }
             r hello $client_proto
             r readraw 1
             set ret [r do_fake_bg_true]
@@ -100,6 +105,7 @@ start_server {tags {"modules"}} {
                 assert_equal $ret "#t"
             }
             r readraw 0
+            r hello 2
         }
     }
 

@@ -38,6 +38,38 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "description": "A list of member elements",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                {
+                    "description": "Members and their scores. Returned in case `WITHSCORES` was used. In RESP2 this is returned as a flat array",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "description": "Member",
+                                "type": "string"
+                            },
+                            {
+                                "description": "Score",
+                                "type": "number"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

@@ -9,6 +9,10 @@ start_server {tags {"incr"}} {
         r incr novar
     } {2}
 
+    test {DECR against key created by incr} {
+        r decr novar
+    } {1}
+
     test {INCR against key originally set with SET} {
         r set novar 100
         r incr novar

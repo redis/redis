@@ -15,6 +15,9 @@
             "LOADING",
             "STALE",
             "ALLOW_BUSY"
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

@@ -43,6 +43,40 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "type": "array",
+                    "description": "List of the elements in the specified score range, as not WITHSCORES",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "description": "Element"
+                    }
+                },
+                {
+                    "type": "array",
+                    "description": "List of the elements and their scores in the specified score range, as WITHSCORES used",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "array",
+                        "description": "Tuple of element and its score",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "type": "string",
+                                "description": "element"
+                            },
+                            {
+                                "type": "number",
+                                "description": "score"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

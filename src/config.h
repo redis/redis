@@ -131,7 +131,7 @@
 #endif
 #endif
 
-#if __GNUC__ >= 4
+#if __GNUC__ >= 5 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
 #define redis_unreachable __builtin_unreachable
 #else
 #define redis_unreachable abort

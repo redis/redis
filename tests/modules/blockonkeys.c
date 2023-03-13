@@ -89,6 +89,7 @@ int get_fsl(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode, int creat
                 create = 0; /* No need to create, key exists in its basic state */
             } else {
                 RedisModule_DeleteKey(key);
+                *fsl = NULL;
             }
         } else {
             /* Key exists, and has elements in it - no need to create anything */
@@ -435,6 +436,10 @@ int blockonkeys_blpopn_reply_callback(RedisModuleCtx *ctx, RedisModuleString **a
         result = REDISMODULE_OK;
     } else if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_LIST ||
                RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
+        const char *module_cmd = RedisModule_StringPtrLen(argv[0], NULL);
+        if (!strcasecmp(module_cmd, "blockonkeys.blpopn_or_unblock"))
+            RedisModule_UnblockClient(RedisModule_GetBlockedClientHandle(ctx), NULL);
+
         /* continue blocking */
         result = REDISMODULE_ERR;
     } else {
@@ -450,6 +455,12 @@ int blockonkeys_blpopn_timeout_callback(RedisModuleCtx *ctx, RedisModuleString *
     return RedisModule_ReplyWithError(ctx, "ERR Timeout");
 }
 
+int blockonkeys_blpopn_abort_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithSimpleString(ctx, "Action aborted");
+}
+
 /* BLOCKONKEYS.BLPOPN key N
  *
  * Blocks until key has N elements and then pops them or fails after 3 seconds.
@@ -457,11 +468,16 @@ int blockonkeys_blpopn_timeout_callback(RedisModuleCtx *ctx, RedisModuleString *
 int blockonkeys_blpopn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3) return RedisModule_WrongArity(ctx);
 
-    long long n;
+    long long n, timeout = 3000LL;
     if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK) {
         return RedisModule_ReplyWithError(ctx, "ERR Invalid N");
     }
 
+    if (argc > 3 ) {
+        if (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK) {
+            return RedisModule_ReplyWithError(ctx, "ERR Invalid timeout value");
+        }
+    }
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
     int keytype = RedisModule_KeyType(key);
     if (keytype != REDISMODULE_KEYTYPE_EMPTY &&
@@ -477,8 +493,8 @@ int blockonkeys_blpopn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         }
     } else {
         RedisModule_BlockClientOnKeys(ctx, blockonkeys_blpopn_reply_callback,
-                                      blockonkeys_blpopn_timeout_callback,
-                                      NULL, 3000, &argv[1], 1, NULL);
+                                      timeout ? blockonkeys_blpopn_timeout_callback : blockonkeys_blpopn_abort_callback,
+                                      NULL, timeout, &argv[1], 1, NULL);
     }
     RedisModule_CloseKey(key);
     return REDISMODULE_OK;
@@ -536,5 +552,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, "blockonkeys.blpopn_or_unblock", blockonkeys_blpopn,
+                                      "write", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
     return REDISMODULE_OK;
 }

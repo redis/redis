@@ -33,6 +33,23 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List representing the membership of the given elements, in the same order as they are requested.",
+            "minItems": 1,
+            "items": {
+                "oneOf": [
+                    {
+                        "const": 0,
+                        "description": "Not a member of the set or the key does not exist."
+                    },
+                    {
+                        "const": 1,
+                        "description": "A member of the set."
+                    }
+                ]
+            }
+        },
         "arguments": [
             {
                 "name": "key",

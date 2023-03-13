@@ -42,6 +42,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "Number of keys that exist from those specified as arguments.",
+            "type": "integer"
+        },
         "arguments": [
             {
                 "name": "key",

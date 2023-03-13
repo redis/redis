@@ -47,6 +47,11 @@
                 "name": "consumer",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The number of pending messages that were yet associated with such a consumer",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

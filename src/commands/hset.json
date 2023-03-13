@@ -40,6 +40,9 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer"
+        },
         "arguments": [
             {
                 "name": "key",

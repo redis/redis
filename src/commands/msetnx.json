@@ -37,6 +37,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "No key was set (at least one key already existed).",
+                    "const": 0
+                },
+                {
+                    "description": "All the keys were set.",
+                    "const": 1
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "data",

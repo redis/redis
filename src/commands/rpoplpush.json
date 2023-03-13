@@ -57,6 +57,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "description": "The element being popped and pushed."
+                },
+                {
+                    "type": "null",
+                    "description": "Source list is empty."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "source",

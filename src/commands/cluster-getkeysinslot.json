@@ -22,6 +22,14 @@
                 "name": "count",
                 "type": "integer"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "an array with up to count elements",
+            "type": "array",
+            "items": {
+                "description": "key name",
+                "type": "string"
+            }
+        }
     }
 }

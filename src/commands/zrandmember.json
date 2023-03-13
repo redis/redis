@@ -35,6 +35,44 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "type": "null",
+                    "description": "Key does not exist."
+                },
+                {
+                    "type": "string",
+                    "description": "Randomly selected element when 'COUNT' is not used."
+                },
+                {
+                    "type": "array",
+                    "description": "Randomly selected elements when 'COUNT' is used.",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                {
+                    "type": "array",
+                    "description": "Randomly selected elements when 'COUNT' and 'WITHSCORES' modifiers are used.",
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "type": "string",
+                                "description": "Element."
+                            },
+                            {
+                                "type": "number",
+                                "description": "Score."
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

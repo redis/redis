@@ -24,9 +24,11 @@ proc assert_no_match {pattern value} {
     }
 }
 
-proc assert_match {pattern value {detail ""}} {
+proc assert_match {pattern value {detail ""} {context ""}} {
     if {![string match $pattern $value]} {
-        set context "(context: [info frame -1])"
+        if {$context eq ""} {
+            set context "(context: [info frame -1])"
+        }
         error "assertion:Expected '$value' to match '$pattern' $context $detail"
     }
 }

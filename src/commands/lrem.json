@@ -32,6 +32,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The number of removed elements.",
+            "type": "integer",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "key",

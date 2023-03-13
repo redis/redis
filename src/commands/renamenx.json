@@ -69,6 +69,18 @@
                 "type": "key",
                 "key_spec_index": 1
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "key was renamed to newkey",
+                    "const": 1
+                },
+                {
+                    "description": "new key already exists",
+                    "const": 0
+                }
+            ]
+        }
     }
 }
