@@ -2034,10 +2034,11 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 config.pubsub_mode = 0;
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"hello")) {
-                if (config.last_cmd_type == REDIS_REPLY_MAP)
-                    config.resp3 = 2;
-                else if (config.last_cmd_type == REDIS_REPLY_ARRAY)
+                if (config.last_cmd_type == REDIS_REPLY_MAP) {
+                    if (config.resp3 == 0) config.resp3 = 1;
+                } else if (config.last_cmd_type == REDIS_REPLY_ARRAY) {
                     config.resp3 = 0;
+                }
             } else if ((is_subscribe || is_unsubscribe) && !config.pubsub_mode) {
                 /* We didn't enter pubsub mode. Restore push callback. */
                 if (config.push_output)
