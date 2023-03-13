@@ -217,6 +217,25 @@ start_server {tags {"scripting"}} {
         } {*execution time*}
     }
 
+    test {EVAL - Active expiry can't happen during long script} {
+        r config set lua-time-limit 10
+        r flushall
+        r psetex key 20 value
+        r eval {
+            for i = 0, 5 do
+                redis.call("psetex", "tempKey", 10, "1")
+                while true do
+                    local ttl = redis.call("pttl", "tempKey")
+                    if ttl == 0 then
+                        break;
+                    end
+                end
+            end
+            redis.call("del", "tempKey")
+            return redis.call("info", "keyspace")
+        } 0
+    } {*keys=1,expires=1*}
+
     test {EVAL - Scripts can't run blpop command} {
         set e {}
         catch {run_script {return redis.pcall('blpop','x',0)} 1 x} e

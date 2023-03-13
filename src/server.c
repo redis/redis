@@ -1048,7 +1048,10 @@ void clientsCron(void) {
  * rehashing. */
 void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
-     * as master will synthesize DELs for us. */
+     * as master will synthesize DELs for us. 
+     * Note: this code is completely unreachable during busy Lua script
+     * or data loading. So active expiry can't happen for those cases.
+     */
     if (server.active_expire_enabled) {
         if (iAmMaster()) {
             activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
@@ -1637,7 +1640,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.cluster_enabled) clusterBeforeSleep();
 
     /* Run a fast expire cycle (the called function will return
-     * ASAP if a fast cycle is not needed). */
+     * ASAP if a fast cycle is not needed).
+     * Note: this code is unreachable during busy Lua script or data loading.
+     */
     if (server.active_expire_enabled && server.masterhost == NULL)
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
