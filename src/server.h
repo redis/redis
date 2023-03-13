@@ -921,7 +921,7 @@ typedef struct clientReplyBlock {
  *      |                                            /       \
  *      |                                           /         \
  *      |                                          /           \
- *  Repl Backlog                               Replia_A      Replia_B
+ *  Repl Backlog                               Replica_A    Replica_B
  * 
  * Each replica or replication backlog increments only the refcount of the
  * 'ref_repl_buf_node' which it points to. So when replica walks to the next
