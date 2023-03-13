@@ -267,7 +267,7 @@ test {Replica client-output-buffer size is limited to backlog_limit/16 when no r
             wait_for_ofs_sync $master $replica
 
             # Write another key to force the test to wait for another event loop iteration
-            # to give the serverCron a chance to disconnect replicas with COB size exeeeding the limits
+            # to give the serverCron a chance to disconnect replicas with COB size exceeding the limits
             $master set key1 "1"
             wait_for_ofs_sync $master $replica
 
@@ -280,6 +280,16 @@ test {Replica client-output-buffer size is limited to backlog_limit/16 when no r
             }
 
             assert {[status $master sync_partial_ok] == 0}
+
+            # Before this fix (#11905), the test would trigger an assertion in 'o->used >= c->ref_block_pos'
+            test {The update of replBufBlock's repl_offset is ok - Regression test for #11666} {
+                set rd [redis_deferring_client]
+                set replid [status $master master_replid]
+                set offset [status $master repl_backlog_first_byte_offset]
+                $rd psync $replid $offset
+                assert_equal {PONG} [$master ping] ;# Make sure the master doesn't crash.
+                $rd close
+            }
         }
     }
 }

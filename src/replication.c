@@ -332,8 +332,6 @@ void feedReplicationBuffer(char *s, size_t len) {
     static long long repl_block_id = 0;
 
     if (server.repl_backlog == NULL) return;
-    server.master_repl_offset += len;
-    server.repl_backlog->histlen += len;
 
     while(len > 0) {
         size_t start_pos = 0; /* The position of referenced block to start sending. */
@@ -354,6 +352,8 @@ void feedReplicationBuffer(char *s, size_t len) {
             tail->used += copy;
             s += copy;
             len -= copy;
+            server.master_repl_offset += copy;
+            server.repl_backlog->histlen += copy;
         }
         if (len) {
             /* Create a new node, make sure it is allocated to at
@@ -362,14 +362,15 @@ void feedReplicationBuffer(char *s, size_t len) {
             /* Avoid creating nodes smaller than PROTO_REPLY_CHUNK_BYTES, so that we can append more data into them,
              * and also avoid creating nodes bigger than repl_backlog_size / 16, so that we won't have huge nodes that can't
              * trim when we only still need to hold a small portion from them. */
-            size_t size = min(max(len, (size_t)PROTO_REPLY_CHUNK_BYTES), (size_t)server.repl_backlog_size / 16);
+            size_t limit = max((size_t)server.repl_backlog_size / 16, (size_t)PROTO_REPLY_CHUNK_BYTES);
+            size_t size = min(max(len, (size_t)PROTO_REPLY_CHUNK_BYTES), limit);
             tail = zmalloc_usable(size + sizeof(replBufBlock), &usable_size);
             /* Take over the allocation's internal fragmentation */
             tail->size = usable_size - sizeof(replBufBlock);
             size_t copy = (tail->size >= len) ? len : tail->size;
             tail->used = copy;
             tail->refcount = 0;
-            tail->repl_offset = server.master_repl_offset - tail->used + 1;
+            tail->repl_offset = server.master_repl_offset + 1;
             tail->id = repl_block_id++;
             memcpy(tail->buf, s, copy);
             listAddNodeTail(server.repl_buffer_blocks, tail);
@@ -382,6 +383,8 @@ void feedReplicationBuffer(char *s, size_t len) {
             }
             s += copy;
             len -= copy;
+            server.master_repl_offset += copy;
+            server.repl_backlog->histlen += copy;
         }
 
         /* For output buffer of replicas. */
