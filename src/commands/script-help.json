@@ -13,6 +13,13 @@
         ],
         "acl_categories": [
             "SCRIPTING"
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Helpful text about subcommands.",
+            "items": {
+                "type": "string"
+            }
+        }
     }
 }

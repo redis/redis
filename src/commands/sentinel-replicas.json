@@ -12,6 +12,16 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List of replicas for this master, and their state.",
+            "items": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string"
+                }
+            }
+        },
         "arguments": [
             {
                 "name": "master-name",

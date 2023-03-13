@@ -25,7 +25,7 @@ proc default_set_get_checks {} {
     assert_match  {} [cmdstat lrange]
 }
 
-start_server {tags {"benchmark network external:skip"}} {
+start_server {tags {"benchmark network external:skip logreqres:skip"}} {
     start_server {} {
         set master_host [srv 0 host]
         set master_port [srv 0 port]

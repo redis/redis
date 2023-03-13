@@ -41,8 +41,16 @@
             {
                 "name": "member",
                 "type": "string",
-                "multiple": true
+                "multiple": true,
+                "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "An array where each element is the Geohash corresponding to each member name passed as argument to the command.",
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        }
     }
 }

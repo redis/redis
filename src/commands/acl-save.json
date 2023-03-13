@@ -13,6 +13,9 @@
             "LOADING",
             "STALE",
             "SENTINEL"
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

@@ -33,6 +33,23 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "description": "Expiration Unix timestamp in seconds.",
+                    "minimum": 0
+                },
+                {
+                    "const": -1,
+                    "description": "The key exists but has no associated expiration time."
+                },
+                {
+                    "const": -2,
+                    "description": "The key does not exist."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

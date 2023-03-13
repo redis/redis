@@ -9,6 +9,10 @@
         "function": "clusterCommand",
         "command_flags": [
             "STALE"
-        ]
+        ],
+        "reply_schema": {
+            "description": "the node id",
+            "type": "string"
+        }
     }
 }

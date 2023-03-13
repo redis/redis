@@ -280,7 +280,7 @@ static struct pref {
 
 static volatile sig_atomic_t force_cancel_loop = 0;
 static void usage(int err);
-static void slaveMode(void);
+static void slaveMode(int send_sync);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
 static int cliConnect(int flags);
@@ -702,7 +702,7 @@ void cliInitGroupHelpEntries(dict *groups) {
     for (entry = dictNext(iter); entry != NULL; entry = dictNext(iter)) {
         tmp.argc = 1;
         tmp.argv = zmalloc(sizeof(sds));
-        tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",(char *)entry->key);
+        tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",(char *)dictGetKey(entry));
         tmp.full = tmp.argv[0];
         tmp.type = CLI_HELP_GROUP;
         tmp.docs.name = NULL;
@@ -2254,6 +2254,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     char *command = argv[0];
     size_t *argvlen;
     int j, output_raw;
+    int is_unsubscribe_command = 0; /* Is it an unsubscribe related command? */
 
     if (context == NULL) return REDIS_ERR;
 
@@ -2292,6 +2293,9 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     if (!strcasecmp(command,"subscribe") ||
         !strcasecmp(command,"psubscribe") ||
         !strcasecmp(command,"ssubscribe")) config.pubsub_mode = 1;
+    if (!strcasecmp(command,"unsubscribe") ||
+        !strcasecmp(command,"punsubscribe") ||
+        !strcasecmp(command,"sunsubscribe")) is_unsubscribe_command = 1;
     if (!strcasecmp(command,"sync") ||
         !strcasecmp(command,"psync")) config.slave_mode = 1;
 
@@ -2322,6 +2326,22 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
        works well with the interval option. */
     while(repeat < 0 || repeat-- > 0) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
+
+        if (is_unsubscribe_command) {
+            /* In unsubscribe related commands, we need to read the specified
+             * number of replies according to the number of parameters. */
+            argc--; /* Skip the command */
+            do {
+                if (cliReadReply(output_raw) != REDIS_OK) {
+                    cliPrintContextError();
+                    exit(1);
+                }
+                fflush(stdout);
+            } while(--argc);
+            zfree(argvlen);
+            continue;
+        }
+
         if (config.monitor_mode) {
             do {
                 if (cliReadReply(output_raw) != REDIS_OK) {
@@ -2363,7 +2383,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
 
         if (config.slave_mode) {
             printf("Entering replica output mode...  (press Ctrl-C to quit)\n");
-            slaveMode();
+            slaveMode(0);
             config.slave_mode = 0;
             zfree(argvlen);
             return REDIS_ERR;  /* Error = slaveMode lost connection to master */
@@ -2586,7 +2606,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--memkeys")) {
             config.memkeys = 1;
             config.memkeys_samples = 0; /* use redis default */
-        } else if (!strcmp(argv[i],"--memkeys-samples")) {
+        } else if (!strcmp(argv[i],"--memkeys-samples") && !lastarg) {
             config.memkeys = 1;
             config.memkeys_samples = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--hotkeys")) {
@@ -3140,7 +3160,7 @@ static void repl(void) {
     /* There is no need to initialize redis HELP when we are in lua debugger mode.
      * It has its own HELP and commands (COMMAND or COMMAND DOCS will fail and got nothing).
      * We will initialize the redis HELP after the Lua debugging session ended.*/
-    if (!config.eval_ldb) {
+    if ((!config.eval_ldb) && isatty(fileno(stdin))) {
         /* Initialize the help using the results of the COMMAND command. */
         cliInitHelp();
     }
@@ -8214,8 +8234,15 @@ static ssize_t readConn(redisContext *c, char *buf, size_t len)
 
 /* Sends SYNC and reads the number of bytes in the payload. Used both by
  * slaveMode() and getRDB().
- * returns 0 in case an EOF marker is used. */
-unsigned long long sendSync(redisContext *c, char *out_eof) {
+ *
+ * send_sync if 1 means we will explicitly send SYNC command. If 0 means
+ * we will not send SYNC command, will send the command that in c->obuf.
+ *
+ * Returns the size of the RDB payload to read, or 0 in case an EOF marker is used and the size
+ * is unknown, also returns 0 in case a PSYNC +CONTINUE was found (no RDB payload).
+ *
+ * The out_full_mode parameter if 1 means this is a full sync, if 0 means this is partial mode. */
+unsigned long long sendSync(redisContext *c, int send_sync, char *out_eof, int *out_full_mode) {
     /* To start we need to send the SYNC command and return the payload.
      * The hiredis client lib does not understand this part of the protocol
      * and we don't want to mess with its buffers, so everything is performed
@@ -8223,10 +8250,20 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
     char buf[4096], *p;
     ssize_t nread;
 
-    /* Send the SYNC command. */
-    if (cliWriteConn(c, "SYNC\r\n", 6) != 6) {
-        fprintf(stderr,"Error writing to master\n");
-        exit(1);
+    if (out_full_mode) *out_full_mode = 1;
+
+    if (send_sync) {
+        /* Send the SYNC command. */
+        if (cliWriteConn(c, "SYNC\r\n", 6) != 6) {
+            fprintf(stderr,"Error writing to master\n");
+            exit(1);
+        }
+    } else {
+        /* We have written the command into c->obuf before. */
+        if (cliWriteConn(c, "", 0) != 0) {
+            fprintf(stderr,"Error writing to master\n");
+            exit(1);
+        }
     }
 
     /* Read $<payload>\r\n, making sure to read just up to "\n" */
@@ -8239,12 +8276,41 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
         }
         if (*p == '\n' && p != buf) break;
         if (*p != '\n') p++;
+        if (p >= buf + sizeof(buf) - 1) break; /* Go back one more char for null-term. */
     }
     *p = '\0';
     if (buf[0] == '-') {
         fprintf(stderr, "SYNC with master failed: %s\n", buf);
         exit(1);
     }
+
+    /* Handling PSYNC responses.
+     * Read +FULLRESYNC <replid> <offset>\r\n, after that is the $<payload> or the $EOF:<40 bytes delimiter>
+     * Read +CONTINUE <replid>\r\n or +CONTINUE\r\n, after that is the command stream */
+    if (!strncmp(buf, "+FULLRESYNC", 11) ||
+        !strncmp(buf, "+CONTINUE", 9))
+    {
+        int sync_partial = !strncmp(buf, "+CONTINUE", 9);
+        fprintf(stderr, "PSYNC replied %s\n", buf);
+        p = buf;
+        while(1) {
+            nread = readConn(c,p,1);
+            if (nread <= 0) {
+                fprintf(stderr,"Error reading bulk length while PSYNCing\n");
+                exit(1);
+            }
+            if (*p == '\n' && p != buf) break;
+            if (*p != '\n') p++;
+            if (p >= buf + sizeof(buf) - 1) break; /* Go back one more char for null-term. */
+        }
+        *p = '\0';
+
+        if (sync_partial) {
+            if (out_full_mode) *out_full_mode = 0;
+            return 0;
+        }
+    }
+
     if (strncmp(buf+1,"EOF:",4) == 0 && strlen(buf+5) >= RDB_EOF_MARK_SIZE) {
         memcpy(out_eof, buf+5, RDB_EOF_MARK_SIZE);
         return 0;
@@ -8252,25 +8318,31 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
     return strtoull(buf+1,NULL,10);
 }
 
-static void slaveMode(void) {
+static void slaveMode(int send_sync) {
     static char eofmark[RDB_EOF_MARK_SIZE];
     static char lastbytes[RDB_EOF_MARK_SIZE];
     static int usemark = 0;
-    unsigned long long payload = sendSync(context,eofmark);
+    static int out_full_mode;
+    unsigned long long payload = sendSync(context, send_sync, eofmark, &out_full_mode);
     char buf[1024];
     int original_output = config.output;
+    char *info = out_full_mode ? "Full resync" : "Partial resync";
 
-    if (payload == 0) {
+    if (out_full_mode == 1 && payload == 0) {
+        /* SYNC with EOF marker or PSYNC +FULLRESYNC with EOF marker. */
         payload = ULLONG_MAX;
         memset(lastbytes,0,RDB_EOF_MARK_SIZE);
         usemark = 1;
-        fprintf(stderr,"SYNC with master, discarding "
-                       "bytes of bulk transfer until EOF marker...\n");
-    } else {
-        fprintf(stderr,"SYNC with master, discarding %llu "
-                       "bytes of bulk transfer...\n", payload);
+        fprintf(stderr, "%s with master, discarding "
+                        "bytes of bulk transfer until EOF marker...\n", info);
+    } else if (out_full_mode == 1 && payload != 0) {
+        /* SYNC without EOF marker or PSYNC +FULLRESYNC. */
+        fprintf(stderr, "%s with master, discarding %llu "
+                        "bytes of bulk transfer...\n", info, payload);
+    } else if (out_full_mode == 0 && payload == 0) {
+        /* PSYNC +CONTINUE (no RDB payload). */
+        fprintf(stderr, "%s with master...\n", info);
     }
-
 
     /* Discard the payload. */
     while(payload) {
@@ -8278,7 +8350,7 @@ static void slaveMode(void) {
 
         nread = readConn(context,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
-            fprintf(stderr,"Error reading RDB payload while SYNCing\n");
+            fprintf(stderr,"Error reading RDB payload while %sing\n", info);
             exit(1);
         }
         payload -= nread;
@@ -8299,12 +8371,12 @@ static void slaveMode(void) {
 
     if (usemark) {
         unsigned long long offset = ULLONG_MAX - payload;
-        fprintf(stderr,"SYNC done after %llu bytes. Logging commands from master.\n", offset);
+        fprintf(stderr,"%s done after %llu bytes. Logging commands from master.\n", info, offset);
         /* put the slave online */
         sleep(1);
         sendReplconf("ACK", "0");
     } else
-        fprintf(stderr,"SYNC done. Logging commands from master.\n");
+        fprintf(stderr,"%s done. Logging commands from master.\n", info);
 
     /* Now we can use hiredis to read the incoming protocol. */
     config.output = OUTPUT_CSV;
@@ -8333,7 +8405,7 @@ static void getRDB(clusterManagerNode *node) {
     static char eofmark[RDB_EOF_MARK_SIZE];
     static char lastbytes[RDB_EOF_MARK_SIZE];
     static int usemark = 0;
-    unsigned long long payload = sendSync(s, eofmark);
+    unsigned long long payload = sendSync(s, 1, eofmark, NULL);
     char buf[4096];
 
     if (payload == 0) {
@@ -9630,7 +9702,7 @@ int main(int argc, char **argv) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         sendCapa();
         sendReplconf("rdb-filter-only", "");
-        slaveMode();
+        slaveMode(1);
     }
 
     /* Get RDB/functions mode. */

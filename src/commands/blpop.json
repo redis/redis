@@ -41,6 +41,30 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "null",
+                    "description": "No element could be popped and timeout expired"
+                },
+                {
+                    "description": "The key from which the element was popped and the value of the popped element",
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "description": "List key from which the element was popped.",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Value of the popped element.",
+                            "type": "string"
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

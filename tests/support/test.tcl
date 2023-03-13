@@ -24,9 +24,11 @@ proc assert_no_match {pattern value} {
     }
 }
 
-proc assert_match {pattern value {detail ""}} {
+proc assert_match {pattern value {detail ""} {context ""}} {
     if {![string match $pattern $value]} {
-        set context "(context: [info frame -1])"
+        if {$context eq ""} {
+            set context "(context: [info frame -1])"
+        }
         error "assertion:Expected '$value' to match '$pattern' $context $detail"
     }
 }
@@ -103,8 +105,21 @@ proc assert_type {type key} {
 }
 
 proc assert_refcount {ref key} {
+    if {[lsearch $::denytags "needs:debug"] >= 0} {
+        return
+    }
+
     set val [r object refcount $key]
     assert_equal $ref $val
+}
+
+proc assert_refcount_morethan {key ref} {
+    if {[lsearch $::denytags "needs:debug"] >= 0} {
+        return
+    }
+
+    set val [r object refcount $key]
+    assert_morethan $val $ref
 }
 
 # Wait for the specified condition to be true, with the specified number of

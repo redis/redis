@@ -98,7 +98,7 @@ start_server {tags {"scan network"}} {
         assert_equal 1000 [llength $keys]
     }
 
-    foreach enc {intset hashtable} {
+    foreach enc {intset listpack hashtable} {
         test "SSCAN with encoding $enc" {
             # Create the Set
             r del set
@@ -107,8 +107,9 @@ start_server {tags {"scan network"}} {
             } else {
                 set prefix "ele:"
             }
+            set count [expr {$enc eq "hashtable" ? 200 : 100}]
             set elements {}
-            for {set j 0} {$j < 100} {incr j} {
+            for {set j 0} {$j < $count} {incr j} {
                 lappend elements ${prefix}${j}
             }
             r sadd set {*}$elements
@@ -128,7 +129,7 @@ start_server {tags {"scan network"}} {
             }
 
             set keys [lsort -unique $keys]
-            assert_equal 100 [llength $keys]
+            assert_equal $count [llength $keys]
         }
     }
 

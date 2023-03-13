@@ -8,7 +8,7 @@ set tcl_precision 17
 source tests/support/redis.tcl
 source tests/support/aofmanifest.tcl
 source tests/support/server.tcl
-source tests/support/cluster_helper.tcl
+source tests/support/cluster_util.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
@@ -86,7 +86,6 @@ set ::all_tests {
     unit/wait
     unit/pause
     unit/querybuf
-    unit/pendingquerybuf
     unit/tls
     unit/tracking
     unit/oom-score-adj
@@ -101,6 +100,7 @@ set ::all_tests {
     unit/cluster/hostnames
     unit/cluster/multi-slot-operations
     unit/cluster/slot-ownership
+    unit/cluster/links
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -135,6 +135,7 @@ set ::timeout 1200; # 20 minutes without progresses will quit the test.
 set ::last_progress [clock seconds]
 set ::active_servers {} ; # Pids of active Redis instances.
 set ::dont_clean 0
+set ::dont_pre_clean 0
 set ::wait_server 0
 set ::stop_on_failure 0
 set ::dump_logs 0
@@ -145,6 +146,8 @@ set ::cluster_mode 0
 set ::ignoreencoding 0
 set ::ignoredigest 0
 set ::large_memory 0
+set ::log_req_res 0
+set ::force_resp3 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -204,11 +207,16 @@ proc r {args} {
     [srv $level "client"] {*}$args
 }
 
+# Returns a Redis instance by index.
+proc Rn {n} {
+    set level [expr -1*$n]
+    return [srv $level "client"]
+}
+
 # Provide easy access to a client for an inner server. Requires a positive
 # index, unlike r which uses an optional negative index.
 proc R {n args} {
-    set level [expr -1*$n]
-    [srv $level "client"] {*}$args
+    [Rn $n] {*}$args
 }
 
 proc reconnect {args} {
@@ -315,7 +323,7 @@ proc cleanup {} {
 }
 
 proc test_server_main {} {
-    cleanup
+    if {!$::dont_pre_clean} cleanup
     set tclsh [info nameofexecutable]
     # Open a listening socket, trying different ports in order to find a
     # non busy one.
@@ -646,6 +654,10 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         lappend ::global_overrides $arg
         lappend ::global_overrides $arg2
         incr j 2
+    } elseif {$opt eq {--log-req-res}} {
+        set ::log_req_res 1
+    } elseif {$opt eq {--force-resp3}} {
+        set ::force_resp3 1
     } elseif {$opt eq {--skipfile}} {
         incr j
         set fp [open $arg r]
@@ -720,6 +732,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::durable 1
     } elseif {$opt eq {--dont-clean}} {
         set ::dont_clean 1
+    } elseif {$opt eq {--dont-pre-clean}} {
+        set ::dont_pre_clean 1
     } elseif {$opt eq {--no-latency}} {
         set ::no_latency 1
     } elseif {$opt eq {--wait-server}} {
@@ -797,12 +811,12 @@ if {[llength $filtered_tests] < [llength $::all_tests]} {
     set ::all_tests $filtered_tests
 }
 
-proc attach_to_replication_stream {} {
+proc attach_to_replication_stream_on_connection {conn} {
     r config set repl-ping-replica-period 3600
     if {$::tls} {
-        set s [::tls::socket [srv 0 "host"] [srv 0 "port"]]
+        set s [::tls::socket [srv $conn "host"] [srv $conn "port"]]
     } else {
-        set s [socket [srv 0 "host"] [srv 0 "port"]]
+        set s [socket [srv $conn "host"] [srv $conn "port"]]
     }
     fconfigure $s -translation binary
     puts -nonewline $s "SYNC\r\n"
@@ -827,6 +841,10 @@ proc attach_to_replication_stream {} {
     return $s
 }
 
+proc attach_to_replication_stream {} {
+    return [attach_to_replication_stream_on_connection 0]
+}
+
 proc read_from_replication_stream {s} {
     fconfigure $s -blocking 0
     set attempt 0
@@ -849,9 +867,22 @@ proc read_from_replication_stream {s} {
 }
 
 proc assert_replication_stream {s patterns} {
+    set errors 0
+    set values_list {}
+    set patterns_list {}
     for {set j 0} {$j < [llength $patterns]} {incr j} {
-        assert_match [lindex $patterns $j] [read_from_replication_stream $s]
+        set pattern [lindex $patterns $j]
+        lappend patterns_list $pattern
+        set value [read_from_replication_stream $s]
+        lappend values_list $value
+        if {![string match $pattern $value]} { incr errors }
     }
+
+    if {$errors == 0} { return }
+
+    set context [info frame -1]
+    close_replication_stream $s ;# for fast exit
+    assert_match $patterns_list $values_list "" $context
 }
 
 proc close_replication_stream {s} {

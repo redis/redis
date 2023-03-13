@@ -540,7 +540,7 @@ void sentinelIsRunning(void) {
     }
 
     /* Log its ID to make debugging of issues simpler. */
-    serverLog(LL_WARNING,"Sentinel ID is %s", sentinel.myid);
+    serverLog(LL_NOTICE,"Sentinel ID is %s", sentinel.myid);
 
     /* We want to generate a +monitor event for every configured master
      * at startup. */
@@ -598,11 +598,6 @@ void releaseSentinelAddr(sentinelAddr *sa) {
     zfree(sa);
 }
 
-/* Return non-zero if two addresses are equal. */
-int sentinelAddrIsEqual(sentinelAddr *a, sentinelAddr *b) {
-    return a->port == b->port && !strcasecmp(a->ip,b->ip);
-}
-
 /* Return non-zero if the two addresses are equal, either by address
  * or by hostname if they could not have been resolved.
  */
@@ -616,10 +611,16 @@ int sentinelAddrOrHostnameEqual(sentinelAddr *a, sentinelAddr *b) {
 int sentinelAddrEqualsHostname(sentinelAddr *a, char *hostname) {
     char ip[NET_IP_STR_LEN];
 
-    /* We always resolve the hostname and compare it to the address */
+    /* Try resolve the hostname and compare it to the address */
     if (anetResolve(NULL, hostname, ip, sizeof(ip),
-                    sentinel.resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR)
-        return 0;
+                    sentinel.resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR) {
+
+        /* If failed resolve then compare based on hostnames. That is our best effort as
+         * long as the server is unavailable for some reason. It is fine since Redis 
+         * instance cannot have multiple hostnames for a given setup */
+        return !strcasecmp(sentinel.resolve_hostnames ? a->hostname : a->ip, hostname);
+    }
+    /* Compare based on address */
     return !strcasecmp(a->ip, ip);
 }
 
@@ -1610,7 +1611,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
 
-        if (sentinelAddrIsEqual(slave->addr,newaddr)) continue;
+        if (sentinelAddrOrHostnameEqual(slave->addr,newaddr)) continue;
         slaves[numslaves++] = dupSentinelAddr(slave->addr);
     }
     dictReleaseIterator(di);
@@ -1618,7 +1619,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
     /* If we are switching to a different address, include the old address
      * as a slave as well, so that we'll be able to sense / reconfigure
      * the old master. */
-    if (!sentinelAddrIsEqual(newaddr,master->addr)) {
+    if (!sentinelAddrOrHostnameEqual(newaddr,master->addr)) {
         slaves[numslaves++] = dupSentinelAddr(master->addr);
     }
 
@@ -2169,7 +2170,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
              * slave's address, a failover is in progress and the slave was
              * already successfully promoted. So as the address of this slave
              * we use the old master address instead. */
-            if (sentinelAddrIsEqual(slave_addr,master_addr))
+            if (sentinelAddrOrHostnameEqual(slave_addr,master_addr))
                 slave_addr = master->addr;
             line = sdscatprintf(sdsempty(),
                 "sentinel known-replica %s %s %d",
@@ -2775,7 +2776,9 @@ void sentinelInfoReplyCallback(redisAsyncContext *c, void *reply, void *privdata
     link->pending_commands--;
     r = reply;
 
-    if (r->type == REDIS_REPLY_STRING)
+    /* INFO reply type is verbatim in resp3. Normally, sentinel will not use
+     * resp3 but this is required for testing (see logreqres.c). */
+    if (r->type == REDIS_REPLY_STRING || r->type == REDIS_REPLY_VERB)
         sentinelRefreshInstanceInfo(ri,r->str);
 }
 
@@ -2986,8 +2989,10 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
     ri->link->pc_last_activity = mstime();
 
     /* Sanity check in the reply we expect, so that the code that follows
-     * can avoid to check for details. */
-    if (r->type != REDIS_REPLY_ARRAY ||
+     * can avoid to check for details.
+     * Note: Reply type is PUSH in resp3. Normally, sentinel will not use
+     * resp3 but this is required for testing (see logreqres.c). */
+    if ((r->type != REDIS_REPLY_ARRAY && r->type != REDIS_REPLY_PUSH) ||
         r->elements != 3 ||
         r->element[0]->type != REDIS_REPLY_STRING ||
         r->element[1]->type != REDIS_REPLY_STRING ||
@@ -3176,7 +3181,17 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
 
 /* =========================== SENTINEL command ============================= */
 
-/* SENTINEL CONFIG SET <option> */
+const char* getLogLevel() {
+   switch (server.verbosity) {
+    case LL_DEBUG: return "debug";
+    case LL_VERBOSE: return "verbose";
+    case LL_NOTICE: return "notice";
+    case LL_WARNING: return "warning";
+    }
+    return "unknown";
+}
+
+/* SENTINEL CONFIG SET <option> <value>*/
 void sentinelConfigSetCommand(client *c) {
     robj *o = c->argv[3];
     robj *val = c->argv[4];
@@ -3207,6 +3222,17 @@ void sentinelConfigSetCommand(client *c) {
         sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
             NULL : sdsdup(val->ptr);
         drop_conns = 1;
+    } else if (!strcasecmp(o->ptr, "loglevel")) {
+        if (!strcasecmp(val->ptr, "debug"))
+            server.verbosity = LL_DEBUG;
+        else if (!strcasecmp(val->ptr, "verbose"))
+            server.verbosity = LL_VERBOSE;
+        else if (!strcasecmp(val->ptr, "notice"))
+            server.verbosity = LL_NOTICE;
+        else if (!strcasecmp(val->ptr, "warning"))
+            server.verbosity = LL_WARNING;
+        else
+            goto badfmt;
     } else {
         addReplyErrorFormat(c, "Invalid argument '%s' to SENTINEL CONFIG SET",
                             (char *) o->ptr);
@@ -3269,6 +3295,11 @@ void sentinelConfigGetCommand(client *c) {
         matches++;
     }
 
+    if (stringmatch(pattern, "loglevel", 1)) {
+        addReplyBulkCString(c, "loglevel");
+        addReplyBulkCString(c, getLogLevel());
+        matches++;
+    }
     setDeferredMapLen(c, replylen, matches);
 }
 
@@ -3923,7 +3954,7 @@ NULL
             addReplyError(c,"-NOGOODSLAVE No suitable replica to promote");
             return;
         }
-        serverLog(LL_WARNING,"Executing user requested FAILOVER of '%s'",
+        serverLog(LL_NOTICE,"Executing user requested FAILOVER of '%s'",
             ri->name);
         sentinelStartFailover(ri);
         ri->flags |= SRI_FORCE_FAILOVER;
@@ -4011,7 +4042,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"set")) {
         sentinelSetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"config")) {
-        if (c->argc < 3) goto numargserr;
+        if (c->argc < 4) goto numargserr;
         if (!strcasecmp(c->argv[2]->ptr,"set") && c->argc == 5)
             sentinelConfigSetCommand(c);
         else if (!strcasecmp(c->argv[2]->ptr,"get") && c->argc == 4)
@@ -4558,7 +4589,7 @@ void sentinelReceiveIsMasterDownReply(redisAsyncContext *c, void *reply, void *p
              * replied with a vote. */
             sdsfree(ri->leader);
             if ((long long)ri->leader_epoch != r->element[2]->integer)
-                serverLog(LL_WARNING,
+                serverLog(LL_NOTICE,
                     "%s voted for %s %llu", ri->name,
                     r->element[1]->str,
                     (unsigned long long) r->element[2]->integer);
@@ -4873,7 +4904,7 @@ int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
             ctime_r(&clock,ctimebuf);
             ctimebuf[24] = '\0'; /* Remove newline. */
             master->failover_delay_logged = master->failover_start_time;
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "Next failover delay: I will not start a failover before %s",
                 ctimebuf);
         }

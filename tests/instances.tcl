@@ -102,10 +102,18 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
             puts $cfg [format "tls-client-key-file %s/../../tls/client.key" [pwd]]
             puts $cfg [format "tls-dh-params-file %s/../../tls/redis.dh" [pwd]]
             puts $cfg [format "tls-ca-cert-file %s/../../tls/ca.crt" [pwd]]
-            puts $cfg "loglevel debug"
         } else {
             puts $cfg "port $port"
         }
+
+        if {$::log_req_res} {
+            puts $cfg "req-res-logfile stdout.reqres"
+        }
+
+        if {$::force_resp3} {
+            puts $cfg "client-default-resp 3"
+        }
+
         puts $cfg "repl-diskless-sync-delay 0"
         puts $cfg "dir ./$dirname"
         puts $cfg "logfile log.txt"
@@ -294,6 +302,10 @@ proc parse_options {} {
             set ::stop_on_failure 1
         } elseif {$opt eq {--loop}} {
             set ::loop 1
+        } elseif {$opt eq {--log-req-res}} {
+            set ::log_req_res 1
+        } elseif {$opt eq {--force-resp3}} {
+            set ::force_resp3 1
         } elseif {$opt eq "--help"} {
             puts "--single <pattern>      Only runs tests specified by pattern."
             puts "--dont-clean            Keep log files on exit."

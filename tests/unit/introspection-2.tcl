@@ -2,7 +2,25 @@ proc cmdstat {cmd} {
     return [cmdrstat $cmd r]
 }
 
+proc getlru {key} {
+    set objinfo [r debug object $key]
+    foreach info $objinfo {
+        set kvinfo [split $info ":"]
+        if {[string compare [lindex $kvinfo 0] "lru"] == 0} {
+            return [lindex $kvinfo 1]
+        }
+    }
+    fail "Can't get LRU info with DEBUG OBJECT"
+}
+
 start_server {tags {"introspection"}} {
+    test {The microsecond part of the TIME command will not overflow} {
+        set now [r time]
+        set microseconds [lindex $now 1]
+        assert_morethan $microseconds 0
+        assert_lessthan $microseconds 1000000
+    }
+
     test {TTL, TYPE and EXISTS do not alter the last access time of a key} {
         r set foo bar
         after 3000
@@ -18,6 +36,20 @@ start_server {tags {"introspection"}} {
         r touch foo
         assert {[r object idletime foo] < 2}
     }
+
+    test {Operations in no-touch mode do not alter the last access time of a key} {
+        r set foo bar
+        r client no-touch on
+        set oldlru [getlru foo]
+        after 1100
+        r get foo
+        set newlru [getlru foo]
+        assert_equal $newlru $oldlru
+        r client no-touch off
+        r get foo
+        set newlru [getlru foo]
+        assert_morethan $newlru $oldlru
+    } {} {needs:debug}
 
     test {TOUCH returns the number of existing keys specified} {
         r flushdb

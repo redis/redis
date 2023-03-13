@@ -6,10 +6,11 @@ set server_path [tmpdir "server.rdb-encoding-test"]
 exec cp tests/assets/encodings.rdb $server_path
 exec cp tests/assets/list-quicklist.rdb $server_path
 
-start_server [list overrides [list "dir" $server_path "dbfilename" "list-quicklist.rdb"]] {
+start_server [list overrides [list "dir" $server_path "dbfilename" "list-quicklist.rdb" save ""]] {
     test "test old version rdb file" {
         r select 0
         assert_equal [r get x] 7
+        assert_encoding listpack list
         r lpop list
     } {7}
 }
@@ -217,6 +218,7 @@ start_server {} {
     test {Test RDB load info} {
         r debug populate 1000
         r save
+        assert {[r lastsave] <= [lindex [r time] 0]}
         restart_server 0 true false
         wait_done_loading r
         assert {[s rdb_last_load_keys_expired] == 0}

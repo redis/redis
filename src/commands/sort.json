@@ -133,6 +133,30 @@
                 "key_spec_index": 2,
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "when the store option is specified the command returns the number of sorted elements in the destination list",
+                    "type": "integer",
+                    "minimum": 0
+                },
+                {
+                    "description": "when not passing the store option the command returns a list of sorted elements",
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "description": "GET option is specified, but no object was found ",
+                                "type": "null"
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
     }
 }

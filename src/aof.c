@@ -925,7 +925,7 @@ void aof_background_fsync(int fd) {
 
 /* Close the fd on the basis of aof_background_fsync. */
 void aof_background_fsync_and_close(int fd) {
-    bioCreateCloseJob(fd, 1);
+    bioCreateCloseJob(fd, 1, 1);
 }
 
 /* Kills an AOFRW child process if exists */
@@ -975,16 +975,16 @@ int startAppendOnly(void) {
     server.aof_state = AOF_WAIT_REWRITE;
     if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
         server.aof_rewrite_scheduled = 1;
-        serverLog(LL_WARNING,"AOF was enabled but there is already another background operation. An AOF background was scheduled to start when possible.");
+        serverLog(LL_NOTICE,"AOF was enabled but there is already another background operation. An AOF background was scheduled to start when possible.");
     } else if (server.in_exec){
         server.aof_rewrite_scheduled = 1;
-        serverLog(LL_WARNING,"AOF was enabled during a transaction. An AOF background was scheduled to start when possible.");
+        serverLog(LL_NOTICE,"AOF was enabled during a transaction. An AOF background was scheduled to start when possible.");
     } else {
         /* If there is a pending AOF rewrite, we need to switch it off and
          * start a new one: the old one cannot be reused because it is not
          * accumulating the AOF buffer. */
         if (server.child_type == CHILD_TYPE_AOF) {
-            serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
+            serverLog(LL_NOTICE,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
             killAppendOnlyChild();
         }
 
@@ -1201,7 +1201,7 @@ void flushAppendOnlyFile(int force) {
         /* Successful write(2). If AOF was in error state, restore the
          * OK state and log the event. */
         if (server.aof_last_write_status == C_ERR) {
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "AOF write error looks solved, Redis can write again.");
             server.aof_last_write_status = C_OK;
         }
@@ -1413,8 +1413,10 @@ int loadSingleAppendOnlyFile(char *filename) {
      * to the same file we're about to read. */
     server.aof_state = AOF_OFF;
 
-    client *old_client = server.current_client;
-    fakeClient = server.current_client = createAOFClient();
+    client *old_cur_client = server.current_client;
+    client *old_exec_client = server.executing_client;
+    fakeClient = createAOFClient();
+    server.current_client = server.executing_client = fakeClient;
 
     /* Check if the AOF file is in RDB format (it may be RDB encoded base AOF
      * or old style RDB-preamble AOF). In that case we need to load the RDB file 
@@ -1622,7 +1624,8 @@ fmterr: /* Format error. */
 
 cleanup:
     if (fakeClient) freeClient(fakeClient);
-    server.current_client = old_client;
+    server.current_client = old_cur_client;
+    server.executing_client = old_exec_client;
     fclose(fp);
     sdsfree(aof_filepath);
     return ret;
@@ -1694,6 +1697,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
         /* If the truncated file is not the last file, we consider this to be a fatal error. */
         if (ret == AOF_TRUNCATED && !last_file) {
             ret = AOF_FAILED;
+            serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
         }
 
         if (ret == AOF_OPEN_ERR || ret == AOF_FAILED) {
@@ -1724,8 +1728,10 @@ int loadAppendOnlyFiles(aofManifest *am) {
              * so empty incr AOF file doesn't count as a AOF_EMPTY result */
             if (ret == AOF_EMPTY) ret = AOF_OK;
 
+            /* If the truncated file is not the last file, we consider this to be a fatal error. */
             if (ret == AOF_TRUNCATED && !last_file) {
                 ret = AOF_FAILED;
+                serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
             }
 
             if (ret == AOF_OPEN_ERR || ret == AOF_FAILED) {
@@ -1775,42 +1781,40 @@ int rioWriteBulkObject(rio *r, robj *obj) {
 int rewriteListObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = listTypeLength(o);
 
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklist *list = o->ptr;
-        quicklistIter *li = quicklistGetIterator(list, AL_START_HEAD);
-        quicklistEntry entry;
-
-        while (quicklistNext(li,&entry)) {
-            if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
-                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
-                    !rioWriteBulkString(r,"RPUSH",5) ||
-                    !rioWriteBulkObject(r,key)) 
-                {
-                    quicklistReleaseIterator(li);
-                    return 0;
-                }
+    listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
+    listTypeEntry entry;
+    while (listTypeNext(li,&entry)) {
+        if (count == 0) {
+            int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
+                AOF_REWRITE_ITEMS_PER_CMD : items;
+            if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                !rioWriteBulkString(r,"RPUSH",5) ||
+                !rioWriteBulkObject(r,key)) 
+            {
+                listTypeReleaseIterator(li);
+                return 0;
             }
-
-            if (entry.value) {
-                if (!rioWriteBulkString(r,(char*)entry.value,entry.sz)) {
-                    quicklistReleaseIterator(li);
-                    return 0;
-                }
-            } else {
-                if (!rioWriteBulkLongLong(r,entry.longval)) {
-                    quicklistReleaseIterator(li);
-                    return 0;
-                }
-            }
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-            items--;
         }
-        quicklistReleaseIterator(li);
-    } else {
-        serverPanic("Unknown list encoding");
+
+        unsigned char *vstr;
+        size_t vlen;
+        long long lval;
+        vstr = listTypeGetValue(&entry,&vlen,&lval);
+        if (vstr) {
+            if (!rioWriteBulkString(r,(char*)vstr,vlen)) {
+                listTypeReleaseIterator(li);
+                return 0;
+            }
+        } else {
+            if (!rioWriteBulkLongLong(r,lval)) {
+                listTypeReleaseIterator(li);
+                return 0;
+            }
+        }
+        if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+        items--;
     }
+    listTypeReleaseIterator(li);
     return 1;
 }
 
@@ -1818,56 +1822,31 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
  * The function returns 0 on error, 1 on success. */
 int rewriteSetObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = setTypeSize(o);
-
-    if (o->encoding == OBJ_ENCODING_INTSET) {
-        int ii = 0;
-        int64_t llval;
-
-        while(intsetGet(o->ptr,ii++,&llval)) {
-            if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
-
-                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
-                    !rioWriteBulkString(r,"SADD",4) ||
-                    !rioWriteBulkObject(r,key)) 
-                {
-                    return 0;
-                }
+    setTypeIterator *si = setTypeInitIterator(o);
+    char *str;
+    size_t len;
+    int64_t llval;
+    while (setTypeNext(si, &str, &len, &llval) != -1) {
+        if (count == 0) {
+            int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
+                AOF_REWRITE_ITEMS_PER_CMD : items;
+            if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                !rioWriteBulkString(r,"SADD",4) ||
+                !rioWriteBulkObject(r,key))
+            {
+                return 0;
             }
-            if (!rioWriteBulkLongLong(r,llval)) return 0;
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-            items--;
         }
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        dictIterator *di = dictGetIterator(o->ptr);
-        dictEntry *de;
-
-        while((de = dictNext(di)) != NULL) {
-            sds ele = dictGetKey(de);
-            if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
-
-                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
-                    !rioWriteBulkString(r,"SADD",4) ||
-                    !rioWriteBulkObject(r,key)) 
-                {
-                    dictReleaseIterator(di);
-                    return 0;
-                }
-            }
-            if (!rioWriteBulkString(r,ele,sdslen(ele))) {
-                dictReleaseIterator(di);
-                return 0;          
-            }
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-            items--;
+        size_t written = str ?
+            rioWriteBulkString(r, str, len) : rioWriteBulkLongLong(r, llval);
+        if (!written) {
+            setTypeReleaseIterator(si);
+            return 0;
         }
-        dictReleaseIterator(di);
-    } else {
-        serverPanic("Unknown set encoding");
+        if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+        items--;
     }
+    setTypeReleaseIterator(si);
     return 1;
 }
 
@@ -2366,8 +2345,10 @@ int rewriteAppendOnlyFile(char *filename) {
 
     rioInitWithFile(&aof,fp);
 
-    if (server.aof_rewrite_incremental_fsync)
+    if (server.aof_rewrite_incremental_fsync) {
         rioSetAutoSync(&aof,REDIS_AUTOSYNC_BYTES);
+        rioSetReclaimCache(&aof,1);
+    }
 
     startSaving(RDBFLAGS_AOF_PREAMBLE);
 
@@ -2384,6 +2365,10 @@ int rewriteAppendOnlyFile(char *filename) {
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp)) goto werr;
     if (fsync(fileno(fp))) goto werr;
+    if (reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
+        /* A minor error. Just log to know what happens */
+        serverLog(LL_NOTICE,"Unable to reclaim page cache: %s", strerror(errno));
+    }
     if (fclose(fp)) { fp = NULL; goto werr; }
     fp = NULL;
 

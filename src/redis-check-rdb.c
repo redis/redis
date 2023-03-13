@@ -97,7 +97,8 @@ char *rdb_type_string[] = {
     "stream",
     "hash-listpack",
     "zset-listpack",
-    "quicklist-v2"
+    "quicklist-v2",
+    "set-listpack",
 };
 
 /* Show a few stats collected into 'rdbstate' */

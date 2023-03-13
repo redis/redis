@@ -9,6 +9,10 @@ start_server {tags {"incr"}} {
         r incr novar
     } {2}
 
+    test {DECR against key created by incr} {
+        r decr novar
+    } {1}
+
     test {INCR against key originally set with SET} {
         r set novar 100
         r incr novar
@@ -63,18 +67,18 @@ start_server {tags {"incr"}} {
     test {INCR uses shared objects in the 0-9999 range} {
         r set foo -1
         r incr foo
-        assert {[r object refcount foo] > 1}
+        assert_refcount_morethan foo 1
         r set foo 9998
         r incr foo
-        assert {[r object refcount foo] > 1}
+        assert_refcount_morethan foo 1
         r incr foo
-        assert {[r object refcount foo] == 1}
-    } {} {needs:debug}
+        assert_refcount 1 foo
+    }
 
     test {INCR can modify objects in-place} {
         r set foo 20000
         r incr foo
-        assert {[r object refcount foo] == 1}
+        assert_refcount 1 foo
         set old [lindex [split [r debug object foo]] 1]
         r incr foo
         set new [lindex [split [r debug object foo]] 1]

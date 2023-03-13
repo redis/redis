@@ -45,7 +45,7 @@
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(connection *conn);
 void replicationSendAck(void);
-void replicaPutOnline(client *slave);
+int replicaPutOnline(client *slave);
 void replicaStartCommandStream(client *slave);
 int cancelReplicationHandshake(int reconnect);
 
@@ -111,7 +111,7 @@ int bg_unlink(const char *filename) {
             errno = old_errno;
             return -1;
         }
-        bioCreateCloseJob(fd, 0);
+        bioCreateCloseJob(fd, 0, 0);
         return 0; /* Success. */
     }
 }
@@ -335,86 +335,94 @@ void feedReplicationBuffer(char *s, size_t len) {
     server.master_repl_offset += len;
     server.repl_backlog->histlen += len;
 
-    size_t start_pos = 0; /* The position of referenced block to start sending. */
-    listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
-    int add_new_block = 0; /* Create new block if current block is total used. */
-    listNode *ln = listLast(server.repl_buffer_blocks);
-    replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
+    while(len > 0) {
+        size_t start_pos = 0; /* The position of referenced block to start sending. */
+        listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
+        int add_new_block = 0; /* Create new block if current block is total used. */
+        listNode *ln = listLast(server.repl_buffer_blocks);
+        replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
 
-    /* Append to tail string when possible. */
-    if (tail && tail->size > tail->used) {
-        start_node = listLast(server.repl_buffer_blocks);
-        start_pos = tail->used;
-        /* Copy the part we can fit into the tail, and leave the rest for a
-         * new node */
-        size_t avail = tail->size - tail->used;
-        size_t copy = (avail >= len) ? len : avail;
-        memcpy(tail->buf + tail->used, s, copy);
-        tail->used += copy;
-        s += copy;
-        len -= copy;
-    }
-    if (len) {
-        /* Create a new node, make sure it is allocated to at
-         * least PROTO_REPLY_CHUNK_BYTES */
-        size_t usable_size;
-        size_t size = (len < PROTO_REPLY_CHUNK_BYTES) ? PROTO_REPLY_CHUNK_BYTES : len;
-        tail = zmalloc_usable(size + sizeof(replBufBlock), &usable_size);
-        /* Take over the allocation's internal fragmentation */
-        tail->size = usable_size - sizeof(replBufBlock);
-        tail->used = len;
-        tail->refcount = 0;
-        tail->repl_offset = server.master_repl_offset - tail->used + 1;
-        tail->id = repl_block_id++;
-        memcpy(tail->buf, s, len);
-        listAddNodeTail(server.repl_buffer_blocks, tail);
-        /* We also count the list node memory into replication buffer memory. */
-        server.repl_buffer_mem += (usable_size + sizeof(listNode));
-        add_new_block = 1;
-        if (start_node == NULL) {
+        /* Append to tail string when possible. */
+        if (tail && tail->size > tail->used) {
             start_node = listLast(server.repl_buffer_blocks);
-            start_pos = 0;
+            start_pos = tail->used;
+            /* Copy the part we can fit into the tail, and leave the rest for a
+             * new node */
+            size_t avail = tail->size - tail->used;
+            size_t copy = (avail >= len) ? len : avail;
+            memcpy(tail->buf + tail->used, s, copy);
+            tail->used += copy;
+            s += copy;
+            len -= copy;
         }
-    }
+        if (len) {
+            /* Create a new node, make sure it is allocated to at
+             * least PROTO_REPLY_CHUNK_BYTES */
+            size_t usable_size;
+            /* Avoid creating nodes smaller than PROTO_REPLY_CHUNK_BYTES, so that we can append more data into them,
+             * and also avoid creating nodes bigger than repl_backlog_size / 16, so that we won't have huge nodes that can't
+             * trim when we only still need to hold a small portion from them. */
+            size_t size = min(max(len, (size_t)PROTO_REPLY_CHUNK_BYTES), (size_t)server.repl_backlog_size / 16);
+            tail = zmalloc_usable(size + sizeof(replBufBlock), &usable_size);
+            /* Take over the allocation's internal fragmentation */
+            tail->size = usable_size - sizeof(replBufBlock);
+            size_t copy = (tail->size >= len) ? len : tail->size;
+            tail->used = copy;
+            tail->refcount = 0;
+            tail->repl_offset = server.master_repl_offset - tail->used + 1;
+            tail->id = repl_block_id++;
+            memcpy(tail->buf, s, copy);
+            listAddNodeTail(server.repl_buffer_blocks, tail);
+            /* We also count the list node memory into replication buffer memory. */
+            server.repl_buffer_mem += (usable_size + sizeof(listNode));
+            add_new_block = 1;
+            if (start_node == NULL) {
+                start_node = listLast(server.repl_buffer_blocks);
+                start_pos = 0;
+            }
+            s += copy;
+            len -= copy;
+        }
 
-    /* For output buffer of replicas. */
-    listIter li;
-    listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
-        if (!canFeedReplicaReplBuffer(slave)) continue;
+        /* For output buffer of replicas. */
+        listIter li;
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            client *slave = ln->value;
+            if (!canFeedReplicaReplBuffer(slave)) continue;
 
-        /* Update shared replication buffer start position. */
-        if (slave->ref_repl_buf_node == NULL) {
-            slave->ref_repl_buf_node = start_node;
-            slave->ref_block_pos = start_pos;
+            /* Update shared replication buffer start position. */
+            if (slave->ref_repl_buf_node == NULL) {
+                slave->ref_repl_buf_node = start_node;
+                slave->ref_block_pos = start_pos;
+                /* Only increase the start block reference count. */
+                ((replBufBlock *)listNodeValue(start_node))->refcount++;
+            }
+
+            /* Check output buffer limit only when add new block. */
+            if (add_new_block) closeClientOnOutputBufferLimitReached(slave, 1);
+        }
+
+        /* For replication backlog */
+        if (server.repl_backlog->ref_repl_buf_node == NULL) {
+            server.repl_backlog->ref_repl_buf_node = start_node;
             /* Only increase the start block reference count. */
             ((replBufBlock *)listNodeValue(start_node))->refcount++;
+
+            /* Replication buffer must be empty before adding replication stream
+             * into replication backlog. */
+            serverAssert(add_new_block == 1 && start_pos == 0);
         }
-
-        /* Check output buffer limit only when add new block. */
-        if (add_new_block) closeClientOnOutputBufferLimitReached(slave, 1);
+        if (add_new_block) {
+            createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
+        }
+        /* Try to trim replication backlog since replication backlog may exceed
+         * our setting when we add replication stream. Note that it is important to
+         * try to trim at least one node since in the common case this is where one
+         * new backlog node is added and one should be removed. See also comments
+         * in freeMemoryGetNotCountedMemory for details. */
+        incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
     }
-
-    /* For replication backlog */
-    if (server.repl_backlog->ref_repl_buf_node == NULL) {
-        server.repl_backlog->ref_repl_buf_node = start_node;
-        /* Only increase the start block reference count. */
-        ((replBufBlock *)listNodeValue(start_node))->refcount++;
-
-        /* Replication buffer must be empty before adding replication stream
-         * into replication backlog. */
-        serverAssert(add_new_block == 1 && start_pos == 0);
-    }
-    if (add_new_block) {
-        createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
-    }
-    /* Try to trim replication backlog since replication backlog may exceed
-     * our setting when we add replication stream. Note that it is important to
-     * try to trim at least one node since in the common case this is where one
-     * new backlog node is added and one should be removed. See also comments
-     * in freeMemoryGetNotCountedMemory for details. */
-    incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
 }
 
 /* Propagate write commands to replication stream.
@@ -528,7 +536,7 @@ void showLatestBacklog(void) {
 
     /* Finally log such bytes: this is vital debugging info to
      * understand what happened. */
-    serverLog(LL_WARNING,"Latest backlog is: '%s'", dump);
+    serverLog(LL_NOTICE,"Latest backlog is: '%s'", dump);
     sdsfree(dump);
 }
 
@@ -593,7 +601,6 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
         addReply(monitor,cmdobj);
-        updateClientMemUsage(c);
     }
     decrRefCount(cmdobj);
 }
@@ -859,8 +866,10 @@ int startBgsaveForReplication(int mincapa, int req) {
     if (rsiptr) {
         if (socket_target)
             retval = rdbSaveToSlavesSockets(req,rsiptr);
-        else
-            retval = rdbSaveBackground(req,server.rdb_filename,rsiptr);
+        else {
+            /* Keep the page cache since it'll get used soon */
+            retval = rdbSaveBackground(req,server.rdb_filename,rsiptr,RDBFLAGS_KEEP_CACHE);
+        }
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
         retval = C_ERR;
@@ -924,7 +933,7 @@ void syncCommand(client *c) {
     if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") && 
         !strcasecmp(c->argv[3]->ptr,"failover"))
     {
-        serverLog(LL_WARNING, "Failover request received for replid %s.",
+        serverLog(LL_NOTICE, "Failover request received for replid %s.",
             (unsigned char *)c->argv[1]->ptr);
         if (!server.masterhost) {
             addReplyError(c, "PSYNC FAILOVER can't be sent to a master.");
@@ -1260,12 +1269,19 @@ void replconfCommand(client *c) {
  * It does a few things:
  * 1) Put the slave in ONLINE state.
  * 2) Update the count of "good replicas".
- * 3) Trigger the module event. */
-void replicaPutOnline(client *slave) {
+ * 3) Trigger the module event.
+ *
+ * the return value indicates that the replica should be disconnected.
+ * */
+int replicaPutOnline(client *slave) {
     if (slave->flags & CLIENT_REPL_RDBONLY) {
-        return;
+        slave->replstate = SLAVE_STATE_RDB_TRANSMITTED;
+        /* The client asked for RDB only so we should close it ASAP */
+        serverLog(LL_NOTICE,
+                  "RDB transfer completed, rdb only replica (%s) should be disconnected asap",
+                  replicationGetSlaveName(slave));
+        return 0;
     }
-
     slave->replstate = SLAVE_STATE_ONLINE;
     slave->repl_ack_time = server.unixtime; /* Prevent false timeout. */
 
@@ -1276,6 +1292,7 @@ void replicaPutOnline(client *slave) {
                           NULL);
     serverLog(LL_NOTICE,"Synchronization with replica %s succeeded",
         replicationGetSlaveName(slave));
+    return 1;
 }
 
 /* This function should be called just after a replica received the RDB file
@@ -1290,14 +1307,8 @@ void replicaPutOnline(client *slave) {
  *    accumulate output buffer data without sending it to the replica so it
  *    won't get mixed with the RDB stream. */
 void replicaStartCommandStream(client *slave) {
+    serverAssert(!(slave->flags & CLIENT_REPL_RDBONLY));
     slave->repl_start_cmd_stream_on_ack = 0;
-    if (slave->flags & CLIENT_REPL_RDBONLY) {
-        serverLog(LL_NOTICE,
-            "Close the connection with replica %s as RDB transfer is complete",
-            replicationGetSlaveName(slave));
-        freeClientAsync(slave);
-        return;
-    }
 
     putClientInPendingWriteQueue(slave);
 }
@@ -1349,6 +1360,29 @@ void removeRDBUsedToSyncReplicas(void) {
     }
 }
 
+/* Close the repldbfd and reclaim the page cache if the client hold
+ * the last reference to replication DB */
+void closeRepldbfd(client *myself) {
+    listNode *ln;
+    listIter li;
+    int reclaim = 1;
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+        if (slave != myself && slave->replstate == SLAVE_STATE_SEND_BULK) {
+            reclaim = 0;
+            break;
+        }
+    }
+
+    if (reclaim) {
+        bioCreateCloseJob(myself->repldbfd, 0, 1);
+    } else {
+        close(myself->repldbfd);
+    }
+    myself->repldbfd = -1;
+}
+
 void sendBulkToSlave(connection *conn) {
     client *slave = connGetPrivateData(conn);
     char buf[PROTO_IOBUF_LEN];
@@ -1397,10 +1431,12 @@ void sendBulkToSlave(connection *conn) {
     slave->repldboff += nwritten;
     atomicIncr(server.stat_net_repl_output_bytes, nwritten);
     if (slave->repldboff == slave->repldbsize) {
-        close(slave->repldbfd);
-        slave->repldbfd = -1;
+        closeRepldbfd(slave);
         connSetWriteHandler(slave->conn,NULL);
-        replicaPutOnline(slave);
+        if (!replicaPutOnline(slave)) {
+            freeClient(slave);
+            return;
+        }
         replicaStartCommandStream(slave);
     }
 }
@@ -1487,7 +1523,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                     continue;
                 stillUp++;
             }
-            serverLog(LL_WARNING,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
+            serverLog(LL_NOTICE,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
             /* Now that the replicas have finished reading, notify the child that it's safe to exit. 
              * When the server detects the child has exited, it can mark the replica as online, and
              * start streaming the replication buffers. */
@@ -1576,7 +1612,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
              * the slave online. */
             if (type == RDB_CHILD_TYPE_SOCKET) {
                 serverLog(LL_NOTICE,
-                    "Streamed RDB transfer with replica %s succeeded (socket). Waiting for REPLCONF ACK from slave to enable streaming",
+                    "Streamed RDB transfer with replica %s succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming",
                         replicationGetSlaveName(slave));
                 /* Note: we wait for a REPLCONF ACK message from the replica in
                  * order to really put it online (install the write handler
@@ -1603,7 +1639,10 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                  * after such final EOF. So we don't want to glue the end of
                  * the RDB transfer with the start of the other replication
                  * data. */
-                replicaPutOnline(slave);
+                if (!replicaPutOnline(slave)) {
+                    freeClientAsync(slave);
+                    continue;
+                }
                 slave->repl_start_cmd_stream_on_ack = 1;
             } else {
                 if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
@@ -1662,7 +1701,7 @@ void shiftReplicationId(void) {
      * byte, and is asking for the new bytes starting at offset 51. */
     server.second_replid_offset = server.master_repl_offset+1;
     changeReplicationId();
-    serverLog(LL_WARNING,"Setting secondary replication ID to %s, valid up to offset: %lld. New replication ID is %s", server.replid2, server.second_replid_offset, server.replid);
+    serverLog(LL_NOTICE,"Setting secondary replication ID to %s, valid up to offset: %lld. New replication ID is %s", server.replid2, server.second_replid_offset, server.replid);
 }
 
 /* ----------------------------------- SLAVE -------------------------------- */
@@ -1763,13 +1802,13 @@ static int useDisklessLoad() {
     if (enabled) {
         /* Check all modules handle read errors, otherwise it's not safe to use diskless load. */
         if (!moduleAllDatatypesHandleErrors()) {
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "Skipping diskless-load because there are modules that don't handle read errors.");
             enabled = 0;
         }
         /* Check all modules handle async replication, otherwise it's not safe to use diskless load. */
         else if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB && !moduleAllModulesHandleReplAsyncLoad()) {
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "Skipping diskless-load because there are modules that are not aware of async replication.");
             enabled = 0;
         }
@@ -1829,7 +1868,7 @@ void readSyncBulkPayload(connection *conn) {
         if (nread == -1) {
             serverLog(LL_WARNING,
                 "I/O error reading bulk count from MASTER: %s",
-                strerror(errno));
+                connGetLastError(conn));
             goto error;
         } else {
             /* nread here is returned by connSyncReadLine(), which calls syncReadLine() and
@@ -1901,7 +1940,7 @@ void readSyncBulkPayload(connection *conn) {
                 return;
             }
             serverLog(LL_WARNING,"I/O error trying to sync with MASTER: %s",
-                (nread == -1) ? strerror(errno) : "connection lost");
+                (nread == -1) ? connGetLastError(conn) : "connection lost");
             cancelReplicationHandshake(1);
             return;
         }
@@ -2157,7 +2196,7 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
         /* Close old rdb asynchronously. */
-        if (old_rdb_fd != -1) bioCreateCloseJob(old_rdb_fd, 0);
+        if (old_rdb_fd != -1) bioCreateCloseJob(old_rdb_fd, 0, 0);
 
         /* Sync the directory to ensure rename is persisted */
         if (fsyncFileDir(server.rdb_filename) == -1) {
@@ -2194,7 +2233,6 @@ void readSyncBulkPayload(connection *conn) {
         }
 
         zfree(server.repl_transfer_tmpfile);
-        close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
         server.repl_transfer_tmpfile = NULL;
     }
@@ -2246,7 +2284,7 @@ char *receiveSynchronousResponse(connection *conn) {
     /* Read the reply from the server. */
     if (connSyncReadLine(conn,buf,sizeof(buf),server.repl_syncio_timeout*1000) == -1)
     {
-        serverLog(LL_WARNING, "Failed to read response from the server: %s", strerror(errno));
+        serverLog(LL_WARNING, "Failed to read response from the server: %s", connGetLastError(conn));
         return NULL;
     }
     server.repl_transfer_lastio = server.unixtime;
@@ -2497,7 +2535,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
             if (strcmp(new,server.cached_master->replid)) {
                 /* Master ID changed. */
-                serverLog(LL_WARNING,"Master replication ID changed to %s",new);
+                serverLog(LL_NOTICE,"Master replication ID changed to %s",new);
 
                 /* Set the old ID as our ID2, up to the current offset+1. */
                 memcpy(server.replid2,server.cached_master->replid,
@@ -2807,7 +2845,7 @@ void syncWithMaster(connection *conn) {
         serverLog(LL_NOTICE,"Retrying with SYNC...");
         if (connSyncWrite(conn,"SYNC\r\n",6,server.repl_syncio_timeout*1000) == -1) {
             serverLog(LL_WARNING,"I/O error writing to MASTER: %s",
-                strerror(errno));
+                connGetLastError(conn));
             goto error;
         }
     }
@@ -3473,11 +3511,7 @@ void waitCommand(client *c) {
 
     /* Otherwise block the client and put it into our list of clients
      * waiting for ack from slaves. */
-    c->bpop.timeout = timeout;
-    c->bpop.reploffset = offset;
-    c->bpop.numreplicas = numreplicas;
-    listAddNodeHead(server.clients_waiting_acks,c);
-    blockClient(c,BLOCKED_WAIT);
+    blockForReplication(c,timeout,offset,numreplicas);
 
     /* Make sure that the server will send an ACK request to all the slaves
      * before returning to the event loop. */
@@ -3511,19 +3545,21 @@ void processClientsWaitingReplicas(void) {
          * offset and number of replicas, we remember it so the next client
          * may be unblocked without calling replicationCountAcksByOffset()
          * if the requested offset / replicas were equal or less. */
-        if (last_offset && last_offset >= c->bpop.reploffset &&
-                           last_numreplicas >= c->bpop.numreplicas)
+        if (last_offset && last_offset >= c->bstate.reploffset &&
+                           last_numreplicas >= c->bstate.numreplicas)
         {
-            unblockClient(c);
+            /* Reply before unblocking, because unblock client calls reqresAppendResponse */
             addReplyLongLong(c,last_numreplicas);
+            unblockClient(c);
         } else {
-            int numreplicas = replicationCountAcksByOffset(c->bpop.reploffset);
+            int numreplicas = replicationCountAcksByOffset(c->bstate.reploffset);
 
-            if (numreplicas >= c->bpop.numreplicas) {
-                last_offset = c->bpop.reploffset;
+            if (numreplicas >= c->bstate.numreplicas) {
+                last_offset = c->bstate.reploffset;
                 last_numreplicas = numreplicas;
-                unblockClient(c);
+                /* Reply before unblocking, because unblock client calls reqresAppendResponse */
                 addReplyLongLong(c,numreplicas);
+                unblockClient(c);
             }
         }
     }
@@ -3619,7 +3655,7 @@ void replicationCron(void) {
             ((server.cluster_enabled &&
               server.cluster->mf_end) ||
             server.failover_end_time) &&
-            checkClientPauseTimeoutAndReturnIfPaused();
+            isPausedActionsWithUpdate(PAUSE_ACTION_REPLICA);
 
         if (!manual_failover_in_progress) {
             ping_argv[0] = shared.ping;
@@ -3857,7 +3893,7 @@ void clearFailoverState() {
     server.target_replica_host = NULL;
     server.target_replica_port = 0;
     server.failover_state = NO_FAILOVER;
-    unpauseClients(PAUSE_DURING_FAILOVER);
+    unpauseActions(PAUSE_DURING_FAILOVER);
 }
 
 /* Abort an ongoing failover if one is going on. */
@@ -3998,7 +4034,7 @@ void failoverCommand(client *c) {
         serverLog(LL_NOTICE,"FAILOVER requested to any replica.");
     }
 
-    mstime_t now = mstime();
+    mstime_t now = commandTimeSnapshot();
     if (timeout_in_ms) {
         server.failover_end_time = now + timeout_in_ms;
     }
@@ -4006,7 +4042,9 @@ void failoverCommand(client *c) {
     server.force_failover = force_flag;
     server.failover_state = FAILOVER_WAIT_FOR_SYNC;
     /* Cluster failover will unpause eventually */
-    pauseClients(PAUSE_DURING_FAILOVER, LLONG_MAX, CLIENT_PAUSE_WRITE);
+    pauseActions(PAUSE_DURING_FAILOVER,
+                 LLONG_MAX,
+                 PAUSE_ACTIONS_CLIENT_WRITE_SET);
     addReply(c,shared.ok);
 }
 

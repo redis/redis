@@ -34,6 +34,8 @@
 #include "crc64.h"
 #include "bio.h"
 #include "quicklist.h"
+#include "fpconv_dtoa.h"
+#include "cluster.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -188,8 +190,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                     ll2string(buf,sizeof(buf),vll);
                     mixDigest(eledigest,buf,strlen(buf));
                 }
-
-                snprintf(buf,sizeof(buf),"%.17g",score);
+                const int len = fpconv_dtoa(score, buf);
+                buf[len] = '\0';
                 mixDigest(eledigest,buf,strlen(buf));
                 xorDigest(digest,eledigest,20);
                 zzlNext(zl,&eptr,&sptr);
@@ -202,8 +204,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             while((de = dictNext(di)) != NULL) {
                 sds sdsele = dictGetKey(de);
                 double *score = dictGetVal(de);
-
-                snprintf(buf,sizeof(buf),"%.17g",*score);
+                const int len = fpconv_dtoa(*score, buf);
+                buf[len] = '\0';
                 memset(eledigest,0,20);
                 mixDigest(eledigest,sdsele,sdslen(sdsele));
                 mixDigest(eledigest,buf,strlen(buf));
@@ -490,6 +492,8 @@ void debugCommand(client *c) {
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the reply buffer resize cron job",
+"CLUSTERLINK KILL <to|from|all> <node-id>",
+"    Kills the link based on the direction to/from (both) with the provided node." ,
 NULL
         };
         addReplyHelp(c, help);
@@ -553,7 +557,7 @@ NULL
         if (save) {
             rdbSaveInfo rsi, *rsiptr;
             rsiptr = rdbPopulateSaveInfo(&rsi);
-            if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) != C_OK) {
+            if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE) != C_OK) {
                 addReplyErrorObject(c,shared.err);
                 return;
             }
@@ -571,7 +575,7 @@ NULL
             addReplyError(c,"Error trying to load the RDB dump, check server logs.");
             return;
         }
-        serverLog(LL_WARNING,"DB reloaded by DEBUG RELOAD");
+        serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
@@ -581,11 +585,13 @@ NULL
         aofLoadManifestFromDisk();
         aofDelHistoryFiles();
         int ret = loadAppendOnlyFiles(server.aof_manifest);
-        if (ret != AOF_OK && ret != AOF_EMPTY)
-            exit(1);
         unprotectClient(c);
+        if (ret != AOF_OK && ret != AOF_EMPTY) {
+            addReplyError(c, "Error trying to load the AOF files, check server logs.");
+            return;
+        }
         server.dirty = 0; /* Prevent AOF / replication */
-        serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
+        serverLog(LL_NOTICE,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"drop-cluster-packet-filter") && c->argc == 3) {
         long packet_type;
@@ -801,9 +807,12 @@ NULL
                 addReplyError(c,"RESP2 is not supported by this command");
                 return;
 	    }
+            uint64_t old_flags = c->flags;
+            c->flags |= CLIENT_PUSHING;
             addReplyPushLen(c,2);
             addReplyBulkCString(c,"server-cpu-usage");
             addReplyLongLong(c,42);
+            if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
             /* Push replies are not synchronous replies, so we emit also a
              * normal reply in order for blocking clients just discarding the
              * push reply, to actually consume the reply and continue. */
@@ -866,7 +875,7 @@ NULL
         sds sizes = sdsempty();
         sizes = sdscatprintf(sizes,"bits:%d ",(sizeof(void*) == 8)?64:32);
         sizes = sdscatprintf(sizes,"robj:%d ",(int)sizeof(robj));
-        sizes = sdscatprintf(sizes,"dictentry:%d ",(int)sizeof(dictEntry));
+        sizes = sdscatprintf(sizes,"dictentry:%d ",(int)dictEntryMemUsage());
         sizes = sdscatprintf(sizes,"sdshdr5:%d ",(int)sizeof(struct sdshdr5));
         sizes = sdscatprintf(sizes,"sdshdr8:%d ",(int)sizeof(struct sdshdr8));
         sizes = sdscatprintf(sizes,"sdshdr16:%d ",(int)sizeof(struct sdshdr16));
@@ -927,7 +936,7 @@ NULL
             addReplyVerbatim(c,buf,strlen(buf),"txt");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
-        serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
+        serverLog(LL_NOTICE,"Changing replication IDs after receiving DEBUG change-repl-id");
         changeReplicationId();
         clearReplicationId2();
         addReply(c,shared.ok);
@@ -946,6 +955,10 @@ NULL
         else
             addReply(c, shared.ok);
     } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
+        if (!server.client_mem_usage_buckets) {
+            addReplyError(c,"maxmemory-clients is disabled.");
+            return;
+        }
         sds bucket_info = sdsempty();
         for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
             if (j == 0)
@@ -991,6 +1004,33 @@ NULL
             return;
         }
         addReply(c, shared.ok);
+    } else if(!strcasecmp(c->argv[1]->ptr,"CLUSTERLINK") &&
+        !strcasecmp(c->argv[2]->ptr,"KILL") &&
+        c->argc == 5) {
+        if (!server.cluster_enabled) {
+            addReplyError(c, "Debug option only available for cluster mode enabled setup!");
+            return;
+        }
+
+        /* Find the node. */
+        clusterNode *n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+        if (!n) {
+            addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[4]->ptr);
+            return;
+        }
+
+        /* Terminate the link based on the direction or all. */
+        if (!strcasecmp(c->argv[3]->ptr,"from")) {
+            freeClusterLink(n->inbound_link);
+        } else if (!strcasecmp(c->argv[3]->ptr,"to")) {
+            freeClusterLink(n->link);
+        } else if (!strcasecmp(c->argv[3]->ptr,"all")) {
+            freeClusterLink(n->link);
+            freeClusterLink(n->inbound_link);
+        } else {
+            addReplyErrorFormat(c, "Unknown direction %s", (char*) c->argv[3]->ptr);
+        }
+        addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
@@ -1123,73 +1163,90 @@ void bugReportStart(void) {
 }
 
 #ifdef HAVE_BACKTRACE
-static void *getMcontextEip(ucontext_t *uc) {
+
+/* Returns the current eip and set it to the given new value (if its not NULL) */
+static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
 #define NOT_SUPPORTED() do {\
     UNUSED(uc);\
+    UNUSED(eip);\
     return NULL;\
+} while(0)
+#define GET_SET_RETURN(target_var, new_val) do {\
+    void *old_val = (void*)target_var; \
+    if (new_val) { \
+        void **temp = (void**)&target_var; \
+        *temp = new_val; \
+    } \
+    return old_val; \
 } while(0)
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
     /* OSX < 10.6 */
     #if defined(__x86_64__)
-    return (void*) uc->uc_mcontext->__ss.__rip;
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__rip, eip);
     #elif defined(__i386__)
-    return (void*) uc->uc_mcontext->__ss.__eip;
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__eip, eip);
     #else
-    return (void*) uc->uc_mcontext->__ss.__srr0;
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__srr0, eip);
     #endif
 #elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
     /* OSX >= 10.6 */
     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
-    return (void*) uc->uc_mcontext->__ss.__rip;
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__rip, eip);
     #elif defined(__i386__)
-    return (void*) uc->uc_mcontext->__ss.__eip;
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__eip, eip);
     #else
     /* OSX ARM64 */
-    return (void*) arm_thread_state64_get_pc(uc->uc_mcontext->__ss);
+    void *old_val = (void*)arm_thread_state64_get_pc(uc->uc_mcontext->__ss);
+    if (eip) {
+        arm_thread_state64_set_pc_fptr(uc->uc_mcontext->__ss, eip);
+    }
+    return old_val;
     #endif
 #elif defined(__linux__)
     /* Linux */
     #if defined(__i386__) || ((defined(__X86_64__) || defined(__x86_64__)) && defined(__ILP32__))
-    return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
+    GET_SET_RETURN(uc->uc_mcontext.gregs[14], eip);
     #elif defined(__X86_64__) || defined(__x86_64__)
-    return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
+    GET_SET_RETURN(uc->uc_mcontext.gregs[16], eip);
     #elif defined(__ia64__) /* Linux IA64 */
-    return (void*) uc->uc_mcontext.sc_ip;
+    GET_SET_RETURN(uc->uc_mcontext.sc_ip, eip);
     #elif defined(__arm__) /* Linux ARM */
-    return (void*) uc->uc_mcontext.arm_pc;
+    GET_SET_RETURN(uc->uc_mcontext.arm_pc, eip);
     #elif defined(__aarch64__) /* Linux AArch64 */
-    return (void*) uc->uc_mcontext.pc;
+    GET_SET_RETURN(uc->uc_mcontext.pc, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__FreeBSD__)
     /* FreeBSD */
     #if defined(__i386__)
-    return (void*) uc->uc_mcontext.mc_eip;
+    GET_SET_RETURN(uc->uc_mcontext.mc_eip, eip);
     #elif defined(__x86_64__)
-    return (void*) uc->uc_mcontext.mc_rip;
+    GET_SET_RETURN(uc->uc_mcontext.mc_rip, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__OpenBSD__)
     /* OpenBSD */
     #if defined(__i386__)
-    return (void*) uc->sc_eip;
+    GET_SET_RETURN(uc->sc_eip, eip);
     #elif defined(__x86_64__)
-    return (void*) uc->sc_rip;
+    GET_SET_RETURN(uc->sc_rip, eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__NetBSD__)
     #if defined(__i386__)
-    return (void*) uc->uc_mcontext.__gregs[_REG_EIP];
+    GET_SET_RETURN(uc->uc_mcontext.__gregs[_REG_EIP], eip);
     #elif defined(__x86_64__)
-    return (void*) uc->uc_mcontext.__gregs[_REG_RIP];
+    GET_SET_RETURN(uc->uc_mcontext.__gregs[_REG_RIP], eip);
     #else
     NOT_SUPPORTED();
     #endif
 #elif defined(__DragonFly__)
-    return (void*) uc->uc_mcontext.mc_rip;
+    GET_SET_RETURN(uc->uc_mcontext.mc_rip, eip);
+#elif defined(__sun) && defined(__x86_64__)
+    GET_SET_RETURN(uc->uc_mcontext.gregs[REG_RIP], eip);
 #else
     NOT_SUPPORTED();
 #endif
@@ -1643,6 +1700,37 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.mc_cs
     );
     logStackContent((void**)uc->uc_mcontext.mc_rsp);
+#elif defined(__sun)
+    #if defined(__x86_64__)
+    serverLog(LL_WARNING,
+    "\n"
+    "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
+    "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
+    "RIP:%016lx EFL:%016lx\nCSGSFS:%016lx",
+        (unsigned long) uc->uc_mcontext.gregs[REG_RAX],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RBX],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RCX],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RDX],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RDI],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RSI],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RBP],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RSP],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R8],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R9],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R10],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R11],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R12],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R13],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R14],
+        (unsigned long) uc->uc_mcontext.gregs[REG_R15],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RIP],
+        (unsigned long) uc->uc_mcontext.gregs[REG_RFL],
+        (unsigned long) uc->uc_mcontext.gregs[REG_CS]
+    );
+    logStackContent((void**)uc->uc_mcontext.gregs[REG_RSP]);
+    #endif
 #else
     NOT_SUPPORTED();
 #endif
@@ -1710,6 +1798,15 @@ void logStackTrace(void *eip, int uplevel) {
 
 #endif /* HAVE_BACKTRACE */
 
+sds genClusterDebugString(sds infostring) {
+    infostring = sdscatprintf(infostring, "\r\n# Cluster info\r\n");
+    infostring = sdscatsds(infostring, genClusterInfoString()); 
+    infostring = sdscatprintf(infostring, "\n------ CLUSTER NODES OUTPUT ------\n");
+    infostring = sdscatsds(infostring, clusterGenNodesDescription(0, 0));
+    
+    return infostring;
+}
+
 /* Log global server info */
 void logServerInfo(void) {
     sds infostring, clients;
@@ -1719,6 +1816,9 @@ void logServerInfo(void) {
     argv[0] = createStringObject("all", strlen("all"));
     dict *section_dict = genInfoSectionDict(argv, 1, NULL, &all, &everything);
     infostring = genRedisInfoString(section_dict, all, everything);
+    if (server.cluster_enabled){
+        infostring = genClusterDebugString(infostring);
+    }
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
     clients = getAllClientsInfoString(-1);
@@ -1729,7 +1829,7 @@ void logServerInfo(void) {
     decrRefCount(argv[0]);
 }
 
-/* Log certain config values, which can be used for debuggin */
+/* Log certain config values, which can be used for debugging */
 void logConfigDebugInfo(void) {
     sds configstring;
     configstring = getConfigDebugInfo();
@@ -1749,14 +1849,13 @@ void logModulesInfo(void) {
 /* Log information about the "current" client, that is, the client that is
  * currently being served by Redis. May be NULL if Redis is not serving a
  * client right now. */
-void logCurrentClient(void) {
-    if (server.current_client == NULL) return;
+void logCurrentClient(client *cc, const char *title) {
+    if (cc == NULL) return;
 
-    client *cc = server.current_client;
     sds client;
     int j;
 
-    serverLogRaw(LL_WARNING|LL_RAW, "\n------ CURRENT CLIENT INFO ------\n");
+    serverLog(LL_WARNING|LL_RAW, "\n------ %s CLIENT INFO ------\n", title);
     client = catClientInfoString(sdsempty(),cc);
     serverLog(LL_WARNING|LL_RAW,"%s\n", client);
     sdsfree(client);
@@ -1951,6 +2050,10 @@ void dumpCodeAroundEIP(void *eip) {
     }
 }
 
+void invalidFunctionWasCalled() {}
+
+typedef void (*invalidFunctionWasCalledType)();
+
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
     UNUSED(info);
@@ -1968,13 +2071,30 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
-    void *eip = getMcontextEip(uc);
+    void *eip = getAndSetMcontextEip(uc, NULL);
     if (eip != NULL) {
         serverLog(LL_WARNING,
         "Crashed running the instruction at: %p", eip);
     }
 
-    logStackTrace(getMcontextEip(uc), 1);
+    if (eip == info->si_addr) {
+        /* When eip matches the bad address, it's an indication that we crashed when calling a non-mapped
+         * function pointer. In that case the call to backtrace will crash trying to access that address and we
+         * won't get a crash report logged. Set it to a valid point to avoid that crash. */
+
+        /* This trick allow to avoid compiler warning */
+        void *ptr;
+        invalidFunctionWasCalledType *ptr_ptr = (invalidFunctionWasCalledType*)&ptr;
+        *ptr_ptr = invalidFunctionWasCalled;
+        getAndSetMcontextEip(uc, ptr);
+    }
+
+    logStackTrace(eip, 1);
+
+    if (eip == info->si_addr) {
+        /* Restore old eip */
+        getAndSetMcontextEip(uc, eip);
+    }
 
     logRegisters(uc);
 #endif
@@ -1994,7 +2114,8 @@ void printCrashReport(void) {
     logServerInfo();
 
     /* Log the current client */
-    logCurrentClient();
+    logCurrentClient(server.current_client, "CURRENT");
+    logCurrentClient(server.executing_client, "EXECUTING");
 
     /* Log modules info. Something we wanna do last since we fear it may crash. */
     logModulesInfo();
@@ -2079,7 +2200,7 @@ void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
 
     serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
 #ifdef HAVE_BACKTRACE
-    logStackTrace(getMcontextEip(uc), 1);
+    logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
 #else
     serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif

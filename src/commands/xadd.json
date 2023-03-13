@@ -143,6 +143,19 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf":[
+                {
+                    "description": "The ID of the added entry. The ID is the one auto-generated if * is passed as ID argument, otherwise the command just returns the same ID specified by the user during insertion.",
+                    "type": "string",
+                    "pattern": "[0-9]+-[0-9]+"
+                },
+                {
+                    "description": "The NOMKSTREAM option is given and the key doesn't exist.",
+                    "type": "null"
+                }
+            ]
+        }
     }
 }

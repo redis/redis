@@ -407,6 +407,37 @@ int TestStringAppendAM(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
 }
 
+/* TEST.STRING.TRIM -- Test we trim a string with free space. */
+int TestTrimString(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModuleString *s = RedisModule_CreateString(ctx,"foo",3);
+    char *tmp = RedisModule_Alloc(1024);
+    RedisModule_StringAppendBuffer(ctx,s,tmp,1024);
+    size_t string_len = RedisModule_MallocSizeString(s);
+    RedisModule_TrimStringAllocation(s);
+    size_t len_after_trim = RedisModule_MallocSizeString(s);
+
+    /* Determine if using jemalloc memory allocator. */
+    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+    const char *field = RedisModule_ServerInfoGetFieldC(info, "mem_allocator");
+    int use_jemalloc = !strncmp(field, "jemalloc", 8);
+
+    /* Jemalloc will reallocate `s` from 2k to 1k after RedisModule_TrimStringAllocation(),
+     * but non-jemalloc memory allocators may keep the old size. */
+    if ((use_jemalloc && len_after_trim < string_len) ||
+        (!use_jemalloc && len_after_trim <= string_len))
+    {
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else {
+        RedisModule_ReplyWithError(ctx, "String was not trimmed as expected.");
+    }
+    RedisModule_FreeServerInfo(ctx, info);
+    RedisModule_Free(tmp);
+    RedisModule_FreeString(ctx,s);
+    return REDISMODULE_OK;
+}
+
 /* TEST.STRING.PRINTF -- Test string formatting. */
 int TestStringPrintf(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
@@ -852,6 +883,9 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     T("test.string.append.am","");
     if (!TestAssertStringReply(ctx,reply,"foobar",6)) goto fail;
+    
+    T("test.string.trim","");
+    if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
     T("test.string.printf", "cc", "foo", "bar");
     if (!TestAssertStringReply(ctx,reply,"Got 3 args. argv[1]: foo, argv[2]: bar",38)) goto fail;
@@ -892,6 +926,28 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_Init(ctx,"test",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    /* Perform RM_Call inside the RedisModule_OnLoad
+     * to verify that it works as expected without crashing.
+     * The tests will verify it on different configurations
+     * options (cluster/no cluster). A simple ping command
+     * is enough for this test. */
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "ping", "");
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
+        RedisModule_FreeCallReply(reply);
+        return REDISMODULE_ERR;
+    }
+    size_t len;
+    const char *reply_str = RedisModule_CallReplyStringPtr(reply, &len);
+    if (len != 4) {
+        RedisModule_FreeCallReply(reply);
+        return REDISMODULE_ERR;
+    }
+    if (memcmp(reply_str, "PONG", 4) != 0) {
+        RedisModule_FreeCallReply(reply);
+        return REDISMODULE_ERR;
+    }
+    RedisModule_FreeCallReply(reply);
 
     if (RedisModule_CreateCommand(ctx,"test.call",
         TestCall,"write deny-oom",1,1,1) == REDISMODULE_ERR)
@@ -939,6 +995,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.string.append",
         TestStringAppend,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.string.trim",
+        TestTrimString,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.string.append.am",

@@ -43,6 +43,11 @@
                 "key_spec_index": 0,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "the number of touched keys",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

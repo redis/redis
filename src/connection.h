@@ -78,11 +78,13 @@ typedef struct ConnectionType {
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
     aeFileProc *accept_handler;
     int (*addr)(connection *conn, char *ip, size_t ip_len, int *port, int remote);
+    int (*is_local)(connection *conn);
     int (*listen)(connListener *listener);
 
-    /* create/close connection */
+    /* create/shutdown/close connection */
     connection* (*conn_create)(void);
     connection* (*conn_create_accepted)(int fd, void *priv);
+    void (*shutdown)(struct connection *conn);
     void (*close)(struct connection *conn);
 
     /* connect & accept */
@@ -240,6 +242,10 @@ static inline int connSetWriteHandlerWithBarrier(connection *conn, ConnectionCal
     return conn->type->set_write_handler(conn, func, barrier);
 }
 
+static inline void connShutdown(connection *conn) {
+    conn->type->shutdown(conn);
+}
+
 static inline void connClose(connection *conn) {
     conn->type->close(conn);
 }
@@ -308,6 +314,16 @@ static inline int connAddrPeerName(connection *conn, char *ip, size_t ip_len, in
 
 static inline int connAddrSockName(connection *conn, char *ip, size_t ip_len, int *port) {
     return connAddr(conn, ip, ip_len, port, 0);
+}
+
+/* Test a connection is local or loopback.
+ * Return -1 on failure, 0 is not a local connection, 1 is a local connection */
+static inline int connIsLocal(connection *conn) {
+    if (conn && conn->type->is_local) {
+        return conn->type->is_local(conn);
+    }
+
+    return -1;
 }
 
 static inline int connGetState(connection *conn) {

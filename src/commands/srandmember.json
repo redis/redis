@@ -53,6 +53,31 @@
                 "optional": true,
                 "since": "2.6.0"
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "In case `count` is not given and key doesn't exist",
+                    "type": "null"
+                },
+                {
+                    "description": "In case `count` is not given, randomly selected element",
+                    "type": "string"
+                },
+                {
+                    "description": "In case `count` is given, an array of elements",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1
+                },
+                {
+                    "description": "In case `count` is given and key doesn't exist",
+                    "type": "array",
+                    "maxItems": 0
+                }
+            ]
+        }
     }
 }
