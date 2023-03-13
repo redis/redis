@@ -276,8 +276,9 @@ static struct config {
     int set_errcode;
     clusterManagerCommand cluster_manager_command;
     int no_auth_warning;
-    int resp2;
+    int resp2; /* value of 1: specified explicitly with option -2 */
     int resp3; /* value of 1: specified explicitly, value of 2: implicit like --json option */
+    int current_resp3; /* 1 if we have RESP3 right now in the current connection. */
     int in_multi;
     int pre_multi_dbnum;
 } config;
@@ -1119,6 +1120,7 @@ static int cliSwitchProto(void) {
         }
     }
     freeReplyObject(reply);
+    config.current_resp3 = 1;
     return result;
 }
 
@@ -1177,6 +1179,9 @@ static int cliConnect(int flags) {
          * commands. At the same time this improves the detection of real
          * errors. */
         anetKeepAlive(NULL, context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
+
+        /* State of the current connection. */
+        config.current_resp3 = 0;
 
         /* Do AUTH, select the right DB, switch to RESP3 if needed. */
         if (cliAuth(context, config.conn_info.user, config.conn_info.auth) != REDIS_OK)
@@ -1385,7 +1390,7 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
 /* Returns 1 if the reply is a pubsub pushed reply. */
 int isPubsubPush(redisReply *r) {
     if (r == NULL ||
-        r->type != (config.resp3 ? REDIS_REPLY_PUSH : REDIS_REPLY_ARRAY) ||
+        r->type != (config.current_resp3 ? REDIS_REPLY_PUSH : REDIS_REPLY_ARRAY) ||
         r->elements < 3 ||
         r->element[0]->type != REDIS_REPLY_STRING)
     {
@@ -2027,7 +2032,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 config.in_multi = 0;
                 config.dbnum = 0;
                 config.conn_info.input_dbnum = 0;
-                config.resp3 = 0;
+                config.current_resp3 = 0;
                 if (config.pubsub_mode && config.push_output) {
                     redisSetPushCallback(context, cliPushHandler);
                 }
@@ -2035,9 +2040,9 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"hello")) {
                 if (config.last_cmd_type == REDIS_REPLY_MAP) {
-                    if (config.resp3 == 0) config.resp3 = 1;
+                    config.current_resp3 = 1;
                 } else if (config.last_cmd_type == REDIS_REPLY_ARRAY) {
-                    config.resp3 = 0;
+                    config.current_resp3 = 0;
                 }
             } else if ((is_subscribe || is_unsubscribe) && !config.pubsub_mode) {
                 /* We didn't enter pubsub mode. Restore push callback. */
