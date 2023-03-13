@@ -29,10 +29,6 @@
 
 #include "server.h"
 #include "connhelpers.h"
-#include <net/if.h>
-#include <ifaddrs.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 
 /* The connections module provides a lean abstraction of network connections
  * to avoid direct socket and async event management across the Redis code base.
@@ -339,47 +335,13 @@ static int connSocketAddr(connection *conn, char *ip, size_t ip_len, int *port, 
     return C_ERR;
 }
 
-#define NETWORK_LOOPBACK_MASK (IFF_RUNNING|IFF_LOOPBACK|IFF_UP)
 static int connSocketIsLocal(connection *conn) {
-    struct ifaddrs *ifa, *addrs;
-    struct sockaddr_in *s4;
-    struct sockaddr_in6 *s6;
-    void *in_addr;
-    char loip[NET_IP_STR_LEN];
     char cip[NET_IP_STR_LEN + 1] = { 0 };
 
     if (connSocketAddr(conn, cip, sizeof(cip) - 1, NULL, 1) == C_ERR)
         return -1;
 
-    if (getifaddrs(&addrs) != 0) return -1;
-    for (ifa = addrs; ifa != NULL; ifa = ifa->ifa_next) {
-        if (!ifa->ifa_addr ||
-            (ifa->ifa_flags & NETWORK_LOOPBACK_MASK) != NETWORK_LOOPBACK_MASK)
-            continue;
-
-        switch (ifa->ifa_addr->sa_family) {
-            case AF_INET:
-                s4 = (struct sockaddr_in *)ifa->ifa_addr;
-                in_addr = &s4->sin_addr;
-                break;
-            case AF_INET6:
-                s6 = (struct sockaddr_in6 *)ifa->ifa_addr;
-                in_addr = &s6->sin6_addr;
-                break;
-            default:
-                continue;
-        }
-
-        if (inet_ntop(ifa->ifa_addr->sa_family, in_addr, loip, sizeof(loip)) &&
-            !strncmp(cip, loip, NET_IP_STR_LEN)) {
-            freeifaddrs(addrs);
-            return 1;
-        }
-    }
-
-    freeifaddrs(addrs);
-
-    return 0;
+    return !strncmp(cip, "127.", 4) || !strncmp(cip, "::1", 3);
 }
 
 static int connSocketListen(connListener *listener) {
