@@ -1,0 +1,30 @@
+{
+  "SUBSCRIBERS": {
+    "summary": "Get the subscribers for each pubsub subscription type, filter by channel name.",
+    "complexity": "O(N) for the subcommand",
+    "group": "pubsub",
+    "since": "7.2.0",
+    "arity": -2,
+    "container": "PUBSUB",
+    "function": "pubsubCommand",
+    "command_flags": [
+      "PUBSUB",
+      "LOADING",
+      "STALE"
+    ],
+    "arguments": [
+      {
+        "name": "type",
+        "type": "string",
+        "optional": false
+      },
+      {
+        "token": "channel",
+        "name": "name",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      }
+    ]
+  }
+}

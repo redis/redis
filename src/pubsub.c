@@ -615,6 +615,71 @@ void publishCommand(client *c) {
     addReplyLongLong(c,receivers);
 }
 
+void pubsubReplySubscribersClientInfo(client *c, list *clients) {
+    listNode *ln;
+    listIter li;
+    listRewind(clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *client = listNodeValue(ln);
+        if (client->name) {
+            addReplyMapLen(c, 2);
+            addReplyBulkCString(c, "name");
+            addReplyBulk(c, client->name);
+        } else {
+            addReplyMapLen(c, 1);
+        }
+        addReplyBulkCString(c, "id");
+        addReplyBulkLongLong(c, client->id);
+    }
+}
+
+void pubsubReplySubscribers(client *c) {
+    sds type = c->argv[2]->ptr;
+    dict *d = NULL;
+    if (!strcmp(type, "global")) {
+        d = server.pubsub_channels;
+    } else if (!strcmp(type, "pattern")) {
+        d = server.pubsub_patterns;
+    } else if (!strcmp(type, "shard")) {
+        d = server.pubsubshard_channels;
+    } else {
+        addReplySubcommandSyntaxError(c);
+        return;
+    }
+    /* clients, modules. */
+    addReplyMapLen(c, 1);
+    addReplyBulkCString(c, "clients");
+    /* All clients connected for a given subscription type. */
+    if (c->argc == 3) {
+        addReplyArrayLen(c, dictSize(d));
+        dictIterator *di = dictGetIterator(d);
+        dictEntry *de;
+        while ((de = dictNext(di)) != NULL) {
+            addReplyArrayLen(c, 3);
+            addReplyBulkCString(c, "name");
+            addReplyBulk(c, dictGetKey(de));
+            list *clients = dictGetVal(de);
+            addReplyArrayLen(c, listLength(clients));
+            pubsubReplySubscribersClientInfo(c, clients);
+        }
+        dictReleaseIterator(di);
+    } else {
+        addReplyArrayLen(c, c->argc - 4);
+        for (int j = 4; j < c->argc; j++) {
+            addReplyArrayLen(c, 3);
+            addReplyBulkCString(c, "name");
+            addReplyBulk(c, c->argv[j]);
+            list *clients = dictFetchValue(d, c->argv[j]);
+            if (clients) {
+                addReplyArrayLen(c, listLength(clients));
+                pubsubReplySubscribersClientInfo(c, clients);
+            } else {
+                addReplyNull(c);
+            }
+        }
+    }
+}
+
 /* PUBSUB command for Pub/Sub introspection. */
 void pubsubCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
@@ -670,6 +735,8 @@ NULL
             addReplyBulk(c,c->argv[j]);
             addReplyLongLong(c,l ? listLength(l) : 0);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"subscribers") && c->argc > 2) {
+        pubsubReplySubscribers(c);
     } else {
         addReplySubcommandSyntaxError(c);
     }
