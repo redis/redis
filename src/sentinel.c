@@ -540,7 +540,7 @@ void sentinelIsRunning(void) {
     }
 
     /* Log its ID to make debugging of issues simpler. */
-    serverLog(LL_WARNING,"Sentinel ID is %s", sentinel.myid);
+    serverLog(LL_NOTICE,"Sentinel ID is %s", sentinel.myid);
 
     /* We want to generate a +monitor event for every configured master
      * at startup. */
@@ -2776,7 +2776,9 @@ void sentinelInfoReplyCallback(redisAsyncContext *c, void *reply, void *privdata
     link->pending_commands--;
     r = reply;
 
-    if (r->type == REDIS_REPLY_STRING)
+    /* INFO reply type is verbatim in resp3. Normally, sentinel will not use
+     * resp3 but this is required for testing (see logreqres.c). */
+    if (r->type == REDIS_REPLY_STRING || r->type == REDIS_REPLY_VERB)
         sentinelRefreshInstanceInfo(ri,r->str);
 }
 
@@ -2987,8 +2989,10 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
     ri->link->pc_last_activity = mstime();
 
     /* Sanity check in the reply we expect, so that the code that follows
-     * can avoid to check for details. */
-    if (r->type != REDIS_REPLY_ARRAY ||
+     * can avoid to check for details.
+     * Note: Reply type is PUSH in resp3. Normally, sentinel will not use
+     * resp3 but this is required for testing (see logreqres.c). */
+    if ((r->type != REDIS_REPLY_ARRAY && r->type != REDIS_REPLY_PUSH) ||
         r->elements != 3 ||
         r->element[0]->type != REDIS_REPLY_STRING ||
         r->element[1]->type != REDIS_REPLY_STRING ||
@@ -3950,7 +3954,7 @@ NULL
             addReplyError(c,"-NOGOODSLAVE No suitable replica to promote");
             return;
         }
-        serverLog(LL_WARNING,"Executing user requested FAILOVER of '%s'",
+        serverLog(LL_NOTICE,"Executing user requested FAILOVER of '%s'",
             ri->name);
         sentinelStartFailover(ri);
         ri->flags |= SRI_FORCE_FAILOVER;
@@ -4585,7 +4589,7 @@ void sentinelReceiveIsMasterDownReply(redisAsyncContext *c, void *reply, void *p
              * replied with a vote. */
             sdsfree(ri->leader);
             if ((long long)ri->leader_epoch != r->element[2]->integer)
-                serverLog(LL_WARNING,
+                serverLog(LL_NOTICE,
                     "%s voted for %s %llu", ri->name,
                     r->element[1]->str,
                     (unsigned long long) r->element[2]->integer);
@@ -4900,7 +4904,7 @@ int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
             ctime_r(&clock,ctimebuf);
             ctimebuf[24] = '\0'; /* Remove newline. */
             master->failover_delay_logged = master->failover_start_time;
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "Next failover delay: I will not start a failover before %s",
                 ctimebuf);
         }

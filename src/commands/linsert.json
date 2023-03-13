@@ -33,6 +33,23 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "List length after a successful insert operation.",
+                    "type": "integer",
+                    "minimum": 1
+                },
+                {
+                    "description": "in case key doesn't exist.",
+                    "const": 0
+                },
+                {
+                    "description": "when the pivot wasn't found.",
+                    "const": -1
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

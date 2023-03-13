@@ -32,6 +32,26 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "description": "In case there is no matching element",
+                    "type": "null"
+                },
+                {
+                    "description": "An integer representing the matching element",
+                    "type": "integer"
+                },
+                {
+                    "description": "If the COUNT option is given, an array of integers representing the matching elements (empty if there are no matches)",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

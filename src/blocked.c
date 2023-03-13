@@ -195,6 +195,11 @@ void unblockClient(client *c) {
      * or in case a shutdown operation was canceled and we are still in the processCommand sequence  */
     if (!(c->flags & CLIENT_PENDING_COMMAND) && c->bstate.btype != BLOCKED_SHUTDOWN) {
         freeClientOriginalArgv(c);
+        /* Clients that are not blocked on keys are not reprocessed so we must
+         * call reqresAppendResponse here (for clients blocked on key,
+         * unblockClientOnKey is called, which eventually calls processCommand,
+         * which calls reqresAppendResponse) */
+        reqresAppendResponse(c);
         resetClient(c);
     }
 
@@ -385,7 +390,11 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         }
     }
     c->bstate.unblock_on_nokey = unblock_on_nokey;
-    c->flags |= CLIENT_PENDING_COMMAND;
+    /* Currently we assume key blocking will require reprocessing the command.
+     * However in case of modules, they have a different way to handle the reprocessing
+     * which does not require setting the pending command flag */
+    if (btype != BLOCKED_MODULE)
+        c->flags |= CLIENT_PENDING_COMMAND;
     blockClient(c,btype);
 }
 
@@ -544,7 +553,7 @@ static void handleClientsBlockedOnKey(readyList *rl) {
 
         while((ln = listNext(&li))) {
             client *receiver = listNodeValue(ln);
-            robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOKKUP_NOEFFECTS);
+            robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
             /* 1. In case new key was added/touched we need to verify it satisfy the
              *    blocked type, since we might process the wrong key type.
              * 2. We want to serve clients blocked on module keys
@@ -608,6 +617,8 @@ static void unblockClientOnKey(client *c, robj *key) {
                 c->bstate.btype == BLOCKED_LIST   ||
                 c->bstate.btype == BLOCKED_ZSET);
 
+    /* We need to unblock the client before calling processCommandAndResetClient
+     * because it checks the CLIENT_BLOCKED flag */
     unblockClient(c);
     /* In case this client was blocked on keys during command
      * we need to re process the command again */
@@ -630,8 +641,6 @@ static void moduleUnblockClientOnKey(client *c, robj *key) {
 
     if (moduleTryServeClientBlockedOnKey(c, key)) {
         updateStatsOnUnblock(c, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
-        if (c->flags & CLIENT_PENDING_COMMAND)
-            c->flags &= ~CLIENT_PENDING_COMMAND;
         moduleUnblockClient(c);
     }
     /* We need to call afterCommand even if the client was not unblocked

@@ -846,7 +846,7 @@ void RedisModuleCommandDispatcher(client *c) {
         /* Only do the work if the module took ownership of the object:
          * in that case the refcount is no longer 1. */
         if (c->argv[i]->refcount > 1)
-            trimStringObjectIfNeeded(c->argv[i]);
+            trimStringObjectIfNeeded(c->argv[i], 0);
     }
 }
 
@@ -2738,7 +2738,7 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
  */
 void RM_TrimStringAllocation(RedisModuleString *str) {
     if (!str) return;
-    trimStringObjectIfNeeded(str);
+    trimStringObjectIfNeeded(str, 1);
 }
 
 /* --------------------------------------------------------------------------
@@ -3783,17 +3783,29 @@ static void moduleInitKeyTypeSpecific(RedisModuleKey *key) {
  * The return value is the handle representing the key, that must be
  * closed with RM_CloseKey().
  *
- * If the key does not exist and WRITE mode is requested, the handle
+ * If the key does not exist and REDISMODULE_WRITE mode is requested, the handle
  * is still returned, since it is possible to perform operations on
  * a yet not existing key (that will be created, for example, after
- * a list push operation). If the mode is just READ instead, and the
+ * a list push operation). If the mode is just REDISMODULE_READ instead, and the
  * key does not exist, NULL is returned. However it is still safe to
  * call RedisModule_CloseKey() and RedisModule_KeyType() on a NULL
- * value. */
+ * value.
+ *
+ * Extra flags that can be pass to the API under the mode argument:
+ * * REDISMODULE_OPEN_KEY_NOTOUCH - Avoid touching the LRU/LFU of the key when opened.
+ * * REDISMODULE_OPEN_KEY_NONOTIFY - Don't trigger keyspace event on key misses.
+ * * REDISMODULE_OPEN_KEY_NOSTATS - Don't update keyspace hits/misses counters.
+ * * REDISMODULE_OPEN_KEY_NOEXPIRE - Avoid deleting lazy expired keys.
+ * * REDISMODULE_OPEN_KEY_NOEFFECTS - Avoid any effects from fetching the key. */
 RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     RedisModuleKey *kp;
     robj *value;
-    int flags = mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0;
+    int flags = 0;
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NONOTIFY? LOOKUP_NONOTIFY: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOSTATS? LOOKUP_NOSTATS: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOEXPIRE? LOOKUP_NOEXPIRE: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_NOEFFECTS? LOOKUP_NOEFFECTS: 0);
 
     if (mode & REDISMODULE_WRITE) {
         value = lookupKeyWriteWithFlags(ctx->client->db,keyname, flags);
@@ -3809,6 +3821,23 @@ RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     moduleInitKey(kp, ctx, keyname, value, mode);
     autoMemoryAdd(ctx,REDISMODULE_AM_KEY,kp);
     return kp;
+}
+
+/**
+ * Returns the full OpenKey modes mask, using the return value
+ * the module can check if a certain set of OpenKey modes are supported
+ * by the redis server version in use.
+ * Example:
+ *
+ *        int supportedMode = RM_GetOpenKeyModesAll();
+ *        if (supportedMode & REDISMODULE_OPEN_KEY_NOTOUCH) {
+ *              // REDISMODULE_OPEN_KEY_NOTOUCH is supported
+ *        } else{
+ *              // REDISMODULE_OPEN_KEY_NOTOUCH is not supported
+ *        }
+ */
+int RM_GetOpenKeyModesAll() {
+    return _REDISMODULE_OPEN_KEY_ALL;
 }
 
 /* Destroy a RedisModuleKey struct (freeing is the responsibility of the caller). */
@@ -6097,10 +6126,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         acl_retval = ACLCheckAllUserCommandPerm(user,c->cmd,c->argv,c->argc,&acl_errpos);
         if (acl_retval != ACL_OK) {
             sds object = (acl_retval == ACL_DENIED_CMD) ? sdsdup(c->cmd->fullname) : sdsdup(c->argv[acl_errpos]->ptr);
-            addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, ctx->client->user->name, object);
+            addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, c->user->name, object);
             if (error_as_call_replies) {
                 /* verbosity should be same as processCommand() in server.c */
-                sds acl_msg = getAclErrorMessage(acl_retval, ctx->client->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
+                sds acl_msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
                 sds msg = sdscatfmt(sdsempty(), "-NOPERM %S\r\n", acl_msg);
                 sdsfree(acl_msg);
                 reply = callReplyCreateError(msg, ctx);
@@ -12809,6 +12838,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SelectDb);
     REGISTER_API(KeyExists);
     REGISTER_API(OpenKey);
+    REGISTER_API(GetOpenKeyModesAll);
     REGISTER_API(CloseKey);
     REGISTER_API(KeyType);
     REGISTER_API(ValueLength);

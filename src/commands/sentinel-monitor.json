@@ -12,6 +12,9 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "const": "OK"
+        },
         "arguments": [
             {
                 "name": "name",

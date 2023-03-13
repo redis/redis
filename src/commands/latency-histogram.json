@@ -18,6 +18,30 @@
             "REQUEST_POLICY:ALL_NODES",
             "RESPONSE_POLICY:SPECIAL"
         ],
+        "reply_schema": {
+            "type": "object",
+            "description": "A map where each key is a command name, and each value is a map with the total calls, and an inner map of the histogram time buckets.",
+            "patternProperties": {
+                "^.*$": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "calls": {
+                            "description": "The total calls for the command.",
+                            "type": "integer",
+                            "minimum": 0
+                        },
+                        "histogram_usec": {
+                            "description": "Histogram map, bucket id to latency",
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "integer"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "arguments": [
             {
                 "name": "COMMAND",

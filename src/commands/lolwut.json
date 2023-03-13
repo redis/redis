@@ -9,6 +9,10 @@
             "READONLY",
             "FAST"
         ],
+        "reply_schema": {
+            "type": "string",
+            "description": "String containing the generative computer art, and a text with the Redis version."
+        },
         "arguments": [
             {
                 "token": "VERSION",

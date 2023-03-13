@@ -74,6 +74,18 @@
                 "type": "pure-token",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "source was copied",
+                    "const": 1
+                },
+                {
+                    "description": "source was not copied",
+                    "const": 0
+                }
+            ]
+        }
     }
 }

@@ -32,6 +32,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "null",
+                    "description": "Index is out of range"
+                },
+                {
+                    "description": "The requested element",
+                    "type": "string"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

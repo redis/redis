@@ -12,6 +12,33 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": [
+                {
+                    "oneOf": [
+                        {
+                            "const": 0,
+                            "description": "Master is up."
+                        },
+                        {
+                            "const": 1,
+                            "description": "Master is down."
+                        }
+                    ]
+                },
+                {
+                    "type": "string",
+                    "description": "Sentinel address."
+                },
+                {
+                    "type": "integer",
+                    "description": "Port."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "ip",

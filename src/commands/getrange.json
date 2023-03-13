@@ -32,6 +32,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "string",
+            "description": "The substring of the string value stored at key, determined by the offsets start and end (both are inclusive)."
+        },
         "arguments": [
             {
                 "name": "key",

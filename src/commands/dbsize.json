@@ -16,6 +16,10 @@
         "command_tips": [
             "REQUEST_POLICY:ALL_SHARDS",
             "RESPONSE_POLICY:AGG_SUM"
-        ]
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "The number of keys in the currently-selected database."
+        }
     }
 }

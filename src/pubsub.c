@@ -105,6 +105,8 @@ pubsubtype pubSubShardType = {
  * to send a special message (for instance an Array type) by using the
  * addReply*() API family. */
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bulk) {
+    uint64_t old_flags = c->flags;
+    c->flags |= CLIENT_PUSHING;
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[3]);
     else
@@ -112,12 +114,15 @@ void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bu
     addReply(c,message_bulk);
     addReplyBulk(c,channel);
     if (msg) addReplyBulk(c,msg);
+    if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
 }
 
 /* Send a pubsub message of type "pmessage" to the client. The difference
  * with the "message" type delivered by addReplyPubsubMessage() is that
  * this message format also includes the pattern that matched the message. */
 void addReplyPubsubPatMessage(client *c, robj *pat, robj *channel, robj *msg) {
+    uint64_t old_flags = c->flags;
+    c->flags |= CLIENT_PUSHING;
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[4]);
     else
@@ -126,10 +131,13 @@ void addReplyPubsubPatMessage(client *c, robj *pat, robj *channel, robj *msg) {
     addReplyBulk(c,pat);
     addReplyBulk(c,channel);
     addReplyBulk(c,msg);
+    if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
 }
 
 /* Send the pubsub subscription notification to the client. */
 void addReplyPubsubSubscribed(client *c, robj *channel, pubsubtype type) {
+    uint64_t old_flags = c->flags;
+    c->flags |= CLIENT_PUSHING;
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[3]);
     else
@@ -137,6 +145,7 @@ void addReplyPubsubSubscribed(client *c, robj *channel, pubsubtype type) {
     addReply(c,*type.subscribeMsg);
     addReplyBulk(c,channel);
     addReplyLongLong(c,type.subscriptionCount(c));
+    if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
 }
 
 /* Send the pubsub unsubscription notification to the client.
@@ -144,6 +153,8 @@ void addReplyPubsubSubscribed(client *c, robj *channel, pubsubtype type) {
  * unsubscribe command but there are no channels to unsubscribe from: we
  * still send a notification. */
 void addReplyPubsubUnsubscribed(client *c, robj *channel, pubsubtype type) {
+    uint64_t old_flags = c->flags;
+    c->flags |= CLIENT_PUSHING;
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[3]);
     else
@@ -154,10 +165,13 @@ void addReplyPubsubUnsubscribed(client *c, robj *channel, pubsubtype type) {
     else
         addReplyNull(c);
     addReplyLongLong(c,type.subscriptionCount(c));
+    if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
 }
 
 /* Send the pubsub pattern subscription notification to the client. */
 void addReplyPubsubPatSubscribed(client *c, robj *pattern) {
+    uint64_t old_flags = c->flags;
+    c->flags |= CLIENT_PUSHING;
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[3]);
     else
@@ -165,6 +179,7 @@ void addReplyPubsubPatSubscribed(client *c, robj *pattern) {
     addReply(c,shared.psubscribebulk);
     addReplyBulk(c,pattern);
     addReplyLongLong(c,clientSubscriptionsCount(c));
+    if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
 }
 
 /* Send the pubsub pattern unsubscription notification to the client.
@@ -172,6 +187,8 @@ void addReplyPubsubPatSubscribed(client *c, robj *pattern) {
  * punsubscribe command but there are no pattern to unsubscribe from: we
  * still send a notification. */
 void addReplyPubsubPatUnsubscribed(client *c, robj *pattern) {
+    uint64_t old_flags = c->flags;
+    c->flags |= CLIENT_PUSHING;
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[3]);
     else
@@ -182,6 +199,7 @@ void addReplyPubsubPatUnsubscribed(client *c, robj *pattern) {
     else
         addReplyNull(c);
     addReplyLongLong(c,clientSubscriptionsCount(c));
+    if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
 }
 
 /*-----------------------------------------------------------------------------

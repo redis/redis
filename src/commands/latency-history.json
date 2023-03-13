@@ -18,6 +18,27 @@
             "REQUEST_POLICY:ALL_NODES",
             "RESPONSE_POLICY:SPECIAL"
         ],
+        "reply_schema": {
+            "type": "array",
+            "description": "An array where each element is a two elements array representing the timestamp and the latency of the event.",
+            "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": [
+                    {
+                        "description": "timestamp of the event",
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    {
+                        "description": "latency of the event",
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                ]
+            }
+        },
         "arguments": [
             {
                 "name": "event",

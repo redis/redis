@@ -32,6 +32,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The length of the string value stored at key, or 0 when key does not exist.",
+            "type": "integer",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "key",

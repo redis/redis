@@ -31,6 +31,183 @@
                 "optional": true,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "command does not exist",
+                        "type": "null"
+                    },
+                    {
+                        "description": "command info array output",
+                        "type": "array",
+                        "minItems": 10,
+                        "maxItems": 10,
+                        "items": [
+                            {
+                                "description": "command name",
+                                "type": "string"
+                            },
+                            {
+                                "description": "command arity",
+                                "type": "integer"
+                            },
+                            {
+                                "description": "command flags",
+                                "type": "array",
+                                "items": {
+                                    "description": "command flag",
+                                    "type": "string"
+                                }
+                            },
+                            {
+                                "description": "command first key index",
+                                "type": "integer"
+                            },
+                            {
+                                "description": "command last key index",
+                                "type": "integer"
+                            },
+                            {
+                                "description": "command key step index",
+                                "type": "integer"
+                            },
+                            {
+                                "description": "command categories",
+                                "type": "array",
+                                "items": {
+                                    "description": "command category",
+                                    "type": "string"
+                                }
+                            },
+                            {
+                                "description": "command tips",
+                                "type": "array",
+                                "items": {
+                                    "description": "command tip",
+                                    "type": "string"
+                                }
+                            },
+                            {
+                                "description": "command key specs",
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "notes": {
+                                            "type": "string"
+                                        },
+                                        "flags": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "begin_search": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "type": {
+                                                    "type": "string"
+                                                },
+                                                "spec": {
+                                                    "anyOf": [
+                                                        {
+                                                            "description": "unknown type, empty map",
+                                                            "type": "object",
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "description": "index type",
+                                                            "type": "object",
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "index": {
+                                                                    "type": "integer"
+                                                                }
+                                                            }
+                                                        },
+                                                        {
+                                                            "description": "keyword type",
+                                                            "type": "object",
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "keyword": {
+                                                                    "type": "string"
+                                                                },
+                                                                "startfrom": {
+                                                                    "type": "integer"
+                                                                }
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        },
+                                        "find_keys": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "type": {
+                                                    "type": "string"
+                                                },
+                                                "spec": {
+                                                    "anyOf": [
+                                                        {
+                                                            "description": "unknown type",
+                                                            "type": "object",
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "description": "range type",
+                                                            "type": "object",
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "lastkey": {
+                                                                    "type": "integer"
+                                                                },
+                                                                "keystep": {
+                                                                    "type": "integer"
+                                                                },
+                                                                "limit": {
+                                                                    "type": "integer"
+                                                                }
+                                                            }
+                                                        },
+                                                        {
+                                                            "description": "keynum type",
+                                                            "type": "object",
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "keynumidx": {
+                                                                    "type": "integer"
+                                                                },
+                                                                "firstkey": {
+                                                                    "type": "integer"
+                                                                },
+                                                                "keystep": {
+                                                                    "type": "integer"
+                                                                }
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "type": "array",
+                                "description": "subcommands"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
     }
 }

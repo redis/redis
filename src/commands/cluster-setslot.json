@@ -46,6 +46,9 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

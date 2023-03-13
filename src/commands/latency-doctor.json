@@ -17,6 +17,10 @@
             "NONDETERMINISTIC_OUTPUT",
             "REQUEST_POLICY:ALL_NODES",
             "RESPONSE_POLICY:SPECIAL"
-        ]
+        ],
+        "reply_schema": {
+            "type": "string",
+            "description": "A human readable latency analysis report."
+        }
     }
 }

@@ -34,6 +34,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "The the length of the string after the append operation."
+        },
         "arguments": [
             {
                 "name": "key",

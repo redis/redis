@@ -17,6 +17,9 @@
         "command_tips": [
             "REQUEST_POLICY:ALL_SHARDS",
             "RESPONSE_POLICY:ONE_SUCCEEDED"
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }
