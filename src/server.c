@@ -1133,7 +1133,7 @@ void updateCachedTime(int update_daylight_info) {
     updateCachedTimeWithUs(update_daylight_info, us);
 }
 
-/* Peforming require operations in order to enter an execution unit.
+/* Performing require operations in order to enter an execution unit.
  * In general, if we are already inside an execution unit then there is nothing to do,
  * otherwise we need to update cache times so the same cached time will be used all over
  * the execution unit.
