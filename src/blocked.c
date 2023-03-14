@@ -637,7 +637,7 @@ static void unblockClientOnKey(client *c, robj *key) {
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
         /* We must set the current client here so it will be available
-         * when we will try to send the the client side caching notificaiton
+         * when we will try to send the the client side caching notification
          * of 'afterCommand'. */
         client *old_client = server.current_client;
         server.current_client = c;
