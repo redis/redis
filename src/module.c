@@ -620,8 +620,7 @@ static void freeRedisModuleAsyncRMCallPromise(RedisModuleAsyncRMCallPromise *pro
         return;
     }
     /* When the promise is finally freed it can not have a client attached to it.
-     * Either releasing the client would have remove it.
-     * Or RM_CallReplyPromiseAbort would have remove it. */
+     * Either releasing the client or RM_CallReplyPromiseAbort would have removed it. */
     serverAssert(!promise->c);
     zfree(promise);
 }
@@ -5803,7 +5802,7 @@ void RM_CallReplyPromiseSetUnblockHandler(RedisModuleCallReply *reply, RedisModu
     promise->private_data = private_data;
 }
 
-/* Abort the execution of a give promise RedisModuleCallReply.
+/* Abort the execution of a given promise RedisModuleCallReply.
  * return REDMODULE_OK in case the abort was done successfully and REDISMODULE_ERR
  * if its not possible to abort the execution (execution already finished).
  * In case the execution was aborted (REDMODULE_OK was returned), the private_data out parameter
@@ -5819,7 +5818,7 @@ int RM_CallReplyPromiseAbort(RedisModuleCallReply *reply, void **private_data) {
     if (!promise->c) return REDISMODULE_ERR; /* Promise can not be aborted, either already aborted or already finished. */
     if (!(promise->c->flags & CLIENT_BLOCKED)) return REDISMODULE_ERR; /* Client is not blocked anymore, can not abort it. */
 
-    /* Client is still block, remove it from any blocking state and release it. */
+    /* Client is still blocked, remove it from any blocking state and release it. */
     if (private_data) *private_data = promise->private_data;
     promise->private_data = NULL;
     promise->on_unblocked = NULL;
@@ -6026,7 +6025,7 @@ fmterr:
  *              after the command invocation (without releasing the Redis lock in between).
  *              The module can use RedisModule_CallReplyPromiseAbort to abort the command invocation
  *              if it was not yet finished (see RedisModule_CallReplyPromiseAbort documentation for more
- *              details). Unlike other call replies, promise call reply **must** be freed when the Redis GIL is locked.
+ *              details). Unlike other call replies, promise call reply **must** be freed while the Redis GIL is locked.
  *              Notice that on unblocking, the only promise is that the unblock handler will be called,
  *              If the blocking RM_Call caused the module to also block some real client (using RM_BlockClient),
  *              it is the module responsibility to unblock this client on the unblock handler.
