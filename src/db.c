@@ -55,7 +55,7 @@ dict *dbIteratorNextDict(dbIterator *dbit) {
     if (!server.cluster_enabled) {
         dbit->cur_slot = dbit->index++ ? -1 : 0;
     } else if (intsetGet(dbit->db->non_empty_dicts, dbit->index++, &slot)){
-            dbit->cur_slot = (int) slot;
+        dbit->cur_slot = (int) slot;
         return dbit->db->dict[slot];
     }
     return dbit->cur_slot >= 0 ? dbit->db->dict[dbit->cur_slot] : NULL;
@@ -377,7 +377,7 @@ robj *dbRandomKey(redisDb *db) {
         robj *keyobj;
         dict *randomDict = getRandomDict(db);
         de = dictGetFairRandomKey(randomDict);
-        if (de == NULL) return NULL; // TODO consider other non-empty slot buckets.
+        if (de == NULL) return NULL;
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
