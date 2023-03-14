@@ -230,6 +230,8 @@ void flushdbCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
                 MemPoolFreeDb(ctx, i);
             }
         }
+    } else if (sub == REDISMODULE_SUBEVENT_FLUSHDB_FULLSYNC_POST_FLUSHDB) {
+        RedisModule_Log(ctx, "notice", "Received event REDISMODULE_SUBEVENT_FLUSHDB_FULLSYNC_POST_FLUSHDB");
     }
 }
 

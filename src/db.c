@@ -477,6 +477,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
 long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     int async = (flags & EMPTYDB_ASYNC);
     int with_functions = !(flags & EMPTYDB_NOFUNCTIONS);
+    int is_fullsync = (flags & EMPTYDB_FULLSYNC);
     RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
     long long removed = 0;
 
@@ -515,6 +516,11 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
                           REDISMODULE_SUBEVENT_FLUSHDB_END,
                           &fi);
+    if (is_fullsync) {
+        moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
+                              REDISMODULE_SUBEVENT_FLUSHDB_FULLSYNC_POST_FLUSHDB,
+                              &fi);
+    }
 
     return removed;
 }

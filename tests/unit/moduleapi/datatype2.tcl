@@ -1,3 +1,10 @@
+proc log_file_matches {log pattern} {
+    set fp [open $log r]
+    set content [read $fp]
+    close $fp
+    string match $pattern $content
+}
+
 set testmodule [file normalize tests/modules/datatype2.so]
 
 start_server {tags {"modules"}} {
@@ -228,5 +235,18 @@ start_server {tags {"modules"}} {
         assert_equal $data [r mem.read k2 0]
 
         assert_equal [memory_usage k1] [memory_usage k2] 
+    }
+
+    start_server {} {
+        r module load $testmodule
+
+        test {datatype2: test full sync post flushdb event notification} {
+            # Full sync with the master
+            r slaveof [srv -1 host] [srv -1 port]
+            wait_for_sync r
+
+            # Verify event REDISMODULE_SUBEVENT_FLUSHDB_FULLSYNC_POST_FLUSHDB
+            assert [log_file_matches [srv 0 stdout] "*Received event REDISMODULE_SUBEVENT_FLUSHDB_FULLSYNC_POST_FLUSHDB*"]
+        }
     }
 }

@@ -2070,7 +2070,7 @@ void readSyncBulkPayload(connection *conn) {
         replicationAttachToNewMaster();
 
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
-        emptyData(-1,empty_db_flags,replicationEmptyDbCallback);
+        emptyData(-1,empty_db_flags | EMPTYDB_FULLSYNC,replicationEmptyDbCallback);
     }
 
     /* Before loading the DB into memory we need to delete the readable
