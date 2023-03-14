@@ -129,8 +129,9 @@ start_server {tags {"modules"}} {
     }
 
     test {Become replica while having async RM_Call running} {
+        r flushall
         set rd [redis_deferring_client]
-        $rd wait_and_do_rm_call blpop l 0
+        $rd do_rm_call_async blpop l 0
         wait_for_blocked_client
 
         #become a replica of a not existing redis
@@ -138,11 +139,17 @@ start_server {tags {"modules"}} {
 
         catch {[$rd read]} e
         assert_match {UNBLOCKED force unblock from blocking operation*} $e
+        wait_for_blocked_clients_count 0
 
         r replicaof no one
+
+        r lpush l 1
+        # make sure the async rm_call was aborted
+        assert_equal [r llen l] {1}
     }
 
     test {Pipeline with blocking RM_Call} {
+        r flushall
         set rd [redis_deferring_client]
         set buf ""
         append buf "do_rm_call_async blpop l 0\r\n"
@@ -150,7 +157,6 @@ start_server {tags {"modules"}} {
         $rd write $buf
         $rd flush
         wait_for_blocked_client
-
 
         # release the blocked client
         r lpush l 1
@@ -162,12 +168,17 @@ start_server {tags {"modules"}} {
     test {blocking RM_Call abort} {
         r flushall
         set rd [redis_deferring_client]
+        
+        $rd client id
+        set client_id [$rd read]
 
         $rd do_rm_call_async blpop l 0
         wait_for_blocked_client
 
-        r client kill TYPE NORMAL
+        r client kill ID $client_id
         assert_error {*error reading reply*} {$rd read}
+
+        wait_for_blocked_clients_count 0
 
         r lpush l 1
         # make sure the async rm_call was aborted

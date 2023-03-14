@@ -3553,7 +3553,7 @@ void processClientsWaitingReplicas(void) {
         {
             /* Reply before unblocking, because unblock client calls reqresAppendResponse */
             addReplyLongLong(c,last_numreplicas);
-            unblockClientAndQueueForReprocessing(c);
+            unblockClient(c, 1);
         } else {
             int numreplicas = replicationCountAcksByOffset(c->bstate.reploffset);
 
@@ -3562,7 +3562,7 @@ void processClientsWaitingReplicas(void) {
                 last_numreplicas = numreplicas;
                 /* Reply before unblocking, because unblock client calls reqresAppendResponse */
                 addReplyLongLong(c,numreplicas);
-                unblockClientAndQueueForReprocessing(c);
+                unblockClient(c, 1);
             }
         }
     }

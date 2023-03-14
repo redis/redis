@@ -880,7 +880,7 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
      * 2. If we are running in a thread (execution_nesting will be dealt with
      *    when locking/unlocking the GIL) */
     if (!(ctx_flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
-        enterExecutionUnit();
+        enterExecutionUnit(1, 0);
     }
 }
 
@@ -5822,7 +5822,7 @@ int RM_CallReplyPromiseAbort(RedisModuleCallReply *reply, void **private_data) {
     if (private_data) *private_data = promise->private_data;
     promise->private_data = NULL;
     promise->on_unblocked = NULL;
-    unblockClient(promise->c);
+    unblockClient(promise->c, 0);
     moduleReleaseTempClient(promise->c);
     return REDISMODULE_OK;
 }
@@ -6339,6 +6339,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         serverAssert(ctx->module);
         RedisModuleAsyncRMCallPromise *promise = zmalloc(sizeof(RedisModuleAsyncRMCallPromise));
         *promise = (RedisModuleAsyncRMCallPromise) {
+                /* We start with ref_count value of 2 because this object is held
+                 * by the promise CallReply and the fake client that was used to execute the command. */
                 .ref_count = 2,
                 .module = ctx->module,
                 .on_unblocked = NULL,
@@ -7901,7 +7903,7 @@ void moduleHandleBlockedClients(void) {
              * to NULL, because if we reached this point, the client was
              * properly unblocked by the module. */
             bc->disconnect_callback = NULL;
-            unblockClientAndQueueForReprocessing(c);
+            unblockClient(c, 1);
             /* Put the client in the list of clients that need to write
              * if there are pending replies here. This is needed since
              * during a non blocking command the client may receive output. */
@@ -8085,7 +8087,7 @@ void moduleGILAfterLock() {
     serverAssert(server.execution_nesting == 0);
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
-    enterExecutionUnit();
+    enterExecutionUnit(1, 0);
 }
 
 /* Acquire the server lock before executing a thread safe API call.
@@ -8235,8 +8237,8 @@ void firePostExecutionUnitJobs() {
      * In that way, postExecutionUnitOperations will prevent
      * recursive calls to firePostExecutionUnitJobs.
      * This is a special case where we need to increase 'execution_nesting'
-     * but we do not want to update the cached time so we can not use enterExecutionUnit */
-    server.execution_nesting++;
+     * but we do not want to update the cached time */
+    enterExecutionUnit(0, 0);
     while (listLength(modulePostExecUnitJobs) > 0) {
         listNode *ln = listFirst(modulePostExecUnitJobs);
         RedisModulePostExecUnitJob *job = listNodeValue(ln);
@@ -8252,7 +8254,7 @@ void firePostExecutionUnitJobs() {
         moduleFreeContext(&ctx);
         zfree(job);
     }
-    server.execution_nesting--;
+    exitExecutionUnit();
 }
 
 /* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
@@ -8319,7 +8321,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
      *
      * This is a special case where we need to increase 'execution_nesting'
      * but we do not want to update the cached time so we can not use enterExecutionUnit */
-    server.execution_nesting++;
+    enterExecutionUnit(0, 0);
 
     listIter li;
     listNode *ln;
@@ -8350,7 +8352,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
         }
     }
 
-    server.execution_nesting--;
+    exitExecutionUnit();
 }
 
 /* Unsubscribe any notification subscribers this module has upon unloading */

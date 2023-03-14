@@ -3046,7 +3046,7 @@ void adjustOpenFilesLimit(void);
 void incrementErrorCount(const char *fullerr, size_t namelen);
 void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(int update_daylight_info);
-void enterExecutionUnit();
+void enterExecutionUnit(int update_cached_times, long long us);
 void exitExecutionUnit();
 void resetServerStats(void);
 void activeDefragCycle(void);
@@ -3349,8 +3349,7 @@ typedef struct luaScript {
 void processUnblockedClients(void);
 void initClientBlockingState(client *c);
 void blockClient(client *c, int btype);
-void unblockClientAndQueueForReprocessing(client *c);
-void unblockClient(client *c);
+void unblockClient(client *c, int queue_for_reprocessing);
 void unblockClientOnTimeout(client *c);
 void unblockClientOnError(client *c, const char *err_str);
 void queueClientForReprocessing(client *c);

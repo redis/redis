@@ -180,7 +180,7 @@ void queueClientForReprocessing(client *c) {
 
 /* Unblock a client calling the right function depending on the kind
  * of operation the client is blocking for. */
-void unblockClient(client *c) {
+void unblockClient(client *c, int queue_for_reprocessing) {
     if (c->bstate.btype == BLOCKED_LIST ||
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM) {
@@ -219,11 +219,7 @@ void unblockClient(client *c) {
     c->bstate.btype = BLOCKED_NONE;
     c->bstate.unblock_on_nokey = 0;
     removeClientFromTimeoutTable(c);
-}
-
-void unblockClientAndQueueForReprocessing(client *c) {
-    unblockClient(c);
-    queueClientForReprocessing(c);
+    if (queue_for_reprocessing) queueClientForReprocessing(c);
 }
 
 /* This function gets called when a blocked client timed out in order to
@@ -255,7 +251,7 @@ void replyToClientsBlockedOnShutdown(void) {
         client *c = listNodeValue(ln);
         if (c->flags & CLIENT_BLOCKED && c->bstate.btype == BLOCKED_SHUTDOWN) {
             addReplyError(c, "Errors trying to SHUTDOWN. Check logs.");
-            unblockClientAndQueueForReprocessing(c);
+            unblockClient(c, 1);
         }
     }
 }
@@ -631,7 +627,7 @@ static void unblockClientOnKey(client *c, robj *key) {
 
     /* We need to unblock the client before calling processCommandAndResetClient
      * because it checks the CLIENT_BLOCKED flag */
-    unblockClient(c);
+    unblockClient(c, 0);
     /* In case this client was blocked on keys during command
      * we need to re process the command again */
     if (c->flags & CLIENT_PENDING_COMMAND) {
@@ -641,7 +637,7 @@ static void unblockClientOnKey(client *c, robj *key) {
          * of 'afterCommand'. */
         client *old_client = server.current_client;
         server.current_client = c;
-        enterExecutionUnit();
+        enterExecutionUnit(1, 0);
         processCommandAndResetClient(c);
         if (!(c->flags & CLIENT_BLOCKED)) {
             if (c->flags & CLIENT_MODULE) {
@@ -688,7 +684,7 @@ void unblockClientOnTimeout(client *c) {
     replyToBlockedClientTimedOut(c);
     if (c->flags & CLIENT_PENDING_COMMAND)
         c->flags &= ~CLIENT_PENDING_COMMAND;
-    unblockClientAndQueueForReprocessing(c);
+    unblockClient(c, 1);
 }
 
 /* Unblock a client which is currently Blocked with error.
@@ -699,7 +695,7 @@ void unblockClientOnError(client *c, const char *err_str) {
     updateStatsOnUnblock(c, 0, 0, 1);
     if (c->flags & CLIENT_PENDING_COMMAND)
         c->flags &= ~CLIENT_PENDING_COMMAND;
-    unblockClientAndQueueForReprocessing(c);
+    unblockClient(c, 1);
 }
 
 /* sets blocking_keys to the total number of keys which has at least one client blocked on them
