@@ -888,7 +888,7 @@ struct redisObject {
     void *ptr;
 };
 
-/* The a string name for an object's type as listed above
+/* The string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
  * and Module types have their registered name returned. */
 char *getObjectTypeName(robj*);
@@ -922,7 +922,7 @@ typedef struct clientReplyBlock {
  *      |                                           /         \
  *      |                                          /           \
  *  Repl Backlog                               Replica_A    Replica_B
- * 
+ *
  * Each replica or replication backlog increments only the refcount of the
  * 'ref_repl_buf_node' which it points to. So when replica walks to the next
  * node, it should first increase the next node's refcount, and when we trim
@@ -1079,7 +1079,7 @@ typedef struct {
                                       need more reserved IDs use UINT64_MAX-1,
                                       -2, ... and so forth. */
 
-/* Replication backlog is not separate memory, it just is one consumer of
+/* Replication backlog is not a separate memory, it just is one consumer of
  * the global replication buffer. This structure records the reference of
  * replication buffers. Since the replication buffer block list may be very long,
  * it would cost much time to search replication offset on partial resync, so
@@ -1208,7 +1208,7 @@ typedef struct client {
                              * unloaded for cleanup. Opaque for Redis Core.*/
 
     /* If this client is in tracking mode and this field is non zero,
-     * invalidation messages for keys fetched by this client will be send to
+     * invalidation messages for keys fetched by this client will be sent to
      * the specified client ID. */
     uint64_t client_tracking_redirection;
     rax *client_tracking_prefixes; /* A dictionary of prefixes we are already
@@ -1771,7 +1771,7 @@ struct redisServer {
     char *rdb_pipe_buff;            /* In diskless replication, this buffer holds data */
     int rdb_pipe_bufflen;           /* that was read from the rdb pipe. */
     int rdb_key_save_delay;         /* Delay in microseconds between keys while
-                                     * writing the RDB. (for testings). negative
+                                     * writing aof or rdb. (for testings). negative
                                      * value means fractions of microseconds (on average). */
     int key_load_delay;             /* Delay in microseconds between keys while
                                      * loading aof or rdb. (for testings). negative
@@ -1944,7 +1944,7 @@ struct redisServer {
                                       REDISMODULE_CLUSTER_FLAG_*. */
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
-    int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
+    int cluster_config_file_lock_fd;   /* cluster config fd, will be flocked. */
     unsigned long long cluster_link_msg_queue_limit_bytes;  /* Memory usage limit on individual link msg queue */
     int cluster_drop_packet_filter; /* Debug config that allows tactically
                                    * dropping packets of a specific type */
