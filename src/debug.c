@@ -807,9 +807,12 @@ NULL
                 addReplyError(c,"RESP2 is not supported by this command");
                 return;
 	    }
+            uint64_t old_flags = c->flags;
+            c->flags |= CLIENT_PUSHING;
             addReplyPushLen(c,2);
             addReplyBulkCString(c,"server-cpu-usage");
             addReplyLongLong(c,42);
+            if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
             /* Push replies are not synchronous replies, so we emit also a
              * normal reply in order for blocking clients just discarding the
              * push reply, to actually consume the reply and continue. */

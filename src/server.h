@@ -391,8 +391,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_ALLOW_OOM (1ULL<<44) /* Client used by RM_Call is allowed to fully execute
                                        scripts even when in OOM */
 #define CLIENT_NO_TOUCH (1ULL<<45) /* This client will not touch LFU/LRU stats. */
-#define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<46) /* Module client do not want to propagate to AOF */
-#define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<47) /* Module client do not want to propagate to replica */
+#define CLIENT_PUSHING (1ULL<<46) /* This client is pushing notifications. */
+#define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<47) /* Module client do not want to propagate to AOF */
+#define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<48) /* Module client do not want to propagate to replica */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -923,7 +924,7 @@ typedef struct clientReplyBlock {
  *      |                                            /       \
  *      |                                           /         \
  *      |                                          /           \
- *  Repl Backlog                               Replia_A      Replia_B
+ *  Repl Backlog                               Replica_A    Replica_B
  * 
  * Each replica or replication backlog increments only the refcount of the
  * 'ref_repl_buf_node' which it points to. So when replica walks to the next
