@@ -219,6 +219,10 @@ void unblockClient(client *c) {
     c->bstate.btype = BLOCKED_NONE;
     c->bstate.unblock_on_nokey = 0;
     removeClientFromTimeoutTable(c);
+}
+
+void unblockClientAndQueueForReprocessing(client *c) {
+    unblockClient(c);
     queueClientForReprocessing(c);
 }
 
@@ -251,7 +255,7 @@ void replyToClientsBlockedOnShutdown(void) {
         client *c = listNodeValue(ln);
         if (c->flags & CLIENT_BLOCKED && c->bstate.btype == BLOCKED_SHUTDOWN) {
             addReplyError(c, "Errors trying to SHUTDOWN. Check logs.");
-            unblockClient(c);
+            unblockClientAndQueueForReprocessing(c);
         }
     }
 }
@@ -632,7 +636,23 @@ static void unblockClientOnKey(client *c, robj *key) {
      * we need to re process the command again */
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
+        /* We must set the current client here so it will be available
+         * when we will try to send the the client side caching notificaiton
+         * of 'afterCommand'. */
+        client *old_client = server.current_client;
+        server.current_client = c;
+        enterExecutionUnit();
         processCommandAndResetClient(c);
+        if (!(c->flags & CLIENT_BLOCKED)) {
+            if (c->flags & CLIENT_MODULE) {
+                moduleCallCommandUnblockedHandler(c);
+            } else {
+                queueClientForReprocessing(c);
+            }
+        }
+        exitExecutionUnit();
+        afterCommand(c);
+        server.current_client = old_client;
     }
 }
 
@@ -668,7 +688,7 @@ void unblockClientOnTimeout(client *c) {
     replyToBlockedClientTimedOut(c);
     if (c->flags & CLIENT_PENDING_COMMAND)
         c->flags &= ~CLIENT_PENDING_COMMAND;
-    unblockClient(c);
+    unblockClientAndQueueForReprocessing(c);
 }
 
 /* Unblock a client which is currently Blocked with error.
@@ -679,7 +699,7 @@ void unblockClientOnError(client *c, const char *err_str) {
     updateStatsOnUnblock(c, 0, 0, 1);
     if (c->flags & CLIENT_PENDING_COMMAND)
         c->flags &= ~CLIENT_PENDING_COMMAND;
-    unblockClient(c);
+    unblockClientAndQueueForReprocessing(c);
 }
 
 /* sets blocking_keys to the total number of keys which has at least one client blocked on them

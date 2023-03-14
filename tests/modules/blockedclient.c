@@ -232,7 +232,7 @@ static void rm_call_async_on_unblocked(RedisModuleCtx *ctx, RedisModuleCallReply
     RedisModuleCtx *bctx = RedisModule_GetThreadSafeContext(bc);
     rm_call_async_send_reply(bctx, reply);
     RedisModule_FreeThreadSafeContext(bctx);
-    RedisModule_UnblockClient(bc, NULL);
+    RedisModule_UnblockClient(bc, RedisModule_BlockClientGetPrivateData(bc));
 }
 
 int do_rm_call_async_fire_and_forget(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
@@ -247,12 +247,26 @@ int do_rm_call_async_fire_and_forget(RedisModuleCtx *ctx, RedisModuleString **ar
     RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "!KEv", argv + 2, argc - 2);
 
     if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
-        rm_call_async_send_reply(ctx, rep);
+        RedisModule_ReplyWithCallReply(ctx, rep);
     } else {
         RedisModule_ReplyWithSimpleString(ctx, "Blocked");
     }
+    RedisModule_FreeCallReply(rep);
 
     return REDISMODULE_OK;
+}
+
+static void do_rm_call_async_free_pd(RedisModuleCtx * ctx, void *pd) {
+    UNUSED(ctx);
+    RedisModule_FreeCallReply(pd);
+}
+
+static void do_rm_call_async_disconnect(RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc) {
+    UNUSED(ctx);
+    RedisModuleCallReply* rep = RedisModule_BlockClientGetPrivateData(bc);
+    RedisModule_CallReplyPromiseAbort(rep, NULL);
+    RedisModule_FreeCallReply(rep);
+    RedisModule_AbortBlock(bc);
 }
 
 /*
@@ -298,7 +312,9 @@ int do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
         rm_call_async_send_reply(ctx, rep);
     } else {
-        RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);;
+        RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, do_rm_call_async_free_pd, 0);
+        RedisModule_SetDisconnectCallback(bc, do_rm_call_async_disconnect);
+        RedisModule_BlockClientSetPrivateData(bc, rep);
         RedisModule_CallReplyPromiseSetUnblockHandler(rep, rm_call_async_on_unblocked, bc);
     }
 
@@ -342,6 +358,7 @@ done:
         RedisModule_UnblockClient(wctx->bc, NULL);
     } else {
         RedisModule_CallReplyPromiseSetUnblockHandler(reply, rm_call_async_on_unblocked, wctx->bc);
+        RedisModule_FreeCallReply(reply);
     }
     for (int i = 0 ; i < wctx->argc ; ++i) {
         RedisModule_FreeString(NULL, wctx->argv[i]);
@@ -385,6 +402,7 @@ int wait_and_do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int
             wctx->argv[i - 1] = RedisModule_HoldString(NULL, argv[i]);
         }
         RedisModule_CallReplyPromiseSetUnblockHandler(rep, wait_and_do_rm_call_async_on_unblocked, wctx);
+        RedisModule_FreeCallReply(rep);
     }
 
     return REDISMODULE_OK;
@@ -446,6 +464,7 @@ int blpop_and_set_multiple_keys(RedisModuleCtx *ctx, RedisModuleString **argv, i
             wctx->argv[i] = RedisModule_HoldString(NULL, argv[i + 2]);
         }
         RedisModule_CallReplyPromiseSetUnblockHandler(rep, blpop_and_set_multiple_keys_on_unblocked, wctx);
+        RedisModule_FreeCallReply(rep);
     }
 
     return REDISMODULE_OK;

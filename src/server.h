@@ -582,6 +582,7 @@ typedef enum {
 #define CMD_CALL_NONE 0
 #define CMD_CALL_PROPAGATE_AOF (1<<0)
 #define CMD_CALL_PROPAGATE_REPL (1<<1)
+#define CMD_CALL_REPROCESSING (1<<2)
 #define CMD_CALL_PROPAGATE (CMD_CALL_PROPAGATE_AOF|CMD_CALL_PROPAGATE_REPL)
 #define CMD_CALL_FULL (CMD_CALL_PROPAGATE)
 #define CMD_CALL_FROM_MODULE (1<<2)  /* From RM_Call */
@@ -1018,7 +1019,7 @@ typedef struct blockingState {
                                     which is opaque for the Redis core, only
                                     handled in module.c. */
 
-    void *async_rm_call_handle; /* AsyncRMCallCtx structure.
+    void *async_rm_call_handle; /* RedisModuleAsyncRMCallPromise structure.
                                    which is opaque for the Redis core, only
                                    handled in module.c. */
 } blockingState;
@@ -3044,6 +3045,8 @@ void adjustOpenFilesLimit(void);
 void incrementErrorCount(const char *fullerr, size_t namelen);
 void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(int update_daylight_info);
+void enterExecutionUnit();
+void exitExecutionUnit();
 void resetServerStats(void);
 void activeDefragCycle(void);
 unsigned int getLRUClock(void);
@@ -3345,6 +3348,7 @@ typedef struct luaScript {
 void processUnblockedClients(void);
 void initClientBlockingState(client *c);
 void blockClient(client *c, int btype);
+void unblockClientAndQueueForReprocessing(client *c);
 void unblockClient(client *c);
 void unblockClientOnTimeout(client *c);
 void unblockClientOnError(client *c, const char *err_str);

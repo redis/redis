@@ -59,11 +59,6 @@ struct CallReply {
         long long ll;    /* Reply value for integer reply. */
         double d;        /* Reply value for double reply. */
         struct CallReply *array; /* Array of sub-reply elements. used for set, array, map, and attribute */
-        struct{
-            void *private_data;
-            RedisModule *module;
-            RedisModuleOnUnblocked on_unblocked;
-        } promise;
     } val;
     list *deferred_error_list;   /* list of errors in sds form or NULL */
     struct CallReply *attribute; /* attribute reply, NULL if not exists */
@@ -251,34 +246,15 @@ void freeCallReply(CallReply *rep) {
     zfree(rep);
 }
 
-CallReply* callReplyCreatePromise(RedisModule *module) {
+CallReply* callReplyCreatePromise(void *private_data) {
     CallReply *res = zmalloc(sizeof(*res));
     res->type = REDISMODULE_REPLY_PROMISE;
-    res->val.promise.module = module;
-    res->val.promise.on_unblocked = NULL;
-    res->val.promise.private_data = NULL;
     /* Mark the reply as parsed so there will be not attempt to parse
      * it when calling reply API such as freeCallReply.
      * Also mark the reply as root so freeCallReply will not ignore it. */
     res->flags |= REPLY_FLAG_PARSED | REPLY_FLAG_ROOT;
+    res->private_data = private_data;
     return res;
-}
-
-/*
- * Return the promise on unblock handler.
- * The function handler is the return value, the module and the private data are returned as an out params.
- * Return NULL in case the CallReply is not of REDISMODULE_REPLY_PROMISE type.
- */
-RedisModuleOnUnblocked callReplyPromiseGetUnblockHandler(CallReply *rep, RedisModule **module, void **private_data) {
-    if (rep->type != REDISMODULE_REPLY_PROMISE) return NULL;
-    *module = rep->val.promise.module;
-    *private_data = rep->val.promise.private_data;
-    return rep->val.promise.on_unblocked;
-}
-
-void callReplyPromiseSetUnblockHandler(CallReply *rep, RedisModuleOnUnblocked on_unblock, void *private_data) {
-    rep->val.promise.on_unblocked = on_unblock;
-    rep->val.promise.private_data = private_data;
 }
 
 static const ReplyParserCallbacks DefaultParserCallbacks = {

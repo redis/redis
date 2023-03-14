@@ -456,6 +456,15 @@ struct ModuleConfig {
     RedisModule *module;
 };
 
+typedef struct RedisModuleAsyncRMCallPromise{
+    size_t ref_count;
+    void *private_data;
+    RedisModule *module;
+    RedisModuleOnUnblocked on_unblocked;
+    client *c;
+    RedisModuleCtx *ctx;
+} RedisModuleAsyncRMCallPromise;
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -606,6 +615,17 @@ client *moduleAllocTempClient(user *user) {
     return c;
 }
 
+static void freeRedisModuleAsyncRMCallPromise(RedisModuleAsyncRMCallPromise *promise) {
+    if (--promise->ref_count > 0) {
+        return;
+    }
+    /* When the promise is finally freed it can not have a client attached to it.
+     * Either releasing the client would have remove it.
+     * Or RM_CallReplyPromiseAbort would have remove it. */
+    serverAssert(!promise->c);
+    zfree(promise);
+}
+
 void moduleReleaseTempClient(client *c) {
     if (moduleTempClientCount == moduleTempClientCap) {
         moduleTempClientCap = moduleTempClientCap ? moduleTempClientCap*2 : 32;
@@ -620,7 +640,9 @@ void moduleReleaseTempClient(client *c) {
     c->user = NULL; /* Root user */
     c->cmd = c->lastcmd = c->realcmd = NULL;
     if (c->bstate.async_rm_call_handle) {
-        freeCallReply(c->bstate.async_rm_call_handle);
+        RedisModuleAsyncRMCallPromise *promise = c->bstate.async_rm_call_handle;
+        promise->c = NULL; /* Remove the client from the promise so it will no longer be possible to abort it. */
+        freeRedisModuleAsyncRMCallPromise(promise);
         c->bstate.async_rm_call_handle = NULL;
     }
     moduleTempClients[moduleTempClientCount++] = c;
@@ -762,7 +784,7 @@ void modulePostExecutionUnitOperations() {
 void moduleFreeContext(RedisModuleCtx *ctx) {
     /* See comment in moduleCreateContext */
     if (!(ctx->flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
-        server.execution_nesting--;
+        exitExecutionUnit();
         postExecutionUnitOperations();
     }
     autoMemoryCollect(ctx);
@@ -804,12 +826,10 @@ static CallReply* moduleParseReply(client *c, RedisModuleCtx *ctx) {
 
 void moduleCallCommandUnblockedHandler(client *c) {
     RedisModuleCtx ctx;
-    CallReply *promise = c->bstate.async_rm_call_handle;
+    RedisModuleAsyncRMCallPromise *promise = c->bstate.async_rm_call_handle;
     serverAssert(promise);
-    RedisModule *module = NULL;
-    void *private_data = NULL;
-    RedisModuleOnUnblocked on_unblock = callReplyPromiseGetUnblockHandler(promise, &module, &private_data);
-    if (!on_unblock) {
+    RedisModule *module = promise->module;
+    if (!promise->on_unblocked) {
         moduleReleaseTempClient(c);
         return; /* module did not set any unblock callback. */
     }
@@ -818,7 +838,7 @@ void moduleCallCommandUnblockedHandler(client *c) {
 
     CallReply *reply = moduleParseReply(c, &ctx);
     module->in_call++;
-    on_unblock(&ctx, reply, private_data);
+    promise->on_unblocked(&ctx, reply, promise->private_data);
     module->in_call--;
 
     moduleFreeContext(&ctx);
@@ -861,7 +881,7 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
      * 2. If we are running in a thread (execution_nesting will be dealt with
      *    when locking/unlocking the GIL) */
     if (!(ctx_flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
-        server.execution_nesting++;
+        enterExecutionUnit();
     }
 }
 
@@ -5662,12 +5682,19 @@ void RM_FreeCallReply(RedisModuleCallReply *reply) {
      * in order to have the first level function to return on nested replies,
      * but only if called by the module API. */
 
-    /* Module should never directly free a promise call reply. */
-    serverAssert(callReplyType(reply) != REDISMODULE_REPLY_PROMISE);
+    RedisModuleCtx *ctx = NULL;
+    if(callReplyType(reply) == REDISMODULE_REPLY_PROMISE) {
+        RedisModuleAsyncRMCallPromise *promise = callReplyGetPrivateData(reply);
+        ctx = promise->ctx;
+        freeRedisModuleAsyncRMCallPromise(promise);
+    } else {
+        ctx = callReplyGetPrivateData(reply);
+    }
 
-    RedisModuleCtx *ctx = callReplyGetPrivateData(reply);
     freeCallReply(reply);
-    autoMemoryFreed(ctx,REDISMODULE_AM_REPLY,reply);
+    if (ctx) {
+        autoMemoryFreed(ctx,REDISMODULE_AM_REPLY,reply);
+    }
 }
 
 /* Return the reply type as one of the following:
@@ -5771,7 +5798,34 @@ int RM_CallReplyAttributeElement(RedisModuleCallReply *reply, size_t idx, RedisM
 /* Set unblock handler (callback and private data) on the given promise RedisModuleCallReply.
  * The given reply must be of promise type (REDISMODULE_REPLY_PROMISE). */
 void RM_CallReplyPromiseSetUnblockHandler(RedisModuleCallReply *reply, RedisModuleOnUnblocked on_unblock, void *private_data) {
-    callReplyPromiseSetUnblockHandler(reply, on_unblock, private_data);
+    RedisModuleAsyncRMCallPromise *promise = callReplyGetPrivateData(reply);
+    promise->on_unblocked = on_unblock;
+    promise->private_data = private_data;
+}
+
+/* Abort the execution of a give promise RedisModuleCallReply.
+ * return REDMODULE_OK in case the abort was done successfully and REDISMODULE_ERR
+ * if its not possible to abort the execution (execution already finished).
+ * In case the execution was aborted (REDMODULE_OK was returned), the private_data out parameter
+ * will be set with the value of the private data that was given on 'RM_CallReplyPromiseSetUnblockHandler'
+ * so the caller will be able to release the private data.
+ *
+ * If the execution was aborted successfully, it is promised that the unblock handler will not be called.
+ * That said, it is possible that the abort operation will successes but the operation will still continue.
+ * This can happened if, for example, a module implements some blocking command and does not respect the
+ * disconnect callback. For pure Redis commands this can not happened.*/
+int RM_CallReplyPromiseAbort(RedisModuleCallReply *reply, void **private_data) {
+    RedisModuleAsyncRMCallPromise *promise = callReplyGetPrivateData(reply);
+    if (!promise->c) return REDISMODULE_ERR; /* Promise can not be aborted, either already aborted or already finished. */
+    if (!(promise->c->flags & CLIENT_BLOCKED)) return REDISMODULE_ERR; /* Client is not blocked anymore, can not abort it. */
+
+    /* Client is still block, remove it from any blocking state and release it. */
+    if (private_data) *private_data = promise->private_data;
+    promise->private_data = NULL;
+    promise->on_unblocked = NULL;
+    unblockClient(promise->c);
+    moduleReleaseTempClient(promise->c);
+    return REDISMODULE_OK;
 }
 
 /* Return the pointer and length of a string or error reply. */
@@ -5970,8 +6024,9 @@ fmterr:
  *              If the handler is not set, the blocking command will still continue its execution
  *              but the reply will be ignored (fire and forget). The handler must be set immediately
  *              after the command invocation (without releasing the Redis lock in between).
- *              The module should not keep the promise call reply after the Redis lock has been released.
- *              The module should not free the promise call reply.
+ *              The module can use RedisModule_CallReplyPromiseAbort to abort the command invocation
+ *              if it was not yet finished (see RedisModule_CallReplyPromiseAbort documentation for more
+ *              details). Unlike other call replies, promise call reply **must** be freed when the Redis GIL is locked.
  *              Notice that on unblocking, the only promise is that the unblock handler will be called,
  *              If the blocking RM_Call caused the module to also block some real client (using RM_BlockClient),
  *              it is the module responsibility to unblock this client on the unblock handler.
@@ -6283,8 +6338,17 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     if (c->flags & CLIENT_BLOCKED) {
         serverAssert(flags & REDISMODULE_ARGV_ALLOW_BLOCK);
         serverAssert(ctx->module);
-        reply = callReplyCreatePromise(ctx->module);
-        c->bstate.async_rm_call_handle = reply;
+        RedisModuleAsyncRMCallPromise *promise = zmalloc(sizeof(RedisModuleAsyncRMCallPromise));
+        *promise = (RedisModuleAsyncRMCallPromise) {
+                .ref_count = 2,
+                .module = ctx->module,
+                .on_unblocked = NULL,
+                .private_data = NULL,
+                .c = c,
+                .ctx = (ctx->flags & REDISMODULE_CTX_AUTO_MEMORY) ? ctx : NULL,
+        };
+        reply = callReplyCreatePromise(promise);
+        c->bstate.async_rm_call_handle = promise;
         if (!(call_flags & CMD_CALL_PROPAGATE_AOF)) {
             /* No need for AOF propagation, set the relevant flags of the client */
             c->flags |= CLIENT_MODULE_PREVENT_AOF_PROP;
@@ -6295,7 +6359,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
         c = NULL; /* Make sure not to free the client */
     } else {
-        reply = moduleParseReply(c, ctx);
+        reply = moduleParseReply(c, (ctx->flags & REDISMODULE_CTX_AUTO_MEMORY) ? ctx : NULL);
     }
 
 cleanup:
@@ -7577,6 +7641,16 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
     return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL,0);
 }
 
+/* Get the private data that was previusely set on a blocked client */
+void* RM_BlockClientGetPrivateData(RedisModuleBlockedClient *blocked_client) {
+    return blocked_client->privdata;
+}
+
+/* Set private data on a blocked client */
+void RM_BlockClientSetPrivateData(RedisModuleBlockedClient *blocked_client, void *private_data) {
+    blocked_client->privdata = private_data;
+}
+
 /* This call is similar to RedisModule_BlockClient(), however in this case we
  * don't just block the client, but also ask Redis to unblock it automatically
  * once certain keys become "ready", that is, contain more data.
@@ -7828,7 +7902,7 @@ void moduleHandleBlockedClients(void) {
              * to NULL, because if we reached this point, the client was
              * properly unblocked by the module. */
             bc->disconnect_callback = NULL;
-            unblockClient(c);
+            unblockClientAndQueueForReprocessing(c);
             /* Put the client in the list of clients that need to write
              * if there are pending replies here. This is needed since
              * during a non blocking command the client may receive output. */
@@ -8012,8 +8086,7 @@ void moduleGILAfterLock() {
     serverAssert(server.execution_nesting == 0);
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
-    server.execution_nesting++;
-    updateCachedTime(0);
+    enterExecutionUnit();
 }
 
 /* Acquire the server lock before executing a thread safe API call.
@@ -8051,7 +8124,7 @@ void moduleGILBeforeUnlock() {
     /* Restore nesting level and propagate pending commands
      * (because it's unclear when thread safe contexts are
      * released we have to propagate here). */
-    server.execution_nesting--;
+    exitExecutionUnit();
     postExecutionUnitOperations();
 }
 
@@ -8161,7 +8234,9 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
 void firePostExecutionUnitJobs() {
     /* Avoid propagation of commands.
      * In that way, postExecutionUnitOperations will prevent
-     * recursive calls to firePostExecutionUnitJobs. */
+     * recursive calls to firePostExecutionUnitJobs.
+     * This is a special case where we need to increase 'execution_nesting'
+     * but we do not want to update the cached time so we can not use enterExecutionUnit */
     server.execution_nesting++;
     while (listLength(modulePostExecUnitJobs) > 0) {
         listNode *ln = listFirst(modulePostExecUnitJobs);
@@ -8241,7 +8316,10 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
      *
      * In order to do that we increment the execution_nesting counter, thus
      * preventing postExecutionUnitOperations (from within moduleFreeContext)
-     * from propagating commands from CB. */
+     * from propagating commands from CB.
+     *
+     * This is a special case where we need to increase 'execution_nesting'
+     * but we do not want to update the cached time so we can not use enterExecutionUnit */
     server.execution_nesting++;
 
     listIter li;
@@ -12951,6 +13029,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CallReplyMapElement);
     REGISTER_API(CallReplyAttributeElement);
     REGISTER_API(CallReplyPromiseSetUnblockHandler);
+    REGISTER_API(CallReplyPromiseAbort);
     REGISTER_API(CallReplyAttribute);
     REGISTER_API(CallReplyType);
     REGISTER_API(CallReplyLength);
@@ -13065,6 +13144,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetKeyNameFromDigest);
     REGISTER_API(GetDbIdFromDigest);
     REGISTER_API(BlockClient);
+    REGISTER_API(BlockClientGetPrivateData);
+    REGISTER_API(BlockClientSetPrivateData);
     REGISTER_API(UnblockClient);
     REGISTER_API(IsBlockedReplyRequest);
     REGISTER_API(IsBlockedTimeoutRequest);

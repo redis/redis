@@ -1133,6 +1133,17 @@ void updateCachedTime(int update_daylight_info) {
     updateCachedTimeWithUs(update_daylight_info, us);
 }
 
+void enterExecutionUnit() {
+    if (server.execution_nesting++ == 0) {
+        updateCachedTime(0);
+        server.cmd_time_snapshot = server.mstime;
+    }
+}
+
+void exitExecutionUnit() {
+    --server.execution_nesting;
+}
+
 void checkChildrenDone(void) {
     int statloc = 0;
     pid_t pid;
@@ -3453,7 +3464,7 @@ void call(client *c, int flags) {
      * and a client which is reprocessing command again (after being unblocked).
      * Blocked clients can be blocked in different places and not always it means the call() function has been
      * called. For example this is required for avoiding double logging to monitors.*/
-    int reprocessing_command = ((!server.execution_nesting) && (c->flags & CLIENT_EXECUTING_COMMAND)) ? 1 : 0;
+    int reprocessing_command = flags & CMD_CALL_REPROCESSING;
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
@@ -3470,15 +3481,9 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     incrCommandStatsOnError(NULL, 0);
 
-    const long long call_timer = ustime();
-
-    /* Update cache time, and indicate we are starting command execution.
-     * in case we have nested calls we want to update only on the first call */
-    if (server.execution_nesting++ == 0) {
-        updateCachedTimeWithUs(0,call_timer);
-        server.cmd_time_snapshot = server.mstime;
-        c->flags |= CLIENT_EXECUTING_COMMAND;
-    }
+    enterExecutionUnit();
+    const long long call_timer = server.ustime;
+    c->flags |= CLIENT_EXECUTING_COMMAND;
 
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
@@ -3486,12 +3491,11 @@ void call(client *c, int flags) {
 
     c->cmd->proc(c);
 
-    if (--server.execution_nesting == 0) {
-        /* In case client is blocked after trying to execute the command,
-         * it means the execution is not yet completed and we MIGHT reprocess the command in the future. */
-        if (!(c->flags & CLIENT_BLOCKED))
-            c->flags &= ~(CLIENT_EXECUTING_COMMAND);
-    }
+    exitExecutionUnit();
+
+    /* In case client is blocked after trying to execute the command,
+     * it means the execution is not yet completed and we MIGHT reprocess the command in the future. */
+    if (!(c->flags & CLIENT_BLOCKED)) c->flags &= ~(CLIENT_EXECUTING_COMMAND);
 
     /* In order to avoid performance implication due to querying the clock using a system call 3 times,
      * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
@@ -4100,7 +4104,9 @@ int processCommand(client *c) {
         queueMultiCommand(c, cmd_flags);
         addReply(c,shared.queued);
     } else {
-        call(c,CMD_CALL_FULL);
+        int flags = CMD_CALL_FULL;
+        if (client_reprocessing_command) flags |= CMD_CALL_REPROCESSING;
+        call(c, flags);
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();

@@ -1,5 +1,6 @@
 set testmodule [file normalize tests/modules/blockedclient.so]
 set testmodule2 [file normalize tests/modules/postnotifications.so]
+set testmodule3 [file normalize tests/modules/blockonkeys.so]
 
 start_server {tags {"modules"}} {
     r module load $testmodule
@@ -157,6 +158,21 @@ start_server {tags {"modules"}} {
         assert_equal [$rd read] {l 1}
         assert_equal [$rd read] {PONG}
     }
+
+    test {blocking RM_Call abort} {
+        r flushall
+        set rd [redis_deferring_client]
+
+        $rd do_rm_call_async blpop l 0
+        wait_for_blocked_client
+
+        r client kill TYPE NORMAL
+        assert_error {*error reading reply*} {$rd read}
+
+        r lpush l 1
+        # make sure the async rm_call was aborted
+        assert_equal [r llen l] {1}
+    }
 }
 
 start_server {tags {"modules"}} {
@@ -195,8 +211,8 @@ start_server {tags {"modules"}} {
         assert_replication_stream $repl {
             {select *}
             {lpush l a}
-            {lpop l}
             {multi}
+            {lpop l}
             {set x 1}
             {set y 2}
             {exec}
@@ -231,7 +247,7 @@ start_server {tags {"modules"}} {
     r module load $testmodule
     r module load $testmodule2
 
-    test {Test unblock handler are executed as a unit} {
+    test {Test unblock handler are executed as a unit with key space notifications} {
         r flushall
         set repl [attach_to_replication_stream]
 
@@ -245,8 +261,8 @@ start_server {tags {"modules"}} {
         assert_replication_stream $repl {
             {select *}
             {lpush l a}
-            {lpop l}
             {multi}
+            {lpop l}
             {set string_foo 1}
             {set string_bar 2}
             {incr string_changed{string_foo}}
@@ -258,7 +274,7 @@ start_server {tags {"modules"}} {
         close_replication_stream $repl
     }
 
-    test {Test unblock handler are executed as a unit} {
+    test {Test unblock handler are executed as a unit with lazy expire} {
         r flushall
         r DEBUG SET-ACTIVE-EXPIRE 0
         set repl [attach_to_replication_stream]
@@ -283,8 +299,8 @@ start_server {tags {"modules"}} {
         assert_replication_stream $repl {
             {select *}
             {lpush l a}
-            {lpop l}
             {multi}
+            {lpop l}
             {set string_foo 1}
             {set string_bar 2}
             {incr string_changed{string_foo}}
@@ -294,8 +310,8 @@ start_server {tags {"modules"}} {
             {exec}
             {pexpireat string_foo *}
             {lpush l a}
-            {lpop l}
             {multi}
+            {lpop l}
             {del string_foo}
             {set string_foo 1}
             {set string_bar 2}
@@ -308,5 +324,22 @@ start_server {tags {"modules"}} {
         }
         close_replication_stream $repl
         r DEBUG SET-ACTIVE-EXPIRE 1
+    }
+}
+
+start_server {tags {"modules"}} {
+    r module load $testmodule
+    r module load $testmodule3
+
+    test {Test unblock handler on module blocked on keys} {
+        set rd [redis_deferring_client]
+
+        r fsl.push l 1
+        $rd do_rm_call_async FSL.BPOPGT l 3 0
+        wait_for_blocked_client
+        r fsl.push l 2
+        r fsl.push l 3
+        r fsl.push l 4
+        assert_equal [$rd read] {4}
     }
 }

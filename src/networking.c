@@ -1565,7 +1565,7 @@ void freeClient(client *c) {
     c->querybuf = NULL;
 
     /* Deallocate structures used to block on blocking ops. */
-    if (c->flags & CLIENT_BLOCKED) unblockClient(c);
+    if (c->flags & CLIENT_BLOCKED) unblockClientAndQueueForReprocessing(c);
     dictRelease(c->bstate.keys);
 
     /* UNWATCH all the keys */
@@ -3871,7 +3871,7 @@ void unblockPostponedClients() {
     listRewind(server.postponed_clients, &li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        unblockClient(c);
+        unblockClientAndQueueForReprocessing(c);
     }
 }
 
