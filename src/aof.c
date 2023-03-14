@@ -920,7 +920,7 @@ int aofFsyncInProgress(void) {
 /* Starts a background task that performs fsync() against the specified
  * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
-    bioCreateFsyncJob(fd, server.master_repl_offset);
+    bioCreateFsyncJob(fd, server.master_repl_offset, 1);
 }
 
 /* Close the fd on the basis of aof_background_fsync. */

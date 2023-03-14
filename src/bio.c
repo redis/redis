@@ -193,10 +193,11 @@ void bioCreateCloseAofJob(int fd, long long offset, int need_reclaim_cache) {
     bioSubmitJob(BIO_CLOSE_AOF, job);
 }
 
-void bioCreateFsyncJob(int fd, long long offset) {
+void bioCreateFsyncJob(int fd, long long offset, int need_reclaim_cache) {
     bio_job *job = zmalloc(sizeof(*job));
     job->fd_args.fd = fd;
     job->fd_args.offset = offset;
+    job->fd_args.need_reclaim_cache = need_reclaim_cache;
 
     bioSubmitJob(BIO_AOF_FSYNC, job);
 }
@@ -207,11 +208,7 @@ void *bioProcessBackgroundJobs(void *arg) {
     sigset_t sigset;
 
     /* Check that the worker is within the right interval. */
-    if (worker >= BIO_WORKER_NUM) {
-        serverLog(LL_WARNING,
-                  "Warning: bio thread started with wrong worker index %lu", worker);
-        return NULL;
-    }
+    serverAssert(worker < BIO_WORKER_NUM);
 
     redis_set_thread_title(bio_worker_title[worker]);
 

@@ -39,7 +39,7 @@ void bioDrainWorker(int job_type);
 void bioKillThreads(void);
 void bioCreateCloseJob(int fd, int need_fsync, int need_reclaim_cache);
 void bioCreateCloseAofJob(int fd, long long offset, int need_reclaim_cache);
-void bioCreateFsyncJob(int fd, long long offset);
+void bioCreateFsyncJob(int fd, long long offset, int need_reclaim_cache);
 void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...);
 
 /* Background job opcodes */
