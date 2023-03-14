@@ -1739,6 +1739,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     char *command = argv[0];
     size_t *argvlen;
     int j, output_raw;
+    int is_unsubscribe_command = 0; /* Is it an unsubscribe related command? */
 
     if (context == NULL) return REDIS_ERR;
 
@@ -1777,6 +1778,9 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     if (!strcasecmp(command,"subscribe") ||
         !strcasecmp(command,"psubscribe") ||
         !strcasecmp(command,"ssubscribe")) config.pubsub_mode = 1;
+    if (!strcasecmp(command,"unsubscribe") ||
+        !strcasecmp(command,"punsubscribe") ||
+        !strcasecmp(command,"sunsubscribe")) is_unsubscribe_command = 1;
     if (!strcasecmp(command,"sync") ||
         !strcasecmp(command,"psync")) config.slave_mode = 1;
 
@@ -1807,6 +1811,22 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
        works well with the interval option. */
     while(repeat < 0 || repeat-- > 0) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
+
+        if (is_unsubscribe_command) {
+            /* In unsubscribe related commands, we need to read the specified
+             * number of replies according to the number of parameters. */
+            argc--; /* Skip the command */
+            do {
+                if (cliReadReply(output_raw) != REDIS_OK) {
+                    cliPrintContextError();
+                    exit(1);
+                }
+                fflush(stdout);
+            } while(--argc);
+            zfree(argvlen);
+            continue;
+        }
+
         if (config.monitor_mode) {
             do {
                 if (cliReadReply(output_raw) != REDIS_OK) {

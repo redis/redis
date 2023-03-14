@@ -12,8 +12,21 @@ test "Manual failover works" {
     set old_port [RPort $master_id]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
+
+    # Since we reduced the info-period (default 10000) above immediately,
+    # sentinel - replica may not have enough time to exchange INFO and update
+    # the replica's info-period, so the test may get a NOGOODSLAVE.
+    wait_for_condition 300 50 {
+        [catch {S 0 SENTINEL FAILOVER mymaster}] == 0
+    } else {
+        catch {S 0 SENTINEL FAILOVER mymaster} reply
+        puts [S 0 SENTINEL REPLICAS mymaster]
+        fail "Sentinel manual failover did not work, got: $reply"
+    }
+
     catch {S 0 SENTINEL FAILOVER mymaster} reply
-    assert {$reply eq "OK"}
+    assert_match {*INPROG*} $reply ;# Failover already in progress
+
     foreach_sentinel_id id {
         wait_for_condition 1000 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
