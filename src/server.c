@@ -3492,6 +3492,11 @@ void call(client *c, int flags) {
 
     const long long call_timer = ustime();
     enterExecutionUnit(1, call_timer);
+
+    /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid
+     * sending client side caching message in the middle of a command reply.
+     * In case of blocking commands, the flag will be un-set only after successfully
+     * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
     monotime monotonic_start = 0;
