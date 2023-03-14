@@ -1032,7 +1032,7 @@ static void freeHintsCallback(void *ptr) {
 /* Restore terminal if we've changed it. */
 void cliRestoreTTY(void) {
     if (orig_termios_saved)
-        tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+        tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
 }
 
 /* Put the terminal in "press any key" mode */
@@ -1045,7 +1045,7 @@ static void cliPressAnyKeyTTY(void) {
     }
     struct termios mode = orig_termios;
     mode.c_lflag &= ~(ECHO | ICANON); /* echoing off, canonical off */
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &mode);
+    tcsetattr(STDIN_FILENO, TCSANOW, &mode);
 }
 
 /*------------------------------------------------------------------------------
