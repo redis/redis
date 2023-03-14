@@ -1317,7 +1317,7 @@ RedisModuleCommand *RM_GetCommand(RedisModuleCtx *ctx, const char *name) {
  * * `parent` is already a subcommand (we do not allow more than one level of command nesting)
  * * `parent` is a command with an implementation (RedisModuleCmdFunc) (A parent command should be a pure container of subcommands)
  * * `parent` already has a subcommand called `name`
- * * Creating a subcommand is called outside of the RedisModule_OnLoad.
+ * * Creating a subcommand is called outside of RedisModule_OnLoad.
  */
 int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     if (!parent->module->onload)
@@ -6524,9 +6524,9 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
  *
- * If RedisModule_CreateDataType() is called outside of the RedisModule_OnLoad() function,
- * and if there is already a module registering a type with the same name,
- * and if the module name or encver is invalid, NULL is returned.
+ * If RedisModule_CreateDataType() is called outside of RedisModule_OnLoad() function,
+ * there is already a module registering a type with the same name,
+ * or if the module name or encver is invalid, NULL is returned.
  * Otherwise the new type is registered into Redis, and a reference of
  * type RedisModuleType is returned: the caller of the function should store
  * this reference into a global variable to make future use of it in the
@@ -11618,7 +11618,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 
     /* If module commands have ACL categories, recompute command bits 
      * for all existing users once the modules has been registered. */
-    if(ctx.module->num_commands_with_acl_categories) {
+    if (ctx.module->num_commands_with_acl_categories) {
         ACLRecomputeCommandBitsFromCommandRulesAllUsers();
     }
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
@@ -12259,7 +12259,7 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
 
 /* Applies all pending configurations on the module load. This should be called
  * after all of the configurations have been registered for the module inside of RedisModule_OnLoad.
- * This will return REDISMODULE_ERR if it is called outside the RedisModule_OnLoad.
+ * This will return REDISMODULE_ERR if it is called outside RedisModule_OnLoad.
  * This API needs to be called when configurations are provided in either `MODULE LOADEX`
  * or provided as startup arguments. */
 int RM_LoadConfigs(RedisModuleCtx *ctx) {
