@@ -19,22 +19,20 @@
         "reply_schema": {
             "type": "array",
             "description": "Number of local and remote AOF files in sync.",
-            "items": {
-                "minItems": 2,
-                "maxItems": 2,
-                "items": [
-                    {
-                        "description": "Number of local AOF files.",
-                        "type": "integer",
-                        "minimum": 0
-                    },
-                    {
-                        "description": "Number of replica AOF files.",
-                        "type": "number",
-                        "minimum": 0
-                    }
-                ]
-            }            
+            "minItems": 2,
+            "maxItems": 2,
+            "items": [
+                {
+                    "description": "Number of local AOF files.",
+                    "type": "integer",
+                    "minimum": 0
+                },
+                {
+                    "description": "Number of replica AOF files.",
+                    "type": "number",
+                    "minimum": 0
+                }
+            ]
         },
         "arguments": [
             {
