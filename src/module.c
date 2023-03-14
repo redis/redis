@@ -10369,7 +10369,7 @@ int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanC
     dict *dict = ctx->client->db->dict[slot];
     cursor->cursor = dictScan(dict, cursor->cursor, moduleScanCallback, &data);
     if (cursor->cursor == 0) {
-        dict = dbGetNextUnvisitedSlot(ctx->client->db, &slot);
+        dict = dbGetNextNonEmptySlot(ctx->client->db, &slot);
         if (dict == NULL) {
             cursor->done = 1;
             ret = 0;

@@ -2370,7 +2370,7 @@ typedef struct dbIterator {
 void dbIteratorInit(dbIterator *dbit, redisDb *db);
 dict *dbIteratorNextDict(dbIterator *dbit);
 int dbIterCurSlot(dbIterator *dbit);
-dict *dbGetNextUnvisitedSlot(redisDb *db, int *slot);
+dict *dbGetNextNonEmptySlot(redisDb *db, int *slot);
 
 /* SCAN specific commands for easy cursor manipulation, shared between main code and modules. */
 int getAndClearSlotIdFromCursor(unsigned long long int *cursor);

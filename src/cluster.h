@@ -398,5 +398,6 @@ void clusterUpdateMyselfAnnouncedPorts(void);
 sds clusterGenNodesDescription(int filter, int use_pport);
 sds genClusterInfoString();
 void freeClusterLink(clusterLink *link);
+int clusterNodeGetSlotBit(clusterNode *n, int slot);
 
 #endif /* __CLUSTER_H */

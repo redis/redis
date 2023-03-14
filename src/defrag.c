@@ -1020,7 +1020,7 @@ void activeDefragCycle(void) {
             if (!expires_cursor)
                 cursor = dictScanDefrag(d, cursor, defragScanCallback,
                                         &defragfns, db);
-            if (!cursor) d = dbGetNextUnvisitedSlot(db, &slot);
+            if (!cursor) d = dbGetNextNonEmptySlot(db, &slot);
             /* When done scanning the keyspace dict, we scan the expire dict. */
             if (!cursor && slot > -1)
                 expires_cursor = dictScanDefrag(db->expires, expires_cursor,

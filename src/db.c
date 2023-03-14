@@ -70,18 +70,20 @@ void dbIteratorInit(dbIterator *dbit, redisDb *db) {
     dbit->cur_slot = -1;
 }
 
-/* Returns next non-empty dictionary strictly after provided slot and updates slot id in the supplied reference.
- * This function doesn't use dbIterator in order to provide deterministic iteration across all owned slots. */
-dict *dbGetNextUnvisitedSlot(redisDb *db, int *slot) {
-    for (int i = *slot + 1; i < db->dict_count; i++) {
-        if (!dictIsEmpty(db->dict[i])) {
-            *slot = i;
-            return db->dict[i];
-        }
+/* Returns next non-empty dictionary strictly after provided slot and updates slot id in the supplied reference. */
+dict *dbGetNextNonEmptySlot(redisDb *db, int *slot) {
+    uint32_t pos;
+    int found = intsetSearch(db->non_empty_dicts, *slot, &pos);
+    if (found) pos++; /* If current slot exists in the non-empty list, then we want next one, otherwise pos already points to it. */
+    int64_t next_slot;
+    if (intsetGet(db->non_empty_dicts, pos, &next_slot)) {
+        *slot = (int) next_slot;
+        return db->dict[*slot];
     }
     *slot = -1;
     return NULL;
 }
+
 
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
@@ -1031,7 +1033,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             /* In cluster mode there is a separate dictionary for each slot.
              * If cursor is empty, we should try exploring next non-empty slot. */
             if (o == NULL && !cursor) {
-                ht = dbGetNextUnvisitedSlot(c->db, &slot);
+                ht = dbGetNextNonEmptySlot(c->db, &slot);
             }
         } while ((cursor || slot > 0) && /* Continue iteration if there are more slots to visit, or cursor hasn't reached the end of dict yet. */
                  maxiterations-- &&
