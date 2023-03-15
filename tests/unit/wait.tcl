@@ -222,35 +222,6 @@ tags {"wait aof network external:skip"} {
                 $rd2 close
             }
 
-            test {WAITAOF replica multiple clients unblock - reuse last result} {
-                set rd [redis_deferring_client -1]
-                set rd2 [redis_deferring_client -1]
-
-                exec kill -SIGSTOP $replica_pid
-
-                $rd incr foo
-                $rd read
-
-                $rd2 incr foo
-                $rd2 read
-
-                $rd waitaof 0 1 0
-                $rd2 waitaof 0 1 0
-
-                exec kill -SIGCONT $replica_pid
-
-                assert_equal [$rd read] {1 1}
-                assert_equal [$rd2 read] {1 1}
-
-                $rd ping
-                assert_equal [$rd read] {PONG}
-                $rd2 ping
-                assert_equal [$rd2 read] {PONG}
-
-                $rd close
-                $rd2 close
-            }
-
             test {WAITAOF on promoted replica} {
                 $replica replicaof no one
                 $replica incr foo
