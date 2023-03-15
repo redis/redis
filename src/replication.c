@@ -3612,7 +3612,9 @@ void unblockClientWaitingReplicas(client *c) {
  * since we received enough ACKs from slaves. */
 void processClientsWaitingReplicas(void) {
     long long last_offset = 0;
+    long long last_aof_offset = 0;
     int last_numreplicas = 0;
+    int last_aof_numreplicas = 0;
 
     listIter li;
     listNode *ln;
@@ -3628,7 +3630,7 @@ void processClientsWaitingReplicas(void) {
         if (is_wait_aof && c->bstate.numlocal && !server.aof_enabled) {
             addReplyError(c, "WAITAOF cannot be used when numlocal is set but appendonly is disabled.");
             unblockClient(c, 1);
-            return;
+            continue;
         }
 
         /* Every time we find a client that is satisfied for a given
@@ -3636,10 +3638,14 @@ void processClientsWaitingReplicas(void) {
          * may be unblocked without calling replicationCountAcksByOffset()
          * or calling replicationCountAOFAcksByOffset()
          * if the requested offset / replicas were equal or less. */
-        if (last_offset && last_offset >= c->bstate.reploffset &&
+        if (!is_wait_aof && last_offset && last_offset >= c->bstate.reploffset &&
                            last_numreplicas >= c->bstate.numreplicas)
         {
             numreplicas = last_numreplicas;
+        } else if (is_wait_aof && last_aof_offset && last_aof_offset >= c->bstate.reploffset &&
+                    last_aof_numreplicas >= c->bstate.numreplicas)
+        {
+            numreplicas = last_aof_numreplicas;
         } else {
             numreplicas = is_wait_aof ?
                 replicationCountAOFAcksByOffset(c->bstate.reploffset) :
@@ -3648,8 +3654,13 @@ void processClientsWaitingReplicas(void) {
             /* Check if the number of replicas is satisfied. */
             if (numreplicas < c->bstate.numreplicas) continue;
 
-            last_offset = c->bstate.reploffset;
-            last_numreplicas = numreplicas;
+            if (is_wait_aof) {
+                last_aof_offset = c->bstate.reploffset;
+                last_aof_numreplicas = numreplicas;
+            } else {
+                last_offset = c->bstate.reploffset;
+                last_numreplicas = numreplicas;
+            }
         }
 
         /* Check if the local constraint of WAITAOF is served */

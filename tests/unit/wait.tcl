@@ -360,3 +360,73 @@ tags {"wait aof network external:skip"} {
         }
     }
 }
+
+start_server {tags {"failover external:skip"}} {
+start_server {} {
+start_server {} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+
+    set replica1 [srv -1 client]
+    set replica1_pid [srv -1 pid]
+
+    set replica2 [srv -2 client]
+
+    test {setup replication for following tests} {
+        $replica1 replicaof $master_host $master_port
+        $replica2 replicaof $master_host $master_port
+        wait_for_sync $replica1
+        wait_for_sync $replica2
+    }
+
+    test {WAIT and WAITAOF replica multiple clients unblock - reuse last result} {
+        set rd [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+
+        $master config set appendonly yes
+        $replica1 config set appendonly yes
+        $replica2 config set appendonly yes
+
+        $master config set appendfsync always
+        $replica1 config set appendfsync no
+        $replica2 config set appendfsync no
+
+        waitForBgrewriteaof $master
+        waitForBgrewriteaof $replica1
+        waitForBgrewriteaof $replica2
+
+        exec kill -SIGSTOP $replica1_pid
+
+        $rd incr foo
+        $rd read
+        $rd waitaof 0 1 0
+
+        # rd2 has a newer repl_offset
+        $rd2 incr foo
+        $rd2 read
+        $rd2 wait 2 0
+
+        wait_for_blocked_clients_count 2
+
+        exec kill -SIGCONT $replica1_pid
+
+        # WAIT will unblock the client first.
+        assert_equal [$rd2 read] {2}
+
+        # Make $replica1 catch up the repl_aof_off, then WAITAOF will unblock the client.
+        $replica1 config set appendfsync always
+        $master incr foo
+        assert_equal [$rd read] {1 1}
+
+        $rd ping
+        assert_equal [$rd read] {PONG}
+        $rd2 ping
+        assert_equal [$rd2 read] {PONG}
+
+        $rd close
+        $rd2 close
+    }
+}
+}
+}
