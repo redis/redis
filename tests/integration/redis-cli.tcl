@@ -226,6 +226,12 @@ start_server {tags {"cli"}} {
         # Reset exits subscribed mode.
         assert_equal ${erase}RESET [run_command $fd "reset"]
         assert_equal PONG [run_command $fd "ping"]
+
+        # Check TTY output of push messages in RESP3 has ">" prefix.
+        assert_match "1#*" [run_command $fd "hello 3"]
+        set sub1 "1> \"subscribe\"\n2> \"ch1\"\n3> (integer) 1\n"
+        assert_equal $sub1$reading \
+            [run_command $fd "subscribe ch1"]
     }
 
     test_interactive_nontty_cli "Subscribed mode" {
