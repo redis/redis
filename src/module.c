@@ -2576,30 +2576,30 @@ RedisModuleString* RM_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (ctx != NULL) {
         /*
          * Put the str in the auto memory management of the ctx.
-         * It might already be there, in this case, the ref count will
-         * be 2 and we will decrease the ref count twice and free the
-         * object in the auto memory free function.
-         *
-         * Why we can not do the same trick of just remove the object
-         * from the auto memory (like in RM_RetainString)?
-         * This code shows the issue:
-         *
-         * RM_AutoMemory(ctx);
-         * str1 = RM_CreateString(ctx, "test", 4);
-         * str2 = RM_HoldString(ctx, str1);
-         * RM_FreeString(str1);
-         * RM_FreeString(str2);
-         *
-         * If after the RM_HoldString we would just remove the string from
-         * the auto memory, this example will cause access to a freed memory
-         * on 'RM_FreeString(str2);' because the String will be free
-         * on 'RM_FreeString(str1);'.
-         *
-         * So it's safer to just increase the ref count
-         * and add the String to auto memory again.
-         *
-         * The limitation is that it is not possible to use RedisModule_StringAppendBuffer
-         * on the String.
+         * It might already be there, in this case, the ref count will
+         * be 2 and we will decrease the ref count twice and free the
+         * object in the auto memory free function.
+         *
+         * Why we can not do the same trick of just remove the object
+         * from the auto memory (like in RM_RetainString)?
+         * This code shows the issue:
+         *
+         * RM_AutoMemory(ctx);
+         * str1 = RM_CreateString(ctx, "test", 4);
+         * str2 = RM_HoldString(ctx, str1);
+         * RM_FreeString(str1);
+         * RM_FreeString(str2);
+         *
+         * If after the RM_HoldString we would just remove the string from
+         * the auto memory, this example will cause access to a freed memory
+         * on 'RM_FreeString(str2);' because the String will be free
+         * on 'RM_FreeString(str1);'.
+         *
+         * So it's safer to just increase the ref count
+         * and add the String to auto memory again.
+         *
+         * The limitation is that it is not possible to use RedisModule_StringAppendBuffer
+         * on the String.
          */
         autoMemoryAdd(ctx,REDISMODULE_AM_STRING,str);
     }
