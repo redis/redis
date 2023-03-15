@@ -46,6 +46,15 @@ start_server {tags {"modules"}} {
         assert_error {*Auth denied by Misc Module*} {r AUTH foo deny}
         assert_match {*calls=6,*,rejected_calls=0,failed_calls=3} [cmdstat auth]
         assert_equal {OK} [r AUTH foo nomatch]
+
+        # Validate that the Module added an ACL Log entry.
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry username] eq {foo}}
+        assert {[dict get $entry context] eq {module}}
+        assert {[dict get $entry reason] eq {auth}}
+        assert {[dict get $entry object] eq {Module Auth}}
+        assert_match {*cmd=auth*} [dict get $entry client-info]
+        r ACL LOG RESET
     }
 
     test {test non blocking module HELLO AUTH} {
@@ -65,6 +74,15 @@ start_server {tags {"modules"}} {
         assert_match {*calls=7,*,rejected_calls=0,failed_calls=3} [cmdstat hello]
         assert_error {*WRONGPASS*} {r HELLO 3 AUTH foo nomatch}
         assert_match {*calls=8,*,rejected_calls=0,failed_calls=4} [cmdstat hello]
+
+        # Validate that the Module added an ACL Log entry.
+        set entry [lindex [r ACL LOG] 1]
+        assert {[dict get $entry username] eq {foo}}
+        assert {[dict get $entry context] eq {module}}
+        assert {[dict get $entry reason] eq {auth}}
+        assert {[dict get $entry object] eq {Module Auth}}
+        assert_match {*cmd=hello*} [dict get $entry client-info]
+        r ACL LOG RESET
     }
 
     test {test non blocking module HELLO AUTH SETNAME} {
@@ -105,6 +123,15 @@ start_server {tags {"modules"}} {
         set stats [cmdstat auth]
         regexp "usec_per_call=(\[0-9]{1,})\.*," $stats all usec_per_call
         assert {$usec_per_call >= 500000}
+
+        # Validate that the Module added an ACL Log entry.
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry username] eq {foo}}
+        assert {[dict get $entry context] eq {module}}
+        assert {[dict get $entry reason] eq {auth}}
+        assert {[dict get $entry object] eq {Module Auth}}
+        assert_match {*cmd=auth*} [dict get $entry client-info]
+        r ACL LOG RESET
     }
 
     test {test blocking module HELLO AUTH} {
@@ -128,6 +155,15 @@ start_server {tags {"modules"}} {
         set stats [cmdstat hello]
         regexp "usec_per_call=(\[0-9]{1,})\.*," $stats all usec_per_call
         assert {$usec_per_call >= 500000}
+
+        # Validate that the Module added an ACL Log entry.
+        set entry [lindex [r ACL LOG] 1]
+        assert {[dict get $entry username] eq {foo}}
+        assert {[dict get $entry context] eq {module}}
+        assert {[dict get $entry reason] eq {auth}}
+        assert {[dict get $entry object] eq {Module Auth}}
+        assert_match {*cmd=hello*} [dict get $entry client-info]
+        r ACL LOG RESET
     }
 
     test {test blocking module HELLO AUTH SETNAME} {
