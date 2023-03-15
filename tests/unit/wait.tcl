@@ -89,6 +89,11 @@ start_server {} {
         assert_equal [$rd read] {1}
         assert_equal [$rd2 read] {1}
 
+        $rd ping
+        assert_equal [$rd read] {PONG}
+        $rd2 ping
+        assert_equal [$rd2 read] {PONG}
+
         $rd close
         $rd2 close
     }
@@ -207,6 +212,11 @@ tags {"wait aof network external:skip"} {
 
                 assert_equal [$rd read] {1 1}
                 assert_equal [$rd2 read] {1 1}
+
+                $rd ping
+                assert_equal [$rd read] {PONG}
+                $rd2 ping
+                assert_equal [$rd2 read] {PONG}
 
                 $rd close
                 $rd2 close

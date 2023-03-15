@@ -3650,7 +3650,6 @@ void processClientsWaitingReplicas(void) {
             } else {
                 addReplyLongLong(c,last_numreplicas);
             }
-            addReplyLongLong(c,last_numreplicas);
             unblockClient(c);
         } else {
             int numreplicas = is_wait_aof ?
