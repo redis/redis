@@ -575,8 +575,8 @@ void addReplyErrorObject(client *c, robj *err) {
 }
 
 /* Sends either a reply or an error reply by checking the first char.
- * If the first char is '-' the reply is considered an error.
- * In any case the given reply is sent, if the reply is also recognize
+ * If the first char is '-' the reply is considered an error.
+ * In any case the given reply is sent, if the reply is also recognize
  * as an error we also perform some post reply operations such as
  * logging and stats update. */
 void addReplyOrErrorObject(client *c, robj *reply) {

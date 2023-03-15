@@ -1764,16 +1764,16 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
         connSetReadHandler(server.master->conn, readQueryFromClient);
 
     /**
-     * Important note:
-     * The CLIENT_DENY_BLOCKING flag is not, and should not, be set here.
-     * For commands like BLPOP, it makes no sense to block the master
-     * connection, and such blocking attempt will probably cause deadlock and
-     * break the replication. We consider such a thing as a bug because
-     * commands as BLPOP should never be sent on the replication link.
-     * A possible use-case for blocking the replication link is if a module wants
-     * to pass the execution to a background thread and unblock after the
-     * execution is done. This is the reason why we allow blocking the replication
-     * connection. */
+     * Important note:
+     * The CLIENT_DENY_BLOCKING flag is not, and should not, be set here.
+     * For commands like BLPOP, it makes no sense to block the master
+     * connection, and such blocking attempt will probably cause deadlock and
+     * break the replication. We consider such a thing as a bug because
+     * commands as BLPOP should never be sent on the replication link.
+     * A possible use-case for blocking the replication link is if a module wants
+     * to pass the execution to a background thread and unblock after the
+     * execution is done. This is the reason why we allow blocking the replication
+     * connection. */
     server.master->flags |= CLIENT_MASTER;
 
     server.master->authenticated = 1;
@@ -3575,7 +3575,7 @@ void waitaofCommand(client *c) {
         return;
     }
     if (numlocal && !server.aof_enabled) {
-        addReplyError(c,"WAITAOF cannot be used when appendonly is disabled");
+        addReplyError(c, "WAITAOF cannot be used when numlocal is set but appendonly is disabled.");
         return;
     }
 
@@ -3619,51 +3619,56 @@ void processClientsWaitingReplicas(void) {
 
     listRewind(server.clients_waiting_acks,&li);
     while((ln = listNext(&li))) {
+        int numlocal = 0;
+        int numreplicas = 0;
+
         client *c = ln->value;
         int is_wait_aof = c->bstate.btype == BLOCKED_WAITAOF;
 
         if (is_wait_aof && c->bstate.numlocal && !server.aof_enabled) {
+            addReplyError(c, "WAITAOF cannot be used when numlocal is set but appendonly is disabled.");
             unblockClient(c, 1);
-            addReplyError(c,"WAITAOF cannot be used when appendonly is disabled");
             return;
         }
 
         /* Every time we find a client that is satisfied for a given
          * offset and number of replicas, we remember it so the next client
          * may be unblocked without calling replicationCountAcksByOffset()
+         * or calling replicationCountAOFAcksByOffset()
          * if the requested offset / replicas were equal or less. */
         if (last_offset && last_offset >= c->bstate.reploffset &&
                            last_numreplicas >= c->bstate.numreplicas)
         {
-            /* Reply before unblocking, because unblock client calls reqresAppendResponse */
-            addReplyLongLong(c,last_numreplicas);
-            unblockClient(c, 1);
+            numreplicas = last_numreplicas;
         } else {
-            int numreplicas = is_wait_aof ?
+            numreplicas = is_wait_aof ?
                 replicationCountAOFAcksByOffset(c->bstate.reploffset) :
                 replicationCountAcksByOffset(c->bstate.reploffset);
 
-            if (numreplicas >= c->bstate.numreplicas) {
-                last_offset = c->bstate.reploffset;
-                last_numreplicas = numreplicas;
+            /* Check if the number of replicas is satisfied. */
+            if (numreplicas < c->bstate.numreplicas) continue;
 
-                /* Check if the local constraint of WAITAOF is served */
-                int numlocal = server.fsynced_reploff >= c->bstate.reploffset;
-                if (is_wait_aof && numlocal < c->bstate.numlocal)
-                    continue;
-
-                if (is_wait_aof) {
-                    /* WAITAOF has an array reply*/
-                    addReplyArrayLen(c,2);
-                    addReplyLongLong(c,numlocal);
-                    addReplyLongLong(c,numreplicas);
-                } else {
-                    addReplyLongLong(c,numreplicas);
-                }
-                /* Reply before unblocking, because unblock client calls reqresAppendResponse */
-                unblockClient(c, 1);
-            }
+            last_offset = c->bstate.reploffset;
+            last_numreplicas = numreplicas;
         }
+
+        /* Check if the local constraint of WAITAOF is served */
+        if (is_wait_aof) {
+            numlocal = server.fsynced_reploff >= c->bstate.reploffset;
+            if (numlocal < c->bstate.numlocal) continue;
+        }
+
+        /* Reply before unblocking, because unblock client calls reqresAppendResponse */
+        if (is_wait_aof) {
+            /* WAITAOF has an array reply */
+            addReplyArrayLen(c, 2);
+            addReplyLongLong(c, numlocal);
+            addReplyLongLong(c, numreplicas);
+        } else {
+            addReplyLongLong(c, numreplicas);
+        }
+
+        unblockClient(c, 1);
     }
 }
 
