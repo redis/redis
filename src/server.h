@@ -392,7 +392,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                        scripts even when in OOM */
 #define CLIENT_NO_TOUCH (1ULL<<45) /* This client will not touch LFU/LRU stats. */
 #define CLIENT_PUSHING (1ULL<<46) /* This client is pushing notifications. */
-#define CLIENT_CUSTOM_AUTH_HAS_RESULT (1ULL<<47) /* Indicates a client in the middle of module based
+#define CLIENT_MODULE_AUTH_HAS_RESULT (1ULL<<47) /* Indicates a client in the middle of module based
                                                     auth had been authenticated from the Module. */
 
 /* Client block type (btype field in client structure)
@@ -859,7 +859,7 @@ struct RedisModuleDigest {
 } while(0)
 
 /* Macro to check if the client is in the middle of module based authentication. */
-#define clientHasModuleAuthInProgress(c) ((c)->custom_auth_ctx != NULL)
+#define clientHasModuleAuthInProgress(c) ((c)->module_auth_ctx != NULL)
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
@@ -1206,9 +1206,9 @@ typedef struct client {
     void *module_blocked_client; /* Pointer to the RedisModuleBlockedClient associated with this
                                   * client. This is set in case of module authentication before the
                                   * unblocked client is reprocessed to handle reply callbacks. */
-    void *custom_auth_ctx; /* Ongoing / attempted module based custom auth callback's ctx.
+    void *module_auth_ctx; /* Ongoing / attempted module based auth callback's ctx.
                             * This is only tracked within the context of the command attempting
-                            * authentication. If not NULL, it means custom auth is in progress. */
+                            * authentication. If not NULL, it means module auth is in progress. */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
                                                * changes. */

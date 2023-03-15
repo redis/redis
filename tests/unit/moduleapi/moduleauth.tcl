@@ -1,5 +1,5 @@
 set testmodule [file normalize tests/modules/auth.so]
-set testmoduletwo [file normalize tests/modules/customauthtwo.so]
+set testmoduletwo [file normalize tests/modules/moduleauthtwo.so]
 set miscmodule [file normalize tests/modules/misc.so]
 
 proc cmdstat {cmd} {
@@ -13,13 +13,13 @@ start_server {tags {"modules"}} {
     set hello2_response [r HELLO 2]
     set hello3_response [r HELLO 3]
 
-    test {test registering custom auth callbacks} {
+    test {test registering module auth callbacks} {
         assert_equal {OK} [r testmoduleone.rm_register_blocking_auth_cb]
         assert_equal {OK} [r testmoduletwo.rm_register_auth_cb]
         assert_equal {OK} [r testmoduleone.rm_register_auth_cb]
     }
 
-    test {test custom AUTH for non existing / disabled users} {
+    test {test module AUTH for non existing / disabled users} {
         r config resetstat
         # Validate that an error is thrown for non existing users.
         assert_error {*WRONGPASS*} {r AUTH foo pwd}
@@ -30,7 +30,7 @@ start_server {tags {"modules"}} {
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdstat auth]
     }
 
-    test {test non blocking custom AUTH} {
+    test {test non blocking module AUTH} {
         r config resetstat
         # Test for a fixed password user
         r acl setuser foo >pwd on ~* &* +@all
@@ -48,7 +48,7 @@ start_server {tags {"modules"}} {
         assert_equal {OK} [r AUTH foo nomatch]
     }
 
-    test {test non blocking custom HELLO AUTH} {
+    test {test non blocking module HELLO AUTH} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
         # Validate proto 2 and 3 in case of success
@@ -67,7 +67,7 @@ start_server {tags {"modules"}} {
         assert_match {*calls=8,*,rejected_calls=0,failed_calls=4} [cmdstat hello]
     }
 
-    test {test non blocking custom HELLO AUTH SETNAME} {
+    test {test non blocking module HELLO AUTH SETNAME} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
         # Validate clientname is set on success
@@ -85,7 +85,7 @@ start_server {tags {"modules"}} {
         assert_match {*calls=4,*,rejected_calls=0,failed_calls=2} [cmdstat hello]
     }
 
-    test {test blocking custom AUTH} {
+    test {test blocking module AUTH} {
         r config resetstat
         # Test for a fixed password user
         r acl setuser foo >pwd on ~* &* +@all
@@ -107,7 +107,7 @@ start_server {tags {"modules"}} {
         assert {$usec_per_call >= 500000}
     }
 
-    test {test blocking custom HELLO AUTH} {
+    test {test blocking module HELLO AUTH} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
         # validate proto 2 and 3 in case of success
@@ -130,7 +130,7 @@ start_server {tags {"modules"}} {
         assert {$usec_per_call >= 500000}
     }
 
-    test {test blocking custom HELLO AUTH SETNAME} {
+    test {test blocking module HELLO AUTH SETNAME} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
         # Validate clientname is set on success
@@ -152,14 +152,14 @@ start_server {tags {"modules"}} {
         assert {$usec_per_call >= 500000}
     }
 
-    test {test AUTH after registering multiple custom auth callbacks} {
+    test {test AUTH after registering multiple module auth callbacks} {
         r config resetstat
 
         # Register two more callbacks from the same module.
         assert_equal {OK} [r testmoduleone.rm_register_blocking_auth_cb]
         assert_equal {OK} [r testmoduleone.rm_register_auth_cb]
 
-        # Register another custom auth callback from the second module.
+        # Register another module auth callback from the second module.
         assert_equal {OK} [r testmoduletwo.rm_register_auth_cb]
 
         r acl setuser foo >pwd on ~* &* +@all
@@ -208,19 +208,19 @@ start_server {tags {"modules"}} {
         assert {$usec_per_call >= 1000000}
     }
 
-    test {custom auth during blocking custom auth} {
+    test {module auth during blocking module auth} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
         set rd [redis_deferring_client]
         set rd_two [redis_deferring_client]
 
-        # Attempt blocking custom auth. While this ongoing, attempt non blocking custom auth from
-        # moduleone/moduletwo and start another blocking custom auth from another deferring client.
+        # Attempt blocking module auth. While this ongoing, attempt non blocking module auth from
+        # moduleone/moduletwo and start another blocking module auth from another deferring client.
         $rd AUTH foo block_allow
         wait_for_blocked_clients_count 1
         assert_equal {OK} [r AUTH foo allow]
         assert_equal {OK} [r AUTH foo allow_two]
-        # Validate that the non blocking custom auth cmds finished before any blocking custom auth.
+        # Validate that the non blocking module auth cmds finished before any blocking module auth.
         set info_clients [r info clients]
         assert_match "*blocked_clients:1*" $info_clients
         $rd_two AUTH foo block_allow
@@ -234,47 +234,47 @@ start_server {tags {"modules"}} {
         assert_match {*calls=4,*,rejected_calls=0,failed_calls=0} [cmdstat auth]
     }
 
-    test {custom auth inside MULTI EXEC} {
+    test {module auth inside MULTI EXEC} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
 
-        # Validate that non blocking custom auth inside MULTI succeeds.
+        # Validate that non blocking module auth inside MULTI succeeds.
         r multi
         r AUTH foo allow
         assert_equal {OK} [r exec]
 
-        # Validate that blocking custom auth inside MULTI throws an err.
+        # Validate that blocking module auth inside MULTI throws an err.
         r multi
         r AUTH foo block_allow
         assert_error {*ERR Blocking module command called from transaction*} {r exec}
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
     }
 
-    test {Disabling Redis User during blocking custom auth} {
+    test {Disabling Redis User during blocking module auth} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
         set rd [redis_deferring_client]
 
-        # Attempt blocking custom auth and disable the Redis user while custom auth is in progress.
+        # Attempt blocking module auth and disable the Redis user while module auth is in progress.
         $rd AUTH foo pwd
         wait_for_blocked_clients_count 1
         r acl setuser foo >pwd off ~* &* +@all
 
-        # Validate that custom auth failed.
+        # Validate that module auth failed.
         wait_for_blocked_clients_count 0 500 10
         $rd flush
         assert_error {*WRONGPASS*} { $rd read }
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
     }
 
-    test {Killing a client in the middle of blocking custom auth} {
+    test {Killing a client in the middle of blocking module auth} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
         set rd [redis_deferring_client]
         $rd client id
         set cid [$rd read]
 
-        # Attempt blocking custom auth command on client `cid` and kill the client while custom auth
+        # Attempt blocking module auth command on client `cid` and kill the client while module auth
         # is in progress.
         $rd AUTH foo pwd
         wait_for_blocked_clients_count 1
@@ -287,80 +287,80 @@ start_server {tags {"modules"}} {
         assert_match {} [cmdstat auth]
     }
 
-    test {test RM_AbortBlock Module API during blocking custom auth} {
+    test {test RM_AbortBlock Module API during blocking module auth} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
 
-        # Attempt custom auth. With the "block_abort" as the password, the "customauth.so" module
-        # blocks the client and uses the RM_AbortBlock API. This should result in custom auth
+        # Attempt module auth. With the "block_abort" as the password, the "testacl.so" module
+        # blocks the client and uses the RM_AbortBlock API. This should result in module auth
         # failing and the client being unblocked with the default AUTH err message.
         assert_error {*WRONGPASS*} {r AUTH foo block_abort}
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
     }
 
-    test {test RM_RegisterCustomAuthCallback Module API during blocking custom auth} {
+    test {test RM_RegisterAuthCallback Module API during blocking module auth} {
         r config resetstat
         r acl setuser foo >defaultpwd on ~* &* +@all
         set rd [redis_deferring_client]
 
-        # Start the custom auth attempt with the standard Redis auth password for the user. This
-        # will result in all custom auth cbs attempted and then standard Redis auth will be tried.
+        # Start the module auth attempt with the standard Redis auth password for the user. This
+        # will result in all module auth cbs attempted and then standard Redis auth will be tried.
         $rd AUTH foo defaultpwd
         wait_for_blocked_clients_count 1
 
-        # Validate that we allow modules to register custom auth cbs while custom auth is already
+        # Validate that we allow modules to register module auth cbs while module auth is already
         # in progress.
         assert_equal {OK} [r testmoduleone.rm_register_blocking_auth_cb]
         assert_equal {OK} [r testmoduletwo.rm_register_auth_cb]
 
-        # Validate that blocking custom auth succeeds.
+        # Validate that blocking module auth succeeds.
         wait_for_blocked_clients_count 0 500 10
         $rd flush
         assert_equal [$rd read] "OK"
         set stats [cmdstat auth]
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} $stats
 
-        # Validate that even the new blocking custom auth cb which was registered in the middle of
-        # blocking custom auth is attempted - making it take twice the duration (2x 500000 us).
+        # Validate that even the new blocking module auth cb which was registered in the middle of
+        # blocking module auth is attempted - making it take twice the duration (2x 500000 us).
         regexp "usec_per_call=(\[0-9]{1,})\.*," $stats all usec_per_call
         assert {$usec_per_call >= 1000000}
     }
 
-    test {Module unload during blocking custom auth} {
+    test {Module unload during blocking module auth} {
         r config resetstat
         r module load $miscmodule
         set rd [redis_deferring_client]
         r acl setuser foo >pwd on ~* &* +@all
 
-        # Start a blocking custom auth attempt.
+        # Start a blocking module auth attempt.
         $rd AUTH foo block_allow
         wait_for_blocked_clients_count 1
 
-        # moduleone and moduletwo have custom auth cbs registered. Because blocking custom auth is
+        # moduleone and moduletwo have module auth cbs registered. Because blocking module auth is
         # ongoing, they cannot be unloaded.
         catch {r module unload testacl} e
         assert_match {*the module has blocked clients*} $e
-        # The customauthtwo module can be unregistered because no client is blocked on it.
-        assert_equal "OK" [r module unload customauthtwo]
+        # The moduleauthtwo module can be unregistered because no client is blocked on it.
+        assert_equal "OK" [r module unload moduleauthtwo]
 
-        # The misc module does not have custom auth cbs registered, so it can be unloaded even when
-        # blocking custom auth is ongoing.
+        # The misc module does not have module auth cbs registered, so it can be unloaded even when
+        # blocking module auth is ongoing.
         assert_equal "OK" [r module unload misc]
 
-        # Validate that blocking custom auth succeeds.
+        # Validate that blocking module auth succeeds.
         wait_for_blocked_clients_count 0 500 10
         $rd flush
         assert_equal [$rd read] "OK"
         assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat auth]
 
-        # Validate that unloading the customauthtwo module does not unregister custom auth cbs of
+        # Validate that unloading the moduleauthtwo module does not unregister module auth cbs of
         # of the testacl module. Module based auth should succeed.
         assert_equal {OK} [r AUTH foo allow]
 
-        # Validate that the testacl module can be unloaded since blocking custom auth is done.
+        # Validate that the testacl module can be unloaded since blocking module auth is done.
         r module unload testacl
 
-        # Validate that since all custom auth cbs are unregistered, custom auth attempts fail.
+        # Validate that since all module auth cbs are unregistered, module auth attempts fail.
         assert_error {*WRONGPASS*} {r AUTH foo block_allow}
         assert_error {*WRONGPASS*} {r AUTH foo allow_two}
         assert_error {*WRONGPASS*} {r AUTH foo allow}

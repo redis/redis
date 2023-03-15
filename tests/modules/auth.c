@@ -76,10 +76,10 @@ int Auth_ChangeCount(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithLongLong(ctx, result);
 }
 
-/* The Module functionality below validates that custom authentication callbacks can be registered
+/* The Module functionality below validates that module authentication callbacks can be registered
  * to support both non-blocking and blocking module based authentication. */
 
-/* Non Blocking Custom Auth callback / implementation. */
+/* Non Blocking Module Auth callback / implementation. */
 int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
     const char *user = RedisModule_StringPtrLen(username, NULL);
     const char *pwd = RedisModule_StringPtrLen(password, NULL);
@@ -101,7 +101,7 @@ int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString 
 int test_rm_register_auth_cb(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
-    RedisModule_RegisterCustomAuthCallback(ctx, auth_cb);
+    RedisModule_RegisterAuthCallback(ctx, auth_cb);
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
@@ -170,17 +170,17 @@ int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModul
     return REDISMODULE_AUTH_NOT_HANDLED;
 }
 
-/* Private data freeing callback for custom auths. */
+/* Private data freeing callback for Module Auth. */
 void AuthBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
     REDISMODULE_NOT_USED(ctx);
     RedisModule_Free(privdata);
 }
 
-/* Callback triggered when the engine attempts custom auth
+/* Callback triggered when the engine attempts module auth
  * Return code here is one of the following: Auth succeeded, Auth denied,
  * Auth not handled, Auth blocked.
  * The Module can have auth succeed / denied here itself, but this is an example
- * of blocking custom auth.
+ * of blocking module auth.
  */
 int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
     REDISMODULE_NOT_USED(username);
@@ -211,7 +211,7 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
 int test_rm_register_blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
-    RedisModule_RegisterCustomAuthCallback(ctx, blocking_auth_cb);
+    RedisModule_RegisterAuthCallback(ctx, blocking_auth_cb);
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }

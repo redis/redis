@@ -207,7 +207,7 @@ client *createClient(connection *conn) {
     c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
     c->module_blocked_client = NULL;
-    c->custom_auth_ctx = NULL;
+    c->module_auth_ctx = NULL;
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
