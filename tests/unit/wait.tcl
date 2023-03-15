@@ -68,6 +68,30 @@ start_server {} {
         exec kill -SIGCONT $slave_pid
         assert {[$master wait 1 1000] == 1}
     }
+
+    test {WAIT replica multiple clients unblock - reuse last result} {
+        set rd [redis_deferring_client -1]
+        set rd2 [redis_deferring_client -1]
+
+        exec kill -SIGSTOP $slave_pid
+
+        $rd incr foo
+        $rd read
+
+        $rd2 incr foo
+        $rd2 read
+
+        $rd wait 1 0
+        $rd2 wait 1 0
+
+        exec kill -SIGCONT $slave_pid
+
+        assert_equal [$rd read] {1}
+        assert_equal [$rd2 read] {1}
+
+        $rd close
+        $rd2 close
+    }
 }}
 
 
