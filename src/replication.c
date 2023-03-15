@@ -3619,6 +3619,9 @@ void processClientsWaitingReplicas(void) {
 
     listRewind(server.clients_waiting_acks,&li);
     while((ln = listNext(&li))) {
+        int numlocal = 0;
+        int numreplicas = 0;
+
         client *c = ln->value;
         int is_wait_aof = c->bstate.btype == BLOCKED_WAITAOF;
 
@@ -3636,47 +3639,36 @@ void processClientsWaitingReplicas(void) {
         if (last_offset && last_offset >= c->bstate.reploffset &&
                            last_numreplicas >= c->bstate.numreplicas)
         {
-            /* Reply before unblocking, because unblock client calls reqresAppendResponse */
-            if (is_wait_aof) {
-                /* Check if the local constraint of WAITAOF is served */
-                int numlocal = server.fsynced_reploff >= c->bstate.reploffset;
-                if (numlocal < c->bstate.numlocal)
-                    continue;
-
-                /* WAITAOF has an array reply*/
-                addReplyArrayLen(c,2);
-                addReplyLongLong(c,numlocal);
-                addReplyLongLong(c,last_numreplicas);
-            } else {
-                addReplyLongLong(c,last_numreplicas);
-            }
-            unblockClient(c);
+            numreplicas = last_numreplicas;
         } else {
-            int numreplicas = is_wait_aof ?
+            numreplicas = is_wait_aof ?
                 replicationCountAOFAcksByOffset(c->bstate.reploffset) :
                 replicationCountAcksByOffset(c->bstate.reploffset);
 
-            if (numreplicas >= c->bstate.numreplicas) {
-                last_offset = c->bstate.reploffset;
-                last_numreplicas = numreplicas;
+            /* Check if the number of replicas is satisfied. */
+            if (numreplicas < c->bstate.numreplicas) continue;
 
-                /* Check if the local constraint of WAITAOF is served */
-                int numlocal = server.fsynced_reploff >= c->bstate.reploffset;
-                if (is_wait_aof && numlocal < c->bstate.numlocal)
-                    continue;
-
-                if (is_wait_aof) {
-                    /* WAITAOF has an array reply*/
-                    addReplyArrayLen(c,2);
-                    addReplyLongLong(c,numlocal);
-                    addReplyLongLong(c,numreplicas);
-                } else {
-                    addReplyLongLong(c,numreplicas);
-                }
-                /* Reply before unblocking, because unblock client calls reqresAppendResponse */
-                unblockClient(c);
-            }
+            last_offset = c->bstate.reploffset;
+            last_numreplicas = numreplicas;
         }
+
+        /* Check if the local constraint of WAITAOF is served */
+        if (is_wait_aof) {
+            numlocal = server.fsynced_reploff >= c->bstate.reploffset;
+            if (numlocal < c->bstate.numlocal) continue;
+        }
+
+        /* Reply before unblocking, because unblock client calls reqresAppendResponse */
+        if (is_wait_aof) {
+            /* WAITAOF has an array reply */
+            addReplyArrayLen(c, 2);
+            addReplyLongLong(c, numlocal);
+            addReplyLongLong(c, numreplicas);
+        } else {
+            addReplyLongLong(c, numreplicas);
+        }
+
+        unblockClient(c);
     }
 }
 
