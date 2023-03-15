@@ -8320,7 +8320,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
      * from propagating commands from CB.
      *
      * This is a special case where we need to increase 'execution_nesting'
-     * but we do not want to update the cached time so we can not use enterExecutionUnit */
+     * but we do not want to update the cached time */
     enterExecutionUnit(0, 0);
 
     listIter li;

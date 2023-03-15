@@ -632,9 +632,11 @@ static void unblockClientOnKey(client *c, robj *key) {
      * we need to re process the command again */
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
-        /* We must set the current client here so it will be available
-         * when we will try to send the the client side caching notification
-         * of 'afterCommand'. */
+        /* We want the command processing and the unblock handler (see RM_Call 'K' option)
+         * to run atomically, this is why we must enter the execution unit here before
+         * running the command, and exit the execution unit after calling the unblock handler (if exists).
+         * Notice that we also must set the current client so it will be available
+         * when we will try to send the the client side caching notification (done on 'afterCommand'). */
         client *old_client = server.current_client;
         server.current_client = c;
         enterExecutionUnit(1, 0);

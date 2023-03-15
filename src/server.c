@@ -1133,14 +1133,14 @@ void updateCachedTime(int update_daylight_info) {
     updateCachedTimeWithUs(update_daylight_info, us);
 }
 
-/* Performing require operations in order to enter an execution unit.
+/* Performing required operations in order to enter an execution unit.
  * In general, if we are already inside an execution unit then there is nothing to do,
  * otherwise we need to update cache times so the same cached time will be used all over
  * the execution unit.
- * update_cached_times - if 0, will not update the cached time even if require.
- * us - if not zero, use this time for cache time, otherwise get current time. */
-void enterExecutionUnit(int update_cached_times, long long us) {
-    if (server.execution_nesting++ == 0 && update_cached_times) {
+ * update_cached_time - if 0, will not update the cached time even if required.
+ * us - if not zero, use this time for cached time, otherwise get current time. */
+void enterExecutionUnit(int update_cached_time, long long us) {
+    if (server.execution_nesting++ == 0 && update_cached_time) {
         if (us == 0) {
             us = ustime();
         }
