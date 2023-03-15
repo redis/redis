@@ -93,7 +93,7 @@ void blockClient(client *c, int btype) {
 
     c->flags |= CLIENT_BLOCKED;
     c->bstate.btype = btype;
-    server.blocked_clients++;
+    if (!(c->flags & CLIENT_MODULE)) server.blocked_clients++; /* We count blocked client stats on regular clients and not on module clients */
     server.blocked_clients_by_type[btype]++;
     addClientToTimeoutTable(c);
 }
@@ -213,7 +213,7 @@ void unblockClient(client *c, int queue_for_reprocessing) {
 
     /* Clear the flags, and put the client in the unblocked list so that
      * we'll process new commands in its query buffer ASAP. */
-    server.blocked_clients--;
+    if (!(c->flags & CLIENT_MODULE)) server.blocked_clients--; /* We count blocked client stats on regular clients and not on module clients */
     server.blocked_clients_by_type[c->bstate.btype]--;
     c->flags &= ~CLIENT_BLOCKED;
     c->bstate.btype = BLOCKED_NONE;

@@ -21,27 +21,30 @@ start_server {tags {"modules"}} {
             set rd [redis_deferring_client]
 
             $rd $cmd blpop l 0
-            wait_for_blocked_client
+            wait_for_blocked_clients_count 1
             r lpush l a
             assert_equal [$rd read] {l a}
+            wait_for_blocked_clients_count 0
         }
 
         test "Brpop on async RM_Call using $cmd" {
             set rd [redis_deferring_client]
 
             $rd $cmd brpop l 0
-            wait_for_blocked_client
+            wait_for_blocked_clients_count 1
             r lpush l a
             assert_equal [$rd read] {l a}
+            wait_for_blocked_clients_count 0
         }
 
         test "Brpoplpush on async RM_Call using $cmd" {
             set rd [redis_deferring_client]
 
             $rd $cmd brpoplpush l1 l2 0
-            wait_for_blocked_client
+            wait_for_blocked_clients_count 1
             r lpush l1 a
             assert_equal [$rd read] {a}
+            wait_for_blocked_clients_count 0
             r lpop l2
         } {a}
 
@@ -49,9 +52,10 @@ start_server {tags {"modules"}} {
             set rd [redis_deferring_client]
 
             $rd $cmd blmove l1 l2 LEFT LEFT 0
-            wait_for_blocked_client
+            wait_for_blocked_clients_count 1
             r lpush l1 a
             assert_equal [$rd read] {a}
+            wait_for_blocked_clients_count 0
             r lpop l2
         } {a}
 
@@ -59,18 +63,20 @@ start_server {tags {"modules"}} {
             set rd [redis_deferring_client]
 
             $rd $cmd bzpopmin s 0
-            wait_for_blocked_client
+            wait_for_blocked_clients_count 1
             r zadd s 10 foo
             assert_equal [$rd read] {s foo 10}
+            wait_for_blocked_clients_count 0
         }
 
         test "Bzpopmax on async RM_Call using $cmd" {
             set rd [redis_deferring_client]
 
             $rd $cmd bzpopmax s 0
-            wait_for_blocked_client
+            wait_for_blocked_clients_count 1
             r zadd s 10 foo
             assert_equal [$rd read] {s foo 10}
+            wait_for_blocked_clients_count 0
         }
     }
 
@@ -78,9 +84,10 @@ start_server {tags {"modules"}} {
         set rd [redis_deferring_client]
 
         $rd do_rm_call_async do_rm_call_async do_rm_call_async do_rm_call_async blpop l 0
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
         r lpush l a
         assert_equal [$rd read] {l a}
+        wait_for_blocked_clients_count 0
     }
 
     test {Test multiple async RM_Call waiting on the same event} {
@@ -89,10 +96,11 @@ start_server {tags {"modules"}} {
 
         $rd1 do_rm_call_async do_rm_call_async do_rm_call_async do_rm_call_async blpop l 0
         $rd2 do_rm_call_async do_rm_call_async do_rm_call_async do_rm_call_async blpop l 0
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 2
         r lpush l element element
         assert_equal [$rd1 read] {l element}
         assert_equal [$rd2 read] {l element}
+        wait_for_blocked_clients_count 0
     }
 
     test {async RM_Call calls RM_Call} {
@@ -110,7 +118,7 @@ start_server {tags {"modules"}} {
     test {async RM_Call inside async RM_Call callback} {
         set rd [redis_deferring_client]
         $rd wait_and_do_rm_call blpop l 0
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
 
         start_server {} {
             test "Connect a replica to the master instance" {
@@ -126,13 +134,15 @@ start_server {tags {"modules"}} {
             assert_equal {1} [r -1 lpush l a]
             assert_equal [$rd read] {l a}
         }
+
+        wait_for_blocked_clients_count 0
     }
 
     test {Become replica while having async RM_Call running} {
         r flushall
         set rd [redis_deferring_client]
         $rd do_rm_call_async blpop l 0
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
 
         #become a replica of a not existing redis
         r replicaof localhost 30000
@@ -156,13 +166,15 @@ start_server {tags {"modules"}} {
         append buf "ping\r\n"
         $rd write $buf
         $rd flush
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
 
         # release the blocked client
         r lpush l 1
 
         assert_equal [$rd read] {l 1}
         assert_equal [$rd read] {PONG}
+
+        wait_for_blocked_clients_count 0
     }
 
     test {blocking RM_Call abort} {
@@ -173,7 +185,7 @@ start_server {tags {"modules"}} {
         set client_id [$rd read]
 
         $rd do_rm_call_async blpop l 0
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
 
         r client kill ID $client_id
         assert_error {*error reading reply*} {$rd read}
@@ -196,7 +208,7 @@ start_server {tags {"modules"}} {
         set rd [redis_deferring_client]
 
         $rd do_rm_call_async blpop l 0
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
         r lpush l a
         assert_equal [$rd read] {l a}
 
@@ -206,6 +218,8 @@ start_server {tags {"modules"}} {
             {lpop l}
         }
         close_replication_stream $repl
+
+        wait_for_blocked_clients_count 0
     }
 
     test {Test unblock handler are executed as a unit} {
@@ -215,7 +229,7 @@ start_server {tags {"modules"}} {
         set rd [redis_deferring_client]
 
         $rd blpop_and_set_multiple_keys l x 1 y 2
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
         r lpush l a
         assert_equal [$rd read] {OK}
 
@@ -229,6 +243,8 @@ start_server {tags {"modules"}} {
             {exec}
         }
         close_replication_stream $repl
+
+        wait_for_blocked_clients_count 0
     }
 
     test {Test no propagation of blocking command} {
@@ -238,7 +254,7 @@ start_server {tags {"modules"}} {
         set rd [redis_deferring_client]
 
         $rd do_rm_call_async_no_replicate blpop l 0
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
         r lpush l a
         assert_equal [$rd read] {l a}
 
@@ -251,6 +267,8 @@ start_server {tags {"modules"}} {
             {set x 1}
         }
         close_replication_stream $repl
+
+        wait_for_blocked_clients_count 0
     }
 }
 
@@ -265,7 +283,7 @@ start_server {tags {"modules"}} {
         set rd [redis_deferring_client]
 
         $rd blpop_and_set_multiple_keys l string_foo 1 string_bar 2
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
         r lpush l a
         assert_equal [$rd read] {OK}
 
@@ -283,6 +301,8 @@ start_server {tags {"modules"}} {
             {exec}
         }
         close_replication_stream $repl
+
+        wait_for_blocked_clients_count 0
     }
 
     test {Test unblock handler are executed as a unit with lazy expire} {
@@ -293,7 +313,7 @@ start_server {tags {"modules"}} {
         set rd [redis_deferring_client]
 
         $rd blpop_and_set_multiple_keys l string_foo 1 string_bar 2
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
         r lpush l a
         assert_equal [$rd read] {OK}
 
@@ -303,7 +323,7 @@ start_server {tags {"modules"}} {
 
         # now the key should have been expired
         $rd blpop_and_set_multiple_keys l string_foo 1 string_bar 2
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
         r lpush l a
         assert_equal [$rd read] {OK}
 
@@ -336,6 +356,8 @@ start_server {tags {"modules"}} {
         close_replication_stream $repl
         r DEBUG SET-ACTIVE-EXPIRE 1
     }
+
+    wait_for_blocked_clients_count 0
 }
 
 start_server {tags {"modules"}} {
@@ -347,10 +369,12 @@ start_server {tags {"modules"}} {
 
         r fsl.push l 1
         $rd do_rm_call_async FSL.BPOPGT l 3 0
-        wait_for_blocked_client
+        wait_for_blocked_clients_count 1
         r fsl.push l 2
         r fsl.push l 3
         r fsl.push l 4
         assert_equal [$rd read] {4}
+
+        wait_for_blocked_clients_count 0
     }
 }
