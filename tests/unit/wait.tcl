@@ -18,20 +18,20 @@ start_server {} {
             fail "Replication not started."
         }
     }
-    
+
     test {WAIT out of range timeout (milliseconds)} {
         # Timeout is parsed as milliseconds by getLongLongFromObjectOrReply().
         # Verify we get out of range message if value is behind LLONG_MAX
         # (decimal value equals to 0x8000000000000000)
          assert_error "*or out of range*" {$master wait 2 9223372036854775808}
-                  
+
          # expected to fail by later overflow condition after addition
          # of mstime(). (decimal value equals to 0x7FFFFFFFFFFFFFFF)
          assert_error "*timeout is out of range*" {$master wait 2 9223372036854775807}
-         
-         assert_error "*timeout is negative*" {$master wait 2 -1}         
+
+         assert_error "*timeout is negative*" {$master wait 2 -1}
     }
-    
+
     test {WAIT should acknowledge 1 additional copy of the data} {
         $master set foo 0
         $master incr foo
@@ -162,6 +162,30 @@ tags {"wait aof network external:skip"} {
                 assert_equal [$master waitaof 0 1 50] {1 0} ;# exits on timeout
                 exec kill -SIGCONT $replica_pid
                 assert_equal [$master waitaof 0 1 0] {1 1}
+            }
+
+            test {WAITAOF replica multiple clients unblock - reuse last result} {
+                set rd [redis_deferring_client -1]
+                set rd2 [redis_deferring_client -1]
+
+                exec kill -SIGSTOP $replica_pid
+
+                $rd incr foo
+                $rd read
+
+                $rd2 incr foo
+                $rd2 read
+
+                $rd waitaof 0 1 0
+                $rd2 waitaof 0 1 0
+
+                exec kill -SIGCONT $replica_pid
+
+                assert_equal [$rd read] {1 1}
+                assert_equal [$rd2 read] {1 1}
+
+                $rd close
+                $rd2 close
             }
 
             test {WAITAOF on promoted replica} {

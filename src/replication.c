@@ -3631,11 +3631,25 @@ void processClientsWaitingReplicas(void) {
         /* Every time we find a client that is satisfied for a given
          * offset and number of replicas, we remember it so the next client
          * may be unblocked without calling replicationCountAcksByOffset()
+         * or calling replicationCountAOFAcksByOffset()
          * if the requested offset / replicas were equal or less. */
         if (last_offset && last_offset >= c->bstate.reploffset &&
                            last_numreplicas >= c->bstate.numreplicas)
         {
             /* Reply before unblocking, because unblock client calls reqresAppendResponse */
+            if (is_wait_aof) {
+                /* Check if the local constraint of WAITAOF is served */
+                int numlocal = server.fsynced_reploff >= c->bstate.reploffset;
+                if (numlocal < c->bstate.numlocal)
+                    continue;
+
+                /* WAITAOF has an array reply*/
+                addReplyArrayLen(c,2);
+                addReplyLongLong(c,numlocal);
+                addReplyLongLong(c,last_numreplicas);
+            } else {
+                addReplyLongLong(c,last_numreplicas);
+            }
             addReplyLongLong(c,last_numreplicas);
             unblockClient(c);
         } else {
