@@ -1009,7 +1009,7 @@ typedef struct blockingState {
     /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM or any other Keys related blocking */
     dict *keys;                 /* The keys we are blocked on */
 
-    /* BLOCKED_WAIT */
+    /* BLOCKED_WAIT and BLOCKED_WAITAOF */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
     int numlocal;           /* Indication if WAITAOF is waiting for local fsync. */
     long long reploffset;   /* Replication offset to reach. */
