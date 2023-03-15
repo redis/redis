@@ -1,4 +1,16 @@
 ================================================================================
+ror-1.0.6 Released Wed Mar 15 16:37:14 CST 2023
+================================================================================
+* [fix] fix rocksdb-data overwrite hash-data in memory.
+* [opt] use specific swap-thread for exspiescan avoid long scan slowing down query.
+* [opt] optimize unnecessary rio for hot data
+* [opt] async swap in dest key for cmd brpoplpush|blmove, optimize delay for cmd
+        pushing blocked key.
+* [opt] auto roll rocksdb log, avoid rocksdb log piling up.
+* [fix] fix swap statistic data mismatch.
+* [opt] optimize info Rocksdb output.
+
+================================================================================
 ror-1.0.5 Released Mon Feb 13 13:40:48 CST 2023
 ================================================================================
 * [opt] use skiplist to store gtid set, so complexity to test gtid set contains
