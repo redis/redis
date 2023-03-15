@@ -12339,10 +12339,6 @@ int RM_RdbLoad(RedisModuleRdbStream *stream, int flags) {
  *
  * `flags` must be zero. This parameter is for future use.
  *
- * If there is already a fork saving to the RDB file e.g. bgsave is in progress,
- * then, module should guarantee that `stream` does not point to the same file.
- * Otherwise, this function and RDB fork will try to write to the same file.
- *
  * On success REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to the following values:
  *
