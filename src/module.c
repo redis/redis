@@ -7471,33 +7471,30 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
  * The following is an example of how non-blocking module based authentication can be used:
  *
  *      int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
- *           const char *user = RedisModule_StringPtrLen(username, NULL);
- *           const char *pwd = RedisModule_StringPtrLen(password, NULL);
- *           if (!strcmp(user,"foo") && !strcmp(pwd,"valid_password")) {
- *               RedisModule_AuthenticateClientWithACLUser(ctx, "foo", 3, NULL, NULL, NULL);
- *               return REDISMODULE_AUTH_HANDLED;
- *           }
- *           else if (!strcmp(user,"foo") && !strcmp(pwd,"wrong_password")) {
- *               RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(username);
- *               if (user) {
- *                   RedisModuleString *log = RedisModule_CreateString(ctx, "Module Auth", 11);
- *                   RedisModule_ACLAddLogEntry(ctx, user, log, REDISMODULE_ACL_LOG_AUTH);
- *                   RedisModule_FreeString(ctx, log);
- *                   RedisModule_FreeModuleUser(user);
- *               }
- *               const char *err_msg = "Authentication denied by Module.";
- *               *err = RedisModule_CreateString(ctx, err_msg, strlen(err_msg));
- *               return REDISMODULE_AUTH_HANDLED;
- *           }
- *           return REDISMODULE_AUTH_NOT_HANDLED;
+ *          const char *user = RedisModule_StringPtrLen(username, NULL);
+ *          const char *pwd = RedisModule_StringPtrLen(password, NULL);
+ *          if (!strcmp(user,"foo") && !strcmp(pwd,"valid_password")) {
+ *              RedisModule_AuthenticateClientWithACLUser(ctx, "foo", 3, NULL, NULL, NULL);
+ *              return REDISMODULE_AUTH_HANDLED;
+ *          }
+ *
+ *          else if (!strcmp(user,"foo") && !strcmp(pwd,"wrong_password")) {
+ *              RedisModuleString *log = RedisModule_CreateString(ctx, "Module Auth", 11);
+ *              RedisModule_ACLAddLogEntryByUserName(ctx, username, log, REDISMODULE_ACL_LOG_AUTH);
+ *              RedisModule_FreeString(ctx, log);
+ *              const char *err_msg = "Auth denied by Misc Module.";
+ *              *err = RedisModule_CreateString(ctx, err_msg, strlen(err_msg));
+ *              return REDISMODULE_AUTH_HANDLED;
+ *          }
+ *          return REDISMODULE_AUTH_NOT_HANDLED;
  *       }
  *
- *       int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
- *           if (RedisModule_Init(ctx,"authmodule",1,REDISMODULE_APIVER_1)== REDISMODULE_ERR)
- *               return REDISMODULE_ERR;
- *           RedisModule_RegisterCustomAuthCallback(ctx, auth_cb);
- *           return REDISMODULE_OK;
- *       }
+ *      int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+ *          if (RedisModule_Init(ctx,"authmodule",1,REDISMODULE_APIVER_1)== REDISMODULE_ERR)
+ *              return REDISMODULE_ERR;
+ *          RedisModule_RegisterCustomAuthCallback(ctx, auth_cb);
+ *          return REDISMODULE_OK;
+ *      }
  */
 void RM_RegisterCustomAuthCallback(RedisModuleCtx *ctx, RedisModuleCustomAuthCallback cb) {
     RedisModuleCustomAuthCtx *auth_ctx = zmalloc(sizeof(RedisModuleCustomAuthCtx));
@@ -9364,21 +9361,38 @@ int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, 
     return REDISMODULE_OK;
 }
 
-/* Adds a new entry in the ACL log.
- * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
- *
- * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
-int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object, RedisModuleACLLogEntryReason reason) {
-    int acl_reason;
+/* Helper function to map a RedisModuleACLLogEntryReason to ACL Log entry reason. */
+int moduleGetACLLogEntryReason(RedisModuleACLLogEntryReason reason) {
+    int acl_reason = 0;
     switch (reason) {
         case REDISMODULE_ACL_LOG_AUTH: acl_reason = ACL_DENIED_AUTH; break;
         case REDISMODULE_ACL_LOG_KEY: acl_reason = ACL_DENIED_KEY; break;
         case REDISMODULE_ACL_LOG_CHANNEL: acl_reason = ACL_DENIED_CHANNEL; break;
         case REDISMODULE_ACL_LOG_CMD: acl_reason = ACL_DENIED_CMD; break;
-        default: return REDISMODULE_ERR;
+        default: break;
     }
+    return acl_reason;
+}
 
+/* Adds a new entry in the ACL log.
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
+ *
+ * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
+int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object, RedisModuleACLLogEntryReason reason) {
+    int acl_reason = moduleGetACLLogEntryReason(reason);
+    if (!acl_reason) return REDISMODULE_ERR;
     addACLLogEntry(ctx->client, acl_reason, ACL_LOG_CTX_MODULE, -1, user->user->name, sdsdup(object->ptr));
+    return REDISMODULE_OK;
+}
+
+/* Adds a new entry in the ACL log with the `username` RedisModuleString provided.
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
+ *
+ * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
+int RM_ACLAddLogEntryByUserName(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *object, RedisModuleACLLogEntryReason reason) {
+    int acl_reason = moduleGetACLLogEntryReason(reason);
+    if (!acl_reason) return REDISMODULE_ERR;
+    addACLLogEntry(ctx->client, acl_reason, ACL_LOG_CTX_MODULE, -1, username->ptr, sdsdup(object->ptr));
     return REDISMODULE_OK;
 }
 
@@ -13321,6 +13335,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ACLCheckKeyPermissions);
     REGISTER_API(ACLCheckChannelPermissions);
     REGISTER_API(ACLAddLogEntry);
+    REGISTER_API(ACLAddLogEntryByUserName);
     REGISTER_API(FreeModuleUser);
     REGISTER_API(DeauthenticateAndCloseClient);
     REGISTER_API(AuthenticateClientWithACLUser);
