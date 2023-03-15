@@ -229,6 +229,7 @@ struct RedisModuleKey {
  * a Redis module. */
 struct RedisModuleBlockedClient;
 typedef int (*RedisModuleCmdFunc) (RedisModuleCtx *ctx, void **argv, int argc);
+typedef int (*RedisModuleAuthCallback)(RedisModuleCtx *ctx, void *username, void *password, RedisModuleString **err);
 typedef void (*RedisModuleDisconnectFunc) (RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc);
 
 /* This struct holds the information about a command registered by a module.*/
@@ -249,6 +250,12 @@ typedef struct RedisModuleCommand RedisModuleCommand;
  * only the type, proto and protolen are filled. */
 typedef struct CallReply RedisModuleCallReply;
 
+/* Structure to hold the module auth callback & the Module implementing it. */
+typedef struct RedisModuleAuthCtx {
+    struct RedisModule *module;
+    RedisModuleAuthCallback auth_cb;
+} RedisModuleAuthCtx;
+
 /* Structure representing a blocked client. We get a pointer to such
  * an object when blocking from modules. */
 typedef struct RedisModuleBlockedClient {
@@ -256,6 +263,8 @@ typedef struct RedisModuleBlockedClient {
                         was destroyed during the life of this object. */
     RedisModule *module;    /* Module blocking the client. */
     RedisModuleCmdFunc reply_callback; /* Reply callback on normal completion.*/
+    RedisModuleAuthCallback auth_reply_cb; /* Reply callback on completing blocking
+                                                    module authentication. */
     RedisModuleCmdFunc timeout_callback; /* Reply callback on timeout. */
     RedisModuleDisconnectFunc disconnect_callback; /* Called on disconnection.*/
     void (*free_privdata)(RedisModuleCtx*,void*);/* privdata cleanup callback.*/
@@ -273,6 +282,11 @@ typedef struct RedisModuleBlockedClient {
     uint64_t background_duration; /* Current command background time duration.
                                      Used for measuring latency of blocking cmds */
 } RedisModuleBlockedClient;
+
+/* This is a list of Module Auth Contexts. Each time a Module registers a callback, a new ctx is
+ * added to this list. Multiple modules can register auth callbacks and the same Module can have
+ * multiple auth callbacks. */
+static list *moduleAuthCallbacks;
 
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static list *moduleUnblockedClients;
@@ -3521,7 +3535,7 @@ int RM_SetClientNameById(uint64_t id, RedisModuleString *name) {
         errno = ENOENT;
         return REDISMODULE_ERR;
     }
-    if (clientSetName(client, name) == C_ERR) {
+    if (clientSetName(client, name, NULL) == C_ERR) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
@@ -7369,6 +7383,7 @@ void unblockClientFromModule(client *c) {
  *
  */
 RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
+                                            RedisModuleAuthCallback auth_reply_callback,
                                             RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                             long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata,
                                             int flags) {
@@ -7388,6 +7403,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->client = (islua || ismulti) ? NULL : c;
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
+    bc->auth_reply_cb = auth_reply_callback;
     bc->timeout_callback = timeout_callback;
     bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
@@ -7408,6 +7424,13 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
         addReplyError(c, islua ?
             "Blocking module command called from Lua script" :
             "Blocking module command called from transaction");
+    } else if (ctx->flags & REDISMODULE_CTX_BLOCKED_REPLY) {
+        c->bstate.module_blocked_handle = NULL;
+        addReplyError(c, "Blocking module command called from a Reply callback context");
+    }
+    else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
+        c->bstate.module_blocked_handle = NULL;
+        addReplyError(c, "Clients undergoing module based authentication can only be blocked on auth");
     } else {
         if (keys) {
             blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
@@ -7416,6 +7439,185 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
         }
     }
     return bc;
+}
+
+/* This API registers a callback to execute in addition to normal password based authentication.
+ * Multiple callbacks can be registered across different modules. When a Module is unloaded, all the
+ * auth callbacks registered by it are unregistered.
+ * The callbacks are attempted (in the order of most recently registered first) when the AUTH/HELLO
+ * (with AUTH field provided) commands are called.
+ * The callbacks will be called with a module context along with a username and a password, and are
+ * expected to take one of the following actions:
+ * (1) Authenticate - Use the RM_AuthenticateClient* API and return REDISMODULE_AUTH_HANDLED.
+ * This will immediately end the auth chain as successful and add the OK reply.
+ * (2) Deny Authentication - Return REDISMODULE_AUTH_HANDLED without authenticating or blocking the
+ * client. Optionally, `err` can be set to a custom error message and `err` will be automatically
+ * freed by the server.
+ * This will immediately end the auth chain as unsuccessful and add the ERR reply.
+ * (3) Block a client on authentication - Use the RM_BlockClientOnAuth API and return
+ * REDISMODULE_AUTH_HANDLED. Here, the client will be blocked until the RM_UnblockClient API is used
+ * which will trigger the auth reply callback (provided through the RM_BlockClientOnAuth).
+ * In this reply callback, the Module should authenticate, deny or skip handling authentication.
+ * (4) Skip handling Authentication - Return REDISMODULE_AUTH_NOT_HANDLED without blocking the
+ * client. This will allow the engine to attempt the next module auth callback.
+ * If none of the callbacks authenticate or deny auth, then password based auth is attempted and
+ * will authenticate or add failure logs and reply to the clients accordingly.
+ *
+ * Note: If a client is disconnected while it was in the middle of blocking module auth, that
+ * occurrence of the AUTH or HELLO command will not be tracked in the INFO command stats.
+ *
+ * The following is an example of how non-blocking module based authentication can be used:
+ *
+ *      int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
+ *          const char *user = RedisModule_StringPtrLen(username, NULL);
+ *          const char *pwd = RedisModule_StringPtrLen(password, NULL);
+ *          if (!strcmp(user,"foo") && !strcmp(pwd,"valid_password")) {
+ *              RedisModule_AuthenticateClientWithACLUser(ctx, "foo", 3, NULL, NULL, NULL);
+ *              return REDISMODULE_AUTH_HANDLED;
+ *          }
+ *
+ *          else if (!strcmp(user,"foo") && !strcmp(pwd,"wrong_password")) {
+ *              RedisModuleString *log = RedisModule_CreateString(ctx, "Module Auth", 11);
+ *              RedisModule_ACLAddLogEntryByUserName(ctx, username, log, REDISMODULE_ACL_LOG_AUTH);
+ *              RedisModule_FreeString(ctx, log);
+ *              const char *err_msg = "Auth denied by Misc Module.";
+ *              *err = RedisModule_CreateString(ctx, err_msg, strlen(err_msg));
+ *              return REDISMODULE_AUTH_HANDLED;
+ *          }
+ *          return REDISMODULE_AUTH_NOT_HANDLED;
+ *       }
+ *
+ *      int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+ *          if (RedisModule_Init(ctx,"authmodule",1,REDISMODULE_APIVER_1)== REDISMODULE_ERR)
+ *              return REDISMODULE_ERR;
+ *          RedisModule_RegisterAuthCallback(ctx, auth_cb);
+ *          return REDISMODULE_OK;
+ *      }
+ */
+void RM_RegisterAuthCallback(RedisModuleCtx *ctx, RedisModuleAuthCallback cb) {
+    RedisModuleAuthCtx *auth_ctx = zmalloc(sizeof(RedisModuleAuthCtx));
+    auth_ctx->module = ctx->module;
+    auth_ctx->auth_cb = cb;
+    listAddNodeHead(moduleAuthCallbacks, auth_ctx);
+}
+
+/* Helper function to invoke the free private data callback of a Module blocked client. */
+void moduleInvokeFreePrivDataCallback(client *c, RedisModuleBlockedClient *bc) {
+    if (bc->privdata && bc->free_privdata) {
+        RedisModuleCtx ctx;
+        int ctx_flags = c == NULL ? REDISMODULE_CTX_BLOCKED_DISCONNECTED : REDISMODULE_CTX_NONE;
+        moduleCreateContext(&ctx, bc->module, ctx_flags);
+        ctx.blocked_privdata = bc->privdata;
+        ctx.client = bc->client;
+        bc->free_privdata(&ctx,bc->privdata);
+        moduleFreeContext(&ctx);
+    }
+}
+
+/* Unregisters all the module auth callbacks that have been registered by this Module. */
+void moduleUnregisterAuthCBs(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    listRewind(moduleAuthCallbacks, &li);
+    while ((ln = listNext(&li))) {
+        RedisModuleAuthCtx *ctx = listNodeValue(ln);
+        if (ctx->module == module) {
+            listDelNode(moduleAuthCallbacks, ln);
+            zfree(ctx);
+        }
+    }
+}
+
+/* Search for & attempt next module auth callback after skipping the ones already attempted.
+ * Returns the result of the module auth callback. */
+int attemptNextAuthCb(client *c, robj *username, robj *password, robj **err) {
+    int handle_next_callback = c->module_auth_ctx == NULL;
+    RedisModuleAuthCtx *cur_auth_ctx = NULL;
+    listNode *ln;
+    listIter li;
+    listRewind(moduleAuthCallbacks, &li);
+    int result = REDISMODULE_AUTH_NOT_HANDLED;
+    while((ln = listNext(&li))) {
+        cur_auth_ctx = listNodeValue(ln);
+        /* Skip over the previously attempted auth contexts. */
+        if (!handle_next_callback) {
+            handle_next_callback = cur_auth_ctx == c->module_auth_ctx;
+            continue;
+        }
+        /* Remove the module auth complete flag before we attempt the next cb. */
+        c->flags &= ~CLIENT_MODULE_AUTH_HAS_RESULT;
+        RedisModuleCtx ctx;
+        moduleCreateContext(&ctx, cur_auth_ctx->module, REDISMODULE_CTX_NONE);
+        ctx.client = c;
+        *err = NULL;
+        c->module_auth_ctx = cur_auth_ctx;
+        result = cur_auth_ctx->auth_cb(&ctx, username, password, err);
+        moduleFreeContext(&ctx);
+        if (result == REDISMODULE_AUTH_HANDLED) break;
+        /* If Auth was not handled (allowed/denied/blocked) by the Module, try the next auth cb. */
+    }
+    return result;
+}
+
+/* Helper function to handle a reprocessed unblocked auth client.
+ * Returns REDISMODULE_AUTH_NOT_HANDLED if the client was not reprocessed after a blocking module
+ * auth operation.
+ * Otherwise, we attempt the auth reply callback & the free priv data callback, update fields and
+ * return the result of the reply callback. */
+int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, robj **err) {
+    int result = REDISMODULE_AUTH_NOT_HANDLED;
+    if (!c->module_blocked_client) return result;
+    RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *) c->module_blocked_client;
+    bc->client = c;
+    if (bc->auth_reply_cb) {
+        RedisModuleCtx ctx;
+        moduleCreateContext(&ctx, bc->module, REDISMODULE_CTX_BLOCKED_REPLY);
+        ctx.blocked_privdata = bc->privdata;
+        ctx.blocked_ready_key = NULL;
+        ctx.client = bc->client;
+        ctx.blocked_client = bc;
+        result = bc->auth_reply_cb(&ctx, username, password, err);
+        moduleFreeContext(&ctx);
+    }
+    moduleInvokeFreePrivDataCallback(c, bc);
+    c->module_blocked_client = NULL;
+    c->lastcmd->microseconds += bc->background_duration;
+    bc->module->blocked_clients--;
+    zfree(bc);
+    return result;
+}
+
+/* Helper function to attempt Module based authentication through module auth callbacks.
+ * Here, the Module is expected to authenticate the client using the RedisModule APIs and to add ACL
+ * logs in case of errors.
+ * Returns one of the following codes:
+ * AUTH_OK - Indicates that a module handled and authenticated the client.
+ * AUTH_ERR - Indicates that a module handled and denied authentication for this client.
+ * AUTH_NOT_HANDLED - Indicates that authentication was not handled by any Module and that
+ * normal password based authentication can be attempted next.
+ * AUTH_BLOCKED - Indicates module authentication is in progress through a blocking implementation.
+ * In this case, authentication is handled here again after the client is unblocked / reprocessed. */
+int checkModuleAuthentication(client *c, robj *username, robj *password, robj **err) {
+    if (!listLength(moduleAuthCallbacks)) return AUTH_NOT_HANDLED;
+    int result = attemptBlockedAuthReplyCallback(c, username, password, err);
+    if (result == REDISMODULE_AUTH_NOT_HANDLED) {
+        result = attemptNextAuthCb(c, username, password, err);
+    }
+    if (c->flags & CLIENT_BLOCKED) {
+        /* Modules are expected to return REDISMODULE_AUTH_HANDLED when blocking clients. */
+        serverAssert(result == REDISMODULE_AUTH_HANDLED);
+        return AUTH_BLOCKED;
+    }
+    c->module_auth_ctx = NULL;
+    if (result == REDISMODULE_AUTH_NOT_HANDLED) {
+        c->flags &= ~CLIENT_MODULE_AUTH_HAS_RESULT;
+        return AUTH_NOT_HANDLED;
+    }
+    if (c->flags & CLIENT_MODULE_AUTH_HAS_RESULT) {
+        c->flags &= ~CLIENT_MODULE_AUTH_HAS_RESULT;
+        if (c->authenticated) return AUTH_OK;
+    }
+    return AUTH_ERR;
 }
 
 /* This function is called from module.c in order to check if a module
@@ -7488,7 +7690,24 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
                                          RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                          long long timeout_ms) {
-    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL,0);
+    return moduleBlockClient(ctx,reply_callback,NULL,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL,0);
+}
+
+/* Block the current client for module authentication in the background. If module auth is not in
+ * progress on the client, the API returns NULL. Otherwise, the client is blocked and the RM_BlockedClient
+ * is returned similar to the RM_BlockClient API.
+ * Note: Only use this API from the context of a module auth callback. */
+RedisModuleBlockedClient *RM_BlockClientOnAuth(RedisModuleCtx *ctx, RedisModuleAuthCallback reply_callback,
+                                               void (*free_privdata)(RedisModuleCtx*,void*)) {
+    if (!clientHasModuleAuthInProgress(ctx->client)) {
+        addReplyError(ctx->client, "Module blocking client on auth when not currently undergoing module authentication");
+        return NULL;
+    }
+    RedisModuleBlockedClient *bc = moduleBlockClient(ctx,NULL,reply_callback,NULL,free_privdata,0, NULL,0,NULL,0);
+    if (ctx->client->flags & CLIENT_BLOCKED) {
+        ctx->client->flags |= CLIENT_PENDING_COMMAND;
+    }
+    return bc;
 }
 
 /* This call is similar to RedisModule_BlockClient(), however in this case we
@@ -7552,7 +7771,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
 RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
                                                RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                                long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
-    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,0);
+    return moduleBlockClient(ctx,reply_callback,NULL,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,0);
 }
 
 /* Same as RedisModule_BlockClientOnKeys, but can take REDISMODULE_BLOCK_* flags
@@ -7568,7 +7787,7 @@ RedisModuleBlockedClient *RM_BlockClientOnKeysWithFlags(RedisModuleCtx *ctx, Red
                                                         RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                                         long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata,
                                                         int flags) {
-    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,flags);
+    return moduleBlockClient(ctx,reply_callback,NULL,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,flags);
 }
 
 /* This function is used in order to potentially unblock a client blocked
@@ -7643,6 +7862,7 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
 int RM_AbortBlock(RedisModuleBlockedClient *bc) {
     bc->reply_callback = NULL;
     bc->disconnect_callback = NULL;
+    bc->auth_reply_cb = NULL;
     return RM_UnblockClient(bc,NULL);
 }
 
@@ -7709,16 +7929,13 @@ void moduleHandleBlockedClients(void) {
             reply_us = elapsedUs(replyTimer);
             moduleFreeContext(&ctx);
         }
-
-        /* Free privdata if any. */
-        if (bc->privdata && bc->free_privdata) {
-            RedisModuleCtx ctx;
-            int ctx_flags = c == NULL ? REDISMODULE_CTX_BLOCKED_DISCONNECTED : REDISMODULE_CTX_NONE;
-            moduleCreateContext(&ctx, bc->module, ctx_flags);
-            ctx.blocked_privdata = bc->privdata;
-            ctx.client = bc->client;
-            bc->free_privdata(&ctx,bc->privdata);
-            moduleFreeContext(&ctx);
+        /* Hold onto the blocked client if module auth is in progress. The reply callback is invoked
+         * when the client is reprocessed. */
+        if (c && clientHasModuleAuthInProgress(c)) {
+            c->module_blocked_client = bc;
+        } else {
+            /* Free privdata if any. */
+            moduleInvokeFreePrivDataCallback(c, bc);
         }
 
         /* It is possible that this blocked client object accumulated
@@ -7733,7 +7950,7 @@ void moduleHandleBlockedClients(void) {
          * This needs to be out of the reply callback above given that a
          * module might not define any callback and still do blocking ops.
          */
-        if (c && !bc->blocked_on_keys) {
+        if (c && !clientHasModuleAuthInProgress(c) && !bc->blocked_on_keys) {
             updateStatsOnUnblock(c, bc->background_duration, reply_us, server.stat_total_error_replies != prev_error_replies);
         }
 
@@ -7746,7 +7963,7 @@ void moduleHandleBlockedClients(void) {
             /* Put the client in the list of clients that need to write
              * if there are pending replies here. This is needed since
              * during a non blocking command the client may receive output. */
-            if (clientHasPendingReplies(c) &&
+            if (!clientHasModuleAuthInProgress(c) && clientHasPendingReplies(c) &&
                 !(c->flags & CLIENT_PENDING_WRITE))
             {
                 c->flags |= CLIENT_PENDING_WRITE;
@@ -7757,8 +7974,10 @@ void moduleHandleBlockedClients(void) {
         /* Free 'bc' only after unblocking the client, since it is
          * referenced in the client blocking context, and must be valid
          * when calling unblockClient(). */
-        bc->module->blocked_clients--;
-        zfree(bc);
+        if (!(c && clientHasModuleAuthInProgress(c))) {
+            bc->module->blocked_clients--;
+            zfree(bc);
+        }
 
         /* Lock again before to iterate the loop. */
         pthread_mutex_lock(&moduleUnblockedClientsMutex);
@@ -9135,21 +9354,38 @@ int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, 
     return REDISMODULE_OK;
 }
 
-/* Adds a new entry in the ACL log.
- * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
- *
- * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
-int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object, RedisModuleACLLogEntryReason reason) {
-    int acl_reason;
+/* Helper function to map a RedisModuleACLLogEntryReason to ACL Log entry reason. */
+int moduleGetACLLogEntryReason(RedisModuleACLLogEntryReason reason) {
+    int acl_reason = 0;
     switch (reason) {
         case REDISMODULE_ACL_LOG_AUTH: acl_reason = ACL_DENIED_AUTH; break;
         case REDISMODULE_ACL_LOG_KEY: acl_reason = ACL_DENIED_KEY; break;
         case REDISMODULE_ACL_LOG_CHANNEL: acl_reason = ACL_DENIED_CHANNEL; break;
         case REDISMODULE_ACL_LOG_CMD: acl_reason = ACL_DENIED_CMD; break;
-        default: return REDISMODULE_ERR;
+        default: break;
     }
+    return acl_reason;
+}
 
+/* Adds a new entry in the ACL log.
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
+ *
+ * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
+int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object, RedisModuleACLLogEntryReason reason) {
+    int acl_reason = moduleGetACLLogEntryReason(reason);
+    if (!acl_reason) return REDISMODULE_ERR;
     addACLLogEntry(ctx->client, acl_reason, ACL_LOG_CTX_MODULE, -1, user->user->name, sdsdup(object->ptr));
+    return REDISMODULE_OK;
+}
+
+/* Adds a new entry in the ACL log with the `username` RedisModuleString provided.
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
+ *
+ * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
+int RM_ACLAddLogEntryByUserName(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *object, RedisModuleACLLogEntryReason reason) {
+    int acl_reason = moduleGetACLLogEntryReason(reason);
+    if (!acl_reason) return REDISMODULE_ERR;
+    addACLLogEntry(ctx->client, acl_reason, ACL_LOG_CTX_MODULE, -1, username->ptr, sdsdup(object->ptr));
     return REDISMODULE_OK;
 }
 
@@ -9187,6 +9423,10 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
 
     ctx->client->user = user;
     ctx->client->authenticated = 1;
+
+    if (clientHasModuleAuthInProgress(ctx->client)) {
+        ctx->client->flags |= CLIENT_MODULE_AUTH_HAS_RESULT;
+    }
 
     if (callback) {
         ctx->client->auth_callback = callback;
@@ -11278,6 +11518,7 @@ void moduleInitModulesSystem(void) {
     server.loadmodule_queue = listCreate();
     server.module_configs_queue = dictCreate(&sdsKeyValueHashDictType);
     modules = dictCreate(&modulesDictType);
+    moduleAuthCallbacks = listCreate();
 
     /* Set up the keyspace notification subscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
@@ -11582,6 +11823,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             moduleUnregisterSharedAPI(ctx.module);
             moduleUnregisterUsedAPI(ctx.module);
             moduleRemoveConfigs(ctx.module);
+            moduleUnregisterAuthCBs(ctx.module);
             moduleFreeModuleStructure(ctx.module);
         }
         moduleFreeContext(&ctx);
@@ -11604,16 +11846,21 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
 
+    int post_load_err = 0;
     if (listLength(ctx.module->module_configs) && !ctx.module->configs_initialized) {
         serverLogRaw(LL_WARNING, "Module Configurations were not set, likely a missing LoadConfigs call. Unloading the module.");
-        moduleUnload(ctx.module->name);
-        moduleFreeContext(&ctx);
-        return C_ERR;
+        post_load_err = 1;
     }
 
     if (is_loadex && dictSize(server.module_configs_queue)) {
         serverLogRaw(LL_WARNING, "Loadex configurations were not applied, likely due to invalid arguments. Unloading the module.");
-        moduleUnload(ctx.module->name);
+        post_load_err = 1;
+    }
+
+    if (post_load_err) {
+        /* Unregister module auth callbacks (if any exist) that this Module registered onload. */
+        moduleUnregisterAuthCBs(ctx.module);
+        moduleUnload(ctx.module->name, NULL);
         moduleFreeContext(&ctx);
         return C_ERR;
     }
@@ -11628,32 +11875,29 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 }
 
 /* Unload the module registered with the specified name. On success
- * C_OK is returned, otherwise C_ERR is returned and errno is set
- * to the following values depending on the type of error:
- *
- * * ENONET: No such module having the specified name.
- * * EBUSY: The module exports a new data type and can only be reloaded. 
- * * EPERM: The module exports APIs which are used by other module. 
- * * EAGAIN: The module has blocked clients. 
- * * EINPROGRESS: The module holds timer not fired.
- * * ECANCELED: Unload module error.  */
-int moduleUnload(sds name) {
+ * C_OK is returned, otherwise C_ERR is returned and errmsg is set
+ * with an appropriate message. */
+int moduleUnload(sds name, const char **errmsg) {
     struct RedisModule *module = dictFetchValue(modules,name);
 
     if (module == NULL) {
-        errno = ENOENT;
+        *errmsg = "no such module with that name";
         return C_ERR;
     } else if (listLength(module->types)) {
-        errno = EBUSY;
+        *errmsg = "the module exports one or more module-side data "
+                  "types, can't unload";
         return C_ERR;
     } else if (listLength(module->usedby)) {
-        errno = EPERM;
+        *errmsg = "the module exports APIs used by other modules. "
+                  "Please unload them first and try again";
         return C_ERR;
     } else if (module->blocked_clients) {
-        errno = EAGAIN;
+        *errmsg = "the module has blocked clients. "
+                  "Please wait for them to be unblocked and try again";
         return C_ERR;
     } else if (moduleHoldsTimer(module)) {
-        errno = EINPROGRESS;
+        *errmsg = "the module holds timer that is not fired. "
+                  "Please stop the timer or wait until it fires.";
         return C_ERR;
     }
 
@@ -11678,6 +11922,7 @@ int moduleUnload(sds name) {
     moduleUnregisterSharedAPI(module);
     moduleUnregisterUsedAPI(module);
     moduleUnregisterFilters(module);
+    moduleUnregisterAuthCBs(module);
     moduleRemoveConfigs(module);
 
     /* Remove any notification subscribers this module might have */
@@ -12301,35 +12546,13 @@ NULL
         }
 
     } else if (!strcasecmp(subcmd,"unload") && c->argc == 3) {
-        if (moduleUnload(c->argv[2]->ptr) == C_OK)
+        const char *errmsg = NULL;
+        if (moduleUnload(c->argv[2]->ptr, &errmsg) == C_OK)
             addReply(c,shared.ok);
         else {
-            char *errmsg;
-            switch(errno) {
-            case ENOENT:
-                errmsg = "no such module with that name";
-                break;
-            case EBUSY:
-                errmsg = "the module exports one or more module-side data "
-                         "types, can't unload";
-                break;
-            case EPERM:
-                errmsg = "the module exports APIs used by other modules. "
-                         "Please unload them first and try again";
-                break;
-            case EAGAIN:
-                errmsg = "the module has blocked clients. "
-                         "Please wait them unblocked and try again";
-                break;
-            case EINPROGRESS:
-                errmsg = "the module holds timer that is not fired. "
-                         "Please stop the timer or wait until it fires.";
-                break;
-            default:
-                errmsg = "operation not possible.";
-                break;
-            }
-            addReplyErrorFormat(c,"Error unloading module: %s",errmsg);
+            if (errmsg == NULL) errmsg = "operation not possible.";
+            addReplyErrorFormat(c, "Error unloading module: %s", errmsg);
+            serverLog(LL_WARNING, "Error unloading module %s: %s", (sds) c->argv[2]->ptr, errmsg);
         }
     } else if (!strcasecmp(subcmd,"list") && c->argc == 2) {
         addReplyLoadedModules(c);
@@ -12978,6 +13201,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetKeyNameFromDigest);
     REGISTER_API(GetDbIdFromDigest);
     REGISTER_API(BlockClient);
+    REGISTER_API(BlockClientOnAuth);
     REGISTER_API(UnblockClient);
     REGISTER_API(IsBlockedReplyRequest);
     REGISTER_API(IsBlockedTimeoutRequest);
@@ -13104,6 +13328,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ACLCheckKeyPermissions);
     REGISTER_API(ACLCheckChannelPermissions);
     REGISTER_API(ACLAddLogEntry);
+    REGISTER_API(ACLAddLogEntryByUserName);
     REGISTER_API(FreeModuleUser);
     REGISTER_API(DeauthenticateAndCloseClient);
     REGISTER_API(AuthenticateClientWithACLUser);
@@ -13134,4 +13359,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RegisterStringConfig);
     REGISTER_API(RegisterEnumConfig);
     REGISTER_API(LoadConfigs);
+    REGISTER_API(RegisterAuthCallback);
 }
