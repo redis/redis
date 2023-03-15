@@ -83,6 +83,7 @@ start_server {} {
 
         $rd wait 1 0
         $rd2 wait 1 0
+        wait_for_blocked_clients_count 2 100 10 -1
 
         exec kill -SIGCONT $slave_pid
 
@@ -207,6 +208,7 @@ tags {"wait aof network external:skip"} {
 
                 $rd waitaof 0 1 0
                 $rd2 waitaof 0 1 0
+                wait_for_blocked_clients_count 2 100 10 -1
 
                 exec kill -SIGCONT $replica_pid
 
