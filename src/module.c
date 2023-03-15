@@ -2836,6 +2836,35 @@ int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
     return REDISMODULE_OK;
 }
 
+/* Reply with the error create from a printf format and arguments.
+ *
+ * If the error code is already passed in the string 'fmt', the error
+ * code provided is used, otherwise the string "-ERR " for the generic
+ * error code is automatically added.
+ *
+ * The usage is, for example:
+ *
+ *     RedisModule_ReplyWithErrorFormat(ctx, "An error: %s", "foo");
+ *
+ *     RedisModule_ReplyWithErrorFormat(ctx, "-WRONGTYPE Wrong Type: %s", "foo");
+ *
+ * The function always returns REDISMODULE_OK.
+ */
+int RM_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+
+    sds s = sdsempty();
+
+    va_list ap;
+    va_start(ap, fmt);
+    s = sdscatvprintf(s, fmt, ap);
+    va_end(ap);
+
+    addReplyErrorSds(c, s);
+    return REDISMODULE_OK;
+}
+
 /* Reply with a simple string (`+... \r\n` in RESP protocol). This replies
  * are suitable only when sending a small non-binary string with small
  * overhead, like "OK" or similar replies.
@@ -12811,6 +12840,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(WrongArity);
     REGISTER_API(ReplyWithLongLong);
     REGISTER_API(ReplyWithError);
+    REGISTER_API(ReplyWithErrorFormat);
     REGISTER_API(ReplyWithSimpleString);
     REGISTER_API(ReplyWithArray);
     REGISTER_API(ReplyWithMap);
