@@ -246,7 +246,7 @@ void freeCallReply(CallReply *rep) {
     zfree(rep);
 }
 
-CallReply* callReplyCreatePromise(void *private_data) {
+CallReply *callReplyCreatePromise(void *private_data) {
     CallReply *res = zmalloc(sizeof(*res));
     res->type = REDISMODULE_REPLY_PROMISE;
     /* Mark the reply as parsed so there will be not attempt to parse
