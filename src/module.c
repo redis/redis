@@ -2854,14 +2854,11 @@ int RM_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
 
-    sds s = sdsempty();
-
     va_list ap;
     va_start(ap, fmt);
-    s = sdscatvprintf(s, fmt, ap);
+    addReplyErrorFormatInternal(c, 0, fmt, ap);
     va_end(ap);
 
-    addReplyErrorSds(c, s);
     return REDISMODULE_OK;
 }
 
