@@ -808,7 +808,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
         freeClient(ctx->client);
 }
 
-static CallReply* moduleParseReply(client *c, RedisModuleCtx *ctx) {
+static CallReply *moduleParseReply(client *c, RedisModuleCtx *ctx) {
     /* Convert the result of the Redis command into a module reply. */
     sds proto = sdsnewlen(c->buf,c->bufpos);
     c->bufpos = 0;
@@ -7643,7 +7643,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
 }
 
 /* Get the private data that was previusely set on a blocked client */
-void* RM_BlockClientGetPrivateData(RedisModuleBlockedClient *blocked_client) {
+void *RM_BlockClientGetPrivateData(RedisModuleBlockedClient *blocked_client) {
     return blocked_client->privdata;
 }
 
