@@ -3575,7 +3575,7 @@ void waitaofCommand(client *c) {
         return;
     }
     if (numlocal && !server.aof_enabled) {
-        addReplyError(c,"WAITAOF cannot be used when appendonly is disabled");
+        addReplyError(c, "WAITAOF cannot be used when numlocal is set but appendonly is disabled.");
         return;
     }
 
@@ -3626,8 +3626,8 @@ void processClientsWaitingReplicas(void) {
         int is_wait_aof = c->bstate.btype == BLOCKED_WAITAOF;
 
         if (is_wait_aof && c->bstate.numlocal && !server.aof_enabled) {
+            addReplyError(c, "WAITAOF cannot be used when numlocal is set but appendonly is disabled.");
             unblockClient(c);
-            addReplyError(c,"WAITAOF cannot be used when appendonly is disabled");
             return;
         }
 

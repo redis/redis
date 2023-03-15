@@ -130,13 +130,13 @@ tags {"wait aof network external:skip"} {
             $rd waitaof 1 0 0
             wait_for_blocked_client
             r config set appendonly no ;# this should release the blocked client as an error
-            assert_error {ERR WAITAOF cannot be used when appendonly is disabled} {$rd read}
+            assert_error {ERR WAITAOF cannot be used when numlocal is set but appendonly is disabled.} {$rd read}
             $rd close
         }
 
         test {WAITAOF local on server with aof disabled} {
             $master incr foo
-            assert_error {ERR WAITAOF cannot be used when appendonly is disabled} {$master waitaof 1 0 0}
+            assert_error {ERR WAITAOF cannot be used when numlocal is set but appendonly is disabled.} {$master waitaof 1 0 0}
         }
 
         $master config set appendonly yes
@@ -191,6 +191,35 @@ tags {"wait aof network external:skip"} {
                 assert_equal [$master waitaof 0 1 50] {1 0} ;# exits on timeout
                 exec kill -SIGCONT $replica_pid
                 assert_equal [$master waitaof 0 1 0] {1 1}
+            }
+
+            test {WAITAOF replica multiple clients unblock - reuse last result} {
+                set rd [redis_deferring_client -1]
+                set rd2 [redis_deferring_client -1]
+
+                exec kill -SIGSTOP $replica_pid
+
+                $rd incr foo
+                $rd read
+
+                $rd2 incr foo
+                $rd2 read
+
+                $rd waitaof 0 1 0
+                $rd2 waitaof 0 1 0
+
+                exec kill -SIGCONT $replica_pid
+
+                assert_equal [$rd read] {1 1}
+                assert_equal [$rd2 read] {1 1}
+
+                $rd ping
+                assert_equal [$rd read] {PONG}
+                $rd2 ping
+                assert_equal [$rd2 read] {PONG}
+
+                $rd close
+                $rd2 close
             }
 
             test {WAITAOF replica multiple clients unblock - reuse last result} {
