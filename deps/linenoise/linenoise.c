@@ -163,6 +163,7 @@ enum KEY_ACTION{
 	CTRL_F = 6,         /* Ctrl-f */
 	CTRL_H = 8,         /* Ctrl-h */
 	TAB = 9,            /* Tab */
+	NL = 10,            /* Enter typed before raw mode was enabled */
 	CTRL_K = 11,        /* Ctrl+k */
 	CTRL_L = 12,        /* Ctrl+l */
 	ENTER = 13,         /* Enter */
@@ -840,6 +841,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         }
 
         switch(c) {
+        case NL:       /* enter, typed before raw mode was enabled */
+            break;
         case ENTER:    /* enter */
             history_len--;
             free(history[history_len]);
