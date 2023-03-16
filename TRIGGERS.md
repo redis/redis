@@ -125,7 +125,7 @@ Although it makes sense that all the aggregated triggering events will be proces
 We could consider an option to always execute the trigger right after each Redis command  was completed, even if it was issued from 
 a nested context.
 The main challenge with this option is to have a nested script calls which is currently not allowed in Redis.
-During the development of a preliminary PoC I was able to overcome this limitation by storing the curent script context (and the current LUA state in case of LUA engine) and restore them back once processing the triggers execution.
+During the development of a preliminary PoC I was able to overcome this limitation by storing the current script context (and the current LUA state in case of LUA engine) and restore them back once processing the triggers execution.
 I think that we could explore the option to have triggers execution after each executed command rather than after the complete atomic execution has been completed.
 
 
@@ -133,7 +133,7 @@ I think that we could explore the option to have triggers execution after each e
 
 We do not want to reach a nested call of triggers and a potential endless loops. According to this design a trigger execution as a result of some keyspace event is a terminal state.
 we could keep some recursion depth counter that will stop triggering once it reaches some depth, but that would cause some unexpected behavior for the library developers, and difficulty debugging cases where triggers where not executed.
-Another espect is if modules based keyspace events calbacks should be triggered from trigger actions and vice versa.
+Another important aspect to consider is if modules based keyspace events calbacks should be triggered from trigger actions and vice versa.
 In the scope of this document I will assume that the trigger based actions **WILL NOT** cause matching module calbacks to be called and that module actions performed during it's callback operation **WILL NOT** cause triggering triggers, but each will be executed only in 1 level of nesting.
 
 So for example lets say I have a module callback **cb** set on some keyspace event **e1** and a trigger action **t** registered on some event **e2**.
