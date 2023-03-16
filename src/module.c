@@ -1032,29 +1032,11 @@ int isCommandNameValid(const char *name) {
     return 1;
 }
 
-/* Helper for commandFlagsFromString(). Turns a string representing command
- * flags into the ACL Category Flags.
- *
- * Returns '1' if acl category flag is recognized or
- * returns '0' if not recognized  */
-int matchAclCategoriesFlags(char *flag, int64_t *acl_categories){
-    if (flag[0] == '@'){
-        uint64_t this_flag = ACLGetCommandCategoryFlagByName(flag + 1);
-        if (this_flag) {
-            *acl_categories |= (int64_t) this_flag;
-            return 1;
-        }
-    }
-    return 0; /* Unrecognized */
-}
-
 /* Helper for RM_CreateCommand(). Turns a string representing command
- * flags into the command flags used by the Redis core and acl category flags used by Redis ACL
- * which allows users to access the module commands by acl categories.
+ * flags into the command flags used by the Redis core.
  *
  * It returns the set of flags, or -1 if unknown flags are found. */
-int64_t commandFlagsFromString(char *s, int64_t *acl_categories) {
-    *acl_categories = 0;
+int64_t commandFlagsFromString(char *s) {
     int count, j;
     int64_t flags = 0;
     sds *tokens = sdssplitlen(s,strlen(s)," ",1,&count);
@@ -1080,10 +1062,7 @@ int64_t commandFlagsFromString(char *s, int64_t *acl_categories) {
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
         else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY; 
-        else if (!matchAclCategoriesFlags(t, acl_categories)){
-            serverLog(LL_WARNING,"Unrecognized command flag %s on module load", t);
-            break;
-        }
+        else break;
     }
     sdsfreesplitres(tokens,count);
     if (j != count) return -1; /* Some token not processed correctly. */
@@ -1167,10 +1146,6 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  *                     RM_Yield.
  * * **"getchannels-api"**: The command implements the interface to return
  *                          the arguments that are channels.
- * 
- * Commands can also be added to ACL categories by providing the name of the category
- * prefixed by '@' in the set of flags 'strflags'.
- * Example, `@write` marks the command as part of the @write ACL category.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -1190,12 +1165,12 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * NOTE: The scheme described above serves a limited purpose and can
  * only be used to find keys that exist at constant indices.
  * For non-trivial key arguments, you may pass 0,0,0 and use
- * RedisModule_SetCommandInfo to set key specs using a more advanced scheme. */
+ * RedisModule_SetCommandInfo to set key specs using a more advanced scheme and use
+ * RedisModule_SetCommandCategories to set Redis ACL categories of the commands. */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     if (!ctx->module->onload)
         return REDISMODULE_ERR;
-    int64_t acl_categories;
-    int64_t flags = strflags ? commandFlagsFromString((char*)strflags, &acl_categories) : 0;
+    int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
@@ -1215,9 +1190,6 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     serverAssert(dictAdd(server.commands, sdsdup(declared_name), cp->rediscmd) == DICT_OK);
     serverAssert(dictAdd(server.orig_commands, sdsdup(declared_name), cp->rediscmd) == DICT_OK);
     cp->rediscmd->id = ACLGetCommandID(declared_name); /* ID used for ACL. */
-    cp->rediscmd->acl_categories = acl_categories; /* ACL categories flags for module command */
-    /* If commands have acl_categories, increment num_commands_with_acl_categories */ 
-    if (acl_categories) ctx->module->num_commands_with_acl_categories++; 
     return REDISMODULE_OK;
 }
 
@@ -1322,8 +1294,7 @@ RedisModuleCommand *RM_GetCommand(RedisModuleCtx *ctx, const char *name) {
 int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     if (!parent->module->onload)
         return REDISMODULE_ERR;
-    int64_t acl_categories;
-    int64_t flags = strflags ? commandFlagsFromString((char*)strflags, &acl_categories) : 0;
+    int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
@@ -1351,10 +1322,8 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     sds fullname = catSubCommandFullname(parent_cmd->fullname, name);
     RedisModuleCommand *cp = moduleCreateCommandProxy(parent->module, declared_name, fullname, cmdfunc, flags, firstkey, lastkey, keystep);
     cp->rediscmd->arity = -2;
-    cp->rediscmd->acl_categories = acl_categories; /* ACL categories flags for module sub-command */
+
     commandAddSubcommand(parent_cmd, cp->rediscmd, name);
-    /* If commands have acl_categories, increment num_commands_with_acl_categories */
-    if (acl_categories) parent->module->num_commands_with_acl_categories++; 
     return REDISMODULE_OK;
 }
 
@@ -1377,6 +1346,56 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
                const RedisModuleCommandArg *args, int index) {
     off_t offset = index * version->sizeof_arg;
     return (RedisModuleCommandArg *)((char *)(args) + offset);
+}
+
+/* Helper for categoriesFlagsFromString(). Turns a string representing command
+ * flags into the ACL Category Flags.
+ *
+ * Returns '1' if acl category flag is recognized or
+ * returns '0' if not recognized  */
+int matchAclCategoriesFlags(char *flag, int64_t *acl_categories_flags) {
+    uint64_t this_flag = ACLGetCommandCategoryFlagByName(flag);
+    if (this_flag) {
+        *acl_categories_flags |= (int64_t) this_flag;
+        return 1;
+    }
+    return 0; /* Unrecognized */
+}
+
+/* Helper for RM_SetCommandCategories(). Turns a string representing command
+ * flags into the acl category flags used by Redis ACL which allows users to access 
+ * the module commands by acl categories.
+ * 
+ * It returns the set of acl flags, or -1 if unknown flags are found. */
+int64_t categoriesFlagsFromString(char *aclflags) {
+    int count, j;
+    int64_t acl_categories_flags = 0;
+    sds *tokens = sdssplitlen(aclflags,strlen(aclflags)," ",1,&count);
+    for (j = 0; j < count; j++) {
+        char *t = tokens[j];
+        if (!matchAclCategoriesFlags(t, &acl_categories_flags)) {
+                serverLog(LL_WARNING,"Unrecognized categories flag %s on module load", t);
+                break;
+        }
+    }
+    sdsfreesplitres(tokens,count);
+    if (j != count) return -1; /* Some token not processed correctly. */
+    return acl_categories_flags;
+}
+
+/* RedisModule_SetCommandCategories can be used to set ACL categories to module
+ * commands and subcommands. The set of ACL categories should be passed as
+ * a space separated C string 'aclflags'.
+ * 
+ * Example, 'write' marks the command as part of the write ACL category. */
+int RM_SetCommandCategories(RedisModuleCommand *command, const char *aclflags) {
+    if (!command || !command->module || !command->module->onload) return REDISMODULE_ERR;
+    int64_t categories_flags = aclflags ? categoriesFlagsFromString((char*)aclflags) : 0;
+    if (categories_flags == -1) return REDISMODULE_ERR;
+    struct redisCommand *rcmd = command->rediscmd;
+    rcmd->acl_categories = categories_flags; /* ACL categories flags for module command */
+    command->module->num_commands_with_acl_categories++;
+    return REDISMODULE_OK;
 }
 
 /* Set additional command information.
@@ -12834,6 +12853,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetCommand);
     REGISTER_API(CreateSubcommand);
     REGISTER_API(SetCommandInfo);
+    REGISTER_API(SetCommandCategories);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);
