@@ -6039,9 +6039,9 @@ fmterr:
  *              after the command invocation (without releasing the Redis lock in between).
  *              The module can use RedisModule_CallReplyPromiseAbort to abort the command invocation
  *              if it was not yet finished (see RedisModule_CallReplyPromiseAbort documentation for more
- *              details).  It is also the module responsibility to abort the execution on failover, either by using
- *              server event (to get notify when the instance become replica) or counting on the disconnect
- *              callback of the original client. Failing to do so can cause Redis to perform write operation on a replica.
+ *              details). It is also the module's responsibility to abort the execution on role change, either by using
+ *              server event (to get notified when the instance becomes a replica) or relying on the disconnect
+ *              callback of the original client. Failing to do so can result in a write operation on a replica.
  *              Unlike other call replies, promise call reply **must** be freed while the Redis GIL is locked.
  *              Notice that on unblocking, the only promise is that the unblock handler will be called,
  *              If the blocking RM_Call caused the module to also block some real client (using RM_BlockClient),
