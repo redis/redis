@@ -392,8 +392,10 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                        scripts even when in OOM */
 #define CLIENT_NO_TOUCH (1ULL<<45) /* This client will not touch LFU/LRU stats. */
 #define CLIENT_PUSHING (1ULL<<46) /* This client is pushing notifications. */
-#define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<47) /* Module client do not want to propagate to AOF */
-#define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<48) /* Module client do not want to propagate to replica */
+#define CLIENT_MODULE_AUTH_HAS_RESULT (1ULL<<47) /* Indicates a client in the middle of module based
+                                                    auth had been authenticated from the Module. */
+#define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
+#define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -743,6 +745,7 @@ typedef void (*moduleTypeFreeFunc2)(struct RedisModuleKeyOptCtx *ctx, void *valu
 typedef size_t (*moduleTypeFreeEffortFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
 typedef void (*moduleTypeUnlinkFunc2)(struct RedisModuleKeyOptCtx *ctx, void *value);
 typedef void *(*moduleTypeCopyFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
+typedef int (*moduleTypeAuthCallback)(struct RedisModuleCtx *ctx, void *username, void *password, const char **err);
 
 
 /* The module type, which is referenced in each value of a given type, defines
@@ -859,6 +862,9 @@ struct RedisModuleDigest {
     memset(mdvar.x,0,sizeof(mdvar.x)); \
 } while(0)
 
+/* Macro to check if the client is in the middle of module based authentication. */
+#define clientHasModuleAuthInProgress(c) ((c)->module_auth_ctx != NULL)
+
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
@@ -892,7 +898,7 @@ struct redisObject {
     void *ptr;
 };
 
-/* The a string name for an object's type as listed above
+/* The string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
  * and Module types have their registered name returned. */
 char *getObjectTypeName(robj*);
@@ -926,7 +932,7 @@ typedef struct clientReplyBlock {
  *      |                                           /         \
  *      |                                          /           \
  *  Repl Backlog                               Replica_A    Replica_B
- * 
+ *
  * Each replica or replication backlog increments only the refcount of the
  * 'ref_repl_buf_node' which it points to. So when replica walks to the next
  * node, it should first increase the next node's refcount, and when we trim
@@ -1088,7 +1094,7 @@ typedef struct {
                                       need more reserved IDs use UINT64_MAX-1,
                                       -2, ... and so forth. */
 
-/* Replication backlog is not separate memory, it just is one consumer of
+/* Replication backlog is not a separate memory, it just is one consumer of
  * the global replication buffer. This structure records the reference of
  * replication buffers. Since the replication buffer block list may be very long,
  * it would cost much time to search replication offset on partial resync, so
@@ -1207,6 +1213,12 @@ typedef struct client {
     listNode *client_list_node; /* list node in client list */
     listNode *postponed_list_node; /* list node within the postponed list */
     listNode *pending_read_list_node; /* list node in clients pending read list */
+    void *module_blocked_client; /* Pointer to the RedisModuleBlockedClient associated with this
+                                  * client. This is set in case of module authentication before the
+                                  * unblocked client is reprocessed to handle reply callbacks. */
+    void *module_auth_ctx; /* Ongoing / attempted module based auth callback's ctx.
+                            * This is only tracked within the context of the command attempting
+                            * authentication. If not NULL, it means module auth is in progress. */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
                                                * changes. */
@@ -1218,7 +1230,7 @@ typedef struct client {
                              * unloaded for cleanup. Opaque for Redis Core.*/
 
     /* If this client is in tracking mode and this field is non zero,
-     * invalidation messages for keys fetched by this client will be send to
+     * invalidation messages for keys fetched by this client will be sent to
      * the specified client ID. */
     uint64_t client_tracking_redirection;
     rax *client_tracking_prefixes; /* A dictionary of prefixes we are already
@@ -1781,7 +1793,7 @@ struct redisServer {
     char *rdb_pipe_buff;            /* In diskless replication, this buffer holds data */
     int rdb_pipe_bufflen;           /* that was read from the rdb pipe. */
     int rdb_key_save_delay;         /* Delay in microseconds between keys while
-                                     * writing the RDB. (for testings). negative
+                                     * writing aof or rdb. (for testings). negative
                                      * value means fractions of microseconds (on average). */
     int key_load_delay;             /* Delay in microseconds between keys while
                                      * loading aof or rdb. (for testings). negative
@@ -1959,7 +1971,7 @@ struct redisServer {
                                       REDISMODULE_CLUSTER_FLAG_*. */
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
-    int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
+    int cluster_config_file_lock_fd;   /* cluster config fd, will be flocked. */
     unsigned long long cluster_link_msg_queue_limit_bytes;  /* Memory usage limit on individual link msg queue */
     int cluster_drop_packet_filter; /* Debug config that allows tactically
                                    * dropping packets of a specific type */
@@ -2474,7 +2486,7 @@ void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
 int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
-int moduleUnload(sds name);
+int moduleUnload(sds name, const char **errmsg);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -2606,7 +2618,7 @@ char *getClientPeerId(client *client);
 char *getClientSockName(client *client);
 sds catClientInfoString(sds s, client *client);
 sds getAllClientsInfoString(int type);
-int clientSetName(client *c, robj *name);
+int clientSetName(client *c, robj *name, const char **err);
 void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
@@ -2903,8 +2915,18 @@ void ACLInit(void);
 #define ACL_WRITE_PERMISSION (1<<1)
 #define ACL_ALL_PERMISSION (ACL_READ_PERMISSION|ACL_WRITE_PERMISSION)
 
+/* Return codes for Authentication functions to indicate the result. */
+typedef enum {
+    AUTH_OK = 0,
+    AUTH_ERR,
+    AUTH_NOT_HANDLED,
+    AUTH_BLOCKED
+} AuthResult;
+
 int ACLCheckUserCredentials(robj *username, robj *password);
-int ACLAuthenticateUser(client *c, robj *username, robj *password);
+int ACLAuthenticateUser(client *c, robj *username, robj *password, robj **err);
+int checkModuleAuthentication(client *c, robj *username, robj *password, robj **err);
+void addAuthErrReply(client *c, robj *err);
 unsigned long ACLGetCommandID(sds cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);

@@ -207,6 +207,8 @@ client *createClient(connection *conn) {
     c->client_tracking_prefixes = NULL;
     c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
+    c->module_blocked_client = NULL;
+    c->module_auth_ctx = NULL;
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
@@ -1534,6 +1536,9 @@ void freeClient(client *c) {
     /* Notify module system that this client auth status changed. */
     moduleNotifyUserChanged(c);
 
+    /* Free the RedisModuleBlockedClient held onto for reprocessing if not already freed. */
+    zfree(c->module_blocked_client);
+
     /* If this client was scheduled for async freeing we need to remove it
      * from the queue. Note that we need to do this here, because later
      * we may call replicationCacheMaster() and the client should already
@@ -2462,7 +2467,7 @@ int processPendingCommandAndInputBuffer(client *c) {
     /* Now process client if it has more data in it's buffer.
      *
      * Note: when a master client steps into this function,
-     * it can always satisfy this condition, because its querbuf
+     * it can always satisfy this condition, because its querybuf
      * contains data not applied. */
     if (c->querybuf && sdslen(c->querybuf) > 0) {
         return processInputBuffer(c);
@@ -2818,26 +2823,38 @@ sds getAllClientsInfoString(int type) {
     return o;
 }
 
-/* Returns C_OK if the name has been set or C_ERR if the name is invalid. */
-int clientSetName(client *c, robj *name) {
+/* Returns C_OK if the name is valid. Returns C_ERR & sets `err` (when provided) otherwise. */
+int validateClientName(robj *name, const char **err) {
+    const char *err_msg = "Client names cannot contain spaces, newlines or special characters.";
     int len = (name != NULL) ? sdslen(name->ptr) : 0;
-
-    /* Setting the client name to an empty string actually removes
-     * the current name. */
-    if (len == 0) {
-        if (c->name) decrRefCount(c->name);
-        c->name = NULL;
+    /* We allow setting the client name to an empty string. */
+    if (len == 0)
         return C_OK;
-    }
-
     /* Otherwise check if the charset is ok. We need to do this otherwise
      * CLIENT LIST format will break. You should always be able to
      * split by space to get the different fields. */
     char *p = name->ptr;
     for (int j = 0; j < len; j++) {
         if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
+            if (err) *err = err_msg;
             return C_ERR;
         }
+    }
+    return C_OK;
+}
+
+/* Returns C_OK if the name has been set or C_ERR if the name is invalid. */
+int clientSetName(client *c, robj *name, const char **err) {
+    if (validateClientName(name, err) == C_ERR) {
+        return C_ERR;
+    }
+    int len = (name != NULL) ? sdslen(name->ptr) : 0;
+    /* Setting the client name to an empty string actually removes
+     * the current name. */
+    if (len == 0) {
+        if (c->name) decrRefCount(c->name);
+        c->name = NULL;
+        return C_OK;
     }
     if (c->name) decrRefCount(c->name);
     c->name = name;
@@ -2855,11 +2872,10 @@ int clientSetName(client *c, robj *name) {
  *
  * This function is also used to implement the HELLO SETNAME option. */
 int clientSetNameOrReply(client *c, robj *name) {
-    int result = clientSetName(c, name);
+    const char *err = NULL;
+    int result = clientSetName(c, name, &err);
     if (result == C_ERR) {
-        addReplyError(c,
-                      "Client names cannot contain spaces, "
-                      "newlines or special characters.");
+        addReplyError(c, err);
     }
     return result;
 }
@@ -3443,22 +3459,42 @@ void helloCommand(client *c) {
         }
     }
 
+    robj *username = NULL;
+    robj *password = NULL;
+    robj *clientname = NULL;
     for (int j = next_arg; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j;
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
             redactClientCommandArgument(c, j+1);
             redactClientCommandArgument(c, j+2);
-            if (ACLAuthenticateUser(c, c->argv[j+1], c->argv[j+2]) == C_ERR) {
-                addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
-                return;
-            }
+            username = c->argv[j+1];
+            password = c->argv[j+2];
             j += 2;
         } else if (!strcasecmp(opt,"SETNAME") && moreargs) {
-            if (clientSetNameOrReply(c, c->argv[j+1]) == C_ERR) return;
+            clientname = c->argv[j+1];
+            const char *err = NULL;
+            if (validateClientName(clientname, &err) == C_ERR) {
+                addReplyError(c, err);
+                return;
+            }
             j++;
         } else {
             addReplyErrorFormat(c,"Syntax error in HELLO option '%s'",opt);
+            return;
+        }
+    }
+
+    if (username && password) {
+        robj *err = NULL;
+        int auth_result = ACLAuthenticateUser(c, username, password, &err);
+        if (auth_result == AUTH_ERR) {
+            addAuthErrReply(c, err);
+        }
+        if (err) decrRefCount(err);
+        /* In case of auth errors, return early since we already replied with an ERR.
+         * In case of blocking module auth, we reply to the client/setname later upon unblocking. */
+        if (auth_result == AUTH_ERR || auth_result == AUTH_BLOCKED) {
             return;
         }
     }
@@ -3471,6 +3507,9 @@ void helloCommand(client *c) {
                         "select the RESP protocol version at the same time");
         return;
     }
+
+    /* Now that we're authenticated, set the client name. */
+    if (clientname) clientSetName(c, clientname, NULL);
 
     /* Let's switch to the specified RESP mode. */
     if (ver) c->resp = ver;
@@ -4041,7 +4080,7 @@ static inline void setIOPendingCount(int i, unsigned long count) {
 }
 
 void *IOThreadMain(void *myid) {
-    /* The ID is the thread number (from 0 to server.iothreads_num-1), and is
+    /* The ID is the thread number (from 0 to server.io_threads_num-1), and is
      * used by the thread to just manipulate a single sub-array of clients. */
     long id = (unsigned long)myid;
     char thdname[16];

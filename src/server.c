@@ -216,7 +216,7 @@ mstime_t commandTimeSnapshot(void) {
      * may re-open the same key multiple times, can invalidate an already
      * open object in a next call, if the next call will see the key expired,
      * while the first did not.
-     * This is specificlally important in the context of scripts, where we
+     * This is specifically important in the context of scripts, where we
      * pretend that time freezes. This way a key can expire only the first time
      * it is accessed and not in the middle of the script execution, making
      * propagation to slaves / AOF consistent. See issue #1525 for more info.

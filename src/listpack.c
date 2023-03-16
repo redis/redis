@@ -732,7 +732,7 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
             /* Skip entry */
             skipcnt--;
 
-            /* Move to next entry, avoid use `lpNext` due to `ASSERT_INTEGRITY` in
+            /* Move to next entry, avoid use `lpNext` due to `lpAssertValidEntry` in
             * `lpNext` will call `lpBytes`, will cause performance degradation */
             p = lpSkip(p);
         }

@@ -620,7 +620,6 @@ void blockPostponeClient(client *c) {
 /* Block client due to shutdown command */
 void blockClientShutdown(client *c) {
     blockClient(c, BLOCKED_SHUTDOWN);
-    /* Mark this client to execute its command */
 }
 
 /* Unblock a client once a specific key became available for it.
