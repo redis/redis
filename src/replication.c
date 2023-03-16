@@ -3629,7 +3629,7 @@ void processClientsWaitingReplicas(void) {
 
         if (is_wait_aof && c->bstate.numlocal && !server.aof_enabled) {
             addReplyError(c, "WAITAOF cannot be used when numlocal is set but appendonly is disabled.");
-            unblockClient(c);
+            unblockClient(c, 1);
             continue;
         }
 
@@ -3679,7 +3679,7 @@ void processClientsWaitingReplicas(void) {
             addReplyLongLong(c, numreplicas);
         }
 
-        unblockClient(c);
+        unblockClient(c, 1);
     }
 }
 

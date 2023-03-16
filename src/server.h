@@ -394,6 +394,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_PUSHING (1ULL<<46) /* This client is pushing notifications. */
 #define CLIENT_MODULE_AUTH_HAS_RESULT (1ULL<<47) /* Indicates a client in the middle of module based
                                                     auth had been authenticated from the Module. */
+#define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
+#define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -584,6 +586,7 @@ typedef enum {
 #define CMD_CALL_NONE 0
 #define CMD_CALL_PROPAGATE_AOF (1<<0)
 #define CMD_CALL_PROPAGATE_REPL (1<<1)
+#define CMD_CALL_REPROCESSING (1<<2)
 #define CMD_CALL_PROPAGATE (CMD_CALL_PROPAGATE_AOF|CMD_CALL_PROPAGATE_REPL)
 #define CMD_CALL_FULL (CMD_CALL_PROPAGATE)
 #define CMD_CALL_FROM_MODULE (1<<2)  /* From RM_Call */
@@ -1024,6 +1027,10 @@ typedef struct blockingState {
     void *module_blocked_handle; /* RedisModuleBlockedClient structure.
                                     which is opaque for the Redis core, only
                                     handled in module.c. */
+
+    void *async_rm_call_handle; /* RedisModuleAsyncRMCallPromise structure.
+                                   which is opaque for the Redis core, only
+                                   handled in module.c. */
 } blockingState;
 
 /* The following structure represents a node in the server.ready_keys list,
@@ -2488,6 +2495,7 @@ void moduleTypeNameByID(char *name, uint64_t moduleid);
 const char *moduleTypeModuleName(moduleType *mt);
 const char *moduleNameFromCommand(struct redisCommand *cmd);
 void moduleFreeContext(struct RedisModuleCtx *ctx);
+void moduleCallCommandUnblockedHandler(client *c);
 void unblockClientFromModule(client *c);
 void moduleHandleBlockedClients(void);
 void moduleBlockedClientTimedOut(client *c);
@@ -3069,6 +3077,8 @@ void adjustOpenFilesLimit(void);
 void incrementErrorCount(const char *fullerr, size_t namelen);
 void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(int update_daylight_info);
+void enterExecutionUnit(int update_cached_time, long long us);
+void exitExecutionUnit();
 void resetServerStats(void);
 void activeDefragCycle(void);
 unsigned int getLRUClock(void);
@@ -3370,7 +3380,7 @@ typedef struct luaScript {
 void processUnblockedClients(void);
 void initClientBlockingState(client *c);
 void blockClient(client *c, int btype);
-void unblockClient(client *c);
+void unblockClient(client *c, int queue_for_reprocessing);
 void unblockClientOnTimeout(client *c);
 void unblockClientOnError(client *c, const char *err_str);
 void queueClientForReprocessing(client *c);

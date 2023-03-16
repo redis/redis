@@ -217,41 +217,45 @@ start_server {tags {"scripting"}} {
         } {*execution time*}
     }
 
-    test {EVAL - Scripts can't run blpop command} {
-        set e {}
-        catch {run_script {return redis.pcall('blpop','x',0)} 1 x} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on blpop command} {
+        r lpush l 1
+        r lpop l
+        run_script {return redis.pcall('blpop','l',0)} 1 l
+    } {}
 
-    test {EVAL - Scripts can't run brpop command} {
-        set e {}
-        catch {run_script {return redis.pcall('brpop','empty_list',0)} 1 empty_list} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on brpop command} {
+        r lpush l 1
+        r lpop l
+        run_script {return redis.pcall('brpop','l',0)} 1 l
+    } {}
 
-    test {EVAL - Scripts can't run brpoplpush command} {
-        set e {}
-        catch {run_script {return redis.pcall('brpoplpush','empty_list1{t}', 'empty_list2{t}',0)} 2 empty_list1{t} empty_list2{t}} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on brpoplpush command} {
+        r lpush empty_list1{t} 1
+        r lpop empty_list1{t}
+        run_script {return redis.pcall('brpoplpush','empty_list1{t}', 'empty_list2{t}',0)} 2 empty_list1{t} empty_list2{t}
+    } {}
 
-    test {EVAL - Scripts can't run blmove command} {
-        set e {}
-        catch {run_script {return redis.pcall('blmove','empty_list1{t}', 'empty_list2{t}', 'LEFT', 'LEFT', 0)} 2 empty_list1{t} empty_list2{t}} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on blmove command} {
+        r lpush empty_list1{t} 1
+        r lpop empty_list1{t}
+        run_script {return redis.pcall('blmove','empty_list1{t}', 'empty_list2{t}', 'LEFT', 'LEFT', 0)} 2 empty_list1{t} empty_list2{t}
+    } {}
 
-    test {EVAL - Scripts can't run bzpopmin command} {
-        set e {}
-        catch {run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 1 empty_zset} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on bzpopmin command} {
+        r zadd empty_zset 10 foo
+        r zmpop 1 empty_zset MIN
+        run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 1 empty_zset
+    } {}
 
-    test {EVAL - Scripts can't run bzpopmax command} {
-        set e {}
-        catch {run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 1 empty_zset} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on bzpopmax command} {
+        r zadd empty_zset 10 foo
+        r zmpop 1 empty_zset MIN
+        run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 1 empty_zset
+    } {}
+
+    test {EVAL - Scripts do not block on wait} {
+        run_script {return redis.pcall('wait','1','0')} 0
+    } {0}
 
     test {EVAL - Scripts can't run XREAD and XREADGROUP with BLOCK option} {
         r del s
