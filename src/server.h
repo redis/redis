@@ -392,6 +392,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                        scripts even when in OOM */
 #define CLIENT_NO_TOUCH (1ULL<<45) /* This client will not touch LFU/LRU stats. */
 #define CLIENT_PUSHING (1ULL<<46) /* This client is pushing notifications. */
+#define CLIENT_MODULE_AUTH_HAS_RESULT (1ULL<<47) /* Indicates a client in the middle of module based
+                                                    auth had been authenticated from the Module. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -399,6 +401,7 @@ typedef enum blocking_type {
     BLOCKED_NONE,    /* Not blocked, no CLIENT_BLOCKED flag set. */
     BLOCKED_LIST,    /* BLPOP & co. */
     BLOCKED_WAIT,    /* WAIT for synchronous replication. */
+    BLOCKED_WAITAOF, /* WAITAOF for AOF file fsync. */
     BLOCKED_MODULE,  /* Blocked by a loadable module. */
     BLOCKED_STREAM,  /* XREAD. */
     BLOCKED_ZSET,    /* BZPOP et al. */
@@ -739,6 +742,7 @@ typedef void (*moduleTypeFreeFunc2)(struct RedisModuleKeyOptCtx *ctx, void *valu
 typedef size_t (*moduleTypeFreeEffortFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
 typedef void (*moduleTypeUnlinkFunc2)(struct RedisModuleKeyOptCtx *ctx, void *value);
 typedef void *(*moduleTypeCopyFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
+typedef int (*moduleTypeAuthCallback)(struct RedisModuleCtx *ctx, void *username, void *password, const char **err);
 
 
 /* The module type, which is referenced in each value of a given type, defines
@@ -854,6 +858,9 @@ struct RedisModuleDigest {
     memset(mdvar.o,0,sizeof(mdvar.o)); \
     memset(mdvar.x,0,sizeof(mdvar.x)); \
 } while(0)
+
+/* Macro to check if the client is in the middle of module based authentication. */
+#define clientHasModuleAuthInProgress(c) ((c)->module_auth_ctx != NULL)
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
@@ -1008,8 +1015,9 @@ typedef struct blockingState {
     /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM or any other Keys related blocking */
     dict *keys;                 /* The keys we are blocked on */
 
-    /* BLOCKED_WAIT */
+    /* BLOCKED_WAIT and BLOCKED_WAITAOF */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
+    int numlocal;           /* Indication if WAITAOF is waiting for local fsync. */
     long long reploffset;   /* Replication offset to reach. */
 
     /* BLOCKED_MODULE */
@@ -1175,6 +1183,7 @@ typedef struct client {
     long long reploff;      /* Applied replication offset if this is a master. */
     long long repl_applied; /* Applied replication data count in querybuf, if this is a replica. */
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
+    long long repl_aof_off; /* Replication AOF fsync ack offset, if this is a slave. */
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
     long long repl_last_partial_write; /* The last time the server did a partial write from the RDB child pipe to this replica  */
     long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
@@ -1197,6 +1206,12 @@ typedef struct client {
     listNode *client_list_node; /* list node in client list */
     listNode *postponed_list_node; /* list node within the postponed list */
     listNode *pending_read_list_node; /* list node in clients pending read list */
+    void *module_blocked_client; /* Pointer to the RedisModuleBlockedClient associated with this
+                                  * client. This is set in case of module authentication before the
+                                  * unblocked client is reprocessed to handle reply callbacks. */
+    void *module_auth_ctx; /* Ongoing / attempted module based auth callback's ctx.
+                            * This is only tracked within the context of the command attempting
+                            * authentication. If not NULL, it means module auth is in progress. */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
                                                * changes. */
@@ -1802,6 +1817,11 @@ struct redisServer {
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
+    redisAtomic long long fsynced_reploff_pending;/* Largest replication offset to
+                                     * potentially have been fsynced, applied to
+                                       fsynced_reploff only when AOF state is AOF_ON
+                                       (not during the initial rewrite) */
+    long long fsynced_reploff;      /* Largest replication offset that has been confirmed to be fsynced */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     replBacklog *repl_backlog;      /* Replication backlog for partial syncs */
@@ -1859,7 +1879,7 @@ struct redisServer {
     long long master_initial_offset;           /* Master PSYNC offset. */
     int repl_slave_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
     /* Synchronous replication. */
-    list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
+    list *clients_waiting_acks;         /* Clients waiting in WAIT or WAITAOF. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
@@ -2459,7 +2479,7 @@ void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
 int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
-int moduleUnload(sds name);
+int moduleUnload(sds name, const char **errmsg);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -2590,7 +2610,7 @@ char *getClientPeerId(client *client);
 char *getClientSockName(client *client);
 sds catClientInfoString(sds s, client *client);
 sds getAllClientsInfoString(int type);
-int clientSetName(client *c, robj *name);
+int clientSetName(client *c, robj *name, const char **err);
 void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
@@ -2789,6 +2809,7 @@ int checkGoodReplicasStatus(void);
 void processClientsWaitingReplicas(void);
 void unblockClientWaitingReplicas(client *c);
 int replicationCountAcksByOffset(long long offset);
+int replicationCountAOFAcksByOffset(long long offset);
 void replicationSendNewlineToMaster(void);
 long long replicationGetSlaveOffset(void);
 char *replicationGetSlaveName(client *c);
@@ -2886,8 +2907,18 @@ void ACLInit(void);
 #define ACL_WRITE_PERMISSION (1<<1)
 #define ACL_ALL_PERMISSION (ACL_READ_PERMISSION|ACL_WRITE_PERMISSION)
 
+/* Return codes for Authentication functions to indicate the result. */
+typedef enum {
+    AUTH_OK = 0,
+    AUTH_ERR,
+    AUTH_NOT_HANDLED,
+    AUTH_BLOCKED
+} AuthResult;
+
 int ACLCheckUserCredentials(robj *username, robj *password);
-int ACLAuthenticateUser(client *c, robj *username, robj *password);
+int ACLAuthenticateUser(client *c, robj *username, robj *password, robj **err);
+int checkModuleAuthentication(client *c, robj *username, robj *password, robj **err);
+void addAuthErrReply(client *c, robj *err);
 unsigned long ACLGetCommandID(sds cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
@@ -3352,6 +3383,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
 void blockClientShutdown(client *c);
 void blockPostponeClient(client *c);
 void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas);
+void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numlocal, long numreplicas);
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
 void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with);
@@ -3616,6 +3648,7 @@ void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);
 void waitCommand(client *c);
+void waitaofCommand(client *c);
 void georadiusbymemberCommand(client *c);
 void georadiusbymemberroCommand(client *c);
 void georadiusCommand(client *c);

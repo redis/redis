@@ -1642,7 +1642,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
     /* Unblock all the clients blocked for synchronous replication
-     * in WAIT. */
+     * in WAIT or WAITAOF. */
     if (listLength(server.clients_waiting_acks))
         processClientsWaitingReplicas();
 
@@ -1701,6 +1701,15 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * in case of appendfsync=always. */
     if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
         flushAppendOnlyFile(0);
+
+    /* Update the fsynced replica offset.
+     * If an initial rewrite is in progress then not all data is guaranteed to have actually been
+     * persisted to disk yet, so we cannot update the field. We will wait for the rewrite to complete. */
+    if (server.aof_state == AOF_ON && server.fsynced_reploff != -1) {
+        long long fsynced_reploff_pending;
+        atomicGet(server.fsynced_reploff_pending, fsynced_reploff_pending);
+        server.fsynced_reploff = fsynced_reploff_pending;
+    }
 
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWritesUsingThreads();
@@ -2030,6 +2039,7 @@ void initServerConfig(void) {
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
+    server.fsynced_reploff_pending = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -2508,6 +2518,7 @@ void initServer(void) {
 
     /* Initialization after setting defaults from the config system. */
     server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
+    server.fsynced_reploff = server.aof_enabled ? 0 : -1;
     server.hz = server.config_hz;
     server.pid = getpid();
     server.in_fork_child = CHILD_TYPE_NONE;
@@ -3468,6 +3479,7 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
+    long long old_master_repl_offset = server.master_repl_offset;
     incrCommandStatsOnError(NULL, 0);
 
     const long long call_timer = ustime();
@@ -3635,6 +3647,11 @@ void call(client *c, int flags) {
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
+
+    /* Remember the replication offset of the client, right after its last
+     * command that resulted in propagation. */
+    if (old_master_repl_offset != server.master_repl_offset)
+        c->woff = server.master_repl_offset;
 
     /* Client pause takes effect after a transaction has finished. This needs
      * to be located after everything is propagated. */
@@ -4099,7 +4116,6 @@ int processCommand(client *c) {
         addReply(c,shared.queued);
     } else {
         call(c,CMD_CALL_FULL);
-        c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
