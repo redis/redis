@@ -6036,7 +6036,7 @@ fmterr:
  *              the command gets unblocked using RedisModule_CallReplyPromiseSetUnblockHandler.
  *              If the handler is not set, the blocking command will still continue its execution
  *              but the reply will be ignored (fire and forget, notice that his is dangerous in case of
- *              failover as explained bellow). The handler must be set immediately after the command
+ *              failover as explained below). The handler must be set immediately after the command
  *              invocation (without releasing the Redis lock in between).
  *              The module can use RedisModule_CallReplyPromiseAbort to abort the command invocation
  *              if it was not yet finished (see RedisModule_CallReplyPromiseAbort documentation for more
