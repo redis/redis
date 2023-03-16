@@ -2198,8 +2198,8 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd1 BLPOP mylist 0
         wait_for_blocked_clients_count 1
         
-        # pipline on other client a list push and a blocking pop
-        # we should expect the fainess to be kept and have $rd1
+        # pipeline on other client a list push and a blocking pop
+        # we should expect the fairness to be kept and have $rd1
         # being unblocked
         set buf ""
         append buf "LPUSH mylist 1\r\n"
@@ -2256,7 +2256,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd3 close
     }
     
-    test "Blocking command acounted only once in commandstats" {
+    test "Blocking command accounted only once in commandstats" {
         # cleanup first
         r del mylist
         
@@ -2279,7 +2279,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd close
     }
     
-    test "Blocking command acounted only once in commandstats after timeout" {
+    test "Blocking command accounted only once in commandstats after timeout" {
         # cleanup first
         r del mylist
         

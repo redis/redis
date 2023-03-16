@@ -160,7 +160,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
                 return C_ERR;
             }
 
-            /* Deny writes if we're unale to persist. */
+            /* Deny writes if we're unable to persist. */
             int deny_write_type = writeCommandsDeniedByDiskError();
             if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) {
                 if (deny_write_type == DISK_ERROR_TYPE_RDB)

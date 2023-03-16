@@ -2458,7 +2458,7 @@ int processPendingCommandAndInputBuffer(client *c) {
     /* Now process client if it has more data in it's buffer.
      *
      * Note: when a master client steps into this function,
-     * it can always satisfy this condition, because its querbuf
+     * it can always satisfy this condition, because its querybuf
      * contains data not applied. */
     if (c->querybuf && sdslen(c->querybuf) > 0) {
         return processInputBuffer(c);
@@ -4071,7 +4071,7 @@ static inline void setIOPendingCount(int i, unsigned long count) {
 }
 
 void *IOThreadMain(void *myid) {
-    /* The ID is the thread number (from 0 to server.iothreads_num-1), and is
+    /* The ID is the thread number (from 0 to server.io_threads_num-1), and is
      * used by the thread to just manipulate a single sub-array of clients. */
     long id = (unsigned long)myid;
     char thdname[16];
