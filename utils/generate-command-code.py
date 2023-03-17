@@ -252,11 +252,11 @@ class ReplySchema(object):
         self.schema = {}
         if desc.get("type") == "object":
             if desc.get("properties") and desc.get("additionalProperties") is None:
-                print("%s: Any object that has properties should have the additionalProperties field" % {self.name})
+                print("%s: Any object that has properties should have the additionalProperties field" % self.name)
                 exit(1)
         elif desc.get("type") == "array":
             if desc.get("items") and isinstance(desc["items"], list) and any([desc.get(k) is None for k in ["minItems", "maxItems"]]):
-                print("%s: Any array that has items should have the minItems and maxItems fields" % {self.name})
+                print("%s: Any array that has items should have the minItems and maxItems fields" % self.name)
                 exit(1)
         for k, v in desc.items():
             if isinstance(v, dict):
