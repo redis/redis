@@ -72,13 +72,15 @@ void dbIteratorInit(dbIterator *dbit, redisDb *db) {
 
 /* Returns next non-empty dictionary strictly after provided slot and updates slot id in the supplied reference. */
 dict *dbGetNextNonEmptySlot(redisDb *db, int *slot) {
-    uint32_t pos;
-    int found = intsetSearch(db->non_empty_dicts, *slot, &pos);
-    if (found) pos++; /* If current slot exists in the non-empty list, then we want next one, otherwise pos already points to it. */
-    int64_t next_slot;
-    if (intsetGet(db->non_empty_dicts, pos, &next_slot)) {
-        *slot = (int) next_slot;
-        return db->dict[*slot];
+    if (server.cluster_enabled) {
+        uint32_t pos;
+        int found = intsetSearch(db->non_empty_dicts, *slot, &pos);
+        if (found) pos++; /* If current slot exists in the non-empty list, then we want next one, otherwise pos already points to it. */
+        int64_t next_slot;
+        if (intsetGet(db->non_empty_dicts, pos, &next_slot)) {
+            *slot = (int) next_slot;
+            return db->dict[*slot];
+        }
     }
     *slot = -1;
     return NULL;
@@ -404,7 +406,7 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Return random non-empty dictionary from this DB. */
 dict *getRandomDict(redisDb *db) {
-    if (db->dict_count == 1 || dbSize(db) == 0) return db->dict[0];
+    if (!server.cluster_enabled || dbSize(db) == 0) return db->dict[0];
     int64_t slot = intsetRandom(db->non_empty_dicts);
     return db->dict[slot];
 }
@@ -539,8 +541,10 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         dbarray[j].expires_cursor = 0;
         dbarray[j].resize_cursor = 0;
         dbarray[j].key_count = 0;
-        zfree(dbarray[j].non_empty_dicts);
-        dbarray[j].non_empty_dicts = intsetNew();
+        if (server.cluster_enabled) {
+            zfree(dbarray[j].non_empty_dicts);
+            dbarray[j].non_empty_dicts = intsetNew();
+        }
     }
 
     return removed;
@@ -608,7 +612,7 @@ redisDb *initTempDb(void) {
         tempDb[i].dict_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
         tempDb[i].dict = dictCreateMultiple(&dbDictType, tempDb[i].dict_count);
         tempDb[i].expires = dictCreate(&dbExpiresDictType);
-        tempDb[i].non_empty_dicts = intsetNew();
+        tempDb[i].non_empty_dicts = server.cluster_enabled ? intsetNew() : NULL;
     }
 
     return tempDb;
@@ -626,7 +630,7 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
         }
         zfree(tempDb[i].dict);
         dictRelease(tempDb[i].expires);
-        zfree(tempDb[i].non_empty_dicts);
+        if (server.cluster_enabled) zfree(tempDb[i].non_empty_dicts);
     }
 
     zfree(tempDb);
