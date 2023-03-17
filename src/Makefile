@@ -17,7 +17,7 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
 OPTIMIZATION?=-O3
 ifeq ($(OPTIMIZATION),-O3)
-	REDIS_CFLAGS+=-flto
+	REDIS_CFLAGS+=-flto=auto
 	REDIS_LDFLAGS+=-flto
 endif
 DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram fpconv
