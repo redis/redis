@@ -40,6 +40,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The old value stored at the key.",
+                    "type": "string"
+                },
+                {
+                    "description": "The key does not exist.",
+                    "type": "null"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

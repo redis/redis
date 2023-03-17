@@ -16,6 +16,18 @@
         "command_tips": [
             "REQUEST_POLICY:ALL_SHARDS",
             "NONDETERMINISTIC_OUTPUT"
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "when the database is empty",
+                    "type": "null"
+                },
+                {
+                    "description": "random key in db",
+                    "type": "string"
+                }
+            ]
+        }
     }
 }

@@ -18,6 +18,14 @@
                 "type": "pattern",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "a list of active channels, optionally matching the specified pattern",
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "uniqueItems": true
+        }
     }
 }

@@ -12,6 +12,13 @@
             "STALE",
             "SENTINEL",
             "ONLY_SENTINEL"
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Helpful text about subcommands.",
+            "items": {
+                "type": "string"
+            }
+        }
     }
 }

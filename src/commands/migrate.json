@@ -77,6 +77,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": "OK",
+                    "description": "Success."
+                },
+                {
+                    "const": "NOKEY",
+                    "description": "No keys were found in the source instance."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "host",

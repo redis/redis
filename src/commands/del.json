@@ -36,6 +36,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "the number of keys that were removed",
+            "type": "integer",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "key",

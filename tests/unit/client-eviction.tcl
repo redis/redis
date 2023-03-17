@@ -1,4 +1,4 @@
-tags {"external:skip"} {
+tags {"external:skip logreqres:skip"} {
 
 # Get info about a redis client connection:
 # name - name of client we want to query

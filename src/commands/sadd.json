@@ -40,6 +40,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "Number of elements that were added to the set, not including all the elements already present in the set.",
+            "type": "integer"
+        },
         "arguments": [
             {
                 "name": "key",

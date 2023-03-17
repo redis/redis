@@ -33,6 +33,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": 0,
+                    "description": "Key does not exist or does not have an associated timeout."
+                },
+                {
+                    "const": 1,
+                    "description": "The timeout has been removed."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

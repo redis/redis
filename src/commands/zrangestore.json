@@ -51,6 +51,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "Number of elements in the resulting sorted set."
+        },
         "arguments": [
             {
                 "name": "dst",

@@ -41,6 +41,10 @@
                 "key_spec_index": 0,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The approximated number of unique elements observed via PFADD",
+            "type": "integer"
+        }
     }
 }

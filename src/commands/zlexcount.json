@@ -33,6 +33,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "Number of elements in the specified score range.",
+            "type": "integer",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "key",

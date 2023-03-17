@@ -12,6 +12,22 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": [
+                {
+                    "type": "string",
+                    "description": "IP addr or hostname."
+                },
+                {
+                    "type": "string",
+                    "description": "Port.",
+                    "pattern": "[0-9]+"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "master-name",

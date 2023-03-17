@@ -11,6 +11,9 @@
             "NO_ASYNC_LOADING",
             "ADMIN",
             "STALE"
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

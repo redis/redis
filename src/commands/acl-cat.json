@@ -13,6 +13,24 @@
             "STALE",
             "SENTINEL"
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "type": "array",
+                    "description": "In case `categoryname` was not given, a list of existing ACL categories",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                {
+                    "type": "array",
+                    "description": "In case `categoryname` was given, list of commands that fall under the provided ACL category",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "categoryname",

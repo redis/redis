@@ -51,6 +51,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "Number of the elements in the resulting set.",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "destination",

@@ -33,6 +33,9 @@
                 "optional": true,
                 "since": "4.0.0"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

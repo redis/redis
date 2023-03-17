@@ -14,6 +14,18 @@
         ],
         "acl_categories": [
             "TRANSACTION"
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Each element being the reply to each of the commands in the atomic transaction.",
+                    "type": "array"
+                },
+                {
+                    "description": "The transaction was aborted because a `WATCH`ed key was touched",
+                    "type": "null"
+                }
+            ]
+        }
     }
 }

@@ -11,6 +11,10 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK",
+            "description": "Force Sentinel to rewrite its configuration on disk, including the current Sentinel state."
+        }
     }
 }
