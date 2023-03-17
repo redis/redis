@@ -17,7 +17,7 @@ set iterations 20
 set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
 
 while {[incr iterations -1]} {
-    set tokill [randomInt 10]
+    set tokill [expr $iterations % 10]
     set other [expr {($tokill+1)%10}] ; # Some other instance.
     set key [randstring 20 20 alpha]
     set val [randstring 20 20 alpha]
@@ -74,6 +74,12 @@ while {[incr iterations -1]} {
             } else {
                 fail "No failover detected, epoch is still [CI $slave cluster_my_epoch]"
             }
+        }
+        ## refresh cluster connection
+        if { $tokill eq 0} {
+            set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 1 port]]
+        } else {
+            set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
         }
     }
 
