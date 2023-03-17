@@ -1864,6 +1864,11 @@ void logCurrentClient(client *cc, const char *title) {
         decoded = getDecodedObject(cc->argv[j]);
         sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
         serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
+        if (!strcasecmp(decoded->ptr, "auth")) {
+            sdsfree(repr);
+            decrRefCount(decoded);
+            break;
+        }
         sdsfree(repr);
         decrRefCount(decoded);
     }
