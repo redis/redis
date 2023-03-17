@@ -1,6 +1,6 @@
 {
     "RPOP": {
-        "summary": "Remove and get the last elements in a list",
+        "summary": "Remove and get one or multiple elements from the end of a list",
         "complexity": "O(N) where N is the number of elements returned",
         "group": "list",
         "since": "1.0.0",
