@@ -635,7 +635,6 @@ typedef struct {
 typedef enum {
     CLUSTER_ENDPOINT_TYPE_IP = 0,          /* Show IP address */
     CLUSTER_ENDPOINT_TYPE_HOSTNAME,        /* Show hostname */
-    CLUSTER_ENDPOINT_TYPE_NODENAME,        /* Show nodename */
     CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT /* Show NULL or empty */
 } cluster_endpoint_type;
 
@@ -1979,7 +1978,7 @@ struct redisServer {
     int cluster_slave_no_failover;  /* Prevent slave from starting a failover
                                        if the master is in failure state. */
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
-    char *cluster_announce_hostname;  /* IP address to announce on cluster bus. */
+    char *cluster_announce_hostname;  /* hostname to announce on cluster bus. */
     char *cluster_announce_human_nodename;  /* Human readable node name assigned to a node. */
     int cluster_preferred_endpoint_type; /* Use the announced hostname when available. */
     int cluster_announce_port;     /* base port to announce on cluster bus. */

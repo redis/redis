@@ -87,8 +87,7 @@ test "Verify information about the shards" {
     for {set ref 0} {$ref < $::cluster_master_nodes + $::cluster_replica_nodes} {incr ref} {
         for {set i 0} {$i < $::cluster_master_nodes + $::cluster_replica_nodes} {incr i} {
             assert_equal [lindex $slots $i] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "shard"] slots]
-            assert_equal "nodename-$i.com" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] nodename]
-	    assert_equal "host-$i.com" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] hostname]
+            assert_equal "host-$i.com" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] hostname]
             assert_equal "127.0.0.1"  [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] ip]
             # Default value of 'cluster-preferred-endpoint-type' is ip.
             assert_equal "127.0.0.1"  [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] endpoint]
