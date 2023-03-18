@@ -325,26 +325,43 @@ start_server {tags {"introspection"}} {
         }
     }
 
-    test {CLIENT SETLIB does not accept spaces} {
-        catch {r client setlib "redis py" "1.2.3"} e
-        set e
-    } {ERR*}
+    test {HELLOEXT can set a library name to this connection} {
+        assert_equal [r helloext libname redis.py libver 1.2.3] {OK OK}
+        r client info
+    } {*lib-name=redis.py lib-ver=1.2.3*}
 
-    test {CLIENT SETLIB can set a library name to this connection} {
-        assert_equal [r client setlib redispy 1.2.3] {OK}
-        r client list
-    } {*lib-name=redispy*}
+    test {HELLOEXT invalid args} {
+        assert_error {*wrong number of arguments*} {r helloext libname "redis.py" extra}
+        assert_match {*cannot contain spaces*} [r helloext libname "redis py"]
+        assert_match {*newlines*} [r helloext libname "redis.py\n"]
+        # no args is valid
+        assert_equal {} [r helloext]
+        # test that all of these didn't affect the previously set values
+        r client info
+    } {*lib-name=redis.py lib-ver=1.2.3*}
 
-    test {CLIENT SETLIB can clean library name to this connection} {
-        assert_equal [r client setlib redispy 1.2.3] {OK}
-        assert_equal [r client setlib "" "" ] {OK}
-        r client list
-    } {*lib-name=*}
+    test {HELLOEXT can append a info to this connection} {
+        assert_equal [r helloext libenv "Linux;my-host;5.15.0-60-generic;#66-Ubuntu;SMP;Fri;Jan;20;14:29:49;UTC;2023;x86_64;x86_64;x86_64;GNU/Linux"] {OK}
+        r client info
+    } {*lib-name=redis.py lib-ver=1.2.3 lib-env=Linux;my-host;5.15.0-60-generic;#66-Ubuntu;SMP;Fri;Jan;20;14:29:49;UTC;2023;x86_64;x86_64;x86_64;GNU/Linux*}
 
-    test {HELLO SETLIB can set a library name to this connection} {
-        r HELLO 3 SETLIB redispy 1.2.3
-        r client list
-    } {*lib-name=redispy*}
+    test {HELLOEXT unknown arg is skipped} {
+        assert_match {*cannot contain spaces*} [r helloext libname "redis py" libver 1024]
+        r client info
+    } {*lib-name=redis.py lib-ver=1024*}
+
+    test {HELLOEXT bad arg is skipped} {
+        assert_match {*cannot contain spaces*} [r helloext libname "redis py" libver 1025]
+        r client info
+    } {*lib-name=redis.py lib-ver=1025*}
+
+    test {HELLOEXT can clean library name to this connection} {
+        assert_equal [r helloext libname "" libver "" libenv ""] {OK OK OK}
+        set res [r client info]
+        assert_no_match {lib-name} $res
+        assert_no_match {lib-ver} $res
+        assert_no_match {lib-env} $res
+    }
 
     test {CONFIG save params special case handled properly} {
         # No "save" keyword - defaults should apply
