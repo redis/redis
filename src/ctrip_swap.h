@@ -1057,6 +1057,7 @@ typedef struct lock {
   freefunc pdfree;
   int conflict;
   monotime lock_timer;
+  long long start_time;
 #ifdef SWAP_DEBUG
   swapDebugMsgs *msgs;
 #endif
@@ -1085,8 +1086,14 @@ typedef struct lockInstantaneouStat {
     const char *name;
     redisAtomic long long request_count;
     redisAtomic long long conflict_count;
+    redisAtomic long long wait_time;
+    redisAtomic long long proceed_count;
+    long long wait_time_maxs[STATS_METRIC_SAMPLES];
+    int wait_time_max_index;
     int stats_metric_idx_request;
     int stats_metric_idx_conflict;
+    int stats_metric_idx_wait_time;
+    int stats_metric_idx_proceed_count;
 } lockInstantaneouStat;
 
 typedef struct lockCumulativeStat {
@@ -1237,7 +1244,9 @@ void dictObjectDestructor(void *privdata, void *val);
 
 #define SWAP_LOCK_METRIC_REQUEST 0
 #define SWAP_LOCK_METRIC_CONFLICT 1
-#define SWAP_LOCK_METRIC_SIZE 2
+#define SWAP_LOCK_METRIC_WAIT_TIME 2 
+#define SWAP_LOCK_METRIC_PROCEED_COUNT 3
+#define SWAP_LOCK_METRIC_SIZE 4
 
 #define SWAP_SWAP_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*SWAP_TYPES)
 #define SWAP_RIO_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*ROCKS_TYPES)
