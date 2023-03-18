@@ -11,6 +11,51 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": [
+                {
+                    "oneOf": [
+                        {
+                            "const": 0,
+                            "description": "Master is up."
+                        },
+                        {
+                            "const": 1,
+                            "description": "Master is down."
+                        }
+                    ]
+                },
+                {
+                    "type": "string",
+                    "description": "Sentinel address."
+                },
+                {
+                    "type": "integer",
+                    "description": "Port."
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "ip",
+                "type": "string"
+            },
+            {
+                "name": "port",
+                "type": "integer"
+            },
+            {
+                "name": "current-epoch",
+                "type": "integer"
+            },
+            {
+                "name": "runid",
+                "type": "string"
+            }
         ]
     }
 }

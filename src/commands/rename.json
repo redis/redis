@@ -6,12 +6,7 @@
         "since": "1.0.0",
         "arity": 3,
         "function": "renameCommand",
-        "history": [
-            [
-                "3.2.0",
-                "The command no longer returns an error when source and destination names are the same."
-            ]
-        ],
+        "history": [],
         "command_flags": [
             "WRITE"
         ],
@@ -21,7 +16,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -30,7 +27,26 @@
                 },
                 "find_keys": {
                     "range": {
-                        "lastkey": 1,
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "OW",
+                    "UPDATE"
+
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
                         "step": 1,
                         "limit": 0
                     }
@@ -46,8 +62,11 @@
             {
                 "name": "newkey",
                 "type": "key",
-                "key_spec_index": 0
+                "key_spec_index": 1
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

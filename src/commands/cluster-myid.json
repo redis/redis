@@ -8,8 +8,11 @@
         "container": "CLUSTER",
         "function": "clusterCommand",
         "command_flags": [
-            "RANDOM",
             "STALE"
-        ]
+        ],
+        "reply_schema": {
+            "description": "the node id",
+            "type": "string"
+        }
     }
 }

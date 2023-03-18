@@ -37,8 +37,14 @@ int getGenericCommand(client *c);
  * String Commands
  *----------------------------------------------------------------------------*/
 
-static int checkStringLength(client *c, long long size) {
-    if (!(c->flags & CLIENT_MASTER) && size > server.proto_max_bulk_len) {
+static int checkStringLength(client *c, long long size, long long append) {
+    if (mustObeyClient(c))
+        return C_OK;
+    /* 'uint64_t' cast is there just to prevent undefined behavior on overflow */
+    long long total = (uint64_t)size + append;
+    /* Test configured max-bulk-len represending a limit of the biggest string object,
+     * and also test for overflow. */
+    if (total > server.proto_max_bulk_len || total < size || total < append) {
         addReplyError(c,"string exceeds maximum allowed size (proto-max-bulk-len)");
         return C_ERR;
     }
@@ -99,7 +105,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         return;
     }
 
-    setkey_flags |= (flags & OBJ_KEEPTTL) ? SETKEY_KEEPTTL : 0;
+    /* When expire is not NULL, we avoid deleting the TTL so it can be updated later instead of being deleted and then created again. */
+    setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
 
     setKey(c,c->db,key,val,setkey_flags);
@@ -160,19 +167,19 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
     if (*milliseconds <= 0 || (unit == UNIT_SECONDS && *milliseconds > LLONG_MAX / 1000)) {
         /* Negative value provided or multiplication is gonna overflow. */
-        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        addReplyErrorExpireTime(c);
         return C_ERR;
     }
 
     if (unit == UNIT_SECONDS) *milliseconds *= 1000;
 
     if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
-        *milliseconds += mstime();
+        *milliseconds += commandTimeSnapshot();
     }
 
     if (*milliseconds <= 0) {
         /* Overflow detected. */
-        addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+        addReplyErrorExpireTime(c);
         return C_ERR;
     }
 
@@ -411,12 +418,9 @@ void getexCommand(client *c) {
 
 void getdelCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
-    int deleted = server.lazyfree_lazy_user_del ? dbAsyncDelete(c->db, c->argv[1]) :
-                  dbSyncDelete(c->db, c->argv[1]);
-    if (deleted) {
-        /* Propagate as DEL/UNLINK command */
-        robj *aux = server.lazyfree_lazy_user_del ? shared.unlink : shared.del;
-        rewriteClientCommandVector(c,2,aux,c->argv[1]);
+    if (dbSyncDelete(c->db, c->argv[1])) {
+        /* Propagate as DEL command */
+        rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c, c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
@@ -456,7 +460,7 @@ void setrangeCommand(client *c) {
         }
 
         /* Return when the resulting string exceeds allowed size */
-        if (checkStringLength(c,offset+sdslen(value)) != C_OK)
+        if (checkStringLength(c,offset,sdslen(value)) != C_OK)
             return;
 
         o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+sdslen(value)));
@@ -476,7 +480,7 @@ void setrangeCommand(client *c) {
         }
 
         /* Return when the resulting string exceeds allowed size */
-        if (checkStringLength(c,offset+sdslen(value)) != C_OK)
+        if (checkStringLength(c,offset,sdslen(value)) != C_OK)
             return;
 
         /* Create a copy when the object is shared or encoded. */
@@ -555,10 +559,10 @@ void mgetCommand(client *c) {
 
 void msetGenericCommand(client *c, int nx) {
     int j;
+    int setkey_flags = 0;
 
     if ((c->argc % 2) == 0) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-                            c->cmd->name);
+        addReplyErrorArity(c);
         return;
     }
 
@@ -571,11 +575,12 @@ void msetGenericCommand(client *c, int nx) {
                 return;
             }
         }
+        setkey_flags |= SETKEY_DOESNT_EXIST;
     }
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c,c->db,c->argv[j],c->argv[j+1],0);
+        setKey(c, c->db, c->argv[j], c->argv[j + 1], setkey_flags);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;
@@ -615,7 +620,7 @@ void incrDecrCommand(client *c, long long incr) {
     } else {
         new = createStringObjectFromLongLongForValue(value);
         if (o) {
-            dbOverwrite(c->db,c->argv[1],new);
+            dbReplaceValue(c->db,c->argv[1],new);
         } else {
             dbAdd(c->db,c->argv[1],new);
         }
@@ -670,7 +675,7 @@ void incrbyfloatCommand(client *c) {
     }
     new = createStringObjectFromLongDouble(value,1);
     if (o)
-        dbOverwrite(c->db,c->argv[1],new);
+        dbReplaceValue(c->db,c->argv[1],new);
     else
         dbAdd(c->db,c->argv[1],new);
     signalModifiedKey(c,c->db,c->argv[1]);
@@ -704,8 +709,7 @@ void appendCommand(client *c) {
 
         /* "append" is an argument, so always an sds */
         append = c->argv[2];
-        totlen = stringObjectLen(o)+sdslen(append->ptr);
-        if (checkStringLength(c,totlen) != C_OK)
+        if (checkStringLength(c,stringObjectLen(o),sdslen(append->ptr)) != C_OK)
             return;
 
         /* Append the value */
@@ -793,7 +797,7 @@ void lcsCommand(client *c) {
 
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
-     * we index it as LCS[j+(blen+1)*j] */
+     * we index it as LCS[j+(blen+1)*i] */
     #define LCS(A,B) lcs[(B)+((A)*(blen+1))]
 
     /* Try to allocate the LCS table, and abort on overflow or insufficient memory. */

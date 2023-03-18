@@ -10,7 +10,6 @@
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",
-            "RANDOM",
             "STALE"
         ],
         "arguments": [
@@ -31,6 +30,9 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

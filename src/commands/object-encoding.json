@@ -13,10 +13,13 @@
         "acl_categories": [
             "KEYSPACE"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO"
                 ],
                 "begin_search": {
                     "index": {
@@ -38,6 +41,18 @@
                 "type": "key",
                 "key_spec_index": 0
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "key doesn't exist",
+                    "type": "null"
+                },
+                {
+                    "description": "encoding of the object",
+                    "type": "string"
+                }
+            ]
+        }
     }
 }

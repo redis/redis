@@ -15,9 +15,17 @@
         "arguments": [
             {
                 "name": "pattern",
-                "type": "string",
+                "type": "pattern",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "a list of active channels, optionally matching the specified pattern",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "string"
+            }
+        }
     }
 }

@@ -8,7 +8,6 @@
         "function": "xackCommand",
         "command_flags": [
             "WRITE",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
@@ -17,7 +16,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -48,6 +48,11 @@
                 "type": "string",
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The command returns the number of messages successfully acknowledged. Certain message IDs may no longer be part of the PEL (for example because they have already been acknowledged), and XACK will not count them as successfully acknowledged.",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

@@ -40,11 +40,12 @@ distclean:
 	-(cd lua && $(MAKE) clean) > /dev/null || true
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
 	-(cd hdr_histogram && $(MAKE) clean) > /dev/null || true
+	-(cd fpconv && $(MAKE) clean) > /dev/null || true
 	-(rm -f .make-*)
 
 .PHONY: distclean
 
-ifeq ($(BUILD_TLS),yes)
+ifneq (,$(filter $(BUILD_TLS),yes module))
     HIREDIS_MAKE_FLAGS = USE_SSL=1
 endif
 
@@ -65,6 +66,12 @@ hdr_histogram: .make-prerequisites
 	cd hdr_histogram && $(MAKE)
 
 .PHONY: hdr_histogram
+
+fpconv: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd fpconv && $(MAKE)
+
+.PHONY: fpconv
 
 ifeq ($(uname_S),SunOS)
 	# Make isinf() available
@@ -90,8 +97,8 @@ lua: .make-prerequisites
 
 .PHONY: lua
 
-JEMALLOC_CFLAGS= -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops $(CFLAGS)
-JEMALLOC_LDFLAGS= $(LDFLAGS)
+JEMALLOC_CFLAGS=$(CFLAGS)
+JEMALLOC_LDFLAGS=$(LDFLAGS)
 
 ifneq ($(DEB_HOST_GNU_TYPE),)
 JEMALLOC_CONFIGURE_OPTS += --host=$(DEB_HOST_GNU_TYPE)
@@ -99,7 +106,7 @@ endif
 
 jemalloc: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd jemalloc && ./configure --with-version=5.2.1-0-g0 --with-lg-quantum=3 --with-jemalloc-prefix=je_ CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" $(JEMALLOC_CONFIGURE_OPTS)
-	cd jemalloc && $(MAKE) CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" lib/libjemalloc.a
+	cd jemalloc && ./configure --disable-cxx --with-version=5.2.1-0-g0 --with-lg-quantum=3 --with-jemalloc-prefix=je_ CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" $(JEMALLOC_CONFIGURE_OPTS)
+	cd jemalloc && $(MAKE) lib/libjemalloc.a
 
 .PHONY: jemalloc

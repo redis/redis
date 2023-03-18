@@ -125,6 +125,7 @@ static struct config {
     int enable_tracking;
     pthread_mutex_t liveclients_mutex;
     pthread_mutex_t is_updating_slots_mutex;
+    int resp3; /* use RESP3 */
 } config;
 
 typedef struct _client {
@@ -228,19 +229,13 @@ static long long ustime(void) {
     long long ust;
 
     gettimeofday(&tv, NULL);
-    ust = ((long)tv.tv_sec)*1000000;
+    ust = ((long long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
     return ust;
 }
 
 static long long mstime(void) {
-    struct timeval tv;
-    long long mst;
-
-    gettimeofday(&tv, NULL);
-    mst = ((long long)tv.tv_sec)*1000;
-    mst += tv.tv_usec/1000;
-    return mst;
+    return ustime()/1000;
 }
 
 static uint64_t dictSdsHash(const void *key) {
@@ -325,10 +320,11 @@ static redisConfig *getRedisConfig(const char *ip, int port,
     c = getRedisContext(ip, port, hostsocket);
     if (c == NULL) {
         freeRedisConfig(cfg);
-        return NULL;
+        exit(1);
     }
     redisAppendCommand(c, "CONFIG GET %s", "save");
     redisAppendCommand(c, "CONFIG GET %s", "appendonly");
+    int abort_test = 0;
     int i = 0;
     void *r = NULL;
     for (; i < 2; i++) {
@@ -337,7 +333,6 @@ static redisConfig *getRedisConfig(const char *ip, int port,
         reply = res == REDIS_OK ? ((redisReply *) r) : NULL;
         if (res != REDIS_OK || !r) goto fail;
         if (reply->type == REDIS_REPLY_ERROR) {
-            fprintf(stderr, "ERROR: %s\n", reply->str);
             goto fail;
         }
         if (reply->type != REDIS_REPLY_ARRAY || reply->elements < 2) goto fail;
@@ -353,15 +348,14 @@ static redisConfig *getRedisConfig(const char *ip, int port,
     redisFree(c);
     return cfg;
 fail:
-    fprintf(stderr, "ERROR: failed to fetch CONFIG from ");
-    if (hostsocket == NULL) fprintf(stderr, "%s:%d\n", ip, port);
-    else fprintf(stderr, "%s\n", hostsocket);
-    int abort_test = 0;
     if (reply && reply->type == REDIS_REPLY_ERROR &&
-        (!strncmp(reply->str,"NOAUTH",6) ||
-         !strncmp(reply->str,"WRONGPASS",9) ||
-         !strncmp(reply->str,"NOPERM",6)))
+        !strncmp(reply->str,"NOAUTH",6)) {
+        if (hostsocket == NULL)
+            fprintf(stderr, "Node %s:%d replied with error:\n%s\n", ip, port, reply->str);
+        else
+            fprintf(stderr, "Node %s replied with error:\n%s\n", hostsocket, reply->str);
         abort_test = 1;
+    }
     freeReplyObject(reply);
     redisFree(c);
     freeRedisConfig(cfg);
@@ -632,6 +626,9 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                         fprintf(stderr, "Error writing to the server: %s\n", strerror(errno));
                     freeClient(c);
                     return;
+                } else if (nwritten > 0) {
+                    c->written += nwritten;
+                    return;
                 }
             } else {
                 aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
@@ -748,6 +745,15 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             (int)sdslen(config.input_dbnumstr),config.input_dbnumstr);
         c->prefix_pending++;
     }
+
+    if (config.resp3) {
+        char *buf = NULL;
+        int len = redisFormatCommand(&buf, "HELLO 3");
+        c->obuf = sdscatlen(c->obuf, buf, len);
+        free(buf);
+        c->prefix_pending++;
+    }
+
     c->prefixlen = sdslen(c->obuf);
     /* Append the request itself. */
     if (from) {
@@ -833,6 +839,10 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
     }
     if (config.idlemode == 0)
         aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
+    else
+        /* In idle mode, clients still need to register readHandler for catching errors */
+        aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
+
     listAddNodeTail(config.clients,c);
     atomicIncr(config.liveclients, 1);
     atomicGet(config.slots_last_update, c->slots_last_update);
@@ -1105,6 +1115,9 @@ static clusterNode **addClusterNode(clusterNode *node) {
     return config.cluster_nodes;
 }
 
+/* TODO: This should be refactored to use CLUSTER SLOTS, the migrating/importing
+ * information is anyway not used.
+ */
 static int fetchClusterConfiguration() {
     int success = 1;
     redisContext *ctx = NULL;
@@ -1166,7 +1179,7 @@ static int fetchClusterConfiguration() {
         clusterNode *node = NULL;
         char *ip = NULL;
         int port = 0;
-        char *paddr = strchr(addr, ':');
+        char *paddr = strrchr(addr, ':');
         if (paddr != NULL) {
             *paddr = '\0';
             ip = addr;
@@ -1426,6 +1439,10 @@ int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-p")) {
             if (lastarg) goto invalid;
             config.conn_info.hostport = atoi(argv[++i]);
+            if (config.conn_info.hostport < 0 || config.conn_info.hostport > 65535) {
+                fprintf(stderr, "Invalid server port.\n");
+                exit(1);
+            }
         } else if (!strcmp(argv[i],"-s")) {
             if (lastarg) goto invalid;
             config.hostsocket = strdup(argv[++i]);
@@ -1439,7 +1456,13 @@ int parseOptions(int argc, char **argv) {
             config.conn_info.user = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i],"redis-benchmark",&config.conn_info,&config.tls);
+            if (config.conn_info.hostport < 0 || config.conn_info.hostport > 65535) {
+                fprintf(stderr, "Invalid server port.\n");
+                exit(1);
+            }
             config.input_dbnumstr = sdsfromlonglong(config.conn_info.input_dbnum);
+        } else if (!strcmp(argv[i],"-3")) {
+            config.resp3 = 1;
         } else if (!strcmp(argv[i],"-d")) {
             if (lastarg) goto invalid;
             config.datasize = atoi(argv[++i]);
@@ -1566,6 +1589,7 @@ usage:
 " -n <requests>      Total number of requests (default 100000)\n"
 " -d <size>          Data size of SET/GET value in bytes (default 3)\n"
 " --dbnum <db>       SELECT the specified db number (default 0)\n"
+" -3                 Start session in RESP3 protocol mode.\n"
 " --threads <num>    Enable multi-thread mode.\n"
 " --cluster          Enable cluster mode.\n"
 "                    If the command is supplied on the command line in cluster\n"
@@ -1739,6 +1763,7 @@ int main(int argc, char **argv) {
     config.is_updating_slots = 0;
     config.slots_last_update = 0;
     config.enable_tracking = 0;
+    config.resp3 = 0;
 
     i = parseOptions(argc,argv);
     argc -= i;
@@ -2004,6 +2029,12 @@ int main(int argc, char **argv) {
             free(cmd);
             sdsfree(key_placeholder);
         }
+
+        if (test_is_selected("xadd")) {
+            len = redisFormatCommand(&cmd,"XADD mystream%s * myfield %s", tag, data);
+            benchmark("XADD",cmd,len);
+            free(cmd); 
+        }        
 
         if (!config.csv) printf("\n");
     } while(config.loop);

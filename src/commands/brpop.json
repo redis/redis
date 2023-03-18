@@ -14,16 +14,17 @@
         ],
         "command_flags": [
             "WRITE",
-            "NOSCRIPT"
+            "BLOCKING"
         ],
         "acl_categories": [
-            "LIST",
-            "BLOCKING"
+            "LIST"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -50,6 +51,29 @@
                 "name": "timeout",
                 "type": "double"
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "No element could be popped and the timeout expired.",
+                    "type": "null"
+                },
+                {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "description": "The name of the key where an element was popped ",
+                            "type": "string"
+                        },
+                        {
+                            "description": "The value of the popped element",
+                            "type": "string"
+                        }
+                    ]
+                }
+            ]
+        }
     }
 }

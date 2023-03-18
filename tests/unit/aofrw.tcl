@@ -1,4 +1,6 @@
-start_server {tags {"aofrw external:skip"}} {
+# This unit has the potential to create huge .reqres files, causing log-req-res-validator.py to run for a very long time...
+# Since this unit doesn't do anything worth validating, reply_schema-wise, we decided to skip it
+start_server {tags {"aofrw external:skip logreqres:skip"}} {
     # Enable the AOF
     r config set appendonly yes
     r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
@@ -63,7 +65,7 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
         waitForBgrewriteaof r
 
         # start a slow AOFRW
-        set k v
+        r set k v
         r config set rdb-key-save-delay 10000000
         r bgrewriteaof
 
@@ -74,13 +76,20 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
         } else {
             fail "Can't find 'Killing AOF child' into recent logs"
         }
+        r config set rdb-key-save-delay 0
     }
 
     foreach d {string int} {
-        foreach e {quicklist} {
+        foreach e {listpack quicklist} {
             test "AOF rewrite of list with $e encoding, $d data" {
                 r flushall
-                set len 1000
+                if {$e eq {listpack}} {
+                    r config set list-max-listpack-size -2
+                    set len 10
+                } else {
+                    r config set list-max-listpack-size 10
+                    set len 1000
+                }
                 for {set j 0} {$j < $len} {incr j} {
                     if {$d eq {string}} {
                         set data [randstring 0 16 alpha]
@@ -181,6 +190,19 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
             }
         }
     }
+
+    test "AOF rewrite functions" {
+        r flushall
+        r FUNCTION LOAD {#!lua name=test
+            redis.register_function('test', function() return 1 end)
+        }
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r function flush
+        r debug loadaof
+        assert_equal [r fcall test 0] 1
+        r FUNCTION LIST
+    } {{library_name test engine LUA functions {{name test description {} flags {}}}}}
 
     test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
         r flushall

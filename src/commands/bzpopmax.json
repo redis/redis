@@ -14,17 +14,18 @@
         ],
         "command_flags": [
             "WRITE",
-            "NOSCRIPT",
-            "FAST"
+            "FAST",
+            "BLOCKING"
         ],
         "acl_categories": [
-            "SORTEDSET",
-            "BLOCKING"
+            "SORTEDSET"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -40,6 +41,34 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Timeout reached and no elements were popped.",
+                    "type": "null"
+                },
+                {
+                    "description": "The keyname, popped member, and its score.",
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": [
+                        {
+                            "description": "Keyname",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Member",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Score",
+                            "type": "number"
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

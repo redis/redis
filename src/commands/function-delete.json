@@ -14,11 +14,18 @@
         "acl_categories": [
             "SCRIPTING"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
         "arguments": [
             {
-                "name": "function-name",
+                "name": "library-name",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

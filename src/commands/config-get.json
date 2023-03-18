@@ -19,17 +19,17 @@
             "LOADING",
             "STALE"
         ],
+        "reply_schema": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "string"
+            }
+        },
         "arguments": [
             {
                 "name": "parameter",
-                "type": "block",
-                "multiple": true,
-                "arguments": [
-                    {
-                        "name": "parameter",
-                        "type": "string"
-                    }
-                ]
+                "type": "string",
+                "multiple": true
             }
         ]
     }

@@ -8,16 +8,25 @@
         "container": "SCRIPT",
         "function": "scriptCommand",
         "command_flags": [
-            "NOSCRIPT"
+            "NOSCRIPT",
+            "STALE"
         ],
         "acl_categories": [
             "SCRIPTING"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_NODES",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
         ],
         "arguments": [
             {
                 "name": "script",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The SHA1 digest of the script added into the script cache",
+            "type": "string"
+        }
     }
 }

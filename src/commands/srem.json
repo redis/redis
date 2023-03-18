@@ -22,7 +22,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -38,6 +39,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "Number of members that were removed from the set, not including non existing members.",
+            "type": "integer",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "key",

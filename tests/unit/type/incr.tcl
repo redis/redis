@@ -9,6 +9,10 @@ start_server {tags {"incr"}} {
         r incr novar
     } {2}
 
+    test {DECR against key created by incr} {
+        r decr novar
+    } {1}
+
     test {INCR against key originally set with SET} {
         r set novar 100
         r incr novar
@@ -63,18 +67,18 @@ start_server {tags {"incr"}} {
     test {INCR uses shared objects in the 0-9999 range} {
         r set foo -1
         r incr foo
-        assert {[r object refcount foo] > 1}
+        assert_refcount_morethan foo 1
         r set foo 9998
         r incr foo
-        assert {[r object refcount foo] > 1}
+        assert_refcount_morethan foo 1
         r incr foo
-        assert {[r object refcount foo] == 1}
-    } {} {needs:debug}
+        assert_refcount 1 foo
+    }
 
     test {INCR can modify objects in-place} {
         r set foo 20000
         r incr foo
-        assert {[r object refcount foo] == 1}
+        assert_refcount 1 foo
         set old [lindex [split [r debug object foo]] 1]
         r incr foo
         set new [lindex [split [r debug object foo]] 1]
@@ -111,21 +115,21 @@ start_server {tags {"incr"}} {
         r set novar "    11"
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against key with spaces (right)} {
         set err {}
         r set novar "11    "
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against key with spaces (both)} {
         set err {}
         r set novar " 11 "
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against a key holding a list} {
         r del mylist
@@ -146,7 +150,7 @@ start_server {tags {"incr"}} {
             # p.s. no way I can force NaN to test it from the API because
             # there is no way to increment / decrement by infinity nor to
             # perform divisions.
-        } {ERR*would produce*}
+        } {ERR *would produce*}
     }
 
     test {INCRBYFLOAT decrement} {
@@ -159,7 +163,7 @@ start_server {tags {"incr"}} {
         r setrange foo 2 2
         catch {r incrbyfloat foo 1} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {No negative zero} {
         r del foo

@@ -16,8 +16,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE",
-                    "READ"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -34,7 +35,8 @@
             },
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {
@@ -50,6 +52,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The element being popped and pushed.",
+            "type": "string"
+        },
         "arguments": [
             {
                 "name": "source",

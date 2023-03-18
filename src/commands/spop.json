@@ -14,16 +14,20 @@
         ],
         "command_flags": [
             "WRITE",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
             "SET"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -39,6 +43,26 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "null",
+                    "description": "The key does not exist."
+                },
+                {
+                    "type": "string",
+                    "description": "The removed member when 'COUNT' is not given."
+                },
+                {
+                    "type": "array",
+                    "description": "List to the removed members when 'COUNT' is given.",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

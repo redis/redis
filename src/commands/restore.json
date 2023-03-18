@@ -31,7 +31,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "OW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -47,6 +48,9 @@
                 }
             }
         ],
+        "reply_schema": {
+            "const": "OK"
+        },
         "arguments": [
             {
                 "name": "key",

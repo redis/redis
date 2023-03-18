@@ -9,14 +9,21 @@
         "function": "clusterCommand",
         "command_flags": [
             "ADMIN",
-            "RANDOM",
             "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "arguments": [
             {
                 "name": "node-id",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "the number of active failure reports for the node",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

@@ -12,10 +12,15 @@
         "acl_categories": [
             "KEYSPACE"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:MULTI_SHARD",
+            "RESPONSE_POLICY:AGG_SUM"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RM",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -31,6 +36,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "the number of keys that were removed",
+            "type": "integer",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "key",

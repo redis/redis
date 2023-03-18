@@ -16,7 +16,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -32,6 +33,17 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The bit value stored at offset.",
+            "oneOf": [
+                {
+                    "const": 0
+                },
+                {
+                    "const": 1
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

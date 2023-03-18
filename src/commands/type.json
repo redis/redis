@@ -16,7 +16,7 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO"
                 ],
                 "begin_search": {
                     "index": {
@@ -32,6 +32,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Key doesn't exist",
+                    "type": "null"
+                },
+                {
+                    "description": "Type of the key",
+                    "type": "string"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

@@ -16,7 +16,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "OW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -33,7 +34,8 @@
             },
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -49,6 +51,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "Number of elements in the resulting sorted set."
+        },
         "arguments": [
             {
                 "name": "dst",
@@ -93,7 +99,7 @@
             },
             {
                 "token": "LIMIT",
-                "name": "offset_count",
+                "name": "limit",
                 "type": "block",
                 "optional": true,
                 "arguments": [

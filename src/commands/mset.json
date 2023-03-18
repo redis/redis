@@ -13,10 +13,15 @@
         "acl_categories": [
             "STRING"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:MULTI_SHARD",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "OW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -32,9 +37,12 @@
                 }
             }
         ],
+        "reply_schema": {
+            "const": "OK"
+        },
         "arguments": [
             {
-                "name": "key_value",
+                "name": "data",
                 "type": "block",
                 "multiple": true,
                 "arguments": [

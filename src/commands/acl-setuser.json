@@ -11,6 +11,10 @@
             [
                 "6.2.0",
                 "Added Pub/Sub channel patterns."
+            ],
+            [
+                "7.0.0",
+                "Added selectors and key based permissions."
             ]
         ],
         "command_flags": [
@@ -20,6 +24,9 @@
             "STALE",
             "SENTINEL"
         ],
+        "reply_schema": {
+            "const": "OK"
+        },
         "arguments": [
             {
                 "name": "username",

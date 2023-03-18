@@ -265,6 +265,17 @@ int64_t intsetRandom(intset *is) {
     return _intsetGet(is,rand()%len);
 }
 
+/* Return the largest member. */
+int64_t intsetMax(intset *is) {
+    uint32_t len = intrev32ifbe(is->length);
+    return _intsetGet(is, len - 1);
+}
+
+/* Return the smallest member. */
+int64_t intsetMin(intset *is) {
+    return _intsetGet(is, 0);
+}
+
 /* Get the value at the given position. When this position is
  * out of range the function returns 0, when in range it returns 1. */
 uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value) {
@@ -425,6 +436,8 @@ int intsetTest(int argc, char **argv, int flags) {
         is = intsetAdd(is,6,&success); assert(success);
         is = intsetAdd(is,4,&success); assert(success);
         is = intsetAdd(is,4,&success); assert(!success);
+        assert(6 == intsetMax(is));
+        assert(4 == intsetMin(is));
         ok();
         zfree(is);
     }

@@ -8,9 +8,12 @@ if {$system_name eq {darwin}} {
     set backtrace_supported 1
 } elseif {$system_name eq {linux}} {
     # Avoid the test on libmusl, which does not support backtrace
-    set ldd [exec ldd src/redis-server]
-    if {![string match {*libc.musl*} $ldd]} {
-        set backtrace_supported 1
+    # and on static binaries (ldd exit code 1) where we can't detect libmusl
+    catch {
+        set ldd [exec ldd src/redis-server]
+        if {![string match {*libc.*musl*} $ldd]} {
+            set backtrace_supported 1
+        }
     }
 }
 
@@ -36,7 +39,7 @@ if {!$::valgrind} {
     }
 
     set server_path [tmpdir server1.log]
-    start_server [list overrides [list dir $server_path]] {
+    start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
         test "Crash report generated on SIGABRT" {
             set pid [s process_id]
             exec kill -SIGABRT $pid
@@ -46,7 +49,7 @@ if {!$::valgrind} {
     }
 
     set server_path [tmpdir server2.log]
-    start_server [list overrides [list dir $server_path]] {
+    start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
         test "Crash report generated on DEBUG SEGFAULT" {
             catch {r debug segfault}
             set res [wait_for_log_messages 0 \"$crash_pattern\" 0 50 100]

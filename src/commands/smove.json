@@ -16,8 +16,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE",
-                    "READ"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -34,7 +35,8 @@
             },
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {
@@ -50,6 +52,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": 1,
+                    "description": "Element is moved."
+                },
+                {
+                    "const": 0,
+                    "description": "The element is not a member of source and no operation was performed."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "source",

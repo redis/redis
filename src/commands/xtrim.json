@@ -13,16 +13,19 @@
             ]
         ],
         "command_flags": [
-            "WRITE",
-            "RANDOM"
+            "WRITE"
         ],
         "acl_categories": [
             "STREAM"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -95,6 +98,11 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The number of entries deleted from the stream.",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

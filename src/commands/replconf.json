@@ -13,7 +13,11 @@
             "ADMIN",
             "NOSCRIPT",
             "LOADING",
-            "STALE"
-        ]
+            "STALE",
+            "ALLOW_BUSY"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

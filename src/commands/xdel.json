@@ -16,7 +16,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -43,6 +44,11 @@
                 "type": "string",
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The number of entries actually deleted",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

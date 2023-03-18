@@ -16,7 +16,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -42,6 +44,18 @@
                 "name": "db",
                 "type": "integer"
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "key was moved",
+                    "const": 1
+                },
+                {
+                    "description": "key wasn't moved",
+                    "const": 0
+                }
+            ]
+        }
     }
 }

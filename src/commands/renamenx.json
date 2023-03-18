@@ -22,7 +22,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -31,7 +33,25 @@
                 },
                 "find_keys": {
                     "range": {
-                        "lastkey": 1,
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "OW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
                         "step": 1,
                         "limit": 0
                     }
@@ -47,8 +67,20 @@
             {
                 "name": "newkey",
                 "type": "key",
-                "key_spec_index": 0
+                "key_spec_index": 1
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "key was renamed to newkey",
+                    "const": 1
+                },
+                {
+                    "description": "new key already exists",
+                    "const": 0
+                }
+            ]
+        }
     }
 }

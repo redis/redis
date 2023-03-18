@@ -13,6 +13,13 @@
             "LOADING",
             "STALE",
             "SENTINEL"
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "A list of currently active ACL rules",
+            "items": {
+                "type": "string"
+            }
+        }
     }
 }

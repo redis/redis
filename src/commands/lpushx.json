@@ -23,7 +23,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {
@@ -39,6 +40,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "the length of the list after the push operation",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "key",

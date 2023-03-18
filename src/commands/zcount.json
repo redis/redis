@@ -16,7 +16,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -32,6 +33,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The number of elements in the specified score range",
+            "type": "integer"
+        },
         "arguments": [
             {
                 "name": "key",

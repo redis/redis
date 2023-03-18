@@ -15,7 +15,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -31,6 +32,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "Number of elements removed."
+        },
         "arguments": [
             {
                 "name": "key",

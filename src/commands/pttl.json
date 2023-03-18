@@ -14,16 +14,19 @@
         ],
         "command_flags": [
             "READONLY",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
             "KEYSPACE"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -39,6 +42,23 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "TTL in milliseconds.",
+                    "type": "integer",
+                    "minimum": 0
+                },
+                {
+                    "description": "The key exists but has no associated expire.",
+                    "const": -1
+                },
+                {
+                    "description": "The key does not exist.",
+                    "const": -2
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

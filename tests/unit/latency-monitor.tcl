@@ -1,7 +1,3 @@
-proc latency_histogram {cmd} {
-    return [lindex [r latency histogram $cmd] 1]
-}
-
 start_server {tags {"latency-monitor needs:latency"}} {
     # Set a threshold high enough to avoid spurious latency events.
     r config set latency-monitor-threshold 200
@@ -9,15 +5,35 @@ start_server {tags {"latency-monitor needs:latency"}} {
 
     test {LATENCY HISTOGRAM with empty histogram} {
         r config resetstat
-        assert_match {} [latency_histogram set]
-        assert {[llength [r latency histogram]] == 0}
+        set histo [dict create {*}[r latency histogram]]
+        # Config resetstat is recorded
+        assert_equal [dict size $histo] 1
+        assert_match {*config|resetstat*} $histo
     }
 
     test {LATENCY HISTOGRAM all commands} {
         r config resetstat
         r set a b
         r set c d
-        assert_match {calls 2 histogram_usec *} [latency_histogram set]
+        set histo [dict create {*}[r latency histogram]]
+        assert_match {calls 2 histogram_usec *} [dict get $histo set]
+        assert_match {calls 1 histogram_usec *} [dict get $histo "config|resetstat"]
+    }
+
+    test {LATENCY HISTOGRAM sub commands} {
+        r config resetstat
+        r client id
+        r client list
+        # parent command reply with its sub commands
+        set histo [dict create {*}[r latency histogram client]]
+        assert {[dict size $histo] == 2}
+        assert_match {calls 1 histogram_usec *} [dict get $histo "client|id"]
+        assert_match {calls 1 histogram_usec *} [dict get $histo "client|list"]
+
+        # explicitly ask for one sub-command
+        set histo [dict create {*}[r latency histogram "client|id"]]
+        assert {[dict size $histo] == 1}
+        assert_match {calls 1 histogram_usec *} [dict get $histo "client|id"]
     }
 
     test {LATENCY HISTOGRAM with a subset of commands} {
@@ -27,19 +43,20 @@ start_server {tags {"latency-monitor needs:latency"}} {
         r get a
         r hset f k v
         r hgetall f
-        assert_match {calls 2 histogram_usec *} [latency_histogram set]
-        assert_match {calls 1 histogram_usec *} [latency_histogram hset]
-        assert_match {calls 1 histogram_usec *} [latency_histogram hgetall]
-        assert_match {calls 1 histogram_usec *} [latency_histogram get]
-        assert {[llength [r latency histogram]] == 8}
-        assert {[llength [r latency histogram set get]] == 4}
+        set histo [dict create {*}[r latency histogram set hset]]
+        assert_match {calls 2 histogram_usec *} [dict get $histo set]
+        assert_match {calls 1 histogram_usec *} [dict get $histo hset]
+        assert_equal [dict size $histo] 2
+        set histo [dict create {*}[r latency histogram hgetall get zadd]]
+        assert_match {calls 1 histogram_usec *} [dict get $histo hgetall]
+        assert_match {calls 1 histogram_usec *} [dict get $histo get]
+        assert_equal [dict size $histo] 2
     }
 
     test {LATENCY HISTOGRAM command} {
         r config resetstat
         r set a b
         r get a
-        assert {[llength [r latency histogram]] == 4}
         assert {[llength [r latency histogram set get]] == 4}
     }
 
@@ -54,6 +71,7 @@ start_server {tags {"latency-monitor needs:latency"}} {
         assert {[string length [r latency histogram blabla set get]] > 0}
     }
 
+tags {"needs:debug"} {
     test {Test latency events logging} {
         r debug sleep 0.3
         after 1100
@@ -61,7 +79,7 @@ start_server {tags {"latency-monitor needs:latency"}} {
         after 1100
         r debug sleep 0.5
         assert {[r latency history command] >= 3}
-    } {} {needs:debug}
+    }
 
     test {LATENCY HISTORY output is ok} {
         set min 250
@@ -89,6 +107,18 @@ start_server {tags {"latency-monitor needs:latency"}} {
         }
     }
 
+    test {LATENCY GRAPH can output the event graph} {
+        set res [r latency graph command]
+        assert_match {*command*high*low*} $res
+
+        # These numbers are taken from the "Test latency events logging" test.
+        # (debug sleep 0.3) and (debug sleep 0.5), using range to prevent timing issue.
+        regexp "command - high (.*?) ms, low (.*?) ms" $res -> high low
+        assert_morethan_equal $high 500
+        assert_morethan_equal $low 300
+    }
+} ;# tag
+
     test {LATENCY of expire events are correctly collected} {
         r config set latency-monitor-threshold 20
         r flushdb
@@ -107,6 +137,12 @@ start_server {tags {"latency-monitor needs:latency"}} {
             fail "key wasn't expired"
         }
         assert_match {*expire-cycle*} [r latency latest]
+
+        test {LATENCY GRAPH can output the expire event graph} {
+             assert_match {*expire-cycle*high*low*} [r latency graph expire-cycle]
+        }
+
+        r config set latency-monitor-threshold 200
     }
 
     test {LATENCY HISTORY / RESET with wrong event name is fine} {
@@ -125,6 +161,6 @@ start_server {tags {"latency-monitor needs:latency"}} {
 
     test {LATENCY HELP should not have unexpected options} {
         catch {r LATENCY help xxx} e
-        assert_match "*wrong number of arguments*" $e
+        assert_match "*wrong number of arguments for 'latency|help' command" $e
     }
 }

@@ -10,7 +10,6 @@
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",
-            "RANDOM",
             "STALE"
         ],
         "arguments": [
@@ -23,18 +22,21 @@
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "node-id",
-                        "type": "integer",
+                        "name": "importing",
+                        "display": "node-id",
+                        "type": "string",
                         "token": "IMPORTING"
                     },
                     {
-                        "name": "node-id",
-                        "type": "integer",
+                        "name": "migrating",
+                        "display": "node-id",
+                        "type": "string",
                         "token": "MIGRATING"
                     },
                     {
-                        "name": "node-id",
-                        "type": "integer",
+                        "name": "node",
+                        "display": "node-id",
+                        "type": "string",
                         "token": "NODE"
                     },
                     {
@@ -44,6 +46,9 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

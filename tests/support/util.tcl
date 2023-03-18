@@ -72,8 +72,8 @@ proc sanitizer_errors_from_file {filename} {
 }
 
 proc getInfoProperty {infostr property} {
-    if {[regexp "\r\n$property:(.*?)\r\n" $infostr _ value]} {
-        set _ $value
+    if {[regexp -lineanchor "^$property:(.*?)\r\n" $infostr _ value]} {
+        return $value
     }
 }
 
@@ -89,7 +89,7 @@ proc waitForBgsave r {
                 puts -nonewline "\nWaiting for background save to finish... "
                 flush stdout
             }
-            after 1000
+            after 50
         } else {
             break
         }
@@ -103,7 +103,7 @@ proc waitForBgrewriteaof r {
                 puts -nonewline "\nWaiting for background AOF rewrite to finish... "
                 flush stdout
             }
-            after 1000
+            after 50
         } else {
             break
         }
@@ -118,11 +118,19 @@ proc wait_for_sync r {
     }
 }
 
+proc wait_replica_online r {
+    wait_for_condition 50 100 {
+        [string match "*slave0:*,state=online*" [$r info replication]]
+    } else {
+        fail "replica didn't online in time"
+    }
+}
+
 proc wait_for_ofs_sync {r1 r2} {
     wait_for_condition 50 100 {
         [status $r1 master_repl_offset] eq [status $r2 master_repl_offset]
     } else {
-        fail "replica didn't sync in time"
+        fail "replica offset didn't match in time"
     }
 }
 
@@ -150,7 +158,7 @@ proc count_log_lines {srv_idx} {
 # returns the number of times a line with that pattern appears in a file
 proc count_message_lines {file pattern} {
     set res 0
-    # exec fails when grep exists with status other than 0 (when the patter wasn't found)
+    # exec fails when grep exists with status other than 0 (when the pattern wasn't found)
     catch {
         set res [string trim [exec grep $pattern $file 2> /dev/null | wc -l]]
     }
@@ -619,6 +627,15 @@ proc get_child_pid {idx} {
     return $child_pid
 }
 
+proc process_is_alive pid {
+    if {[catch {exec ps -p $pid} err]} {
+        return 0
+    } else {
+        if {[string match "*<defunct>*" $err]} { return 0 }
+        return 1
+    }
+}
+
 proc cmdrstat {cmd r} {
     if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [$r info commandstats] _ value]} {
         set _ $value
@@ -639,7 +656,7 @@ proc latencyrstat_percentiles {cmd r} {
 
 proc generate_fuzzy_traffic_on_key {key duration} {
     # Commands per type, blocking commands removed
-    # TODO: extract these from help.h or elsewhere, and improve to include other types
+    # TODO: extract these from COMMAND DOCS, and improve to include other types
     set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE LCS STRLEN}
     set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS HRANDFIELD}
     set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE ZRANDMEMBER}
@@ -713,13 +730,20 @@ proc generate_fuzzy_traffic_on_key {key duration} {
         } else {
             set err [format "%s" $err] ;# convert to string for pattern matching
             if {[string match "*SIGTERM*" $err]} {
-                puts "command caused test to hang? $cmd"
-                exit 1
+                puts "commands caused test to hang:"
+                foreach cmd $sent {
+                    foreach arg $cmd {
+                        puts -nonewline "[string2printable $arg] "
+                    }
+                    puts ""
+                }
+                # Re-raise, let handler up the stack take care of this.
+                error $err $::errorInfo
             }
         }
     }
 
-    # print stats so that we know if we managed to generate commands that actually made senes
+    # print stats so that we know if we managed to generate commands that actually made sense
     #if {$::verbose} {
     #    set count [llength $sent]
     #    puts "Fuzzy traffic sent: $count, succeeded: $succeeded"
@@ -815,9 +839,19 @@ proc subscribe {client channels} {
     consume_subscribe_messages $client subscribe $channels
 }
 
+proc ssubscribe {client channels} {
+    $client ssubscribe {*}$channels
+    consume_subscribe_messages $client ssubscribe $channels
+}
+
 proc unsubscribe {client {channels {}}} {
     $client unsubscribe {*}$channels
     consume_subscribe_messages $client unsubscribe $channels
+}
+
+proc sunsubscribe {client {channels {}}} {
+    $client sunsubscribe {*}$channels
+    consume_subscribe_messages $client sunsubscribe $channels
 }
 
 proc psubscribe {client channels} {
@@ -844,17 +878,17 @@ proc debug_digest {{level 0}} {
     r $level debug digest
 }
 
-proc wait_for_blocked_client {} {
+proc wait_for_blocked_client {{idx 0}} {
     wait_for_condition 50 100 {
-        [s blocked_clients] ne 0
+        [s $idx blocked_clients] ne 0
     } else {
         fail "no blocked clients"
     }
 }
 
-proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10}} {
+proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10} {idx 0}} {
     wait_for_condition $maxtries $delay  {
-        [s blocked_clients] == $count
+        [s $idx blocked_clients] == $count
     } else {
         fail "Timeout waiting for blocked clients"
     }
@@ -908,6 +942,12 @@ proc config_set {param value {options {}}} {
             }
         }
     }
+}
+
+proc config_get_set {param value {options {}}} {
+    set config [lindex [r config get $param] 1]
+    config_set $param $value $options
+    return $config
 }
 
 proc delete_lines_with_pattern {filename tmpfilename pattern} {
@@ -1020,4 +1060,26 @@ proc memory_usage {key} {
         set usage 1
     }
     return $usage
+}
+
+# forward compatibility, lmap missing in TCL 8.5
+proc lmap args {
+    set body [lindex $args end]
+    set args [lrange $args 0 end-1]
+    set n 0
+    set pairs [list]
+    foreach {varnames listval} $args {
+        set varlist [list]
+        foreach varname $varnames {
+            upvar 1 $varname var$n
+            lappend varlist var$n
+            incr n
+        }
+        lappend pairs $varlist $listval
+    }
+    set temp [list]
+    foreach {*}$pairs {
+        lappend temp [uplevel 1 $body]
+    }
+    set temp
 }

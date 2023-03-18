@@ -75,6 +75,16 @@ start_server {tags {"info" "external:skip"}} {
             $rd close
         }
 
+        test {latencystats: subcommands} {
+            r config resetstat
+            r CONFIG SET latency-tracking yes
+            r CONFIG SET latency-tracking-info-percentiles "50.0 99.0 99.9"
+            r client id
+
+            assert_match {*p50=*,p99=*,p99.9=*} [latency_percentiles_usec client\\|id]
+            assert_match {*p50=*,p99=*,p99.9=*} [latency_percentiles_usec config\\|set]
+        }
+
         test {latencystats: measure latency} {
             r config resetstat
             r CONFIG SET latency-tracking yes
@@ -187,7 +197,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_match {} [errorstat ERR]
             r multi
             catch {r set} e
-            assert_match {ERR wrong number of arguments*} $e
+            assert_match {ERR wrong number of arguments for 'set' command} $e
             catch {r exec} e
             assert_match {EXECABORT*} $e
             assert_match {*count=1*} [errorstat ERR]
@@ -206,7 +216,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_equal [s total_error_replies] 0
             assert_match {} [errorstat ERR]
             catch {r set k} e
-            assert_match {ERR wrong number of arguments*} $e
+            assert_match {ERR wrong number of arguments for 'set' command} $e
             assert_match {*count=1*} [errorstat ERR]
             assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
             # ensure that after a rejected command, valid ones are counted properly
@@ -228,6 +238,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat OOM]
+            r config set maxmemory 0
         }
 
         test {errorstats: rejected call by authorization error} {
@@ -243,6 +254,25 @@ start_server {tags {"info" "external:skip"}} {
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat NOPERM]
+            r auth default ""
         }
+
+        test {errorstats: blocking commands} {
+            r config resetstat
+            set rd [redis_deferring_client]
+            $rd client id
+            set rd_id [$rd read]
+            r del list1{t}
+
+            $rd blpop list1{t} 0
+            wait_for_blocked_client
+            r client unblock $rd_id error
+            assert_error {UNBLOCKED*} {$rd read}
+            assert_match {*count=1*} [errorstat UNBLOCKED]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat blpop]
+            assert_equal [s total_error_replies] 1
+            $rd close
+        }
+
     }
 }

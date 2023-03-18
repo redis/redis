@@ -19,16 +19,20 @@
         "command_flags": [
             "WRITE",
             "DENYOOM",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
             "STREAM"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
+                "notes": "UPDATE instead of INSERT because of the optional trimming feature",
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -110,22 +114,22 @@
                 ]
             },
             {
-                "name": "id_or_auto",
+                "name": "id-selector",
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "auto_id",
+                        "name": "auto-id",
                         "type": "pure-token",
                         "token": "*"
                     },
                     {
-                        "name": "ID",
+                        "name": "id",
                         "type": "string"
                     }
                 ]
             },
             {
-                "name": "field_value",
+                "name": "data",
                 "type": "block",
                 "multiple": true,
                 "arguments": [
@@ -139,6 +143,19 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf":[
+                {
+                    "description": "The ID of the added entry. The ID is the one auto-generated if * is passed as ID argument, otherwise the command just returns the same ID specified by the user during insertion.",
+                    "type": "string",
+                    "pattern": "[0-9]+-[0-9]+"
+                },
+                {
+                    "description": "The NOMKSTREAM option is given and the key doesn't exist.",
+                    "type": "null"
+                }
+            ]
+        }
     }
 }

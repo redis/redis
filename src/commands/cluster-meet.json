@@ -7,10 +7,15 @@
         "arity": -4,
         "container": "CLUSTER",
         "function": "clusterCommand",
+        "history": [
+            [
+                "4.0.0",
+                "Added the optional `cluster_bus_port` argument."
+            ]
+        ],
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",
-            "RANDOM",
             "STALE"
         ],
         "arguments": [
@@ -21,7 +26,16 @@
             {
                 "name": "port",
                 "type": "integer"
+            },
+            {
+                "name": "cluster-bus-port",
+                "type": "integer",
+                "optional": true,
+                "since": "4.0.0"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

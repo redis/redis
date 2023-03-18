@@ -10,13 +10,17 @@
             "NOSCRIPT",
             "LOADING",
             "STALE",
-            "FAST"
+            "FAST",
+            "ALLOW_BUSY"
         ],
         "acl_categories": [
             "TRANSACTION"
         ],
         "key_specs": [
             {
+                "flags": [
+                    "RO"
+                ],
                 "begin_search": {
                     "index": {
                         "pos": 1
@@ -31,6 +35,9 @@
                 }
             }
         ],
+        "reply_schema": {
+            "const": "OK"
+        },
         "arguments": [
             {
                 "name": "key",

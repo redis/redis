@@ -26,17 +26,21 @@
             ]
         ],
         "command_flags": [
-            "WRITE",
-            "RANDOM"
+            "WRITE"
         ],
         "acl_categories": [
             "KEYSPACE",
             "DANGEROUS"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -53,7 +57,9 @@
             },
             {
                 "flags": [
-                    "WRITE",
+                    "RW",
+                    "ACCESS",
+                    "DELETE",
                     "INCOMPLETE"
                 ],
                 "begin_search": {
@@ -71,6 +77,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": "OK",
+                    "description": "Success."
+                },
+                {
+                    "const": "NOKEY",
+                    "description": "No keys were found in the source instance."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "host",
@@ -78,10 +96,10 @@
             },
             {
                 "name": "port",
-                "type": "string"
+                "type": "integer"
             },
             {
-                "name": "key_or_empty_string",
+                "name": "key-selector",
                 "type": "oneof",
                 "arguments": [
                     {
@@ -90,7 +108,7 @@
                         "key_spec_index": 0
                     },
                     {
-                        "name": "empty_string",
+                        "name": "empty-string",
                         "type": "pure-token",
                         "token": "\"\""
                     }
@@ -119,33 +137,39 @@
                 "since": "3.0.0"
             },
             {
-                "token": "AUTH",
-                "name": "password",
-                "type": "string",
+                "name": "authentication",
+                "type": "oneof",
                 "optional": true,
-                "since": "4.0.7"
-
-            },
-            {
-                "token": "AUTH2",
-                "name": "username_password",
-                "type": "block",
-                "optional": true,
-                "since": "6.0.0",
                 "arguments": [
                     {
-                        "name": "username",
-                        "type": "string"
+                        "token": "AUTH",
+                        "name": "auth",
+                        "display": "password",
+                        "type": "string",
+                        "since": "4.0.7"
                     },
                     {
-                        "name": "password",
-                        "type": "string"
+                        "token": "AUTH2",
+                        "name": "auth2",
+                        "type": "block",
+                        "since": "6.0.0",
+                        "arguments": [
+                            {
+                                "name": "username",
+                                "type": "string"
+                            },
+                            {
+                                "name": "password",
+                                "type": "string"
+                            }
+                        ]
                     }
                 ]
             },
             {
                 "token": "KEYS",
-                "name": "key",
+                "name": "keys",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 1,
                 "optional": true,

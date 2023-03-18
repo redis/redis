@@ -9,10 +9,14 @@
         "function": "commandListCommand",
         "command_flags": [
             "LOADING",
-            "STALE"
+            "STALE",
+            "SENTINEL"
         ],
         "acl_categories": [
             "CONNECTION"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT_ORDER"
         ],
         "arguments": [
             {
@@ -38,6 +42,14 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "items": {
+                "description": "command name",
+                "type": "string"
+            },
+            "uniqueItems": true
+        }
     }
 }

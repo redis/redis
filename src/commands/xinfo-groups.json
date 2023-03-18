@@ -6,6 +6,12 @@
         "since": "5.0.0",
         "arity": 3,
         "container": "XINFO",
+        "history": [
+            [
+                "7.0.0",
+                "Added the `entries-read` and `lag` fields"
+            ]
+        ],
         "function": "xinfoCommand",
         "command_flags": [
             "READONLY"
@@ -16,7 +22,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -32,6 +39,48 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "consumers": {
+                        "type": "integer"
+                    },
+                    "pending": {
+                        "type": "integer"
+                    },
+                    "last-delivered-id": {
+                        "type": "string",
+                        "pattern": "[0-9]+-[0-9]+"
+                    },
+                    "entries-read": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "type": "integer"
+                            }
+                        ]
+                    },
+                    "lag": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "type": "integer"
+                            }
+                        ]
+                    }
+                }
+            }
+        },
         "arguments": [
             {
                 "name": "key",

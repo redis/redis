@@ -15,7 +15,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -45,6 +46,13 @@
                 "name": "stop",
                 "type": "integer"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "List of elements in the specified range",
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        }
     }
 }

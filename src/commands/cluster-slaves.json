@@ -9,16 +9,29 @@
         "function": "clusterCommand",
         "deprecated_since": "5.0.0",
         "replaced_by": "`CLUSTER REPLICAS`",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
         "command_flags": [
             "ADMIN",
-            "RANDOM",
             "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "arguments": [
             {
                 "name": "node-id",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "a list of replica nodes replicating from the specified master node provided in the same format used by CLUSTER NODES",
+            "type": "array",
+            "items": {
+                "type": "string",
+                "description": "the serialized cluster configuration"
+            }
+        }
     }
 }

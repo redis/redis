@@ -1,80 +1,4 @@
 start_server {tags {"pubsubshard external:skip"}} {
-    proc __consume_ssubscribe_messages {client type channels} {
-        set numsub -1
-        set counts {}
-
-        for {set i [llength $channels]} {$i > 0} {incr i -1} {
-            set msg [$client read]
-            assert_equal $type [lindex $msg 0]
-
-            # when receiving subscribe messages the channels names
-            # are ordered. when receiving unsubscribe messages
-            # they are unordered
-            set idx [lsearch -exact $channels [lindex $msg 1]]
-            if {[string match "sunsubscribe" $type]} {
-                assert {$idx >= 0}
-            } else {
-                assert {$idx == 0}
-            }
-            set channels [lreplace $channels $idx $idx]
-
-            # aggregate the subscription count to return to the caller
-            lappend counts [lindex $msg 2]
-        }
-
-        # we should have received messages for channels
-        assert {[llength $channels] == 0}
-        return $counts
-    }
-
-    proc __consume_subscribe_messages {client type channels} {
-        set numsub -1
-        set counts {}
-
-        for {set i [llength $channels]} {$i > 0} {incr i -1} {
-            set msg [$client read]
-            assert_equal $type [lindex $msg 0]
-
-            # when receiving subscribe messages the channels names
-            # are ordered. when receiving unsubscribe messages
-            # they are unordered
-            set idx [lsearch -exact $channels [lindex $msg 1]]
-            if {[string match "unsubscribe" $type]} {
-                assert {$idx >= 0}
-            } else {
-                assert {$idx == 0}
-            }
-            set channels [lreplace $channels $idx $idx]
-
-            # aggregate the subscription count to return to the caller
-            lappend counts [lindex $msg 2]
-        }
-
-        # we should have received messages for channels
-        assert {[llength $channels] == 0}
-        return $counts
-    }
-
-    proc ssubscribe {client channels} {
-        $client ssubscribe {*}$channels
-        __consume_ssubscribe_messages $client ssubscribe $channels
-    }
-
-    proc subscribe {client channels} {
-        $client subscribe {*}$channels
-        __consume_subscribe_messages $client subscribe $channels
-    }
-
-    proc sunsubscribe {client {channels {}}} {
-        $client sunsubscribe {*}$channels
-        __consume_subscribe_messages $client sunsubscribe $channels
-    }
-
-    proc unsubscribe {client {channels {}}} {
-        $client unsubscribe {*}$channels
-        __consume_subscribe_messages $client unsubscribe $channels
-    }
-
     test "SPUBLISH/SSUBSCRIBE basics" {
         set rd1 [redis_deferring_client]
 
@@ -83,14 +7,14 @@ start_server {tags {"pubsubshard external:skip"}} {
         assert_equal {2} [ssubscribe $rd1 {chan2}]
         assert_equal 1 [r SPUBLISH chan1 hello]
         assert_equal 1 [r SPUBLISH chan2 world]
-        assert_equal {message chan1 hello} [$rd1 read]
-        assert_equal {message chan2 world} [$rd1 read]
+        assert_equal {smessage chan1 hello} [$rd1 read]
+        assert_equal {smessage chan2 world} [$rd1 read]
 
         # unsubscribe from one of the channels
         sunsubscribe $rd1 {chan1}
         assert_equal 0 [r SPUBLISH chan1 hello]
         assert_equal 1 [r SPUBLISH chan2 world]
-        assert_equal {message chan2 world} [$rd1 read]
+        assert_equal {smessage chan2 world} [$rd1 read]
 
         # unsubscribe from the remaining channel
         sunsubscribe $rd1 {chan2}
@@ -108,15 +32,15 @@ start_server {tags {"pubsubshard external:skip"}} {
         assert_equal {1} [ssubscribe $rd1 {chan1}]
         assert_equal {1} [ssubscribe $rd2 {chan1}]
         assert_equal 2 [r SPUBLISH chan1 hello]
-        assert_equal {message chan1 hello} [$rd1 read]
-        assert_equal {message chan1 hello} [$rd2 read]
+        assert_equal {smessage chan1 hello} [$rd1 read]
+        assert_equal {smessage chan1 hello} [$rd2 read]
 
         # clean up clients
         $rd1 close
         $rd2 close
     }
 
-    test "PUBLISH/SUBSCRIBE after UNSUBSCRIBE without arguments" {
+    test "SPUBLISH/SSUBSCRIBE after UNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
         assert_equal {1} [ssubscribe $rd1 {chan1}]
         assert_equal {2} [ssubscribe $rd1 {chan2}]
@@ -130,17 +54,17 @@ start_server {tags {"pubsubshard external:skip"}} {
         $rd1 close
     }
 
-    test "SUBSCRIBE to one channel more than once" {
+    test "SSUBSCRIBE to one channel more than once" {
         set rd1 [redis_deferring_client]
         assert_equal {1 1 1} [ssubscribe $rd1 {chan1 chan1 chan1}]
         assert_equal 1 [r SPUBLISH chan1 hello]
-        assert_equal {message chan1 hello} [$rd1 read]
+        assert_equal {smessage chan1 hello} [$rd1 read]
 
         # clean up clients
         $rd1 close
     }
 
-    test "UNSUBSCRIBE from non-subscribed channels" {
+    test "SUNSUBSCRIBE from non-subscribed channels" {
         set rd1 [redis_deferring_client]
         assert_equal {0} [sunsubscribe $rd1 {foo}]
         assert_equal {0} [sunsubscribe $rd1 {bar}]
@@ -181,6 +105,33 @@ start_server {tags {"pubsubshard external:skip"}} {
         assert_equal "chan1 1" [r pubsub numsub chan1]
         assert_equal "chan1" [r pubsub shardchannels]
         assert_equal "chan1" [r pubsub channels]
+
+        $rd1 close
+        $rd2 close
+    }
+
+    test "PubSubShard with CLIENT REPLY OFF" {
+        set rd [redis_deferring_client]
+        $rd hello 3
+        $rd read ;# Discard the hello reply
+
+        # Test that the ssubscribe notification is ok
+        $rd client reply off
+        $rd ping
+        assert_equal {1} [ssubscribe $rd channel]
+
+        # Test that the spublish notification is ok
+        $rd client reply off
+        $rd ping
+        assert_equal 1 [r spublish channel hello]
+        assert_equal {smessage channel hello} [$rd read]
+
+        # Test that sunsubscribe notification is ok
+        $rd client reply off
+        $rd ping
+        assert_equal {0} [sunsubscribe $rd channel]
+
+        $rd close
     }
 }
 
@@ -205,9 +156,9 @@ start_server {tags {"pubsubshard external:skip"}} {
 
         assert_equal {1} [ssubscribe $rd1 {chan1}]
         $rd0 SPUBLISH chan1 hello
-        assert_equal {message chan1 hello} [$rd1 read]
+        assert_equal {smessage chan1 hello} [$rd1 read]
         $rd0 SPUBLISH chan1 world
-        assert_equal {message chan1 world} [$rd1 read]
+        assert_equal {smessage chan1 world} [$rd1 read]
     }
 }
 }

@@ -62,3 +62,23 @@ test "Sanity for CLUSTER COUNTKEYSINSLOT" {
 test "It is possible to write and read from the cluster" {
     cluster_write_test 0
 }
+
+test "CLUSTER RESET SOFT test" {
+    set last_epoch_node0 [get_info_field [R 0 cluster info] cluster_current_epoch]
+    R 0 FLUSHALL
+    R 0 CLUSTER RESET
+    assert {[get_info_field [R 0 cluster info] cluster_current_epoch] eq $last_epoch_node0}
+
+    set last_epoch_node1 [get_info_field [R 1 cluster info] cluster_current_epoch]
+    R 1 FLUSHALL
+    R 1 CLUSTER RESET SOFT
+    assert {[get_info_field [R 1 cluster info] cluster_current_epoch] eq $last_epoch_node1}
+}
+
+test "Coverage: CLUSTER HELP" {
+    assert_match "*CLUSTER <subcommand> *" [R 0 CLUSTER HELP]
+}
+
+test "Coverage: ASKING" {
+    assert_equal {OK} [R 0 ASKING]
+}

@@ -20,6 +20,12 @@ test "Can't read from replica without READONLY" {
     assert {[string range $err 0 4] eq {MOVED}}
 }
 
+test "Can't read from replica after READWRITE" {
+    $replica READWRITE
+    catch {$replica GET a} err
+    assert {[string range $err 0 4] eq {MOVED}}
+}
+
 test "Can read from replica after READONLY" {
     $replica READONLY
     assert {[$replica GET a] eq {1}}
@@ -68,4 +74,12 @@ test "read-only blocking operations from replica" {
     set res [lindex [lindex [lindex [lindex $res 0] 1] 0] 1]
     assert {$res eq {foo bar}}
     $rd close
+}
+
+test "reply MOVED when eval from replica for update" {
+    catch {[$replica eval {#!lua
+        return redis.call('del','a')
+        } 1 a
+    ]} err
+    assert {[string range $err 0 4] eq {MOVED}}
 }

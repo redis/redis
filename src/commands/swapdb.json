@@ -23,6 +23,9 @@
                 "name": "index2",
                 "type": "integer"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

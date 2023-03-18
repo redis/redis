@@ -10,12 +10,11 @@
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",
-            "RANDOM",
             "STALE"
         ],
         "arguments": [
             {
-                "name": "start-slot_end-slot",
+                "name": "range",
                 "type": "block",
                 "multiple": true,
                 "arguments": [
@@ -29,6 +28,9 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

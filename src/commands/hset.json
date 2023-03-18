@@ -23,7 +23,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -39,6 +40,9 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer"
+        },
         "arguments": [
             {
                 "name": "key",
@@ -46,7 +50,7 @@
                 "key_spec_index": 0
             },
             {
-                "name": "field_value",
+                "name": "data",
                 "type": "block",
                 "multiple": true,
                 "arguments": [

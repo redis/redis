@@ -8,7 +8,6 @@
         "container": "CLUSTER",
         "function": "clusterCommand",
         "command_flags": [
-            "RANDOM",
             "STALE"
         ],
         "arguments": [
@@ -16,6 +15,11 @@
                 "name": "slot",
                 "type": "integer"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The number of keys in the specified hash slot",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

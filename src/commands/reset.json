@@ -11,10 +11,14 @@
             "LOADING",
             "STALE",
             "FAST",
-            "NO_AUTH"
+            "NO_AUTH",
+            "ALLOW_BUSY"
         ],
         "acl_categories": [
             "CONNECTION"
-        ]
+        ],
+        "reply_schema": {
+            "const": "RESET"
+        }
     }
 }

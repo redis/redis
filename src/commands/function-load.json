@@ -4,7 +4,7 @@
         "complexity": "O(1) (considering compilation time is redundant)",
         "group": "scripting",
         "since": "7.0.0",
-        "arity": -5,
+        "arity": -3,
         "container": "FUNCTION",
         "function": "functionLoadCommand",
         "command_flags": [
@@ -15,15 +15,11 @@
         "acl_categories": [
             "SCRIPTING"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
         "arguments": [
-            {
-                "name": "engine-name",
-                "type": "string"
-            },
-            {
-                "name": "library-name",
-                "type": "string"
-            },
             {
                 "name": "replace",
                 "type": "pure-token",
@@ -31,15 +27,13 @@
                 "optional": true
             },
             {
-                "name": "library-description",
-                "type": "string",
-                "token": "DESC",
-                "optional": true
-            },
-            {
                 "name": "function-code",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The library name that was loaded",
+            "type": "string"
+        }
     }
 }

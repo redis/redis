@@ -17,7 +17,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -33,6 +35,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The new score of `member`",
+            "type": "number"
+        },
         "arguments": [
             {
                 "name": "key",

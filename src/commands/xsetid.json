@@ -4,8 +4,14 @@
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",
-        "arity": 3,
+        "arity": -3,
         "function": "xsetidCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the `entries_added` and `max_deleted_entry_id` arguments."
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "DENYOOM",
@@ -17,7 +23,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -42,7 +49,24 @@
             {
                 "name": "last-id",
                 "type": "string"
+            },
+            {
+                "name": "entries-added",
+                "token": "ENTRIESADDED",
+                "type": "integer",
+                "optional": true,
+                "since": "7.0.0"
+            },
+            {
+                "name": "max-deleted-id",
+                "token": "MAXDELETEDID",
+                "type": "string",
+                "optional": true,
+                "since": "7.0.0"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

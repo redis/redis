@@ -20,7 +20,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -36,6 +37,14 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List of the elements in the specified score range.",
+            "uniqueItems": true,
+            "items": {
+                "type": "string"
+            }
+        },
         "arguments": [
             {
                 "name": "key",
@@ -52,7 +61,7 @@
             },
             {
                 "token": "LIMIT",
-                "name": "offset_count",
+                "name": "limit",
                 "type": "block",
                 "optional": true,
                 "arguments": [

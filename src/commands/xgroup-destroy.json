@@ -16,7 +16,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -39,9 +40,20 @@
                 "key_spec_index": 0
             },
             {
-                "name": "groupname",
+                "name": "group",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The number of destroyed consumer groups (0 or 1)",
+            "oneOf": [
+                {
+                    "const": 1
+                },
+                {
+                    "const": 0
+                }
+            ]
+        }
     }
 }

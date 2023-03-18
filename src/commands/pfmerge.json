@@ -16,8 +16,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE",
-                    "READ"
+                    "RW",
+                    "ACCESS",
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {
@@ -34,7 +35,8 @@
             },
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -60,8 +62,12 @@
                 "name": "sourcekey",
                 "type": "key",
                 "key_spec_index": 1,
+                "optional": true,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

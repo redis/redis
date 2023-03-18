@@ -1,15 +1,17 @@
 {
     "GETKEYSINSLOT": {
         "summary": "Return local key names in the specified hash slot",
-        "complexity": "O(log(N)) where N is the number of requested keys",
+        "complexity": "O(N) where N is the number of requested keys",
         "group": "cluster",
         "since": "3.0.0",
         "arity": 4,
         "container": "CLUSTER",
         "function": "clusterCommand",
         "command_flags": [
-            "RANDOM",
             "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "arguments": [
             {
@@ -20,6 +22,14 @@
                 "name": "count",
                 "type": "integer"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "an array with up to count elements",
+            "type": "array",
+            "items": {
+                "description": "key name",
+                "type": "string"
+            }
+        }
     }
 }

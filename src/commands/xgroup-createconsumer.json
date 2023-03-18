@@ -17,7 +17,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {
@@ -40,13 +41,24 @@
                 "key_spec_index": 0
             },
             {
-                "name": "groupname",
+                "name": "group",
                 "type": "string"
             },
             {
-                "name": "consumername",
+                "name": "consumer",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The number of created consumers (0 or 1)",
+            "oneOf": [
+                {
+                    "const": 1
+                },
+                {
+                    "const": 0
+                }
+            ]
+        }
     }
 }

@@ -96,6 +96,7 @@ typedef struct functionInfo {
                             to run the function, usually it's the function compiled code. */
     functionLibInfo* li; /* Pointer to the library created the function */
     sds desc;            /* Function description */
+    uint64_t f_flags;    /* Function flags */
 } functionInfo;
 
 /* Hold information about the specific library.
@@ -105,12 +106,10 @@ struct functionLibInfo {
     dict *functions; /* Functions dictionary */
     engineInfo *ei;  /* Pointer to the function engine */
     sds code;        /* Library code */
-    sds desc;        /* Library description */
 };
 
 int functionsRegisterEngine(const char *engine_name, engine *engine_ctx);
-int functionsCreateWithLibraryCtx(sds lib_name, sds engine_name, sds desc, sds code,
-                                  int replace, sds* err, functionsLibCtx *lib_ctx);
+sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx);
 unsigned long functionsMemory();
 unsigned long functionsMemoryOverhead();
 unsigned long functionsNum();
@@ -124,7 +123,7 @@ void functionsLibCtxFree(functionsLibCtx *lib_ctx);
 void functionsLibCtxClear(functionsLibCtx *lib_ctx);
 void functionsLibCtxSwapWithCurrent(functionsLibCtx *lib_ctx);
 
-int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, sds *err);
+int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err);
 
 int luaEngineInitEngine();
 int functionsInit();

@@ -5,6 +5,11 @@ start_server {tags {"modules"}} {
     
     #   test all with hello 2/3
     for {set proto 2} {$proto <= 3} {incr proto} {
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$proto == 3} {continue}
+        } elseif {$::force_resp3} {
+            if {$proto == 2} {continue}
+        }
         r hello $proto
 
         test "RESP$proto: RM_ReplyWithString: an string reply" {
@@ -26,6 +31,33 @@ start_server {tags {"modules"}} {
 
         test "RESP$proto: RM_ReplyWithDouble: a float reply" {
             assert_equal 3.141 [r rw.double 3.141]
+        }
+
+        test "RESP$proto: RM_ReplyWithDouble: inf" {
+            if {$proto == 2} {
+                assert_equal "inf" [r rw.double inf]
+                assert_equal "-inf" [r rw.double -inf]
+            } else {
+                # TCL convert inf to different results on different platforms, e.g. inf on mac
+                # and Inf on others, so use readraw to verify the protocol
+                r readraw 1
+                assert_equal ",inf" [r rw.double inf]
+                assert_equal ",-inf" [r rw.double -inf]
+                r readraw 0
+            }
+        }
+
+        test "RESP$proto: RM_ReplyWithDouble: NaN" {
+            if {$proto == 2} {
+                assert_equal "nan" [r rw.double 0 0]
+                assert_equal "nan" [r rw.double]
+            } else {
+                # TCL won't convert nan into a double, use readraw to verify the protocol
+                r readraw 1
+                assert_equal ",nan" [r rw.double 0 0]
+                assert_equal ",nan" [r rw.double]
+                r readraw 0
+            }
         }
 
         set ld 0.00000000000000001
@@ -93,5 +125,11 @@ start_server {tags {"modules"}} {
             catch {r rw.error} e
             assert_match "An error" $e
         }
+
+        r hello 2
+    }
+
+    test "Unload the module - replywith" {
+        assert_equal {OK} [r module unload replywith]
     }
 }

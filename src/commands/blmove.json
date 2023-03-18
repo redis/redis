@@ -9,17 +9,17 @@
         "command_flags": [
             "WRITE",
             "DENYOOM",
-            "NOSCRIPT"
+            "BLOCKING"
         ],
         "acl_categories": [
-            "LIST",
-            "BLOCKING"
+            "LIST"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE",
-                    "READ"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -36,7 +36,8 @@
             },
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {
@@ -52,6 +53,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The popped element.",
+                    "type": "string"
+                },
+                {
+                    "description": "Operation timed-out",
+                    "type": "null"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "source",

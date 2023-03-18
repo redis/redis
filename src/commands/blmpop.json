@@ -8,16 +8,18 @@
         "function": "blmpopCommand",
         "get_keys_function": "blmpopGetKeys",
         "command_flags": [
-            "WRITE"
+            "WRITE",
+            "BLOCKING"
         ],
         "acl_categories": [
-            "LIST",
-            "BLOCKING"
+            "LIST"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -33,6 +35,34 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Operation timed-out",
+                    "type": "null"
+                },
+                {
+                    "description": "The key from which elements were popped and the popped elements",
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "description": "List key from which elements were popped.",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Array of popped elements.",
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "timeout",

@@ -6,6 +6,12 @@
         "since": "3.2.10",
         "arity": -6,
         "function": "georadiusroCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added the `ANY` option for `COUNT`."
+            ]
+        ],
         "deprecated_since": "6.2.0",
         "replaced_by": "`GEOSEARCH` with the `BYRADIUS` argument",
         "doc_flags": [
@@ -20,7 +26,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -99,7 +106,7 @@
                 "optional": true
             },
             {
-                "name": "count",
+                "name": "count-block",
                 "type": "block",
                 "optional": true,
                 "arguments": [
@@ -112,7 +119,8 @@
                         "name": "any",
                         "token": "ANY",
                         "type": "pure-token",
-                        "optional": true
+                        "optional": true,
+                        "since": "6.2.0"
                     }
                 ]
             },
@@ -133,6 +141,61 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "Array of matched members information",
+            "anyOf": [
+                {
+                    "description": "If no WITH* option is specified, array of matched members names",
+                    "type": "array",
+                    "items": {
+                        "description": "name",
+                        "type": "string"
+                    }
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 4,
+                        "items": [
+                            {
+                                "description": "Matched member name",
+                                "type": "string"
+                            }
+                        ],
+                        "additionalItems": {
+                            "oneOf": [
+                                {
+                                    "description": "If WITHDIST option is specified, the distance from the center as a floating point number, in the same unit specified in the radius",
+                                    "type": "string"
+                                },
+                                {
+                                    "description": "If WITHHASH option is specified, the geohash integer",
+                                    "type": "integer"
+                                },
+                                {
+                                    "description": "If WITHCOORD option is specified, the coordinates as a two items x,y array (longitude,latitude)",
+                                    "type": "array",
+                                    "minItems": 2,
+                                    "maxItems": 2,
+                                    "items": [
+                                        {
+                                            "description": "latitude (x)",
+                                            "type": "number"
+                                        },
+                                        {
+                                            "description": "longitude (y)",
+                                            "type": "number"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                }
+            ]
+        }
     }
 }

@@ -22,7 +22,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -38,6 +39,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "The number of fields that were removed from the hash."
+        },
         "arguments": [
             {
                 "name": "key",

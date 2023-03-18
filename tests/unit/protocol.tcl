@@ -110,16 +110,21 @@ start_server {tags {"protocol network"}} {
     # raw RESP response tests
     r readraw 1
 
+    set nullres {*-1}
+    if {$::force_resp3} {
+        set nullres {_}
+    }
+
     test "raw protocol response" {
         r srandmember nonexisting_key
-    } {*-1}
+    } "$nullres"
 
     r deferred 1
 
     test "raw protocol response - deferred" {
         r srandmember nonexisting_key
         r read
-    } {*-1}
+    } "$nullres"
 
     test "raw protocol response - multiline" {
         r sadd ss a
@@ -139,13 +144,17 @@ start_server {tags {"protocol network"}} {
 
     test {RESP3 attributes} {
         r hello 3
-        set res [r debug protocol attrib]
-        # currently the parser in redis.tcl ignores the attributes
+        assert_equal {Some real reply following the attribute} [r debug protocol attrib]
+        assert_equal {key-popularity {key:123 90}} [r attributes]
+
+        # make sure attributes are not kept from previous command
+        r ping
+        assert_error {*attributes* no such element in array} {r attributes}
 
         # restore state
         r hello 2
-        set _ $res
-    } {Some real reply following the attribute} {needs:debug resp3}
+        set _ ""
+    } {} {needs:debug resp3}
 
     test {RESP3 attributes readraw} {
         r hello 3

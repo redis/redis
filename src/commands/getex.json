@@ -15,8 +15,11 @@
         ],
         "key_specs": [
             {
+                "notes": "RW and UPDATE because it changes the TTL",
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -32,6 +35,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The value of the key.",
+                    "type": "string"
+                },
+                {
+                    "description": "Key does not exist.",
+                    "type": "null"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",
@@ -54,13 +69,13 @@
                         "token": "PX"
                     },
                     {
-                        "name": "unix-time",
-                        "type": "integer",
+                        "name": "unix-time-seconds",
+                        "type": "unix-time",
                         "token": "EXAT"
                     },
                     {
-                        "name": "unix-time",
-                        "type": "integer",
+                        "name": "unix-time-milliseconds",
+                        "type": "unix-time",
                         "token": "PXAT"
                     },
                     {

@@ -155,7 +155,7 @@ start_server {tags {"string"}} {
          set ex {}
          catch {r getex} ex
          set ex
-     } {*wrong number of arguments*}
+     } {*wrong number of arguments for 'getex' command}
 
     test "GETDEL command" {
         r del foo
@@ -221,10 +221,10 @@ start_server {tags {"string"}} {
         r mget x{t} y{t} z{t}
     } [list 10 {foo bar} "x x x x x x x\n\n\r\n"]
 
-    test {MSET wrong number of args} {
-        catch {r mset x{t} 10 y{t} "foo bar" z{t}} err
-        format $err
-    } {*wrong number*}
+    test {MSET/MSETNX wrong number of args} {
+        assert_error {*wrong number of arguments for 'mset' command} {r mset x{t} 10 y{t} "foo bar" z{t}}
+        assert_error {*wrong number of arguments for 'msetnx' command} {r msetnx x{t} 20 y{t} "foo bar" z{t}}
+    }
 
     test {MSETNX with already existent key} {
         list [r msetnx x1{t} xxx y2{t} yyy x{t} 20] [r exists x1{t}] [r exists y2{t}]
@@ -460,6 +460,24 @@ start_server {tags {"string"}} {
         }
     }
 
+    test "Coverage: SUBSTR" {
+        r set key abcde
+        assert_equal "a" [r substr key 0 0]
+        assert_equal "abcd" [r substr key 0 3]
+        assert_equal "bcde" [r substr key -4 -1]
+    }
+    
+if {[string match {*jemalloc*} [s mem_allocator]]} {
+    test {trim on SET with big value} {
+        # set a big value to trigger increasing the query buf
+        r set key [string repeat A 100000] 
+        # set a smaller value but > PROTO_MBULK_BIG_ARG (32*1024) Redis will try to save the query buf itself on the DB.
+        r set key [string repeat A 33000]
+        # asset the value was trimmed
+        assert {[r memory usage key] < 42000}; # 42K to count for Jemalloc's additional memory overhead. 
+    }
+} ;# if jemalloc
+
     test {Extended SET can detect syntax errors} {
         set e {}
         catch {r set foo bar non-existing-option} e
@@ -598,4 +616,14 @@ start_server {tags {"string"}} {
     test {LCS indexes with match len and minimum match len} {
         dict get [r LCS virus1{t} virus2{t} IDX WITHMATCHLEN MINMATCHLEN 5] matches
     } {{{1 222} {13 234} 222}}
+
+    test {SETRANGE with huge offset} {
+        foreach value {9223372036854775807 2147483647} {
+            catch {[r setrange K $value A]} res
+            # expecting a different error on 32 and 64 bit systems
+            if {![string match "*string exceeds maximum allowed size*" $res] && ![string match "*out of range*" $res]} {
+                assert_equal $res "expecting an error"
+           }
+        }
+    }
 }

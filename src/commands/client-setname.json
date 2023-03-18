@@ -10,7 +10,8 @@
         "command_flags": [
             "NOSCRIPT",
             "LOADING",
-            "STALE"
+            "STALE",
+            "SENTINEL"
         ],
         "acl_categories": [
             "CONNECTION"
@@ -20,6 +21,9 @@
                 "name": "connection-name",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

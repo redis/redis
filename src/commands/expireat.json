@@ -22,7 +22,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -38,6 +39,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": 1,
+                    "description": "The timeout was set."
+                },
+                {
+                    "const": 0,
+                    "description": "The timeout was not set. e.g. key doesn't exist, or operation skipped due to the provided arguments."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",
@@ -45,7 +58,7 @@
                 "key_spec_index": 0
             },
             {
-                "name": "timestamp",
+                "name": "unix-time-seconds",
                 "type": "unix-time"
             },
             {
