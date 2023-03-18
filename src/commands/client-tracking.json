@@ -71,6 +71,10 @@
                 "type": "pure-token",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "if the client was successfully put into or taken out of tracking mode",
+            "const": "OK"
+        }
     }
 }

@@ -2,6 +2,7 @@
 import glob
 import json
 import os
+import argparse
 
 ARG_TYPES = {
     "string": "ARG_TYPE_STRING",
@@ -33,29 +34,6 @@ GROUPS = {
     "geo": "COMMAND_GROUP_GEO",
     "stream": "COMMAND_GROUP_STREAM",
     "bitmap": "COMMAND_GROUP_BITMAP",
-}
-
-RESP2_TYPES = {
-    "simple-string": "RESP2_SIMPLE_STRING",
-    "error": "RESP2_ERROR",
-    "integer": "RESP2_INTEGER",
-    "bulk-string": "RESP2_BULK_STRING",
-    "null-bulk-string": "RESP2_NULL_BULK_STRING",
-    "array": "RESP2_ARRAY",
-    "null-array": "RESP2_NULL_ARRAY",
-}
-
-RESP3_TYPES = {
-    "simple-string": "RESP3_SIMPLE_STRING",
-    "error": "RESP3_ERROR",
-    "integer": "RESP3_INTEGER",
-    "double": "RESP3_DOUBLE",
-    "bulk-string": "RESP3_BULK_STRING",
-    "array": "RESP3_ARRAY",
-    "map": "RESP3_MAP",
-    "set": "RESP3_SET",
-    "bool": "RESP3_BOOL",
-    "null": "RESP3_NULL",
 }
 
 
@@ -194,7 +172,6 @@ class Argument(object):
         self.type = self.desc["type"]
         self.key_spec_index = self.desc.get("key_spec_index", None)
         self.subargs = []
-        self.subargs_name = None
         if self.type in ["oneof", "block"]:
             self.display = None
             for subdesc in self.desc["arguments"]:
@@ -264,6 +241,75 @@ class Argument(object):
             f.write("};\n\n")
 
 
+def to_c_name(str):
+    return str.replace(":", "").replace(".", "_").replace("$", "_")\
+        .replace("^", "_").replace("*", "_").replace("-", "_")
+
+
+class ReplySchema(object):
+    def __init__(self, name, desc):
+        self.name = to_c_name(name)
+        self.schema = {}
+        if desc.get("type") == "object":
+            if desc.get("properties") and desc.get("additionalProperties") is None:
+                print("%s: Any object that has properties should have the additionalProperties field" % {self.name})
+                exit(1)
+        elif desc.get("type") == "array":
+            if desc.get("items") and isinstance(desc["items"], list) and any([desc.get(k) is None for k in ["minItems", "maxItems"]]):
+                print("%s: Any array that has items should have the minItems and maxItems fields" % {self.name})
+                exit(1)
+        for k, v in desc.items():
+            if isinstance(v, dict):
+                self.schema[k] = ReplySchema("%s_%s" % (self.name, k), v)
+            elif isinstance(v, list):
+                self.schema[k] = []
+                for i, subdesc in enumerate(v):
+                    self.schema[k].append(ReplySchema("%s_%s_%i" % (self.name, k,i), subdesc))
+            else:
+                self.schema[k] = v
+    
+    def write(self, f):
+        def struct_code(name, k, v):
+            if isinstance(v, ReplySchema):
+                t = "JSON_TYPE_OBJECT"
+                vstr = ".value.object=&%s" % name
+            elif isinstance(v, list):
+                t = "JSON_TYPE_ARRAY"
+                vstr = ".value.array={.objects=%s,.length=%d}" % (name, len(v))
+            elif isinstance(v, bool):
+                t = "JSON_TYPE_BOOLEAN"
+                vstr = ".value.boolean=%d" % int(v)
+            elif isinstance(v, str):
+                t = "JSON_TYPE_STRING"
+                vstr = ".value.string=\"%s\"" % v
+            elif isinstance(v, int):
+                t = "JSON_TYPE_INTEGER"
+                vstr = ".value.integer=%d" % v
+            
+            return "%s,\"%s\",%s" % (t, k, vstr)
+
+        for k, v in self.schema.items():
+            if isinstance(v, ReplySchema):
+                v.write(f)
+            elif isinstance(v, list):
+                for i, schema in enumerate(v):
+                    schema.write(f)
+                name = to_c_name("%s_%s" % (self.name, k))
+                f.write("/* %s array reply schema */\n" % name)
+                f.write("struct jsonObject *%s[] = {\n" % name)
+                for i, schema in enumerate(v):
+                    f.write("&%s,\n" % schema.name)
+                f.write("};\n\n")
+            
+        f.write("/* %s reply schema */\n" % self.name)
+        f.write("struct jsonObjectElement %s_elements[] = {\n" % self.name)
+        for k, v in self.schema.items():
+            name = to_c_name("%s_%s" % (self.name, k))
+            f.write("{%s},\n" % struct_code(name, k, v))
+        f.write("};\n\n")
+        f.write("struct jsonObject %s = {%s_elements,.length=%d};\n\n" % (self.name, self.name, len(self.schema)))
+
+
 class Command(object):
     def __init__(self, name, desc):
         self.name = name.upper()
@@ -273,9 +319,11 @@ class Command(object):
         self.subcommands = []
         self.args = []
         for arg_desc in self.desc.get("arguments", []):
-            arg = Argument(self.fullname(), arg_desc)
-            self.args.append(arg)
+            self.args.append(Argument(self.fullname(), arg_desc))
         verify_no_dup_names(self.fullname(), self.args)
+        self.reply_schema = None
+        if "reply_schema" in self.desc:
+            self.reply_schema = ReplySchema(self.reply_schema_name(), self.desc["reply_schema"])
 
     def fullname(self):
         return self.name.replace("-", "_").replace(":", "")
@@ -295,6 +343,9 @@ class Command(object):
 
     def arg_table_name(self):
         return "%s_Args" % (self.fullname().replace(" ", "_"))
+
+    def reply_schema_name(self):
+        return "%s_ReplySchema" % (self.fullname().replace(" ", "_"))
 
     def struct_name(self):
         return "%s_Command" % (self.fullname().replace(" ", "_"))
@@ -377,6 +428,9 @@ class Command(object):
         if self.args:
             s += ".args=%s," % self.arg_table_name()
 
+        if self.reply_schema and args.with_reply_schema:
+            s += ".reply_schema=&%s," % self.reply_schema_name()
+
         return s[:-1]
 
     def write_internal_structs(self, f):
@@ -423,6 +477,9 @@ class Command(object):
             f.write("{0}\n")
             f.write("};\n\n")
 
+        if self.reply_schema and args.with_reply_schema:
+            self.reply_schema.write(f)
+
 
 class Subcommand(Command):
     def __init__(self, name, desc):
@@ -446,6 +503,10 @@ def create_command(name, desc):
 
 # Figure out where the sources are
 srcdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../src")
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--with-reply-schema', action='store_true')
+args = parser.parse_args()
 
 # Create all command objects
 print("Processing json files...")
@@ -481,8 +542,9 @@ if check_command_error_counter != 0:
     print("Error: There are errors in the commands check, please check the above logs.")
     exit(1)
 
-print("Generating commands.c...")
-with open("%s/commands.c" % srcdir, "w") as f:
+commands_filename = "commands_with_reply_schema" if args.with_reply_schema else "commands"
+print("Generating %s.c..." % {commands_filename})
+with open("%s/%s.c" % (srcdir, commands_filename), "w") as f:
     f.write("/* Automatically generated by %s, do not edit. */\n\n" % os.path.basename(__file__))
     f.write("#include \"server.h\"\n")
     f.write(

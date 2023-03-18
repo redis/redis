@@ -135,6 +135,7 @@
 #define RDBFLAGS_REPLICATION (1<<1)     /* Load/save for SYNC. */
 #define RDBFLAGS_ALLOW_DUP (1<<2)       /* Allow duplicated keys when loading.*/
 #define RDBFLAGS_FEED_REPL (1<<3)       /* Feed replication stream when loading.*/
+#define RDBFLAGS_KEEP_CACHE (1<<4)      /* Don't reclaim cache after rdb file is generated */
 
 /* When rdbLoadObject() returns NULL, the err flag is
  * set to hold the type of error that occurred */
@@ -153,10 +154,10 @@ int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr);
 int rdbSaveObjectType(rio *rdb, robj *o);
 int rdbLoadObjectType(rio *rdb);
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags);
-int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi);
+int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags);
 int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi);
 void rdbRemoveTempFile(pid_t childpid, int from_signal);
-int rdbSave(int req, char *filename, rdbSaveInfo *rsi);
+int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags);
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid);
 size_t rdbSavedObjectLen(robj *o, robj *key, int dbid);
 robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error);

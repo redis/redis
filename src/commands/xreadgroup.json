@@ -87,6 +87,48 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "If BLOCK option is specified and the timeout expired",
+                    "type": "null"
+                },
+                {
+                    "description": "A map of key-value elements when each element composed of key name and the entries reported for that key",
+                    "type": "object",
+                    "additionalProperties": {
+                        "description": "The entries reported for that key",
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "items": [
+                                {
+                                    "description": "Stream id",
+                                    "type": "string",
+                                    "pattern": "[0-9]+-[0-9]+"
+                                },
+                                {
+                                    "oneOf": [
+                                        {
+                                            "description": "Array of field-value pairs",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                }
+            ]
+        }
     }
 }

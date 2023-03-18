@@ -119,6 +119,10 @@ start_server {tags {"scripting"}} {
         r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey
     } {myval}
 
+    test {EVALSHA_RO - Can we call a SHA1 if already defined?} {
+        r evalsha_ro fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey
+    } {myval}
+
     test {EVALSHA - Can we call a SHA1 in uppercase?} {
         r evalsha FD758D1589D044DD850A6F05D52F2EEFD27F033F 1 mykey
     } {myval}
@@ -703,6 +707,7 @@ start_server {tags {"scripting"}} {
         assert_equal $res $expected_list
     } {} {resp3}
 
+    if {!$::log_req_res} { # this test creates a huge nested array which python can't handle (RecursionError: maximum recursion depth exceeded in comparison)
     test {Script return recursive object} {
         r readraw 1
         set res [run_script {local a = {}; local b = {a}; a[1] = b; return a} 0]
@@ -717,6 +722,7 @@ start_server {tags {"scripting"}} {
         r readraw 0
         # make sure the connection is still valid
         assert_equal [r ping] {PONG}
+    }
     }
 
     test {Script check unpack with massive arguments} {
@@ -1257,9 +1263,10 @@ start_server {tags {"scripting needs:debug"}} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
             if {[lsearch $::denytags "resp3"] >= 0} {
                 if {$client_proto == 3} {continue}
-            } else {
-                r hello $client_proto
+            } elseif {$::force_resp3} {
+                if {$client_proto == 2} {continue}
             }
+            r hello $client_proto
             set extra "RESP$i/$client_proto"
             r readraw 1
 
@@ -1367,6 +1374,7 @@ start_server {tags {"scripting needs:debug"}} {
             }
 
             r readraw 0
+            r hello 2
         }
     }
 
@@ -1995,5 +2003,30 @@ start_server {tags {"scripting"}} {
             } 0
         ] {asdf}
     }
-}
 
+    test "LUA test trim string as expected" {
+        # this test may fail if we use different memory allocator than jemalloc, as libc for example may keep the old size on realloc.
+        if {[string match {*jemalloc*} [s mem_allocator]]} {
+            # test that when using LUA cache mechanism, if there is free space in the argv array, the string is trimmed.
+            r set foo [string repeat "a" 45]
+            set expected_memory [r memory usage foo]
+
+            # Jemalloc will allocate for the requested 63 bytes, 80 bytes.
+            # We can't test for larger sizes because LUA_CMD_OBJCACHE_MAX_LEN is 64.
+            # This value will be recycled to be used in the next argument.
+            # We use SETNX to avoid saving the string which will prevent us to reuse it in the next command.
+            r eval {
+                return redis.call("SETNX", "foo", string.rep("a", 63))
+            } 0
+
+            # Jemalloc will allocate for the request 45 bytes, 56 bytes.
+            # we can't test for smaller sizes because OBJ_ENCODING_EMBSTR_SIZE_LIMIT is 44 where no trim is done.
+            r eval {
+                return redis.call("SET", "foo", string.rep("a", 45))
+            } 0
+
+            # Assert the string has been trimmed and the 80 bytes from the previous alloc were not kept.
+            assert { [r memory usage foo] <= $expected_memory};
+        }
+    }
+}

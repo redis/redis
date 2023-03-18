@@ -15,6 +15,10 @@
         ],
         "acl_categories": [
             "CONNECTION"
-        ]
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "The id of the client"
+        }
     }
 }

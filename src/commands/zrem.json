@@ -39,6 +39,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The number of members removed from the sorted set, not including non existing members.",
+            "type": "integer",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "key",

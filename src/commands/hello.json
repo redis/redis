@@ -24,6 +24,54 @@
         "acl_categories": [
             "CONNECTION"
         ],
+        "reply_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "server": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                },
+                "proto": {
+                    "const": 3
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "modules": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "ver": {
+                                "type": "integer"
+                            },
+                            "path": {
+                                "type": "string"
+                            },
+                            "args": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "arguments": [
             {
                 "name": "arguments",

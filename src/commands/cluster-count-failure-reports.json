@@ -19,6 +19,11 @@
                 "name": "node-id",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "the number of active failure reports for the node",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

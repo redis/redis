@@ -40,6 +40,25 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "null",
+                    "description": "Key does not exist."
+                },
+                {
+                    "type": "string",
+                    "description": "When 'COUNT' was not given, the value of the last element."
+                },
+                {
+                    "type": "array",
+                    "description": "When 'COUNT' was given, list of popped elements.",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

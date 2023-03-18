@@ -5,21 +5,41 @@ start_server {tags {"pubsub network"}} {
         set db 9
     }
 
-    test "Pub/Sub PING" {
+    foreach resp {2 3} {
         set rd1 [redis_deferring_client]
-        subscribe $rd1 somechannel
-        # While subscribed to non-zero channels PING works in Pub/Sub mode.
-        $rd1 ping
-        $rd1 ping "foo"
-        set reply1 [$rd1 read]
-        set reply2 [$rd1 read]
-        unsubscribe $rd1 somechannel
-        # Now we are unsubscribed, PING should just return PONG.
-        $rd1 ping
-        set reply3 [$rd1 read]
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$resp == 3} {continue}
+        } elseif {$::force_resp3} {
+            if {$resp == 2} {continue}
+        }
+
+        $rd1 hello $resp
+        $rd1 read
+
+        test "Pub/Sub PING on RESP$resp" {
+            subscribe $rd1 somechannel
+            # While subscribed to non-zero channels PING works in Pub/Sub mode.
+            $rd1 ping
+            $rd1 ping "foo"
+            # In RESP3, the SUBSCRIBEd client can issue any command and get a reply, so the PINGs are standard
+            # In RESP2, only a handful of commands are allowed after a client is SUBSCRIBED (PING is one of them).
+            # For some reason, the reply in that case is an array with two elements: "pong"  and argv[1] or an empty string
+            # God knows why. Done in commit 2264b981
+            if {$resp == 3} {
+                assert_equal {PONG} [$rd1 read]
+                assert_equal {foo} [$rd1 read]
+            } else {
+                assert_equal {pong {}} [$rd1 read]
+                assert_equal {pong foo} [$rd1 read]
+            }
+            unsubscribe $rd1 somechannel
+            # Now we are unsubscribed, PING should just return PONG.
+            $rd1 ping
+            assert_equal {PONG} [$rd1 read]
+
+        }
         $rd1 close
-        list $reply1 $reply2 $reply3
-    } {{pong {}} {pong foo} PONG}
+    }
 
     test "PUBLISH/SUBSCRIBE basics" {
         set rd1 [redis_deferring_client]
@@ -146,6 +166,30 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
+    test "PubSub messages with CLIENT REPLY OFF" {
+        set rd [redis_deferring_client]
+        $rd hello 3
+        $rd read ;# Discard the hello reply
+
+        # Test that the subscribe/psubscribe notification is ok
+        $rd client reply off
+        assert_equal {1} [subscribe $rd channel]
+        assert_equal {2} [psubscribe $rd ch*]
+
+        # Test that the publish notification is ok
+        $rd client reply off
+        assert_equal 2 [r publish channel hello]
+        assert_equal {message channel hello} [$rd read]
+        assert_equal {pmessage ch* channel hello} [$rd read]
+
+        # Test that the unsubscribe/punsubscribe notification is ok
+        $rd client reply off
+        assert_equal {1} [unsubscribe $rd channel]
+        assert_equal {0} [punsubscribe $rd ch*]
+
+        $rd close
+    }
+
     test "PUNSUBSCRIBE from non-subscribed channels" {
         set rd1 [redis_deferring_client]
         assert_equal {0 0 0} [punsubscribe $rd1 {foo.* bar.* quux.*}]
@@ -206,6 +250,7 @@ start_server {tags {"pubsub network"}} {
     test "Keyspace notifications: we receive keyspace notifications" {
         r config set notify-keyspace-events KA
         set rd1 [redis_deferring_client]
+        $rd1 CLIENT REPLY OFF ;# Make sure it works even if replies are silenced
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
         assert_equal "pmessage * __keyspace@${db}__:foo set" [$rd1 read]
@@ -215,6 +260,7 @@ start_server {tags {"pubsub network"}} {
     test "Keyspace notifications: we receive keyevent notifications" {
         r config set notify-keyspace-events EA
         set rd1 [redis_deferring_client]
+        $rd1 CLIENT REPLY SKIP ;# Make sure it works even if replies are silenced
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
         assert_equal "pmessage * __keyevent@${db}__:set foo" [$rd1 read]
@@ -224,6 +270,8 @@ start_server {tags {"pubsub network"}} {
     test "Keyspace notifications: we can receive both kind of events" {
         r config set notify-keyspace-events KEA
         set rd1 [redis_deferring_client]
+        $rd1 CLIENT REPLY ON ;# Just coverage
+        assert_equal {OK} [$rd1 read]
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
         assert_equal "pmessage * __keyspace@${db}__:foo set" [$rd1 read]

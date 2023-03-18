@@ -385,7 +385,8 @@ void expireSlaveKeys(void) {
                     activeExpireCycleTryExpire(server.db+dbid,expire,start))
                 {
                     expired = 1;
-                    /* DELs aren't propagated, but modules may want their hooks. */
+                    /* Propagate the DEL (writable replicas do not propagate anything to other replicas,
+                     * but they might propagate to AOF) and trigger module hooks. */
                     postExecutionUnitOperations();
                 }
 

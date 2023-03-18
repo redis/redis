@@ -23,6 +23,9 @@
                 "name": "library-name",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

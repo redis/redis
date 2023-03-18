@@ -17,6 +17,10 @@
             "REQUEST_POLICY:ALL_NODES",
             "RESPONSE_POLICY:ALL_SUCCEEDED"
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "Number of event time series that were reset."
+        },
         "arguments": [
             {
                 "name": "event",

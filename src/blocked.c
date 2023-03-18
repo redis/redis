@@ -177,7 +177,7 @@ void unblockClient(client *c) {
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM) {
         unblockClientWaitingData(c);
-    } else if (c->bstate.btype == BLOCKED_WAIT) {
+    } else if (c->bstate.btype == BLOCKED_WAIT || c->bstate.btype == BLOCKED_WAITAOF) {
         unblockClientWaitingReplicas(c);
     } else if (c->bstate.btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
@@ -195,6 +195,11 @@ void unblockClient(client *c) {
      * or in case a shutdown operation was canceled and we are still in the processCommand sequence  */
     if (!(c->flags & CLIENT_PENDING_COMMAND) && c->bstate.btype != BLOCKED_SHUTDOWN) {
         freeClientOriginalArgv(c);
+        /* Clients that are not blocked on keys are not reprocessed so we must
+         * call reqresAppendResponse here (for clients blocked on key,
+         * unblockClientOnKey is called, which eventually calls processCommand,
+         * which calls reqresAppendResponse) */
+        reqresAppendResponse(c);
         resetClient(c);
     }
 
@@ -220,6 +225,10 @@ void replyToBlockedClientTimedOut(client *c) {
         updateStatsOnUnblock(c, 0, 0, 0);
     } else if (c->bstate.btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bstate.reploffset));
+    } else if (c->bstate.btype == BLOCKED_WAITAOF) {
+        addReplyArrayLen(c,2);
+        addReplyLongLong(c,server.fsynced_reploff >= c->bstate.reploffset);
+        addReplyLongLong(c,replicationCountAOFAcksByOffset(c->bstate.reploffset));
     } else if (c->bstate.btype == BLOCKED_MODULE) {
         moduleBlockedClientTimedOut(c);
     } else {
@@ -385,7 +394,11 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         }
     }
     c->bstate.unblock_on_nokey = unblock_on_nokey;
-    c->flags |= CLIENT_PENDING_COMMAND;
+    /* Currently we assume key blocking will require reprocessing the command.
+     * However in case of modules, they have a different way to handle the reprocessing
+     * which does not require setting the pending command flag */
+    if (btype != BLOCKED_MODULE)
+        c->flags |= CLIENT_PENDING_COMMAND;
     blockClient(c,btype);
 }
 
@@ -544,7 +557,7 @@ static void handleClientsBlockedOnKey(readyList *rl) {
 
         while((ln = listNext(&li))) {
             client *receiver = listNodeValue(ln);
-            robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOKKUP_NOEFFECTS);
+            robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
             /* 1. In case new key was added/touched we need to verify it satisfy the
              *    blocked type, since we might process the wrong key type.
              * 2. We want to serve clients blocked on module keys
@@ -574,6 +587,16 @@ void blockForReplication(client *c, mstime_t timeout, long long offset, long num
     blockClient(c,BLOCKED_WAIT);
 }
 
+/* block a client due to waitaof command */
+void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numlocal, long numreplicas) {
+    c->bstate.timeout = timeout;
+    c->bstate.reploffset = offset;
+    c->bstate.numreplicas = numreplicas;
+    c->bstate.numlocal = numlocal;
+    listAddNodeHead(server.clients_waiting_acks,c);
+    blockClient(c,BLOCKED_WAITAOF);
+}
+
 /* Postpone client from executing a command. For example the server might be busy
  * requesting to avoid processing clients commands which will be processed later
  * when the it is ready to accept them. */
@@ -589,7 +612,6 @@ void blockPostponeClient(client *c) {
 /* Block client due to shutdown command */
 void blockClientShutdown(client *c) {
     blockClient(c, BLOCKED_SHUTDOWN);
-    /* Mark this client to execute its command */
 }
 
 /* Unblock a client once a specific key became available for it.
@@ -608,6 +630,8 @@ static void unblockClientOnKey(client *c, robj *key) {
                 c->bstate.btype == BLOCKED_LIST   ||
                 c->bstate.btype == BLOCKED_ZSET);
 
+    /* We need to unblock the client before calling processCommandAndResetClient
+     * because it checks the CLIENT_BLOCKED flag */
     unblockClient(c);
     /* In case this client was blocked on keys during command
      * we need to re process the command again */
@@ -630,8 +654,6 @@ static void moduleUnblockClientOnKey(client *c, robj *key) {
 
     if (moduleTryServeClientBlockedOnKey(c, key)) {
         updateStatsOnUnblock(c, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
-        if (c->flags & CLIENT_PENDING_COMMAND)
-            c->flags &= ~CLIENT_PENDING_COMMAND;
         moduleUnblockClient(c);
     }
     /* We need to call afterCommand even if the client was not unblocked

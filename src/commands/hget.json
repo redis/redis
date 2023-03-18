@@ -33,6 +33,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The value associated with the field.",
+                    "type": "string"
+                },
+                {
+                    "description": "If the field is not present in the hash or key does not exist.",
+                    "type": "null"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

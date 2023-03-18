@@ -116,6 +116,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
 
             # if defrag is supported, test AOF loading too
             if {[r config get activedefrag] eq "activedefrag yes"} {
+            test "Active defrag - AOF loading" {
                 # reset stats and load the AOF file
                 r config resetstat
                 r config set key-load-delay -25 ;# sleep on average 1/25 usec
@@ -148,12 +149,13 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 # make sure the defragger did enough work to keep the fragmentation low during loading.
                 # we cannot check that it went all the way down, since we don't wait for full defrag cycle to complete.
                 assert {$frag < 1.4}
-                # since the AOF contains simple (fast) SET commands (and the cron during loading runs every 1000 commands),
+                # since the AOF contains simple (fast) SET commands (and the cron during loading runs every 1024 commands),
                 # it'll still not block the loading for long periods of time.
                 if {!$::no_latency} {
-                    assert {$max_latency <= 30}
+                    assert {$max_latency <= 40}
                 }
             }
+            } ;# Active defrag - AOF loading
         }
         r config set appendonly no
         r config set key-load-delay 0
