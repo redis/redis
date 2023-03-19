@@ -227,9 +227,9 @@ start_server {tags {"cli"}} {
         assert_equal ${erase}RESET [run_command $fd "reset"]
         assert_equal PONG [run_command $fd "ping"]
 
-        # Check TTY output of push messages in RESP3 has ">" prefix.
+        # Check TTY output of push messages in RESP3 has ")" prefix (to be changed to ">" in the future).
         assert_match "1#*" [run_command $fd "hello 3"]
-        set sub1 "1> \"subscribe\"\n2> \"ch1\"\n3> (integer) 1\n"
+        set sub1 "1) \"subscribe\"\n2) \"ch1\"\n3) (integer) 1\n"
         assert_equal $sub1$reading \
             [run_command $fd "subscribe ch1"]
     }
