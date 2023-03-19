@@ -1441,10 +1441,12 @@ static int rdbSaveInternal(int req, const char *filename, rdbSaveInfo *rsi, int 
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
     rio rdb;
     int error = 0;
+    int saved_errno;
     char *err_op;    /* For a detailed log */
 
     FILE *fp = fopen(filename,"w");
     if (!fp) {
+        saved_errno = errno;
         char *str_err = strerror(errno);
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
@@ -1453,6 +1455,7 @@ static int rdbSaveInternal(int req, const char *filename, rdbSaveInfo *rsi, int 
             filename,
             cwdp ? cwdp : "unknown",
             str_err);
+        errno = saved_errno;
         return C_ERR;
     }
 
@@ -1480,9 +1483,11 @@ static int rdbSaveInternal(int req, const char *filename, rdbSaveInfo *rsi, int 
     return C_OK;
 
 werr:
+    saved_errno = errno;
     serverLog(LL_WARNING,"Write error while saving DB to the disk(%s): %s", err_op, strerror(errno));
     if (fp) fclose(fp);
     unlink(filename);
+    errno = saved_errno;
     return C_ERR;
 }
 
@@ -1492,7 +1497,9 @@ int rdbSaveToFile(const char *filename) {
     startSaving(RDBFLAGS_NONE);
 
     if (rdbSaveInternal(SLAVE_REQ_NONE,filename,NULL,RDBFLAGS_NONE) != C_OK) {
+        int saved_errno = errno;
         stopSaving(0);
+        errno = saved_errno;
         return C_ERR;
     }
 

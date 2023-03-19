@@ -26,7 +26,7 @@ int sanity(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     /* Missing file should fail. */
-    if (RedisModule_RdbLoad(s, 0) == REDISMODULE_OK || errno != EIO) {
+    if (RedisModule_RdbLoad(s, 0) == REDISMODULE_OK || errno != ENOENT) {
         RedisModule_ReplyWithError(ctx, strerror(errno));
         goto out;
     }

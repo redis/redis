@@ -12288,11 +12288,8 @@ void RM_RdbStreamFree(RedisModuleRdbStream *stream) {
  *
  * `flags` must be zero. This parameter is for future use.
  *
- * On success REDISMODULE_OK is returned, otherwise
- * REDISMODULE_ERR is returned and errno is set to the following values:
- *
- * * EINVAL: `stream` is NULL or `flags` value is invalid.
- * * EIO: Failed to load the RDB file. Check server logs for more info.
+ * On success REDISMODULE_OK is returned, otherwise REDISMODULE_ERR is returned
+ * and errno is set accordingly.
  *
  * Example:
  *
@@ -12327,7 +12324,7 @@ int RM_RdbLoad(RedisModuleRdbStream *stream, int flags) {
     if (server.aof_state != AOF_OFF) startAppendOnly();
 
     if (ret != RDB_OK) {
-        errno = EIO;
+        errno = (ret == RDB_NOT_EXIST) ? ENOENT : EIO;
         return REDISMODULE_ERR;
     }
 
@@ -12339,11 +12336,8 @@ int RM_RdbLoad(RedisModuleRdbStream *stream, int flags) {
  *
  * `flags` must be zero. This parameter is for future use.
  *
- * On success REDISMODULE_OK is returned, otherwise
- * REDISMODULE_ERR is returned and errno is set to the following values:
- *
- * * EINVAL: `stream` is NULL or `flags` value is invalid.
- * * EIO: Failed to load the RDB file. Check server logs for more info.
+ * On success REDISMODULE_OK is returned, otherwise REDISMODULE_ERR is returned
+ * and errno is set accordingly.
  *
  * Example:
  *
@@ -12360,7 +12354,6 @@ int RM_RdbSave(RedisModuleRdbStream *stream, int flags) {
     serverAssert(stream->type == REDISMODULE_RDB_STREAM_FILE);
 
     if (rdbSaveToFile(stream->data.filename) != C_OK) {
-        errno = EIO;
         return REDISMODULE_ERR;
     }
 

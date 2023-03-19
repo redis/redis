@@ -7,7 +7,7 @@ start_server {tags {"modules"}} {
         r test.sanity
 
         # Try to load non-existing file
-        assert_error {*error*} {r test.rdbload sanity.rdb}
+        assert_error {*No such file or directory*} {r test.rdbload sanity.rdb}
 
         r set x 1
         assert_equal OK [r test.rdbsave sanity.rdb]
