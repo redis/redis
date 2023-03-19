@@ -126,6 +126,8 @@ test {Blocking Commands don't run through command filter when reprocessed} {
         r lpush list2{t} a b c d e
 
         set rd [redis_deferring_client]
+        # we're asking to pop from the left, but the command filter swaps the two arguments,
+        # and we'll end up poping from the right (popping 5 instead of 1)
         $rd blmove list1{t} list2{t} left right 0
         wait_for_blocked_client
         r lpush list1{t} 1 2 3 4 5
