@@ -2176,10 +2176,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel known-replica %s %s %d",
                 master->name, announceSentinelAddr(slave_addr), slave_addr->port);
             /* try to replace any known-slave option first if found */
-            if(rewriteConfigRewriteLine(state,"sentinel known-slave",line,0) ==0){
+            if (rewriteConfigRewriteLine(state, "sentinel known-slave", sdsdup(line), 0) == 0) {
                 rewriteConfigRewriteLine(state, "sentinel known-replica", line, 1);
+            } else {
+                sdsfree(line);
             }
-            sdsfree(line);
             /* rewriteConfigMarkAsProcessed is handled after the loop */
         }
         dictReleaseIterator(di2);
