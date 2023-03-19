@@ -123,10 +123,13 @@ test {Blocking Commands don't run through command filter when reprocessed} {
         r del list1{t}
         r del list2{t}
 
+        r lpush list2{t} a b c d e
+
         set rd [redis_deferring_client]
-        $rd brpoplpush list1{t} list2{t} 0
+        $rd blmove list1{t} list2{t} left right 0
         wait_for_blocked_client
-        r lpush list1{t} a
-        assert_equal [$rd read] a
+        r lpush list1{t} 1 2 3 4 5
+        assert_equal [$rd read] 5
+        assert_equal [r rpop list2{t}] 5
     }
 }
