@@ -388,8 +388,3 @@ int swapRateLimit(client *c) {
     
     return delay;
 }
-
-int swapRateLimited(client *c) {
-    return c->swap_rl_until >= server.mstime;
-}
-

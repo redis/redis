@@ -1328,7 +1328,10 @@ sds genSwapUnblockInfoString(sds info);
 
 int swapRateLimitState(void);
 int swapRateLimit(client *c);
-int swapRateLimited(client *c);
+static inline int swapRateLimited(client *c) {
+    return c->swap_rl_until >= server.mstime;
+}
+
 
 /* Rocks iter thread */
 #define ITER_BUFFER_CAPACITY_DEFAULT 4096
