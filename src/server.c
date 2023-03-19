@@ -3478,6 +3478,7 @@ void initServer(void) {
         server.db[j].cold_keys = 0;
         server.db[j].scan_expire = scanExpireCreate();
         server.db[j].randomkey_nextseek = NULL;
+        server.db[j].swap_absent_cache = NULL;
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);

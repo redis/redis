@@ -755,6 +755,7 @@ typedef struct redisDb {
     long long cold_keys;        /* # of cold keys */
     sds randomkey_nextseek;     /* nextseek for randomkey command */
     struct scanExpire *scan_expire; /* scan expire related */
+    struct absentsCache *swap_absent_cache;
 } redisDb;
 
 /* Declare database backup that include redis main DBs and slots to keys map.
@@ -1761,6 +1762,7 @@ struct redisServer {
     int swap_debug_init_rocksdb_delay_micro; /* sleep swap_debug_init_rocksdb_delay microsencods before init rocksdb */
     int swap_debug_rio_error; /* mock rio error */
     int swap_debug_trace_latency;
+
     /* repl swap */
     int repl_workers;   /* num of repl worker clients */
     list *repl_worker_clients_free; /* free clients for repl(slaveof & peerof) swap. */
@@ -1839,6 +1841,10 @@ struct redisServer {
     time_t gtid_last_purge_time;
     size_t gtid_ignored_cmd_count;
     size_t gtid_executed_cmd_count;
+
+    /* absent cache */
+    int swap_absent_cache_enabled;
+    unsigned long long swap_absent_cache_capacity;
 };
 
 #define MAX_KEYS_BUFFER 256

@@ -1133,7 +1133,7 @@ void processSwapRequest(swapRequest *req) {
     /* key confirmed not exists, no need to execute swap request. */
     if (!swapDataAlreadySetup(req->data)) {
         if (isSwapHitStatKeyRequest(req->key_request)) {
-            atomicIncr(server.swap_hit_stats->stat_swapin_not_found_count,1);
+            atomicIncr(server.swap_hit_stats->stat_swapin_not_found_cachemiss_count,1);
         }
         goto end;
     }
@@ -1165,6 +1165,8 @@ void swapDataTurnWarmOrHot(swapData *data) {
 
 void swapDataTurnCold(swapData *data) {
     data->db->cold_keys++;
+    if (data->db->swap_absent_cache)
+        absentsCacheDelete(data->db->swap_absent_cache,data->key->ptr);
 }
 
 void swapDataTurnDeleted(swapData *data, int del_skip) {
@@ -1193,6 +1195,11 @@ void finishSwapRequest(swapRequest *req) {
     switch (req->intention) {
     case SWAP_NOP:
         /* No swap for req if meta not found. */
+        if (!swapDataAlreadySetup(data)) {
+            if (data->db->swap_absent_cache)
+                absentsCachePut(data->db->swap_absent_cache,data->key->ptr);
+        }
+
         break;
     case SWAP_IN:
         retval = swapDataSwapIn(data,req->result,datactx);

@@ -266,21 +266,27 @@ void resetStatsSwap() {
 
 void resetSwapHitStat() {
     atomicSet(server.swap_hit_stats->stat_swapin_attempt_count,0);
-    atomicSet(server.swap_hit_stats->stat_swapin_not_found_count,0);
+    atomicSet(server.swap_hit_stats->stat_swapin_not_found_cachehit_count,0);
+    atomicSet(server.swap_hit_stats->stat_swapin_not_found_cachemiss_count,0);
     atomicSet(server.swap_hit_stats->stat_swapin_no_io_count,0);
 }
 
 sds genSwapHitInfoString(sds info) {
-    double memory_hit_perc = 0, keyspace_hit_perc = 0;
-    long long attempt, noio, notfound;
+    double memory_hit_perc = 0, keyspace_hit_perc = 0, notfound_cachehit_perc = 0;
+    long long attempt, noio, notfound_cachemiss, notfound_cachehit, notfound;
 
     atomicGet(server.swap_hit_stats->stat_swapin_attempt_count,attempt);
     atomicGet(server.swap_hit_stats->stat_swapin_no_io_count,noio);
-    atomicGet(server.swap_hit_stats->stat_swapin_not_found_count,notfound);
+    atomicGet(server.swap_hit_stats->stat_swapin_not_found_cachemiss_count,notfound_cachemiss);
+    atomicGet(server.swap_hit_stats->stat_swapin_not_found_cachehit_count,notfound_cachehit);
+    notfound = notfound_cachehit + notfound_cachemiss;
 
     if (attempt) {
         memory_hit_perc = ((double)noio/attempt)*100;
         keyspace_hit_perc = ((double)(attempt - notfound)/attempt)*100;
+    }
+    if (notfound) {
+        notfound_cachehit_perc = ((double)notfound_cachehit/notfound)*100;
     }
 
     info = sdscatprintf(info,
@@ -288,8 +294,12 @@ sds genSwapHitInfoString(sds info) {
             "swap_swapin_not_found_count:%lld\r\n"
             "swap_swapin_no_io_count:%lld\r\n"
             "swap_swapin_memory_hit_perc:%.2f%%\r\n"
-            "swap_swapin_keyspace_hit_perc:%.2f%%\r\n",
-            attempt,notfound,noio,memory_hit_perc,keyspace_hit_perc);
+            "swap_swapin_keyspace_hit_perc:%.2f%%\r\n"
+            "swap_swapin_not_found_cachemiss:%lld\r\n"
+            "swap_swapin_not_found_cachehit:%lld\r\n"
+            "swap_swapin_not_found_cachehit_perc:%.2f%%\r\n",
+            attempt,notfound,noio,memory_hit_perc,keyspace_hit_perc,
+            notfound_cachehit, notfound_cachemiss, notfound_cachehit_perc);
     return info;
 }
 

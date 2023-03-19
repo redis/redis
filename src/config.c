@@ -2272,6 +2272,29 @@ static int updateGtidEnabled(int val, int prev, const char **err) {
     return 1;
 }
 
+static int updateSwapAbsentCacheEnabled(int val, int prev, const char **err) {
+    UNUSED(err);
+    if (prev != val) {
+        if (val) {
+            serverLog(LL_WARNING, "absent cache enabled with capacity(%llu).", server.swap_absent_cache_capacity);
+            for (int i = 0; i < server.dbnum; i++) {
+                redisDb *db = server.db+i;
+                serverAssert(db->swap_absent_cache == NULL);
+                db->swap_absent_cache = absentsCacheNew(server.swap_absent_cache_capacity);
+            }
+        } else {
+            serverLog(LL_WARNING, "absent cache disabled.");
+            for (int i = 0; i < server.dbnum; i++) {
+                redisDb *db = server.db+i;
+                serverAssert(db->swap_absent_cache != NULL);
+                absentsCacheFree(db->swap_absent_cache);
+                db->swap_absent_cache = NULL;
+            }
+        }
+    }
+    return 1;
+}
+
 static int updateReplBacklogSize(long long val, long long prev, const char **err) {
     /* resizeReplicationBacklog sets server.repl_backlog_size, and relies on
      * being able to tell when the size changes, so restore prev before calling it. */
@@ -2290,6 +2313,19 @@ static int updateMaxmemory(long long val, long long prev, const char **err) {
             serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET (%llu) is smaller than the current memory usage (%zu). This will result in key eviction and/or the inability to accept new write commands depending on the maxmemory-policy.", server.maxmemory, used);
         }
         performEvictions();
+    }
+    return 1;
+}
+
+static int updateSwapAbsentCacheCapacity(long long val, long long prev, const char **err) {
+    UNUSED(prev);
+    UNUSED(err);
+    if (val) {
+        for (int i = 0; i < server.dbnum; i++) {
+            redisDb *db = server.db+i;
+            if (db->swap_absent_cache)
+                absentsCacheSetCapacity(db->swap_absent_cache, val);
+        }
     }
     return 1;
 }
@@ -2524,6 +2560,7 @@ standardConfig configs[] = {
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
     createBoolConfig("slave-repl-all", NULL, MODIFIABLE_CONFIG, server.repl_slave_repl_all, 0, NULL, NULL),
     createBoolConfig("swap-debug-trace-latency", NULL, MODIFIABLE_CONFIG, server.swap_debug_trace_latency, 0, NULL, NULL),
+    createBoolConfig("swap-absent-cache-enabled", NULL, MODIFIABLE_CONFIG, server.swap_absent_cache_enabled, 1, NULL, updateSwapAbsentCacheEnabled),
     createBoolConfig("rocksdb.data.cache_index_and_filter_blocks", "rocksdb.cache_index_and_filter_blocks", IMMUTABLE_CONFIG, server.rocksdb_data_cache_index_and_filter_blocks, 0, NULL, NULL),
     createBoolConfig("rocksdb.meta.cache_index_and_filter_blocks", NULL, IMMUTABLE_CONFIG, server.rocksdb_meta_cache_index_and_filter_blocks, 0, NULL, NULL),
     createBoolConfig("rocksdb.enable_pipelined_write", NULL, IMMUTABLE_CONFIG, server.rocksdb_enable_pipelined_write, 0, NULL, NULL),
@@ -2656,6 +2693,7 @@ standardConfig configs[] = {
     createULongLongConfig("swap-inprogress-memory-stop", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_inprogress_memory_stop, 128*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 128mb */
     createULongLongConfig("swap-evict-step-max-memory", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_evict_step_max_memory, 1*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1mb */
     createULongLongConfig("swap-repl-max-rocksdb-read-bps", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_repl_max_rocksdb_read_bps, 0, MEMORY_CONFIG, NULL, NULL), /* Default: unlimited */
+    createULongLongConfig("swap-absent-cache-capacity", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.swap_absent_cache_capacity, 64*1024, INTEGER_CONFIG, NULL, updateSwapAbsentCacheCapacity), /* Default: 64k */
     createULongLongConfig("rocksdb.data.block_cache_size", "rocksdb.block_cache_size", IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_data_block_cache_size, 8*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("rocksdb.meta.block_cache_size", NULL, IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_meta_block_cache_size, 512*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("rocksdb.data.write_buffer_size", "rocksdb.write_buffer_size", IMMUTABLE_CONFIG, 0, ULLONG_MAX, server.rocksdb_data_write_buffer_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),

@@ -80,6 +80,7 @@ extern const char *swap_cf_names[CF_COUNT];
 /* Set object dirty when swap finish */
 #define SWAP_FIN_SET_DIRTY (1U<<10)
 
+#define SWAP_UNSET -1
 #define SWAP_NOP    0
 #define SWAP_IN     1
 #define SWAP_OUT    2
@@ -1282,7 +1283,8 @@ typedef struct compactionFilterStat {
 
 typedef struct swapHitStat {
     redisAtomic long long stat_swapin_attempt_count;
-    redisAtomic long long stat_swapin_not_found_count;
+    redisAtomic long long stat_swapin_not_found_cachemiss_count;
+    redisAtomic long long stat_swapin_not_found_cachehit_count;
     redisAtomic long long stat_swapin_no_io_count;
 } swapHitStat;
 
@@ -1538,6 +1540,20 @@ void listLoadInit(rdbKeyLoadData *load);
 void zsetLoadInit(rdbKeyLoadData *load);
 int rdbLoadLenVerbatim(rio *rdb, sds *verbatim, int *isencoded, unsigned long long *lenptr);
 
+/* absent keys cache */
+typedef struct absentsCache {
+  size_t capacity;
+  dict *map;
+  list *list;
+} absentsCache;
+
+absentsCache *absentsCacheNew(size_t capacity);
+void absentsCacheFree(absentsCache *cache);
+int absentsCachePut(absentsCache *cache, sds key);
+int absentsCacheGet(absentsCache *cache, sds key);
+int absentsCacheDelete(absentsCache *cache, sds key);
+void absentsCacheSetCapacity(absentsCache *cache, size_t capacity);
+
 /* Util */
 #define ROCKS_KEY_FLAG_NONE 0x0
 #define ROCKS_KEY_FLAG_SUBKEY 0x1
@@ -1709,6 +1725,7 @@ int swapListMetaTest(int argc, char *argv[], int accurate);
 int swapListDataTest(int argc, char *argv[], int accurate);
 int swapListUtilsTest(int argc, char *argv[], int accurate);
 int swapHoldTest(int argc, char *argv[], int accurate);
+int swapAbsentTest(int argc, char *argv[], int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 

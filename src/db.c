@@ -425,6 +425,14 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         dbarray[j].expires_cursor = 0;
         dbarray[j].cold_keys = 0;
         scanExpireEmpty(dbarray[j].scan_expire);
+
+
+        if (dbarray[j].swap_absent_cache) {
+            absentsCacheFree(dbarray[j].swap_absent_cache);
+            dbarray[j].swap_absent_cache = NULL;
+        }
+        if (server.swap_absent_cache_enabled)
+            dbarray[j].swap_absent_cache = absentsCacheNew(server.swap_absent_cache_capacity);
     }
 
     return removed;

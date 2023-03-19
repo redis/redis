@@ -325,6 +325,7 @@ int keyExpiredAndShouldDelete(redisDb *db, robj *key) {
 #define NOSWAP_REASON_NOTKEYLEVEL 2
 #define NOSWAP_REASON_KEYNOTSUPPORT 3
 #define NOSWAP_REASON_SWAPANADECIDED 4
+#define NOSWAP_REASON_ABSENTCACHEHIT 5
 #define NOSWAP_REASON_UNEXPECTED 100
 
 void keyRequestProceed(void *lock, redisDb *db, robj *key,
@@ -372,6 +373,12 @@ void keyRequestProceed(void *lock, redisDb *db, robj *key,
     }
 
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
+    if (value == NULL && db->swap_absent_cache &&
+            absentsCacheGet(db->swap_absent_cache, key->ptr)) {
+        reason = "key is absent";
+        reason_num = NOSWAP_REASON_ABSENTCACHEHIT;
+        goto noswap;
+    }
 
     data = createSwapData(db,key,value);
     swapCtxSetSwapData(ctx,data,datactx);
@@ -436,9 +443,11 @@ allset:
 noswap:
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed",
             "no swap needed: %s", reason);
-    if (isSwapHitStatKeyRequest(ctx->key_request) 
-            && reason_num == NOSWAP_REASON_SWAPANADECIDED) {
-        atomicIncr(server.swap_hit_stats->stat_swapin_no_io_count,1);
+    if (isSwapHitStatKeyRequest(ctx->key_request)) {
+        if (reason_num == NOSWAP_REASON_SWAPANADECIDED)
+            atomicIncr(server.swap_hit_stats->stat_swapin_no_io_count,1);
+        if (reason_num == NOSWAP_REASON_ABSENTCACHEHIT)
+            atomicIncr(server.swap_hit_stats->stat_swapin_not_found_cachehit_count,1);
     }
 
     /* noswap is kinda swapfinished. */
@@ -624,6 +633,15 @@ void swapInit() {
     server.swap_scan_sessions = swapScanSessionsCreate(server.swap_scan_session_bits);
 
     server.swap_dependency_block_ctx = createSwapUnblockCtx();
+
+    for (i = 0; i < server.dbnum; i++) {
+        redisDb *db = server.db+i;
+        if (server.swap_absent_cache_enabled) {
+            db->swap_absent_cache = absentsCacheNew(server.swap_absent_cache_capacity);
+        } else {
+            db->swap_absent_cache = NULL;
+        }
+    }
 }
 
 
@@ -647,6 +665,7 @@ int initTestRedisDb() {
         server.db[j].cold_keys = 0;
         server.db[j].randomkey_nextseek = NULL;
         server.db[j].scan_expire = scanExpireCreate();
+        server.db[j].swap_absent_cache = NULL;
         server.db[j].expires_cursor = 0;
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
@@ -691,6 +710,7 @@ int swapTest(int argc, char **argv, int accurate) {
   result += swapListDataTest(argc, argv, accurate);
   result += swapListUtilsTest(argc, argv, accurate);
   result += swapHoldTest(argc, argv, accurate);
+  result += swapAbsentTest(argc, argv, accurate);
   return result;
 }
 #endif
