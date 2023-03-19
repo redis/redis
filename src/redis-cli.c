@@ -1345,7 +1345,8 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
             char numsep;
             if (r->type == REDIS_REPLY_SET) numsep = '~';
             else if (r->type == REDIS_REPLY_MAP) numsep = '#';
-            else if (r->type == REDIS_REPLY_PUSH) numsep = '>';
+            /* TODO: this would be a breaking change for scripts, do that in a major version. */
+            /* else if (r->type == REDIS_REPLY_PUSH) numsep = '>'; */
             else numsep = ')';
             snprintf(_prefixfmt,sizeof(_prefixfmt),"%%s%%%ud%c ",idxlen,numsep);
 
