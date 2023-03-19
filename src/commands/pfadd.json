@@ -46,6 +46,18 @@
                 "optional": true,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "if at least 1 HyperLogLog internal register was altered",
+                    "const": 1
+                },
+                {
+                    "description": "if no HyperLogLog internal register were altered",
+                    "const": 0
+                }
+            ]
+        }
     }
 }

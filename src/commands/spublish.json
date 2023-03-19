@@ -41,6 +41,11 @@
                     }
                 }
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "the number of clients that received the message. Note that in a Redis Cluster, only clients that are connected to the same node as the publishing client are included in the count",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

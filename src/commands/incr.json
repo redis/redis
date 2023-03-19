@@ -41,6 +41,10 @@
                 "type": "key",
                 "key_spec_index": 0
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The value of key after the increment",
+            "type": "integer"
+        }
     }
 }

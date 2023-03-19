@@ -890,6 +890,27 @@ struct redisCommandArg CLIENT_NO_EVICT_Args[] = {
 {0}
 };
 
+/********** CLIENT NO_TOUCH ********************/
+
+/* CLIENT NO_TOUCH history */
+#define CLIENT_NO_TOUCH_History NULL
+
+/* CLIENT NO_TOUCH tips */
+#define CLIENT_NO_TOUCH_tips NULL
+
+/* CLIENT NO_TOUCH enabled argument table */
+struct redisCommandArg CLIENT_NO_TOUCH_enabled_Subargs[] = {
+{"on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE},
+{"off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* CLIENT NO_TOUCH argument table */
+struct redisCommandArg CLIENT_NO_TOUCH_Args[] = {
+{"enabled",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_NO_TOUCH_enabled_Subargs},
+{0}
+};
+
 /********** CLIENT PAUSE ********************/
 
 /* CLIENT PAUSE history */
@@ -1027,6 +1048,7 @@ struct redisCommand CLIENT_Subcommands[] = {
 {"kill","Kill the connection of a client","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_KILL_History,CLIENT_KILL_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_KILL_Args},
 {"list","Get the list of client connections","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_LIST_History,CLIENT_LIST_tips,clientCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_LIST_Args},
 {"no-evict","Set client eviction mode for the current connection","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_NO_EVICT_History,CLIENT_NO_EVICT_tips,clientCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_NO_EVICT_Args},
+{"no-touch","Controls whether commands sent by the client will alter the LRU/LFU of the keys they access.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_NO_TOUCH_History,CLIENT_NO_TOUCH_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_NO_TOUCH_Args},
 {"pause","Stop processing commands from clients for some time","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,CLIENT_PAUSE_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_PAUSE_Args},
 {"reply","Instruct the server whether to reply to commands","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,CLIENT_REPLY_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_REPLY_Args},
 {"setname","Set the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,CLIENT_SETNAME_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETNAME_Args},
@@ -1810,6 +1832,26 @@ NULL
 
 /* WAIT argument table */
 struct redisCommandArg WAIT_Args[] = {
+{"numreplicas",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/********** WAITAOF ********************/
+
+/* WAITAOF history */
+#define WAITAOF_History NULL
+
+/* WAITAOF tips */
+const char *WAITAOF_tips[] = {
+"request_policy:all_shards",
+"response_policy:agg_min",
+NULL
+};
+
+/* WAITAOF argument table */
+struct redisCommandArg WAITAOF_Args[] = {
+{"numlocal",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"numreplicas",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
@@ -4106,7 +4148,10 @@ struct redisCommandArg ACL_GETUSER_Args[] = {
 /********** ACL LOG ********************/
 
 /* ACL LOG history */
-#define ACL_LOG_History NULL
+commandHistory ACL_LOG_History[] = {
+{"7.2.0","Added entry ID, timestamp created, and timestamp last updated."},
+{0}
+};
 
 /* ACL LOG tips */
 #define ACL_LOG_tips NULL
@@ -7207,18 +7252,19 @@ struct redisCommand redisCommandTable[] = {
 {"pexpireat","Set the expiration for a key as a UNIX timestamp specified in milliseconds","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PEXPIREAT_History,PEXPIREAT_tips,pexpireatCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIREAT_Args},
 {"pexpiretime","Get the expiration Unix timestamp for a key in milliseconds","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PEXPIRETIME_History,PEXPIRETIME_tips,pexpiretimeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIRETIME_Args},
 {"pttl","Get the time to live for a key in milliseconds","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PTTL_History,PTTL_tips,pttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PTTL_Args},
-{"randomkey","Return a random key from the keyspace","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RANDOMKEY_History,RANDOMKEY_tips,randomkeyCommand,1,CMD_READONLY,ACL_CATEGORY_KEYSPACE},
+{"randomkey","Return a random key from the keyspace","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RANDOMKEY_History,RANDOMKEY_tips,randomkeyCommand,1,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE},
 {"rename","Rename a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RENAME_History,RENAME_tips,renameCommand,3,CMD_WRITE,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RENAME_Args},
 {"renamenx","Rename a key, only if the new key does not exist","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RENAMENX_History,RENAMENX_tips,renamenxCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RENAMENX_Args},
 {"restore","Create a key using the provided serialized value, previously obtained using DUMP.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RESTORE_History,RESTORE_tips,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RESTORE_Args},
-{"scan","Incrementally iterate the keys space","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SCAN_History,SCAN_tips,scanCommand,-2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,.args=SCAN_Args},
+{"scan","Incrementally iterate the keys space","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SCAN_History,SCAN_tips,scanCommand,-2,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,.args=SCAN_Args},
 {"sort","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_History,SORT_tips,sortCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}},{"For the optional STORE keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortGetKeys,.args=SORT_Args},
 {"sort_ro","Sort the elements in a list, set or sorted set. Read-only variant of SORT.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_RO_History,SORT_RO_tips,sortroCommand,-2,CMD_READONLY,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortROGetKeys,.args=SORT_RO_Args},
 {"touch","Alters the last access time of a key(s). Returns the number of existing keys specified.","O(N) where N is the number of keys that will be touched.","3.2.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TOUCH_History,TOUCH_tips,touchCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=TOUCH_Args},
 {"ttl","Get the time to live for a key in seconds","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TTL_History,TTL_tips,ttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TTL_Args},
 {"type","Determine the type stored at key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TYPE_History,TYPE_tips,typeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TYPE_Args},
 {"unlink","Delete a key asynchronously in another thread. Otherwise it is just as DEL, but non blocking.","O(1) for each key removed regardless of its size. Then the command does O(N) work in a different thread in order to reclaim memory, where N is the number of allocations the deleted objects where composed of.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,UNLINK_History,UNLINK_tips,unlinkCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RM|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=UNLINK_Args},
-{"wait","Wait for the synchronous replication of all the write commands sent in the context of the current connection","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,WAIT_History,WAIT_tips,waitCommand,3,CMD_NOSCRIPT,ACL_CATEGORY_CONNECTION,.args=WAIT_Args},
+{"wait","Wait for the synchronous replication of all the write commands sent in the context of the current connection","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,WAIT_History,WAIT_tips,waitCommand,3,0,ACL_CATEGORY_CONNECTION,.args=WAIT_Args},
+{"waitaof","Wait for all write commands sent in the context of the current connection to be synced to AOF of local host and/or replicas","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,WAITAOF_History,WAITAOF_tips,waitaofCommand,4,CMD_NOSCRIPT,ACL_CATEGORY_CONNECTION,.args=WAITAOF_Args},
 /* geo */
 {"geoadd","Add one or more geospatial items in the geospatial index represented using a sorted set","O(log(N)) for each item added, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GEO,GEOADD_History,GEOADD_tips,geoaddCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOADD_Args},
 {"geodist","Returns the distance between two members of a geospatial index","O(log(N))","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GEO,GEODIST_History,GEODIST_tips,geodistCommand,-4,CMD_READONLY,ACL_CATEGORY_GEO,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEODIST_Args},
@@ -7254,11 +7300,11 @@ struct redisCommand redisCommandTable[] = {
 {"pfmerge","Merge N different HyperLogLogs into a single one.","O(N) to merge N HyperLogLogs, but with high constant times.","2.8.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFMERGE_History,PFMERGE_tips,pfmergeCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_HYPERLOGLOG,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=PFMERGE_Args},
 {"pfselftest","An internal command for testing HyperLogLog values","N/A","2.8.9",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFSELFTEST_History,PFSELFTEST_tips,pfselftestCommand,1,CMD_ADMIN,ACL_CATEGORY_HYPERLOGLOG},
 /* list */
-{"blmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMOVE_History,BLMOVE_tips,blmoveCommand,6,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BLMOVE_Args},
+{"blmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMOVE_History,BLMOVE_tips,blmoveCommand,6,CMD_WRITE|CMD_DENYOOM|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BLMOVE_Args},
 {"blmpop","Pop elements from a list, or block until one is available","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMPOP_History,BLMPOP_tips,blmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BLMPOP_Args},
-{"blpop","Remove and get the first element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLPOP_History,BLPOP_tips,blpopCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BLPOP_Args},
-{"brpop","Remove and get the last element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BRPOP_History,BRPOP_tips,brpopCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BRPOP_Args},
-{"brpoplpush","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","2.2.0",CMD_DOC_DEPRECATED,"`BLMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0",COMMAND_GROUP_LIST,BRPOPLPUSH_History,BRPOPLPUSH_tips,brpoplpushCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BRPOPLPUSH_Args},
+{"blpop","Remove and get the first element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLPOP_History,BLPOP_tips,blpopCommand,-3,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BLPOP_Args},
+{"brpop","Remove and get the last element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BRPOP_History,BRPOP_tips,brpopCommand,-3,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BRPOP_Args},
+{"brpoplpush","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","2.2.0",CMD_DOC_DEPRECATED,"`BLMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0",COMMAND_GROUP_LIST,BRPOPLPUSH_History,BRPOPLPUSH_tips,brpoplpushCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BRPOPLPUSH_Args},
 {"lindex","Get an element from a list by its index","O(N) where N is the number of elements to traverse to get to the element at index. This makes asking for the first or the last element of the list O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LINDEX_History,LINDEX_tips,lindexCommand,3,CMD_READONLY,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LINDEX_Args},
 {"linsert","Insert an element before or after another element in a list","O(N) where N is the number of elements to traverse before seeing the value pivot. This means that inserting somewhere on the left end on the list (head) can be considered O(1) and inserting somewhere on the right end (tail) is O(N).","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LINSERT_History,LINSERT_tips,linsertCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LINSERT_Args},
 {"llen","Get the length of a list","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LLEN_History,LLEN_tips,llenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LLEN_Args},
@@ -7347,8 +7393,8 @@ struct redisCommand redisCommandTable[] = {
 {"sunionstore","Add multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SUNIONSTORE_History,SUNIONSTORE_tips,sunionstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNIONSTORE_Args},
 /* sorted_set */
 {"bzmpop","Remove and return members with scores in a sorted set or block until one is available","O(K) + O(M*log(N)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZMPOP_History,BZMPOP_tips,bzmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BZMPOP_Args},
-{"bzpopmax","Remove and return the member with the highest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZPOPMAX_History,BZPOPMAX_tips,bzpopmaxCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BZPOPMAX_Args},
-{"bzpopmin","Remove and return the member with the lowest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZPOPMIN_History,BZPOPMIN_tips,bzpopminCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BZPOPMIN_Args},
+{"bzpopmax","Remove and return the member with the highest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZPOPMAX_History,BZPOPMAX_tips,bzpopmaxCommand,-3,CMD_WRITE|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BZPOPMAX_Args},
+{"bzpopmin","Remove and return the member with the lowest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZPOPMIN_History,BZPOPMIN_tips,bzpopminCommand,-3,CMD_WRITE|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BZPOPMIN_Args},
 {"zadd","Add one or more members to a sorted set, or update its score if it already exists","O(log(N)) for each item added, where N is the number of elements in the sorted set.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZADD_History,ZADD_tips,zaddCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZADD_Args},
 {"zcard","Get the number of members in a sorted set","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZCARD_History,ZCARD_tips,zcardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZCARD_Args},
 {"zcount","Count the members in a sorted set with scores within the given values","O(log(N)) with N being the number of elements in the sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZCOUNT_History,ZCOUNT_tips,zcountCommand,4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZCOUNT_Args},

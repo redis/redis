@@ -139,6 +139,21 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "The result of the subcommand at the same position",
+                        "type": "integer"
+                    },
+                    {
+                        "description": "In case OVERFLOW FAIL was given and overflows or underflows detected",
+                        "type": "null"
+                    }
+                ]
+            }
+        }
     }
 }

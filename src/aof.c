@@ -920,12 +920,12 @@ int aofFsyncInProgress(void) {
 /* Starts a background task that performs fsync() against the specified
  * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
-    bioCreateFsyncJob(fd);
+    bioCreateFsyncJob(fd, server.master_repl_offset, 1);
 }
 
 /* Close the fd on the basis of aof_background_fsync. */
 void aof_background_fsync_and_close(int fd) {
-    bioCreateCloseJob(fd, 1);
+    bioCreateCloseAofJob(fd, server.master_repl_offset, 1);
 }
 
 /* Kills an AOFRW child process if exists */
@@ -962,6 +962,8 @@ void stopAppendOnly(void) {
     server.aof_state = AOF_OFF;
     server.aof_rewrite_scheduled = 0;
     server.aof_last_incr_size = 0;
+    server.fsynced_reploff = -1;
+    atomicSet(server.fsynced_reploff_pending, 0);
     killAppendOnlyChild();
     sdsfree(server.aof_buf);
     server.aof_buf = sdsempty();
@@ -972,19 +974,31 @@ void stopAppendOnly(void) {
 int startAppendOnly(void) {
     serverAssert(server.aof_state == AOF_OFF);
 
+    /* Wait for all bio jobs related to AOF to drain. This prevents a race
+     * between updates to `fsynced_reploff_pending` of the worker thread, belonging
+     * to the previous AOF, and the new one. This concern is specific for a full
+     * sync scenario where we don't wanna risk the ACKed replication offset
+     * jumping backwards or forward when switching to a different master. */
+    bioDrainWorker(BIO_AOF_FSYNC);
+
+    /* Set the initial repl_offset, which will be applied to fsynced_reploff
+     * when AOFRW finishes (after possibly being updated by a bio thread) */
+    atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
+    server.fsynced_reploff = 0;
+
     server.aof_state = AOF_WAIT_REWRITE;
     if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
         server.aof_rewrite_scheduled = 1;
-        serverLog(LL_WARNING,"AOF was enabled but there is already another background operation. An AOF background was scheduled to start when possible.");
+        serverLog(LL_NOTICE,"AOF was enabled but there is already another background operation. An AOF background was scheduled to start when possible.");
     } else if (server.in_exec){
         server.aof_rewrite_scheduled = 1;
-        serverLog(LL_WARNING,"AOF was enabled during a transaction. An AOF background was scheduled to start when possible.");
+        serverLog(LL_NOTICE,"AOF was enabled during a transaction. An AOF background was scheduled to start when possible.");
     } else {
         /* If there is a pending AOF rewrite, we need to switch it off and
          * start a new one: the old one cannot be reused because it is not
          * accumulating the AOF buffer. */
         if (server.child_type == CHILD_TYPE_AOF) {
-            serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
+            serverLog(LL_NOTICE,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
             killAppendOnlyChild();
         }
 
@@ -1201,7 +1215,7 @@ void flushAppendOnlyFile(int force) {
         /* Successful write(2). If AOF was in error state, restore the
          * OK state and log the event. */
         if (server.aof_last_write_status == C_ERR) {
-            serverLog(LL_WARNING,
+            serverLog(LL_NOTICE,
                 "AOF write error looks solved, Redis can write again.");
             server.aof_last_write_status = C_OK;
         }
@@ -1241,6 +1255,7 @@ try_fsync:
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
         server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
+        atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
     } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                 server.unixtime > server.aof_last_fsync)) {
         if (!sync_in_progress) {
@@ -1413,8 +1428,10 @@ int loadSingleAppendOnlyFile(char *filename) {
      * to the same file we're about to read. */
     server.aof_state = AOF_OFF;
 
-    client *old_client = server.current_client;
-    fakeClient = server.current_client = createAOFClient();
+    client *old_cur_client = server.current_client;
+    client *old_exec_client = server.executing_client;
+    fakeClient = createAOFClient();
+    server.current_client = server.executing_client = fakeClient;
 
     /* Check if the AOF file is in RDB format (it may be RDB encoded base AOF
      * or old style RDB-preamble AOF). In that case we need to load the RDB file 
@@ -1622,7 +1639,8 @@ fmterr: /* Format error. */
 
 cleanup:
     if (fakeClient) freeClient(fakeClient);
-    server.current_client = old_client;
+    server.current_client = old_cur_client;
+    server.executing_client = old_exec_client;
     fclose(fp);
     sdsfree(aof_filepath);
     return ret;
@@ -2342,8 +2360,10 @@ int rewriteAppendOnlyFile(char *filename) {
 
     rioInitWithFile(&aof,fp);
 
-    if (server.aof_rewrite_incremental_fsync)
+    if (server.aof_rewrite_incremental_fsync) {
         rioSetAutoSync(&aof,REDIS_AUTOSYNC_BYTES);
+        rioSetReclaimCache(&aof,1);
+    }
 
     startSaving(RDBFLAGS_AOF_PREAMBLE);
 
@@ -2360,6 +2380,10 @@ int rewriteAppendOnlyFile(char *filename) {
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp)) goto werr;
     if (fsync(fileno(fp))) goto werr;
+    if (reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
+        /* A minor error. Just log to know what happens */
+        serverLog(LL_NOTICE,"Unable to reclaim page cache: %s", strerror(errno));
+    }
     if (fclose(fp)) { fp = NULL; goto werr; }
     fp = NULL;
 
@@ -2660,8 +2684,16 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         serverLog(LL_NOTICE, "Background AOF rewrite finished successfully");
         /* Change state from WAIT_REWRITE to ON if needed */
-        if (server.aof_state == AOF_WAIT_REWRITE)
+        if (server.aof_state == AOF_WAIT_REWRITE) {
             server.aof_state = AOF_ON;
+
+            /* Update the fsynced replication offset that just now become valid.
+             * This could either be the one we took in startAppendOnly, or a
+             * newer one set by the bio thread. */
+            long long fsynced_reploff_pending;
+            atomicGet(server.fsynced_reploff_pending, fsynced_reploff_pending);
+            server.fsynced_reploff = fsynced_reploff_pending;
+        }
 
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);

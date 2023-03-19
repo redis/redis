@@ -32,6 +32,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "List length.",
+            "type": "integer",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "key",

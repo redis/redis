@@ -558,9 +558,10 @@ foreach {type large} [array get largevalue] {
     foreach resp {3 2} {
         if {[lsearch $::denytags "resp3"] >= 0} {
             if {$resp == 3} {continue}
-        } else {
-            r hello $resp
+        } elseif {$::force_resp3} {
+            if {$resp == 2} {continue}
         }
+        r hello $resp
 
         # Make sure we can distinguish between an empty array and a null response
         r readraw 1
@@ -589,6 +590,7 @@ foreach {type large} [array get largevalue] {
         }
 
         r readraw 0
+        r hello 2
     }
 
     test {Variadic RPUSH/LPUSH} {
@@ -1278,7 +1280,6 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             r del blist1{t} blist2{t}
             r set blist2{t} nolist{t}
             bpop_command_two_key $rd $pop blist1{t} blist2{t} 1
-            $rd $pop blist1{t} blist2{t} 1
             assert_error "WRONGTYPE*" {$rd read}
             $rd close
         }
@@ -2197,8 +2198,8 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd1 BLPOP mylist 0
         wait_for_blocked_clients_count 1
         
-        # pipline on other client a list push and a blocking pop
-        # we should expect the fainess to be kept and have $rd1
+        # pipeline on other client a list push and a blocking pop
+        # we should expect the fairness to be kept and have $rd1
         # being unblocked
         set buf ""
         append buf "LPUSH mylist 1\r\n"
@@ -2255,7 +2256,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd3 close
     }
     
-    test "Blocking command acounted only once in commandstats" {
+    test "Blocking command accounted only once in commandstats" {
         # cleanup first
         r del mylist
         
@@ -2278,7 +2279,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd close
     }
     
-    test "Blocking command acounted only once in commandstats after timeout" {
+    test "Blocking command accounted only once in commandstats after timeout" {
         # cleanup first
         r del mylist
         

@@ -33,6 +33,21 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "List of values associated with the given fields, in the same order as they are requested.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "null"
+                    }
+                ]
+            }
+        },
         "arguments": [
             {
                 "name": "key",

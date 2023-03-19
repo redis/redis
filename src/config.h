@@ -131,7 +131,7 @@
 #endif
 #endif
 
-#if __GNUC__ >= 4
+#if __GNUC__ >= 5 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
 #define redis_unreachable __builtin_unreachable
 #else
 #define redis_unreachable abort
@@ -317,6 +317,11 @@ void setcpuaffinity(const char *cpulist);
 int sprintf(char *str, const char *format, ...) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of snprintf instead")));
 char *strcpy(char *restrict dest, const char *src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcpy instead")));
 char *strcat(char *restrict dest, const char *restrict src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcat instead")));
+#endif
+
+/* Test for posix_fadvise() */
+#if defined(__linux__) || __FreeBSD__ >= 10
+#define HAVE_FADVISE
 #endif
 
 #endif

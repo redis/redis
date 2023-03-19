@@ -61,6 +61,9 @@
                 "optional": true,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "Return value depends on the script that is executed"
+        }
     }
 }

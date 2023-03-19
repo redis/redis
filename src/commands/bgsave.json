@@ -25,6 +25,16 @@
                 "optional": true,
                 "since": "3.2.2"
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": "Background saving started"
+                },
+                {
+                    "const": "Background saving scheduled"
+                }
+            ]
+        }
     }
 }

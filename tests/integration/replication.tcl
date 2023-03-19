@@ -253,12 +253,15 @@ start_server {tags {"repl external:skip"}} {
             # DB is empty.
             r -1 flushdb
             r -1 flushdb
-            r -1 flushdb
+            r -1 eval {redis.call("flushdb")} 0
 
             # DBs are empty.
             r -1 flushall
             r -1 flushall
-            r -1 flushall
+            r -1 eval {redis.call("flushall")} 0
+
+            # add another command to check nothing else was propagated after the above
+            r -1 incr x
 
             # Assert that each FLUSHDB command is replicated even the DB is empty.
             # Assert that each FLUSHALL command is replicated even the DBs are empty.
@@ -273,6 +276,7 @@ start_server {tags {"repl external:skip"}} {
                 {flushall}
                 {flushall}
                 {flushall}
+                {incr x}
             }
             close_replication_stream $repl
         }
