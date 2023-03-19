@@ -15,6 +15,9 @@
         "acl_categories": [
             "CONNECTION"
         ],
+        "reply_schema": {
+            "const": "OK"
+        },
         "arguments": [
             {
                 "name": "enabled",

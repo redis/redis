@@ -41,7 +41,7 @@ start_server {tags {"introspection"}} {
         r set foo bar
         r client no-touch on
         set oldlru [getlru foo]
-        after 1000
+        after 1100
         r get foo
         set newlru [getlru foo]
         assert_equal $newlru $oldlru

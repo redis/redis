@@ -34,6 +34,45 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "type": "array",
+                    "description": "List of popped elements and scores when 'COUNT' isn't specified.",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "type": "string",
+                            "description": "Popped element."
+                        },
+                        {
+                            "type": "number",
+                            "description": "Score."
+                        }
+                    ]
+                },
+                {
+                    "type": "array",
+                    "description": "List of popped elements and scores when 'COUNT' is specified.",
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "type": "string",
+                                "description": "Popped element."
+                            },
+                            {
+                                "type": "number",
+                                "description": "Score."
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

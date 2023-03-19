@@ -23,6 +23,10 @@
                 "name": "script",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The SHA1 digest of the script added into the script cache",
+            "type": "string"
+        }
     }
 }

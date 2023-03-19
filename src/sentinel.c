@@ -2272,12 +2272,8 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
 /* This function uses the config rewriting Redis engine in order to persist
  * the state of the Sentinel in the current configuration file.
  *
- * Before returning the function calls fsync() against the generated
- * configuration file to make sure changes are committed to disk.
- *
  * On failure the function logs a warning on the Redis log. */
 int sentinelFlushConfig(void) {
-    int fd = -1;
     int saved_hz = server.hz;
     int rewrite_status;
 
@@ -2285,17 +2281,13 @@ int sentinelFlushConfig(void) {
     rewrite_status = rewriteConfig(server.configfile, 0);
     server.hz = saved_hz;
 
-    if (rewrite_status == -1) goto werr;
-    if ((fd = open(server.configfile,O_RDONLY)) == -1) goto werr;
-    if (fsync(fd) == -1) goto werr;
-    if (close(fd) == EOF) goto werr;
-    serverLog(LL_NOTICE,"Sentinel new configuration saved on disk");
-    return C_OK;
-
-werr:
-    serverLog(LL_WARNING,"WARNING: Sentinel was not able to save the new configuration on disk!!!: %s", strerror(errno));
-    if (fd != -1) close(fd);
-    return C_ERR;
+    if (rewrite_status == -1) {
+        serverLog(LL_WARNING,"WARNING: Sentinel was not able to save the new configuration on disk!!!: %s", strerror(errno));
+        return C_ERR;
+    } else {
+        serverLog(LL_NOTICE,"Sentinel new configuration saved on disk");
+        return C_OK;
+    }
 }
 
 /* Call sentinelFlushConfig() produce a success/error reply to the
@@ -2776,7 +2768,9 @@ void sentinelInfoReplyCallback(redisAsyncContext *c, void *reply, void *privdata
     link->pending_commands--;
     r = reply;
 
-    if (r->type == REDIS_REPLY_STRING)
+    /* INFO reply type is verbatim in resp3. Normally, sentinel will not use
+     * resp3 but this is required for testing (see logreqres.c). */
+    if (r->type == REDIS_REPLY_STRING || r->type == REDIS_REPLY_VERB)
         sentinelRefreshInstanceInfo(ri,r->str);
 }
 
@@ -2987,8 +2981,10 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
     ri->link->pc_last_activity = mstime();
 
     /* Sanity check in the reply we expect, so that the code that follows
-     * can avoid to check for details. */
-    if (r->type != REDIS_REPLY_ARRAY ||
+     * can avoid to check for details.
+     * Note: Reply type is PUSH in resp3. Normally, sentinel will not use
+     * resp3 but this is required for testing (see logreqres.c). */
+    if ((r->type != REDIS_REPLY_ARRAY && r->type != REDIS_REPLY_PUSH) ||
         r->elements != 3 ||
         r->element[0]->type != REDIS_REPLY_STRING ||
         r->element[1]->type != REDIS_REPLY_STRING ||

@@ -39,6 +39,32 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "null",
+                    "description": "Key does not exist or the member does not exist in the sorted set."
+                },
+                {
+                    "type": "integer",
+                    "description": "The rank of the member when 'WITHSCORES' is not used."
+                },
+                {
+                    "type": "array",
+                    "description": "The rank and score of the member when 'WITHSCORES' is used.",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "number"
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

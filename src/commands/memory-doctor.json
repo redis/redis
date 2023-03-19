@@ -11,6 +11,10 @@
             "NONDETERMINISTIC_OUTPUT",
             "REQUEST_POLICY:ALL_SHARDS",
             "RESPONSE_POLICY:SPECIAL"
-        ]
+        ],
+        "reply_schema": {
+            "description": "memory problems report",
+            "type": "string"
+        }
     }
 }

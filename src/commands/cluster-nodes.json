@@ -12,6 +12,10 @@
         ],
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT"
-        ]
+        ],
+        "reply_schema": {
+            "description": "the serialized cluster configuration",
+            "type": "string"
+        }
     }
 }

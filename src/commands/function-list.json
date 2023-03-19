@@ -16,6 +16,59 @@
         "acl_categories": [
             "SCRIPTING"
         ],
+        "reply_schema": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "library_name": {
+                        "description": " the name of the library",
+                        "type": "string"
+                    },
+                    "engine": {
+                        "description": "the engine of the library",
+                        "type": "string"
+                    },
+                    "functions": {
+                        "description": "the list of functions in the library",
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "name": {
+                                    "description": "the name of the function",
+                                    "type": "string"
+                                },
+                                "description": {
+                                    "description": "the function's description",
+                                    "oneOf": [
+                                        {
+                                            "type": "null"
+                                        },
+                                        {
+                                            "type": "string"
+                                        }
+                                    ]
+                                },
+                                "flags": {
+                                    "description": "an array of function flags",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "library_code": {
+                        "description": "the library's source code (when given the WITHCODE modifier)",
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "arguments": [
             {
                 "name": "library-name-pattern",

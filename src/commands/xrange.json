@@ -38,6 +38,30 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "Stream entries with IDs matching the specified range.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": [
+                    {
+                        "description": "Entry ID",
+                        "type": "string",
+                        "pattern": "[0-9]+-[0-9]+"
+                    },
+                    {
+                        "description": "Data",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                ]
+            }
+        },
         "arguments": [
             {
                 "name": "key",

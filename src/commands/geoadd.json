@@ -89,6 +89,10 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "When used without optional arguments, the number of elements added to the sorted set (excluding score updates).  If the CH option is specified, the number of elements that were changed (added or updated).",
+            "type": "integer"
+        }
     }
 }

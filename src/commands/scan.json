@@ -47,6 +47,25 @@
                 "optional": true,
                 "since": "6.0.0"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "cursor and scan response in array form",
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": [
+                {
+                    "description": "cursor",
+                    "type": "string"
+                },
+                {
+                    "description": "list of keys",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        }
     }
 }

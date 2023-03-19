@@ -46,6 +46,10 @@
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT"
         ],
+        "reply_schema": {
+            "type": "string",
+            "description": "Information and statistics about client connections"
+        },
         "arguments": [
             {
                 "token": "TYPE",

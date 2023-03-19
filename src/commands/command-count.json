@@ -14,6 +14,10 @@
         ],
         "acl_categories": [
             "CONNECTION"
-        ]
+        ],
+        "reply_schema": {
+            "description": "Number of total commands in this Redis server.",
+            "type": "integer"
+        }
     }
 }

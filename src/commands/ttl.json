@@ -42,6 +42,23 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "TTL in seconds.",
+                    "type": "integer",
+                    "minimum": 0
+                },
+                {
+                    "description": "The key exists but has no associated expire.",
+                    "const": -1
+                },
+                {
+                    "description": "The key does not exist.",
+                    "const": -2
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

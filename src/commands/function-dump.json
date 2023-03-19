@@ -12,6 +12,10 @@
         ],
         "acl_categories": [
             "SCRIPTING"
-        ]
+        ],
+        "reply_schema": {
+            "description": "the serialized payload",
+            "type": "string"
+        }
     }
 }

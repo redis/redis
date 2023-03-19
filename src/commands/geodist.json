@@ -73,6 +73,19 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "one or both of elements are missing",
+                    "type": "null"
+                },
+                {
+                    "description": "distance as a double (represented as a string) in the specified units",
+                    "type": "string",
+                    "pattern": "^[0-9]*(.[0-9]*)?$"
+                }
+            ]
+        }
     }
 }
