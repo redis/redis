@@ -89,13 +89,11 @@ int CommandFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
-static int blmove_count = 0;
-
 /* Filter to protect against Bug #11894 reappearing
  *
  * ensures that the filter is only run the first time through, and not on reprocessing
  */
-void CommandFilter_Blmove(RedisModuleCommandFilterCtx *filter)
+void CommandFilter_BlmoveSwap(RedisModuleCommandFilterCtx *filter)
 {
     if (RedisModule_CommandFilterArgsCount(filter) != 6)
         return;
@@ -107,13 +105,10 @@ void CommandFilter_Blmove(RedisModuleCommandFilterCtx *filter)
     if (arg_len != 6 || strncmp(arg_str, "blmove", 6))
         return;
 
-
-    if (blmove_count == 0) {
-        blmove_count++;
-        return;
-    }
-
-    /* need to hold here, can't push into the ArgReplace func, as it will cause other to freed -> use after free */
+    /*
+     * Swapping directional args (right/left) from source and destination.
+     * need to hold here, can't push into the ArgReplace func, as it will cause other to freed -> use after free
+     */
     RedisModuleString *dir1 = RedisModule_HoldString(NULL, RedisModule_CommandFilterArgGet(filter, 3));
     RedisModuleString *dir2 = RedisModule_HoldString(NULL, RedisModule_CommandFilterArgGet(filter, 4));
     RedisModule_CommandFilterArgReplace(filter, 3, dir2);
@@ -201,7 +196,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                     noself ? REDISMODULE_CMDFILTER_NOSELF : 0))
             == NULL) return REDISMODULE_ERR;
 
-    if ((filter1 = RedisModule_RegisterCommandFilter(ctx, CommandFilter_Blmove, 0)) == NULL)
+    if ((filter1 = RedisModule_RegisterCommandFilter(ctx, CommandFilter_BlmoveSwap, 0)) == NULL)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

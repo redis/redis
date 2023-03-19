@@ -116,6 +116,8 @@ test {RM_CommandFilterArgInsert and script argv caching} {
     }
 }
 
+# previously, there was a bug that command filters would be rerun (which would cause args to swap back)
+# this test is meant to protect against that bug
 test {Blocking Commands don't run through command filter when reprocessed} {
     start_server {tags {"modules"}} {
         r module load $testmodule log-key 0
@@ -127,11 +129,15 @@ test {Blocking Commands don't run through command filter when reprocessed} {
 
         set rd [redis_deferring_client]
         # we're asking to pop from the left, but the command filter swaps the two arguments,
-        # and we'll end up poping from the right (popping 5 instead of 1)
+        # if it didn't swap it, we would end up with e d c b a 5 (5 being the left most of the following lpush)
+        # but since we swap the arguments, we end up with 1 e d c b a (1 being the right most of it).
+        # if the command filter would run again on unblock, they would be swapped back.
         $rd blmove list1{t} list2{t} left right 0
         wait_for_blocked_client
         r lpush list1{t} 1 2 3 4 5
-        assert_equal [$rd read] 5
-        assert_equal [r rpop list2{t}] 5
+        # validate that we moved the correct element with the swapped args
+        assert_equal [$rd read] 1
+        # validate that we moved the correct elements to the correct side of the list
+        assert_equal [r lpop list2{t}] 1
     }
 }
