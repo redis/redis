@@ -2584,6 +2584,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * visit processCommand() at all). */
     handleClientsBlockedOnKeys();
 
+    if (server.ctrip_ignore_accept
+        && listLength(server.clients) + getClusterConnectionsCount() <= 0.8*server.maxclients) {
+        ctrip_resetAcceptIgnore();
+    }
+
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
      * time. */
@@ -2852,6 +2857,9 @@ void initServerConfig(void) {
     server.repl_backlog_idx = 0;
     server.repl_backlog_off = 0;
     server.repl_no_slaves_since = time(NULL);
+
+    /* ignore accept */
+    server.ctrip_monitor_port = 0;
 
     /* swap */
     server.swap_max_db_size = 0;
@@ -3175,6 +3183,62 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
     return C_OK;
 }
 
+void ctrip_ignoreAcceptEvent() {
+    if (server.ctrip_ignore_accept) return;
+    serverLog(LL_NOTICE, "[ctrip] ignore accept for clients overflow.");
+    server.ctrip_ignore_accept = 1;
+
+    int j;
+    for (j = 0; j < server.ipfd.count; j++) {
+        if (server.ipfd.fd[j] == -1) continue;
+        aeDeleteFileEvent(server.el, server.ipfd.fd[j], AE_READABLE);
+    }
+    for (j = 0; j < server.tlsfd.count; j++) {
+        if (server.tlsfd.fd[j] == -1) continue;
+        aeDeleteFileEvent(server.el, server.tlsfd.fd[j], AE_READABLE);
+    }
+    if (server.sofd > 0) {
+        aeDeleteFileEvent(server.el,server.sofd,AE_READABLE);
+    }
+}
+
+void ctrip_resetAcceptIgnore() {
+    if (!server.ctrip_ignore_accept) return;
+    server.ctrip_ignore_accept = 0;
+    serverLog(LL_NOTICE, "[ctrip] reset accept ignore, current clients %lu/%u",
+              listLength(server.clients) + getClusterConnectionsCount(), server.maxclients);
+
+    if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
+        serverPanic("Unrecoverable error creating TCP socket accept handler.");
+    }
+    if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
+        serverPanic("Unrecoverable error creating TLS socket accept handler.");
+    }
+    if (server.sofd > 0 &&
+        aeCreateFileEvent(server.el,server.sofd,AE_READABLE, acceptUnixHandler,NULL) == AE_ERR) {
+        serverPanic("Unrecoverable error creating server.sofd file event.");
+    }
+}
+
+/* keep work even if clients overflow. */
+void ctrip_initMonitorAcceptor() {
+    serverAssert(server.ctrip_monitor_port > 0);
+    server.ctrip_monitorfd = anetTcpServer(server.neterr,server.ctrip_monitor_port,"127.0.0.1",server.tcp_backlog);
+
+    if (server.ctrip_monitorfd == ANET_ERR) {
+        serverPanic("Unrecoverable error binding ctrip monitor port.");
+        exit(1);
+    }
+
+    anetNonBlock(NULL,server.ctrip_monitorfd);
+    anetCloexec(server.ctrip_monitorfd);
+
+    if (aeCreateFileEvent(server.el, server.ctrip_monitorfd, AE_READABLE, acceptMonitorHandler,NULL) == AE_ERR) {
+        serverPanic("Unrecoverable error creating ctrip monitor file event.");
+        exit(1);
+    }
+}
+
 /* Initialize a set of file descriptors to listen to the specified 'port'
  * binding the addresses specified in the Redis server configuration.
  *
@@ -3337,6 +3401,9 @@ void initServer(void) {
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
 
+    server.ctrip_ignore_accept = 0;
+    server.ctrip_monitorfd = 0;
+
     server.gtid_last_purge_time = 0;
     server.gtid_executed_cmd_count = 0;
     server.gtid_ignored_cmd_count = 0;
@@ -3395,6 +3462,10 @@ void initServer(void) {
     if (server.ipfd.count == 0 && server.tlsfd.count == 0 && server.sofd < 0) {
         serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
+    }
+
+    if (server.ctrip_monitor_port > 0) {
+        ctrip_initMonitorAcceptor();
     }
 
     /* Create the Redis databases, and initialize other internal state. */
@@ -4960,6 +5031,7 @@ sds genRedisInfoString(const char *section) {
             "connected_clients:%lu\r\n"
             "cluster_connections:%lu\r\n"
             "maxclients:%u\r\n"
+            "ignore_accept:%u\r\n"
             "client_recent_max_input_buffer:%zu\r\n"
             "client_recent_max_output_buffer:%zu\r\n"
             "blocked_clients:%d\r\n"
@@ -4968,6 +5040,7 @@ sds genRedisInfoString(const char *section) {
             listLength(server.clients)-listLength(server.slaves),
             getClusterConnectionsCount(),
             server.maxclients,
+            server.ctrip_ignore_accept,
             maxin, maxout,
             server.blocked_clients,
             server.tracking_clients,
@@ -5986,12 +6059,15 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
         }
     }
 
+    /* skip create accept handler if server ignore accept for clients overflow now. */
+    if (!server.ctrip_ignore_accept) {
     /* Create TCP and TLS event handlers */
     if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
         serverPanic("Unrecoverable error creating TCP socket accept handler.");
     }
     if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
         serverPanic("Unrecoverable error creating TLS socket accept handler.");
+    }
     }
 
     if (server.set_proc_title) redisSetProcTitle(NULL);
@@ -6014,10 +6090,13 @@ int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
         return C_ERR;
     }
 
+    /* skip create accept handler if server ignore accept for clients overflow now. */
+    if (!server.ctrip_ignore_accept) {
     /* Create event handlers */
     if (createSocketAcceptHandler(&new_sfd, accept_handler) != C_OK) {
         closeSocketListeners(&new_sfd);
         return C_ERR;
+    }
     }
 
     /* Close old servers */

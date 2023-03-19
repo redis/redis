@@ -69,6 +69,7 @@ set ::disk_tests {
     ctrip/gtid
     ctrip/sync-gtid
     ctrip/replication-psync-gtid
+    ctrip/monitor
     unit/printver
     unit/dump
     unit/auth
@@ -115,6 +116,7 @@ set ::all_tests {
     ctrip/gtid
     ctrip/sync-gtid
     ctrip/replication-psync-gtid
+    ctrip/monitor
     unit/shutdown
     unit/printver
     unit/dump

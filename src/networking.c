@@ -1066,7 +1066,7 @@ void clientAcceptHandler(connection *conn) {
 }
 
 #define MAX_ACCEPTS_PER_CALL 1000
-static void acceptCommonHandler(connection *conn, int flags, char *ip) {
+static void acceptCommonHandler(connection *conn, uint64_t flags, char *ip) {
     client *c;
     char conninfo[100];
     UNUSED(ip);
@@ -1085,7 +1085,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
      * Admission control will happen before a client is created and connAccept()
      * called, because we don't want to even start transport-level negotiation
      * if rejected. */
-    if (listLength(server.clients) + getClusterConnectionsCount()
+    if (!(flags & CLIENT_CTRIP_MONITOR) && listLength(server.clients) + getClusterConnectionsCount()
         >= server.maxclients)
     {
         char *err;
@@ -1103,6 +1103,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
         }
         server.stat_rejected_conn++;
         connClose(conn);
+        ctrip_ignoreAcceptEvent();
         return;
     }
 
@@ -1197,6 +1198,27 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         anetCloexec(cfd);
         serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
         acceptCommonHandler(connCreateAcceptedSocket(cfd),CLIENT_UNIX_SOCKET,NULL);
+    }
+}
+
+void acceptMonitorHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
+    char cip[NET_IP_STR_LEN];
+    UNUSED(el);
+    UNUSED(mask);
+    UNUSED(privdata);
+
+    while(max--) {
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+        if (cfd == ANET_ERR) {
+            if (errno != EWOULDBLOCK)
+                serverLog(LL_WARNING,
+                          "Accepting ctrip_monitor client connection: %s", server.neterr);
+            return;
+        }
+        anetCloexec(cfd);
+        serverLog(LL_VERBOSE,"Accepted ctrip_monitor %s:%d", cip, cport);
+        acceptCommonHandler(connCreateAcceptedSocket(cfd),CLIENT_CTRIP_MONITOR,cip);
     }
 }
 

@@ -207,6 +207,7 @@ start_server {tags {"introspection"}} {
             rocksdb.data.max_bytes_for_level_base
             rocksdb.meta.max_bytes_for_level_base
             swap-scan-session-bits
+            ctrip-monitor-port
         }
 
         if {!$::tls} {

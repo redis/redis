@@ -289,6 +289,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                           RDB without replication buffer. */
 #define CLIENT_SWAPPING (1ULL<<43) /* The client is waiting swap. */
 #define CLIENT_SWAP_UNLOCKING (1ULL<<44) /* Client is releasing swap lock. */
+#define CLIENT_CTRIP_MONITOR (1ULL<<45) /* Client for ctrip monitor. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -1708,6 +1709,11 @@ struct redisServer {
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
 
+    /* accept ignore */
+    int ctrip_ignore_accept;
+    int ctrip_monitor_port;
+    int ctrip_monitorfd;
+
     int swap_mode;      /* Swap mode: memory/swap/disk */
 		/* rocksdb engine */
     int rocksdb_epoch;
@@ -2483,6 +2489,12 @@ robj *activeDefragStringOb(robj* ob, long *defragged);
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
 int restartServer(int flags, mstime_t delay);
+
+/* accept ignore */
+void ctrip_ignoreAcceptEvent();
+void ctrip_resetAcceptIgnore();
+void ctrip_initMonitorPort();
+void acceptMonitorHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 
 /* Set data type */
 robj *setTypeCreate(sds value);
