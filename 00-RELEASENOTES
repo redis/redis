@@ -12,6 +12,23 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 7.0.10 Released Mon Mar 20 16:00:00 IST 2023
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues.
+
+Security Fixes:
+* (CVE-2023-28425) Specially crafted MSETNX command can lead to assertion and denial-of-service
+
+Bug Fixes
+=========
+
+* Large blocks of replica client output buffer may lead to psync loops and unnecessary memory usage (#11666)
+* Fix CLIENT REPLY OFF|SKIP to not silence push notifications (#11875)
+* Trim excessive memory usage in stream nodes when exceeding `stream-node-max-bytes` (#11885)
+* Fix module RM_Call commands failing with OOM when maxmemory is changed to zero (#11319)
+
+================================================================================
 Redis 7.0.9 Released Tue Feb 28 12:00:00 IST 2023
 ================================================================================
 
