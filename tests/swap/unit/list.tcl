@@ -186,21 +186,21 @@ start_server {tags {"repl"}} {
 
 start_server {tags {"repl"}} {
     test " brpoplpush update swapunblock version" {
-        assert_equal [status r swap_unblock_version] 0
+        assert_equal [status r swap_dependency_block_version] 0
         set rd1 [redis_deferring_client]
         $rd1 brpoplpush src target 5 
         wait_for_condition 100 20 {
-            [status r swap_unblock_version] == 1
+            [status r swap_dependency_block_version] == 1
         } else {
             fail "brpoplpush can't update version"
         }
     }
     test " blmove update swapunblock version" {
-        assert_equal [status r swap_unblock_version] 1
+        assert_equal [status r swap_dependency_block_version] 1
         set rd1 [redis_deferring_client]
         $rd1 blmove src target right left 5
         wait_for_condition 100 20 {
-            [status r swap_unblock_version] == 2
+            [status r swap_dependency_block_version] == 2
         } else {
             fail "brpoplpush can't update version"
         }
@@ -209,7 +209,7 @@ start_server {tags {"repl"}} {
     test "swapunblock total count status" {
         r config set swap-debug-evict-keys 0
         r rpush target a 
-        assert_equal [status r swap_unblock_total_count] 0
+        assert_equal [status r swap_dependency_block_total_count] 0
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
         $rd1 brpoplpush src target 0 
@@ -222,19 +222,19 @@ start_server {tags {"repl"}} {
         r config set swap-debug-rio-delay-micro 100000
         r lpush src b 
         wait_for_condition 10 50 {
-            [status r swap_unblock_swapping_count] == 1
+            [status r swap_dependency_block_swapping_count] == 1
         } else {
             fail "no swapping"
         }
         # assert_equal 
         # $rd2 brpoplpush a b 5 
-        assert_equal [status r swap_unblock_total_count] 1
+        assert_equal [status r swap_dependency_block_total_count] 1
         $rd2 brpoplpush a b 5 
         wait_for_condition 10 50 {
-            [status r swap_unblock_swapping_count] == 0
+            [status r swap_dependency_block_swapping_count] == 0
         } else {
             fail "unblock fail"
         }
-        assert_equal [status r swap_unblock_retry_count]  1
+        assert_equal [status r swap_dependency_block_retry_count]  1
     }
 }

@@ -1647,7 +1647,7 @@ void attachSwapTracesToSlowlog(void *ptr, swapCmdTrace *swap_cmd);
 /* swap block*/
 typedef struct swapUnblockCtx  {
   long long version;
-  client** unblock_clients;
+  client** mock_clients;
   /* status */
   long long swap_total_count;
   long long swapping_count;

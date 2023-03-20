@@ -1826,7 +1826,7 @@ struct redisServer {
     int rocksdb_meta_compression;
 
     /* swap block*/
-    struct swapUnblockCtx* swap_unblock_ctx;
+    struct swapUnblockCtx* swap_dependency_block_ctx;
 
     /* gtid executed */
     int gtid_enabled;  /* Is gtid enabled? */

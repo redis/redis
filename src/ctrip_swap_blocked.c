@@ -39,12 +39,12 @@ typedef struct swapUnblockedKeyChain  {
 #define waitIoDictType  objectKeyPointerValueDictType
 
 void incrSwapUnBlockCtxVersion() {
-    server.swap_unblock_ctx->version++;
+    server.swap_dependency_block_ctx->version++;
 }
 
 swapUnblockedKeyChain* createSwapUnblockedKeyChain(redisDb* db, robj* key) {
     swapUnblockedKeyChain* chain = zmalloc(sizeof(swapUnblockedKeyChain));
-    chain->version = server.swap_unblock_ctx->version;
+    chain->version = server.swap_dependency_block_ctx->version;
     incrRefCount(key);
     chain->key = key;
     chain->db = db;
@@ -67,29 +67,29 @@ void releaseSwapUnblockedKeyChain(void* val) {
 }
 
 swapUnblockCtx* createSwapUnblockCtx() {
-    swapUnblockCtx* swap_unblock_ctx = zmalloc(sizeof(swapUnblockCtx));
-    swap_unblock_ctx->version = 0;
-    swap_unblock_ctx->swap_total_count = 0;
-    swap_unblock_ctx->swapping_count = 0;
+    swapUnblockCtx* swap_dependency_block_ctx = zmalloc(sizeof(swapUnblockCtx));
+    swap_dependency_block_ctx->version = 0;
+    swap_dependency_block_ctx->swap_total_count = 0;
+    swap_dependency_block_ctx->swapping_count = 0;
     /* version change will retry swap*/
-    swap_unblock_ctx->swap_retry_count = 0;
-    swap_unblock_ctx->swap_err_count = 0;
-    swap_unblock_ctx->unblock_clients = zmalloc(server.dbnum*sizeof(client*));
+    swap_dependency_block_ctx->swap_retry_count = 0;
+    swap_dependency_block_ctx->swap_err_count = 0;
+    swap_dependency_block_ctx->mock_clients = zmalloc(server.dbnum*sizeof(client*));
     for (int i = 0; i < server.dbnum; i++) {
         client *c = createClient(NULL);
         c->cmd = lookupCommandByCString("brpoplpush");
         c->db = server.db+i;
-        swap_unblock_ctx->unblock_clients[i] = c;
+        swap_dependency_block_ctx->mock_clients[i] = c;
     }
-    return swap_unblock_ctx;
+    return swap_dependency_block_ctx;
 }
 
-void releaseSwapUnblockCtx(swapUnblockCtx* swap_unblock_ctx) {
+void releaseSwapUnblockCtx(swapUnblockCtx* swap_dependency_block_ctx) {
     for (int i = 0; i < server.dbnum; i++) {
-        freeClient(swap_unblock_ctx->unblock_clients[i]);
+        freeClient(swap_dependency_block_ctx->mock_clients[i]);
     }
-    zfree(swap_unblock_ctx->unblock_clients);
-    zfree(swap_unblock_ctx);
+    zfree(swap_dependency_block_ctx->mock_clients);
+    zfree(swap_dependency_block_ctx);
 }
 
 void findSwapBlockedListKeyChain(redisDb* db, robj* key, dict* key_sets) {
@@ -153,10 +153,10 @@ void blockedOnListKeyClientKeyRequestFinished(client *c, swapCtx *ctx) {
     
     if (chain->keyrequests_count == 0) {
         if (chain->swap_err_count > 0) {
-            server.swap_unblock_ctx->swap_err_count++;
+            server.swap_dependency_block_ctx->swap_err_count++;
             signalKeyAsReady(chain->db, chain->key, OBJ_LIST);
-        } else if(chain->version != server.swap_unblock_ctx->version) {
-            server.swap_unblock_ctx->swap_retry_count++;
+        } else if(chain->version != server.swap_dependency_block_ctx->version) {
+            server.swap_dependency_block_ctx->swap_retry_count++;
             signalKeyAsReady(chain->db, chain->key, OBJ_LIST);
         } else {
             continueServeClientsBlockedOnListKeys(chain->db, chain->key);
@@ -167,7 +167,7 @@ void blockedOnListKeyClientKeyRequestFinished(client *c, swapCtx *ctx) {
         }
         dictReleaseIterator(di);
         releaseSwapUnblockedKeyChain(chain);
-        server.swap_unblock_ctx->swapping_count--;
+        server.swap_dependency_block_ctx->swapping_count--;
     }
 
 }
@@ -257,8 +257,8 @@ void submitSwapBlockedClientRequest(client* c, readyList *rl, dict* key_sets) {
     dictReleaseIterator(di);
     swapUnblockedKeyChain* chain = createSwapUnblockedKeyChain(rl->db, rl->key);
     chain->keyrequests_count = result.num;
-    server.swap_unblock_ctx->swap_total_count++;
-    server.swap_unblock_ctx->swapping_count++;
+    server.swap_dependency_block_ctx->swap_total_count++;
+    server.swap_dependency_block_ctx->swapping_count++;
     submitClientKeyRequests(c, &result, blockedOnListKeyClientKeyRequestFinished, chain);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
@@ -280,7 +280,7 @@ void swapServeClientsBlockedOnListKey(robj *o, readyList *rl) {
     findSwapBlockedListKeyChain(rl->db, rl->key, key_sets);
     if (dictSize(key_sets) == 1) goto end;
     //create submit
-    client* mock_client = server.swap_unblock_ctx->unblock_clients[rl->db->id];
+    client* mock_client = server.swap_dependency_block_ctx->mock_clients[rl->db->id];
     submitSwapBlockedClientRequest(mock_client, rl, key_sets);
 
 end:

@@ -234,14 +234,14 @@ sds genSwapExecInfoString(sds info) {
 
 sds genSwapUnblockInfoString(sds info) {
     info = sdscatprintf(info,
-            "swap_unblock_version:%lld\r\n"
-            "swap_unblock_total_count:%lld\r\n"
-            "swap_unblock_swapping_count:%lld\r\n"
-            "swap_unblock_retry_count:%lld\r\n",
-            server.swap_unblock_ctx->version,
-            server.swap_unblock_ctx->swap_total_count,
-            server.swap_unblock_ctx->swapping_count,
-            server.swap_unblock_ctx->swap_retry_count);
+            "swap_dependency_block_version:%lld\r\n"
+            "swap_dependency_block_total_count:%lld\r\n"
+            "swap_dependency_block_swapping_count:%lld\r\n"
+            "swap_dependency_block_retry_count:%lld\r\n",
+            server.swap_dependency_block_ctx->version,
+            server.swap_dependency_block_ctx->swap_total_count,
+            server.swap_dependency_block_ctx->swapping_count,
+            server.swap_dependency_block_ctx->swap_retry_count);
     return info;
 }
 

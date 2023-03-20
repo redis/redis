@@ -623,7 +623,7 @@ void swapInit() {
 
     server.swap_scan_sessions = swapScanSessionsCreate(server.swap_scan_session_bits);
 
-    server.swap_unblock_ctx = createSwapUnblockCtx();
+    server.swap_dependency_block_ctx = createSwapUnblockCtx();
 }
 
 
