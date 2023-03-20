@@ -97,6 +97,7 @@ static struct config {
     int datasize;
     int randomkeys;
     int randomkeys_keyspacelen;
+    int rand_seed;
     int keepalive;
     int pipeline;
     long long start;
@@ -1495,6 +1496,11 @@ int parseOptions(int argc, char **argv) {
             fprintf(stderr,
                     "WARNING: -e option has no effect. "
                     "We now immediately exit on error to avoid false results.\n");
+        } else if (!strcmp(argv[i],"--seed")) {
+            if (lastarg) goto invalid;
+            config.rand_seed = atoi(argv[++i]);
+            srandom(config.rand_seed);
+            init_genrand64(config.rand_seed);
         } else if (!strcmp(argv[i],"-t")) {
             if (lastarg) goto invalid;
             /* We get the list of tests to run as a string in the form
@@ -1618,6 +1624,8 @@ usage:
 "                    on the command line.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n"
 " -x                 Read last argument from STDIN.\n"
+" --seed             Seed the RNG to repeat tests. Otherwise, random numbers are\n"
+"                    generated every benchmark call. Default seed is based on time.\n"
 #ifdef USE_OPENSSL
 " --tls              Establish a secure TLS connection.\n"
 " --sni <host>       Server name indication for TLS.\n"
