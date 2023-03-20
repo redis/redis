@@ -216,13 +216,15 @@ int swapAbsentTest(int argc, char *argv[], int accurate) {
         test_assert(absentsCacheGet(cache,third) == 1);
         test_assert(absentsCacheGet(cache,first) == 1);
 
+        sdsfree(first), sdsfree(second), sdsfree(third), sdsfree(fourth);
+        sds first2 = sdsnew("1"), fourth2 = sdsnew("4");
+
         absentsCacheSetCapacity(cache, 1);
         test_assert(cache->capacity == 1);
-        test_assert(absentsCacheExists(cache,first));
-        test_assert(!absentsCacheExists(cache,fourth));
+        test_assert(absentsCacheExists(cache,first2));
+        test_assert(!absentsCacheExists(cache,fourth2));
         absentsCacheFree(cache);
-
-        sdsfree(first), sdsfree(second), sdsfree(third), sdsfree(fourth);
+        sdsfree(first2), sdsfree(fourth2);
     }
 
     return error;
