@@ -318,6 +318,8 @@ proc parse_options {} {
             puts "--config <k> <v>        Extra config argument(s)."
             puts "--stop                  Blocks once the first test fails."
             puts "--loop                  Execute the specified set of tests forever."
+            puts "--log-req-res           xxx."
+            puts "--force-resp3           xxx."
             puts "--help                  Shows this help."
             exit 0
         } else {

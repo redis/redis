@@ -194,6 +194,10 @@ start_server {tags {"cli"}} {
     }
 
     test_interactive_cli "Subscribed mode" {
+        if {$::force_resp3} {
+            run_command $fd "hello 3"
+        }
+
         set reading "Reading messages... (press Ctrl-C to quit or any key to type command)\r"
         set erase "\033\[K"; # Erases the "Reading messages..." line.
 
@@ -214,6 +218,8 @@ start_server {tags {"cli"}} {
         set unsub2 "1) \"unsubscribe\"\n2) \"ch2\"\n3) (integer) 1\n"
         assert_equal $erase$unsub1$unsub2$reading \
             [run_command $fd "unsubscribe ch1 ch2"]
+
+        run_command $fd "hello 2"
 
         # Command forbidden in subscribed mode (RESP2).
         set err "(error) ERR Can't execute 'get': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context\n"
