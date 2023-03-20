@@ -1348,7 +1348,7 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
     return (RedisModuleCommandArg *)((char *)(args) + offset);
 }
 
-/* Helper for categoriesFlagsFromString(). Turns a string representing command
+/* Helper for categoryFlagsFromString(). Turns a string representing command
  * flags into the ACL Category Flags.
  *
  * Returns '1' if acl category flag is recognized or
@@ -1362,12 +1362,12 @@ int matchAclCategoriesFlags(char *flag, int64_t *acl_categories_flags) {
     return 0; /* Unrecognized */
 }
 
-/* Helper for RM_SetCommandCategories(). Turns a string representing command
+/* Helper for RM_SetCommandCategories(). Turns a string representing acl category
  * flags into the acl category flags used by Redis ACL which allows users to access 
  * the module commands by acl categories.
  * 
  * It returns the set of acl flags, or -1 if unknown flags are found. */
-int64_t categoriesFlagsFromString(char *aclflags) {
+int64_t categoryFlagsFromString(char *aclflags) {
     int count, j;
     int64_t acl_categories_flags = 0;
     sds *tokens = sdssplitlen(aclflags,strlen(aclflags)," ",1,&count);
@@ -1387,7 +1387,7 @@ int64_t categoriesFlagsFromString(char *aclflags) {
  * commands and subcommands. The set of ACL categories should be passed as
  * a space separated C string 'aclflags'.
  * 
- * Example, 'write' marks the command as part of the write ACL category. */
+ * Example, 'write slow' marks the command as part of the write and slow ACL categories. */
 int RM_SetCommandCategories(RedisModuleCommand *command, const char *aclflags) {
     if (!command || !command->module || !command->module->onload) return REDISMODULE_ERR;
     int64_t categories_flags = aclflags ? categoriesFlagsFromString((char*)aclflags) : 0;
