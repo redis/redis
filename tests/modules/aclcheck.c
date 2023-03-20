@@ -193,13 +193,15 @@ int module_test_acl_category(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 int commandBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
-    int error = 0;
+    int response_ok = 0;
     int result = RedisModule_CreateCommand(ctx,"command.that.should.fail", module_test_acl_category, "", 0, 0, 0);
-    error |= (result == REDISMODULE_ERR);
+    response_ok |= (result == REDISMODULE_OK);
+
     RedisModuleCommand *parent = RedisModule_GetCommand(ctx,"block.commands.outside.onload");
     result = RedisModule_CreateSubcommand(parent,"subcommand.that.should.fail",module_test_acl_category,"",0,0,0);
-    error |= (result == REDISMODULE_ERR);
-    if (error) {
+    response_ok |= (result == REDISMODULE_OK);
+    
+    if (response_ok) {
         RedisModule_ReplyWithError(ctx, "NOPERM");
     } else {
         RedisModule_ReplyWithSimpleString(ctx, "OK");

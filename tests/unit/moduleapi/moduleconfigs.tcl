@@ -78,7 +78,7 @@ start_server {tags {"modules"}} {
     }
 
     test {test blocking of config registration and load outside of OnLoad} {
-        assert_error {NOPERM} {r block.register.configs.outside.onload}
+        assert_equal [r block.register.configs.outside.onload] OK
     }
 
     test {Unload removes module configs} {

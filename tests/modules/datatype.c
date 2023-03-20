@@ -249,9 +249,9 @@ int createDataTypeBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
     datatype_outside_onload = RedisModule_CreateDataType(ctx, "test_dt_outside_onload", 1, &datatype_methods);
     if (datatype_outside_onload == NULL) {
-        RedisModule_ReplyWithError(ctx, "NOPERM");
-    } else {
         RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else {
+        RedisModule_ReplyWithError(ctx, "NOPERM");
     }
     return REDISMODULE_OK;
 }

@@ -93,7 +93,7 @@ start_server {tags {"modules acl"}} {
     }
 
     test {test blocking of Commands outside of OnLoad} {
-        assert_error {NOPERM} {r block.commands.outside.onload}
+        assert_equal [r block.commands.outside.onload] OK
     }
 
     test {test users to have access to module commands having acl categories} {

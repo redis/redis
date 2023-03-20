@@ -106,25 +106,25 @@ int longlongApplyFunc(RedisModuleCtx *ctx, void *privdata, RedisModuleString **e
 int registerBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
-    int error = 0;
+    int response_ok = 0;
     int result = RedisModule_RegisterBoolConfig(ctx, "mutable_bool", 1, REDISMODULE_CONFIG_DEFAULT, getBoolConfigCommand, setBoolConfigCommand, boolApplyFunc, &mutable_bool_val);
-    error |= (result == REDISMODULE_ERR);
+    response_ok |= (result == REDISMODULE_OK);
 
     result = RedisModule_RegisterStringConfig(ctx, "string", "secret password", REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, NULL);
-    error |= (result == REDISMODULE_ERR);
+    response_ok |= (result == REDISMODULE_OK);
 
     const char *enum_vals[] = {"none", "five", "one", "two", "four"};
     const int int_vals[] = {0, 5, 1, 2, 4};
     result = RedisModule_RegisterEnumConfig(ctx, "enum", 1, REDISMODULE_CONFIG_DEFAULT, enum_vals, int_vals, 5, getEnumConfigCommand, setEnumConfigCommand, NULL, NULL);
-    error |= (result == REDISMODULE_ERR);
+    response_ok |= (result == REDISMODULE_OK);
 
     result = RedisModule_RegisterNumericConfig(ctx, "numeric", -1, REDISMODULE_CONFIG_DEFAULT, -5, 2000, getNumericConfigCommand, setNumericConfigCommand, longlongApplyFunc, &longval);
-    error |= (result == REDISMODULE_ERR);
+    response_ok |= (result == REDISMODULE_OK);
 
     result = RedisModule_LoadConfigs(ctx);
-    error |= (result == REDISMODULE_ERR);
+    response_ok |= (result == REDISMODULE_OK);
 
-    if (error) {
+    if (response_ok) {
         RedisModule_ReplyWithError(ctx, "NOPERM");
     } else {
         RedisModule_ReplyWithSimpleString(ctx, "OK");

