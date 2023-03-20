@@ -373,6 +373,10 @@ void keyRequestProceed(void *lock, redisDb *db, robj *key,
     }
 
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
+
+    data = createSwapData(db,key,value);
+    swapCtxSetSwapData(ctx,data,datactx);
+    
     if (value == NULL && db->swap_absent_cache &&
             absentsCacheGet(db->swap_absent_cache, key->ptr)) {
         reason = "key is absent";
@@ -380,8 +384,6 @@ void keyRequestProceed(void *lock, redisDb *db, robj *key,
         goto noswap;
     }
 
-    data = createSwapData(db,key,value);
-    swapCtxSetSwapData(ctx,data,datactx);
 
     /* slave expire decided before swap */
     if (cmd_intention_flags & SWAP_EXPIRE_FORCE) {
