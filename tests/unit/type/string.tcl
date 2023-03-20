@@ -234,6 +234,15 @@ start_server {tags {"string"}} {
         list [r msetnx x1{t} xxx y2{t} yyy] [r get x1{t}] [r get y2{t}]
     } {1 xxx yyy}
 
+    test {MSETNX with not existing keys - same key twice} {
+        r del x1{t}
+        list [r msetnx x1{t} xxx x1{t} yyy] [r get x1{t}]
+    } {1 yyy}
+
+    test {MSETNX with already existing keys - same key twice} {
+        list [r msetnx x1{t} xxx x1{t} zzz] [r get x1{t}]
+    } {0 yyy}
+
     test "STRLEN against non-existing key" {
         assert_equal 0 [r strlen notakey]
     }
