@@ -1061,7 +1061,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"getchannels-api")) flags |= CMD_MODULE_GETCHANNELS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
-        else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY; 
+        else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY;
         else break;
     }
     sdsfreesplitres(tokens,count);
@@ -1374,8 +1374,8 @@ int64_t categoriesFlagsFromString(char *aclflags) {
     for (j = 0; j < count; j++) {
         char *t = tokens[j];
         if (!matchAclCategoriesFlags(t, &acl_categories_flags)) {
-                serverLog(LL_WARNING,"Unrecognized categories flag %s on module load", t);
-                break;
+            serverLog(LL_WARNING,"Unrecognized categories flag %s on module load", t);
+            break;
         }
     }
     sdsfreesplitres(tokens,count);
