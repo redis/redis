@@ -100,8 +100,9 @@ int absentsCachePut(absentsCache *cache, sds key) {
         listLinkHead(cache->list,ln);
         return 0;
     } else {
-        listAddNodeHead(cache->list,key);
-        dictAdd(cache->map,sdsdup(key),listFirst(cache->list));
+        sds dup = sdsdup(key);
+        listAddNodeHead(cache->list,dup);
+        dictAdd(cache->map,dup,listFirst(cache->list));
         absentsCacheTrim(cache);
         return 1;
     }
