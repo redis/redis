@@ -145,6 +145,7 @@ start_server {tags {"target"}} {
 start_server {tags {"repl"}} {
     r config set swap-debug-evict-keys 0
     r config set swap-debug-rio-delay-micro 100000
+    r config set swap-absent-cache-enabled no
     test " lpush + (swap start) + del + (swap end) + lpush " {
         r rpush target a 
         set rd1 [redis_deferring_client]
