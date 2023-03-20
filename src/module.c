@@ -1390,7 +1390,7 @@ int64_t categoryFlagsFromString(char *aclflags) {
  * Example, 'write slow' marks the command as part of the write and slow ACL categories. */
 int RM_SetCommandCategories(RedisModuleCommand *command, const char *aclflags) {
     if (!command || !command->module || !command->module->onload) return REDISMODULE_ERR;
-    int64_t categories_flags = aclflags ? categoriesFlagsFromString((char*)aclflags) : 0;
+    int64_t categories_flags = aclflags ? categoryFlagsFromString((char*)aclflags) : 0;
     if (categories_flags == -1) return REDISMODULE_ERR;
     struct redisCommand *rcmd = command->rediscmd;
     rcmd->acl_categories = categories_flags; /* ACL categories flags for module command */
