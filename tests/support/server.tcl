@@ -395,13 +395,16 @@ proc start_server {options {code undefined}} {
 
     # start every server on a different port
     set port [find_available_port $::baseport $::portcount]
+    set monitor_port [find_available_port $::baseport $::portcount]
     if {$::tls} {
         dict set config "port" 0
         dict set config "tls-port" $port
+        dict set config "ctrip-monitor-port" $monitor_port
         dict set config "tls-cluster" "yes"
         dict set config "tls-replication" "yes"
     } else {
         dict set config port $port
+        dict set config "ctrip-monitor-port" $monitor_port
     }
 
     set unixsocket [file normalize [format "%s/%s" [dict get $config "dir"] "socket"]]
