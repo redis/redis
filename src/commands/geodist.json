@@ -1,6 +1,6 @@
 {
     "GEODIST": {
-        "summary": "Returns the distance between two members of a geospatial index",
+        "summary": "Returns the distance between two members of a geospatial index.",
         "complexity": "O(log(N))",
         "group": "geo",
         "since": "3.2.0",

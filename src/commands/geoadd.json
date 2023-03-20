@@ -1,6 +1,6 @@
 {
     "GEOADD": {
-        "summary": "Add one or more geospatial items in the geospatial index represented using a sorted set",
+        "summary": "Adds one or more memebers to a geospatial index.",
         "complexity": "O(log(N)) for each item added, where N is the number of elements in the sorted set.",
         "group": "geo",
         "since": "3.2.0",

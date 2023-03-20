@@ -1,6 +1,6 @@
 {
     "SUNSUBSCRIBE": {
-        "summary": "Stop listening for messages posted to the given shard channels",
+        "summary": "Stops listening to messages posted to shard channels.",
         "complexity": "O(N) where N is the number of clients already subscribed to a shard channel.",
         "group": "pubsub",
         "since": "7.0.0",

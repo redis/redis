@@ -1,6 +1,6 @@
 {
     "MGET": {
-        "summary": "Get the values of all the given keys",
+        "summary": "Returns the string values of multiple keys.",
         "complexity": "O(N) where N is the number of keys to retrieve.",
         "group": "string",
         "since": "1.0.0",

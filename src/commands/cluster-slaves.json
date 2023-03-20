@@ -1,6 +1,6 @@
 {
     "SLAVES": {
-        "summary": "List replica nodes of the specified master node",
+        "summary": "Lists the replica nodes of a master node.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",

@@ -1,6 +1,6 @@
 {
     "KEYSLOT": {
-        "summary": "Returns the hash slot of the specified key",
+        "summary": "Returns the hash slot for a key.",
         "complexity": "O(N) where N is the number of bytes in the key",
         "group": "cluster",
         "since": "3.0.0",

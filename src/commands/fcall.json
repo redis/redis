@@ -1,6 +1,6 @@
 {
     "FCALL": {
-        "summary": "Invoke a function",
+        "summary": "Invokes a function.",
         "complexity": "Depends on the function that is executed.",
         "group": "scripting",
         "since": "7.0.0",

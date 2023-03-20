@@ -1,6 +1,6 @@
 {
     "PURGE": {
-        "summary": "Ask the allocator to release memory",
+        "summary": "Asks the allocator to release memory.",
         "complexity": "Depends on how much memory is allocated, could be slow",
         "group": "server",
         "since": "4.0.0",

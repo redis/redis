@@ -1,6 +1,6 @@
 {
     "ASKING": {
-        "summary": "Sent by cluster clients after an -ASK redirect",
+        "summary": "Signals that a cluster client is following an -ASK redirect.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",

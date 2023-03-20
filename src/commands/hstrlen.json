@@ -1,6 +1,6 @@
 {
     "HSTRLEN": {
-        "summary": "Get the length of the value of a hash field",
+        "summary": "Returns the length of the value of a field.",
         "complexity": "O(1)",
         "group": "hash",
         "since": "3.2.0",

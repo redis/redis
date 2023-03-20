@@ -1,6 +1,6 @@
 {
     "EXISTS": {
-        "summary": "Check existence of scripts in the script cache.",
+        "summary": "Determines whether server-side Lua scripts exist in the script cache.",
         "complexity": "O(N) with N being the number of scripts to check (so checking a single script is an O(1) operation).",
         "group": "scripting",
         "since": "2.6.0",

@@ -1,6 +1,6 @@
 {
     "INFO-CACHE": {
-        "summary": "Get cached INFO from the instances in the deployment",
+        "summary": "Returns the cached `INFO` replies from the deployment's instances.",
         "complexity": "O(N) where N is the number of instances",
         "group": "sentinel",
         "since": "3.2.0",

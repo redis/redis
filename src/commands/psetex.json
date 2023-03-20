@@ -1,6 +1,6 @@
 {
     "PSETEX": {
-        "summary": "Set the value and expiration in milliseconds of a key",
+        "summary": "Sets both value and expiration time in milliseconds of a key.",
         "complexity": "O(1)",
         "group": "string",
         "since": "2.6.0",

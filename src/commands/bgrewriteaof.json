@@ -1,6 +1,6 @@
 {
     "BGREWRITEAOF": {
-        "summary": "Asynchronously rewrite the append-only file",
+        "summary": "Asynchronously rewrites the append-only file to disk.",
         "complexity": "O(1)",
         "group": "server",
         "since": "1.0.0",

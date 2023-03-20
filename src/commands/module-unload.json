@@ -1,6 +1,6 @@
 {
     "UNLOAD": {
-        "summary": "Unload a module",
+        "summary": "Unloads a module.",
         "complexity": "O(1)",
         "group": "server",
         "since": "4.0.0",
