@@ -350,11 +350,10 @@ start_server {tags {"introspection"}} {
         r client info
     } {*lib-name=redis.py*}
 
-    test {CLIENT SETINFO can clean library name} {
+    test {CLIENT SETINFO can clear library name} {
         r CLIENT SETINFO libname ""
-        set res [r client info]
-        assert_no_match {lib-name} $res
-    }
+        r client info
+    } {*lib-name= *}
 
     test {CONFIG save params special case handled properly} {
         # No "save" keyword - defaults should apply
