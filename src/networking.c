@@ -2827,6 +2827,20 @@ sds getAllClientsInfoString(int type) {
     return o;
 }
 
+/* Check validity of an attribute that's gonna be shown in CLIENT LIST. */
+int validateClientAttr(const char *val) {
+    /* Check if the charset is ok. We need to do this otherwise
+     * CLIENT LIST format will break. You should always be able to
+     * split by space to get the different fields. */
+    while (*val) {
+        if (*val < '!' || *val > '~') { /* ASCII is assumed. */
+            return C_ERR;
+        }
+        val++;
+    }
+    return C_OK;
+}
+
 /* Returns C_OK if the name is valid. Returns C_ERR & sets `err` (when provided) otherwise. */
 int validateClientName(robj *name, const char **err) {
     const char *err_msg = "Client names cannot contain spaces, newlines or special characters.";
@@ -2834,15 +2848,9 @@ int validateClientName(robj *name, const char **err) {
     /* We allow setting the client name to an empty string. */
     if (len == 0)
         return C_OK;
-    /* Otherwise check if the charset is ok. We need to do this otherwise
-     * CLIENT LIST format will break. You should always be able to
-     * split by space to get the different fields. */
-    char *p = name->ptr;
-    for (int j = 0; j < len; j++) {
-        if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
-            if (err) *err = err_msg;
-            return C_ERR;
-        }
+    if (validateClientAttr(name->ptr) == C_ERR) {
+        if (err) *err = err_msg;
+        return C_ERR;
     }
     return C_OK;
 }
@@ -2884,22 +2892,6 @@ int clientSetNameOrReply(client *c, robj *name) {
     return result;
 }
 
-/* Check validity of an attribute that's gonna be shown in CLIENT LIST. */
-int validateClientAttrOrReply(client *c, sds attr, sds val) {
-    /* Check if the charset is ok. We need to do this otherwise
-     * CLIENT LIST format will break. You should always be able to
-     * split by space to get the different fields. */
-    while (*val) {
-        if (*val < '!' || *val > '~') { /* ASCII is assumed. */
-            addReplyStatusFormat(c,
-                "%s cannot contain spaces, newlines or special characters.", attr);
-            return C_ERR;
-        }
-        val++;
-    }
-    return C_OK;
-}
-
 /* Set client or connection related info */
 void clientSetinfoCommand(client *c) {
     sds attr = c->argv[2]->ptr;
@@ -2917,8 +2909,11 @@ void clientSetinfoCommand(client *c) {
         return;
     }
 
-    if (validateClientAttrOrReply(c, attr, val)==C_ERR)
+    if (validateClientAttr(val)==C_ERR) {
+        addReplyStatusFormat(c,
+            "%s cannot contain spaces, newlines or special characters.", attr);
         return;
+    }
     if (*destvar) decrRefCount(*destvar);
     if (sdslen(val)) {
         *destvar = valob;
