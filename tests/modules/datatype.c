@@ -248,10 +248,13 @@ int createDataTypeBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     };
 
     datatype_outside_onload = RedisModule_CreateDataType(ctx, "test_dt_outside_onload", 1, &datatype_methods);
+
+    /* This validates that it's not possible to create datatype outside OnLoad,
+     * thus returns an error if it succeeds. */
     if (datatype_outside_onload == NULL) {
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
-        RedisModule_ReplyWithError(ctx, "NOPERM");
+        RedisModule_ReplyWithError(ctx, "UNEXPECTEDOK");
     }
     return REDISMODULE_OK;
 }

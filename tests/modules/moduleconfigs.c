@@ -123,9 +123,11 @@ int registerBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     result = RedisModule_LoadConfigs(ctx);
     response_ok |= (result == REDISMODULE_OK);
-
+    
+    /* This validates that it's not possible to register/load configs outside OnLoad,
+     * thus returns an error if they succeed. */
     if (response_ok) {
-        RedisModule_ReplyWithError(ctx, "NOPERM");
+        RedisModule_ReplyWithError(ctx, "UNEXPECTEDOK");
     } else {
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
