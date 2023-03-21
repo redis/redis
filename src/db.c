@@ -561,10 +561,7 @@ void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
 
         if (buckup->dbarray[i].swap_absent_cache) {
             absentsCacheFree(buckup->dbarray[i].swap_absent_cache);
-        }
-        if (server.swap_absent_cache_enabled){
-            server.db[i].swap_absent_cache =
-                absentsCacheNew(server.swap_absent_cache_capacity);
+            buckup->dbarray[i].swap_absent_cache = NULL;
         }
     }
 
