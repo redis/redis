@@ -190,7 +190,7 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  *
  * If the update_if_existing argument is false, the the program is aborted
  * if the key already exists, otherwise, it can fall back to dbOverwite. */
-void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_existing) {
+static void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_existing) {
     sds copy = sdsdup(key->ptr);
     dictEntry *existing;
     dictEntry *de = dictAddRaw(db->dict, copy, &existing);

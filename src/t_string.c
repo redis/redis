@@ -576,13 +576,14 @@ void msetGenericCommand(client *c, int nx) {
         }
     }
 
-    int setkey_flags = SETKEY_DOESNT_EXIST;
+    int setkey_flags = nx ? SETKEY_DOESNT_EXIST : 0;
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
         setKey(c, c->db, c->argv[j], c->argv[j + 1], setkey_flags);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
-        /* It could be that we're overriding the same key, we can't be sure it doesn't exist. */
-        setkey_flags = SETKEY_ADD_OR_UPDATE;
+        /* In MSETNX, It could be that we're overriding the same key, we can't be sure it doesn't exist. */
+        if (nx)
+            setkey_flags = SETKEY_ADD_OR_UPDATE;
     }
     server.dirty += (c->argc-1)/2;
     addReply(c, nx ? shared.cone : shared.ok);
