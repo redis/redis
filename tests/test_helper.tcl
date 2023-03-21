@@ -37,6 +37,7 @@ set ::disk_tests {
     swap/ported/replication-4
     swap/ported/psync2-reg
     swap/unit/swap_mode
+    swap/unit/absent_cache
     swap/unit/dbsize
     swap/unit/lock
     swap/unit/list

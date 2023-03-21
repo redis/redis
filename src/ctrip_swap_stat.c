@@ -295,8 +295,8 @@ sds genSwapHitInfoString(sds info) {
             "swap_swapin_no_io_count:%lld\r\n"
             "swap_swapin_memory_hit_perc:%.2f%%\r\n"
             "swap_swapin_keyspace_hit_perc:%.2f%%\r\n"
-            "swap_swapin_not_found_cachemiss:%lld\r\n"
             "swap_swapin_not_found_cachehit:%lld\r\n"
+            "swap_swapin_not_found_cachemiss:%lld\r\n"
             "swap_swapin_not_found_cachehit_perc:%.2f%%\r\n",
             attempt,notfound,noio,memory_hit_perc,keyspace_hit_perc,
             notfound_cachehit, notfound_cachemiss, notfound_cachehit_perc);

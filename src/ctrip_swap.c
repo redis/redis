@@ -376,28 +376,28 @@ void keyRequestProceed(void *lock, redisDb *db, robj *key,
 
     data = createSwapData(db,key,value);
     swapCtxSetSwapData(ctx,data,datactx);
-    
-    if (value == NULL && db->swap_absent_cache &&
-            absentsCacheGet(db->swap_absent_cache, key->ptr)) {
-        reason = "key is absent";
-        reason_num = NOSWAP_REASON_ABSENTCACHEHIT;
-        goto noswap;
-    }
 
+    if (isSwapHitStatKeyRequest(ctx->key_request)) {
+        atomicIncr(server.swap_hit_stats->stat_swapin_attempt_count,1);
+    }
 
     /* slave expire decided before swap */
     if (cmd_intention_flags & SWAP_EXPIRE_FORCE) {
         swapDataMarkPropagateExpire(data);
     }
 
-    if (isSwapHitStatKeyRequest(ctx->key_request)) {
-        atomicIncr(server.swap_hit_stats->stat_swapin_attempt_count,1);
-    }
-
     if (value == NULL) {
-        submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
-                ctx,data,datactx,ctx->key_request->trace,keyRequestSwapFinished,ctx,msgs,thread_idx);
-        return;
+        if (db->swap_absent_cache &&
+                absentsCacheGet(db->swap_absent_cache, key->ptr)) {
+            reason = "key is absent";
+            reason_num = NOSWAP_REASON_ABSENTCACHEHIT;
+            goto noswap;
+        } else {
+            submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
+                    ctx,data,datactx,ctx->key_request->trace,
+                    keyRequestSwapFinished,ctx,msgs,thread_idx);
+            return;
+        }
     }
 
     expire = getExpire(db,key);
