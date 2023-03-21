@@ -2900,52 +2900,32 @@ int validateClientAttrOrReply(client *c, sds attr, sds val) {
     return C_OK;
 }
 
-/* Set complementary client handshake arguments */
-void helloextCommand(client *c) {
-    if ((c->argc % 2) == 0) {
-        addReplyErrorArity(c);
+/* Set client or connection related info */
+void clientSetinfoCommand(client *c) {
+    sds attr = c->argv[2]->ptr;
+    robj *valob = c->argv[3];
+    sds val = valob->ptr;
+    robj **destvar = NULL;
+    if (!strcasecmp(attr,"LIBNAME")) {
+        destvar = &c->lib_name;
+    } else if (!strcasecmp(attr,"LIBVER")) {
+        destvar = &c->lib_ver;
+    } else if (!strcasecmp(attr,"LIBENV")) {
+        destvar = &c->lib_env;
+    } else {
+        addReplyStatusFormat(c,"Unrecognized option '%s'", attr);
         return;
     }
-    addReplyArrayLen(c, (c->argc-1) / 2);
-    for (int i = 1; i < c->argc; i += 2) {
-        sds attr = c->argv[i]->ptr;
-        robj *valob = c->argv[i+1];
-        sds val = valob->ptr;
-        if (!strcasecmp(attr,"LIBNAME")) {
-            if (validateClientAttrOrReply(c, attr, val)==C_ERR)
-                continue;
-            if (c->lib_name) decrRefCount(c->lib_name);
-            if (sdslen(val)) {
-                c->lib_name = valob;
-                incrRefCount(valob);
-            } else
-                c->lib_name = NULL;
-            addReply(c,shared.ok);
-        } else if (!strcasecmp(attr,"LIBVER")) {
-            if (validateClientAttrOrReply(c, attr, val)==C_ERR)
-                continue;
-            if (c->lib_ver) decrRefCount(c->lib_ver);
-            if (sdslen(val)) {
-                c->lib_ver = valob;
-                incrRefCount(valob);
-            } else
-                c->lib_ver = NULL;
-            addReply(c,shared.ok);
-        } else if (!strcasecmp(attr,"LIBENV")) {
-            if (validateClientAttrOrReply(c, attr, val)==C_ERR)
-                continue;
-            if (c->lib_env) decrRefCount(c->lib_env);
-            if (sdslen(val)) {
-                c->lib_env = valob;
-                incrRefCount(valob);
-            } else
-                c->lib_env = NULL;
-            addReply(c,shared.ok);
-        } else {
-            addReplyStatusFormat(c,"Unrecognized option '%s'", attr);
-            return;
-        }
-    }
+
+    if (validateClientAttrOrReply(c, attr, val)==C_ERR)
+        return;
+    if (*destvar) decrRefCount(*destvar);
+    if (sdslen(val)) {
+        *destvar = valob;
+        incrRefCount(valob);
+    } else
+        *destvar = NULL;
+    addReply(c,shared.ok);
 }
 
 /* Reset the client state to resemble a newly connected client.

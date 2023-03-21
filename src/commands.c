@@ -958,6 +958,28 @@ struct redisCommandArg CLIENT_REPLY_Args[] = {
 {0}
 };
 
+/********** CLIENT SETINFO ********************/
+
+/* CLIENT SETINFO history */
+#define CLIENT_SETINFO_History NULL
+
+/* CLIENT SETINFO tips */
+#define CLIENT_SETINFO_tips NULL
+
+/* CLIENT SETINFO attr argument table */
+struct redisCommandArg CLIENT_SETINFO_attr_Subargs[] = {
+{"libname",ARG_TYPE_STRING,-1,"LIB-NAME",NULL,NULL,CMD_ARG_NONE},
+{"libver",ARG_TYPE_STRING,-1,"LIB-VER",NULL,NULL,CMD_ARG_NONE},
+{"libenv",ARG_TYPE_STRING,-1,"LIB-ENV",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* CLIENT SETINFO argument table */
+struct redisCommandArg CLIENT_SETINFO_Args[] = {
+{"attr",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_SETINFO_attr_Subargs},
+{0}
+};
+
 /********** CLIENT SETNAME ********************/
 
 /* CLIENT SETNAME history */
@@ -1051,6 +1073,7 @@ struct redisCommand CLIENT_Subcommands[] = {
 {"no-touch","Controls whether commands sent by the client will alter the LRU/LFU of the keys they access.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_NO_TOUCH_History,CLIENT_NO_TOUCH_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_NO_TOUCH_Args},
 {"pause","Stop processing commands from clients for some time","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,CLIENT_PAUSE_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_PAUSE_Args},
 {"reply","Instruct the server whether to reply to commands","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,CLIENT_REPLY_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_REPLY_Args},
+{"setinfo","Set client or connection specific info","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETINFO_History,CLIENT_SETINFO_tips,clientSetinfoCommand,4,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETINFO_Args},
 {"setname","Set the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,CLIENT_SETNAME_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETNAME_Args},
 {"tracking","Enable or disable server assisted client side caching support","O(1). Some options may introduce additional complexity.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_History,CLIENT_TRACKING_tips,clientCommand,-3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_TRACKING_Args},
 {"trackinginfo","Return information about server assisted client side caching for the current connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_History,CLIENT_TRACKINGINFO_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
@@ -1110,28 +1133,6 @@ struct redisCommandArg HELLO_arguments_Subargs[] = {
 /* HELLO argument table */
 struct redisCommandArg HELLO_Args[] = {
 {"arguments",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HELLO_arguments_Subargs},
-{0}
-};
-
-/********** HELLOEXT ********************/
-
-/* HELLOEXT history */
-#define HELLOEXT_History NULL
-
-/* HELLOEXT tips */
-#define HELLOEXT_tips NULL
-
-/* HELLOEXT tuples argument table */
-struct redisCommandArg HELLOEXT_tuples_Subargs[] = {
-{"libname",ARG_TYPE_STRING,-1,"LIBNAME",NULL,NULL,CMD_ARG_OPTIONAL},
-{"libver",ARG_TYPE_STRING,-1,"LIBVER",NULL,NULL,CMD_ARG_OPTIONAL},
-{"libenv",ARG_TYPE_STRING,-1,"LIBENV",NULL,NULL,CMD_ARG_OPTIONAL},
-{0}
-};
-
-/* HELLOEXT argument table */
-struct redisCommandArg HELLOEXT_Args[] = {
-{"tuples",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HELLOEXT_tuples_Subargs},
 {0}
 };
 
@@ -7253,7 +7254,6 @@ struct redisCommand redisCommandTable[] = {
 {"client","A container for client connection commands","Depends on subcommand.","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_History,CLIENT_tips,NULL,-2,CMD_SENTINEL,0,.subcommands=CLIENT_Subcommands},
 {"echo","Echo the given string","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,ECHO_History,ECHO_tips,echoCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,.args=ECHO_Args},
 {"hello","Handshake with Redis","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,HELLO_History,HELLO_tips,helloCommand,-1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,.args=HELLO_Args},
-{"helloext","Pass complementary client handshake arguments","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,HELLOEXT_History,HELLOEXT_tips,helloextCommand,-1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,.args=HELLOEXT_Args},
 {"ping","Ping the server","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,PING_History,PING_tips,pingCommand,-1,CMD_FAST|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=PING_Args},
 {"quit","Close the connection","O(1)","1.0.0",CMD_DOC_DEPRECATED,"just closing the connection","7.2.0",COMMAND_GROUP_CONNECTION,QUIT_History,QUIT_tips,quitCommand,-1,CMD_ALLOW_BUSY|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH,ACL_CATEGORY_CONNECTION},
 {"reset","Reset the connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,RESET_History,RESET_tips,resetCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION},
