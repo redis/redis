@@ -15,6 +15,18 @@
         ],
         "acl_categories": [
             "CONNECTION"
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "description": "The connection name of the current connection"
+                },
+                {
+                    "type": "null",
+                    "description": "Connection name was not set"
+                }
+            ]
+        }
     }
 }

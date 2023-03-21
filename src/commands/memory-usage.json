@@ -29,6 +29,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Number of bytes that a key and its value require to be stored in RAM.",
+                    "type": "integer"
+                },
+                {
+                    "description": "Key does not exist.",
+                    "type": "null"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

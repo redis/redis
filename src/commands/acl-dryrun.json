@@ -15,6 +15,18 @@
             "STALE",
             "SENTINEL"
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "const": "OK",
+                    "description": "The given user may successfully execute the given command."
+                },
+                {
+                    "type": "string",
+                    "description": "The description of the problem, in case the user is not allowed to run the given command."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "username",

@@ -13,6 +13,9 @@
             "NOSCRIPT",
             "PROTECTED"
         ],
+        "reply_schema": {
+            "const": "OK"
+        },
         "arguments": [
             {
                 "name": "name",

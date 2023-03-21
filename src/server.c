@@ -216,7 +216,7 @@ mstime_t commandTimeSnapshot(void) {
      * may re-open the same key multiple times, can invalidate an already
      * open object in a next call, if the next call will see the key expired,
      * while the first did not.
-     * This is specificlally important in the context of scripts, where we
+     * This is specifically important in the context of scripts, where we
      * pretend that time freezes. This way a key can expire only the first time
      * it is accessed and not in the middle of the script execution, making
      * propagation to slaves / AOF consistent. See issue #1525 for more info.
@@ -1154,6 +1154,26 @@ void updateCachedTime(int update_daylight_info) {
     updateCachedTimeWithUs(update_daylight_info, us);
 }
 
+/* Performing required operations in order to enter an execution unit.
+ * In general, if we are already inside an execution unit then there is nothing to do,
+ * otherwise we need to update cache times so the same cached time will be used all over
+ * the execution unit.
+ * update_cached_time - if 0, will not update the cached time even if required.
+ * us - if not zero, use this time for cached time, otherwise get current time. */
+void enterExecutionUnit(int update_cached_time, long long us) {
+    if (server.execution_nesting++ == 0 && update_cached_time) {
+        if (us == 0) {
+            us = ustime();
+        }
+        updateCachedTimeWithUs(0, us);
+        server.cmd_time_snapshot = server.mstime;
+    }
+}
+
+void exitExecutionUnit() {
+    --server.execution_nesting;
+}
+
 void checkChildrenDone(void) {
     int statloc = 0;
     pid_t pid;
@@ -1663,7 +1683,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
     /* Unblock all the clients blocked for synchronous replication
-     * in WAIT. */
+     * in WAIT or WAITAOF. */
     if (listLength(server.clients_waiting_acks))
         processClientsWaitingReplicas();
 
@@ -1722,6 +1742,15 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * in case of appendfsync=always. */
     if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
         flushAppendOnlyFile(0);
+
+    /* Update the fsynced replica offset.
+     * If an initial rewrite is in progress then not all data is guaranteed to have actually been
+     * persisted to disk yet, so we cannot update the field. We will wait for the rewrite to complete. */
+    if (server.aof_state == AOF_ON && server.fsynced_reploff != -1) {
+        long long fsynced_reploff_pending;
+        atomicGet(server.fsynced_reploff_pending, fsynced_reploff_pending);
+        server.fsynced_reploff = fsynced_reploff_pending;
+    }
 
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWritesUsingThreads();
@@ -2051,6 +2080,7 @@ void initServerConfig(void) {
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
+    server.fsynced_reploff_pending = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -2529,6 +2559,7 @@ void initServer(void) {
 
     /* Initialization after setting defaults from the config system. */
     server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
+    server.fsynced_reploff = server.aof_enabled ? 0 : -1;
     server.hz = server.config_hz;
     server.pid = getpid();
     server.in_fork_child = CHILD_TYPE_NONE;
@@ -3479,7 +3510,7 @@ void call(client *c, int flags) {
      * and a client which is reprocessing command again (after being unblocked).
      * Blocked clients can be blocked in different places and not always it means the call() function has been
      * called. For example this is required for avoiding double logging to monitors.*/
-    int reprocessing_command = ((!server.execution_nesting) && (c->flags & CLIENT_EXECUTING_COMMAND)) ? 1 : 0;
+    int reprocessing_command = flags & CMD_CALL_REPROCESSING;
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
@@ -3494,17 +3525,17 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
+    long long old_master_repl_offset = server.master_repl_offset;
     incrCommandStatsOnError(NULL, 0);
 
     const long long call_timer = ustime();
+    enterExecutionUnit(1, call_timer);
 
-    /* Update cache time, and indicate we are starting command execution.
-     * in case we have nested calls we want to update only on the first call */
-    if (server.execution_nesting++ == 0) {
-        updateCachedTimeWithUs(0,call_timer);
-        server.cmd_time_snapshot = server.mstime;
-        c->flags |= CLIENT_EXECUTING_COMMAND;
-    }
+    /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid
+     * sending client side caching message in the middle of a command reply.
+     * In case of blocking commands, the flag will be un-set only after successfully
+     * re-processing and unblock the client.*/
+    c->flags |= CLIENT_EXECUTING_COMMAND;
 
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
@@ -3512,12 +3543,11 @@ void call(client *c, int flags) {
 
     c->cmd->proc(c);
 
-    if (--server.execution_nesting == 0) {
-        /* In case client is blocked after trying to execute the command,
-         * it means the execution is not yet completed and we MIGHT reprocess the command in the future. */
-        if (!(c->flags & CLIENT_BLOCKED))
-            c->flags &= ~(CLIENT_EXECUTING_COMMAND);
-    }
+    exitExecutionUnit();
+
+    /* In case client is blocked after trying to execute the command,
+     * it means the execution is not yet completed and we MIGHT reprocess the command in the future. */
+    if (!(c->flags & CLIENT_BLOCKED)) c->flags &= ~(CLIENT_EXECUTING_COMMAND);
 
     /* In order to avoid performance implication due to querying the clock using a system call 3 times,
      * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
@@ -3614,10 +3644,12 @@ void call(client *c, int flags) {
         /* However prevent AOF / replication propagation if the command
          * implementation called preventCommandPropagation() or similar,
          * or if we don't have the call() flags to do so. */
-        if (c->flags & CLIENT_PREVENT_REPL_PROP ||
+        if (c->flags & CLIENT_PREVENT_REPL_PROP        ||
+            c->flags & CLIENT_MODULE_PREVENT_REPL_PROP ||
             !(flags & CMD_CALL_PROPAGATE_REPL))
                 propagate_flags &= ~PROPAGATE_REPL;
-        if (c->flags & CLIENT_PREVENT_AOF_PROP ||
+        if (c->flags & CLIENT_PREVENT_AOF_PROP        ||
+            c->flags & CLIENT_MODULE_PREVENT_AOF_PROP ||
             !(flags & CMD_CALL_PROPAGATE_AOF))
                 propagate_flags &= ~PROPAGATE_AOF;
 
@@ -3661,6 +3693,11 @@ void call(client *c, int flags) {
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
+
+    /* Remember the replication offset of the client, right after its last
+     * command that resulted in propagation. */
+    if (old_master_repl_offset != server.master_repl_offset)
+        c->woff = server.master_repl_offset;
 
     /* Client pause takes effect after a transaction has finished. This needs
      * to be located after everything is propagated. */
@@ -3802,11 +3839,15 @@ int processCommand(client *c) {
         serverAssert(!scriptIsRunning());
     }
 
-    moduleCallCommandFilters(c);
-
     /* in case we are starting to ProcessCommand and we already have a command we assume
      * this is a reprocessing of this command, so we do not want to perform some of the actions again. */
     int client_reprocessing_command = c->cmd ? 1 : 0;
+
+    /* only run command filter if not reprocessing command */
+    if (!client_reprocessing_command) {
+        moduleCallCommandFilters(c);
+        reqresAppendRequest(c);
+    }
 
     /* Handle possible security attacks. */
     if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {
@@ -4120,8 +4161,9 @@ int processCommand(client *c) {
         queueMultiCommand(c, cmd_flags);
         addReply(c,shared.queued);
     } else {
-        call(c,CMD_CALL_FULL);
-        c->woff = server.master_repl_offset;
+        int flags = CMD_CALL_FULL;
+        if (client_reprocessing_command) flags |= CMD_CALL_REPROCESSING;
+        call(c,flags);
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
@@ -4665,30 +4707,41 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
     }
 }
 
-/* Must match redisCommandRESP2Type */
-const char *RESP2_TYPE_STR[] = {
-    "simple-string",
-    "error",
-    "integer",
-    "bulk-string",
-    "null-bulk-string",
-    "array",
-    "null-array",
-};
+#ifdef LOG_REQ_RES
 
-/* Must match redisCommandRESP3Type */
-const char *RESP3_TYPE_STR[] = {
-    "simple-string",
-    "error",
-    "integer",
-    "double",
-    "bulk-string",
-    "array",
-    "map",
-    "set",
-    "bool",
-    "null",
-};
+void addReplyJson(client *c, struct jsonObject *rs) {
+    addReplyMapLen(c, rs->length);
+
+    for (int i = 0; i < rs->length; i++) {
+        struct jsonObjectElement *curr = &rs->elements[i];
+        addReplyBulkCString(c, curr->key);
+        switch (curr->type) {
+        case (JSON_TYPE_BOOLEAN):
+            addReplyBool(c, curr->value.boolean);
+            break;
+        case (JSON_TYPE_INTEGER):
+            addReplyLongLong(c, curr->value.integer);
+            break;
+        case (JSON_TYPE_STRING):
+            addReplyBulkCString(c, curr->value.string);
+            break;
+        case (JSON_TYPE_OBJECT):
+            addReplyJson(c, curr->value.object);
+            break;
+        case (JSON_TYPE_ARRAY):
+            addReplyArrayLen(c, curr->value.array.length);
+            for (int k = 0; k < curr->value.array.length; k++) {
+                struct jsonObject *object = curr->value.array.objects[k];
+                addReplyJson(c, object);
+            }
+            break;
+        default:
+            serverPanic("Invalid JSON type %d", curr->type);
+        }
+    }
+}
+
+#endif
 
 void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     addReplySetLen(c, cmd->num_history);
@@ -4886,6 +4939,9 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     if (cmd->deprecated_since) maplen++;
     if (cmd->replaced_by) maplen++;
     if (cmd->history) maplen++;
+#ifdef LOG_REQ_RES
+    if (cmd->reply_schema) maplen++;
+#endif
     if (cmd->args) maplen++;
     if (cmd->subcommands_dict) maplen++;
     addReplyMapLen(c, maplen);
@@ -4927,6 +4983,12 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
         addReplyBulkCString(c, "history");
         addReplyCommandHistory(c, cmd);
     }
+#ifdef LOG_REQ_RES
+    if (cmd->reply_schema) {
+        addReplyBulkCString(c, "reply_schema");
+        addReplyJson(c, cmd->reply_schema);
+    }
+#endif
     if (cmd->args) {
         addReplyBulkCString(c, "arguments");
         addReplyCommandArgList(c, cmd->args, cmd->num_args);

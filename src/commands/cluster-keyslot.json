@@ -15,6 +15,11 @@
                 "name": "key",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The hash slot number for the specified key",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

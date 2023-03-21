@@ -35,6 +35,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "string",
+            "description": "The value of the field after the increment operation."
+        },
         "arguments": [
             {
                 "name": "key",

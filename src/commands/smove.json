@@ -52,6 +52,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": 1,
+                    "description": "Element is moved."
+                },
+                {
+                    "const": 0,
+                    "description": "The element is not a member of source and no operation was performed."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "source",

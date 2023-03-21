@@ -559,7 +559,6 @@ void mgetCommand(client *c) {
 
 void msetGenericCommand(client *c, int nx) {
     int j;
-    int setkey_flags = 0;
 
     if ((c->argc % 2) == 0) {
         addReplyErrorArity(c);
@@ -575,12 +574,11 @@ void msetGenericCommand(client *c, int nx) {
                 return;
             }
         }
-        setkey_flags |= SETKEY_DOESNT_EXIST;
     }
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c, c->db, c->argv[j], c->argv[j + 1], setkey_flags);
+        setKey(c, c->db, c->argv[j], c->argv[j + 1], 0);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;

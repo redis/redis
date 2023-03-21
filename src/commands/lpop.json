@@ -40,6 +40,26 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Key does not exist.",
+                    "type": "null"
+                },
+                {
+                    "description": "In case `count` argument was not given, the value of the first element.",
+                    "type": "string"
+                },
+                {
+                    "description": "In case `count` argument was given, a list of popped elements",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        },
+
         "arguments": [
             {
                 "name": "key",

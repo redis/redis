@@ -94,6 +94,9 @@
                 "optional": true,
                 "since": "5.0.0"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

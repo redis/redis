@@ -431,6 +431,10 @@ start_server {tags {"zset"}} {
         }
 
         test "ZRANK/ZREVRANK basics - $encoding" {
+            set nullres {$-1}
+            if {$::force_resp3} {
+                set nullres {_}
+            }
             r del zranktmp
             r zadd zranktmp 10 x
             r zadd zranktmp 20 y
@@ -442,11 +446,15 @@ start_server {tags {"zset"}} {
             assert_equal 1 [r zrevrank zranktmp y]
             assert_equal 0 [r zrevrank zranktmp z]
             r readraw 1
-            assert_equal {$-1} [r zrank zranktmp foo]
-            assert_equal {$-1} [r zrevrank zranktmp foo]
+            assert_equal $nullres [r zrank zranktmp foo]
+            assert_equal $nullres [r zrevrank zranktmp foo]
             r readraw 0
 
             # withscores
+            set nullres {*-1}
+            if {$::force_resp3} {
+                set nullres {_}
+            }
             assert_equal {0 10} [r zrank zranktmp x withscore]
             assert_equal {1 20} [r zrank zranktmp y withscore]
             assert_equal {2 30} [r zrank zranktmp z withscore]
@@ -454,8 +462,8 @@ start_server {tags {"zset"}} {
             assert_equal {1 20} [r zrevrank zranktmp y withscore]
             assert_equal {0 30} [r zrevrank zranktmp z withscore]
             r readraw 1
-            assert_equal {*-1} [r zrank zranktmp foo withscore]
-            assert_equal {*-1} [r zrevrank zranktmp foo withscore]
+            assert_equal $nullres [r zrank zranktmp foo withscore]
+            assert_equal $nullres [r zrevrank zranktmp foo withscore]
             r readraw 0
         }
 
@@ -1243,11 +1251,12 @@ start_server {tags {"zset"}} {
 
         if {[lsearch $::denytags "resp3"] >= 0} {
             if {$resp == 3} {continue}
-        } else {
-            r hello $resp
-            $rd hello $resp
-            $rd read
+        } elseif {$::force_resp3} {
+            if {$resp == 2} {continue}
         }
+        r hello $resp
+        $rd hello $resp
+        $rd read
 
         test "ZPOPMIN/ZPOPMAX readraw in RESP$resp" {
             r del zset{t}
@@ -1401,6 +1410,7 @@ start_server {tags {"zset"}} {
         }
 
         $rd close
+        r hello 2
     }
 
     test {ZINTERSTORE regression with two sets, intset+hashtable} {

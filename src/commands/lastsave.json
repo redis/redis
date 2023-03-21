@@ -17,6 +17,10 @@
         "acl_categories": [
             "ADMIN",
             "DANGEROUS"
-        ]
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "UNIX TIME of the last DB save executed with success."
+        }
     }
 }

@@ -71,6 +71,7 @@ start_server {tags {"latency-monitor needs:latency"}} {
         assert {[string length [r latency histogram blabla set get]] > 0}
     }
 
+tags {"needs:debug"} {
     test {Test latency events logging} {
         r debug sleep 0.3
         after 1100
@@ -78,7 +79,7 @@ start_server {tags {"latency-monitor needs:latency"}} {
         after 1100
         r debug sleep 0.5
         assert {[r latency history command] >= 3}
-    } {} {needs:debug}
+    }
 
     test {LATENCY HISTORY output is ok} {
         set min 250
@@ -106,6 +107,18 @@ start_server {tags {"latency-monitor needs:latency"}} {
         }
     }
 
+    test {LATENCY GRAPH can output the event graph} {
+        set res [r latency graph command]
+        assert_match {*command*high*low*} $res
+
+        # These numbers are taken from the "Test latency events logging" test.
+        # (debug sleep 0.3) and (debug sleep 0.5), using range to prevent timing issue.
+        regexp "command - high (.*?) ms, low (.*?) ms" $res -> high low
+        assert_morethan_equal $high 500
+        assert_morethan_equal $low 300
+    }
+} ;# tag
+
     test {LATENCY of expire events are correctly collected} {
         r config set latency-monitor-threshold 20
         r flushdb
@@ -124,6 +137,11 @@ start_server {tags {"latency-monitor needs:latency"}} {
             fail "key wasn't expired"
         }
         assert_match {*expire-cycle*} [r latency latest]
+
+        test {LATENCY GRAPH can output the expire event graph} {
+             assert_match {*expire-cycle*high*low*} [r latency graph expire-cycle]
+        }
+
         r config set latency-monitor-threshold 200
     }
 

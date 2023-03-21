@@ -12,6 +12,9 @@
             "NOSCRIPT",
             "LOADING",
             "STALE"
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

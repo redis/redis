@@ -33,6 +33,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "number",
+                    "description": "The score of the member (a double precision floating point number). In RESP2, this is returned as string."
+                },
+                {
+                    "type": "null",
+                    "description": "Member does not exist in the sorted set, or key does not exist."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

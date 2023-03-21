@@ -92,6 +92,45 @@ start_server {tags {"modules acl"}} {
         assert {[dict get $entry reason] eq {command}}
     }
 
+    test {test blocking of Commands outside of OnLoad} {
+        assert_equal [r block.commands.outside.onload] OK
+    }
+
+    test {test users to have access to module commands having acl categories} {
+        r acl SETUSER j1 on >password -@all +@WRITE
+        r acl SETUSER j2 on >password -@all +@READ
+        assert_equal [r acl DRYRUN j1 aclcheck.module.command.aclcategories.write] OK
+        assert_equal [r acl DRYRUN j2 aclcheck.module.command.aclcategories.write.function.read.category] OK
+        assert_equal [r acl DRYRUN j2 aclcheck.module.command.aclcategories.read.only.category] OK
+    }
+
+    test {test existing users to have access to module commands loaded on runtime} {
+        assert_equal [r module unload aclcheck] OK
+        r acl SETUSER j3 on >password -@all +@WRITE
+        assert_equal [r module load $testmodule] OK
+        assert_equal [r acl DRYRUN j3 aclcheck.module.command.aclcategories.write] OK
+    }
+
+    test {test existing users without permissions, do not have access to module commands loaded on runtime.} {
+        assert_equal [r module unload aclcheck] OK
+        r acl SETUSER j4 on >password -@all +@READ
+        r acl SETUSER j5 on >password -@all +@WRITE
+        assert_equal [r module load $testmodule] OK
+        catch {r acl DRYRUN j4 aclcheck.module.command.aclcategories.write} e
+        assert_equal {User j4 has no permissions to run the 'aclcheck.module.command.aclcategories.write' command} $e
+        catch {r acl DRYRUN j5 aclcheck.module.command.aclcategories.write.function.read.category} e
+        assert_equal {User j5 has no permissions to run the 'aclcheck.module.command.aclcategories.write.function.read.category' command} $e
+    }
+
+    test {test users without permissions, do not have access to module commands.} {
+        r acl SETUSER j6 on >password -@all +@READ
+        catch {r acl DRYRUN j6 aclcheck.module.command.aclcategories.write} e
+        assert_equal {User j6 has no permissions to run the 'aclcheck.module.command.aclcategories.write' command} $e
+        r acl SETUSER j7 on >password -@all +@WRITE
+        catch {r acl DRYRUN j7 aclcheck.module.command.aclcategories.write.function.read.category} e
+        assert_equal {User j7 has no permissions to run the 'aclcheck.module.command.aclcategories.write.function.read.category' command} $e
+    }
+
     test "Unload the module - aclcheck" {
         assert_equal {OK} [r module unload aclcheck]
     }
