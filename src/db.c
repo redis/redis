@@ -63,13 +63,8 @@ dict *dbIteratorNextDict(dbIterator *dbit) {
 
 /* Returns next entry from the multi slot db. */
 dictEntry *dbIteratorNext(dbIterator *dbit) {
-    if (!dbit->di.d) { /* No current dict, need to get a new one. */
-        dict *d = dbIteratorNextDict(dbit);
-        if (!d) return NULL;
-        dictInitSafeIterator(&dbit->di, d);
-    }
-    dictEntry *de = dictNext(&dbit->di);
-    if (!de) { /* Reached the end of the dictionary, check if there are more. */
+    dictEntry *de = dbit->di.d ? dictNext(&dbit->di) : NULL;
+    if (!de) { /* No current dict or reached the end of the dictionary. */
         dict *d = dbIteratorNextDict(dbit);
         if (!d) return NULL;
         dictInitSafeIterator(&dbit->di, d);
