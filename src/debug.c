@@ -294,21 +294,21 @@ void computeDatasetDigest(unsigned char *final) {
         mixDigest(final, &aux, sizeof(aux));
 
         /* Iterate this DB writing every entry */
-        while ((de = dbIteratorNext(&dbit)) != NULL) {
+        while((de = dbIteratorNext(&dbit)) != NULL) {
             sds key;
             robj *keyobj, *o;
 
-            memset(digest, 0, 20); /* This key-val digest */
+            memset(digest,0,20); /* This key-val digest */
             key = dictGetKey(de);
-            keyobj = createStringObject(key, sdslen(key));
+            keyobj = createStringObject(key,sdslen(key));
 
-            mixDigest(digest, key, sdslen(key));
+            mixDigest(digest,key,sdslen(key));
 
             o = dictGetVal(de);
-            xorObjectDigest(db, keyobj, digest, o);
+            xorObjectDigest(db,keyobj,digest,o);
 
             /* We can finally xor the key-val digest to the final digest */
-            xorDigest(final, digest, 20);
+            xorDigest(final,digest,20);
             decrRefCount(keyobj);
         }
     }

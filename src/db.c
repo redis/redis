@@ -876,10 +876,10 @@ void keysCommand(client *c) {
         sds key = dictGetKey(de);
         robj *keyobj;
 
-        if (allkeys || stringmatchlen(pattern, plen, key, sdslen(key), 0)) {
-            keyobj = createStringObject(key, sdslen(key));
-            if (!keyIsExpired(c->db, keyobj)) {
-                addReplyBulk(c, keyobj);
+        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+            keyobj = createStringObject(key,sdslen(key));
+            if (!keyIsExpired(c->db,keyobj)) {
+                addReplyBulk(c,keyobj);
                 numkeys++;
             }
             decrRefCount(keyobj);
@@ -1707,7 +1707,7 @@ void swapdbCommand(client *c) {
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
-    serverAssertWithInfo(NULL,key, dictFind(db->dict[getKeySlot(key->ptr)], key->ptr) != NULL);
+    serverAssertWithInfo(NULL,key,dictFind(db->dict[getKeySlot(key->ptr)], key->ptr) != NULL);
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
