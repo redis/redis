@@ -208,6 +208,15 @@ void emptyDbAsync(redisDb *db) {
     db->dict = dictCreate(&dbDictType,NULL);
     db->expires = dictCreate(&dbExpiresDictType,NULL);
     db->meta = dictCreate(&objectMetaDictType,NULL);
+
+    if (db->swap_absent_cache) {
+        absentsCacheFree(db->swap_absent_cache);
+        db->swap_absent_cache = NULL;
+    }
+    if (server.swap_absent_cache_enabled) {
+        db->swap_absent_cache =
+            absentsCacheNew(server.swap_absent_cache_capacity);
+    }
     atomicIncr(lazyfree_objects,dictSize(oldht1));
     bioCreateLazyFreeJob(lazyfreeFreeDatabase,3,oldht1,oldht2,oldht3);
 }
