@@ -1166,7 +1166,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * only be used to find keys that exist at constant indices.
  * For non-trivial key arguments, you may pass 0,0,0 and use
  * RedisModule_SetCommandInfo to set key specs using a more advanced scheme and use
- * RedisModule_SetCommandCategories to set Redis ACL categories of the commands. */
+ * RedisModule_SetCommandACLCategories to set Redis ACL categories of the commands. */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     if (!ctx->module->onload)
         return REDISMODULE_ERR;
@@ -1362,7 +1362,7 @@ int matchAclCategoryFlag(char *flag, int64_t *acl_categories_flags) {
     return 0; /* Unrecognized */
 }
 
-/* Helper for RM_SetCommandCategories(). Turns a string representing acl category
+/* Helper for RM_SetCommandACLCategories(). Turns a string representing acl category
  * flags into the acl category flags used by Redis ACL which allows users to access 
  * the module commands by acl categories.
  * 
@@ -1383,12 +1383,12 @@ int64_t categoryFlagsFromString(char *aclflags) {
     return acl_categories_flags;
 }
 
-/* RedisModule_SetCommandCategories can be used to set ACL categories to module
+/* RedisModule_SetCommandACLCategories can be used to set ACL categories to module
  * commands and subcommands. The set of ACL categories should be passed as
  * a space separated C string 'aclflags'.
  * 
  * Example, 'write slow' marks the command as part of the write and slow ACL categories. */
-int RM_SetCommandCategories(RedisModuleCommand *command, const char *aclflags) {
+int RM_SetCommandACLCategories(RedisModuleCommand *command, const char *aclflags) {
     if (!command || !command->module || !command->module->onload) return REDISMODULE_ERR;
     int64_t categories_flags = aclflags ? categoryFlagsFromString((char*)aclflags) : 0;
     if (categories_flags == -1) return REDISMODULE_ERR;
@@ -12853,7 +12853,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetCommand);
     REGISTER_API(CreateSubcommand);
     REGISTER_API(SetCommandInfo);
-    REGISTER_API(SetCommandCategories);
+    REGISTER_API(SetCommandACLCategories);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);

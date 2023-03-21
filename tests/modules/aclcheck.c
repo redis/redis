@@ -226,21 +226,21 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     RedisModuleCommand *aclcategories_write = RedisModule_GetCommand(ctx,"aclcheck.module.command.aclcategories.write");
 
-    if (RedisModule_SetCommandCategories(aclcategories_write, "write") == REDISMODULE_ERR)
+    if (RedisModule_SetCommandACLCategories(aclcategories_write, "write") == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"aclcheck.module.command.aclcategories.write.function.read.category", module_test_acl_category,"write",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     RedisModuleCommand *read_category = RedisModule_GetCommand(ctx,"aclcheck.module.command.aclcategories.write.function.read.category");
 
-    if (RedisModule_SetCommandCategories(read_category, "read") == REDISMODULE_ERR)
+    if (RedisModule_SetCommandACLCategories(read_category, "read") == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"aclcheck.module.command.aclcategories.read.only.category", module_test_acl_category,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     RedisModuleCommand *read_only_category = RedisModule_GetCommand(ctx,"aclcheck.module.command.aclcategories.read.only.category");
 
-    if (RedisModule_SetCommandCategories(read_only_category, "read") == REDISMODULE_ERR)
+    if (RedisModule_SetCommandACLCategories(read_only_category, "read") == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"aclcheck.publish.check.channel", publish_aclcheck_channel,"",0,0,0) == REDISMODULE_ERR)
