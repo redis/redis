@@ -33,11 +33,6 @@
                         "token": "lib-ver",
                         "name": "libver",
                         "type": "string"
-                    },
-                    {
-                        "token": "lib-env",
-                        "name": "libenv",
-                        "type": "string"
                     }
                 ]
             }

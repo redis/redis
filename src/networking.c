@@ -149,7 +149,6 @@ client *createClient(connection *conn) {
     c->name = NULL;
     c->lib_name = NULL;
     c->lib_ver = NULL;
-    c->lib_env = NULL;
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
@@ -1514,7 +1513,7 @@ void clearClientConnectionState(client *c) {
         c->name = NULL;
     }
 
-    /* Note: lib_name, lib_ver, and lib_env are not reset since they still
+    /* Note: lib_name and lib_ver are not reset since they still
      * represent the client library behind the connection. */
     
     /* Selectively clear state flags not covered above */
@@ -1670,7 +1669,6 @@ void freeClient(client *c) {
     if (c->name) decrRefCount(c->name);
     if (c->lib_name) decrRefCount(c->lib_name);
     if (c->lib_ver) decrRefCount(c->lib_ver);
-    if (c->lib_env) decrRefCount(c->lib_env);
     freeClientMultiState(c);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
@@ -2775,7 +2773,7 @@ sds catClientInfoString(sds s, client *client) {
     }
 
     sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i lib-name=%s lib-ver=%s lib-env=%s",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i lib-name=%s lib-ver=%s",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2805,8 +2803,7 @@ sds catClientInfoString(sds s, client *client) {
         (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
         client->resp,
         client->lib_name ? (char*)client->lib_name->ptr : "",
-        client->lib_ver ? (char*)client->lib_ver->ptr : "",
-        client->lib_env ? (char*)client->lib_env->ptr : ""
+        client->lib_ver ? (char*)client->lib_ver->ptr : ""
         );
     return ret;
 }
@@ -2898,12 +2895,10 @@ void clientSetinfoCommand(client *c) {
     robj *valob = c->argv[3];
     sds val = valob->ptr;
     robj **destvar = NULL;
-    if (!strcasecmp(attr,"LIBNAME")) {
+    if (!strcasecmp(attr,"lib-name")) {
         destvar = &c->lib_name;
-    } else if (!strcasecmp(attr,"LIBVER")) {
+    } else if (!strcasecmp(attr,"lib-ver")) {
         destvar = &c->lib_ver;
-    } else if (!strcasecmp(attr,"LIBENV")) {
-        destvar = &c->lib_env;
     } else {
         addReplyStatusFormat(c,"Unrecognized option '%s'", attr);
         return;

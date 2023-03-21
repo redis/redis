@@ -970,7 +970,6 @@ struct redisCommandArg CLIENT_REPLY_Args[] = {
 struct redisCommandArg CLIENT_SETINFO_attr_Subargs[] = {
 {"libname",ARG_TYPE_STRING,-1,"LIB-NAME",NULL,NULL,CMD_ARG_NONE},
 {"libver",ARG_TYPE_STRING,-1,"LIB-VER",NULL,NULL,CMD_ARG_NONE},
-{"libenv",ARG_TYPE_STRING,-1,"LIB-ENV",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 

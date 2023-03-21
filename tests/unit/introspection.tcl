@@ -326,24 +326,19 @@ start_server {tags {"introspection"}} {
     }
 
     test {CLIENT SETINFO can set a library name to this connection} {
-        r CLIENT SETINFO libname redis.py
-        r CLIENT SETINFO libver 1.2.3
+        r CLIENT SETINFO lib-name redis.py
+        r CLIENT SETINFO lib-ver 1.2.3
         r client info
     } {*lib-name=redis.py lib-ver=1.2.3*}
 
     test {CLIENT SETINFO invalid args} {
-        assert_error {*wrong number of arguments*} {r CLIENT SETINFO libname}
-        assert_match {*cannot contain spaces*} [r CLIENT SETINFO libname "redis py"]
-        assert_match {*newlines*} [r CLIENT SETINFO libname "redis.py\n"]
+        assert_error {*wrong number of arguments*} {r CLIENT SETINFO lib-name}
+        assert_match {*cannot contain spaces*} [r CLIENT SETINFO lib-name "redis py"]
+        assert_match {*newlines*} [r CLIENT SETINFO lib-name "redis.py\n"]
         assert_match {*Unrecognized*} [r CLIENT SETINFO badger hamster]
         # test that all of these didn't affect the previously set values
         r client info
     } {*lib-name=redis.py lib-ver=1.2.3*}
-
-    test {CLIENT SETINFO can append a info to this connection} {
-        r CLIENT SETINFO libenv "Linux;my-host;5.15.0-60-generic;#66-Ubuntu;SMP;Fri;Jan;20;14:29:49;UTC;2023;x86_64;x86_64;x86_64;GNU/Linux"
-        r client info
-    } {*lib-name=redis.py lib-ver=1.2.3 lib-env=Linux;my-host;5.15.0-60-generic;#66-Ubuntu;SMP;Fri;Jan;20;14:29:49;UTC;2023;x86_64;x86_64;x86_64;GNU/Linux*}
 
     test {RESET doesn NOT clean library name} {
         r reset
@@ -351,7 +346,7 @@ start_server {tags {"introspection"}} {
     } {*lib-name=redis.py*}
 
     test {CLIENT SETINFO can clear library name} {
-        r CLIENT SETINFO libname ""
+        r CLIENT SETINFO lib-name ""
         r client info
     } {*lib-name= *}
 
