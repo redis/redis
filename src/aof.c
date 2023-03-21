@@ -2266,30 +2266,30 @@ int rewriteAppendOnlyFileRio(rio *aof) {
 
             keystr = dictGetKey(de);
             o = dictGetVal(de);
-            initStaticStringObject(key, keystr);
+            initStaticStringObject(key,keystr);
 
-            expiretime = getExpire(db, &key);
+            expiretime = getExpire(db,&key);
 
             /* Save the key and associated value */
             if (o->type == OBJ_STRING) {
                 /* Emit a SET command */
-                char cmd[] = "*3\r\n$3\r\nSET\r\n";
-                if (rioWrite(aof, cmd, sizeof(cmd) - 1) == 0) goto werr;
+                char cmd[]="*3\r\n$3\r\nSET\r\n";
+                if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                 /* Key and value */
-                if (rioWriteBulkObject(aof, &key) == 0) goto werr;
-                if (rioWriteBulkObject(aof, o) == 0) goto werr;
+                if (rioWriteBulkObject(aof,&key) == 0) goto werr;
+                if (rioWriteBulkObject(aof,o) == 0) goto werr;
             } else if (o->type == OBJ_LIST) {
-                if (rewriteListObject(aof, &key, o) == 0) goto werr;
+                if (rewriteListObject(aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_SET) {
-                if (rewriteSetObject(aof, &key, o) == 0) goto werr;
+                if (rewriteSetObject(aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_ZSET) {
-                if (rewriteSortedSetObject(aof, &key, o) == 0) goto werr;
+                if (rewriteSortedSetObject(aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_HASH) {
-                if (rewriteHashObject(aof, &key, o) == 0) goto werr;
+                if (rewriteHashObject(aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_STREAM) {
-                if (rewriteStreamObject(aof, &key, o) == 0) goto werr;
+                if (rewriteStreamObject(aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_MODULE) {
-                if (rewriteModuleObject(aof, &key, o, j) == 0) goto werr;
+                if (rewriteModuleObject(aof,&key,o,j) == 0) goto werr;
             } else {
                 serverPanic("Unknown object type");
             }
@@ -2302,10 +2302,10 @@ int rewriteAppendOnlyFileRio(rio *aof) {
 
             /* Save the expire time */
             if (expiretime != -1) {
-                char cmd[] = "*3\r\n$9\r\nPEXPIREAT\r\n";
-                if (rioWrite(aof, cmd, sizeof(cmd) - 1) == 0) goto werr;
-                if (rioWriteBulkObject(aof, &key) == 0) goto werr;
-                if (rioWriteBulkLongLong(aof, expiretime) == 0) goto werr;
+                char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
+                if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
+                if (rioWriteBulkObject(aof,&key) == 0) goto werr;
+                if (rioWriteBulkLongLong(aof,expiretime) == 0) goto werr;
             }
 
             /* Update info every 1 second (approximately).
