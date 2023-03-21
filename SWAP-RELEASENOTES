@@ -1,6 +1,15 @@
 ================================================================================
 ror-1.0.6 Released Wed Mar 15 16:37:14 CST 2023
 ================================================================================
+* [opt] cache hot absent keys to avoid IO when accessing absent keys.
+* [opt] ignore accept event when reached maxclients.
+* [new] add seperate monitor port so that metrics can be collected when reached
+        max connection.
+* [new] add average and max lock wait time metric.
+
+================================================================================
+ror-1.0.6 Released Wed Mar 15 16:37:14 CST 2023
+================================================================================
 * [fix] fix rocksdb-data overwrite hash-data in memory.
 * [opt] use specific swap-thread for exspiescan avoid long scan slowing down query.
 * [opt] optimize unnecessary rio for hot data
