@@ -1023,6 +1023,7 @@ static void executeSwapInRequest(swapRequest *req) {
 
 end:
     updateStatsSwapRIO(req,rio);
+    updateStatsSwapDataNotFound(rio);
     DEBUG_MSGS_APPEND(req->msgs,"exec-in-end","errcode=%d",errcode);
     doNotify(req,errcode);
     RIODeinit(rio);

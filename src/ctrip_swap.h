@@ -1286,6 +1286,7 @@ typedef struct swapHitStat {
     redisAtomic long long stat_swapin_not_found_cachemiss_count;
     redisAtomic long long stat_swapin_not_found_cachehit_count;
     redisAtomic long long stat_swapin_no_io_count;
+    redisAtomic long long stat_swapin_data_not_found_count;
 } swapHitStat;
 
 static inline int isSwapHitStatKeyRequest(keyRequest *kr) {
@@ -1309,6 +1310,7 @@ void updateStatsSwapNotify(swapRequest *req);
 void updateStatsSwapRIO(swapRequest *req, RIO *rio);
 void updateStatsSwapRIOFinish(RIO *rio, long duration);
 void updateStatsSwapFinish(swapRequest *req);
+void updateStatsSwapDataNotFound(RIO *rio);
 
 void updateCompactionFiltSuccessCount(int cf);
 void updateCompactionFiltScanCount(int cf);

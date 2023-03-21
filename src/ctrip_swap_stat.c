@@ -269,16 +269,18 @@ void resetSwapHitStat() {
     atomicSet(server.swap_hit_stats->stat_swapin_not_found_cachehit_count,0);
     atomicSet(server.swap_hit_stats->stat_swapin_not_found_cachemiss_count,0);
     atomicSet(server.swap_hit_stats->stat_swapin_no_io_count,0);
+    atomicSet(server.swap_hit_stats->stat_swapin_data_not_found_count,0);
 }
 
 sds genSwapHitInfoString(sds info) {
     double memory_hit_perc = 0, keyspace_hit_perc = 0, notfound_cachehit_perc = 0;
-    long long attempt, noio, notfound_cachemiss, notfound_cachehit, notfound;
+    long long attempt, noio, notfound_cachemiss, notfound_cachehit, notfound, data_notfound;
 
     atomicGet(server.swap_hit_stats->stat_swapin_attempt_count,attempt);
     atomicGet(server.swap_hit_stats->stat_swapin_no_io_count,noio);
     atomicGet(server.swap_hit_stats->stat_swapin_not_found_cachemiss_count,notfound_cachemiss);
     atomicGet(server.swap_hit_stats->stat_swapin_not_found_cachehit_count,notfound_cachehit);
+    atomicGet(server.swap_hit_stats->stat_swapin_data_not_found_count,data_notfound);
     notfound = notfound_cachehit + notfound_cachemiss;
 
     if (attempt) {
@@ -297,9 +299,11 @@ sds genSwapHitInfoString(sds info) {
             "swap_swapin_keyspace_hit_perc:%.2f%%\r\n"
             "swap_swapin_not_found_cachehit:%lld\r\n"
             "swap_swapin_not_found_cachemiss:%lld\r\n"
-            "swap_swapin_not_found_cachehit_perc:%.2f%%\r\n",
+            "swap_swapin_not_found_cachehit_perc:%.2f%%\r\n"
+            "swap_swapin_data_not_found_count:%lld\r\n",
             attempt,notfound,noio,memory_hit_perc,keyspace_hit_perc,
-            notfound_cachehit, notfound_cachemiss, notfound_cachehit_perc);
+            notfound_cachehit, notfound_cachemiss, notfound_cachehit_perc,
+            data_notfound);
     return info;
 }
 
@@ -327,6 +331,28 @@ void updateStatsSwapNotify(swapRequest *req) {
 void updateStatsSwapFinish(swapRequest *req) {
     atomicDecr(server.swap_inprogress_count,1);
     atomicDecr(server.swap_inprogress_memory,req->swap_memory);
+}
+
+void updateStatsSwapDataNotFound(RIO *rio) {
+    int notfound = 0;
+
+    if (rio->action == ROCKS_GET && rio->get.rawval == NULL)
+        notfound = 1;
+
+    if (rio->action == ROCKS_MULTIGET) {
+        int anyfound = 0, i;
+        for (i = 0; i < rio->multiget.numkeys; i++) {
+            if (rio->multiget.rawvals[i] != NULL) {
+                anyfound = 1;
+                break;
+            }
+        }
+        if (!anyfound) notfound = 1;
+    }
+
+    if (notfound) {
+        atomicIncr(server.swap_hit_stats->stat_swapin_data_not_found_count,1);
+    }
 }
 
 void updateStatsSwapRIO(swapRequest *req, RIO *rio) {
