@@ -1348,12 +1348,12 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
     return (RedisModuleCommandArg *)((char *)(args) + offset);
 }
 
-/* Helper for categoryFlagsFromString(). Turns a string representing command
- * flags into the ACL Category Flags.
+/* Helper for categoryFlagsFromString(). Attempts to find an acl flag representing the provided flag string
+ * and adds that flag to acl_categories_flags if a match is found.
  *
  * Returns '1' if acl category flag is recognized or
  * returns '0' if not recognized  */
-int matchAclCategoriesFlags(char *flag, int64_t *acl_categories_flags) {
+int matchAclCategoryFlag(char *flag, int64_t *acl_categories_flags) {
     uint64_t this_flag = ACLGetCommandCategoryFlagByName(flag);
     if (this_flag) {
         *acl_categories_flags |= (int64_t) this_flag;
@@ -1373,7 +1373,7 @@ int64_t categoryFlagsFromString(char *aclflags) {
     sds *tokens = sdssplitlen(aclflags,strlen(aclflags)," ",1,&count);
     for (j = 0; j < count; j++) {
         char *t = tokens[j];
-        if (!matchAclCategoriesFlags(t, &acl_categories_flags)) {
+        if (!matchAclCategoryFlag(t, &acl_categories_flags)) {
             serverLog(LL_WARNING,"Unrecognized categories flag %s on module load", t);
             break;
         }
