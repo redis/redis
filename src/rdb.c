@@ -1293,7 +1293,6 @@ werr:
 }
 
 ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
-    dictIterator *di = NULL;
     dictEntry *de;
     ssize_t written = 0;
     ssize_t res;
@@ -1320,61 +1319,52 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
     written += res;
 
-    dict *d;
     dbIterator dbit;
     dbIteratorInit(&dbit, db);
-    while ((d = dbIteratorNextDict(&dbit))) {
-        if (!dictSize(d)) continue;
-
+    int last_slot = -1;
+    /* Iterate this DB writing every entry */
+    while ((de = dbIteratorNext(&dbit)) != NULL) {
         /* Save slot info. */
-        if (server.cluster_enabled) {
+        if (server.cluster_enabled && dbit.cur_slot != last_slot) {
             serverAssert(dbit.cur_slot >= 0 && dbit.cur_slot < CLUSTER_SLOTS);
             if ((res = rdbSaveType(rdb, RDB_OPCODE_SLOT_INFO)) < 0) goto werr;
             written += res;
             if ((res = rdbSaveLen(rdb, dbit.cur_slot)) < 0) goto werr;
             written += res;
-            if ((res = rdbSaveLen(rdb, dictSize(d))) < 0) goto werr;
+            if ((res = rdbSaveLen(rdb, dictSize(db->dict[dbit.cur_slot]))) < 0) goto werr;
             written += res;
+            last_slot = dbit.cur_slot;
         }
+        sds keystr = dictGetKey(de);
+        robj key, *o = dictGetVal(de);
+        long long expire;
+        size_t rdb_bytes_before_key = rdb->processed_bytes;
 
-        di = dictGetSafeIterator(d);
-        /* Iterate this DB writing every entry */
-        while ((de = dictNext(di)) != NULL) {
-            sds keystr = dictGetKey(de);
-            robj key, *o = dictGetVal(de);
-            long long expire;
-            size_t rdb_bytes_before_key = rdb->processed_bytes;
+        initStaticStringObject(key, keystr);
+        expire = getExpire(db, &key);
+        if ((res = rdbSaveKeyValuePair(rdb, &key, o, expire, dbid)) < 0) goto werr;
+        written += res;
 
-            initStaticStringObject(key, keystr);
-            expire = getExpire(db, &key);
-            if ((res = rdbSaveKeyValuePair(rdb, &key, o, expire, dbid)) < 0) goto werr;
-            written += res;
+        /* In fork child process, we can try to release memory back to the
+         * OS and possibly avoid or decrease COW. We give the dismiss
+         * mechanism a hint about an estimated size of the object we stored. */
+        size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
+        if (server.in_fork_child) dismissObject(o, dump_size);
 
-            /* In fork child process, we can try to release memory back to the
-             * OS and possibly avoid or decrease COW. We give the dismiss
-             * mechanism a hint about an estimated size of the object we stored. */
-            size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
-            if (server.in_fork_child) dismissObject(o, dump_size);
-
-            /* Update child info every 1 second (approximately).
-             * in order to avoid calling mstime() on each iteration, we will
-             * check the diff every 1024 keys */
-            if (((*key_counter)++ & 1023) == 0) {
-                long long now = mstime();
-                if (now - info_updated_time >= 1000) {
-                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, *key_counter, pname);
-                    info_updated_time = now;
-                }
+        /* Update child info every 1 second (approximately).
+         * in order to avoid calling mstime() on each iteration, we will
+         * check the diff every 1024 keys */
+        if (((*key_counter)++ & 1023) == 0) {
+            long long now = mstime();
+            if (now - info_updated_time >= 1000) {
+                sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, *key_counter, pname);
+                info_updated_time = now;
             }
         }
-
-        dictReleaseIterator(di);
-        di = NULL;
     }
     return written;
 
 werr:
-    if (di) dictReleaseIterator(di);
     return -1;
 }
 

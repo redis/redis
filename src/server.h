@@ -138,7 +138,6 @@ typedef struct redisObject robj;
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
-#define INCREMENTAL_REHASHING_MAX_QUEUE_SIZE (1024*16)
 #define INCREMENTAL_REHASHING_THRESHOLD_MS 1
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with

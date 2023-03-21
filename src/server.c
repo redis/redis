@@ -398,7 +398,7 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
 void dictRehashingStarted(dict *d) {
     if (!server.cluster_enabled || !server.activerehashing) return;
     /* Safety check against queue overflow. */
-    if (listLength(server.db[0].rehashing) > INCREMENTAL_REHASHING_MAX_QUEUE_SIZE) return;
+    if (listLength(server.db[0].rehashing) > CLUSTER_SLOTS) return;
     listAddNodeTail(server.db[0].rehashing, d);
 }
 
@@ -4149,6 +4149,7 @@ int processCommand(client *c) {
         blockPostponeClient(c);
         return C_OK;       
     }
+
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand &&
@@ -4167,6 +4168,7 @@ int processCommand(client *c) {
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
+    
     return C_OK;
 }
 
