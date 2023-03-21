@@ -1497,7 +1497,7 @@ int parseOptions(int argc, char **argv) {
                     "We now immediately exit on error to avoid false results.\n");
         } else if (!strcmp(argv[i],"--seed")) {
             if (lastarg) goto invalid;
-            const rand_seed = atoi(argv[++i]);
+            int rand_seed = atoi(argv[++i]);
             srandom(rand_seed);
             init_genrand64(rand_seed);
         } else if (!strcmp(argv[i],"-t")) {
