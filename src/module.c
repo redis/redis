@@ -1387,7 +1387,14 @@ int64_t categoryFlagsFromString(char *aclflags) {
  * commands and subcommands. The set of ACL categories should be passed as
  * a space separated C string 'aclflags'.
  * 
- * Example, 'write slow' marks the command as part of the write and slow ACL categories. */
+ * Example, the acl flags 'write slow' marks the command as part of the write and 
+ * slow ACL categories.
+ * 
+ * On success REDISMODULE_OK is returned. On error REDISMODULE_ERR is returned.
+ * 
+ * This function can only be called during the RedisModule_OnLoad function. If called
+ * outside of this function, an error is returned.
+ */
 int RM_SetCommandACLCategories(RedisModuleCommand *command, const char *aclflags) {
     if (!command || !command->module || !command->module->onload) return REDISMODULE_ERR;
     int64_t categories_flags = aclflags ? categoryFlagsFromString((char*)aclflags) : 0;
