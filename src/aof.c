@@ -2235,7 +2235,6 @@ werr:
 }
 
 int rewriteAppendOnlyFileRio(rio *aof) {
-    dictIterator *di = NULL;
     dictEntry *de;
     int j;
     long key_count = 0;
@@ -2256,86 +2255,78 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         if (rioWrite(aof, selectcmd, sizeof(selectcmd) - 1) == 0) goto werr;
         if (rioWriteBulkLongLong(aof, j) == 0) goto werr;
         redisDb *db = server.db + j;
-        dict *d;
         dbIterator dbit;
         dbIteratorInit(&dbit, db);
-        while ((d = dbIteratorNextDict(&dbit))) {
-            if (dictSize(d) == 0) continue;
-            di = dictGetSafeIterator(d);
-            /* Iterate this DB writing every entry */
-            while ((de = dictNext(di)) != NULL) {
-                sds keystr;
-                robj key, *o;
-                long long expiretime;
-                size_t aof_bytes_before_key = aof->processed_bytes;
+        /* Iterate this DB writing every entry */
+        while ((de = dbIteratorNext(&dbit)) != NULL) {
+            sds keystr;
+            robj key, *o;
+            long long expiretime;
+            size_t aof_bytes_before_key = aof->processed_bytes;
 
-                keystr = dictGetKey(de);
-                o = dictGetVal(de);
-                initStaticStringObject(key, keystr);
+            keystr = dictGetKey(de);
+            o = dictGetVal(de);
+            initStaticStringObject(key, keystr);
 
-                expiretime = getExpire(db, &key);
+            expiretime = getExpire(db, &key);
 
-                /* Save the key and associated value */
-                if (o->type == OBJ_STRING) {
-                    /* Emit a SET command */
-                    char cmd[] = "*3\r\n$3\r\nSET\r\n";
-                    if (rioWrite(aof, cmd, sizeof(cmd) - 1) == 0) goto werr;
-                    /* Key and value */
-                    if (rioWriteBulkObject(aof, &key) == 0) goto werr;
-                    if (rioWriteBulkObject(aof, o) == 0) goto werr;
-                } else if (o->type == OBJ_LIST) {
-                    if (rewriteListObject(aof, &key, o) == 0) goto werr;
-                } else if (o->type == OBJ_SET) {
-                    if (rewriteSetObject(aof, &key, o) == 0) goto werr;
-                } else if (o->type == OBJ_ZSET) {
-                    if (rewriteSortedSetObject(aof, &key, o) == 0) goto werr;
-                } else if (o->type == OBJ_HASH) {
-                    if (rewriteHashObject(aof, &key, o) == 0) goto werr;
-                } else if (o->type == OBJ_STREAM) {
-                    if (rewriteStreamObject(aof, &key, o) == 0) goto werr;
-                } else if (o->type == OBJ_MODULE) {
-                    if (rewriteModuleObject(aof, &key, o, j) == 0) goto werr;
-                } else {
-                    serverPanic("Unknown object type");
-                }
-
-                /* In fork child process, we can try to release memory back to the
-                 * OS and possibly avoid or decrease COW. We give the dismiss
-                 * mechanism a hint about an estimated size of the object we stored. */
-                size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
-                if (server.in_fork_child) dismissObject(o, dump_size);
-
-                /* Save the expire time */
-                if (expiretime != -1) {
-                    char cmd[] = "*3\r\n$9\r\nPEXPIREAT\r\n";
-                    if (rioWrite(aof, cmd, sizeof(cmd) - 1) == 0) goto werr;
-                    if (rioWriteBulkObject(aof, &key) == 0) goto werr;
-                    if (rioWriteBulkLongLong(aof, expiretime) == 0) goto werr;
-                }
-
-                /* Update info every 1 second (approximately).
-                 * in order to avoid calling mstime() on each iteration, we will
-                 * check the diff every 1024 keys */
-                if ((key_count++ & 1023) == 0) {
-                    long long now = mstime();
-                    if (now - updated_time >= 1000) {
-                        sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, "AOF rewrite");
-                        updated_time = now;
-                    }
-                }
-
-                /* Delay before next key if required (for testing) */
-                if (server.rdb_key_save_delay)
-                    debugDelay(server.rdb_key_save_delay);
+            /* Save the key and associated value */
+            if (o->type == OBJ_STRING) {
+                /* Emit a SET command */
+                char cmd[] = "*3\r\n$3\r\nSET\r\n";
+                if (rioWrite(aof, cmd, sizeof(cmd) - 1) == 0) goto werr;
+                /* Key and value */
+                if (rioWriteBulkObject(aof, &key) == 0) goto werr;
+                if (rioWriteBulkObject(aof, o) == 0) goto werr;
+            } else if (o->type == OBJ_LIST) {
+                if (rewriteListObject(aof, &key, o) == 0) goto werr;
+            } else if (o->type == OBJ_SET) {
+                if (rewriteSetObject(aof, &key, o) == 0) goto werr;
+            } else if (o->type == OBJ_ZSET) {
+                if (rewriteSortedSetObject(aof, &key, o) == 0) goto werr;
+            } else if (o->type == OBJ_HASH) {
+                if (rewriteHashObject(aof, &key, o) == 0) goto werr;
+            } else if (o->type == OBJ_STREAM) {
+                if (rewriteStreamObject(aof, &key, o) == 0) goto werr;
+            } else if (o->type == OBJ_MODULE) {
+                if (rewriteModuleObject(aof, &key, o, j) == 0) goto werr;
+            } else {
+                serverPanic("Unknown object type");
             }
-            dictReleaseIterator(di);
-            di = NULL;
+
+            /* In fork child process, we can try to release memory back to the
+             * OS and possibly avoid or decrease COW. We give the dismiss
+             * mechanism a hint about an estimated size of the object we stored. */
+            size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
+            if (server.in_fork_child) dismissObject(o, dump_size);
+
+            /* Save the expire time */
+            if (expiretime != -1) {
+                char cmd[] = "*3\r\n$9\r\nPEXPIREAT\r\n";
+                if (rioWrite(aof, cmd, sizeof(cmd) - 1) == 0) goto werr;
+                if (rioWriteBulkObject(aof, &key) == 0) goto werr;
+                if (rioWriteBulkLongLong(aof, expiretime) == 0) goto werr;
+            }
+
+            /* Update info every 1 second (approximately).
+             * in order to avoid calling mstime() on each iteration, we will
+             * check the diff every 1024 keys */
+            if ((key_count++ & 1023) == 0) {
+                long long now = mstime();
+                if (now - updated_time >= 1000) {
+                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, "AOF rewrite");
+                    updated_time = now;
+                }
+            }
+
+            /* Delay before next key if required (for testing) */
+            if (server.rdb_key_save_delay)
+                debugDelay(server.rdb_key_save_delay);
         }
     }
     return C_OK;
 
 werr:
-    if (di) dictReleaseIterator(di);
     return C_ERR;
 }
 

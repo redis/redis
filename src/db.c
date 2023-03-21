@@ -61,6 +61,23 @@ dict *dbIteratorNextDict(dbIterator *dbit) {
     return dbit->cur_slot >= 0 ? dbit->db->dict[dbit->cur_slot] : NULL;
 }
 
+/* Returns next entry from the multi slot db. */
+dictEntry *dbIteratorNext(dbIterator *dbit) {
+    if (!dbit->di.d) { /* No current dict, need to get a new one. */
+        dict *d = dbIteratorNextDict(dbit);
+        if (!d) return NULL;
+        dictInitSafeIterator(&dbit->di, d);
+    }
+    dictEntry *de = dictNext(&dbit->di);
+    if (!de) { /* Reached the end of the dictionary, check if there are more. */
+        dict *d = dbIteratorNextDict(dbit);
+        if (!d) return NULL;
+        dictInitSafeIterator(&dbit->di, d);
+        return dictNext(&dbit->di);
+    }
+    return de;
+}
+
 /* Returns DB iterator that can be used to iterate through sub-dictionaries.
  * Primary database contains only one dictionary when node runs without cluster mode,
  * or 16k dictionaries (one per slot) when node runs with cluster mode enabled. */
@@ -68,6 +85,7 @@ void dbIteratorInit(dbIterator *dbit, redisDb *db) {
     dbit->db = db;
     dbit->index = 0;
     dbit->cur_slot = -1;
+    dictInitSafeIterator(&dbit->di, NULL);
 }
 
 /* Returns next non-empty dictionary strictly after provided slot and updates slot id in the supplied reference. */
@@ -846,34 +864,28 @@ void randomkeyCommand(client *c) {
 }
 
 void keysCommand(client *c) {
-    dictIterator *di;
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
     int plen = sdslen(pattern), allkeys;
     long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
-    dict *d;
     dbIterator dbit;
     dbIteratorInit(&dbit, c->db);
-    while ((d = dbIteratorNextDict(&dbit))) {
-        if (dictSize(d) == 0) continue;
-        di = dictGetSafeIterator(d);
-        allkeys = (pattern[0] == '*' && plen == 1);
-        while((de = dictNext(di)) != NULL) {
-            sds key = dictGetKey(de);
-            robj *keyobj;
+    allkeys = (pattern[0] == '*' && plen == 1);
+    while ((de = dbIteratorNext(&dbit)) != NULL) {
+        sds key = dictGetKey(de);
+        robj *keyobj;
 
-            if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
-                keyobj = createStringObject(key,sdslen(key));
-                if (!keyIsExpired(c->db,keyobj)) {
-                    addReplyBulk(c,keyobj);
-                    numkeys++;
-                }
-                decrRefCount(keyobj);
+        if (allkeys || stringmatchlen(pattern, plen, key, sdslen(key), 0)) {
+            keyobj = createStringObject(key, sdslen(key));
+            if (!keyIsExpired(c->db, keyobj)) {
+                addReplyBulk(c, keyobj);
+                numkeys++;
             }
+            decrRefCount(keyobj);
+        }
         if (c->flags & CLIENT_CLOSE_ASAP)
-            break;}
-        dictReleaseIterator(di);
+            break;
     }
     setDeferredArrayLen(c,replylen,numkeys);
 }

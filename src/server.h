@@ -2439,12 +2439,13 @@ typedef struct dbIterator {
     redisDb *db;
     int index;
     int cur_slot;
+    dictIterator di;
 } dbIterator;
 
 /* DB iterator specific functions */
 void dbIteratorInit(dbIterator *dbit, redisDb *db);
 dict *dbIteratorNextDict(dbIterator *dbit);
-int dbIterCurSlot(dbIterator *dbit);
+dictEntry *dbIteratorNext(dbIterator *iter);
 dict *dbGetNextNonEmptySlot(redisDb *db, int *slot);
 
 /* SCAN specific commands for easy cursor manipulation, shared between main code and modules. */

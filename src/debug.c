@@ -277,7 +277,6 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
  * a different digest. */
 void computeDatasetDigest(unsigned char *final) {
     unsigned char digest[20];
-    dictIterator *di = NULL;
     dictEntry *de;
     int j;
     uint32_t aux;
@@ -286,39 +285,31 @@ void computeDatasetDigest(unsigned char *final) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        int hasEntries = 0;
-        dict *d;
+        if (dbSize(db) == 0) continue;
         dbIterator dbit;
         dbIteratorInit(&dbit, db);
-        while ((d = dbIteratorNextDict(&dbit))) {
-            if (dictSize(d) == 0) continue;
-            hasEntries = 1;
-            di = dictGetSafeIterator(d);
 
-            /* Iterate this DB writing every entry */
-            while ((de = dictNext(di)) != NULL) {
-                sds key;
-                robj *keyobj, *o;
+        /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
+        aux = htonl(j);
+        mixDigest(final, &aux, sizeof(aux));
 
-                memset(digest, 0, 20); /* This key-val digest */
-                key = dictGetKey(de);
-                keyobj = createStringObject(key, sdslen(key));
+        /* Iterate this DB writing every entry */
+        while ((de = dbIteratorNext(&dbit)) != NULL) {
+            sds key;
+            robj *keyobj, *o;
 
-                mixDigest(digest, key, sdslen(key));
+            memset(digest, 0, 20); /* This key-val digest */
+            key = dictGetKey(de);
+            keyobj = createStringObject(key, sdslen(key));
 
-                o = dictGetVal(de);
-                xorObjectDigest(db, keyobj, digest, o);
+            mixDigest(digest, key, sdslen(key));
 
-                /* We can finally xor the key-val digest to the final digest */
-                xorDigest(final, digest, 20);
-                decrRefCount(keyobj);
-            }
-            dictReleaseIterator(di);
-        }
-        if (hasEntries) {
-            /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
-            aux = htonl(j);
-            mixDigest(final, &aux, sizeof(aux));
+            o = dictGetVal(de);
+            xorObjectDigest(db, keyobj, digest, o);
+
+            /* We can finally xor the key-val digest to the final digest */
+            xorDigest(final, digest, 20);
+            decrRefCount(keyobj);
         }
     }
 }
