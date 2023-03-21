@@ -7,6 +7,7 @@ start_server {tags {"shutdown external:skip"}} {
 
         # Child is dumping rdb
         r bgsave
+        after 100
         wait_for_condition 1000 10 {
             [s rdb_bgsave_in_progress] eq 1
         } else {
