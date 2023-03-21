@@ -1544,6 +1544,15 @@ typedef enum childInfoType {
     CHILD_INFO_TYPE_MODULE_COW_SIZE
 } childInfoType;
 
+typedef struct ReplTime_t {
+    int timestamp_enabled; /* True if the master is injecting timestamps into the replication stream */
+    /*
+     * Latest replicated timestamp as of the current replication offset of Redis, for both master and replica.
+     * It is used on replica to calculate replication lag.
+     */
+    mstime_t latest_repl_master_timestamp;
+} ReplTime_t;
+
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
@@ -1919,6 +1928,7 @@ struct redisServer {
                                      * when it receives an error on the replication stream */
     int repl_ignore_disk_write_error;   /* Configures whether replicas panic when unable to
                                          * persist writes to AOF. */
+    ReplTime_t repl_time; /* Replication time info */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
@@ -3785,5 +3795,22 @@ int iAmMaster(void);
 
 #define STRINGIFY_(x) #x
 #define STRINGIFY(x) STRINGIFY_(x)
+
+/**
+ * Append the replication time information to the Redis info string.
+ * Given info_str the Redis info string, returns The Redis info string with repl time info.
+ */
+sds ReplTime_info(sds info_str);
+
+int isManualFailoverOrPauseInProgress();
+
+typedef struct ReplTimeContext {
+    mstime_t replication_delay_ms; /* Time taken to replicate timestamp from master to replica */
+    /* Metrics */
+    long long latest_repl_master_timestamp_update_failure_count; /* Number of times latest_repl_master_timestamp couldn't be updated b/c the
+                                                                   * master's local clock time was before latest_repl_master_timestamp */
+    mstime_t lag_behind_latest_repl_master_timestamp_ms; /* The difference between the latest_repl_master_timestamp and local clock time (LT) when
+                                                           * LT < latest_repl_master_timestamp */
+} ReplTimeContext;
 
 #endif
