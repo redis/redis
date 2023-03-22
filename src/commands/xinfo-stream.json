@@ -17,6 +17,12 @@
             ]
         ],
         "function": "xinfoCommand",
+        "history": [
+            [
+                "7.2.0",
+                "Added the `active-time` field, and changed the meaning of `seen-time`."
+            ]
+        ],
         "command_flags": [
             "READONLY"
         ],
