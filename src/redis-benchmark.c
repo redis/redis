@@ -1623,8 +1623,7 @@ usage:
 "                    on the command line.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n"
 " -x                 Read last argument from STDIN.\n"
-" --seed             Seed the RNG to repeat tests. Otherwise, random numbers are\n"
-"                    generated every benchmark call. Default seed is based on time.\n"
+" --seed <num>       Set the seed for random number generator. Default seed is based on time.\n"
 #ifdef USE_OPENSSL
 " --tls              Establish a secure TLS connection.\n"
 " --sni <host>       Server name indication for TLS.\n"
