@@ -958,6 +958,27 @@ struct redisCommandArg CLIENT_REPLY_Args[] = {
 {0}
 };
 
+/********** CLIENT SETINFO ********************/
+
+/* CLIENT SETINFO history */
+#define CLIENT_SETINFO_History NULL
+
+/* CLIENT SETINFO tips */
+#define CLIENT_SETINFO_tips NULL
+
+/* CLIENT SETINFO attr argument table */
+struct redisCommandArg CLIENT_SETINFO_attr_Subargs[] = {
+{"libname",ARG_TYPE_STRING,-1,"LIB-NAME",NULL,NULL,CMD_ARG_NONE},
+{"libver",ARG_TYPE_STRING,-1,"LIB-VER",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* CLIENT SETINFO argument table */
+struct redisCommandArg CLIENT_SETINFO_Args[] = {
+{"attr",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_SETINFO_attr_Subargs},
+{0}
+};
+
 /********** CLIENT SETNAME ********************/
 
 /* CLIENT SETNAME history */
@@ -1051,6 +1072,7 @@ struct redisCommand CLIENT_Subcommands[] = {
 {"no-touch","Controls whether commands sent by the client will alter the LRU/LFU of the keys they access.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_NO_TOUCH_History,CLIENT_NO_TOUCH_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_NO_TOUCH_Args},
 {"pause","Stop processing commands from clients for some time","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,CLIENT_PAUSE_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_PAUSE_Args},
 {"reply","Instruct the server whether to reply to commands","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,CLIENT_REPLY_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_REPLY_Args},
+{"setinfo","Set client or connection specific info","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETINFO_History,CLIENT_SETINFO_tips,clientSetinfoCommand,4,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETINFO_Args},
 {"setname","Set the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,CLIENT_SETNAME_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETNAME_Args},
 {"tracking","Enable or disable server assisted client side caching support","O(1). Some options may introduce additional complexity.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_History,CLIENT_TRACKING_tips,clientCommand,-3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.args=CLIENT_TRACKING_Args},
 {"trackinginfo","Return information about server assisted client side caching for the current connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_History,CLIENT_TRACKINGINFO_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION},
