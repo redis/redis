@@ -6507,7 +6507,10 @@ struct redisCommand XGROUP_Subcommands[] = {
 /********** XINFO CONSUMERS ********************/
 
 /* XINFO CONSUMERS history */
-#define XINFO_CONSUMERS_History NULL
+commandHistory XINFO_CONSUMERS_History[] = {
+{"7.2.0","Added the `inactive` field."},
+{0}
+};
 
 /* XINFO CONSUMERS tips */
 const char *XINFO_CONSUMERS_tips[] = {
@@ -6553,6 +6556,7 @@ struct redisCommandArg XINFO_GROUPS_Args[] = {
 commandHistory XINFO_STREAM_History[] = {
 {"6.0.0","Added the `FULL` modifier."},
 {"7.0.0","Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"},
+{"7.2.0","Added the `active-time` field, and changed the meaning of `seen-time`."},
 {0}
 };
 
