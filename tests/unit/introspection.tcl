@@ -333,9 +333,9 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT SETINFO invalid args} {
         assert_error {*wrong number of arguments*} {r CLIENT SETINFO lib-name}
-        assert_match {*cannot contain spaces*} [r CLIENT SETINFO lib-name "redis py"]
-        assert_match {*newlines*} [r CLIENT SETINFO lib-name "redis.py\n"]
-        assert_match {*Unrecognized*} [r CLIENT SETINFO badger hamster]
+        assert_error {*cannot contain spaces*} {r CLIENT SETINFO lib-name "redis py"}
+        assert_error {*newlines*} {r CLIENT SETINFO lib-name "redis.py\n"}
+        assert_error {*Unrecognized*} {r CLIENT SETINFO badger hamster}
         # test that all of these didn't affect the previously set values
         r client info
     } {*lib-name=redis.py lib-ver=1.2.3*}
