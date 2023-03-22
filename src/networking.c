@@ -2909,12 +2909,12 @@ void clientSetinfoCommand(client *c) {
     } else if (!strcasecmp(attr,"lib-ver")) {
         destvar = &c->lib_ver;
     } else {
-        addReplyStatusFormat(c,"Unrecognized option '%s'", attr);
+        addReplyErrorFormat(c,"Unrecognized option '%s'", attr);
         return;
     }
 
     if (validateClientAttr(val)==C_ERR) {
-        addReplyStatusFormat(c,
+        addReplyErrorFormat(c,
             "%s cannot contain spaces, newlines or special characters.", attr);
         return;
     }
