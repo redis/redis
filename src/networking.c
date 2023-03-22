@@ -1498,7 +1498,11 @@ void clearClientConnectionState(client *c) {
 
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
     selectDb(c,0);
+#ifdef LOG_REQ_RES
+    c->resp = server.client_default_resp;
+#else
     c->resp = 2;
+#endif
 
     clientSetDefaultAuth(c);
     moduleNotifyUserChanged(c);
