@@ -1,16 +1,227 @@
-Hello! This file is just a placeholder, since this is the "unstable" branch
-of Redis, the place where all the development happens.
+Redis 7.2 release notes
+=======================
 
-There is no release notes for this branch, it gets forked into another branch
-every time there is a partial feature freeze in order to eventually create
-a new stable release.
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
 
-Usually "unstable" is stable enough for you to use it in development environments
-however you should never use it in production environments. It is possible
-to download the latest stable release here:
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+SECURITY: There are security fixes in the release.
+--------------------------------------------------------------------------------
 
-    https://download.redis.io/redis-stable.tar.gz
+================================================================================
+Redis 7.2 RC1   Released Wed Mar 22 12:00:00 IST 2023
+================================================================================
 
-More information is available at https://redis.io
+Upgrade urgency LOW: This is the first Release Candidate for Redis 7.2.
 
-Happy hacking!
+Redis Release Candidate (RC) versions are early versions that are made available
+for early adopters in the community to test them. We do not consider
+them suitable for production environments.
+
+Introduction to the Redis 7.2 release
+=====================================
+
+Redis 7.2 includes optimizations, several new commands, some improvements,
+bug fixes, and several new module APIs.
+
+In particular, users should be aware of the following changes:
+
+1. Redis 7.2 uses a new format (version 11) for RDB files, which is incompatible
+   with older versions.
+2. See section about breaking changes mentioned below.
+3. If you use modules, see the module API breaking changes section below.
+
+Here is a comprehensive list of changes in this release compared to 7.0.10.
+Each one includes the PR number that added it so that you can get more details
+at https://github.com/redis/redis/pull/<number>
+
+New Features
+============
+
+* Introduce WAITAOF command, to block the client until a specified number
+  of Redises have synced all previous write commands to the AOF on disk,
+  see https://redis.io/commands/waitaof/
+
+New user commands or command arguments
+--------------------------------------
+
+* WAITAOF blocks until writes have been synced to disk (#11713)
+* Add WITHSCORE option to ZRANK and ZREVRANK (#11235)
+
+New administrative and introspection commands and command arguments
+-------------------------------------------------------------------
+
+* CLIENT SETINFO lets client library report name and version Redis (#11758)
+* CLIENT NO-TOUCH for clients to run commands without affecting LRU/LFU of keys (#11483)
+
+Command replies that have been extended
+---------------------------------------
+
+* ACL LOG - Add entry id, timestamp created, and timestamp last updated time (#11477)
+* COMMAND DOCS - Repurpose arg names as the unique ID (#11051)
+* CLIENT LIST has `T` flag to indicate CLIENT NO-TOUCH (#11483)
+* CLIENT LIST show lib-name, lib-ver (#11758)
+
+Potentially Breaking / Behavior Changes
+=======================================
+
+* Client side tracking for scripts now tracks the keys that are read by the
+  script instead of the keys that are declared by the caller of EVAL / FCALL (#11770)
+* Freeze time sampling during command execution and in scripts (#10300)
+* When a blocked command is being unblocked, checks like ACL, OOM, etc are
+  re-evaluated (#11012)
+* Unify ACL failure error message text and error codes (#11160)
+* Blocked stream command that's released when key no longer exists carries a
+  different error code (#11012)
+* Command stats are updated for blocked commands only when / if the command
+  actually executes (#11012)
+* The way ACL users are stored internally no longer removes redundant command
+  and category rules, which may alter the way those rules are displayed as part
+  of `ACL SAVE`, `ACL GETUSER` and `ACL LIST` (#11224)
+* Client connections created for TLS-based replication use SNI if possible (#11458)
+* Stream consumers: Re-purpose seen-time, add active-time (#11099)
+* XREADGROUP and X[AUTO]CLAIM create the consumer regardless of whether it was
+  able to perform some reading/claiming (#11099)
+* ACL default newly created user set sanitize-payload flag in ACL LIST/GETUSER #11279
+* Fix HELLO command not to affect the client state unless successful (#11659)
+* Normalize `NAN` in replies to a single nan type, like we do with `inf` (#11597)
+
+Deprecations
+============
+
+* Mark the QUIT command as deprecated (#11439)
+* Delete RDB loading code for pre-release RDB formats (#11058)
+
+Performance and resource utilization improvements
+=================================================
+
+* Significant memory optimization of small list type keys (#11303)
+* Significant memory optimization for small set type keys (#11290)
+* Significant memory optimization for large sets (#11595)
+* Significant speed optimization in ZRANGE replies WITHSCORES in case of integer scores (#11779)
+* Significant speed optimization in double replies, mainly sorted sets commands (#10587)
+* Optimize the performance of commands with multiple keys in cluster mode (#11044)
+* Incrementally reclaim OS page cache of RDB file (#11248)
+* Improve memory management of cluster bus links when there is a large number of pending messages (#11343)
+* Minor performance improvement for workloads that use commands without pipelining (#11220)
+
+Changes in CLI tools
+====================
+
+* redis-cli accepts commands in subscribed mode (#11873)
+
+Other General Improvements
+==========================
+
+* WAIT now no longer waits for the replication offset after your last command,
+  but rather the replication offset after your last write (#11713)
+* Automatically propagate node deletion to other nodes in a cluster when
+  `CLUSTER FORGET` is called, allowing nodes to be deleted with a single call
+  in most cases (#10869)
+* Blocking commands that were disallowed in scripts now behave in scripts the
+  same they did in MULTI (#11568)
+
+Platform / toolchain support related changes
+=================================================
+
+* 32-bit builds compiled without HAVE_MALLOC_SIZE (not jemalloc or glibc)
+  will consume more memory (#11595)
+* Use jemalloc by default also on ARM (#11407)
+* Adds stack trace and register dump support in crash report for illumos/solaris (#11335)
+
+
+New configuration options
+=========================
+
+* locale-collate runtime config to control setlocale affecting Lua and SORT (#11059)
+* Add CONFIG SET and GET loglevel feature in Sentinel (#11214)
+
+INFO fields and introspection changes
+=====================================
+
+* Added 4 new info fields for authentication errors and commands denied access
+  for keys, channels and commands (#11288)
+* INFO SERVER includes a list of listeners (#9320)
+
+
+Module API changes
+==================
+
+* Make it possible for module commands to be part of ACL categories (#11708)
+* Add K flag to RM_Call to allow running blocking commands and set a callback to get the response (#11568)
+* Add RM_AddPostNotificationJob to allow writes after keyspace notification hooks (#11199)
+* RedisModule_Event_Key to notify about keys being unlinked together with reason and value (#9406)
+* Add RM_BlockClient[Set|Get]PrivateData to associate a module data with the blocked client (#11568)
+* APIs to allow modules to participate / handle AUTH validation (#11659)
+* RM_GetContextFlags supports a new flag: REDISMODULE_CTX_FLAGS_SERVER_STARTUP (#9320)
+* Add REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS and RedisModule_GetModuleOptionsAll (#11199)
+* RM_BlockClientOnKeysWithFlags allows module to request being unblocked when the key is deleted (#11310)
+* Introduce aux_save2 makes it possible to skip saving that field in the RDB and
+  enable loading the file in the absence of the module (#11374)
+* Add a dry run flag to RM_Call to do validations before actual execution (#11158)
+* Add RM_Microseconds and RM_CachedMicroseconds (#11016)
+* Add RM_ACLAddLogEntryByUserName API to be used without a user object (#11659)
+* Make it possible to keep the RM_Call reply for longer than the context lifetime in case
+  auto memory was not used (#11568)
+
+Potentially Breaking Changes in Module API
+------------------------------------------
+
+* RM_Call only enforces OOM on scripts if 'M' flag is set (#11425)
+* Block some specific characters in module command names (#11434)
+* Fix replication inconsistency on modules that uses keyspace notifications (#10969)
+* Prevent command, configs, data types registration after the onload handler (#11708)
+
+Bug Fixes
+=========
+
+* Introduce socket shutdown to properly disconnect a client while a fork is active (#11376)
+* CLIENT RESET clears the CLIENT NO-EVICT flag (#11483)
+* Reduce memory usage on strings loaded by a module from an RDB file (#11050)
+* Fix a bug where nodes in a cluster may not replicate or handle internal events for
+  keys deleted when another node in the cluster claimed a slot (#11084)
+* Fix HINCRBYFLOAT not to create a key if the new value is invalid (#11149)
+* Make cluster config file saving atomic and fsync acl file saving (#10924)
+* WAIT command would not block if used in RM_Call (#11713)
+* Minor fixes to command metadata in COMMAND command (#11201, #10273)
+
+
+Thanks to all the users and developers who made this release possible.
+We'll follow up with more RC releases, until the code looks production ready
+and we don't get reports of serious issues for a while.
+
+A special thank you for the amount of work put into this release by:
+
+- Meir Shpilraien
+- Viktor Söderqvist
+- Zhu Binbin
+- Guy Benoish
+- Oran Agra
+- Ran Shidlansik
+- sundb
+- Zhenwei Pi
+- Karthik Subbarao
+- Huang Zhw
+- Ping Xie
+- Madelyn Olson
+- Brennan Cathcart
+- Zhu Tian
+- Slava Koyfman
+- Roshan Khatri
+- Shaya Potter
+- Moti Cohen
+- Arad Zilberstein
+- Wen Hui
+- Chen Tianjie
+- Basel Naamna
+- Mingyi Kang
+- Uri Yagelnik
+- Filipe Oliveira
+- Valentino Geron
+- Ozan Tezcan
+- Adi Pinsky
+- Li Changjun
+
