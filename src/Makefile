@@ -15,11 +15,7 @@
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
-ifneq (,$(findstring clang,$(shell $(CC) --version | head -1)))
-CLANG=clang
-else
-CLANG=
-endif
+CLANG := $(findstring clang,$(shell $(CC) --version | head -1))
 OPTIMIZATION?=-O3
 ifeq ($(OPTIMIZATION),-O3)
 	ifeq (clang,$(CLANG))
