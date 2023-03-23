@@ -740,7 +740,8 @@ void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
     }
 }
 
-/* Does the server version support a command/argument only available "since" some version? */
+/* Does the server version support a command/argument only available "since" some version?
+ * Returns 1 when supported, or 0 when the "since" version is newer than "version". */
 static int versionIsSupported(sds version, sds since) {
     int i;
     char *versionPos = version;
@@ -757,8 +758,12 @@ static int versionIsSupported(sds version, sds since) {
         } else if (sincePart > versionPart) {
             return 0;
         }
-        versionPos = strchr(versionPos, '.') + 1;
-        sincePos = strchr(sincePos, '.') + 1;
+        versionPos = strchr(versionPos, '.');
+        sincePos = strchr(sincePos, '.');
+        if (!versionPos || !sincePos)
+            return 0;
+        versionPos++;
+        sincePos++;
     }
     return 0;
 }
@@ -798,13 +803,14 @@ static helpEntry *cliLegacyInitCommandHelpEntry(char *cmdname, char *subcommandn
     if (command->args != NULL) {
         help->docs.args = command->args;
         help->docs.numargs = command->numargs;
-        removeUnsupportedArgs(help->docs.args, &help->docs.numargs, version);
+        if (version)
+            removeUnsupportedArgs(help->docs.args, &help->docs.numargs, version);
         help->docs.params = makeHint(NULL, 0, 0, help->docs);
     }
 
     if (command->subcommands != NULL) {
         for (size_t i = 0; command->subcommands[i].name != NULL; i++) {
-            if (versionIsSupported(version, command->subcommands[i].since)) {
+            if (!version || versionIsSupported(version, command->subcommands[i].since)) {
                 char *subcommandname = command->subcommands[i].name;
                 next = cliLegacyInitCommandHelpEntry(
                     cmdname, subcommandname, next, &command->subcommands[i], groups, version);
@@ -817,7 +823,7 @@ static helpEntry *cliLegacyInitCommandHelpEntry(char *cmdname, char *subcommandn
 int cliLegacyInitCommandHelpEntries(struct commandDocs *commands, dict *groups, sds version) {
     helpEntry *next = helpEntries;
     for (size_t i = 0; commands[i].name != NULL; i++) {
-        if (versionIsSupported(version, commands[i].since)) {
+        if (!version || versionIsSupported(version, commands[i].since)) {
             next = cliLegacyInitCommandHelpEntry(commands[i].name, NULL, next, &commands[i], groups, version);
         }
     }
@@ -825,12 +831,12 @@ int cliLegacyInitCommandHelpEntries(struct commandDocs *commands, dict *groups, 
 }
 
 /* Returns the total number of commands and subcommands in the command docs table,
- * without filtering by server version.
+ * filtered by server version (if provided).
  */
 static size_t cliLegacyCountCommands(struct commandDocs *commands, sds version) {
     int numCommands = 0;
     for (size_t i = 0; commands[i].name != NULL; i++) {
-        if (!versionIsSupported(version, commands[i].since)) {
+        if (version && !versionIsSupported(version, commands[i].since)) {
             continue;
         }
         numCommands++;
@@ -843,7 +849,7 @@ static size_t cliLegacyCountCommands(struct commandDocs *commands, sds version) 
 
 /* Gets the server version string by calling INFO SERVER.
  * Stores the result in config.server_version.
- */
+ * When not connected, or not possible, returns NULL. */
 static sds cliGetServerVersion() {
     static const char *key = "\nredis_version:";
     redisReply *serverInfo = NULL;
@@ -853,6 +859,7 @@ static sds cliGetServerVersion() {
         return config.server_version;
     }
 
+    if (!context) return NULL;
     serverInfo = redisCommand(context, "INFO SERVER");
     if (serverInfo == NULL || serverInfo->type == REDIS_REPLY_ERROR) {
         freeReplyObject(serverInfo);
@@ -875,7 +882,7 @@ static sds cliGetServerVersion() {
         }
     }
     freeReplyObject(serverInfo);
-    return sdsempty();
+    return NULL;
 }
 
 static void cliLegacyInitHelp(dict *groups) {
