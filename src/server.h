@@ -976,6 +976,7 @@ typedef struct redisDb {
     int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
     unsigned long long key_count; /* Total number of keys in this DB. */
     intset *non_empty_dicts;    /* Set of non-empty dictionaries. */
+    unsigned long long *binary_index;  /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
 } redisDb;
 
 /* forward declaration for functions ctx */
@@ -3126,9 +3127,10 @@ void dismissMemoryInChild(void);
 int restartServer(int flags, mstime_t delay);
 unsigned long long int dbSize(redisDb *db);
 int getKeySlot(sds key);
-dict *getRandomDict(redisDb *db);
 unsigned long dbSlots(redisDb *db);
 void expandDb(const redisDb *db, uint64_t db_size);
+unsigned long long cumulativeKeyCountRead(redisDb *db, int idx);
+dict *getFairRandomDict(redisDb *db);
 
 /* Set data type */
 robj *setTypeCreate(sds value);

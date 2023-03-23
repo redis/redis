@@ -47,6 +47,7 @@
 
 int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
+void cumulativeKeyCountAdd(redisDb *db, int idx, long delta);
 
 /* Returns next dictionary from the iterator, or NULL if iteration is complete. */
 dict *dbIteratorNextDict(dbIterator *dbit) {
@@ -255,6 +256,9 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
         db->non_empty_dicts = intsetAdd(db->non_empty_dicts, slot, &success);
         serverAssert(success);
     }
+    if (server.cluster_enabled) {
+        cumulativeKeyCountAdd(db, slot, 1);
+    }
     signalKeyAsReady(db, key, val->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
 }
@@ -294,6 +298,9 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
         uint8_t success = 0;
         db->non_empty_dicts = intsetAdd(db->non_empty_dicts, slot, &success);
         serverAssert(success);
+    }
+    if (server.cluster_enabled) {
+        cumulativeKeyCountAdd(db, slot, 1);
     }
     return 1;
 }
@@ -390,7 +397,7 @@ robj *dbRandomKey(redisDb *db) {
     while(1) {
         sds key;
         robj *keyobj;
-        dict *randomDict = getRandomDict(db);
+        dict *randomDict = getFairRandomDict(db);
         de = dictGetFairRandomKey(randomDict);
         if (de == NULL) return NULL;
 
@@ -417,11 +424,68 @@ robj *dbRandomKey(redisDb *db) {
     }
 }
 
-/* Return random non-empty dictionary from this DB. */
-dict *getRandomDict(redisDb *db) {
+/* Updates binary index tree (also known as Fenwick tree), increasing key count for a given slot.
+ * You can read more about this data structure here https://en.wikipedia.org/wiki/Fenwick_tree
+ * Time complexity is O(log(CLUSTER_SLOTS)). */
+void cumulativeKeyCountAdd(redisDb *db, int slot, long delta) {
+    if (!server.cluster_enabled) return;
+    int idx = slot + 1; /* Unlike slots, BIT is 1-based, so we need to add 1. */
+    while (idx <= CLUSTER_SLOTS) {
+        db->binary_index[idx] += delta;
+        idx += (idx & -idx);
+    }
+}
+
+/* Returns total (cumulative) number of keys up until given slot (inclusive).
+ * Time complexity is O(log(CLUSTER_SLOTS)). */
+unsigned long long cumulativeKeyCountRead(redisDb *db, int slot) {
+    if (!server.cluster_enabled) {
+        serverAssert(slot == 0);
+        return dbSize(db);
+    }
+    int idx = slot + 1;
+    unsigned long long sum = 0;
+    while (idx > 0) {
+        sum += db->binary_index[idx];
+        idx -= (idx & -idx);
+    }
+    return sum;
+}
+
+/* Returns fair random dictionary, probability of each dictionary being returned is proportional to the number of elements that it holds.
+ * Implementation uses binary search on top of binary index tree.
+ * Time complexity of this function is O(log^2(CLUSTER_SLOTS)). */
+dict *getFairRandomDict(redisDb *db) {
     if (!server.cluster_enabled || dbSize(db) == 0) return db->dict[0];
-    int64_t slot = intsetRandom(db->non_empty_dicts);
-    return db->dict[slot];
+    /* We want to find a slot containing target-th element in a key space ordered by slot id.
+     * Consider this example. Slots are represented by brackets and keys by dots:
+     *  #0   #1   #2     #3    #4
+     * [..][....][...][.......][.]
+     *                    ^
+     *                 target
+     *
+     * In this case slot #3 contains key that we are trying to find.
+     * */
+    unsigned long target = (randomULong() % dbSize(db)) + 1;
+    int lo = 0, hi = CLUSTER_SLOTS - 1;
+    /* We use binary search to find a slot, we are allowed to do this, because we have a quick way to find a total number of keys
+     * up until certain slot, using binary index tree. */
+    while (lo < hi) {
+        int mid = lo + (hi - lo) / 2;
+        unsigned long keys_up_to_mid = cumulativeKeyCountRead(db, mid); /* Total number of keys up until a given slot (inclusive). */
+        unsigned long keys_in_mid = dictSize(db->dict[mid]); /* Number of keys in the slot. */
+        if (target > keys_up_to_mid) { /* Target is to the right from mid. */
+            lo = mid + 1;
+        } else if (target <= keys_up_to_mid - keys_in_mid)  { /* Target is to the left from mid. */
+            hi = mid - 1;
+        } else { /* Located target. */
+            break;
+        }
+    }
+    int slot = lo + (hi - lo) / 2;
+    dict *result = db->dict[slot];
+    serverAssert(!dictIsEmpty(result));
+    return result;
 }
 
 /* Helper for sync and async delete. */
@@ -457,6 +521,9 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
             int success = 0;
             db->non_empty_dicts = intsetRemove(db->non_empty_dicts, slot, &success);
             serverAssert(success);
+        }
+        if (server.cluster_enabled) {
+            cumulativeKeyCountAdd(db, slot, -1);
         }
         db->key_count--;
         return 1;

@@ -2634,6 +2634,7 @@ void initServer(void) {
         server.db[j].dict_count = slotCount;
         server.db[j].key_count = 0;
         server.db[j].non_empty_dicts = server.cluster_enabled ? intsetNew() : NULL;
+        server.db[j].binary_index = server.cluster_enabled ? zmalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
