@@ -340,10 +340,10 @@ start_server {tags {"introspection"}} {
         r client info
     } {*lib-name=redis.py lib-ver=1.2.3*}
 
-    test {RESET doesn NOT clean library name} {
+    test {RESET does NOT clean library name} {
         r reset
         r client info
-    } {*lib-name=redis.py*}
+    } {*lib-name=redis.py*} {needs:reset}
 
     test {CLIENT SETINFO can clear library name} {
         r CLIENT SETINFO lib-name ""
