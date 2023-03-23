@@ -1403,6 +1403,34 @@ struct COMMAND_ARG CLIENT_REPLY_Args[] = {
 {MAKE_ARG("action",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=CLIENT_REPLY_action_Subargs},
 };
 
+/********** CLIENT SETINFO ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CLIENT SETINFO history */
+#define CLIENT_SETINFO_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CLIENT SETINFO tips */
+#define CLIENT_SETINFO_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CLIENT SETINFO key specs */
+#define CLIENT_SETINFO_Keyspecs NULL
+#endif
+
+/* CLIENT SETINFO attr argument table */
+struct COMMAND_ARG CLIENT_SETINFO_attr_Subargs[] = {
+{MAKE_ARG("libname",ARG_TYPE_STRING,-1,"LIB-NAME",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("libver",ARG_TYPE_STRING,-1,"LIB-VER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CLIENT SETINFO argument table */
+struct COMMAND_ARG CLIENT_SETINFO_Args[] = {
+{MAKE_ARG("attr",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLIENT_SETINFO_attr_Subargs},
+};
+
 /********** CLIENT SETNAME ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -1536,6 +1564,7 @@ struct COMMAND_STRUCT CLIENT_Subcommands[] = {
 {MAKE_CMD("no-touch","Controls whether commands sent by the client will alter the LRU/LFU of the keys they access.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_NO_TOUCH_History,0,CLIENT_NO_TOUCH_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,CLIENT_NO_TOUCH_Keyspecs,0,NULL,1),.args=CLIENT_NO_TOUCH_Args},
 {MAKE_CMD("pause","Stop processing commands from clients for some time","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,1,CLIENT_PAUSE_Tips,0,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_PAUSE_Keyspecs,0,NULL,2),.args=CLIENT_PAUSE_Args},
 {MAKE_CMD("reply","Instruct the server whether to reply to commands","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,0,CLIENT_REPLY_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_REPLY_Keyspecs,0,NULL,1),.args=CLIENT_REPLY_Args},
+{MAKE_CMD("setinfo","Set client or connection specific info","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETINFO_History,0,CLIENT_SETINFO_Tips,0,clientSetinfoCommand,4,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETINFO_Keyspecs,0,NULL,1),.args=CLIENT_SETINFO_Args},
 {MAKE_CMD("setname","Set the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,0,CLIENT_SETNAME_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETNAME_Keyspecs,0,NULL,1),.args=CLIENT_SETNAME_Args},
 {MAKE_CMD("tracking","Enable or disable server assisted client side caching support","O(1). Some options may introduce additional complexity.","6.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_History,0,CLIENT_TRACKING_Tips,0,clientCommand,-3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_TRACKING_Keyspecs,0,NULL,7),.args=CLIENT_TRACKING_Args},
 {MAKE_CMD("trackinginfo","Return information about server assisted client side caching for the current connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_History,0,CLIENT_TRACKINGINFO_Tips,0,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_TRACKINGINFO_Keyspecs,0,NULL,0)},
@@ -2656,6 +2685,33 @@ const char *WAIT_Tips[] = {
 
 /* WAIT argument table */
 struct COMMAND_ARG WAIT_Args[] = {
+{MAKE_ARG("numreplicas",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** WAITAOF ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* WAITAOF history */
+#define WAITAOF_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* WAITAOF tips */
+const char *WAITAOF_Tips[] = {
+"request_policy:all_shards",
+"response_policy:agg_min",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* WAITAOF key specs */
+#define WAITAOF_Keyspecs NULL
+#endif
+
+/* WAITAOF argument table */
+struct COMMAND_ARG WAITAOF_Args[] = {
+{MAKE_ARG("numlocal",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("numreplicas",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
@@ -9438,7 +9494,9 @@ struct COMMAND_STRUCT XGROUP_Subcommands[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XINFO CONSUMERS history */
-#define XINFO_CONSUMERS_History NULL
+commandHistory XINFO_CONSUMERS_History[] = {
+{"7.2.0","Added the `inactive` field."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -9511,6 +9569,7 @@ struct COMMAND_ARG XINFO_GROUPS_Args[] = {
 commandHistory XINFO_STREAM_History[] = {
 {"6.0.0","Added the `FULL` modifier."},
 {"7.0.0","Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"},
+{"7.2.0","Added the `active-time` field, and changed the meaning of `seen-time`."},
 };
 #endif
 
@@ -9540,10 +9599,10 @@ struct COMMAND_ARG XINFO_STREAM_Args[] = {
 
 /* XINFO command table */
 struct COMMAND_STRUCT XINFO_Subcommands[] = {
-{MAKE_CMD("consumers","List the consumers in a consumer group","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_CONSUMERS_History,0,XINFO_CONSUMERS_Tips,1,xinfoCommand,4,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_CONSUMERS_Keyspecs,1,NULL,2),.args=XINFO_CONSUMERS_Args},
+{MAKE_CMD("consumers","List the consumers in a consumer group","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_CONSUMERS_History,1,XINFO_CONSUMERS_Tips,1,xinfoCommand,4,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_CONSUMERS_Keyspecs,1,NULL,2),.args=XINFO_CONSUMERS_Args},
 {MAKE_CMD("groups","List the consumer groups of a stream","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_GROUPS_History,1,XINFO_GROUPS_Tips,0,xinfoCommand,3,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_GROUPS_Keyspecs,1,NULL,1),.args=XINFO_GROUPS_Args},
 {MAKE_CMD("help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_HELP_History,0,XINFO_HELP_Tips,0,xinfoCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_STREAM,XINFO_HELP_Keyspecs,0,NULL,0)},
-{MAKE_CMD("stream","Get information about a stream","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_STREAM_History,2,XINFO_STREAM_Tips,0,xinfoCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_STREAM_Keyspecs,1,NULL,2),.args=XINFO_STREAM_Args},
+{MAKE_CMD("stream","Get information about a stream","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_STREAM_History,3,XINFO_STREAM_Tips,0,xinfoCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_STREAM_Keyspecs,1,NULL,2),.args=XINFO_STREAM_Args},
 {0}
 };
 
@@ -10582,7 +10641,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("ttl","Get the time to live for a key in seconds","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,TTL_History,1,TTL_Tips,1,ttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,TTL_Keyspecs,1,NULL,1),.args=TTL_Args},
 {MAKE_CMD("type","Determine the type stored at key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,TYPE_History,0,TYPE_Tips,0,typeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,TYPE_Keyspecs,1,NULL,1),.args=TYPE_Args},
 {MAKE_CMD("unlink","Delete a key asynchronously in another thread. Otherwise it is just as DEL, but non blocking.","O(1) for each key removed regardless of its size. Then the command does O(N) work in a different thread in order to reclaim memory, where N is the number of allocations the deleted objects where composed of.","4.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,UNLINK_History,0,UNLINK_Tips,2,unlinkCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,UNLINK_Keyspecs,1,NULL,1),.args=UNLINK_Args},
-{MAKE_CMD("wait","Wait for the synchronous replication of all the write commands sent in the context of the current connection","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,WAIT_History,0,WAIT_Tips,2,waitCommand,3,CMD_NOSCRIPT,ACL_CATEGORY_CONNECTION,WAIT_Keyspecs,0,NULL,2),.args=WAIT_Args},
+{MAKE_CMD("wait","Wait for the synchronous replication of all the write commands sent in the context of the current connection","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,WAIT_History,0,WAIT_Tips,2,waitCommand,3,0,ACL_CATEGORY_CONNECTION,WAIT_Keyspecs,0,NULL,2),.args=WAIT_Args},
+{MAKE_CMD("waitaof","Wait for all write commands sent in the context of the current connection to be synced to AOF of local host and/or replicas","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,WAITAOF_History,0,WAITAOF_Tips,2,waitaofCommand,4,CMD_NOSCRIPT,ACL_CATEGORY_CONNECTION,WAITAOF_Keyspecs,0,NULL,3),.args=WAITAOF_Args},
 /* geo */
 {MAKE_CMD("geoadd","Add one or more geospatial items in the geospatial index represented using a sorted set","O(log(N)) for each item added, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOADD_History,1,GEOADD_Tips,0,geoaddCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEOADD_Keyspecs,1,NULL,4),.args=GEOADD_Args},
 {MAKE_CMD("geodist","Returns the distance between two members of a geospatial index","O(log(N))","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEODIST_History,0,GEODIST_Tips,0,geodistCommand,-4,CMD_READONLY,ACL_CATEGORY_GEO,GEODIST_Keyspecs,1,NULL,4),.args=GEODIST_Args},
@@ -10618,11 +10678,11 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("pfmerge","Merge N different HyperLogLogs into a single one.","O(N) to merge N HyperLogLogs, but with high constant times.","2.8.9",CMD_DOC_NONE,NULL,NULL,"hyperloglog",COMMAND_GROUP_HYPERLOGLOG,PFMERGE_History,0,PFMERGE_Tips,0,pfmergeCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_HYPERLOGLOG,PFMERGE_Keyspecs,2,NULL,2),.args=PFMERGE_Args},
 {MAKE_CMD("pfselftest","An internal command for testing HyperLogLog values","N/A","2.8.9",CMD_DOC_SYSCMD,NULL,NULL,"hyperloglog",COMMAND_GROUP_HYPERLOGLOG,PFSELFTEST_History,0,PFSELFTEST_Tips,0,pfselftestCommand,1,CMD_ADMIN,ACL_CATEGORY_HYPERLOGLOG,PFSELFTEST_Keyspecs,0,NULL,0)},
 /* list */
-{MAKE_CMD("blmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLMOVE_History,0,BLMOVE_Tips,0,blmoveCommand,6,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,BLMOVE_Keyspecs,2,NULL,5),.args=BLMOVE_Args},
+{MAKE_CMD("blmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLMOVE_History,0,BLMOVE_Tips,0,blmoveCommand,6,CMD_WRITE|CMD_DENYOOM|CMD_BLOCKING,ACL_CATEGORY_LIST,BLMOVE_Keyspecs,2,NULL,5),.args=BLMOVE_Args},
 {MAKE_CMD("blmpop","Pop elements from a list, or block until one is available","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLMPOP_History,0,BLMPOP_Tips,0,blmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,BLMPOP_Keyspecs,1,blmpopGetKeys,5),.args=BLMPOP_Args},
-{MAKE_CMD("blpop","Remove and get the first element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLPOP_History,1,BLPOP_Tips,0,blpopCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,BLPOP_Keyspecs,1,NULL,2),.args=BLPOP_Args},
-{MAKE_CMD("brpop","Remove and get the last element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BRPOP_History,1,BRPOP_Tips,0,brpopCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,BRPOP_Keyspecs,1,NULL,2),.args=BRPOP_Args},
-{MAKE_CMD("brpoplpush","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","2.2.0",CMD_DOC_DEPRECATED,"`BLMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0","list",COMMAND_GROUP_LIST,BRPOPLPUSH_History,1,BRPOPLPUSH_Tips,0,brpoplpushCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,BRPOPLPUSH_Keyspecs,2,NULL,3),.args=BRPOPLPUSH_Args},
+{MAKE_CMD("blpop","Remove and get the first element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLPOP_History,1,BLPOP_Tips,0,blpopCommand,-3,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,BLPOP_Keyspecs,1,NULL,2),.args=BLPOP_Args},
+{MAKE_CMD("brpop","Remove and get the last element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BRPOP_History,1,BRPOP_Tips,0,brpopCommand,-3,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,BRPOP_Keyspecs,1,NULL,2),.args=BRPOP_Args},
+{MAKE_CMD("brpoplpush","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","2.2.0",CMD_DOC_DEPRECATED,"`BLMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0","list",COMMAND_GROUP_LIST,BRPOPLPUSH_History,1,BRPOPLPUSH_Tips,0,brpoplpushCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_BLOCKING,ACL_CATEGORY_LIST,BRPOPLPUSH_Keyspecs,2,NULL,3),.args=BRPOPLPUSH_Args},
 {MAKE_CMD("lindex","Get an element from a list by its index","O(N) where N is the number of elements to traverse to get to the element at index. This makes asking for the first or the last element of the list O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LINDEX_History,0,LINDEX_Tips,0,lindexCommand,3,CMD_READONLY,ACL_CATEGORY_LIST,LINDEX_Keyspecs,1,NULL,2),.args=LINDEX_Args},
 {MAKE_CMD("linsert","Insert an element before or after another element in a list","O(N) where N is the number of elements to traverse before seeing the value pivot. This means that inserting somewhere on the left end on the list (head) can be considered O(1) and inserting somewhere on the right end (tail) is O(N).","2.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LINSERT_History,0,LINSERT_Tips,0,linsertCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LINSERT_Keyspecs,1,NULL,4),.args=LINSERT_Args},
 {MAKE_CMD("llen","Get the length of a list","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LLEN_History,0,LLEN_Tips,0,llenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_LIST,LLEN_Keyspecs,1,NULL,1),.args=LLEN_Args},
@@ -10711,8 +10771,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("sunionstore","Add multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SUNIONSTORE_History,0,SUNIONSTORE_Tips,0,sunionstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,SUNIONSTORE_Keyspecs,2,NULL,2),.args=SUNIONSTORE_Args},
 /* sorted_set */
 {MAKE_CMD("bzmpop","Remove and return members with scores in a sorted set or block until one is available","O(K) + O(M*log(N)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,BZMPOP_History,0,BZMPOP_Tips,0,bzmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,BZMPOP_Keyspecs,1,blmpopGetKeys,5),.args=BZMPOP_Args},
-{MAKE_CMD("bzpopmax","Remove and return the member with the highest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,BZPOPMAX_History,1,BZPOPMAX_Tips,0,bzpopmaxCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,BZPOPMAX_Keyspecs,1,NULL,2),.args=BZPOPMAX_Args},
-{MAKE_CMD("bzpopmin","Remove and return the member with the lowest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,BZPOPMIN_History,1,BZPOPMIN_Tips,0,bzpopminCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,BZPOPMIN_Keyspecs,1,NULL,2),.args=BZPOPMIN_Args},
+{MAKE_CMD("bzpopmax","Remove and return the member with the highest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,BZPOPMAX_History,1,BZPOPMAX_Tips,0,bzpopmaxCommand,-3,CMD_WRITE|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,BZPOPMAX_Keyspecs,1,NULL,2),.args=BZPOPMAX_Args},
+{MAKE_CMD("bzpopmin","Remove and return the member with the lowest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,BZPOPMIN_History,1,BZPOPMIN_Tips,0,bzpopminCommand,-3,CMD_WRITE|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,BZPOPMIN_Keyspecs,1,NULL,2),.args=BZPOPMIN_Args},
 {MAKE_CMD("zadd","Add one or more members to a sorted set, or update its score if it already exists","O(log(N)) for each item added, where N is the number of elements in the sorted set.","1.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZADD_History,3,ZADD_Tips,0,zaddCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SORTEDSET,ZADD_Keyspecs,1,NULL,6),.args=ZADD_Args},
 {MAKE_CMD("zcard","Get the number of members in a sorted set","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZCARD_History,0,ZCARD_Tips,0,zcardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,ZCARD_Keyspecs,1,NULL,1),.args=ZCARD_Args},
 {MAKE_CMD("zcount","Count the members in a sorted set with scores within the given values","O(log(N)) with N being the number of elements in the sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZCOUNT_History,0,ZCOUNT_Tips,0,zcountCommand,4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,ZCOUNT_Keyspecs,1,NULL,3),.args=ZCOUNT_Args},

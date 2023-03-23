@@ -14,7 +14,6 @@
         ],
         "command_flags": [
             "WRITE",
-            "NOSCRIPT",
             "FAST",
             "BLOCKING"
         ],

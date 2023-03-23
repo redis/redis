@@ -8,6 +8,10 @@ start_server {tags {"modules"}} {
         assert {[r datatype.get dtkey] eq {100 stringval}}
     }
 
+    test {test blocking of datatype creation outside of OnLoad} {
+        assert_equal [r block.create.datatype.outside.onload] OK
+    }
+
     test {DataType: RM_SaveDataTypeToString(), RM_LoadDataTypeFromStringEncver() work} {
         r datatype.set dtkey -1111 MyString
         set encoded [r datatype.dump dtkey]

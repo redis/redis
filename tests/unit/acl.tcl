@@ -793,6 +793,31 @@ start_server {tags {"acl external:skip"}} {
         r AUTH default ""
     }
 
+    test {When an authentication chain is used in the HELLO cmd, the last auth cmd has precedence} {
+        r ACL setuser secure-user1 >supass on +@all
+        r ACL setuser secure-user2 >supass on +@all
+        r HELLO 2 AUTH secure-user pass AUTH secure-user2 supass AUTH secure-user1 supass
+        assert {[r ACL whoami] eq {secure-user1}}
+        catch {r HELLO 2 AUTH secure-user supass AUTH secure-user2 supass AUTH secure-user pass} e
+        assert_match "WRONGPASS invalid username-password pair or user is disabled." $e
+        assert {[r ACL whoami] eq {secure-user1}}
+    }
+
+    test {When a setname chain is used in the HELLO cmd, the last setname cmd has precedence} {
+        r HELLO 2 setname client1 setname client2 setname client3 setname client4
+        assert {[r client getname] eq {client4}}
+        catch {r HELLO 2 setname client5 setname client6 setname "client name"} e
+        assert_match "ERR Client names cannot contain spaces, newlines or special characters." $e
+        assert {[r client getname] eq {client4}}
+    }
+
+    test {When authentication fails in the HELLO cmd, the client setname should not be applied} {
+        r client setname client0
+        catch {r HELLO 2 AUTH user pass setname client1} e
+        assert_match "WRONGPASS invalid username-password pair or user is disabled." $e
+        assert {[r client getname] eq {client0}}
+    }
+
     test {ACL HELP should not have unexpected options} {
         catch {r ACL help xxx} e
         assert_match "*wrong number of arguments for 'acl|help' command" $e

@@ -629,7 +629,6 @@ void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector,
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->flags & CMD_MODULE) continue; /* Ignore modules commands. */
         if (cmd->acl_categories & cflag) {
             ACLChangeSelectorPerm(selector,cmd,value);
         }
@@ -638,6 +637,44 @@ void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector,
         }
     }
     dictReleaseIterator(di);
+}
+
+/* This function is responsible for recomputing the command bits for all selectors of the existing users.
+ * It uses the 'command_rules', a string representation of the ordered categories and commands, 
+ * to recompute the command bits. */
+void ACLRecomputeCommandBitsFromCommandRulesAllUsers() {
+    raxIterator ri;
+    raxStart(&ri,Users);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        user *u = ri.data;
+        listIter li;
+        listNode *ln;
+        listRewind(u->selectors,&li);
+        while((ln = listNext(&li))) {
+            aclSelector *selector = (aclSelector *) listNodeValue(ln);
+            int argc = 0;
+            sds *argv = sdssplitargs(selector->command_rules, &argc);
+            serverAssert(argv != NULL);
+            /* Checking selector's permissions for all commands to start with a clean state. */
+            if (ACLSelectorCanExecuteFutureCommands(selector)) {
+                int res = ACLSetSelector(selector,"+@all",-1);
+                serverAssert(res == C_OK);
+            } else {
+                int res = ACLSetSelector(selector,"-@all",-1);
+                serverAssert(res == C_OK);
+            }
+
+            /* Apply all of the commands and categories to this selector. */
+            for(int i = 0; i < argc; i++) {
+                int res = ACLSetSelector(selector, argv[i], sdslen(argv[i]));
+                serverAssert(res == C_OK);
+            }
+            sdsfreesplitres(argv, argc);
+        }
+    }
+    raxStop(&ri);
+
 }
 
 int ACLSetSelectorCategory(aclSelector *selector, const char *category, int allow) {
@@ -1406,22 +1443,48 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
     return C_ERR;
 }
 
+/* If `err` is provided, this is added as an error reply to the client.
+ * Otherwise, the standard Auth error is added as a reply. */
+void addAuthErrReply(client *c, robj *err) {
+    if (clientHasPendingReplies(c)) return;
+    if (!err) {
+        addReplyError(c, "-WRONGPASS invalid username-password pair or user is disabled.");
+        return;
+    }
+    addReplyError(c, err->ptr);
+}
+
 /* This is like ACLCheckUserCredentials(), however if the user/pass
  * are correct, the connection is put in authenticated state and the
  * connection user reference is populated.
  *
- * The return value is C_OK or C_ERR with the same meaning as
- * ACLCheckUserCredentials(). */
-int ACLAuthenticateUser(client *c, robj *username, robj *password) {
+ * The return value is AUTH_OK on success (valid username / password pair) & AUTH_ERR otherwise. */
+int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
         c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
         moduleNotifyUserChanged(c);
-        return C_OK;
+        return AUTH_OK;
     } else {
         addACLLogEntry(c,ACL_DENIED_AUTH,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,0,username->ptr,NULL);
-        return C_ERR;
+        return AUTH_ERR;
     }
+}
+
+/* Attempt authenticating the user - first through module based authentication,
+ * and then, if needed, with normal password based authentication.
+ * Returns one of the following codes:
+ * AUTH_OK - Indicates that authentication succeeded.
+ * AUTH_ERR - Indicates that authentication failed.
+ * AUTH_BLOCKED - Indicates module authentication is in progress through a blocking implementation.
+ */
+int ACLAuthenticateUser(client *c, robj *username, robj *password, robj **err) {
+    int result = checkModuleAuthentication(c, username, password, err);
+    /* If authentication was not handled by any Module, attempt normal password based auth. */
+    if (result == AUTH_NOT_HANDLED) {
+        result = checkPasswordBasedAuth(c, username, password);
+    }
+    return result;
 }
 
 /* For ACL purposes, every user has a bitmap with the commands that such
@@ -3046,11 +3109,14 @@ void authCommand(client *c) {
         redactClientCommandArgument(c, 2);
     }
 
-    if (ACLAuthenticateUser(c,username,password) == C_OK) {
-        addReply(c,shared.ok);
-    } else {
-        addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
+    robj *err = NULL;
+    int result = ACLAuthenticateUser(c, username, password, &err);
+    if (result == AUTH_OK) {
+        addReply(c, shared.ok);
+    } else if (result == AUTH_ERR) {
+        addAuthErrReply(c, err);
     }
+    if (err) decrRefCount(err);
 }
 
 /* Set the password for the "default" ACL user. This implements supports for
