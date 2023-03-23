@@ -34,6 +34,8 @@
 #ifndef __LATENCY_H
 #define __LATENCY_H
 
+#include "monotonic.h"
+
 #define LATENCY_TS_LEN 160 /* History length for every monitored event. */
 
 /* Representation of a latency sample: the sampling time and the latency
@@ -88,5 +90,35 @@ void latencyAddSample(const char *event, mstime_t latency);
 /* Remove time from a nested event. */
 #define latencyRemoveNestedEvent(event_var,nested_var) \
     event_var += nested_var;
+
+struct durationStats {
+    long long cnt;
+    long long sum;
+    long long max;
+};
+
+void durationAddSample(const char* event, ustime_t duration, int add_to_latency);
+
+/* Record the start time of an event. In order to avoid performance implication due to 
+ * querying the clock using a system call every time we measure a duration, we use a 
+ * monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic 
+ * call otherwise. */
+#define durationStartMonitor(var)                   \
+    if (monotonicGetType() == MONOTONIC_CLOCK_HW) { \
+        var = getMonotonicUs();                     \
+    } else {                                        \
+        var = ustime();                             \
+    }
+
+/* End monitoring an event, compute the difference with the current time to check the 
+ * amount of time elapsed. */
+#define durationEndMonitor(var)                     \
+    if (monotonicGetType() == MONOTONIC_CLOCK_HW) { \
+        var = getMonotonicUs() - var;               \
+    } else {                                        \
+        var = ustime() - var;                       \
+    }
+
+#define durationGetStat(event) (struct durationStats*)dictFetchValue(server.duration_stats, event)
 
 #endif /* __LATENCY_H */

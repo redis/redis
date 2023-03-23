@@ -1994,6 +1994,8 @@ struct redisServer {
     /* Latency monitor */
     long long latency_monitor_threshold;
     dict *latency_events;
+    long long el_start;
+    dict* duration_stats;
     /* ACLs */
     char *acl_filename;           /* ACL Users file. NULL if not configured. */
     unsigned long acllog_max_len; /* Maximum length of the ACL LOG list. */

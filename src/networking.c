@@ -1994,7 +1994,14 @@ int writeToClient(client *c, int handler_installed) {
 /* Write event handler. Just send data to the client. */
 void sendReplyToClient(connection *conn) {
     client *c = connGetPrivateData(conn);
+
+    ustime_t duration = 0;
+    durationStartMonitor(duration);
+
     writeToClient(c,1);
+
+    durationEndMonitor(duration);
+    durationAddSample("io-write", duration, 1);
 }
 
 /* This function is called just before entering the event loop, in the hope
@@ -2641,7 +2648,19 @@ void readQueryFromClient(connection *conn) {
         /* Read as much as possible from the socket to save read(2) system calls. */
         readlen = sdsavail(c->querybuf);
     }
+
+    ustime_t duration = 0;
+    if (io_threads_op == IO_THREADS_OP_IDLE) {
+        durationStartMonitor(duration);
+    }
+
     nread = connRead(c->conn, c->querybuf+qblen, readlen);
+
+    if (io_threads_op == IO_THREADS_OP_IDLE) {
+        durationEndMonitor(duration);
+        durationAddSample("io-read", duration, 1);
+    }
+
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
             return;
@@ -4290,7 +4309,12 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     /* If I/O threads are disabled or we have few clients to serve, don't
      * use I/O threads, but the boring synchronous code. */
     if (server.io_threads_num == 1 || stopThreadedIOIfNeeded()) {
-        return handleClientsWithPendingWrites();
+        ustime_t duration = 0;
+        durationStartMonitor(duration);
+        int ret = handleClientsWithPendingWrites();
+        durationEndMonitor(duration);
+        durationAddSample("io-write", duration, 1);
+        return ret;
     }
 
     /* Start threads if needed. */
@@ -4326,6 +4350,9 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         item_id++;
     }
 
+    ustime_t duration = 0;
+    durationStartMonitor(duration);
+
     /* Give the start condition to the waiting threads, by setting the
      * start condition atomic var. */
     io_threads_op = IO_THREADS_OP_WRITE;
@@ -4351,6 +4378,9 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     }
 
     io_threads_op = IO_THREADS_OP_IDLE;
+
+    durationEndMonitor(duration);
+    durationAddSample("io-write", duration, 1);
 
     /* Run the list of clients again to install the write handler where
      * needed. */
@@ -4425,6 +4455,9 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         item_id++;
     }
 
+    ustime_t duration = 0;
+    durationStartMonitor(duration);
+
     /* Give the start condition to the waiting threads, by setting the
      * start condition atomic var. */
     io_threads_op = IO_THREADS_OP_READ;
@@ -4450,6 +4483,9 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     }
 
     io_threads_op = IO_THREADS_OP_IDLE;
+
+    durationEndMonitor(duration);
+    durationAddSample("io-read", duration, 1);
 
     /* Run the list of clients again to process the new buffers. */
     while(listLength(server.clients_pending_read)) {

@@ -1745,6 +1745,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Disconnect some clients if they are consuming too much memory. */
     evictClients();
 
+    /* Record eventloop latency. */
+    long long el_duration = server.el_start == 0 ? 0 : ustime() - server.el_start;
+    if (el_duration) durationAddSample("eventloop", el_duration, 0);
+
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
      * time. */
@@ -1775,6 +1779,8 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
         }
+        /* Set the eventloop start time. */
+        server.el_start = ustime();
     }
 
     /* Update the time cache. */
@@ -2513,6 +2519,15 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
+    if (server.duration_stats) {
+        dictIterator* di = dictGetIterator(server.duration_stats);
+        dictEntry* de = NULL;
+        while ((de = dictNext(di)) != NULL) {
+            struct durationStats* stat = (struct durationStats*)dictGetVal(de);
+            memset(stat, 0, sizeof(*stat));
+        }
+        dictReleaseIterator(di);
+    }
     lazyfreeResetStats();
 }
 
@@ -3531,6 +3546,7 @@ void call(client *c, int flags) {
         char *latency_event = (real_cmd->flags & CMD_FAST) ?
                                "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
+        durationAddSample("command", duration, 0);
     }
 
     /* Log the command into the Slow log if needed.
@@ -5832,6 +5848,18 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
+        struct durationStats* el_duration_el = durationGetStat("eventloop");
+        long long el_duration_el_cnt = el_duration_el ? el_duration_el->cnt : 0;
+        long long el_duration_el_sum = el_duration_el ? el_duration_el->sum : 0;
+        long long el_duration_el_max = el_duration_el ? el_duration_el->max : 0;
+        struct durationStats* el_duration_cmd = durationGetStat("command");
+        long long el_duration_cmd_sum = el_duration_cmd ? el_duration_cmd->sum : 0;
+        struct durationStats* el_duration_ioread = durationGetStat("io-read");
+        long long el_duration_ioread_sum = el_duration_ioread ? el_duration_ioread->sum : 0;
+        struct durationStats* el_duration_iowrite = durationGetStat("io-write");
+        long long el_duration_iowrite_sum = el_duration_iowrite ? el_duration_iowrite->sum : 0;
+        struct durationStats* el_duration_aof = durationGetStat("aof");
+        long long el_duration_aof_sum = el_duration_aof ? el_duration_aof->sum : 0;
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
@@ -5885,7 +5913,14 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "io_threaded_reads_processed:%lld\r\n"
             "io_threaded_writes_processed:%lld\r\n"
             "reply_buffer_shrinks:%lld\r\n"
-            "reply_buffer_expands:%lld\r\n",
+            "reply_buffer_expands:%lld\r\n"
+            "eventloop_cycles:%lld\r\n"
+            "eventloop_duration_sum:%lld\r\n"
+            "eventloop_duration_max:%lld\r\n"
+            "eventloop_duration_cmd_sum:%lld\r\n"
+            "eventloop_duration_io_read_sum:%lld\r\n"
+            "eventloop_duration_io_write_sum:%lld\r\n"
+            "eventloop_duration_aof_sum:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -5935,7 +5970,14 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_io_reads_processed,
             server.stat_io_writes_processed,
             server.stat_reply_buffer_shrinks,
-            server.stat_reply_buffer_expands);
+            server.stat_reply_buffer_expands,
+            el_duration_el_cnt,
+            el_duration_el_sum,
+            el_duration_el_max,
+            el_duration_cmd_sum,
+            el_duration_ioread_sum,
+            el_duration_iowrite_sum,
+            el_duration_aof_sum);
         info = genRedisInfoStringACLStats(info);
     }
 
