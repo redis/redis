@@ -975,7 +975,6 @@ typedef struct redisDb {
     list *rehashing;            /* List of dictionaries in this DB that are currently rehashing. */
     int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
     unsigned long long key_count; /* Total number of keys in this DB. */
-    intset *non_empty_dicts;    /* Set of non-empty dictionaries. */
     unsigned long long *binary_index;  /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
 } redisDb;
 
@@ -2437,8 +2436,8 @@ typedef struct {
 /* Structure for DB iterator that allows iterating across multiple slot specific dictionaries in cluster mode. */
 typedef struct dbIterator {
     redisDb *db;
-    int index;
-    int cur_slot;
+    int slot;
+    int next_slot;
     dictIterator di;
 } dbIterator;
 
@@ -2446,7 +2445,8 @@ typedef struct dbIterator {
 void dbIteratorInit(dbIterator *dbit, redisDb *db);
 dict *dbIteratorNextDict(dbIterator *dbit);
 dictEntry *dbIteratorNext(dbIterator *iter);
-dict *dbGetNextNonEmptySlot(redisDb *db, int *slot);
+int dbGetNextNonEmptySlot(redisDb *db, int slot);
+int findSlotByKeyIndex(redisDb *db, unsigned long target);
 
 /* SCAN specific commands for easy cursor manipulation, shared between main code and modules. */
 int getAndClearSlotIdFromCursor(unsigned long long int *cursor);

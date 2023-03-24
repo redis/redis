@@ -592,15 +592,17 @@ void tryResizeHashTables(int dbid) {
     dbIterator dbit;
     redisDb *db = &server.db[dbid];
     dbIteratorInit(&dbit, db);
-    dbit.index = db->resize_cursor;
+    if (db->resize_cursor != -1) {
+        dbit.next_slot = db->resize_cursor;
+    }
     for (int i = 0; i < CRON_DICTS_PER_CALL; i++) {
         d = dbIteratorNextDict(&dbit);
-        if (d == NULL) break;
+        if (!d) break;
         if (htNeedsResize(d))
             dictResize(d);
     }
-    /* Save current index in the resize cursor, or start over if we've reached the end.*/
-    db->resize_cursor = dbit.cur_slot == -1 ? 0 : dbit.index;
+    /* Save current iterator position in the resize_cursor. */
+    db->resize_cursor = dbit.next_slot;
 
     if (htNeedsResize(db->expires))
         dictResize(db->expires);
@@ -2633,7 +2635,6 @@ void initServer(void) {
         server.db[j].rehashing = listCreate();
         server.db[j].dict_count = slotCount;
         server.db[j].key_count = 0;
-        server.db[j].non_empty_dicts = server.cluster_enabled ? intsetNew() : NULL;
         server.db[j].binary_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }

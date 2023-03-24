@@ -1007,9 +1007,9 @@ void activeDefragCycle(void) {
             db = &server.db[current_db];
             cursor = 0;
         }
-        int slot = 0;
-        dict *d = db->dict[slot];
+        int slot = findSlotByKeyIndex(db, 1);
         do {
+            dict *d = db->dict[slot];
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
             if (defragLaterStep(db, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
@@ -1020,7 +1020,7 @@ void activeDefragCycle(void) {
             if (!expires_cursor)
                 cursor = dictScanDefrag(d, cursor, defragScanCallback,
                                         &defragfns, db);
-            if (!cursor) d = dbGetNextNonEmptySlot(db, &slot);
+            if (!cursor) slot = dbGetNextNonEmptySlot(db, slot);
             /* When done scanning the keyspace dict, we scan the expire dict. */
             if (!cursor && slot > -1)
                 expires_cursor = dictScanDefrag(db->expires, expires_cursor,

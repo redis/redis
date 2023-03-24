@@ -1325,15 +1325,15 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     /* Iterate this DB writing every entry */
     while ((de = dbIteratorNext(&dbit)) != NULL) {
         /* Save slot info. */
-        if (server.cluster_enabled && dbit.cur_slot != last_slot) {
-            serverAssert(dbit.cur_slot >= 0 && dbit.cur_slot < CLUSTER_SLOTS);
+        if (server.cluster_enabled && dbit.slot != last_slot) {
+            serverAssert(dbit.slot >= 0 && dbit.slot < CLUSTER_SLOTS);
             if ((res = rdbSaveType(rdb, RDB_OPCODE_SLOT_INFO)) < 0) goto werr;
             written += res;
-            if ((res = rdbSaveLen(rdb, dbit.cur_slot)) < 0) goto werr;
+            if ((res = rdbSaveLen(rdb, dbit.slot)) < 0) goto werr;
             written += res;
-            if ((res = rdbSaveLen(rdb, dictSize(db->dict[dbit.cur_slot]))) < 0) goto werr;
+            if ((res = rdbSaveLen(rdb, dictSize(db->dict[dbit.slot]))) < 0) goto werr;
             written += res;
-            last_slot = dbit.cur_slot;
+            last_slot = dbit.slot;
         }
         sds keystr = dictGetKey(de);
         robj key, *o = dictGetVal(de);

@@ -51,15 +51,10 @@ void cumulativeKeyCountAdd(redisDb *db, int idx, long delta);
 
 /* Returns next dictionary from the iterator, or NULL if iteration is complete. */
 dict *dbIteratorNextDict(dbIterator *dbit) {
-    int64_t slot;
-    dbit->cur_slot = -1;
-    if (!server.cluster_enabled) {
-        dbit->cur_slot = dbit->index++ ? -1 : 0;
-    } else if (intsetGet(dbit->db->non_empty_dicts, dbit->index++, &slot)){
-        dbit->cur_slot = (int) slot;
-        return dbit->db->dict[slot];
-    }
-    return dbit->cur_slot >= 0 ? dbit->db->dict[dbit->cur_slot] : NULL;
+    if (dbit->next_slot == -1) return NULL;
+    dbit->slot = dbit->next_slot;
+    dbit->next_slot = dbGetNextNonEmptySlot(dbit->db, dbit->slot);
+    return dbit->db->dict[dbit->slot];
 }
 
 /* Returns next entry from the multi slot db. */
@@ -69,7 +64,7 @@ dictEntry *dbIteratorNext(dbIterator *dbit) {
         dict *d = dbIteratorNextDict(dbit);
         if (!d) return NULL;
         dictInitSafeIterator(&dbit->di, d);
-        return dictNext(&dbit->di);
+        de = dictNext(&dbit->di);
     }
     return de;
 }
@@ -79,25 +74,15 @@ dictEntry *dbIteratorNext(dbIterator *dbit) {
  * or 16k dictionaries (one per slot) when node runs with cluster mode enabled. */
 void dbIteratorInit(dbIterator *dbit, redisDb *db) {
     dbit->db = db;
-    dbit->index = 0;
-    dbit->cur_slot = -1;
+    dbit->slot = -1;
+    dbit->next_slot = findSlotByKeyIndex(dbit->db, 1); /* Finds first non-empty slot. */
     dictInitSafeIterator(&dbit->di, NULL);
 }
 
-/* Returns next non-empty dictionary strictly after provided slot and updates slot id in the supplied reference. */
-dict *dbGetNextNonEmptySlot(redisDb *db, int *slot) {
-    if (server.cluster_enabled) {
-        uint32_t pos;
-        int found = intsetSearch(db->non_empty_dicts, *slot, &pos);
-        if (found) pos++; /* If current slot exists in the non-empty list, then we want next one, otherwise pos already points to it. */
-        int64_t next_slot;
-        if (intsetGet(db->non_empty_dicts, pos, &next_slot)) {
-            *slot = (int) next_slot;
-            return db->dict[*slot];
-        }
-    }
-    *slot = -1;
-    return NULL;
+/* Returns next non-empty slot strictly after given one, or -1 if provided slot is the last one. */
+int dbGetNextNonEmptySlot(redisDb *db, int slot) {
+    unsigned long long next_key = cumulativeKeyCountRead(db, slot) + 1;
+    return next_key <= dbSize(db) ? findSlotByKeyIndex(db, next_key) : -1;
 }
 
 
@@ -245,17 +230,10 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     int slot = getKeySlot(key->ptr);
     dict *d = db->dict[slot];
-    int new_dict = server.cluster_enabled && dictIsEmpty(d);
     dictEntry *de = dictAddRaw(d, copy, NULL);
     serverAssertWithInfo(NULL, key, de != NULL);
     dictSetVal(d, de, val);
     db->key_count++;
-    /* If dict transitioned from empty to non-empty, we should add it to the list of owned slots. Cluster mode only. */
-    if (new_dict) {
-        uint8_t success = 0;
-        db->non_empty_dicts = intsetAdd(db->non_empty_dicts, slot, &success);
-        serverAssert(success);
-    }
     if (server.cluster_enabled) {
         cumulativeKeyCountAdd(db, slot, 1);
     }
@@ -288,17 +266,10 @@ int getKeySlot(sds key) {
 int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     int slot = getKeySlot(key);
     dict *d = db->dict[slot];
-    int new_dict = server.cluster_enabled && dictIsEmpty(d);
     dictEntry *de = dictAddRaw(d, key, NULL);
     if (de == NULL) return 0;
     dictSetVal(d, de, val);
     db->key_count++;
-    /* If dict transitioned from empty to non-empty, we should add it to the list of owned slots. */
-    if (new_dict) {
-        uint8_t success = 0;
-        db->non_empty_dicts = intsetAdd(db->non_empty_dicts, slot, &success);
-        serverAssert(success);
-    }
     if (server.cluster_enabled) {
         cumulativeKeyCountAdd(db, slot, 1);
     }
@@ -456,21 +427,27 @@ unsigned long long cumulativeKeyCountRead(redisDb *db, int slot) {
  * Implementation uses binary search on top of binary index tree.
  * Time complexity of this function is O(log^2(CLUSTER_SLOTS)). */
 dict *getFairRandomDict(redisDb *db) {
-    if (!server.cluster_enabled || dbSize(db) == 0) return db->dict[0];
-    /* We want to find a slot containing target-th element in a key space ordered by slot id.
-     * Consider this example. Slots are represented by brackets and keys by dots:
-     *  #0   #1   #2     #3    #4
-     * [..][....][...][.......][.]
-     *                    ^
-     *                 target
-     *
-     * In this case slot #3 contains key that we are trying to find.
-     * */
-    unsigned long target = (randomULong() % dbSize(db)) + 1;
+    unsigned long target = dbSize(db) ? (randomULong() % dbSize(db)) + 1 : 0;
+    int slot = findSlotByKeyIndex(db, target);
+    return db->dict[slot];
+}
+
+/* Finds a slot containing target element in a key space ordered by slot id.
+ * Consider this example. Slots are represented by brackets and keys by dots:
+ *  #0   #1   #2     #3    #4
+ * [..][....][...][.......][.]
+ *                    ^
+ *                 target
+ *
+ * In this case slot #3 contains key that we are trying to find.
+ * */
+int findSlotByKeyIndex(redisDb *db, unsigned long target) {
+    if (!server.cluster_enabled || dbSize(db) == 0) return 0;
+    serverAssert(target <= dbSize(db));
     int lo = 0, hi = CLUSTER_SLOTS - 1;
     /* We use binary search to find a slot, we are allowed to do this, because we have a quick way to find a total number of keys
      * up until certain slot, using binary index tree. */
-    while (lo < hi) {
+    while (lo <= hi) {
         int mid = lo + (hi - lo) / 2;
         unsigned long keys_up_to_mid = cumulativeKeyCountRead(db, mid); /* Total number of keys up until a given slot (inclusive). */
         unsigned long keys_in_mid = dictSize(db->dict[mid]); /* Number of keys in the slot. */
@@ -479,13 +456,10 @@ dict *getFairRandomDict(redisDb *db) {
         } else if (target <= keys_up_to_mid - keys_in_mid)  { /* Target is to the left from mid. */
             hi = mid - 1;
         } else { /* Located target. */
-            break;
+            return mid;
         }
     }
-    int slot = lo + (hi - lo) / 2;
-    dict *result = db->dict[slot];
-    serverAssert(!dictIsEmpty(result));
-    return result;
+    serverPanic("Unable to find a slot that contains target key.");
 }
 
 /* Helper for sync and async delete. */
@@ -516,12 +490,6 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         * the key, because it is shared with the main dictionary. */
         if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
         dictTwoPhaseUnlinkFree(d,de,plink,table);
-        /* If we've removed last entry from the dict, then we need to also remove it from the list of owned non-empty slots. */
-        if (server.cluster_enabled && dictIsEmpty(d)) {
-            int success = 0;
-            db->non_empty_dicts = intsetRemove(db->non_empty_dicts, slot, &success);
-            serverAssert(success);
-        }
         if (server.cluster_enabled) {
             cumulativeKeyCountAdd(db, slot, -1);
         }
@@ -624,8 +592,6 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         if (server.cluster_enabled) {
             zfree(dbarray[j].binary_index);
             dbarray[j].binary_index = zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1));
-            zfree(dbarray[j].non_empty_dicts);
-            dbarray[j].non_empty_dicts = intsetNew();
         }
     }
 
@@ -694,7 +660,6 @@ redisDb *initTempDb(void) {
         tempDb[i].dict_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
         tempDb[i].dict = dictCreateMultiple(&dbDictType, tempDb[i].dict_count);
         tempDb[i].expires = dictCreate(&dbExpiresDictType);
-        tempDb[i].non_empty_dicts = server.cluster_enabled ? intsetNew() : NULL;
         tempDb[i].binary_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
     }
 
@@ -715,7 +680,6 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
         dictRelease(tempDb[i].expires);
         if (server.cluster_enabled) {
             zfree(tempDb[i].binary_index);
-            zfree(tempDb[i].non_empty_dicts);
         }
     }
 
@@ -1117,7 +1081,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             /* In cluster mode there is a separate dictionary for each slot.
              * If cursor is empty, we should try exploring next non-empty slot. */
             if (o == NULL && !cursor) {
-                ht = dbGetNextNonEmptySlot(c->db, &slot);
+                slot = dbGetNextNonEmptySlot(c->db, slot);
+                ht = slot != -1 ? c->db->dict[slot] : NULL;
             }
         } while ((cursor || slot > 0) && /* Continue iteration if there are more slots to visit, or cursor hasn't reached the end of dict yet. */
                  maxiterations-- &&
@@ -1660,7 +1625,6 @@ int dbSwapDatabases(int id1, int id2) {
     db1->resize_cursor = db2->resize_cursor;
     db1->dict_count = db2->dict_count;
     db1->key_count = db2->key_count;
-    db1->non_empty_dicts = db2->non_empty_dicts;
     db1->binary_index = db2->binary_index;
 
     db2->dict = aux.dict;
@@ -1670,7 +1634,6 @@ int dbSwapDatabases(int id1, int id2) {
     db2->resize_cursor = aux.resize_cursor;
     db2->dict_count = aux.dict_count;
     db2->key_count = aux.key_count;
-    db2->non_empty_dicts = aux.non_empty_dicts;
     db2->binary_index = aux.binary_index;
 
     /* Now we need to handle clients blocked on lists: as an effect
@@ -1712,7 +1675,6 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->resize_cursor = newdb->resize_cursor;
         activedb->dict_count = newdb->dict_count;
         activedb->key_count = newdb->key_count;
-        activedb->non_empty_dicts = newdb->non_empty_dicts;
         activedb->binary_index = newdb->binary_index;
 
         newdb->dict = aux.dict;
@@ -1722,7 +1684,6 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         newdb->resize_cursor = aux.resize_cursor;
         newdb->dict_count = aux.dict_count;
         newdb->key_count = aux.key_count;
-        newdb->non_empty_dicts = aux.non_empty_dicts;
         newdb->binary_index = aux.binary_index;
 
         /* Now we need to handle clients blocked on lists: as an effect
