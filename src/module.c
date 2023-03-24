@@ -780,7 +780,7 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
     return REDISMODULE_OK;
 }
 
-void modulePostExecutionUnitOperations() {
+void modulePostExecutionUnitOperations(void) {
     if (server.execution_nesting)
         return;
 
@@ -2257,7 +2257,7 @@ uint64_t RM_MonotonicMicroseconds(void) {
 }
 
 /* Return the current UNIX time in microseconds */
-ustime_t RM_Microseconds() {
+ustime_t RM_Microseconds(void) {
     return ustime();
 }
 
@@ -2267,7 +2267,7 @@ ustime_t RM_Microseconds() {
  * key space notification, causing a module to execute a RedisModule_Call,
  * causing another notification, etc.
  * It makes sense that all this callbacks would use the same clock. */
-ustime_t RM_CachedMicroseconds() {
+ustime_t RM_CachedMicroseconds(void) {
     return server.ustime;
 }
 
@@ -3868,7 +3868,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
  * garbage collection tasks, or that do writes and replicate such writes
  * periodically in timer callbacks or other periodic callbacks.
  */
-int RM_AvoidReplicaTraffic() {
+int RM_AvoidReplicaTraffic(void) {
     return !!(isPausedActionsWithUpdate(PAUSE_ACTION_REPLICA));
 }
 
@@ -3978,7 +3978,7 @@ RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
  *              // REDISMODULE_OPEN_KEY_NOTOUCH is not supported
  *        }
  */
-int RM_GetOpenKeyModesAll() {
+int RM_GetOpenKeyModesAll(void) {
     return _REDISMODULE_OPEN_KEY_ALL;
 }
 
@@ -6905,7 +6905,7 @@ void moduleRDBLoadError(RedisModuleIO *io) {
 /* Returns 0 if there's at least one registered data type that did not declare
  * REDISMODULE_OPTIONS_HANDLE_IO_ERRORS, in which case diskless loading should
  * be avoided since it could cause data loss. */
-int moduleAllDatatypesHandleErrors() {
+int moduleAllDatatypesHandleErrors(void) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
@@ -6925,7 +6925,7 @@ int moduleAllDatatypesHandleErrors() {
 /* Returns 0 if module did not declare REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD, in which case
  * diskless async loading should be avoided because module doesn't know there can be traffic during
  * database full resynchronization. */
-int moduleAllModulesHandleReplAsyncLoad() {
+int moduleAllModulesHandleReplAsyncLoad(void) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
@@ -8373,7 +8373,7 @@ void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
     zfree(ctx);
 }
 
-void moduleGILAfterLock() {
+void moduleGILAfterLock(void) {
     /* We should never get here if we already inside a module
      * code block which already opened a context. */
     serverAssert(server.execution_nesting == 0);
@@ -8409,7 +8409,7 @@ int RM_ThreadSafeContextTryLock(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
-void moduleGILBeforeUnlock() {
+void moduleGILBeforeUnlock(void) {
     /* We should never get here if we already inside a module
      * code block which already opened a context, except
      * the bump-up from moduleGILAcquired. */
@@ -8524,7 +8524,7 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     return REDISMODULE_OK;
 }
 
-void firePostExecutionUnitJobs() {
+void firePostExecutionUnitJobs(void) {
     /* Avoid propagation of commands.
      * In that way, postExecutionUnitOperations will prevent
      * recursive calls to firePostExecutionUnitJobs.
@@ -8577,7 +8577,7 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJo
 
 /* Get the configured bitmap of notify-keyspace-events (Could be used
  * for additional filtering in RedisModuleNotificationFunc) */
-int RM_GetNotifyKeyspaceEvents() {
+int RM_GetNotifyKeyspaceEvents(void) {
     return server.notify_keyspace_events;
 }
 
@@ -9292,7 +9292,7 @@ int RM_EventLoopAddOneShot(RedisModuleEventLoopOneShotFunc func, void *user_data
 
 /* This function will check the moduleEventLoopOneShots queue in order to
  * call the callback for the registered oneshot events. */
-static void eventLoopHandleOneShotEvents() {
+static void eventLoopHandleOneShotEvents(void) {
     pthread_mutex_lock(&moduleEventLoopMutex);
     if (moduleEventLoopOneShots) {
         while (listLength(moduleEventLoopOneShots)) {
@@ -10393,7 +10393,7 @@ int RM_ExportSharedAPI(RedisModuleCtx *ctx, const char *apiname, void *func) {
  *
  * Here is an example:
  *
- *     int ... myCommandImplementation() {
+ *     int ... myCommandImplementation(void) {
  *        if (getExternalAPIs() == 0) {
  *             reply with an error here if we cannot have the APIs
  *        }
@@ -10723,7 +10723,7 @@ size_t RM_MallocSizeDict(RedisModuleDict* dict) {
  * * Exactly 1 - Memory limit reached.
  * * Greater 1 - More memory used than the configured limit.
  */
-float RM_GetUsedMemoryRatio(){
+float RM_GetUsedMemoryRatio(void) {
     float level;
     getMaxmemoryState(NULL, NULL, NULL, &level);
     return level;
@@ -10762,7 +10762,7 @@ static void moduleScanCallback(void *privdata, const dictEntry *de) {
 }
 
 /* Create a new cursor to be used with RedisModule_Scan */
-RedisModuleScanCursor *RM_ScanCursorCreate() {
+RedisModuleScanCursor *RM_ScanCursorCreate(void) {
     RedisModuleScanCursor* cursor = zmalloc(sizeof(*cursor));
     cursor->cursor = 0;
     cursor->done = 0;
@@ -12890,7 +12890,7 @@ int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
  *              // REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS is not supported
  *        }
  */
-int RM_GetModuleOptionsAll() {
+int RM_GetModuleOptionsAll(void) {
     return _REDISMODULE_OPTIONS_FLAGS_NEXT - 1;
 }
 
@@ -12907,7 +12907,7 @@ int RM_GetModuleOptionsAll() {
  *              // REDISMODULE_CTX_FLAGS_MULTI is not supported
  *        }
  */
-int RM_GetContextFlagsAll() {
+int RM_GetContextFlagsAll(void) {
     return _REDISMODULE_CTX_FLAGS_NEXT - 1;
 }
 
@@ -12924,7 +12924,7 @@ int RM_GetContextFlagsAll() {
  *              // REDISMODULE_NOTIFY_LOADED is not supported
  *        }
  */
-int RM_GetKeyspaceNotificationFlagsAll() {
+int RM_GetKeyspaceNotificationFlagsAll(void) {
     return _REDISMODULE_NOTIFY_NEXT - 1;
 }
 
@@ -12932,7 +12932,7 @@ int RM_GetKeyspaceNotificationFlagsAll() {
  * Return the redis version in format of 0x00MMmmpp.
  * Example for 6.0.7 the return value will be 0x00060007.
  */
-int RM_GetServerVersion() {
+int RM_GetServerVersion(void) {
     return REDIS_VERSION_NUM;
 }
 
@@ -12941,7 +12941,7 @@ int RM_GetServerVersion() {
  * You can use that when calling RM_CreateDataType to know which fields of
  * RedisModuleTypeMethods are gonna be supported and which will be ignored.
  */
-int RM_GetTypeMethodVersion() {
+int RM_GetTypeMethodVersion(void) {
     return REDISMODULE_TYPE_METHOD_VERSION;
 }
 

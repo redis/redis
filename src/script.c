@@ -60,16 +60,16 @@ static void enterScriptTimedoutMode(scriptRunCtx *run_ctx) {
     blockingOperationStarts();
 }
 
-int scriptIsTimedout() {
+int scriptIsTimedout(void) {
     return scriptIsRunning() && (curr_run_ctx->flags & SCRIPT_TIMEDOUT);
 }
 
-client* scriptGetClient() {
+client* scriptGetClient(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->c;
 }
 
-client* scriptGetCaller() {
+client* scriptGetCaller(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->original_client;
 }
@@ -269,16 +269,16 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
 }
 
 /* return true if a script is currently running */
-int scriptIsRunning() {
+int scriptIsRunning(void) {
     return curr_run_ctx != NULL;
 }
 
-const char* scriptCurrFunction() {
+const char* scriptCurrFunction(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->funcname;
 }
 
-int scriptIsEval() {
+int scriptIsEval(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->flags & SCRIPT_EVAL_MODE;
 }
@@ -571,7 +571,7 @@ error:
     incrCommandStatsOnError(cmd, ERROR_COMMAND_REJECTED);
 }
 
-long long scriptRunDuration() {
+long long scriptRunDuration(void) {
     serverAssert(scriptIsRunning());
     return elapsedMs(curr_run_ctx->start_time);
 }

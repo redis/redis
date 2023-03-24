@@ -37,7 +37,7 @@ int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err);
 
 ssize_t cliWriteConn(redisContext *c, const char *buf, size_t buf_len);
 
-int cliSecureInit();
+int cliSecureInit(void);
 
 sds readArgFromStdin(void);
 

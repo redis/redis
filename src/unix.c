@@ -200,7 +200,7 @@ static ConnectionType CT_Unix = {
     .process_pending_data = NULL,
 };
 
-int RedisRegisterConnectionTypeUnix()
+int RedisRegisterConnectionTypeUnix(void)
 {
     return connTypeRegister(&CT_Unix);
 }

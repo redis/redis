@@ -207,12 +207,12 @@ void addReplyPubsubPatUnsubscribed(client *c, robj *pattern) {
  *----------------------------------------------------------------------------*/
 
 /* Return the number of pubsub channels + patterns is handled. */
-int serverPubsubSubscriptionCount() {
+int serverPubsubSubscriptionCount(void) {
     return dictSize(server.pubsub_channels) + dictSize(server.pubsub_patterns);
 }
 
 /* Return the number of pubsub shard level channels is handled. */
-int serverPubsubShardSubscriptionCount() {
+int serverPubsubShardSubscriptionCount(void) {
     return dictSize(server.pubsubshard_channels);
 }
 
