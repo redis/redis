@@ -3728,6 +3728,10 @@ void afterCommand(client *c) {
      * reply to client before invalidating cache (makes more sense) */
     postExecutionUnitOperations();
     trackingHandlePendingKeyInvalidations();
+
+    /* The duration needs to be reset after each call except for a blocked command,
+     * which has its duration accumulated on the client between each call. */ 
+    if (!(c->flags & CLIENT_BLOCKED)) c->duration = 0;
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.

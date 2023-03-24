@@ -2039,7 +2039,6 @@ void resetClient(client *c) {
     c->multibulklen = 0;
     c->bulklen = -1;
     c->slot = -1;
-    c->duration = 0;
     c->flags &= ~CLIENT_EXECUTING_COMMAND;
 #ifdef LOG_REQ_RES
     reqresReset(c, 1);
