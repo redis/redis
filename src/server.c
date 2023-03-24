@@ -2520,10 +2520,10 @@ void resetServerStats(void) {
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
     if (server.duration_stats) {
-        dictIterator* di = dictGetIterator(server.duration_stats);
-        dictEntry* de = NULL;
+        dictIterator *di = dictGetIterator(server.duration_stats);
+        dictEntry *de = NULL;
         while ((de = dictNext(di)) != NULL) {
-            struct durationStats* stat = (struct durationStats*)dictGetVal(de);
+            struct durationStats *stat = (struct durationStats *)dictGetVal(de);
             memset(stat, 0, sizeof(*stat));
         }
         dictReleaseIterator(di);
@@ -5848,17 +5848,17 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
-        struct durationStats* el_duration_el = durationGetStat("eventloop");
+        struct durationStats *el_duration_el = durationGetStat("eventloop");
         long long el_duration_el_cnt = el_duration_el ? el_duration_el->cnt : 0;
         long long el_duration_el_sum = el_duration_el ? el_duration_el->sum : 0;
         long long el_duration_el_max = el_duration_el ? el_duration_el->max : 0;
-        struct durationStats* el_duration_cmd = durationGetStat("command");
+        struct durationStats *el_duration_cmd = durationGetStat("command");
         long long el_duration_cmd_sum = el_duration_cmd ? el_duration_cmd->sum : 0;
-        struct durationStats* el_duration_ioread = durationGetStat("io-read");
+        struct durationStats *el_duration_ioread = durationGetStat("io-read");
         long long el_duration_ioread_sum = el_duration_ioread ? el_duration_ioread->sum : 0;
-        struct durationStats* el_duration_iowrite = durationGetStat("io-write");
+        struct durationStats *el_duration_iowrite = durationGetStat("io-write");
         long long el_duration_iowrite_sum = el_duration_iowrite ? el_duration_iowrite->sum : 0;
-        struct durationStats* el_duration_aof = durationGetStat("aof");
+        struct durationStats *el_duration_aof = durationGetStat("aof");
         long long el_duration_aof_sum = el_duration_aof ? el_duration_aof->sum : 0;
 
         if (sections++) info = sdscat(info,"\r\n");

@@ -92,12 +92,12 @@ void latencyAddSample(const char *event, mstime_t latency);
     event_var += nested_var;
 
 struct durationStats {
-    long long cnt;
+    unsigned long long cnt;
     long long sum;
     long long max;
 };
 
-void durationAddSample(const char* event, ustime_t duration, int add_to_latency);
+void durationAddSample(const char *event, ustime_t duration, int add_to_latency);
 
 /* Record the start time of an event. In order to avoid performance implication due to 
  * querying the clock using a system call every time we measure a duration, we use a 
@@ -119,6 +119,6 @@ void durationAddSample(const char* event, ustime_t duration, int add_to_latency)
         var = ustime() - var;                       \
     }
 
-#define durationGetStat(event) (struct durationStats*)dictFetchValue(server.duration_stats, event)
+#define durationGetStat(event) (struct durationStats *)dictFetchValue(server.duration_stats, event)
 
 #endif /* __LATENCY_H */

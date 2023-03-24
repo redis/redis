@@ -727,11 +727,10 @@ nodataerr:
         "No samples available for event '%s'", (char*) c->argv[2]->ptr);
 }
 
-void durationAddSample(const char* event, ustime_t duration, int add_to_latency) {
-    struct durationStats* ds = dictFetchValue(server.duration_stats, event);
+void durationAddSample(const char *event, ustime_t duration, int add_to_latency) {
+    struct durationStats *ds = dictFetchValue(server.duration_stats, event);
     if (ds == NULL) {
-        ds = zmalloc(sizeof(*ds));
-        memset(ds, 0, sizeof(*ds));
+        ds = zcalloc(sizeof(*ds));
         dictAdd(server.duration_stats, zstrdup(event), ds);
     }
     ds->cnt++;
