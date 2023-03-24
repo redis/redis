@@ -622,6 +622,8 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         dbarray[j].resize_cursor = 0;
         dbarray[j].key_count = 0;
         if (server.cluster_enabled) {
+            zfree(dbarray[j].binary_index);
+            dbarray[j].binary_index = zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1));
             zfree(dbarray[j].non_empty_dicts);
             dbarray[j].non_empty_dicts = intsetNew();
         }
@@ -693,6 +695,7 @@ redisDb *initTempDb(void) {
         tempDb[i].dict = dictCreateMultiple(&dbDictType, tempDb[i].dict_count);
         tempDb[i].expires = dictCreate(&dbExpiresDictType);
         tempDb[i].non_empty_dicts = server.cluster_enabled ? intsetNew() : NULL;
+        tempDb[i].binary_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
     }
 
     return tempDb;
@@ -710,7 +713,10 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
         }
         zfree(tempDb[i].dict);
         dictRelease(tempDb[i].expires);
-        if (server.cluster_enabled) zfree(tempDb[i].non_empty_dicts);
+        if (server.cluster_enabled) {
+            zfree(tempDb[i].binary_index);
+            zfree(tempDb[i].non_empty_dicts);
+        }
     }
 
     zfree(tempDb);
@@ -1655,6 +1661,7 @@ int dbSwapDatabases(int id1, int id2) {
     db1->dict_count = db2->dict_count;
     db1->key_count = db2->key_count;
     db1->non_empty_dicts = db2->non_empty_dicts;
+    db1->binary_index = db2->binary_index;
 
     db2->dict = aux.dict;
     db2->expires = aux.expires;
@@ -1664,6 +1671,7 @@ int dbSwapDatabases(int id1, int id2) {
     db2->dict_count = aux.dict_count;
     db2->key_count = aux.key_count;
     db2->non_empty_dicts = aux.non_empty_dicts;
+    db2->binary_index = aux.binary_index;
 
     /* Now we need to handle clients blocked on lists: as an effect
      * of swapping the two DBs, a client that was waiting for list
@@ -1705,6 +1713,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->dict_count = newdb->dict_count;
         activedb->key_count = newdb->key_count;
         activedb->non_empty_dicts = newdb->non_empty_dicts;
+        activedb->binary_index = newdb->binary_index;
 
         newdb->dict = aux.dict;
         newdb->expires = aux.expires;
@@ -1714,6 +1723,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         newdb->dict_count = aux.dict_count;
         newdb->key_count = aux.key_count;
         newdb->non_empty_dicts = aux.non_empty_dicts;
+        newdb->binary_index = aux.binary_index;
 
         /* Now we need to handle clients blocked on lists: as an effect
          * of swapping the two DBs, a client that was waiting for list
