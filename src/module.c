@@ -12717,6 +12717,18 @@ int RM_RdbLoad(RedisModuleRdbStream *stream, int flags) {
         return REDISMODULE_ERR;
     }
 
+    /* Not allowed on replicas. */
+    if (server.masterhost != NULL) {
+        errno = EPERM;
+        return REDISMODULE_ERR;
+    }
+
+    /* Drop replicas if exist. */
+    if (listLength(server.slaves) != 0) {
+        disconnectSlaves();
+        freeReplicationBacklog();
+    }
+
     if (server.aof_state != AOF_OFF) stopAppendOnly();
 
     /* Kill existing RDB fork as it is saving outdated data. Also killing it

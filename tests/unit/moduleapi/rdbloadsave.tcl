@@ -141,4 +141,60 @@ start_server {tags {"modules"}} {
     test "Unload the module - rdbloadsave" {
         assert_equal {OK} [r module unload rdbloadsave]
     }
+
+    tags {repl} {
+        test {Module rdbloadsave on master and replica} {
+            start_server [list overrides [list loadmodule "$testmodule"]] {
+                set replica [srv 0 client]
+                set replica_host [srv 0 host]
+                set replica_port [srv 0 port]
+                start_server [list overrides [list loadmodule "$testmodule"]] {
+                    set master [srv 0 client]
+                    set master_host [srv 0 host]
+                    set master_port [srv 0 port]
+
+                    $master set x 10000
+
+                    # Start the replication process...
+                    $replica replicaof $master_host $master_port
+
+                    wait_for_condition 100 100 {
+                        [status $master sync_full] == 1
+                    } else {
+                        fail "Master <-> Replica didn't start the full sync"
+                    }
+
+                    # RM_RdbSave() is allowed on replicas
+                    assert_equal OK [$replica test.rdbsave rep.rdb]
+
+                    # RM_RdbLoad() is not allowed on replicas
+                    assert_error {*not permitted*} {$replica test.rdbload rep.rdb}
+
+                    assert_equal OK [$master test.rdbsave master.rdb]
+                    $master set x 20000
+
+                    wait_for_condition 100 100 {
+                        [$replica get x] == 20000
+                    } else {
+                        fail "Replica didn't get the update"
+                    }
+
+                    # Loading RDB on master will drop replicas
+                    assert_equal OK [$master test.rdbload master.rdb]
+
+                    wait_for_condition 100 100 {
+                        [status $master sync_full] == 2
+                    } else {
+                        fail "Master <-> Replica didn't start the full sync"
+                    }
+
+                    wait_for_condition 100 100 {
+                        [$replica get x] == 10000
+                    } else {
+                        fail "Replica didn't get the update"
+                    }
+                }
+            }
+        }
+    }
 }
