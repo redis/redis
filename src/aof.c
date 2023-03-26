@@ -1083,7 +1083,8 @@ void flushAppendOnlyFile(int force) {
          * stop write commands before fsync called in one second,
          * the data in page cache cannot be flushed in time. */
         if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
-            server.aof_fsync_offset != server.aof_current_size &&
+            (server.aof_fsync_dirty ||
+            (!server.aof_fsync_dirty && server.aof_fsync_offset != server.aof_current_size)) &&
             server.unixtime > server.aof_last_fsync &&
             !(sync_in_progress = aofFsyncInProgress())) {
             goto try_fsync;
@@ -1093,7 +1094,8 @@ void flushAppendOnlyFile(int force) {
          * and AOF_FSYNC_ALWAYS is also checked here to prevent users from
          * changing the aof_fsync from everysec to always.  */
         } else if (server.aof_fsync == AOF_FSYNC_ALWAYS &&
-                   server.aof_fsync_offset != server.aof_current_size)
+                   (server.aof_fsync_dirty ||
+                   (!server.aof_fsync_dirty && server.aof_fsync_offset != server.aof_current_size)))
         {
             goto try_fsync;
         } else {
@@ -1262,13 +1264,19 @@ try_fsync:
         }
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
+        if (server.aof_fsync_dirty) server.aof_fsync_dirty = 0;
         server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
         atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
-    } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
-                server.unixtime > server.aof_last_fsync)) {
+    } else if (server.aof_fsync == AOF_FSYNC_EVERYSEC) {
+        if (server.unixtime <= server.aof_last_fsync) {
+            server.aof_fsync_dirty = 1;
+            return;
+        }
+
         if (!sync_in_progress) {
             aof_background_fsync(server.aof_fd);
+            if (server.aof_fsync_dirty) server.aof_fsync_dirty = 0;
             server.aof_fsync_offset = server.aof_current_size;
         }
         server.aof_last_fsync = server.unixtime;
@@ -2677,6 +2685,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         if (server.aof_state != AOF_OFF) {
             /* AOF enabled. */
+            server.aof_fsync_dirty = server.aof_fsync_offset != server.aof_current_size;
             server.aof_current_size = getAppendOnlyFileSize(new_base_filename, NULL) + server.aof_last_incr_size;
             server.aof_rewrite_base_size = server.aof_current_size;
         }

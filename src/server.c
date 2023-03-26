@@ -2006,6 +2006,7 @@ void initServerConfig(void) {
     server.aof_state = AOF_OFF;
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
+    server.aof_fsync_dirty = 0;
     server.aof_flush_sleep = 0;
     server.aof_last_fsync = time(NULL);
     server.aof_cur_timestamp = 0;
