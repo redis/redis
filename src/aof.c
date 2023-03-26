@@ -2675,6 +2675,12 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         /* We can safely let `server.aof_manifest` point to 'temp_am' and free the previous one. */
         aofManifestFreeAndUpdate(temp_am);
 
+        if (server.aof_state != AOF_OFF) {
+            /* AOF enabled. */
+            server.aof_current_size = getAppendOnlyFileSize(new_base_filename, NULL) + server.aof_last_incr_size;
+            server.aof_rewrite_base_size = server.aof_current_size;
+        }
+
         /* We don't care about the return value of `aofDelHistoryFiles`, because the history
          * deletion failure will not cause any problems. */
         aofDelHistoryFiles();
