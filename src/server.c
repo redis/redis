@@ -3595,6 +3595,12 @@ void call(client *c, int flags) {
             updateCommandLatencyHistogram(&(real_cmd->latency_histogram), c->duration*1000);
     }
 
+    /* The duration needs to be reset after each call except for a blocked command,
+     * which has its duration accumulated on the client between each call. */
+    if (!(c->flags & CLIENT_BLOCKED && c->flags & CLIENT_PENDING_COMMAND)) {
+        c->duration = 0;
+    }
+
     /* Propagate the command into the AOF and replication link.
      * We never propagate EXEC explicitly, it will be implicitly
      * propagated if needed (see propagatePendingCommands).
@@ -3728,10 +3734,6 @@ void afterCommand(client *c) {
      * reply to client before invalidating cache (makes more sense) */
     postExecutionUnitOperations();
     trackingHandlePendingKeyInvalidations();
-
-    /* The duration needs to be reset after each call except for a blocked command,
-     * which has its duration accumulated on the client between each call. */ 
-    if (!(c->flags & CLIENT_BLOCKED)) c->duration = 0;
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.

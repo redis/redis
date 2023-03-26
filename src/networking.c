@@ -2040,6 +2040,9 @@ void resetClient(client *c) {
     c->bulklen = -1;
     c->slot = -1;
     c->flags &= ~CLIENT_EXECUTING_COMMAND;
+
+    /* Make sure the duration has been recorded to some command. */
+    serverAssert(c->duration == 0);
 #ifdef LOG_REQ_RES
     reqresReset(c, 1);
 #endif
