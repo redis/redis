@@ -175,7 +175,36 @@ tags {"wait aof network external:skip"} {
             $replica config set appendfsync everysec
 
             test {WAITAOF replica copy everysec} {
+                $replica config set appendfsync everysec
+                waitForBgrewriteaof $replica ;# Make sure there is no AOFRW
+
                 $master incr foo
+                assert_equal [$master waitaof 0 1 0] {1 1}
+            }
+
+            test {WAITAOF replica copy everysec with AOFRW} {
+                $replica config set appendfsync everysec
+
+                # Need an AOFRW that can be done in a second.
+                $replica bgrewriteaof
+
+                $master incr foo
+                assert_equal [$master waitaof 0 1 0] {1 1}
+            }
+
+            test {WAITAOF replica copy everysec->always with AOFRW} {
+                $replica config set appendfsync everysec
+
+                waitForBgrewriteaof $replica
+
+                # Need an AOFRW that can be done in a second.
+                $replica bgrewriteaof
+
+                $master incr foo
+
+                # Change appendfsync from everysec to always
+                $replica config set appendfsync always
+
                 assert_equal [$master waitaof 0 1 0] {1 1}
             }
 

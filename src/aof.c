@@ -1087,6 +1087,15 @@ void flushAppendOnlyFile(int force) {
             server.unixtime > server.aof_last_fsync &&
             !(sync_in_progress = aofFsyncInProgress())) {
             goto try_fsync;
+
+        /* Check if we need to do fsync even the aof buffer is empty,
+         * the reason is described in the previous AOF_FSYNC_EVERYSEC if,
+         * and AOF_FSYNC_ALWAYS is also checked here to prevent users from
+         * changing the aof_fsync from everysec to always.  */
+        } else if (server.aof_fsync == AOF_FSYNC_ALWAYS &&
+                   server.aof_fsync_offset != server.aof_current_size)
+        {
+            goto try_fsync;
         } else {
             return;
         }
@@ -2665,15 +2674,6 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         /* We can safely let `server.aof_manifest` point to 'temp_am' and free the previous one. */
         aofManifestFreeAndUpdate(temp_am);
-
-        if (server.aof_fd != -1) {
-            /* AOF enabled. */
-            server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
-            server.aof_current_size = getAppendOnlyFileSize(new_base_filename, NULL) + server.aof_last_incr_size;
-            server.aof_rewrite_base_size = server.aof_current_size;
-            server.aof_fsync_offset = server.aof_current_size;
-            server.aof_last_fsync = server.unixtime;
-        }
 
         /* We don't care about the return value of `aofDelHistoryFiles`, because the history
          * deletion failure will not cause any problems. */
