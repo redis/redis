@@ -3257,18 +3257,20 @@ void cliLoadPreferences(void) {
 /* Some commands can include sensitive information and shouldn't be put in the
  * history file. Currently these commands are include:
  * - AUTH
- * - ACL SETUSER
+ * - ACL SETUSER, ACL GETUSER, ACL DRYRUN
  * - CONFIG SET masterauth/masteruser/requirepass
  * - HELLO with [AUTH username password]
  * - MIGRATE with [AUTH password] or [AUTH2 username password] 
- * - SENTINEL CONFIG SET sentinel-pass
- * - SENTINEL SET <mastername> auth-pass */
+ * - SENTINEL CONFIG SET sentinel-pass password, SENTINEL CONFIG SET sentinel-user username 
+ * - SENTINEL SET <mastername> auth-pass password, SENTINEL SET <mastername> auth-user username */
 static int isSensitiveCommand(int argc, char **argv) {
     if (!strcasecmp(argv[0],"auth")) {
         return 1;
     } else if (argc > 1 &&
-        !strcasecmp(argv[0],"acl") &&
-        !strcasecmp(argv[1],"setuser"))
+        !strcasecmp(argv[0],"acl") && (
+            !strcasecmp(argv[1],"setuser") ||
+            !strcasecmp(argv[1],"getuser") ||
+            !strcasecmp(argv[1],"dryrun")))
     {
         return 1;
     } else if (argc > 2 &&
@@ -3308,13 +3310,19 @@ static int isSensitiveCommand(int argc, char **argv) {
             }
         }
     } else if (argc > 4 && !strcasecmp(argv[0], "sentinel")) {
-        /* SENTINEL CONFIG SET sentinel-pass */
-        if (!strcasecmp(argv[1], "config") && !strcasecmp(argv[2], "set") && !strcasecmp(argv[3], "sentinel-pass")) {
+        /* SENTINEL CONFIG SET sentinel-pass password
+         * SENTINEL CONFIG SET sentinel-user username */
+        if (!strcasecmp(argv[1], "config") && 
+            !strcasecmp(argv[2], "set") && (
+                !strcasecmp(argv[3], "sentinel-pass") ||
+                !strcasecmp(argv[3], "sentinel-user"))) {
             return 1;
-        }
-        /* SENTINEL SET <mastername> auth-pass */
-        else if (!strcasecmp(argv[1], "set") && !strcasecmp(argv[3], "auth-pass")) {
-            return 1;
+        /* SENTINEL SET <mastername> auth-pass password 
+         * SENTINEL SET <mastername> auth-user username */
+	} else if (!strcasecmp(argv[1], "set") && ( 
+                     !strcasecmp(argv[3], "auth-pass") || 
+                     !strcasecmp(argv[3], "auth-user"))) {
+                   return 1;
         } else {
             return 0;
         }
