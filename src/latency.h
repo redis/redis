@@ -34,8 +34,6 @@
 #ifndef __LATENCY_H
 #define __LATENCY_H
 
-#include "monotonic.h"
-
 #define LATENCY_TS_LEN 160 /* History length for every monitored event. */
 
 /* Representation of a latency sample: the sampling time and the latency
