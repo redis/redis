@@ -1090,9 +1090,9 @@ void flushAppendOnlyFile(int force) {
             goto try_fsync;
 
         /* Check if we need to do fsync even the aof buffer is empty,
-         * the reason is described in the previous AOF_FSYNC_EVERYSEC if,
-         * and AOF_FSYNC_ALWAYS is also checked here to prevent users from
-         * changing the aof_fsync from everysec to always.  */
+         * the reason is described in the previous AOF_FSYNC_EVERYSEC block,
+         * and AOF_FSYNC_ALWAYS is also checked here to handle a case where
+         * aof_fsync is changed from everysec to always. */
         } else if (server.aof_fsync == AOF_FSYNC_ALWAYS &&
                    (server.aof_fsync_dirty ||
                    (!server.aof_fsync_dirty && server.aof_fsync_offset != server.aof_current_size)))
@@ -1264,7 +1264,7 @@ try_fsync:
         }
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
-        if (server.aof_fsync_dirty) server.aof_fsync_dirty = 0;
+        server.aof_fsync_dirty = 0;
         server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
         atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
@@ -1276,7 +1276,7 @@ try_fsync:
 
         if (!sync_in_progress) {
             aof_background_fsync(server.aof_fd);
-            if (server.aof_fsync_dirty) server.aof_fsync_dirty = 0;
+            server.aof_fsync_dirty = 0;
             server.aof_fsync_offset = server.aof_current_size;
         }
         server.aof_last_fsync = server.unixtime;
