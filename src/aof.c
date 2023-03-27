@@ -1083,8 +1083,7 @@ void flushAppendOnlyFile(int force) {
          * stop write commands before fsync called in one second,
          * the data in page cache cannot be flushed in time. */
         if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
-            (server.aof_fsync_dirty ||
-            (!server.aof_fsync_dirty && server.aof_fsync_offset != server.aof_current_size)) &&
+            (server.aof_fsync_dirty || (server.aof_fsync_offset != server.aof_current_size)) &&
             server.unixtime > server.aof_last_fsync &&
             !(sync_in_progress = aofFsyncInProgress())) {
             goto try_fsync;
@@ -1094,8 +1093,7 @@ void flushAppendOnlyFile(int force) {
          * and AOF_FSYNC_ALWAYS is also checked here to handle a case where
          * aof_fsync is changed from everysec to always. */
         } else if (server.aof_fsync == AOF_FSYNC_ALWAYS &&
-                   (server.aof_fsync_dirty ||
-                   (!server.aof_fsync_dirty && server.aof_fsync_offset != server.aof_current_size)))
+                   (server.aof_fsync_dirty || (server.aof_fsync_offset != server.aof_current_size)))
         {
             goto try_fsync;
         } else {
