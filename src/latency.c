@@ -73,7 +73,7 @@ int THPGetAnonHugePagesSize(void) {
  * having a fixed list to maintain. */
 void latencyMonitorInit(void) {
     server.latency_events = dictCreate(&latencyTimeSeriesDictType);
-    server.duration_stats = dictCreate(&latencyTimeSeriesDictType);
+    memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
     server.el_start = 0;
 }
 
@@ -727,18 +727,14 @@ nodataerr:
         "No samples available for event '%s'", (char*) c->argv[2]->ptr);
 }
 
-void durationAddSample(const char *event, ustime_t duration, int add_to_latency) {
-    struct durationStats *ds = dictFetchValue(server.duration_stats, event);
-    if (ds == NULL) {
-        ds = zcalloc(sizeof(*ds));
-        dictAdd(server.duration_stats, zstrdup(event), ds);
+void durationAddSample(int type, ustime_t duration) {
+    if (type >= EL_DURATION_TYPE_NUM) {
+        return;
     }
+    durationStats* ds = server.duration_stats + type;
     ds->cnt++;
     ds->sum += duration;
     if (duration > ds->max) {
         ds->max = duration;
-    }
-    if (add_to_latency) {
-        latencyAddSampleIfNeeded(event, duration);
     }
 }

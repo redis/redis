@@ -1747,7 +1747,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Record eventloop latency. */
     long long el_duration = server.el_start == 0 ? 0 : ustime() - server.el_start;
-    if (el_duration) durationAddSample("eventloop", el_duration, 0);
+    if (el_duration) durationAddSample(EL_DURATION_TYPE_EL, el_duration);
 
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
@@ -2519,15 +2519,7 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
-    if (server.duration_stats) {
-        dictIterator *di = dictGetIterator(server.duration_stats);
-        dictEntry *de = NULL;
-        while ((de = dictNext(di)) != NULL) {
-            struct durationStats *stat = (struct durationStats *)dictGetVal(de);
-            memset(stat, 0, sizeof(*stat));
-        }
-        dictReleaseIterator(di);
-    }
+    memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
     lazyfreeResetStats();
 }
 
@@ -3546,7 +3538,8 @@ void call(client *c, int flags) {
         char *latency_event = (real_cmd->flags & CMD_FAST) ?
                                "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
-        durationAddSample("command", duration, 0);
+        if (!(c->flags & CLIENT_MULTI))
+            durationAddSample(EL_DURATION_TYPE_CMD, duration);
     }
 
     /* Log the command into the Slow log if needed.
@@ -5848,18 +5841,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
-        struct durationStats *el_duration_el = durationGetStat("eventloop");
-        long long el_duration_el_cnt = el_duration_el ? el_duration_el->cnt : 0;
-        long long el_duration_el_sum = el_duration_el ? el_duration_el->sum : 0;
-        long long el_duration_el_max = el_duration_el ? el_duration_el->max : 0;
-        struct durationStats *el_duration_cmd = durationGetStat("command");
-        long long el_duration_cmd_sum = el_duration_cmd ? el_duration_cmd->sum : 0;
-        struct durationStats *el_duration_ioread = durationGetStat("io-read");
-        long long el_duration_ioread_sum = el_duration_ioread ? el_duration_ioread->sum : 0;
-        struct durationStats *el_duration_iowrite = durationGetStat("io-write");
-        long long el_duration_iowrite_sum = el_duration_iowrite ? el_duration_iowrite->sum : 0;
-        struct durationStats *el_duration_aof = durationGetStat("aof");
-        long long el_duration_aof_sum = el_duration_aof ? el_duration_aof->sum : 0;
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
@@ -5971,13 +5952,13 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_io_writes_processed,
             server.stat_reply_buffer_shrinks,
             server.stat_reply_buffer_expands,
-            el_duration_el_cnt,
-            el_duration_el_sum,
-            el_duration_el_max,
-            el_duration_cmd_sum,
-            el_duration_ioread_sum,
-            el_duration_iowrite_sum,
-            el_duration_aof_sum);
+            server.duration_stats[EL_DURATION_TYPE_EL].cnt,
+            server.duration_stats[EL_DURATION_TYPE_EL].sum,
+            server.duration_stats[EL_DURATION_TYPE_EL].max,
+            server.duration_stats[EL_DURATION_TYPE_CMD].sum,
+            server.duration_stats[EL_DURATION_TYPE_IO_READ].sum,
+            server.duration_stats[EL_DURATION_TYPE_IO_WRITE].sum,
+            server.duration_stats[EL_DURATION_TYPE_AOF].sum);
         info = genRedisInfoStringACLStats(info);
     }
 

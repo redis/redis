@@ -1140,7 +1140,7 @@ void flushAppendOnlyFile(int force) {
     durationStartMonitor(latency);
     nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
     durationEndMonitor(latency);
-    durationAddSample("aof", latency, 0);
+    durationAddSample(EL_DURATION_TYPE_AOF, latency);
     /* We want to capture different events for delayed writes:
      * when the delay happens with a pending fsync, or with a saving child
      * active, and when the above two conditions are missing.
@@ -1265,7 +1265,7 @@ try_fsync:
             exit(1);
         }
         durationEndMonitor(latency);
-        durationAddSample("aof", latency, 0);
+        durationAddSample(EL_DURATION_TYPE_AOF, latency);
         latencyAddSampleIfNeeded("aof-fsync-always", latency / 1000);
         server.aof_last_incr_fsync_offset = server.aof_last_incr_size;
         server.aof_last_fsync = server.unixtime;

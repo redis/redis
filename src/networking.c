@@ -2001,7 +2001,7 @@ void sendReplyToClient(connection *conn) {
     writeToClient(c,1);
 
     durationEndMonitor(duration);
-    durationAddSample("io-write", duration, 1);
+    durationAddSample(EL_DURATION_TYPE_IO_WRITE, duration);
 }
 
 /* This function is called just before entering the event loop, in the hope
@@ -2658,7 +2658,7 @@ void readQueryFromClient(connection *conn) {
 
     if (io_threads_op == IO_THREADS_OP_IDLE) {
         durationEndMonitor(duration);
-        durationAddSample("io-read", duration, 1);
+        durationAddSample(EL_DURATION_TYPE_IO_READ, duration);
     }
 
     if (nread == -1) {
@@ -4313,7 +4313,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         durationStartMonitor(duration);
         int ret = handleClientsWithPendingWrites();
         durationEndMonitor(duration);
-        durationAddSample("io-write", duration, 1);
+        durationAddSample(EL_DURATION_TYPE_IO_WRITE, duration);
         return ret;
     }
 
@@ -4380,7 +4380,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     io_threads_op = IO_THREADS_OP_IDLE;
 
     durationEndMonitor(duration);
-    durationAddSample("io-write", duration, 1);
+    durationAddSample(EL_DURATION_TYPE_IO_WRITE, duration);
 
     /* Run the list of clients again to install the write handler where
      * needed. */
@@ -4485,7 +4485,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     io_threads_op = IO_THREADS_OP_IDLE;
 
     durationEndMonitor(duration);
-    durationAddSample("io-read", duration, 1);
+    durationAddSample(EL_DURATION_TYPE_IO_READ, duration);
 
     /* Run the list of clients again to process the new buffers. */
     while(listLength(server.clients_pending_read)) {
