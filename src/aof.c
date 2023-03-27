@@ -1137,9 +1137,9 @@ void flushAppendOnlyFile(int force) {
         usleep(server.aof_flush_sleep);
     }
 
-    durationStartMonitor(latency);
+    latency = getMonotonicUs();
     nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
-    durationEndMonitor(latency);
+    latency = getMonotonicUs() - latency;
     durationAddSample(EL_DURATION_TYPE_AOF, latency);
     /* We want to capture different events for delayed writes:
      * when the delay happens with a pending fsync, or with a saving child
@@ -1255,7 +1255,7 @@ try_fsync:
     if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
         /* redis_fsync is defined as fdatasync() for Linux in order to avoid
          * flushing metadata. */
-        durationStartMonitor(latency);
+        latency = getMonotonicUs();
         /* Let's try to get this data on the disk. To guarantee data safe when
          * the AOF fsync policy is 'always', we should exit if failed to fsync
          * AOF (see comment next to the exit(1) after write error above). */
@@ -1264,7 +1264,7 @@ try_fsync:
               "AOF fsync policy is 'always': %s. Exiting...", strerror(errno));
             exit(1);
         }
-        durationEndMonitor(latency);
+        latency = getMonotonicUs() - latency;
         durationAddSample(EL_DURATION_TYPE_AOF, latency);
         latencyAddSampleIfNeeded("aof-fsync-always", latency / 1000);
         server.aof_last_incr_fsync_offset = server.aof_last_incr_size;

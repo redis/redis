@@ -97,33 +97,16 @@ typedef struct durationStats {
     long long max;
 } durationStats;
 
-#define EL_DURATION_TYPE_NUM 6
-
 typedef enum {
     EL_DURATION_TYPE_EL = 0,
     EL_DURATION_TYPE_CMD,
     EL_DURATION_TYPE_IO_READ,
     EL_DURATION_TYPE_IO_WRITE,
     EL_DURATION_TYPE_AOF,
-    EL_DURATION_TYPE_CRON
+    EL_DURATION_TYPE_CRON,
+    EL_DURATION_TYPE_NUM
 } DurationType;
 
 void durationAddSample(int type, ustime_t duration);
-
-/* Record the start time of an event. In order to avoid performance implication due to 
- * querying the clock using a system call every time we measure a duration, we use a 
- * monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic 
- * call otherwise. */
-#define durationStartMonitor(var) \
-    do {                          \
-        var = getMonotonicUs();   \
-    } while (0)
-
-/* End monitoring an event, compute the difference with the current time to check the
- * amount of time elapsed. */
-#define durationEndMonitor(var)       \
-    do {                              \
-        var = getMonotonicUs() - var; \
-    } while (0)
 
 #endif /* __LATENCY_H */
