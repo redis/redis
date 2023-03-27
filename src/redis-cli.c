@@ -772,11 +772,10 @@ static void removeUnsupportedArgs(struct cliCommandArg *args, int *numargs, sds 
     int i = 0, j;
     while (i != *numargs) {
         if (versionIsSupported(version, args[i].since)) {
-            i++;
-
             if (args[i].subargs) {
                 removeUnsupportedArgs(args[i].subargs, &args[i].numsubargs, version);
             }
+            i++;
             continue;
         }
         for (j = i; j != *numargs; j++) {
