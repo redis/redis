@@ -428,32 +428,21 @@ start_server {
         $rd close
     }
 
-    test {XREAD with same stream name multiple times should work} {
-        r XADD s2 * old abcd1234
-        set rd [redis_deferring_client]
-        $rd XREAD BLOCK 20000 STREAMS s2 s2 s2 $ $ $
-        wait_for_blocked_clients_count 1
-        r XADD s2 * new abcd1234
-        set res [$rd read]
-        assert {[lindex $res 0 0] eq {s2}}
-        assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
-        $rd close
-    }
-
     test {XREAD + multiple XADD inside transaction} {
         r XADD s2 * old abcd1234
         set rd [redis_deferring_client]
-        $rd XREAD BLOCK 20000 STREAMS s2 s2 s2 $ $ $
+        $rd XREAD BLOCK 20000 STREAMS s1{t} s2{t} s3{t} $ $ $
         wait_for_blocked_clients_count 1
         r MULTI
-        r XADD s2 * field one
-        r XADD s2 * field two
-        r XADD s2 * field three
+        r XADD s1{t} * field one
+        r XADD s2{t} * field two
+        r XADD s3{t} * field three
         r EXEC
         set res [$rd read]
-        assert {[lindex $res 0 0] eq {s2}}
-        assert {[lindex $res 0 1 0 1] eq {field one}}
-        assert {[lindex $res 0 1 1 1] eq {field two}}
+        assert_equal [llength $res] 3
+        assert_equal [lindex $res 0 0] {s1{t}}
+        assert_equal [lindex $res 1 0] {s2{t}}
+        assert_equal [lindex $res 2 0] {s3{t}}
         $rd close
     }
 
@@ -900,6 +889,12 @@ start_server {tags {"stream"}} {
         r DEL x
         r XADD x 1-18446744073709551615 f1 v1
         assert_error {*The ID specified in XADD is equal or smaller*} {r XADD x 1-* f2 v2}
+    }
+
+    test {XREAD dup keys} {
+        r XADD s 1-0 f v
+        catch {r XREAD STREAMS x x 0 0} e
+        assert_match "*Duplicate keys are not supported*" $e
     }
 }
 

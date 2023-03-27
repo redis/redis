@@ -2250,6 +2250,17 @@ void xreadCommand(client *c) {
         return;
     }
 
+    for (int i = streams_arg + streams_count; i < c->argc; i++) {
+        for (int j = i + 1; j < c->argc; j++) {
+            robj *curr = c->argv[i-streams_count];
+            robj *other = c->argv[j-streams_count];
+            if (!sdscmp(curr->ptr, other->ptr)) {
+                addReplyError(c,"Duplicate keys are not supported");
+                return;
+            }
+        }
+    }
+
     /* Parse the IDs and resolve the group name. */
     if (streams_count > STREAMID_STATIC_VECTOR_LEN)
         ids = zmalloc(sizeof(streamID)*streams_count);
