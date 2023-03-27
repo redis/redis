@@ -1,0 +1,51 @@
+{
+    "LREMAT": {
+        "summary": "Remove elements from a list starting at specified index",
+        "complexity": "O(N+M) where N is the length of the list and M is the number of elements removed.",
+        "group": "list",
+        "since": "6.2.6",
+        "arity": 4,
+        "function": "lrematCommand",
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "LIST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "count",
+                "type": "integer"
+            },
+            {
+                "name": "index",
+                "type": "integer"
+            }
+        ]
+    }
+}

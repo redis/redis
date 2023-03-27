@@ -583,6 +583,56 @@ void linsertCommand(client *c) {
     addReplyLongLong(c,listTypeLength(subject));
 }
 
+/* LINSERTAT <key> (BEFORE|AFTER) <index> <pivot> */
+void linsertatCommand(client *c) {
+    int where;
+    robj *subject;
+    listTypeIterator *iter;
+    listTypeEntry entry;
+    int inserted = 0;
+    long index = 0;
+    long count = 0;
+
+    if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
+        where = LIST_TAIL;
+    } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
+        where = LIST_HEAD;
+    } else {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+    
+    if ((getLongFromObjectOrReply(c, c->argv[3], &index, NULL) != C_OK)) return;
+
+    if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,subject,OBJ_LIST)) return;
+
+    /* Seek pivot from head to tail */
+    iter = listTypeInitIterator(subject,0,LIST_TAIL);
+    while (listTypeNext(iter,&entry)) {
+        if (count == index) {
+            listTypeInsert(&entry,c->argv[4],where);
+            inserted = 1;
+            break;
+        }        
+        count++;
+    }
+    listTypeReleaseIterator(iter);
+
+    if (inserted) {
+        signalModifiedKey(c,c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_LIST,"linsertat",
+                            c->argv[1],c->db->id);
+        server.dirty++;
+    } else {
+        /* Notify client of a failed insert */
+        addReplyLongLong(c,-1);
+        return;
+    }
+
+    addReplyLongLong(c,listTypeLength(subject));
+}
+
 /* LLEN <key> */
 void llenCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
@@ -1095,6 +1145,56 @@ void lremCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     } else if (removed) {
         listTypeTryConversion(subject,LIST_CONV_SHRINKING,NULL,NULL);
+    }
+
+    addReplyLongLong(c,removed);
+}
+
+/* LREM <key> <count> <index> */
+void lrematCommand(client *c) {
+    robj *subject;
+    long toremove;
+    long removed = 0;
+    long index = 0;
+    long count = 0;
+
+    if ((getLongFromObjectOrReply(c, c->argv[3], &index, NULL) != C_OK))
+        return;
+
+    if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != C_OK))
+        return;
+
+    subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);
+    if (subject == NULL || checkType(c,subject,OBJ_LIST)) return;
+
+    listTypeIterator *li;
+    if (toremove < 0) {
+        toremove = -toremove;
+        li = listTypeInitIterator(subject,-1,LIST_HEAD);
+    } else {
+        li = listTypeInitIterator(subject,0,LIST_TAIL);
+    }
+
+    listTypeEntry entry;
+    while (listTypeNext(li,&entry)) {
+        if (count >= index) {
+            listTypeDelete(li, &entry);
+            server.dirty++;
+            removed++;
+            if (toremove && removed == toremove) break;
+        }
+        count++;
+    }
+    listTypeReleaseIterator(li);
+
+    if (removed) {
+        signalModifiedKey(c,c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_LIST,"lremat",c->argv[1],c->db->id);
+    }
+
+    if (listTypeLength(subject) == 0) {
+        dbDelete(c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
     addReplyLongLong(c,removed);
