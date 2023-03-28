@@ -1,6 +1,6 @@
 {
     "HSET": {
-        "summary": "Sets the value of a field.",
+        "summary": "Creates or modifies the value of a field in a hash.",
         "complexity": "O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.",
         "group": "hash",
         "since": "2.0.0",

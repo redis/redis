@@ -1,6 +1,6 @@
 {
     "PFMERGE": {
-        "summary": "Merges multiple HyperLogLog values into a single key.",
+        "summary": "Merges one or more HyperLogLog values into a single key.",
         "complexity": "O(N) to merge N HyperLogLogs, but with high constant times.",
         "group": "hyperloglog",
         "since": "2.8.9",

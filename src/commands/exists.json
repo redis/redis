@@ -1,6 +1,6 @@
 {
     "EXISTS": {
-        "summary": "Determines whether one key or more exist.",
+        "summary": "Determines whether one or more keys exist.",
         "complexity": "O(N) where N is the number of keys to check.",
         "group": "generic",
         "since": "1.0.0",
