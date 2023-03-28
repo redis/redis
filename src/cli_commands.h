@@ -1,3 +1,7 @@
+/* This file is used by redis-cli in place of server.h when including commands.c
+ * It contains alternative structs which omit the parts of the commands table
+ * that are not suitable for redis-cli, e.g. the command proc. */
+
 #ifndef __REDIS_CLI_COMMANDS_H
 #define __REDIS_CLI_COMMANDS_H
 
