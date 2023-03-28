@@ -60,7 +60,7 @@ start_server {tags {"cli"}} {
     # Helpers to run tests in interactive mode
 
     proc format_output {output} {
-        set _ [string trimright [regsub -all "\r" $output ""] "\n"]
+        set _ [string trimright $output "\n"]
     }
 
     proc run_command {fd cmd} {
@@ -74,6 +74,12 @@ start_server {tags {"cli"}} {
         test "Interactive CLI: $name" $code
         close_cli $fd
         unset ::env(FAKETTY)
+    }
+
+    proc test_interactive_nontty_cli {name code} {
+        set fd [open_cli]
+        test "Interactive non-TTY CLI: $name" $code
+        close_cli $fd
     }
 
     # Helpers to run tests where stdout is not a tty
@@ -142,7 +148,8 @@ start_server {tags {"cli"}} {
     test_interactive_cli "INFO response should be printed raw" {
         set lines [split [run_command $fd info] "\n"]
         foreach line $lines {
-            if {![regexp {^$|^#|^[^#:]+:} $line]} {
+            # Info lines end in \r\n, so they now end in \r.
+            if {![regexp {^\r$|^#|^[^#:]+:} $line]} {
                 fail "Malformed info line: $line"
             }
         }
@@ -184,6 +191,83 @@ start_server {tags {"cli"}} {
         # quotes after the argument are weird, but should be allowed
         assert_equal "OK" [run_command $fd "set key\"\" bar"]
         assert_equal "bar" [r get key]
+    }
+
+    test_interactive_cli "Subscribed mode" {
+        if {$::force_resp3} {
+            run_command $fd "hello 3"
+        }
+
+        set reading "Reading messages... (press Ctrl-C to quit or any key to type command)\r"
+        set erase "\033\[K"; # Erases the "Reading messages..." line.
+
+        # Subscribe to some channels.
+        set sub1 "1) \"subscribe\"\n2) \"ch1\"\n3) (integer) 1\n"
+        set sub2 "1) \"subscribe\"\n2) \"ch2\"\n3) (integer) 2\n"
+        set sub3 "1) \"subscribe\"\n2) \"ch3\"\n3) (integer) 3\n"
+        assert_equal $sub1$sub2$sub3$reading \
+            [run_command $fd "subscribe ch1 ch2 ch3"]
+
+        # Receive pubsub message.
+        r publish ch2 hello
+        set message "1) \"message\"\n2) \"ch2\"\n3) \"hello\"\n"
+        assert_equal $erase$message$reading [read_cli $fd]
+
+        # Unsubscribe some.
+        set unsub1 "1) \"unsubscribe\"\n2) \"ch1\"\n3) (integer) 2\n"
+        set unsub2 "1) \"unsubscribe\"\n2) \"ch2\"\n3) (integer) 1\n"
+        assert_equal $erase$unsub1$unsub2$reading \
+            [run_command $fd "unsubscribe ch1 ch2"]
+
+        run_command $fd "hello 2"
+
+        # Command forbidden in subscribed mode (RESP2).
+        set err "(error) ERR Can't execute 'get': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context\n"
+        assert_equal $erase$err$reading [run_command $fd "get k"]
+
+        # Command allowed in subscribed mode.
+        set pong "1) \"pong\"\n2) \"\"\n"
+        assert_equal $erase$pong$reading [run_command $fd "ping"]
+
+        # Reset exits subscribed mode.
+        assert_equal ${erase}RESET [run_command $fd "reset"]
+        assert_equal PONG [run_command $fd "ping"]
+
+        # Check TTY output of push messages in RESP3 has ")" prefix (to be changed to ">" in the future).
+        assert_match "1#*" [run_command $fd "hello 3"]
+        set sub1 "1) \"subscribe\"\n2) \"ch1\"\n3) (integer) 1\n"
+        assert_equal $sub1$reading \
+            [run_command $fd "subscribe ch1"]
+    }
+
+    test_interactive_nontty_cli "Subscribed mode" {
+        # Raw output and no "Reading messages..." info message.
+        # Use RESP3 in this test case.
+        assert_match {*proto 3*} [run_command $fd "hello 3"]
+
+        # Subscribe to some channels.
+        set sub1 "subscribe\nch1\n1"
+        set sub2 "subscribe\nch2\n2"
+        assert_equal $sub1\n$sub2 \
+            [run_command $fd "subscribe ch1 ch2"]
+
+        assert_equal OK [run_command $fd "client tracking on"]
+        assert_equal OK [run_command $fd "set k 42"]
+        assert_equal 42 [run_command $fd "get k"]
+
+        # Interleaving invalidate and pubsub messages.
+        r publish ch1 hello
+        r del k
+        r publish ch2 world
+        set message1 "message\nch1\nhello"
+        set invalidate "invalidate\nk"
+        set message2 "message\nch2\nworld"
+        assert_equal $message1\n$invalidate\n$message2\n [read_cli $fd]
+
+        # Unsubscribe all.
+        set unsub1 "unsubscribe\nch1\n1"
+        set unsub2 "unsubscribe\nch2\n0"
+        assert_equal $unsub1\n$unsub2 [run_command $fd "unsubscribe ch1 ch2"]
     }
 
     test_tty_cli "Status reply" {

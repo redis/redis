@@ -15,9 +15,14 @@
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
+CLANG := $(findstring clang,$(shell sh -c '$(CC) --version | head -1'))
 OPTIMIZATION?=-O3
 ifeq ($(OPTIMIZATION),-O3)
-	REDIS_CFLAGS+=-flto=auto
+	ifeq (clang,$(CLANG))
+		REDIS_CFLAGS+=-flto
+	else
+		REDIS_CFLAGS+=-flto=auto
+	endif
 	REDIS_LDFLAGS+=-flto
 endif
 DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram fpconv
@@ -28,7 +33,7 @@ STD=-pedantic -DREDIS_STATIC=''
 
 # Use -Wno-c11-extensions on clang, either where explicitly used or on
 # platforms we can assume it's being used.
-ifneq (,$(findstring clang,$(CC)))
+ifeq (clang,$(CLANG))
   STD+=-Wno-c11-extensions
 else
 ifneq (,$(findstring FreeBSD,$(uname_S)))

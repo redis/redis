@@ -1859,11 +1859,17 @@ void logCurrentClient(client *cc, const char *title) {
     client = catClientInfoString(sdsempty(),cc);
     serverLog(LL_WARNING|LL_RAW,"%s\n", client);
     sdsfree(client);
+    serverLog(LL_WARNING|LL_RAW,"argc: '%d'\n", cc->argc);
     for (j = 0; j < cc->argc; j++) {
         robj *decoded;
         decoded = getDecodedObject(cc->argv[j]);
         sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
         serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
+        if (!strcasecmp(decoded->ptr, "auth") || !strcasecmp(decoded->ptr, "auth2")) {
+            sdsfree(repr);
+            decrRefCount(decoded);
+            break;
+        }
         sdsfree(repr);
         decrRefCount(decoded);
     }

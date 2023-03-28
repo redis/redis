@@ -7,6 +7,12 @@
         "arity": 4,
         "container": "XINFO",
         "function": "xinfoCommand",
+        "history": [
+            [
+                "7.2.0",
+                "Added the `inactive` field."
+            ]
+        ],
         "command_flags": [
             "READONLY"
         ],

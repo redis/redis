@@ -325,6 +325,31 @@ start_server {tags {"introspection"}} {
         }
     }
 
+    test {CLIENT SETINFO can set a library name to this connection} {
+        r CLIENT SETINFO lib-name redis.py
+        r CLIENT SETINFO lib-ver 1.2.3
+        r client info
+    } {*lib-name=redis.py lib-ver=1.2.3*}
+
+    test {CLIENT SETINFO invalid args} {
+        assert_error {*wrong number of arguments*} {r CLIENT SETINFO lib-name}
+        assert_error {*cannot contain spaces*} {r CLIENT SETINFO lib-name "redis py"}
+        assert_error {*newlines*} {r CLIENT SETINFO lib-name "redis.py\n"}
+        assert_error {*Unrecognized*} {r CLIENT SETINFO badger hamster}
+        # test that all of these didn't affect the previously set values
+        r client info
+    } {*lib-name=redis.py lib-ver=1.2.3*}
+
+    test {RESET does NOT clean library name} {
+        r reset
+        r client info
+    } {*lib-name=redis.py*} {needs:reset}
+
+    test {CLIENT SETINFO can clear library name} {
+        r CLIENT SETINFO lib-name ""
+        r client info
+    } {*lib-name= *}
+
     test {CONFIG save params special case handled properly} {
         # No "save" keyword - defaults should apply
         start_server {config "minimal.conf"} {

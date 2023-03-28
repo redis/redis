@@ -813,6 +813,8 @@ struct RedisModule {
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
     RedisModuleDefragFunc defrag_cb;    /* Callback for global data defrag. */
     struct moduleLoadQueueEntry *loadmod; /* Module load arguments for config rewrite. */
+    int num_commands_with_acl_categories; /* Number of commands in this module included in acl categories */
+    int onload;     /* Flag to identify if the call is being made from Onload (0 or 1) */
 };
 typedef struct RedisModule RedisModule;
 
@@ -1149,6 +1151,8 @@ typedef struct client {
     int resp;               /* RESP protocol version. Can be 2 or 3. */
     redisDb *db;            /* Pointer to currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
+    robj *lib_name;         /* The client library name as set by CLIENT SETINFO. */
+    robj *lib_ver;          /* The client library version as set by CLIENT SETINFO. */
     sds querybuf;           /* Buffer we use to accumulate client queries. */
     size_t qb_pos;          /* The position we have read in querybuf. */
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
@@ -2950,6 +2954,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
 sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val, int verbose);
 void ACLUpdateDefaultUserPassword(sds password);
 sds genRedisInfoStringACLStats(sds info);
+void ACLRecomputeCommandBitsFromCommandRulesAllUsers();
 
 /* Sorted sets data type */
 
@@ -3636,6 +3641,7 @@ void objectCommand(client *c);
 void memoryCommand(client *c);
 void clientCommand(client *c);
 void helloCommand(client *c);
+void clientSetinfoCommand(client *c);
 void evalCommand(client *c);
 void evalRoCommand(client *c);
 void evalShaCommand(client *c);

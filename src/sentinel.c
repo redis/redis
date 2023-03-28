@@ -77,6 +77,7 @@ typedef struct sentinelAddr {
 #define SRI_FORCE_FAILOVER (1<<11)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
 #define SRI_MASTER_REBOOT  (1<<13)   /* Master was detected as rebooting */
+/* Note: when adding new flags, please check the flags section in addReplySentinelRedisInstance. */
 
 /* Note: times are in milliseconds. */
 #define SENTINEL_PING_PERIOD 1000
@@ -2272,12 +2273,8 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
 /* This function uses the config rewriting Redis engine in order to persist
  * the state of the Sentinel in the current configuration file.
  *
- * Before returning the function calls fsync() against the generated
- * configuration file to make sure changes are committed to disk.
- *
  * On failure the function logs a warning on the Redis log. */
 int sentinelFlushConfig(void) {
-    int fd = -1;
     int saved_hz = server.hz;
     int rewrite_status;
 
@@ -2285,17 +2282,13 @@ int sentinelFlushConfig(void) {
     rewrite_status = rewriteConfig(server.configfile, 0);
     server.hz = saved_hz;
 
-    if (rewrite_status == -1) goto werr;
-    if ((fd = open(server.configfile,O_RDONLY)) == -1) goto werr;
-    if (fsync(fd) == -1) goto werr;
-    if (close(fd) == EOF) goto werr;
-    serverLog(LL_NOTICE,"Sentinel new configuration saved on disk");
-    return C_OK;
-
-werr:
-    serverLog(LL_WARNING,"WARNING: Sentinel was not able to save the new configuration on disk!!!: %s", strerror(errno));
-    if (fd != -1) close(fd);
-    return C_ERR;
+    if (rewrite_status == -1) {
+        serverLog(LL_WARNING,"WARNING: Sentinel was not able to save the new configuration on disk!!!: %s", strerror(errno));
+        return C_ERR;
+    } else {
+        serverLog(LL_NOTICE,"Sentinel new configuration saved on disk");
+        return C_OK;
+    }
 }
 
 /* Call sentinelFlushConfig() produce a success/error reply to the
@@ -3356,6 +3349,7 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     if (ri->flags & SRI_RECONF_DONE) flags = sdscat(flags,"reconf_done,");
     if (ri->flags & SRI_FORCE_FAILOVER) flags = sdscat(flags,"force_failover,");
     if (ri->flags & SRI_SCRIPT_KILL_SENT) flags = sdscat(flags,"script_kill_sent,");
+    if (ri->flags & SRI_MASTER_REBOOT) flags = sdscat(flags,"master_reboot,");
 
     if (sdslen(flags) != 0) sdsrange(flags,0,-2); /* remove last "," */
     addReplyBulkCString(c,flags);
