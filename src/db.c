@@ -960,10 +960,10 @@ void scanCallback(void *privdata, const dictEntry *de) {
 int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor) {
     char *eptr;
 
-    /* Use strtoul() because we need an *unsigned* long, so
+    /* Use strtouq() because we need an *unsigned* long long, so
      * getLongLongFromObject() does not cover the whole cursor space. */
     errno = 0;
-    *cursor = strtoul(o->ptr, &eptr, 10);
+    *cursor = strtouq(o->ptr, &eptr, 10);
     if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' || errno == ERANGE)
     {
         addReplyError(c, "invalid cursor");
