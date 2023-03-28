@@ -179,7 +179,7 @@ tags {"wait aof network external:skip"} {
                 waitForBgrewriteaof $replica ;# Make sure there is no AOFRW
 
                 $master incr foo
-                assert_equal [$master waitaof 0 1 5000] {1 1}
+                assert_equal [$master waitaof 0 1 0] {1 1}
             }
 
             test {WAITAOF replica copy everysec with AOFRW} {
@@ -191,24 +191,19 @@ tags {"wait aof network external:skip"} {
                 $replica bgrewriteaof
 
                 $master incr foo
-                assert_equal [$master waitaof 0 1 10000] {1 1}
+                assert_equal [$master waitaof 0 1 0] {1 1}
 
                 waitForBgrewriteaof $replica
             }
 
             test {WAITAOF replica copy everysec with slow AOFRW} {
-                $master set foo2 bar
-                $master set foo3 bar
-                wait_for_ofs_sync $master $replica
-
                 $replica config set appendfsync everysec
                 $replica config set rdb-key-save-delay 1000000 ;# 1 sec
 
-                # There are three keys in total, so AOFRW takes three seconds to complete.
                 $replica bgrewriteaof
 
                 $master incr foo
-                assert_equal [$master waitaof 0 1 10000] {1 1}
+                assert_equal [$master waitaof 0 1 0] {1 1}
 
                 $replica config set rdb-key-save-delay 0
                 waitForBgrewriteaof $replica
@@ -219,7 +214,7 @@ tags {"wait aof network external:skip"} {
                 $replica bgrewriteaof
                 $master incr foo
                 $replica config set appendfsync always
-                assert_equal [$master waitaof 0 1 10000] {1 1}
+                assert_equal [$master waitaof 0 1 0] {1 1}
             }
 
             test {WAITAOF replica copy appendfsync always} {
