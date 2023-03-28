@@ -189,11 +189,10 @@ tags {"wait aof network external:skip"} {
                 # so with the everysec, we will skip that second of fsync, and in the next second
                 # after that, we will eventually do the fsync.
                 $replica bgrewriteaof
+                waitForBgrewriteaof $replica
 
                 $master incr foo
                 assert_equal [$master waitaof 0 1 0] {1 1}
-
-                waitForBgrewriteaof $replica
             }
 
             test {WAITAOF replica copy everysec with slow AOFRW} {
