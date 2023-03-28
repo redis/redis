@@ -1,0 +1,41 @@
+{
+    "SETINFO": {
+        "summary": "Set client or connection specific info",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "7.2.0",
+        "arity": 4,
+        "container": "CLIENT",
+        "function": "clientSetinfoCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "name": "attr",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "token": "lib-name",
+                        "name": "libname",
+                        "type": "string"
+                    },
+                    {
+                        "token": "lib-ver",
+                        "name": "libver",
+                        "type": "string"
+                    }
+                ]
+            }
+        ]
+    }
+}

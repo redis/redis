@@ -147,6 +147,8 @@ client *createClient(connection *conn) {
 #endif
     c->conn = conn;
     c->name = NULL;
+    c->lib_name = NULL;
+    c->lib_ver = NULL;
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
@@ -1496,7 +1498,11 @@ void clearClientConnectionState(client *c) {
 
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
     selectDb(c,0);
+#ifdef LOG_REQ_RES
+    c->resp = server.client_default_resp;
+#else
     c->resp = 2;
+#endif
 
     clientSetDefaultAuth(c);
     moduleNotifyUserChanged(c);
@@ -1511,6 +1517,9 @@ void clearClientConnectionState(client *c) {
         c->name = NULL;
     }
 
+    /* Note: lib_name and lib_ver are not reset since they still
+     * represent the client library behind the connection. */
+    
     /* Selectively clear state flags not covered above */
     c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|CLIENT_REPLY_OFF|
                   CLIENT_REPLY_SKIP_NEXT|CLIENT_NO_TOUCH|CLIENT_NO_EVICT);
@@ -1662,6 +1671,8 @@ void freeClient(client *c) {
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
+    if (c->lib_name) decrRefCount(c->lib_name);
+    if (c->lib_ver) decrRefCount(c->lib_ver);
     freeClientMultiState(c);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
@@ -2775,7 +2786,7 @@ sds catClientInfoString(sds s, client *client) {
     }
 
     sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i lib-name=%s lib-ver=%s",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2803,7 +2814,10 @@ sds catClientInfoString(sds s, client *client) {
         client->lastcmd ? client->lastcmd->fullname : "NULL",
         client->user ? client->user->name : "(superuser)",
         (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
-        client->resp);
+        client->resp,
+        client->lib_name ? (char*)client->lib_name->ptr : "",
+        client->lib_ver ? (char*)client->lib_ver->ptr : ""
+        );
     return ret;
 }
 
@@ -2823,6 +2837,20 @@ sds getAllClientsInfoString(int type) {
     return o;
 }
 
+/* Check validity of an attribute that's gonna be shown in CLIENT LIST. */
+int validateClientAttr(const char *val) {
+    /* Check if the charset is ok. We need to do this otherwise
+     * CLIENT LIST format will break. You should always be able to
+     * split by space to get the different fields. */
+    while (*val) {
+        if (*val < '!' || *val > '~') { /* ASCII is assumed. */
+            return C_ERR;
+        }
+        val++;
+    }
+    return C_OK;
+}
+
 /* Returns C_OK if the name is valid. Returns C_ERR & sets `err` (when provided) otherwise. */
 int validateClientName(robj *name, const char **err) {
     const char *err_msg = "Client names cannot contain spaces, newlines or special characters.";
@@ -2830,15 +2858,9 @@ int validateClientName(robj *name, const char **err) {
     /* We allow setting the client name to an empty string. */
     if (len == 0)
         return C_OK;
-    /* Otherwise check if the charset is ok. We need to do this otherwise
-     * CLIENT LIST format will break. You should always be able to
-     * split by space to get the different fields. */
-    char *p = name->ptr;
-    for (int j = 0; j < len; j++) {
-        if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
-            if (err) *err = err_msg;
-            return C_ERR;
-        }
+    if (validateClientAttr(name->ptr) == C_ERR) {
+        if (err) *err = err_msg;
+        return C_ERR;
     }
     return C_OK;
 }
@@ -2878,6 +2900,35 @@ int clientSetNameOrReply(client *c, robj *name) {
         addReplyError(c, err);
     }
     return result;
+}
+
+/* Set client or connection related info */
+void clientSetinfoCommand(client *c) {
+    sds attr = c->argv[2]->ptr;
+    robj *valob = c->argv[3];
+    sds val = valob->ptr;
+    robj **destvar = NULL;
+    if (!strcasecmp(attr,"lib-name")) {
+        destvar = &c->lib_name;
+    } else if (!strcasecmp(attr,"lib-ver")) {
+        destvar = &c->lib_ver;
+    } else {
+        addReplyErrorFormat(c,"Unrecognized option '%s'", attr);
+        return;
+    }
+
+    if (validateClientAttr(val)==C_ERR) {
+        addReplyErrorFormat(c,
+            "%s cannot contain spaces, newlines or special characters.", attr);
+        return;
+    }
+    if (*destvar) decrRefCount(*destvar);
+    if (sdslen(val)) {
+        *destvar = valob;
+        incrRefCount(valob);
+    } else
+        *destvar = NULL;
+    addReply(c,shared.ok);
 }
 
 /* Reset the client state to resemble a newly connected client.
