@@ -1,6 +1,6 @@
 {
     "XACK": {
-        "summary": "Returns the number of messages that were successfully acknowledged by the consumer group memeber of a stream.",
+        "summary": "Returns the number of messages that were successfully acknowledged by the consumer group member of a stream.",
         "complexity": "O(1) for each message ID processed.",
         "group": "stream",
         "since": "5.0.0",

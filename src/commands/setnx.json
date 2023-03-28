@@ -1,6 +1,6 @@
 {
     "SETNX": {
-        "summary": "Set the string value of a key only wheh the key doesn't exist.",
+        "summary": "Set the string value of a key only when the key doesn't exist.",
         "complexity": "O(1)",
         "group": "string",
         "since": "1.0.0",
