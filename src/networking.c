@@ -1583,7 +1583,7 @@ void freeClient(client *c) {
     c->querybuf = NULL;
 
     /* Deallocate structures used to block on blocking ops. */
-    /* If there is any in-flight command, we don't don't record their duration. */
+    /* If there is any in-flight command, we don't record their duration. */
     c->duration = 0;
     if (c->flags & CLIENT_BLOCKED) unblockClient(c, 1);
     dictRelease(c->bstate.keys);
