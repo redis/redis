@@ -758,7 +758,7 @@ void aofOpenIfNeededOnServerStart(void) {
     }
 
     server.aof_last_incr_size = getAppendOnlyFileSize(aof_name, NULL);
-    server.aof_fsync_offset = server.aof_last_incr_size;
+    server.aof_last_incr_fsync_offset = server.aof_last_incr_size;
 
     if (incr_aof_len) {
         serverLog(LL_NOTICE, "Opening AOF incr file %s on server start", aof_name);
@@ -839,8 +839,8 @@ int openNewIncrAofForAppend(void) {
 
     /* Reset the aof_last_incr_size. */
     server.aof_last_incr_size = 0;
-    /* Reset the aof_fsync_offset. */
-    server.aof_fsync_offset = 0;
+    /* Reset the aof_last_incr_fsync_offset. */
+    server.aof_last_incr_fsync_offset = 0;
     /* Update `server.aof_manifest`. */
     if (temp_am) aofManifestFreeAndUpdate(temp_am);
     return C_OK;
@@ -963,7 +963,7 @@ void stopAppendOnly(void) {
     server.aof_state = AOF_OFF;
     server.aof_rewrite_scheduled = 0;
     server.aof_last_incr_size = 0;
-    server.aof_fsync_offset = 0;
+    server.aof_last_incr_fsync_offset = 0;
     server.fsynced_reploff = -1;
     atomicSet(server.fsynced_reploff_pending, 0);
     killAppendOnlyChild();
@@ -1085,7 +1085,7 @@ void flushAppendOnlyFile(int force) {
          * stop write commands before fsync called in one second,
          * the data in page cache cannot be flushed in time. */
         if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
-            server.aof_fsync_offset != server.aof_last_incr_size &&
+            server.aof_last_incr_fsync_offset != server.aof_last_incr_size &&
             server.unixtime > server.aof_last_fsync &&
             !(sync_in_progress = aofFsyncInProgress())) {
             goto try_fsync;
@@ -1095,7 +1095,7 @@ void flushAppendOnlyFile(int force) {
          * and AOF_FSYNC_ALWAYS is also checked here to handle a case where
          * aof_fsync is changed from everysec to always. */
         } else if (server.aof_fsync == AOF_FSYNC_ALWAYS &&
-                   server.aof_fsync_offset != server.aof_last_incr_size)
+                   server.aof_last_incr_fsync_offset != server.aof_last_incr_size)
         {
             goto try_fsync;
         } else {
@@ -1264,14 +1264,14 @@ try_fsync:
         }
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
-        server.aof_fsync_offset = server.aof_last_incr_size;
+        server.aof_last_incr_fsync_offset = server.aof_last_incr_size;
         server.aof_last_fsync = server.unixtime;
         atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
     } else if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                server.unixtime > server.aof_last_fsync) {
         if (!sync_in_progress) {
             aof_background_fsync(server.aof_fd);
-            server.aof_fsync_offset = server.aof_last_incr_size;
+            server.aof_last_incr_fsync_offset = server.aof_last_incr_size;
         }
         server.aof_last_fsync = server.unixtime;
     }
