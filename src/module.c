@@ -8052,7 +8052,6 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
 void moduleUnblockClient(client *c) {
     RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     moduleUnblockClientByHandle(bc,NULL);
-    updateStatsOnUnblock(c, 0, 0, 0);
 }
 
 /* Return true if the client 'c' was blocked by a module using
