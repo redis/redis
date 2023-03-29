@@ -234,12 +234,10 @@ void replyToBlockedClientTimedOut(client *c) {
         updateStatsOnUnblock(c, 0, 0, 0);
     } else if (c->bstate.btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bstate.reploffset));
-        updateStatsOnUnblock(c, 0, 0, 0);
     } else if (c->bstate.btype == BLOCKED_WAITAOF) {
         addReplyArrayLen(c,2);
         addReplyLongLong(c,server.fsynced_reploff >= c->bstate.reploffset);
         addReplyLongLong(c,replicationCountAOFAcksByOffset(c->bstate.reploffset));
-        updateStatsOnUnblock(c, 0, 0, 0);
     } else if (c->bstate.btype == BLOCKED_MODULE) {
         moduleBlockedClientTimedOut(c);
     } else {
