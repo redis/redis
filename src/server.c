@@ -1942,6 +1942,7 @@ void initServerConfig(void) {
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
     server.aof_last_incr_size = 0;
+    server.aof_last_incr_fsync_offset = 0;
     server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
     server.blocked_clients = 0;
