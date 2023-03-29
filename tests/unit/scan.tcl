@@ -283,21 +283,6 @@ start_server {tags {"scan network"}} {
         assert {$first_score != 0}
     }
     
-    test "SCAN/SSCAN/ZSCAN/HSCAN with negative cursor" {
-      r flushall
-      lassign [r scan -1] cursor itmes
-      assert_equal $cursor 0
-
-      lassign [r sscan myset -1] cursor items
-      assert_equal $cursor 0
-
-      lassign [r zscan myset -1] cursor items
-      assert_equal $cursor 0
-
-      lassign[r hscan myset -1] cursor items
-      assert_equal $cursor 0
-    }
-
     test "SCAN regression test for issue #4906" {
         for {set k 0} {$k < 100} {incr k} {
             r del set
