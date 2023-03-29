@@ -65,8 +65,7 @@
 #include "cli_common.h"
 #include "mt19937-64.h"
 
-#define COMMAND_HEADER_TO_INCLUDE "cli_commands.h"
-#include "commands.c"
+#include "cli_commands.h"
 
 #define UNUSED(V) ((void) V)
 
