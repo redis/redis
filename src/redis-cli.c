@@ -1445,7 +1445,9 @@ static sds makeHint(char **inputargv, int inputargc, int cmdlen, struct commandD
          * ones the user did not yet type. */
         clearMatchedArgs(docs.args, docs.numargs);
         hint = sdsempty();
-        int matchedWords = matchArgs(inputargv + cmdlen, inputargc - cmdlen, docs.args, docs.numargs);
+        int matchedWords = 0;
+        if (inputargv && inputargc)
+            matchedWords = matchArgs(inputargv + cmdlen, inputargc - cmdlen, docs.args, docs.numargs);
         if (matchedWords == inputargc - cmdlen) {
             hint = addHintForArguments(hint, docs.args, docs.numargs, " ");
         }
