@@ -116,6 +116,7 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
         s_trymalloc_usable(hdrlen+initlen+1, &usable) :
         s_malloc_usable(hdrlen+initlen+1, &usable);
     if (sh == NULL) return NULL;
+    sh = extend_to_usable(sh, usable);
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
@@ -270,12 +271,14 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     if (oldtype==type) {
         newsh = s_realloc_usable(sh, hdrlen+newlen+1, &usable);
         if (newsh == NULL) return NULL;
+        newsh = extend_to_usable(newsh, usable);
         s = (char*)newsh+hdrlen;
     } else {
         /* Since the header size changes, need to move the string forward,
          * and can't use realloc */
         newsh = s_malloc_usable(hdrlen+newlen+1, &usable);
         if (newsh == NULL) return NULL;
+        newsh = extend_to_usable(newsh, usable);
         memcpy((char*)newsh+hdrlen, s, len+1);
         s_free(sh);
         s = (char*)newsh+hdrlen;
