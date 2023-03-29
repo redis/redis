@@ -442,10 +442,6 @@ $(COMMANDS_DEF_FILENAME).def: commands/*.json ../utils/generate-command-code.py
 	$(QUIET_GEN)$(PYTHON) ../utils/generate-command-code.py $(GEN_COMMANDS_FLAGS)
 endif
 
-commands.c: $(COMMANDS_DEF_FILENAME).def
-
-cli_commands.c: commands.def
-
 clean:
 	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep *.so
 	rm -f $(DEP)
