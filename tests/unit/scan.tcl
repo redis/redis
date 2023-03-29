@@ -248,9 +248,13 @@ start_server {tags {"scan network"}} {
         r sadd set {*}$objects
         set res [r sscan set 0 MATCH *a* COUNT 100]
         assert_equal [lsort -unique [lindex $res 1]] {a}
-        set res [r sscan set 0 MATCH *1* COUNT 100]
+        set res [r sscan set 0 match *1* count 100]
         assert_equal [lsort -unique [lindex $res 1]] {1}
     }
+    
+    test "scan with null string" { 
+       r scan "\0"
+    } {ERR*}
 
     test "SSCAN with PATTERN" {
         r del mykey
@@ -272,7 +276,7 @@ start_server {tags {"scan network"}} {
         set res [r zscan mykey 0 MATCH foo* COUNT 10000]
         lsort -unique [lindex $res 1]
     }
-
+    
     test "ZSCAN scores: regression test for issue #2175" {
         r del mykey
         for {set j 0} {$j < 500} {incr j} {
