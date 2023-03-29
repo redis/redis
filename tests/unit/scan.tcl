@@ -285,7 +285,6 @@ start_server {tags {"scan network"}} {
     
     test "SCAN/SSCAN/ZSCAN/HSCAN with negative cursor" {
       r flushall
-
       lassign [r scan -1] cursor itmes
       assert_equal $cursor 0
 
