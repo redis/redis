@@ -102,6 +102,11 @@ static void zmalloc_default_oom(size_t size) {
 
 static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
 
+void *extend_to_usable(void *ptr, size_t size) {
+    UNUSED(size);
+    return ptr;
+}
+
 /* Try allocating memory, and return NULL if failed.
  * '*usable' is set to the usable size if non NULL. */
 void *ztrymalloc_usable(size_t size, size_t *usable) {
