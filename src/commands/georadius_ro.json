@@ -1,6 +1,6 @@
 {
     "GEORADIUS_RO": {
-        "summary": "A read-only variant for GEORADIUS",
+        "summary": "Returns members from a geospatial index that are within a distance from a coordinate.",
         "complexity": "O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.",
         "group": "geo",
         "since": "3.2.10",

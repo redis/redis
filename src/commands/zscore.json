@@ -1,6 +1,6 @@
 {
     "ZSCORE": {
-        "summary": "Get the score associated with the given member in a sorted set",
+        "summary": "Returns the score of a member in a sorted set.",
         "complexity": "O(1)",
         "group": "sorted_set",
         "since": "1.2.0",

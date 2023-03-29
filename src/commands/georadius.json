@@ -1,6 +1,6 @@
 {
     "GEORADIUS": {
-        "summary": "Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a point",
+        "summary": "Queries a geospatial index for members within a distance from a coordinate, optionally stores the result.",
         "complexity": "O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.",
         "group": "geo",
         "since": "3.2.0",

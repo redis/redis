@@ -1,6 +1,6 @@
 {
     "SETID": {
-        "summary": "Set a consumer group to an arbitrary last delivered ID value.",
+        "summary": "Sets the last-delivered ID of a consumer group.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",

@@ -1,6 +1,6 @@
 {
     "LPOP": {
-        "summary": "Remove and get the first elements in a list",
+        "summary": "Returns the first elements in a list after removing it. Deletes the list if the last element was popped.",
         "complexity": "O(N) where N is the number of elements returned",
         "group": "list",
         "since": "1.0.0",

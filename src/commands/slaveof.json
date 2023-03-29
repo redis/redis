@@ -1,6 +1,6 @@
 {
     "SLAVEOF": {
-        "summary": "Make the server a replica of another instance, or promote it as master.",
+        "summary": "Sets a Redis server as a replica of another, or promotes it to being a master.",
         "complexity": "O(1)",
         "group": "server",
         "since": "1.0.0",

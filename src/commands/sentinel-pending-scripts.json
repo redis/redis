@@ -1,6 +1,6 @@
 {
     "PENDING-SCRIPTS": {
-        "summary": "Get information about pending scripts",
+        "summary": "Returns information about pending scripts for Redis Sentinel.",
         "group": "sentinel",
         "since": "2.8.4",
         "arity": 2,

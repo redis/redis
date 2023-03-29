@@ -1,6 +1,6 @@
 {
     "SIMULATE-FAILURE": {
-        "summary": "Simulate failover scenarios",
+        "summary": "Simulates failover scenarios.",
         "group": "sentinel",
         "since": "3.2.0",
         "arity": -3,

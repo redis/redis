@@ -1,6 +1,6 @@
 {
     "HEXISTS": {
-        "summary": "Determine if a hash field exists",
+        "summary": "Determines whether a field exists in a hash.",
         "complexity": "O(1)",
         "group": "hash",
         "since": "2.0.0",

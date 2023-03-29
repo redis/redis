@@ -1,6 +1,6 @@
 {
     "HINCRBYFLOAT": {
-        "summary": "Increment the float value of a hash field by the given amount",
+        "summary": "Increments the floating point value of a field by a number. Uses 0 as initial value if the field doesn't exist.",
         "complexity": "O(1)",
         "group": "hash",
         "since": "2.6.0",

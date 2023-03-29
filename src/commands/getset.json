@@ -1,6 +1,6 @@
 {
     "GETSET": {
-        "summary": "Set the string value of a key and return its old value",
+        "summary": "Returns the previous string value of a key after setting it to a new value.",
         "complexity": "O(1)",
         "group": "string",
         "since": "1.0.0",

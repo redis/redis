@@ -1,6 +1,6 @@
 {
     "KILL": {
-        "summary": "Kill the connection of a client",
+        "summary": "Terminates open connections.",
         "complexity": "O(N) where N is the number of client connections",
         "group": "connection",
         "since": "2.4.0",

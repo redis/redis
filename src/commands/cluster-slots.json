@@ -1,6 +1,6 @@
 {
     "SLOTS": {
-        "summary": "Get array of Cluster slot to node mappings",
+        "summary": "Returns the mapping of cluster slots to nodes.",
         "complexity": "O(N) where N is the total number of Cluster nodes",
         "group": "cluster",
         "since": "3.0.0",

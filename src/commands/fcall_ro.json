@@ -1,6 +1,6 @@
 {
     "FCALL_RO": {
-        "summary": "Invoke a read-only function",
+        "summary": "Invokes a read-only function.",
         "complexity": "Depends on the function that is executed.",
         "group": "scripting",
         "since": "7.0.0",

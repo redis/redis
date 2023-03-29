@@ -1,6 +1,6 @@
 {
     "INFO": {
-        "summary": "Returns information about the current client connection.",
+        "summary": "Returns information about the connection.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "6.2.0",

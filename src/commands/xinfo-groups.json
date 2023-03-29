@@ -1,6 +1,6 @@
 {
     "GROUPS": {
-        "summary": "List the consumer groups of a stream",
+        "summary": "Returns a list of the consumer groups of a stream.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",

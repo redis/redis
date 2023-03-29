@@ -1,6 +1,6 @@
 {
     "SMEMBERS": {
-        "summary": "Get all the members in a set",
+        "summary": "Returns all members of a set.",
         "complexity": "O(N) where N is the set cardinality.",
         "group": "set",
         "since": "1.0.0",

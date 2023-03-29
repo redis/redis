@@ -1,6 +1,6 @@
 {
     "GETDEL": {
-        "summary": "Get the value of a key and delete the key",
+        "summary": "Returns the string value of a key after deleting the key.",
         "complexity": "O(1)",
         "group": "string",
         "since": "6.2.0",
