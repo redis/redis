@@ -864,7 +864,7 @@ static sds cliGetServerVersion() {
         return sdsempty();
     }
 
-    assert(serverInfo->type == REDIS_REPLY_STRING);
+    assert(serverInfo->type == REDIS_REPLY_STRING || serverInfo->type == REDIS_REPLY_VERB);
     sds info = serverInfo->str;
 
     /* Finds the first appearance of "redis_version" in the INFO SERVER reply. */
