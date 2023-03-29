@@ -3596,7 +3596,7 @@ void call(client *c, int flags) {
     }
 
     /* The duration needs to be reset after each call except for a blocked command,
-     * which is expected to explicitly reset the duration after unblocking. */
+     * which is expected to record and reset the duration after unblocking. */
     if (!(c->flags & CLIENT_BLOCKED)) {
         c->duration = 0;
     }
