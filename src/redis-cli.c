@@ -9664,7 +9664,7 @@ sds readHintSuiteLine(char buf[], size_t size, FILE *fp) {
             return input;
         }
     }
-    return sdsnew("EOF");
+    return NULL;
 }
 
 /* Runs a suite of hint completion tests contained in a file. */
@@ -9685,8 +9685,9 @@ void testHintSuite(char *filename) {
 
     cliInitHelp();
 
-    for (line = readHintSuiteLine(buf, sizeof(buf), fp); strcmp(line, "EOF") != 0;
-         line = readHintSuiteLine(buf, sizeof(buf), fp)) {
+    while (1) {
+        line = readHintSuiteLine(buf, sizeof(buf), fp);
+        if (line == NULL) break;
         argv = sdssplitargs(line, &argc);
         sdsfree(line);
         if (argc == 0) {
@@ -9723,7 +9724,6 @@ void testHintSuite(char *filename) {
         sdsfree(hint);
     }
     fclose(fp);
-    sdsfree(line);
     
     printf("%s: %d/%d passed\n", fail == 0 ? "SUCCESS" : "FAILURE", pass, pass + fail);
     exit(fail);
