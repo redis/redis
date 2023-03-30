@@ -253,8 +253,8 @@ start_server {tags {"scan network"}} {
     }
     
     test "scan with null string" { 
-       catch {r scan ""} err
-       format $err
+      catch {r scan ""} err
+      format $err
     } {ERR invalid cursor}
 
     test "SSCAN with PATTERN" {
