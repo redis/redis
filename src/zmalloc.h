@@ -144,6 +144,20 @@ static inline size_t zmalloc_usable_size_safe(void **ptr) {
     return sz;
 }
 
+static inline void *zmalloc_safe(size_t size) {
+    size_t usable_size;
+    void *ptr = zmalloc_usable(size, &usable_size);
+    ptr = extend_to_usable(ptr, usable_size);
+    return ptr;
+}
+
+static inline void *zrealloc_safe(void *ptr, size_t size) {
+    size_t usable_size;
+    ptr = zrealloc_usable(ptr, size, &usable_size);
+    ptr = extend_to_usable(ptr, usable_size);
+    return ptr;
+}
+
 int get_proc_stat_ll(int i, long long *res);
 
 #ifdef REDIS_TEST
