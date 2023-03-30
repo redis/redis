@@ -647,6 +647,7 @@ void moduleReleaseTempClient(client *c) {
     clearClientConnectionState(c);
     listEmpty(c->reply);
     c->reply_bytes = 0;
+    c->duration = 0;
     resetClient(c);
     c->bufpos = 0;
     c->flags = CLIENT_MODULE;

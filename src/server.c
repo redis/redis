@@ -3596,6 +3596,12 @@ void call(client *c, int flags) {
             updateCommandLatencyHistogram(&(real_cmd->latency_histogram), c->duration*1000);
     }
 
+    /* The duration needs to be reset after each call except for a blocked command,
+     * which is expected to record and reset the duration after unblocking. */
+    if (!(c->flags & CLIENT_BLOCKED)) {
+        c->duration = 0;
+    }
+
     /* Propagate the command into the AOF and replication link.
      * We never propagate EXEC explicitly, it will be implicitly
      * propagated if needed (see propagatePendingCommands).
