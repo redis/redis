@@ -284,8 +284,7 @@ start_server {tags {"scan network"}} {
         set res [lindex [r zscan mykey 0] 1]
         set first_score [lindex $res 1]
         assert {$first_score != 0}
-    }
-    
+    } 
     test "SCAN regression test for issue #4906" {
         for {set k 0} {$k < 100} {incr k} {
             r del set
