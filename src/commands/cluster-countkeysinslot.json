@@ -1,6 +1,6 @@
 {
     "COUNTKEYSINSLOT": {
-        "summary": "Return the number of local keys in the specified hash slot",
+        "summary": "Returns the number of keys in a hash slot.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",

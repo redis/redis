@@ -1583,6 +1583,8 @@ void freeClient(client *c) {
     c->querybuf = NULL;
 
     /* Deallocate structures used to block on blocking ops. */
+    /* If there is any in-flight command, we don't record their duration. */
+    c->duration = 0;
     if (c->flags & CLIENT_BLOCKED) unblockClient(c, 1);
     dictRelease(c->bstate.keys);
 
@@ -2039,8 +2041,10 @@ void resetClient(client *c) {
     c->multibulklen = 0;
     c->bulklen = -1;
     c->slot = -1;
-    c->duration = 0;
     c->flags &= ~CLIENT_EXECUTING_COMMAND;
+
+    /* Make sure the duration has been recorded to some command. */
+    serverAssert(c->duration == 0);
 #ifdef LOG_REQ_RES
     reqresReset(c, 1);
 #endif

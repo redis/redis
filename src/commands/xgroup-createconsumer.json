@@ -1,6 +1,6 @@
 {
     "CREATECONSUMER": {
-        "summary": "Create a consumer in a consumer group.",
+        "summary": "Creates a consumer in a consumer group.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "6.2.0",

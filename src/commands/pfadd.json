@@ -1,6 +1,6 @@
 {
     "PFADD": {
-        "summary": "Adds the specified elements to the specified HyperLogLog.",
+        "summary": "Adds elements to a HyperLogLog key. Creates the key if it doesn't exist.",
         "complexity": "O(1) to add every element.",
         "group": "hyperloglog",
         "since": "2.8.9",

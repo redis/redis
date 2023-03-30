@@ -1,6 +1,6 @@
 {
     "QUIT": {
-        "summary": "Close the connection",
+        "summary": "Closes the connection.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "1.0.0",

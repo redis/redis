@@ -1,6 +1,6 @@
 {
     "ZMSCORE": {
-        "summary": "Get the score associated with the given members in a sorted set",
+        "summary": "Returns the score of one or more members in a sorted set.",
         "complexity": "O(N) where N is the number of members being requested.",
         "group": "sorted_set",
         "since": "6.2.0",

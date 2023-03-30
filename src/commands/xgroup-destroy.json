@@ -1,6 +1,6 @@
 {
     "DESTROY": {
-        "summary": "Destroy a consumer group.",
+        "summary": "Destroys a consumer group.",
         "complexity": "O(N) where N is the number of entries in the group's pending entries list (PEL).",
         "group": "stream",
         "since": "5.0.0",

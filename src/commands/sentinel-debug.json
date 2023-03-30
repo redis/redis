@@ -1,6 +1,6 @@
 {
     "DEBUG": {
-        "summary": "List or update the current configurable parameters",
+        "summary": "Lists or updates the current configurable parameters of Redis Sentinel.",
         "complexity": "O(N) where N is the number of configurable parameters",
         "group": "sentinel",
         "since": "7.0.0",

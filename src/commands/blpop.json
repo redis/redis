@@ -1,6 +1,6 @@
 {
     "BLPOP": {
-        "summary": "Remove and get the first element in a list, or block until one is available",
+        "summary": "Removes and returns the first element in a list. Blocks until an element is available otherwise. Deletes the list if the last element was popped.",
         "complexity": "O(N) where N is the number of provided keys.",
         "group": "list",
         "since": "2.0.0",

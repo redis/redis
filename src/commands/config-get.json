@@ -1,6 +1,6 @@
 {
     "GET": {
-        "summary": "Get the values of configuration parameters",
+        "summary": "Returns the effective values of configuration parameters.",
         "complexity": "O(N) when N is the number of configuration parameters provided",
         "group": "server",
         "since": "2.0.0",

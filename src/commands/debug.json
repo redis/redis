@@ -1,6 +1,6 @@
 {
     "DEBUG": {
-        "summary": "A container for debugging commands",
+        "summary": "A container for debugging commands.",
         "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "1.0.0",

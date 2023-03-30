@@ -1,6 +1,6 @@
 {
     "SCRIPT": {
-        "summary": "A container for Lua scripts management commands",
+        "summary": "A container for Lua scripts management commands.",
         "complexity": "Depends on subcommand.",
         "group": "scripting",
         "since": "2.6.0",

@@ -1,6 +1,6 @@
 {
     "ZMPOP": {
-        "summary": "Remove and return members with scores in a sorted set",
+        "summary": "Returns the highest- or lowest-scoring members from one or more sorted sets after removing them. Deletes the sorted set if the last member was popped.",
         "complexity": "O(K) + O(M*log(N)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.",
         "group": "sorted_set",
         "since": "7.0.0",

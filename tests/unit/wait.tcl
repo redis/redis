@@ -175,7 +175,49 @@ tags {"wait aof network external:skip"} {
             $replica config set appendfsync everysec
 
             test {WAITAOF replica copy everysec} {
+                $replica config set appendfsync everysec
+                waitForBgrewriteaof $replica ;# Make sure there is no AOFRW
+
                 $master incr foo
+                assert_equal [$master waitaof 0 1 0] {1 1}
+            }
+
+            test {WAITAOF replica copy everysec with AOFRW} {
+                $replica config set appendfsync everysec
+
+                # When we trigger an AOFRW, a fsync is triggered when closing the old INCR file,
+                # so with the everysec, we will skip that second of fsync, and in the next second
+                # after that, we will eventually do the fsync.
+                $replica bgrewriteaof
+                waitForBgrewriteaof $replica
+
+                $master incr foo
+                assert_equal [$master waitaof 0 1 0] {1 1}
+            }
+
+            test {WAITAOF replica copy everysec with slow AOFRW} {
+                $replica config set appendfsync everysec
+                $replica config set rdb-key-save-delay 1000000 ;# 1 sec
+
+                $replica bgrewriteaof
+
+                $master incr foo
+                assert_equal [$master waitaof 0 1 0] {1 1}
+
+                $replica config set rdb-key-save-delay 0
+                waitForBgrewriteaof $replica
+            }
+
+            test {WAITAOF replica copy everysec->always with AOFRW} {
+                $replica config set appendfsync everysec
+
+                # Try to fit all of them in the same round second, although there's no way to guarantee
+                # that, it can be done on fast machine. In any case, the test shouldn't fail either.
+                $replica bgrewriteaof
+                $master incr foo
+                waitForBgrewriteaof $replica
+                $replica config set appendfsync always
+
                 assert_equal [$master waitaof 0 1 0] {1 1}
             }
 

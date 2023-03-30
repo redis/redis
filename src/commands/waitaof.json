@@ -1,6 +1,6 @@
 {
     "WAITAOF": {
-        "summary": "Wait for all write commands sent in the context of the current connection to be synced to AOF of local host and/or replicas",
+        "summary": "Blocks until all of the preceding write commands sent by the connection are written to the append-only file of the master and/or replicas.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "7.2.0",
