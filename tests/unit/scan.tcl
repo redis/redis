@@ -253,8 +253,9 @@ start_server {tags {"scan network"}} {
     }
     
     test "scan with null string" { 
-       r scan "\0"
-    } {ERR*}
+       catch {r scan ""} err
+       format $err
+    } {ERR invalid cursor}
 
     test "SSCAN with PATTERN" {
         r del mykey
