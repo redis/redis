@@ -9723,6 +9723,7 @@ void testHintSuite(char *filename) {
         sdsfree(hint);
     }
     fclose(fp);
+    sdsfree(line);
     
     printf("%s: %d/%d passed\n", fail == 0 ? "SUCCESS" : "FAILURE", pass, pass + fail);
     exit(fail);
