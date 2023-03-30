@@ -270,14 +270,12 @@ start_server {tags {"scan network"}} {
         set res [r hscan mykey 0 MATCH foo* COUNT 10000]
         lsort -unique [lindex $res 1]
     } {1 10 foo foobar}
-
     test "ZSCAN with PATTERN" {
         r del mykey
         r zadd mykey 1 foo 2 fab 3 fiz 10 foobar
         set res [r zscan mykey 0 MATCH foo* COUNT 10000]
         lsort -unique [lindex $res 1]
     }
-    
     test "ZSCAN scores: regression test for issue #2175" {
         r del mykey
         for {set j 0} {$j < 500} {incr j} {
