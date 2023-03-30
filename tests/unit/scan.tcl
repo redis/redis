@@ -248,13 +248,13 @@ start_server {tags {"scan network"}} {
         r sadd set {*}$objects
         set res [r sscan set 0 MATCH *a* COUNT 100]
         assert_equal [lsort -unique [lindex $res 1]] {a}
-        set res [r sscan set 0 match *1* count 100]
+        set res [r sscan set 0 MATCH *1* COUNT 100]
         assert_equal [lsort -unique [lindex $res 1]] {1}
     }
     
     test "scan with null string" { 
-      catch {r scan ""} err
-      format $err
+       catch {r scan ""} err
+       format $err
     } {ERR invalid cursor}
 
     test "SSCAN with PATTERN" {
