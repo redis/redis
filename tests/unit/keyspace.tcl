@@ -480,6 +480,36 @@ foreach {type large} [array get largevalue] {
         r randomkey
     } {}
 
+    test {RANDOMKEY count} {
+        r flushdb
+        r set y 10
+        r randomkey count 1
+    } {y}
+
+    test {RANDOMKEY Count Pattern} {
+        r flushdb
+        r set y 10
+        r randomkey count 1 pattern *
+    } {y}
+
+    test {RANDOMKEY no mtching pattern} {
+        r flushdb
+        r set y 10
+        r randomkey count 1 pattern s
+    } {}
+
+    test {RANDOMKEY count duplicate} {
+        r flushdb
+        r set y 10
+        r randomkey count 3 duplicated
+    } {y y y}
+
+    test {RANDOMKEY count pattern duplicate} {
+        r flushdb
+        r set y 10
+        r randomkey count 3 duplicated pattern *
+    } {y y y}
+
     test {RANDOMKEY regression 1} {
         r flushdb
         r set x 10

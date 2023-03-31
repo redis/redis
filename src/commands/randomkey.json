@@ -4,7 +4,7 @@
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.0.0",
-        "arity": 1,
+        "arity": -1,
         "function": "randomkeyCommand",
         "command_flags": [
             "READONLY",
@@ -28,6 +28,25 @@
                     "type": "string"
                 }
             ]
-        }
+        },
+        "arguments": [
+            {
+                "token": "COUNT",
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "name": "Duplicated",
+                "type": "string",
+                "optional": true
+            },
+            {
+                "token": "PATTERN",
+                "name": "pattern",
+                "type": "string",
+                "optional": true
+            }
+       ]
     }
 }
