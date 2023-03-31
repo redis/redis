@@ -60,6 +60,10 @@
 #include "hdr_histogram.h"
 #include "cli_common.h"
 #include "mt19937-64.h"
+#include "crcspeed.h"
+#include "crc64.h"
+#include "crccombine.h"
+
 
 #define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
@@ -126,6 +130,7 @@ static struct config {
     pthread_mutex_t liveclients_mutex;
     pthread_mutex_t is_updating_slots_mutex;
     int resp3; /* use RESP3 */
+    long long crc64_test_size;
 } config;
 
 typedef struct _client {
@@ -222,6 +227,35 @@ static sds benchmarkVersion(void) {
 /* Dict callbacks */
 static uint64_t dictSdsHash(const void *key);
 static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
+
+/* Could use some extra macros for non-linux systems... but with containers, do
+ * we even worry? */
+
+#ifdef CLOCK_MONOTONIC
+#define CLOCKID CLOCK_MONOTONIC
+#else
+#define CLOCKID CLOCK_REALTIME
+#endif
+
+static void init_nstime() {
+    static uint64_t init = 0;
+    static struct timespec rate;
+    if (init == 0) {
+        clock_getres(CLOCKID, &rate);
+        init = 1;
+    }
+    return;
+}
+
+/* Zen 20: Minimize overhead when it matters. */
+#define NSTIME(name) \
+    clock_gettime(CLOCKID, name)
+
+/* Corollary: move unnecessary operations out of your timed benchmark. */
+static uint64_t nstimediff(struct timespec* start, struct timespec* end) {
+    return (end->tv_sec * 1000000000) - (start->tv_sec * 1000000000) \
+        + end->tv_nsec - start->tv_nsec;
+}
 
 /* Implementation */
 static long long ustime(void) {
@@ -1560,6 +1594,9 @@ int parseOptions(int argc, char **argv) {
             config.sslconfig.ciphersuites = strdup(argv[++i]);
         #endif
         #endif
+        } else if (!strcmp(argv[i],"--crc")) {
+            if (lastarg) goto invalid;
+            config.crc64_test_size = atoll(argv[++i]);
         } else {
             /* Assume the user meant to provide an option when the arg starts
              * with a dash. We're done otherwise and should use the remainder
@@ -1618,6 +1655,7 @@ usage:
 "                    on the command line.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n"
 " -x                 Read last argument from STDIN.\n"
+" --crc <bytes>      Benchmark crc64 faster options, using a buffer this big, and quit when done.\n"
 #ifdef USE_OPENSSL
 " --tls              Establish a secure TLS connection.\n"
 " --sni <host>       Server name indication for TLS.\n"
@@ -1770,6 +1808,132 @@ int main(int argc, char **argv) {
     argv += i;
 
     tag = "";
+
+    if (config.crc64_test_size > 0) do {
+        unsigned char* data = zmalloc(config.crc64_test_size);
+        if (!data) {
+            fprintf(stderr, "Could not allocate sufficient data to test crc64 "
+                            "%lld\n", config.crc64_test_size);
+            exit(1);
+        }
+
+#define RPOLY UINT64_C(0x95ac9329ac4bc9b5)
+#define INIT_SIZE UINT64_C(0xffffffffffffffff)
+
+/* Will fix later; minimizing CPU used for getting nstime, as shifts and even
+ * *returns* of values are non-zero nanosecond cost in comparison to just *not*
+ * doing those things. So we won't when we need to benchmark crc64 of short
+ * strings, or when we need to benchmark the <100 nanosecond timing of crc
+ * combining. */
+
+        init_nstime();
+
+        struct timespec init_start, init_end;
+        NSTIME(&init_start);
+        /* need to benchmark the combine init first, before we get to crc anything */
+        crc64_combine(
+            UINT64_C(0xdeadbeefdeadbeef),
+            UINT64_C(0xfeebdaedfeebdaed),
+            INIT_SIZE,
+            RPOLY, 64);
+        NSTIME(&init_end);
+
+        genBenchmarkRandomData((char*)data, config.crc64_test_size);
+        // We want to hash 32 gigs of data in total, looped, to get a good idea
+        // of our performance.
+        uint64_t passes = (UINT64_C(0x800000000) / config.crc64_test_size);
+        passes = passes >= 1 ? passes : 1;
+
+        crc64_init();
+        // warm up the cache
+        set_crc64_cutoffs(config.crc64_test_size+1, config.crc64_test_size+1);
+        uint64_t expect = crc64(0, data, config.crc64_test_size);
+
+        if (config.csv) printf("algorithm,buffer,performance,crc64_matches\n");
+
+        // We have nanoseconds, and we need megs/second from bytes. Great,
+        // just a multiply and a division.
+        // By sampling over a range of --crc <sizes>, you can determine the
+        // best values for for setting CRC64_[DUAL|TRI]_CUTOFF on your machine.
+        // NOTE: we needed nstime here for handling timing of processing --crc
+        // values < 4k or so, as they can complete in under 1 microsecond on
+        // some platforms.
+
+        // save some copy / paste
+#define bench(WHICH, DIV) \
+        uint64_t min_##WHICH = INIT_SIZE; \
+        uint64_t hash_##WHICH; \
+        for (long long i=(passes>>DIV) > 0 ? (passes>>DIV) : 1 ; i > 0; i--) { \
+            struct timespec original_start, original_end; \
+            NSTIME(&original_start); \
+            hash_##WHICH = crc64(0, data, config.crc64_test_size); \
+            NSTIME(&original_end); \
+            uint64_t delta = nstimediff(&original_start, &original_end); \
+            min_##WHICH = min_##WHICH < delta ? min_##WHICH : delta; \
+        } if (config.csv) \
+        printf("%s,%lld,%lld,%d\n", #WHICH, config.crc64_test_size, \
+            (1000 * config.crc64_test_size) / min_##WHICH, hash_##WHICH == expect); \
+        else printf("test size=%lld algorithm=%s %lld M/sec matches=%d\n", \
+            config.crc64_test_size, #WHICH, \
+            (1000 * config.crc64_test_size) / min_##WHICH, hash_##WHICH == expect)
+
+        // get the single-character version for original Redis behavior
+        set_crc64_cutoffs(0, config.crc64_test_size+1);
+        bench(crc_1byte, 3);
+
+        set_crc64_cutoffs(config.crc64_test_size+1, config.crc64_test_size+1);
+        // run with 8-byte "single" path
+        bench(crcspeed, 0);
+
+        // run with dual 8-byte paths
+        set_crc64_cutoffs(1, config.crc64_test_size+1);
+        bench(crcdual, 0);
+
+        // run with tri 8-byte paths
+        set_crc64_cutoffs(1, 1);
+        bench(crctri, 0);
+
+        // Be free memory region, be free.
+        zfree(data);
+#undef bench
+
+        uint64_t start, thash;
+
+#define bench(label, SIZE) \
+        uint64_t min_##label = INIT_SIZE; \
+        start = expect; \
+        thash = hash_crcspeed; \
+        for (int i=0; i < 1000; i++) { \
+            struct timespec original_start, original_end; \
+            NSTIME(&original_start); \
+            crc64_combine(thash, start, SIZE, RPOLY, 64); \
+            NSTIME(&original_end); \
+            uint64_t delta = nstimediff(&original_start, &original_end); \
+            min_##label = min_##label < delta ? min_##label : delta; \
+        } if (config.csv) \
+            printf("%s,%lu,%lu\n", #label, (uint64_t)SIZE, min_##label); \
+        else printf("%s size=%lu in %lu nsec\n", #label, (uint64_t)SIZE, min_##label)
+
+        uint64_t odelta = nstimediff(&init_start, &init_end);
+        if (config.csv) {
+            printf("\noperation,size,nanoseconds\n");
+            printf("init_64,%lu,%lu\n", INIT_SIZE, odelta);
+        } else {
+            printf("init_64 size=%lu in %lu nsec\n", INIT_SIZE, odelta);
+        }
+
+        // use the hash itself as the size (unpredictable)
+        bench(hash_as_size_combine, expect);
+        // let's do something big (predictable, so fast)
+        bench(largest_combine, INIT_SIZE);
+        // and let's do the requested size
+        bench(combine, config.crc64_test_size);
+
+#undef RPOLY
+#undef NSTIME
+#undef INIT_SIZE
+        if (!config.loop) exit(0);
+    } while (config.loop);
 
 #ifdef USE_OPENSSL
     if (config.tls) {

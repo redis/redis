@@ -67,14 +67,32 @@ static uint64_t crc64_table[8][256] = {{0}};
  * \return             The reflected data.
  *****************************************************************************/
 static inline uint_fast64_t crc_reflect(uint_fast64_t data, size_t data_len) {
-    uint_fast64_t ret = data & 0x01;
+    // only ever called for data_len == 64;
 
-    for (size_t i = 1; i < data_len; i++) {
-        data >>= 1;
-        ret = (ret << 1) | (data & 0x01);
-    }
+    // Borrowed from bit twiddling hacks, original in the public domain.
+    // https://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel
+    // Extended to 64 bits, and added byteswap for final 3 steps.
+    // 16-30x 64-bit operations, no comparisons (16 for native byteswap, 30 for pure C)
+    // should be ~9-16x faster than before.
 
-    return ret;
+    // swap odd and even bits
+    data = ((data >> 1) & 0x5555555555555555ULL) | ((data & 0x5555555555555555ULL) << 1);
+    // swap consecutive pairs
+    data = ((data >> 2) & 0x3333333333333333ULL) | ((data & 0x3333333333333333ULL) << 2);
+    // swap nibbles ...
+    data = ((data >> 4) & 0x0F0F0F0F0F0F0F0FULL) | ((data & 0x0F0F0F0F0F0F0F0FULL) << 4);
+#if defined(__GNUC__) || defined(__clang__)
+    data = __builtin_bswap64(data);
+#else
+    // swap bytes
+    data = ((data >> 8) & 0x00FF00FF00FF00FFULL) | ((data & 0x00FF00FF00FF00FFULL) << 8);
+    // swap 2-byte long pairs
+    data = ( data >> 16 &     0xFFFF0000FFFFULL) | ((data &     0xFFFF0000FFFFULL) << 16);
+    // swap 4-byte quads
+    data = ( data >> 32 &         0xFFFFFFFFULL) | ((data &         0xFFFFFFFFULL) << 32);
+#endif
+    // adjust for non-64-bit reversals
+    return data >> (64 - data_len);
 }
 
 /**

@@ -1,11 +1,21 @@
 /*
  * Copyright (C) 2013 Mark Adler
+ * Copyright (C) 2019-2023 Josiah Carlson
  * Originally by: crc64.c Version 1.4  16 Dec 2013  Mark Adler
  * Modifications by Matt Stancliff <matt@genges.com>:
  *   - removed CRC64-specific behavior
  *   - added generation of lookup tables by parameters
  *   - removed inversion of CRC input/result
  *   - removed automatic initialization in favor of explicit initialization
+ * Modifications by Josiah Carlson <josiah.carlson@gmail.com>
+ *   - Added case/vector/AVX/+ versions of crc combine function; see crccombine.c
+ *     - added optional static cache
+ *   - Modified to use 1 thread to:
+ *     - Partition large crc blobs into 2-3 segments
+ *     - Process the 2-3 segments in parallel
+ *     - Merge the resulting crcs
+ *     -> Resulting in 10-90% performance boost for data > 1 meg
+ *     - macro-ized to reduce copy/pasta
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the author be held liable for any damages
@@ -28,6 +38,10 @@
  */
 
 #include "crcspeed.h"
+#include "crccombine.h"
+
+#define CRC64_LEN_MASK UINT64_C(0x7ffffffffffffff8)
+#define CRC64_REVERSED_POLY UINT64_C(0x95ac9329ac4bc9b5)
 
 /* Fill in a CRC constants table. */
 void crcspeed64little_init(crcfn64 crcfn, uint64_t table[8][256]) {
@@ -39,7 +53,7 @@ void crcspeed64little_init(crcfn64 crcfn, uint64_t table[8][256]) {
         table[0][n] = crcfn(0, &v, 1);
     }
 
-    /* generate nested CRC table for future slice-by-8 lookup */
+    /* generate nested CRC table for future slice-by-8/16/24+ lookup */
     for (int n = 0; n < 256; n++) {
         crc = table[0][n];
         for (int k = 1; k < 8; k++) {
@@ -47,6 +61,10 @@ void crcspeed64little_init(crcfn64 crcfn, uint64_t table[8][256]) {
             table[k][n] = crc;
         }
     }
+#if USE_STATIC_COMBINE_CACHE
+    /* initialize combine cache for CRC stapling for slice-by 16/24+ */
+    init_combine_cache(CRC64_REVERSED_POLY, 64);
+#endif
 }
 
 void crcspeed16little_init(crcfn16 crcfn, uint16_t table[8][256]) {
@@ -104,44 +122,134 @@ void crcspeed16big_init(crcfn16 fn, uint16_t big_table[8][256]) {
     }
 }
 
+/* Note: doing all of our crc/next modifications *before* the crc table
+ * references is an absolute speedup on all CPUs tested. So... keep these
+ * macros separate.
+ */
+
+#define DO_8_1(I)                                       \
+    crc##I ^= *(uint64_t *)next##I;                     \
+    next##I += 8
+
+#define DO_8_2(I)                                       \
+    crc##I = little_table[7][(uint8_t)crc##I] ^         \
+             little_table[6][(uint8_t)(crc##I >> 8)] ^  \
+             little_table[5][(uint8_t)(crc##I >> 16)] ^ \
+             little_table[4][(uint8_t)(crc##I >> 24)] ^ \
+             little_table[3][(uint8_t)(crc##I >> 32)] ^ \
+             little_table[2][(uint8_t)(crc##I >> 40)] ^ \
+             little_table[1][(uint8_t)(crc##I >> 48)] ^ \
+             little_table[0][crc##I >> 56]
+
+#define CRC64_SPLIT(div) \
+    olen = len; \
+    next2 = next1 + ((len / div) & CRC64_LEN_MASK); \
+    len = (next2 - next1)
+
+#define MERGE_CRC(I) \
+    crc1 = crc64_combine(crc1, crc##I, next2 - next1, CRC64_REVERSED_POLY, 64)
+
+#define MERGE_END(DIV) \
+    len = olen - ((next2 - next1) * DIV); \
+    next1 = next##DIV
+
+/* Variables so we can change for benchmarking; these seem to be fairly
+ * reasonable for Intel CPUs made since 2010. Please adjust as necessary if
+ * or when your CPU has more load / execute units. We've written benchmark code
+ * to help you tune your platform. */
+static size_t CRC64_TRI_CUTOFF = (8*1024);
+static size_t CRC64_DUAL_CUTOFF = (4*1024);
+
+
+void set_crc64_cutoffs(size_t dual, size_t tri) {
+    CRC64_DUAL_CUTOFF = dual;
+    CRC64_TRI_CUTOFF = tri;
+}
+
+
 /* Calculate a non-inverted CRC multiple bytes at a time on a little-endian
  * architecture. If you need inverted CRC, invert *before* calling and invert
  * *after* calling.
- * 64 bit crc = process 8 bytes at once;
+ * 64 bit crc = process 8/16/24 bytes at once;
  */
-uint64_t crcspeed64little(uint64_t little_table[8][256], uint64_t crc,
+uint64_t crcspeed64little(uint64_t little_table[8][256], uint64_t crc1,
                           void *buf, size_t len) {
-    unsigned char *next = buf;
+    unsigned char *next1 = buf;
+
+    if (CRC64_DUAL_CUTOFF < 1) {
+        goto final;
+    }
 
     /* process individual bytes until we reach an 8-byte aligned pointer */
-    while (len && ((uintptr_t)next & 7) != 0) {
-        crc = little_table[0][(crc ^ *next++) & 0xff] ^ (crc >> 8);
+    while (len && ((uintptr_t)next1 & 7) != 0) {
+        crc1 = little_table[0][(crc1 ^ *next1++) & 0xff] ^ (crc1 >> 8);
         len--;
     }
 
-    /* fast middle processing, 8 bytes (aligned!) per loop */
-    while (len >= 8) {
-        crc ^= *(uint64_t *)next;
-        crc = little_table[7][crc & 0xff] ^
-              little_table[6][(crc >> 8) & 0xff] ^
-              little_table[5][(crc >> 16) & 0xff] ^
-              little_table[4][(crc >> 24) & 0xff] ^
-              little_table[3][(crc >> 32) & 0xff] ^
-              little_table[2][(crc >> 40) & 0xff] ^
-              little_table[1][(crc >> 48) & 0xff] ^
-              little_table[0][crc >> 56];
-        next += 8;
-        len -= 8;
-    }
+    if (len >  CRC64_TRI_CUTOFF) {
+        /* 24 bytes per loop, doing 3 parallel 8 byte chunks at a time */
+        unsigned char *next2, *next3;
+        uint64_t olen, crc2=0, crc3=0;
+        CRC64_SPLIT(3);
+        // len is now the length of the shortest segment
+        next3 = next2 + len;
+        while (len >= 8) {
+            len -= 8;
+            DO_8_1(1);
+            DO_8_1(2);
+            DO_8_1(3);
+            DO_8_2(1);
+            DO_8_2(2);
+            DO_8_2(3);
+        }
 
+        /* merge the 3 crcs */
+        MERGE_CRC(2);
+        MERGE_CRC(3);
+        MERGE_END(3);
+    } else if (len > CRC64_DUAL_CUTOFF) {
+        /* 16 bytes per loop, doing 2 parallel 8 byte chunks at a time */
+        unsigned char *next2;
+        uint64_t olen, crc2=0;
+        CRC64_SPLIT(2);
+        // len is now the length of the shortest segment
+        while (len >= 8) {
+            len -= 8;
+            DO_8_1(1);
+            DO_8_1(2);
+            DO_8_2(1);
+            DO_8_2(2);
+        }
+
+        /* merge the 2 crcs */
+        MERGE_CRC(2);
+        MERGE_END(2);
+    }
+    /* We fall through here to handle our <CRC64_DUAL_CUTOFF inputs, and for any trailing
+     * bytes that wasn't evenly divisble by 16 or 24 above. */
+
+    /* fast processing, 8 bytes (aligned!) per loop */
+    while (len >= 8) {
+        len -= 8;
+        DO_8_1(1);
+        DO_8_2(1);
+    }
+final:
     /* process remaining bytes (can't be larger than 8) */
     while (len) {
-        crc = little_table[0][(crc ^ *next++) & 0xff] ^ (crc >> 8);
+        crc1 = little_table[0][(crc1 ^ *next1++) & 0xff] ^ (crc1 >> 8);
         len--;
     }
 
-    return crc;
+    return crc1;
 }
+
+#undef DO_8_2
+
+/* note: similar perf advantages can be had for long strings in crc16 using all
+ * of the same optimizations as above; though this is unnecessary. crc16 is
+ * normally used to shard keys; not hash / verify data, so is used on shorter
+ * data that doesn't warrant such changes. */
 
 uint16_t crcspeed16little(uint16_t little_table[8][256], uint16_t crc,
                           void *buf, size_t len) {
@@ -177,6 +285,16 @@ uint16_t crcspeed16little(uint16_t little_table[8][256], uint16_t crc,
     return crc;
 }
 
+#define DO_8_2(I)                                       \
+    crc##I = big_table[0][(uint8_t)crc##I] ^         \
+             big_table[1][(uint8_t)(crc##I >> 8)] ^  \
+             big_table[2][(uint8_t)(crc##I >> 16)] ^ \
+             big_table[3][(uint8_t)(crc##I >> 24)] ^ \
+             big_table[4][(uint8_t)(crc##I >> 32)] ^ \
+             big_table[5][(uint8_t)(crc##I >> 40)] ^ \
+             big_table[6][(uint8_t)(crc##I >> 48)] ^ \
+             big_table[7][crc##I >> 56]
+
 /* Calculate a non-inverted CRC eight bytes at a time on a big-endian
  * architecture.
  */
@@ -189,6 +307,10 @@ uint64_t crcspeed64big(uint64_t big_table[8][256], uint64_t crc, void *buf,
         crc = big_table[0][(crc >> 56) ^ *next++] ^ (crc << 8);
         len--;
     }
+
+    /* note: alignment + 2/3-way processing can probably be handled here nearly
+       the same as above, using our updated DO_8_2 macro. Not included in these
+       changes, as other authors, I don't have big-endian to test with. */
 
     while (len >= 8) {
         crc ^= *(uint64_t *)next;
@@ -211,6 +333,17 @@ uint64_t crcspeed64big(uint64_t big_table[8][256], uint64_t crc, void *buf,
 
     return rev8(crc);
 }
+
+// clean up our namespace
+
+#undef DO_8_2
+#undef DO_8_1
+#undef CRC64_SPLIT
+#undef MERGE_CRC
+#undef MERGE_END
+#undef CRC64_REVERSED_POLY
+#undef CRC64_LEN_MASK
+
 
 /* WARNING: Completely untested on big endian architecture.  Possibly broken. */
 uint16_t crcspeed16big(uint16_t big_table[8][256], uint16_t crc_in, void *buf,
