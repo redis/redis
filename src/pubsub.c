@@ -655,20 +655,22 @@ void pubsubReplySubscribers(client *c) {
         dictIterator *di = dictGetIterator(d);
         dictEntry *de;
         while ((de = dictNext(di)) != NULL) {
-            addReplyArrayLen(c, 3);
+            addReplyMapLen(c, 2);
             addReplyBulkCString(c, "name");
             addReplyBulk(c, dictGetKey(de));
+            addReplyBulkCString(c, "subscribers");
             list *clients = dictGetVal(de);
             addReplyArrayLen(c, listLength(clients));
             pubsubReplySubscribersClientInfo(c, clients);
         }
         dictReleaseIterator(di);
     } else {
-        addReplyArrayLen(c, c->argc - 4);
-        for (int j = 4; j < c->argc; j++) {
-            addReplyArrayLen(c, 3);
+        addReplyArrayLen(c, c->argc - 3);
+        for (int j = 3; j < c->argc; j++) {
+            addReplyMapLen(c, 2);
             addReplyBulkCString(c, "name");
             addReplyBulk(c, c->argv[j]);
+            addReplyBulkCString(c, "subscribers");
             list *clients = dictFetchValue(d, c->argv[j]);
             if (clients) {
                 addReplyArrayLen(c, listLength(clients));
@@ -694,7 +696,9 @@ void pubsubCommand(client *c) {
 "SHARDCHANNELS [<pattern>]",
 "    Return the currently active shard level channels matching a <pattern> (default: '*').",
 "SHARDNUMSUB [<shardchannel> ...]",
-"    Return the number of subscribers for the specified shard level channel(s)",
+"    Return the number of subscribers for the specified shard level channel(s).",
+"SUBSCRIBERS <TYPE> [<channel> ...]",
+"    Return the list of subscribers for the specified channel(s)/pattern(s)/shardchannel(s).",
 NULL
         };
         addReplyHelp(c, help);
