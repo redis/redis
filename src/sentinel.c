@@ -464,10 +464,10 @@ dictType renamedCommandsDictType = {
 /* Dict for for case-insensitive search using null terminated C strings.
  * The keys stored in dict are sds though. */
 dictType stateSetDictType = {
-    distCStrCaseHash,           /* hash function */
+    dictCStrCaseHash,           /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    distCStrKeyCaseCompare,     /* key compare */
+    dictCStrKeyCaseCompare,     /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
