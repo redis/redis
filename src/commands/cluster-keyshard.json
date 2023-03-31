@@ -22,7 +22,7 @@
             "NONDETERMINISTIC_OUTPUT"
         ],
    "reply_schema": {
-            "description": "a nested list of a map of hash ranges and shard nodes describing individual shards",
+            "description": "a list of key and shard nodes details where the key exist.",
             "type": "array",
             "items": {
                 "type": "object",
@@ -36,7 +36,7 @@
 			 }
                     },
                     "nodes": {
-                        "description": "nodes where key exist",
+                        "description": "list of shard nodes where key exist",
                         "type": "array",
                         "items": { 
 			    "oneOf": [
