@@ -391,7 +391,7 @@ void init_combine_cache(uint64_t poly, uint8_t dim) {
  * first block, crc2 is the CRC-64 of the second block, and len2 is the length
  * of the second block.
  *
- * If you want relfections on your CRCs; do them outside before / after.
+ * If you want reflections on your CRCs; do them outside before / after.
  * WARNING: if you enable USE_STATIC_COMBINE_CACHE to make this fast, you MUST
  * ALWAYS USE THE SAME POLYNOMIAL, otherwise you will get the wrong results.
  * You MAY bzero() the even/odd static arrays, which will induce a re-cache on

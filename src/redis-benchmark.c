@@ -1839,10 +1839,10 @@ int main(int argc, char **argv) {
         NSTIME(&init_end);
 
         genBenchmarkRandomData((char*)data, config.crc64_test_size);
-        // We want to hash 32 gigs of data in total, looped, to get a good idea
-        // of our performance.
-        uint64_t passes = (UINT64_C(0x800000000) / config.crc64_test_size);
-        passes = passes >= 1 ? passes : 1;
+        // We want to hash about 1 gig of data in total, looped, to get a good
+        // idea of our performance.
+        uint64_t passes = (UINT64_C(0x100000000) / config.crc64_test_size);
+        passes = passes >= 2 ? passes : 2;
 
         crc64_init();
         // warm up the cache
@@ -1879,7 +1879,7 @@ int main(int argc, char **argv) {
 
         // get the single-character version for original Redis behavior
         set_crc64_cutoffs(0, config.crc64_test_size+1);
-        bench(crc_1byte, 3);
+        bench(crc_1byte, 0);
 
         set_crc64_cutoffs(config.crc64_test_size+1, config.crc64_test_size+1);
         // run with 8-byte "single" path
